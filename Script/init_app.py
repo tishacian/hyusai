@@ -29,22 +29,21 @@ def file_processing(file):
 
     return chunk_texts
 
-def VDB(filepath,embeddings):
+def VDB(filepath, embeddings):
     chunk_texts = file_processing(filepath)
     vector_store = Chroma.from_documents(chunk_texts, embeddings)
     return vector_store
 
 
 def llm_pipeline(file_path):
-    
     model = AutoModelForSeq2SeqLM.from_pretrained(file_path)
     tokenizer = AutoTokenizer.from_pretrained(file_path)
     llm = pipeline(
-        "text2text-generation",
-        model=model, 
-        tokenizer=tokenizer, 
-        max_length=128
-    )
+                    "text2text-generation",
+                    model=model, 
+                    tokenizer=tokenizer, 
+                    max_length=128
+                )
 
     llm_model = HuggingFacePipeline(pipeline=llm)
 
@@ -52,11 +51,11 @@ def llm_pipeline(file_path):
 
 def llm_reply(input,filepath,embd_name,llm_name):
 
-    embedd=emb.Embeddings(embd_name)
+    embedd = emb.Embeddings(embd_name)
     #print('embed')
-    llm_model=llm_pipeline(llm_name)
+    llm_model = llm_pipeline(llm_name)
     #print('llm_model')
-    Vec=vdb.VDB(filepath,embedd)
+    Vec = vdb.VDB(filepath,embedd)
     #print('vec')
     prompt_template = """Use the following pieces of information to answer the user's question.
     If you don't know the answer, just say that you don't know, don't try to make up an answer.
@@ -88,11 +87,10 @@ st.set_page_config(layout='wide',page_title='Questions Answering APP')
 
 def main(embd_name,llm_name):
     st.title('PDF Question Answer Web-App')
-
+    #-- 
     uploaded_file=st.file_uploader("Upload your PDF File Here",type=['pdf'])
 
     if uploaded_file is not None:
-
         question = st.text_input("Enter your question:")
         if st.button("Show Q and A"):
             filepath =uploaded_file.name
@@ -101,8 +99,8 @@ def main(embd_name,llm_name):
                 filepath = tmp_file.name
             answer = llm.llm_reply(question,filepath,embd_name,llm_name)
             #answer = ans_chain.run(question)
-            st.text("____Answer____")
-            st.text(answer)
+            st.text(">>> Response >>>")
+            st.text(answer['result'])
 
 
 if __name__ == '__main__':
