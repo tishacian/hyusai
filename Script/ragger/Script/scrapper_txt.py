@@ -281,7 +281,6 @@ def extractEnvCodes(text, save_dir, save = False):
             os.makedirs(save_dir)
         #-- Save env codes
         if save:
-            # print(env_codes_, len(env_codes_))
             if len(env_codes_) > 0:
                 with open(join(save_dir, f"{i}.txt"), "w") as txt_file:
                     txt_file.write(env_codes_)
@@ -296,27 +295,59 @@ articles = extractEnvCodes(text_file_r, save_env_codes_txt, save = True)
 import nltk
 from deep_translator import GoogleTranslator
 
-def googleTranslator(env_codes):
-    g_translator = GoogleTranslator(source='fr', target='en')
+def googleTranslator(env_codes, g_translator):
     #translate sentence-by-sentence to avoid maximum token error...if avoidable for split
+    # otherwise, call chunk function
     splitted_env_codes = nltk.tokenize.sent_tokenize(env_codes) 
-    traslated = [g_translator.translate(i) for i in splitted_env_codes]
-    return " ".join(traslated)
+    translated = [g_translator.translate(i) for i in splitted_env_codes]
+    return " ".join(translated)
 
-def chunk_text(article, n):
-    g_translator = GoogleTranslator(source='fr', target='en')
+def chunk_text(article, n, g_translator):
     chunk_size = len(article) // n
-    chunks = [text[i:i+chunk_size] for i in range(0, len(article), chunk_size)]
+    chunks = [article[i:i+chunk_size] for i in range(0, len(article), chunk_size)]
     chunked_translation = []
     for chk in chunks:
-        splitted_env_codes = nltk.tokenize.sent_tokenize(chk) 
-        traslated = [g_translator.translate(i) for i in splitted_env_codes]
-        chunked_translation.append(' '.join(traslated) if traslated != None else '')
-    return ' '.join(chunked_translation)
+        splitted_env_codes = nltk.tokenize.sent_tokenize(chk)
+        translated = [g_translator.translate(i) for i in splitted_env_codes]
+        translated = [i if i != None else '' for i in translated]
+        # print(type(translated))
+        chunked_translation.append(' '.join(translated if translated != None else ''))
+    return ' '.join(chunked_translation if translated != None else '')
 
+def translatee(articles,
+               save_dir,
+               source_lang = "fr",
+               target_lang = "en",
+               chunk_size = 3,
+               max_tok_size = 2000,
+               save = False):
+    #--
+    g_translator = GoogleTranslator(source = source_lang, target = target_lang)
+    translated_articles = [googleTranslator(i, g_translator) if len(i) < max_tok_size else chunk_text(i, chunk_size, g_translator) for i in articles[:1000]]
+    #-- check if directory exists
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    #-- Save env codes
+    if save:
+        print(">>> saving... >>>")
+        for i, translated_ in enumerate(translated_articles):
+            with open(join(save_dir, f"{i}.txt"), "w") as txt_file:
+                txt_file.write(translated_)
+    return translated_articles
+    
+        
+#%% Begin translation..
+save_translated_art = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs/environmental_codes_en'
+translated_articles = translatee(articles, save_translated_art, source_lang = "fr", target_lang = "en", chunk_size = 3, max_tok_size = 2000, save = True)
 
-translated_articles = [googleTranslator(i) if len(i) < 2000 else chunk_text(i, 3) for i in articles[:1000] ]
+#%% Combine all translated codes in one code-book
 
+save_all_translated_codes = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs'
+translated_articles_joined = '\n'.join(translated_articles)
+with open(join(save_all_translated_codes, "environmental_code_en.txt"), "w") as txt_file:
+    txt_file.write(translated_articles_joined)
+    
 #%%
+
 
 
