@@ -20,7 +20,7 @@ language_tool = language_tool_python.LanguageTool('en-US')
 # nli_model = pipeline("text-classification", model="facebook/bart-large-mnli") #to compute factuality
 
 #%%
-#-- Does not require source text...
+#-- Fluency
 def fluency(text):
     '''
     Fluecy compute the quality of the individual sentences
@@ -34,7 +34,7 @@ def fluency(text):
     matches = language_tool.check(text)
     return 1 - len(matches) / len(text.split())
 
-#-- only timing is required...
+#-- Latency
 def latency(start_time, end_time):
     '''
     Latency is the inference computational time
@@ -47,7 +47,7 @@ def latency(start_time, end_time):
     '''
     return end_time - start_time
 
-#-- requires only generated text...
+#- Coherence
 def coherence(generated_text, embedding_model):
     '''
     Coherence measures the formation of a cohesive body of text from the sentences.
@@ -64,7 +64,7 @@ def coherence(generated_text, embedding_model):
                         for i in range(len(sentences) - 1)]
     return sum(coherence_scores) / len(coherence_scores)
 
-#-- requires only question and generated text
+#- Relevance
 def relevance(question, generated_text, embedding_model):
     '''
     Relevance measure the factual alignment between anwser and response.
