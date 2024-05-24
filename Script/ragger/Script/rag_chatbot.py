@@ -1,5 +1,7 @@
-import streamlit as st
 import os
+import numpy as np
+from os.path import join
+import streamlit as st
 import rag_functions
 import toml
 from rag_metrics import (fluency,
@@ -25,8 +27,13 @@ help_ = { # help suggestions...
         'Temperature': 'Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore'+'\n'+
         'diverse choices. A smaller temperature for confident tokens avoiding the influence '+'\n'+'of tail randomness noises',
         'Max_characer': 'The maximum number of characters to generated. This can be similar to the maximum token'+'\n'+
-                        ' size of the embedding space. The default is set to 512.'
+                        ' size of the embedding space. The default is set to 500.'
                         }
+
+data_path = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data'
+
+instruction_embedding = list(np.load(join(data_path, 'hkuNLP.npy'), allow_pickle = True)) + ["sentence-transformers/all-mpnet-base-v2"]
+instruction_embedding.sort(key = lambda x: x.upper()[0])
 
 #%% import streamlit as st
 
@@ -96,7 +103,7 @@ def document_embed():
     with st.expander('Document Embedding'):
         st.title("Document Embedding")
         st.markdown("This page is used to upload the documents as the custom knowledge for the chatbot.")
-        instructio_embedding = ["hkunlp/instructor-xl", "sentence-transformers/all-mpnet-base-v2"]
+        # instructio_embedding = ["hkunlp/instructor-xl", "sentence-transformers/all-mpnet-base-v2"]
         #--
         with st.form("document_input"):
             document = st.file_uploader("Knowledge Documents", type = ['pdf', 'txt'], help = ".pdf or .txt file")
@@ -104,7 +111,7 @@ def document_embed():
             row_ae = st.columns([2, 1, 1])
             with row_ae[0]:
                 instruct_embeddings = st.selectbox(
-                    "Model Name of the Instruct Embeddings", instructio_embedding
+                    "Model Name of the Instruct Embeddings", instruction_embedding
                 )
             
             with row_ae[1]:
@@ -201,7 +208,7 @@ with st.expander("LLM Settings"):
                                       help = help_['LLM_Model'])
 
         with row_a[2]:
-            instruct_embeddings = st.text_input("Instruct Embeddings", value = embd_name,
+            instruct_embeddings = st.selectbox("Instruct Embeddings", instruction_embedding,
                                                 help = help_['Instruction_Embedding'])
 
         row_b = st.columns(3)
