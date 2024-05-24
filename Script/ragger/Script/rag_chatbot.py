@@ -275,7 +275,12 @@ if question := st.chat_input("Ask a question"):
 with st.expander("Source documents"):
     st.write(st.session_state.source)
         
-
+# def compute_scores(question, answer):
+#     fluency = fluency(answer)
+#     latency = latency(start_time, end_time)
+#     coherence = coherence(answer)
+#     relevance = relevance(question, answer)
+    
 #-- Metrics
 metric()
 # def docPrevier(tabs, ):
