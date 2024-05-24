@@ -207,7 +207,7 @@ D. 594-12  Décret n°2020-830 du 1er juillet 2020 - art. 1      Legif.    Plan 
 """.replace('\n', '')
 
 
-#%%
+#%% Testing code extraction...
 
 parts = re.split(r'(L\. \d+-\d+ |R\. \d+-\d+-\d+-\d+| L\. \d+-\d+|D\. \d+-\d+-\d+-\d+|R\. \d+-\d+|D\. \d+-\d+)', samp_text)
 # parts = r'(L\. \d+-\d+|R\. \d+-\d+-\d+-\d+|D\. \d+-\d+)'
@@ -288,10 +288,18 @@ def extractEnvCodes(text, save_dir, save = False):
             
 #%% create blocks of environmental codes and save in respective txt file.
 
-articles = extractEnvCodes(text_file_r, save_env_codes_txt, save = True)
+articles = extractEnvCodes(text_file_r, save_env_codes_txt, save = True) 
 
+#%% Load articles from local
+
+articles = []
+
+for files_ in os.listdir(save_env_codes_txt):
+    with open(join(save_env_codes_txt, f"{files_}"), "r+") as txt_file:
+        articles.append(txt_file.read())
 
 #%% Translate environmental codes from French to English
+
 import nltk
 from deep_translator import GoogleTranslator
 
@@ -300,6 +308,7 @@ def googleTranslator(env_codes, g_translator):
     # otherwise, call chunk function
     splitted_env_codes = nltk.tokenize.sent_tokenize(env_codes) 
     translated = [g_translator.translate(i) for i in splitted_env_codes]
+    translated = [i if i != None else '' for i in translated]
     return " ".join(translated)
 
 def chunk_text(article, n, g_translator):
@@ -323,22 +332,27 @@ def translatee(articles,
                save = False):
     #--
     g_translator = GoogleTranslator(source = source_lang, target = target_lang)
-    translated_articles = [googleTranslator(i, g_translator) if len(i) < max_tok_size else chunk_text(i, chunk_size, g_translator) for i in articles[:1000]]
+    translated_articles = [googleTranslator(i, g_translator) if len(i) < max_tok_size else chunk_text(i, chunk_size, g_translator) for i in articles]
     #-- check if directory exists
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     #-- Save env codes
     if save:
         print(">>> saving... >>>")
-        for i, translated_ in enumerate(translated_articles):
+        for i, translated_ in enumerate(translated_articles, 1):
             with open(join(save_dir, f"{i}.txt"), "w") as txt_file:
                 txt_file.write(translated_)
     return translated_articles
     
         
 #%% Begin translation..
-save_translated_art = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs/environmental_codes_en'
-translated_articles = translatee(articles, save_translated_art, source_lang = "fr", target_lang = "en", chunk_size = 3, max_tok_size = 2000, save = True)
+
+save_translated_art = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs/environmental_codes_en_all'
+# maximum token size for Google translate is 3900, we use 3500 to avoid unnecessary errors
+translated_articles = translatee(articles, save_translated_art,
+                                 source_lang = "fr", target_lang = "en",
+                                 chunk_size = 3, max_tok_size = 3500,
+                                 save = True)
 
 #%% Combine all translated codes in one code-book
 
@@ -347,7 +361,45 @@ translated_articles_joined = '\n'.join(translated_articles)
 with open(join(save_all_translated_codes, "environmental_code_en.txt"), "w") as txt_file:
     txt_file.write(translated_articles_joined)
     
-#%%
+#%% scrap hkuNLP for all model names
+
+import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+
+url = "https://huggingface.co/hkunlp"
+
+def hkuNLP(website):
+    driver = webdriver.Chrome()
+    driver.get(url)
+    time.sleep(5)
+    # Click on the "Expand" button
+    expand_buttons = driver.find_elements(By.XPATH, '//button[contains(text(), "Expand")]')
+    for button in expand_buttons:
+        driver.execute_script("arguments[0].click();", button)
+        time.sleep(1)
+    
+    page_source = driver.page_source
+    #-- 
+    driver.quit()
+    soup = BeautifulSoup(page_source, 'html.parser')
+    h4_tags = soup.find_all('h4')
+    #-- extract model names...
+    model_name = []
+    for tag in h4_tags:
+        print(model_name.append(tag.get_text()))
+    model_name = [mod_ for mod_ in model_name if mod_.startswith('hkunlp')]
+    return model_name
+
+model_name_ = hkuNLP(url)
+
+#%% save models from hkuNLP
+
+np.save(join(data_path, 'hkuNLP.npy'), model_name_)
+
+#%% load again..
+
+model_name_ = list(np.load(join(data_path, 'hkuNLP.npy'), allow_pickle = True))
 
 
 
