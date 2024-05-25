@@ -1,4 +1,5 @@
 import torch
+import time
 import streamlit as st
 from langchain.document_loaders import TextLoader
 from pypdf import PdfReader
@@ -8,6 +9,15 @@ from langchain.embeddings import HuggingFaceInstructEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferWindowMemory
+from rag_metrics import (fluency,
+                          coherence,
+                          relevance,
+                          latency,
+                          factuality,
+                          consistency,
+                          HHEM,
+                          Advance_HHEM,
+                          )
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -43,7 +53,7 @@ def embedding_storing(model_name, split, create_new_vs, existing_vector_store, n
     if create_new_vs is not None:
         # Load embeddings instructor
         instructor_embeddings = HuggingFaceInstructEmbeddings(
-            model_name=model_name, model_kwargs = {"device":"cpu"}
+            model_name = model_name, model_kwargs = {"device":"cpu"}
         )
 
         # Implement embeddings
@@ -69,43 +79,44 @@ def embedding_storing(model_name, split, create_new_vs, existing_vector_store, n
 def prepare_rag_llm(token, llm_model, instruct_embeddings, vector_store_list, temperature, max_length):
     # Load embeddings instructor
     instructor_embeddings = HuggingFaceInstructEmbeddings(
-                                                        model_name=instruct_embeddings, model_kwargs = {"device":"cpu"}
+                                                        model_name = instruct_embeddings, model_kwargs = {"device":"cpu"}
                                                     )
 
     # Load db
     loaded_db = FAISS.load_local(
-        f"vector store/{vector_store_list}", instructor_embeddings, allow_dangerous_deserialization=True
-    )
+                                f"vector store/{vector_store_list}", instructor_embeddings, allow_dangerous_deserialization=True
+                            )
 
     # Load LLM
     llm = HuggingFaceHub(
-        repo_id=llm_model,
-        model_kwargs={"temperature": temperature, "max_length": max_length},
-        huggingfacehub_api_token=token
-    )
+                        repo_id = llm_model,
+                        model_kwargs = {"temperature": temperature, "max_length": max_length},
+                        huggingfacehub_api_token = token
+                    )
 
     memory = ConversationBufferWindowMemory(
-        k=2,
-        memory_key="chat_history",
-        output_key="answer",
-        return_messages=True,
-    )
+                                            k = 2,
+                                            memory_key = "chat_history",
+                                            output_key = "answer",
+                                            return_messages = True,
+                                        )
 
     # Create the chatbot
     qa_conversation = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        chain_type="stuff",
-        retriever=loaded_db.as_retriever(),
-        return_source_documents=True,
-        memory=memory,
-    )
+                                                            llm = llm,
+                                                            chain_type = "stuff",
+                                                            retriever = loaded_db.as_retriever(),
+                                                            return_source_documents = True,
+                                                            memory = memory,
+                                                        )
 
     return qa_conversation
 
 
 def generate_answer(question, token):
     answer = "An error has occured"
-
+    
+    start_time = time.time()
     if token == "":
         answer = "Insert the Hugging Face token"
         doc_source = ["no source"]
@@ -114,6 +125,16 @@ def generate_answer(question, token):
         answer = response.get("answer").split("Helpful Answer:")[-1].strip()
         explanation = response.get("source_documents", [])
         doc_source = [d.page_content for d in explanation]
-
-    return answer, doc_source
+    end_time = time.time()
+    
+    fluency_ = fluency(answer)
+    latency_ = latency(start_time, end_time)
+    coherence_ = coherence(answer)
+    relevance_ = relevance(question, answer)
+    metric = {'fluency': fluency_,
+              'latency': latency_,
+              'coherence': coherence_,
+              'relevance': relevance_,
+              }
+    return answer, doc_source, metric
     
