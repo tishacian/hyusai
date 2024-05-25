@@ -4,15 +4,15 @@ from os.path import join
 import streamlit as st
 import rag_functions
 import toml
-from rag_metrics import (fluency,
-                          coherence,
-                          relevance,
-                          latency,
-                          factuality,
-                          consistency,
-                          HHEM,
-                          Advance_HHEM,
-                          )
+# from rag_metrics import (fluency,
+#                           coherence,
+#                           relevance,
+#                           latency,
+#                           factuality,
+#                           consistency,
+#                           HHEM,
+#                           Advance_HHEM,
+#                           )
 # st.set_page_config(layout = "wide")
 #---
 st.title("Customized RAG Agent")
@@ -87,13 +87,6 @@ def theme():
         update_config('light')
     else:
         update_config('dark')
-
-def metric():
-    st.sidebar.title('Metrics')
-    st.sidebar.text('Fluency')
-    st.sidebar.text('Coherence')
-    st.sidebar.text('Relevance')
-    st.sidebar.text('Latency')
     
 
 #%% Document embedding...
@@ -268,12 +261,21 @@ if question := st.chat_input("Ask a question"):
         st.markdown(question)
 
     # Answer the question
-    answer, doc_source = rag_functions.generate_answer(question, token)
+    answer, doc_source, metrics_ = rag_functions.generate_answer(question, token)
     with st.chat_message("assistant"):
         st.write(answer)
     # Append assistant answer to history
     st.session_state.history.append({"role": "assistant", "content": answer})
-
+    #--
+    fl, la, co, re = metrics_['fluency'],\
+                        metrics_['latency'],\
+                            metrics_['coherence'],\
+                                metrics_['relevance']
+    st.sidebar.title('Metrics')
+    st.sidebar.text(f'Fluency: {fl:.2f}')
+    st.sidebar.text(f'Coherence: {co:.2f}')
+    st.sidebar.text(f'Relevance: {re:.2f}')
+    st.sidebar.text(f'Latency: {la:.2f} secs')
     # Append the document sources
     st.session_state.source.append({"question": question, "answer": answer, "document": doc_source})
 
@@ -282,14 +284,23 @@ if question := st.chat_input("Ask a question"):
 with st.expander("Source documents"):
     st.write(st.session_state.source)
         
-# def compute_scores(question, answer):
-#     fluency = fluency(answer)
-#     latency = latency(start_time, end_time)
-#     coherence = coherence(answer)
-#     relevance = relevance(question, answer)
-    
-#-- Metrics
-metric()
+
+
+
+# #-- Preview metrics
+# def metric(metrics):
+#     fl, la, co, re = metrics['fluency'],\
+#                         metrics['latency'],\
+#                             metrics['coherence'],\
+#                                 metrics['relevance']
+#     st.sidebar.title('Metrics')
+#     st.sidebar.text(f'Fluency: {fl:.2f}')
+#     st.sidebar.text(f'Coherence: {co:.2f}')
+#     st.sidebar.text(f'Relevance: {re:.2f}')
+#     st.sidebar.text(f'Latency: {la:.2f} secs')
+
+# # #-- Metrics
+# metric(metrics_)
 # def docPrevier(tabs, ):
 #     pass
 
