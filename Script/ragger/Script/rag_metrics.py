@@ -7,32 +7,58 @@ Created on Tue May 20 10:24:56 2024
 """
 import time
 import torch
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM, AutoModel
+from transformers import (pipeline, AutoTokenizer,
+                          AutoModelForSeq2SeqLM, AutoModel,
+                          GPT2LMHeadModel, GPT2Tokenizer)
 from sentence_transformers import SentenceTransformer, util
 from sklearn.metrics.pairwise import cosine_similarity
 import language_tool_python
 
 #%% Starter...init
 
-language_tool = language_tool_python.LanguageTool('en-US')
+# language_tool = language_tool_python.LanguageTool('en-US')
+#-- for computing fleuncy
+model_name = 'gpt2'
+model = GPT2LMHeadModel.from_pretrained(model_name)
+tokenizer = GPT2Tokenizer.from_pretrained(model_name)
 # qa_model = pipeline("text2text-generation", model="facebook/bart-large-cnn")
-# embedding_model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
+embedding_model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
 # nli_model = pipeline("text-classification", model="facebook/bart-large-mnli") #to compute factuality
 
 #%%
 #-- Fluency
-def fluency(text):
-    '''
-    Fluecy compute the quality of the individual sentences
+# def fluency(generated_text):
+#     '''
+#     Fluecy compute the quality of the individual sentences
 
-    Parameters
-        text (str): Model generated text
+#     Parameters
+#         text (str): Model generated text
 
-    Returns
-    Fluency (flaot): Fluency of the generated text, the higher the better.
-    '''
-    matches = language_tool.check(text)
-    return 1 - len(matches) / len(text.split())
+#     Returns
+#     Fluency (flaot): Fluency of the generated text, the higher the better.
+#     '''
+#     matches = language_tool.check(generated_text)
+#     return 1 - len(matches) / (len(generated_text.split()) + 1e-8) #to avoid division error problem
+
+#-- Fluency v-2
+def perplexity(generated_text):
+    encodings = tokenizer(generated_text, return_tensors = 'pt')
+    input_ids = encodings.input_ids
+    with torch.no_grad():
+        outputs = model(input_ids, labels=input_ids)
+        loss = outputs.loss
+        perplexity = torch.exp(loss)
+    return perplexity.item()
+
+# Function to calculate fluency
+def fluency(generated_text):
+    ppl = perplexity(generated_text)
+    #-- define a lower and upper bound for perplexity
+    min_ppl = 10  
+    max_ppl = 100 
+    norm_perplexity = max(min(ppl, max_ppl), min_ppl)
+    fluency_ = (max_ppl - norm_perplexity) / (max_ppl - min_ppl)
+    return fluency_
 
 #-- Latency
 def latency(start_time, end_time):
@@ -48,7 +74,7 @@ def latency(start_time, end_time):
     return end_time - start_time
 
 #- Coherence
-def coherence(generated_text, embedding_model):
+def coherence(generated_text, embedding_model = embedding_model):
     '''
     Coherence measures the formation of a cohesive body of text from the sentences.
 
@@ -59,13 +85,14 @@ def coherence(generated_text, embedding_model):
     Returns (float): Coherence
     '''
     sentences = generated_text.split('.')
-    embeddings = embedding_model.encode(sentences, convert_to_tensor=True)
+    embeddings = embedding_model.encode(sentences,
+                                        convert_to_tensor = True)
     coherence_scores = [cosine_similarity([embeddings[i].cpu().numpy()], [embeddings[i + 1].cpu().numpy()])[0][0]
                         for i in range(len(sentences) - 1)]
     return sum(coherence_scores) / len(coherence_scores)
 
 #- Relevance
-def relevance(question, generated_text, embedding_model):
+def relevance(question, generated_text, embedding_model = embedding_model):
     '''
     Relevance measure the factual alignment between anwser and response.
 
@@ -183,36 +210,5 @@ def Advance_HHEM(generated_text, source_texts, question, nli_model, embedding_mo
     return hhem_score
 
 
-# #%% Source and target data
 
-# source_texts = ["Source document text 1.", "Source document text 2."]
-# question = "What is the capital of France?"
-
-# #%% compute timing..
-
-# start_time = time.time()
-# generated_text = qa_model(question, return_text = True)[0]['generated_text']
-# end_time = time.time()
-
-# #%% Compute consistency and factuality metrics...
-
-# # consistency = consistency(generated_text, source_texts)
-# # factuality = factuality(generated_text, source_texts)
-# # hhem = HHEM(generated_text, source_texts, nli_model, embedding_model)
-# # advhhem = Advance_HHEM(generated_text, source_texts, question)
-
-
-# #%% compute the whole metrics..
-
-# fluency = fluency(generated_text)
-# latency = latency(start_time, end_time)
-# coherence = coherence(generated_text)
-# relevance = relevance(question, generated_text)
-
-# #%%
-# print(f"Fluency: {fluency:.2f}")
-# # print(f"Consistency: {consistency}")
-# print(f"Latency: {latency:.2f} seconds")
-# print(f"Coherence: {coherence:.2f}")
-# print(f"Relevance: {relevance:.2f}")
 
