@@ -42,7 +42,14 @@ embedding_model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
 
 #-- Fluency v-2
 def perplexity(generated_text):
-    encodings = tokenizer(generated_text, return_tensors = 'pt')
+    if not generated_text.strip():
+        return float('inf')  # Return a high perplexity for empty text
+    #-- encoding
+    encodings = tokenizer(generated_text, return_tensors='pt')
+    #-- 
+    if encodings.input_ids.size(1) == 0:
+        return float('inf')  # Return a high perplexity for improper encoding
+    #--
     input_ids = encodings.input_ids
     with torch.no_grad():
         outputs = model(input_ids, labels=input_ids)
@@ -89,7 +96,7 @@ def coherence(generated_text, embedding_model = embedding_model):
                                         convert_to_tensor = True)
     coherence_scores = [cosine_similarity([embeddings[i].cpu().numpy()], [embeddings[i + 1].cpu().numpy()])[0][0]
                         for i in range(len(sentences) - 1)]
-    return sum(coherence_scores) / len(coherence_scores)
+    return sum(coherence_scores) / (len(coherence_scores) + 1e-8)
 
 #- Relevance
 def relevance(question, generated_text, embedding_model = embedding_model):

@@ -4,6 +4,11 @@ from os.path import join
 import streamlit as st
 import rag_functions
 import toml
+import time
+import json
+import numpy as np
+import pandas as pd
+
 # from rag_metrics import (fluency,
 #                           coherence,
 #                           relevance,
@@ -30,7 +35,9 @@ help_ = { # help suggestions...
                         ' size of the embedding space. The default is set to 500.'
                         }
 
+#data_path = '/workspace/Ragger/ragger/Data' # for the cluster
 data_path = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data'
+img_path = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/image'
 
 instruction_embedding = list(np.load(join(data_path, 'hkuNLP.npy'), allow_pickle = True)) + ["sentence-transformers/all-mpnet-base-v2"]
 instruction_embedding.sort(key = lambda x: x.upper()[0])
@@ -181,14 +188,14 @@ embd_name = "sentence-transformers/all-mpnet-base-v2"
 llm_name = 'MBZUAI/LaMini-GPT-774M'
 
 #-- Toggle sidebar...
-theme()
-
+# theme()
 
 # Setting the LLM
 st.title("RAG Agent")
 #--load document embedding
 document_embed()
 with st.expander("LLM Settings"):
+    st.title('LLM Settings')
     st.markdown("This page is used to have a chat with the uploaded documents")
     with st.form("setting"):
         row_a = st.columns(3)
@@ -252,6 +259,12 @@ for message in st.session_state.history:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+#-- Define sidebar
+# st.sidebar.header('', divider='rainbow')
+st.sidebar.image(join(img_path, 'Dtgy.png'), width = 78, use_column_width = False)
+
+#-- init mettrics
+fl, la, co, re, hhem, adv_hhem = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 # Ask a question
 if question := st.chat_input("Ask a question"):
     # Append user question to history
@@ -271,21 +284,88 @@ if question := st.chat_input("Ask a question"):
                         metrics_['latency'],\
                             metrics_['coherence'],\
                                 metrics_['relevance']
-    st.sidebar.title('Metrics')
-    st.sidebar.text(f'Fluency: {fl:.2f}')
-    st.sidebar.text(f'Coherence: {co:.2f}')
-    st.sidebar.text(f'Relevance: {re:.2f}')
-    st.sidebar.text(f'Latency: {la:.2f} secs')
-    # Append the document sources
     st.session_state.source.append({"question": question, "answer": answer, "document": doc_source})
 
+#-- Eval metrics w/ Latency
+st.sidebar.title('Metrics')
+st.sidebar.text(f"Fluency: {fl:.2f}")
+st.sidebar.text(f'Coherence: {co:.2f}')
+st.sidebar.text(f'Relevance: {re:.2f}')
+st.sidebar.text(f'Latency: {la:.2f} secs')
+#-- Hallucination metrics
+st.sidebar.text(f'HHEM: {hhem}')
+st.sidebar.text(f'Adv. HHEM: {adv_hhem}')
 
-# Source documents
+
+#%% >Stop session while running to retrieve results...
+
+if "app_stopped" not in st.session_state:
+    st.session_state["app_stopped"] = False 
+elif st.session_state["app_stopped"]:
+    st.session_state["app_stopped"] = False
+
+def Running():
+    with st.spinner("running"):
+        time.sleep(60)
+
+def stopRunning():
+    st.session_state["app_stopped"] = True
+
+
+if st.session_state["app_stopped"]:
+    st.stop()
+
+col1, col2 = st.columns(2)
+with col1:
+    st.button("run", on_click = Running)
+with col2:
+    st.button("Stop", on_click = stopRunning)
+
 with st.expander("Source documents"):
     st.write(st.session_state.source)
-        
+
+#-- convert conversation to downloadable formats...
+json_string = json.dumps(st.session_state.source)
+
+@st.cache_data
+def convert_df(json_file):
+    #--
+    def convert_json_to_df(json_file):
+        source_dict = {k:v for (k,v) in zip(range(len(json_file)), json_file)}
+        dataframe = pd.DataFrame.from_dict(source_dict, orient = 'index').T
+        return dataframe
+    
+    #-- convert json --> pd.DataFrame
+    df = convert_json_to_df(json_file)
+    return df.to_csv().encode('utf-8')
+
+csv = convert_df(json_string)
+
+st.sidebar.markdown("""<hr style="height:2px;border:none;color:#333;background-color:white;" /> """, unsafe_allow_html = True)
+st.sidebar.title('Download chat')
+st.sidebar.download_button(
+                label = "json",
+                file_name = "data.json",
+                mime = "application/json",
+                data = json_string,
+            )
 
 
+st.sidebar.download_button(
+                label = "csv",
+                file_name = "data.csv",
+                mime = "text/csv",
+                data = csv,
+            )
+
+#%%
+
+# download_path = '/Users/kennethezukwoke/Downloads'
+# with open(join(download_path, 'data.json'), 'rb') as filename:
+#     docs = json.load(filename)
+    
+    
+#%%
 
 # #-- Preview metrics
 # def metric(metrics):
