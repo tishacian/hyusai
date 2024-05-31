@@ -1,4 +1,5 @@
 import os
+import io
 import numpy as np
 from os.path import join
 import streamlit as st
@@ -8,6 +9,8 @@ import time
 import json
 import numpy as np
 import pandas as pd
+from xlsxwriter import Workbook
+
 
 # from rag_metrics import (fluency,
 #                           coherence,
@@ -291,10 +294,10 @@ st.sidebar.title('Metrics')
 st.sidebar.text(f"Fluency: {fl:.2f}")
 st.sidebar.text(f'Coherence: {co:.2f}')
 st.sidebar.text(f'Relevance: {re:.2f}')
-st.sidebar.text(f'Latency: {la:.2f} secs')
+st.sidebar.text(f'Latency: {la:.2f}-secs')
 #-- Hallucination metrics
 st.sidebar.text(f'HHEM: {hhem}')
-st.sidebar.text(f'Adv. HHEM: {adv_hhem}')
+st.sidebar.text(f'Adv-HHEM: {adv_hhem}')
 
 
 #%% >Stop session while running to retrieve results...
@@ -327,22 +330,33 @@ with st.expander("Source documents"):
 #-- convert conversation to downloadable formats...
 json_string = json.dumps(st.session_state.source)
 
-@st.cache_data
-def convert_df(json_file):
-    #--
-    def convert_json_to_df(json_file):
-        source_dict = {k:v for (k,v) in zip(range(len(json_file)), json_file)}
-        dataframe = pd.DataFrame.from_dict(source_dict, orient = 'index').T
-        return dataframe
-    
-    #-- convert json --> pd.DataFrame
-    df = convert_json_to_df(json_file)
-    return df.to_csv().encode('utf-8')
+def convert_json_to_df(json_file):
+    source_dict = {k:v for (k,v) in zip(range(len(json_file)), json_file)}
+    dataframe = pd.DataFrame.from_dict(source_dict, orient = 'index').T
+    return dataframe
 
-csv = convert_df(json_string)
+data_frame = convert_json_to_df(json_string)
+
+@st.cache_data
+def convert_df(data_frame):
+    #-- convert json --> pd.DataFrame
+    return data_frame.to_csv().encode('utf-8')
+
+# csv = convert_df(data_frame)
+def xlxs(data):
+    output = io.BytesIO()
+    writer = pd.ExcelWriter(output, engine="xlsxwriter")
+    data.to_excel(writer, index = False,
+                  sheet_name = "sheet1")
+    writer.close()
+    data_bytes = output.getvalue()
+    return data_bytes
+
+data_bytes = xlxs(data_frame)
 
 st.sidebar.markdown("""<hr style="height:2px;border:none;color:#333;background-color:white;" /> """, unsafe_allow_html = True)
 st.sidebar.title('Download chat')
+#
 st.sidebar.download_button(
                 label = "json",
                 file_name = "data.json",
@@ -350,13 +364,17 @@ st.sidebar.download_button(
                 data = json_string,
             )
 
-
 st.sidebar.download_button(
                 label = "csv",
                 file_name = "data.csv",
-                mime = "text/csv",
-                data = csv,
+                # mime = "text/csv",
+                data = convert_df(data_frame),
             )
+
+
+st.sidebar.download_button(label = "xlsx",
+    data = data_bytes,
+    file_name = "data.xlsx")
 
 #%%
 
