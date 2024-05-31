@@ -4,7 +4,7 @@
 ### Fluency
 Compute the fluency by counting grammatical errors and returns a fluency score. The score is obtained by first computing the perplexity (how reasonable a generated text) score of the LLM.
 
-\[ \text{Fluency} = 1 - \frac{\text{Number of Grammatical Errors}}{\text{Number of Words}}\]
+$\text{Fluency} = 1 - \frac{\text{Number of Grammatical Errors}}{\text{Number of Words}}$
 
 To uses perplexity (PPL):
 
