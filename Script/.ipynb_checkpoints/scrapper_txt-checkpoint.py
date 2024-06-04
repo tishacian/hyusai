@@ -198,207 +198,57 @@ R. 131-34-1-2   Legif.   Plan   Jp.C.Cass.   Jp.Appel   Jp.Admin.   Juricaf Les 
 l'honorariat de leur dernier grade par décision du directeur général de l'office.
 R. 131-34-1-3   Legif. Plan   Jp.C.Cass.   Jp.Appel   Jp.Admin.   Juricaf A titre exceptionnel, les agents commissionnés et assermentés peuvent, après avis de la commission
 consultative paritaire ou de la commission administrative paritaire, faire l'objet des mesures suivantes
-L. 594-2 au moins sur les dix années suivantes. La projection est réalisée selon un scénario de référence, des scénarios dégradés représentant des conditions détériorées de marché et des scénarios dégradés portant sur le montant ou l'échéancier des charges nucléaires. Au titre de la revue des risques identifiés prévue au premier alinéa, en ce qui concerne les risques relatifs à des événements ou conditions susceptibles d'affecter le montant ou l'échéancier des charges nucléaires correspondant à un groupe d'opérations donné, l'exploitant peut s'appuyer sur la réalisation d'une revue dédiée à ces risques durant les trois précédentes années à condition qu'il n'y ait pas eu de changement significatif de ces risques depuis ladite revue dédiée. Dans ce cas, l'exploitant réalise néanmoins une revue des risques identifiés associés aux interdépendances avec ce groupe d'opérations. A l'issue de l'évaluation interne des risques, l'exploitant analyse ses résultats, détermine et programme les actions appropriées pour améliorer la maîtrise des risques et les met en œuvre. 
-R. 181-15 Décret n°2017-81 du 26 janvier 2017 - art. 1     Legif.   Plan   Jp.C.Cass.   Jp.Appel   Jp.Admin.   Juricaf Le dossier de demande d'autorisation environnementale est complété par les pièces, documents et informations
-propres aux activités, installations, ouvrages et travaux prévus par le projet pour lequel l'autorisation est sollicitée ainsi qu'aux espaces et espèces faisant l'objet de mesures de protection auxquels il est susceptible de porter atteinte.
-D. 594-11  Décret n°2020-830 du 1er juillet 2020 - art. 1      Legif.    Plan    Jp.C.Cass.    Jp.Appel    Jp.Admin.    Juricaf  I.-L'exploitant tient à jour un inventaire des actifs de couverture qui assure la traçabilité de chaque mouvement d'actif et est aisément consultable par l'autorité administrative. II.-L'exploitant transmet à l'autorité une synthèse de cet inventaire selon la périodicité suivante : -une fois tous les douze mois si la base de dispersion est inférieure à 100 millions d'euros ou si les actifs de couverture comprennent principalement des actifs mentionnés au 1° ou au 2° du II de l'article
-D. 594-6 ; -une fois tous les trois mois dans les autres cas. En cas de recours à des instruments financiers à terme, cette transmission comprend également une synthèse du relevé mentionné à l'article R. 336-4 du code des assurances ainsi qu'une indication du nombre d'opérations à terme effectuées durant la période considérée et du montant notionnel cumulé correspondant, en les distinguant par catégorie d'instruments financiers à terme. L'autorité précise à l'exploitant la forme et le contenu de cette transmission. 
-D. 594-12  Décret n°2020-830 du 1er juillet 2020 - art. 1      Legif.    Plan    Jp.C.Cass.    Jp.Appel    Jp.Admin.    Juricaf  I.-Pour l'établissement des documents comptables mentionnés à la section 2 du chapitre III du titre II du livre Ier du code de commerce et aux articles.
 """.replace('\n', '')
 
 
-#%% Testing code extraction...
+#%%
 
-parts = re.split(r'(L\. \d+-\d+ |R\. \d+-\d+-\d+-\d+| L\. \d+-\d+|D\. \d+-\d+-\d+-\d+|R\. \d+-\d+|D\. \d+-\d+)', samp_text)
-# parts = r'(L\. \d+-\d+|R\. \d+-\d+-\d+-\d+|D\. \d+-\d+)'
+parts = re.split(r'(L\. \d+-\d+ |R\. \d+-\d+-\d+-\d+)', samp_text)
 
 # Remove empty strings and leading/trailing whitespaces from parts
 parts = [part.strip() for part in parts if part.strip()]
 
 articles = []
-for i, j in enumerate((parts)):
-    if j.startswith('L. ') or j.startswith('R. ') or j.startswith('D. '):
-        if len(parts[i+1]) < 20:
-            if len(articles) > 1:
-                articles.append(articles[-1] + ' ' + j)
-                del articles[-2]
-            else:
-                env_codes_ = ''
-                pass
-        else:
-            env_codes_ = ' '.join([parts[i], parts[i+1]])
-            articles.append(env_codes_)
+# Print each part separately
+for i, part in enumerate(parts, 1):
+    # articles.append((i,part))
     print(f"Part {i}:")
-    print(j)
+    print(part)
     print()
-
+#%%
+articles = []
+for i, j in enumerate((parts)):
+    if j.startswith('L. ') or j.startswith('R. '):
+        env_codes_ = ' '.join([parts[i], parts[i+1]])
+        articles.append(env_codes_)
+    print(f"Part {i}:")
+    print(part)
+    print()
+    
 #%% Extract the codes..
 
-save_env_codes_txt = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs/environmental_codes_fr'
+save_env_codes_txt = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs/environmental_codes'
 
 with open(join(pdf_path, "extracted_text.txt"), "r+") as text_file:
     text_file_r = text_file.read()
     
-def extractEnvCodes(text, save_dir, save = False):
-    '''
-    Function to exatract environmental French codes from the text file.
-
-    Parameters
-    ----------
-    text : str
-        complete text scrapped from the PDF.
-    save_dir : str
-        directory to save environmental codes.
-    save : bool, optional
-        Save environmental codes or not. The default is False.
-
-    Returns
-    -------
-    articles : TYPE
-        DESCRIPTION.
-
-    '''
-    pattern = r'(L\. \d+-\d+ |R\. \d+-\d+-\d+-\d+| L\. \d+-\d+|D\. \d+-\d+-\d+-\d+|R\. \d+-\d+|D\. \d+-\d+)'
-    parts = re.split(pattern, text)
+def extractEnvCodes(text, save_dir):
+    parts = re.split(r'(L\. \d+-\d+ |R\. \d+-\d+-\d+-\d+)', text)
     parts = [part.strip() for part in parts if part.strip()]
     articles = []
     for i, j in enumerate((parts)):
-        if j.startswith('L. ') or j.startswith('R. ') or j.startswith('D. '):
-            #-- check unavoidable abnormal splitting here..given the pattern
-            if len(parts[i+1]) < 20:
-                if len(articles) > 1:
-                    env_codes_ = articles[-1] + ' ' + j
-                    articles.append(env_codes_)
-                    del articles[-2]
-                else:
-                    env_codes_ = ''
-                    pass
-            else:
-                env_codes_ = ' '.join([parts[i], parts[i+1]])
-                articles.append(env_codes_)
-        #-- check if directory exists
+        if j.startswith('L. ') or j.startswith('R. '):
+            env_codes_ = ' '.join([parts[i], parts[i+1]])
+            articles.append(env_codes_)
+        #--check if directory exists
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
-        #-- Save env codes
-        if save:
-            if len(env_codes_) > 0:
-                with open(join(save_dir, f"{i}.txt"), "w") as txt_file:
-                    txt_file.write(env_codes_)
+        #--Save env codes
+        with open(join(save_dir, f"{i}.txt"), "w") as text_file:
+            text_file.write(env_codes_)
     return articles
             
-#%% create blocks of environmental codes and save in respective txt file.
-
-articles = extractEnvCodes(text_file_r, save_env_codes_txt, save = True) 
-
-#%% Load articles from local
-
-articles = []
-
-for files_ in os.listdir(save_env_codes_txt):
-    with open(join(save_env_codes_txt, f"{files_}"), "r+") as txt_file:
-        articles.append(txt_file.read())
-
-#%% Translate environmental codes from French to English
-
-import nltk
-from deep_translator import GoogleTranslator
-
-def googleTranslator(env_codes, g_translator):
-    #translate sentence-by-sentence to avoid maximum token error...if avoidable for split
-    # otherwise, call chunk function
-    splitted_env_codes = nltk.tokenize.sent_tokenize(env_codes) 
-    translated = [g_translator.translate(i) for i in splitted_env_codes]
-    translated = [i if i != None else '' for i in translated]
-    return " ".join(translated)
-
-def chunk_text(article, n, g_translator):
-    chunk_size = len(article) // n
-    chunks = [article[i:i+chunk_size] for i in range(0, len(article), chunk_size)]
-    chunked_translation = []
-    for chk in chunks:
-        splitted_env_codes = nltk.tokenize.sent_tokenize(chk)
-        translated = [g_translator.translate(i) for i in splitted_env_codes]
-        translated = [i if i != None else '' for i in translated]
-        # print(type(translated))
-        chunked_translation.append(' '.join(translated if translated != None else ''))
-    return ' '.join(chunked_translation if translated != None else '')
-
-def translatee(articles,
-               save_dir,
-               source_lang = "fr",
-               target_lang = "en",
-               chunk_size = 3,
-               max_tok_size = 2000,
-               save = False):
-    #--
-    g_translator = GoogleTranslator(source = source_lang, target = target_lang)
-    translated_articles = [googleTranslator(i, g_translator) if len(i) < max_tok_size else chunk_text(i, chunk_size, g_translator) for i in articles]
-    #-- check if directory exists
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    #-- Save env codes
-    if save:
-        print(">>> saving... >>>")
-        for i, translated_ in enumerate(translated_articles, 1):
-            with open(join(save_dir, f"{i}.txt"), "w") as txt_file:
-                txt_file.write(translated_)
-    return translated_articles
-    
-        
-#%% Begin translation..
-
-save_translated_art = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs/environmental_codes_en_all'
-# maximum token size for Google translate is 3900, we use 3500 to avoid unnecessary errors
-translated_articles = translatee(articles, save_translated_art,
-                                 source_lang = "fr", target_lang = "en",
-                                 chunk_size = 3, max_tok_size = 3500,
-                                 save = True)
-
-#%% Combine all translated codes in one code-book
-
-save_all_translated_codes = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs'
-translated_articles_joined = '\n'.join(translated_articles)
-with open(join(save_all_translated_codes, "environmental_code_en.txt"), "w") as txt_file:
-    txt_file.write(translated_articles_joined)
-    
-#%% scrap hkuNLP for all model names
-
-import time
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-
-url = "https://huggingface.co/hkunlp"
-
-def hkuNLP(website):
-    driver = webdriver.Chrome()
-    driver.get(url)
-    time.sleep(5)
-    # Click on the "Expand" button
-    expand_buttons = driver.find_elements(By.XPATH, '//button[contains(text(), "Expand")]')
-    for button in expand_buttons:
-        driver.execute_script("arguments[0].click();", button)
-        time.sleep(1)
-    
-    page_source = driver.page_source
-    #-- 
-    driver.quit()
-    soup = BeautifulSoup(page_source, 'html.parser')
-    h4_tags = soup.find_all('h4')
-    #-- extract model names...
-    model_name = []
-    for tag in h4_tags:
-        print(model_name.append(tag.get_text()))
-    model_name = [mod_ for mod_ in model_name if mod_.startswith('hkunlp')]
-    return model_name
-
-model_name_ = hkuNLP(url)
-
-#%% save models from hkuNLP
-
-np.save(join(data_path, 'hkuNLP.npy'), model_name_)
-
-#%% load again..
-
-model_name_ = list(np.load(join(data_path, 'hkuNLP.npy'), allow_pickle = True))
-
 #%%
+
+articles = extractEnvCodes(text_file_r, save_env_codes_txt)
+    
