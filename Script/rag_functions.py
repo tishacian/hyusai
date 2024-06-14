@@ -1,14 +1,13 @@
+import os
 import torch
 import time
 import streamlit as st
-from langchain.document_loaders import TextLoader
+from langchain.document_loaders import TextLoader, PyPDFLoader
 from pypdf import PdfReader
 from langchain import HuggingFaceHub
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceInstructEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferWindowMemory
+from langchain.vectorstores import FAISS, Chroma
 from rag_metrics import (fluency,
                           coherence,
                           relevance,
@@ -18,16 +17,51 @@ from rag_metrics import (fluency,
                           HHEM,
                           Advance_HHEM,
                           )
+from transformers import (pipeline, AutoTokenizer,
+                          AutoModelForSeq2SeqLM, AutoModel,
+                          GPT2LMHeadModel, GPT2Tokenizer)
+from sentence_transformers import SentenceTransformer, util
+#--
+from langchain.retrievers import BM25Retriever, EnsembleRetriever
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+
+from langchain_core.output_parsers import StrOutputParser
+
+#-- extras from github...
+
+from langchain.chains.prompt_selector import ConditionalPromptSelector, is_chat_model
+from langchain.prompts import PromptTemplate
+from langchain.prompts.chat import (
+                                    ChatPromptTemplate,
+                                    HumanMessagePromptTemplate,
+                                    SystemMessagePromptTemplate,
+                                )
+
+#--
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+#%% Starter...init
+
+#-- for computing fleuncy
+model_name = 'gpt2'
+model = GPT2LMHeadModel.from_pretrained(model_name)
+tokenizer = GPT2Tokenizer.from_pretrained(model_name)
+qa_model = pipeline("text2text-generation", model="facebook/bart-large-cnn")
+embedding_model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
+nli_model = pipeline("text-classification", model = "facebook/bart-large-mnli") #to compute factuality
+
+#%%
 
 def read_pdf(file):
     document = ""
-
     reader = PdfReader(file)
     for page in reader.pages:
         document += page.extract_text()
-
+    #--
     return document
 
 
@@ -37,7 +71,7 @@ def read_txt(file):
 
     return document
 
-
+#-- Using RecursiveCharacterTextSplitter from langchain...
 def split_doc(document, chunk_size, chunk_overlap):
     splitter = RecursiveCharacterTextSplitter(
                                             chunk_size = chunk_size,
@@ -48,74 +82,216 @@ def split_doc(document, chunk_size, chunk_overlap):
 
     return split
 
-
-def embedding_storing(model_name, split, create_new_vs, existing_vector_store, new_vs_name):
+#--- Embedding storing...
+def embedding_storing(model_name, split, create_new_vs, existing_vector_store, new_vs_name, vectorization_type: str = ''):
     if create_new_vs is not None:
         # Load embeddings instructor
         instructor_embeddings = HuggingFaceInstructEmbeddings(
-            model_name = model_name, model_kwargs = {"device":"cuda"}
-        )
+                                                            model_name = model_name, model_kwargs = {"device": device},
+                                                            # trust_remote_code = True,
+                                                        )
 
         # Implement embeddings
-        db = FAISS.from_documents(split, instructor_embeddings)
-
+        # db = FAISS.from_documents(split, instructor_embeddings)
+        
+        if vectorization_type.lower() == 'chroma':
+            retriever_base = Chroma.from_documents(split,
+                                                  instructor_embeddings,
+                                                  persist_directory = f'vector store/Chr_{existing_vector_store}')
+            
+        elif vectorization_type.lower() == 'faiss':
+            retriever_base = FAISS.from_documents(split, embedding = instructor_embeddings)
+            retriever_base.save_local(f'vector store/FAIS_{existing_vector_store}')
+        else:
+            raise ValueError(f'Unknown vector database {vectorization_type}')
+            
         if create_new_vs == True:
             # Save db
-            db.save_local("vector store/" + new_vs_name)
+            if vectorization_type.lower() == 'chroma':
+                st.write('Chroma DB already saved')
+            elif vectorization_type.lower() == 'faiss':
+                retriever_base.save_local(f'vector store/FAIS_{existing_vector_store}')
+                st.write('Created and saved FAISS DB')
         else:
             # Load existing db
-            load_db = FAISS.load_local(
-                "vector store/" + existing_vector_store,
-                instructor_embeddings,
-                allow_dangerous_deserialization=True
-            )
-            # Merge two DBs and save
-            load_db.merge_from(db)
-            load_db.save_local("vector store/" + new_vs_name)
+            if vectorization_type.lower() == 'chroma':
+                ld_retriever_base = Chroma(persist_directory = f'vector store/Chr_{existing_vector_store}',
+                                           embedding_function = instructor_embeddings)
+                # Merge two DBs and save
+                ld_retriever_base.merge_from(retriever_base)
+                ld_retriever_base.save_local(f'vector store/Chr_{existing_vector_store}')
+            elif vectorization_type.lower() == 'faiss': 
+                ld_retriever_base = FAISS.load_local(
+                                            "vector store/" + existing_vector_store,
+                                            instructor_embeddings,
+                                            allow_dangerous_deserialization=True
+                                        )
+                # Merge two DBs and save
+                ld_retriever_base.merge_from(retriever_base)
+                ld_retriever_base.save_local(f'vector store/FAIS_{existing_vector_store}')
 
         st.success("The document has been saved.")
 
+#- File processing...
+def file_processing(file, embed_name):
+    #-- Load PDF
+    loader = PyPDFLoader(file)
+    documents = loader.load()
+    tok = AutoTokenizer.from_pretrained(embed_name)
+    text_splitter = RecursiveCharacterTextSplitter.from_huggingface_tokenizer(
+                                                                            tok,
+                                                                            chunk_size=tok.model_max_length,
+                                                                            chunk_overlap=int(tok.model_max_length/10))
+    chunk_texts = text_splitter.split_documents(documents)
+    return chunk_texts
 
-def prepare_rag_llm(token, llm_model, instruct_embeddings, vector_store_list, temperature, max_length):
-    # Load embeddings instructor
+#-- LLM reply module...
+def llm_reply(input_question, bm25_retriever, llm_model, retriever):
+    '''
+    Using Emsemble retriever w/ RunnablePassthrough
+
+    '''
+    #--
+    done = True
+    start_time = time.time()
+    while done:
+        question = input_question
+        if question == 'exit':
+            done = False
+            break
+
+        # retriever = Vec.as_retriever(search_kwargs={"k": 2}) 
+        bm25_retriever.k = 2
+        ensemble_retriever = EnsembleRetriever(
+                                                retrievers = [bm25_retriever, retriever], weights = [0.5, 0.5]
+                                            )
+
+        docs = [ensemble_retriever.invoke(question)] # for query in queries] # apply asynchronoys retrival here...
+        
+        def format_docs(docs):
+            return "\n\n".join(doc.page_content for doc in docs)
+        
+        # Define the template
+        template = """ 
+                        ###INSTRUCTIONS: 
+                        You are polite and professional question-answering AI assistant. You must provide a helpful response to the user. 
+                        
+                        In your response, PLEASE ALWAYS:
+                          (0) Be a detail-oriented reader: read the question and context and understand both before answering
+                          (1) Start your answer with a friendly tone, and reiterate the question so the user is sure you understood it
+                          (2) If the context enables you to answer the question, write a detailed, helpful, and easily understandable answer with sources referenced inline. IF NOT: you can't find the answer, respond with an explanation, starting with: "I couldn't find the information in the laws I have access to". 
+                          (3) Below the answer, please list out all the referenced sources (i.e. legal paragraphs backing up your claims)
+                          (4) Now you have your answer, that's amazing - review your answer to make sure it answers the question, is helpful and professional and formatted to be easily readable.
+                        
+                        Think step by step.
+                        ###
+                        
+                        Answer the following question using the context provided.
+                        ### Question: {question} ###
+                
+                        ### Context: {context} ###
+                        
+                        ### Helpful Answer with Sources:
+                    """
+        
+        # Create the prompt template
+        prompt = PromptTemplate.from_template(template)
+        
+        # Define the runnable chain from docs
+        rag_chain_from_docs = (
+                                RunnablePassthrough.assign(context=lambda x: {"context": format_docs(x["context"])}) |
+                                prompt |  # prompt
+                                llm_model |  # LLM Model
+                                StrOutputParser()  # Output parser
+                            )
+        
+        # Define the parallel chain
+        rag_chain_with_source = RunnableParallel(
+                                                {"context": retriever, "question": RunnablePassthrough()}
+                                            ).assign(answer = rag_chain_from_docs)
+        #-- 
+        ans_datategy = rag_chain_with_source.invoke(question)
+        answer =  ans_datategy['answer']
+        end_time = time.time()
+        #-- Document source
+        doc_source = [doc.page_content for doc in ans_datategy['context']]
+        #-- Evaluation metrics
+        fluency_ = fluency(answer, tokenizer, model)
+        latency_ = latency(start_time, end_time)
+        coherence_ = coherence(answer, embedding_model)
+        relevance_ = relevance(question, answer, embedding_model)
+        factuality_ = factuality(answer, doc_source, nli_model)
+        consistency_ = consistency(answer, doc_source, embedding_model)
+        hhem_ = HHEM(answer, doc_source, nli_model, embedding_model)
+        metric = {'fluency': fluency_,
+                  'latency': latency_,
+                  'coherence': coherence_,
+                  'relevance': relevance_,
+                  'factuality': factuality_,
+                  'hhem': hhem_,
+                  'consistency': consistency_
+                  }
+        
+        #--
+        return answer, doc_source, metric
+    
+
+#--- Base retriever store...
+def vectorizer(embeddings,
+               vector_store_list,
+               vectorization_type: str = ''):
+    
+    #--- initialize vector DB
+    if vectorization_type.lower() == 'chroma':
+        if os.path.exists(f'vector store/{vector_store_list}'):
+            retriever_base = Chroma(persist_directory = f'vector store/{vector_store_list}',
+                                    embedding_function = embeddings)
+            st.success("Chroma vector DB loaded...")
+        else:
+            st.error("Chroma vector DB [NOT] loaded...")
+    #--
+    if vectorization_type.lower() == 'faiss':
+        if os.path.exists(f'vector store/{vector_store_list}'):
+            retriever_base = FAISS.load_local(f'vector store/{vector_store_list}',
+                                              embeddings,
+                                              allow_dangerous_deserialization = True
+                                              )
+            st.success("FAISS vector DB loaded...")
+        else:
+            st.error("FAISS vector DB [NOT] loaded...")
+            
+    else:
+        st.write(f'Unknown vector database {vectorization_type}')
+
+    return retriever_base
+
+
+#--- Use similar prepare RAG-LLM
+def prepare_rag_llm(token, llm_model, instruct_embeddings, vector_store_list, temperature, max_length, vect_type):
+    #-- Load embeddings instructor
     instructor_embeddings = HuggingFaceInstructEmbeddings(
-                                                        model_name = instruct_embeddings, model_kwargs = {"device":"cuda"}
+                                                        model_name = instruct_embeddings, model_kwargs = {"device": device},
+                                                        # trust_remote_code = True,
                                                     )
 
-    # Load db
-    loaded_db = FAISS.load_local(
-                                f"vector store/{vector_store_list}", instructor_embeddings, allow_dangerous_deserialization=True
-                            )
-
-    # Load LLM
+    #-- Load db
+    retriever_base = vectorizer(instructor_embeddings, vector_store_list, vectorization_type = vect_type)
+    
+    #-- Load LLM
     llm = HuggingFaceHub(
                         repo_id = llm_model,
                         model_kwargs = {"temperature": temperature, "max_length": max_length},
                         huggingfacehub_api_token = token
                     )
 
-    memory = ConversationBufferWindowMemory(
-                                            k = 2,
-                                            memory_key = "chat_history",
-                                            output_key = "answer",
-                                            return_messages = True,
-                                        )
-
-    # Create the chatbot
-    qa_conversation = ConversationalRetrievalChain.from_llm(
-                                                            llm = llm,
-                                                            chain_type = "stuff",
-                                                            retriever = loaded_db.as_retriever(),
-                                                            return_source_documents = True,
-                                                            memory = memory,
-                                                        )
-
-    return qa_conversation
+    return retriever_base, llm
 
 
+#-- Generating answers
 def generate_answer(question, token):
+    #-- answer 
     answer = "An error has occured"
-    
+    #-- timer..
     start_time = time.time()
     if token == "":
         answer = "Insert the Hugging Face token"
@@ -127,14 +303,24 @@ def generate_answer(question, token):
         doc_source = [d.page_content for d in explanation]
     end_time = time.time()
     
-    fluency_ = fluency(answer)
+    fluency_ = fluency(answer, tokenizer, model)
     latency_ = latency(start_time, end_time)
-    coherence_ = coherence(answer)
-    relevance_ = relevance(question, answer)
+    coherence_ = coherence(answer, embedding_model)
+    relevance_ = relevance(question, answer, embedding_model)
+    factuality_ = factuality(answer, doc_source, nli_model)
+    consistency_ = consistency(answer, doc_source, embedding_model)
+    hhem_ = HHEM(answer, doc_source, nli_model, embedding_model)
     metric = {'fluency': fluency_,
               'latency': latency_,
               'coherence': coherence_,
               'relevance': relevance_,
+              'factuality': factuality_,
+              'hhem': hhem_,
+              'consistency': consistency_
               }
     return answer, doc_source, metric
     
+
+
+#%%
+

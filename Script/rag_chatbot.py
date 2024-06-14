@@ -1,4 +1,5 @@
 import os
+import io
 import numpy as np
 from os.path import join
 import streamlit as st
@@ -8,17 +9,11 @@ import time
 import json
 import numpy as np
 import pandas as pd
+from xlsxwriter import Workbook
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferWindowMemory
+from langchain.retrievers import BM25Retriever, EnsembleRetriever
 
-# from rag_metrics import (fluency,
-#                           coherence,
-#                           relevance,
-#                           latency,
-#                           factuality,
-#                           consistency,
-#                           HHEM,
-#                           Advance_HHEM,
-#                           )
-# st.set_page_config(layout = "wide")
 #---
 st.title("Customized RAG Agent")
 
@@ -32,15 +27,36 @@ help_ = { # help suggestions...
         'Temperature': 'Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore'+'\n'+
         'diverse choices. A smaller temperature for confident tokens avoiding the influence '+'\n'+'of tail randomness noises',
         'Max_characer': 'The maximum number of characters to generated. This can be similar to the maximum token'+'\n'+
-                        ' size of the embedding space. The default is set to 500.'
+                        ' size of the embedding space. The default is set to 500.',
+        'vector_type': 'Slect desired vector types',
+        'pipeline': 'Select the desired pipeline. Default is without Chain of Thought (COT)'
                         }
 
 #data_path = '/workspace/Ragger/ragger/Data' # for the cluster
-data_path = '/workspace/Ragger/ragger/Data'
-img_path = '/workspace/Ragger/ragger/image'
+data_path = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data'
+img_path = '/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/image'
 
-instruction_embedding = list(np.load(join(data_path, 'hkuNLP.npy'), allow_pickle = True)) + ["sentence-transformers/all-mpnet-base-v2"]
-instruction_embedding.sort(key = lambda x: x.upper()[0])
+# Add supplmentary embedding models..
+supplement = ["Alibaba-NLP/gte-large-en-v1.5",
+              "sentence-transformers/all-mpnet-base-v2",
+              "mixedbread-ai/mxbai-embed-large-v1",
+              "WhereIsAI/UAE-Large-V1",
+              "avsolatorio/GIST-large-Embedding-v0",
+              "w601sxs/b1ade-embed",
+              "Labib11/MUG-B-1.6",
+              "WhereIsAI/UAE-Large-V1",
+              ]
+
+instruction_embedding = list(np.load(join(data_path, 'hkuNLP.npy'), allow_pickle = True)) + supplement
+# instruction_embedding.sort(key = lambda x: x.upper()[0])
+
+embd_name = "sentence-transformers/all-mpnet-base-v2"
+llm_name = ['MBZUAI/LaMini-GPT-774M', 'MBZUAI/LaMini-GPT-1.5B', 'MBZUAI/LaMini-Neo-125M',
+            'MBZUAI/LaMini-Neo-1.3B', 'MBZUAI/LaMini-Cerebras-590M', 'MBZUAI/LaMini-Cerebras-1.3B',
+            'MBZUAI/LaMini-Flan-T5-783M']
+vector_types = ['FAISS', 'Chroma', 'Weaviate', 'PGVector']
+pipeline = ['Default', 'COT', 'AsynCOT']
+
 
 #%% import streamlit as st
 
@@ -99,101 +115,140 @@ def theme():
 #%% Document embedding...
 
 #--Different columns for Embedding/Chat app
-def document_embed():
-    with st.expander('Document Embedding'):
-        st.title("Document Embedding")
-        st.markdown("This page is used to upload the documents as the custom knowledge for the chatbot.")
-        # instructio_embedding = ["hkunlp/instructor-xl", "sentence-transformers/all-mpnet-base-v2"]
-        #--
-        with st.form("document_input"):
-            document = st.file_uploader("Knowledge Documents", type = ['pdf', 'txt'], help = ".pdf or .txt file")
-    
-            row_ae = st.columns([2, 1, 1])
-            with row_ae[0]:
-                instruct_embeddings = st.selectbox(
-                    "Model Name of the Instruct Embeddings", instruction_embedding
-                )
-            
-            with row_ae[1]:
-                chunk_size = st.number_input(
-                    "Chunk Size", value = 200, min_value = 0, step = 1,
-                )
-            
-            with row_ae[2]:
-                chunk_overlap = st.number_input(
-                    "Chunk Overlap", value = 10, min_value = 0, step = 1,
-                    help = "higher that chunk size"
-                )
-            
-            row_be = st.columns(2)
-            with row_be[0]:
-                # List the existing vector stores
-                vector_store_list = os.listdir("vector store/")
-                vector_store_list = ["<New>"] + vector_store_list
-                
-                existing_vector_store = st.selectbox(
-                    "Vector Store to Merge the Knowledge", vector_store_list,
-                    help = "Which vector store to add the new documents. Choose <New> to create a new vector store."
-                )
-    
-            with row_be[1]:
-                # List the existing vector stores     
-                new_vs_name = st.text_input(
-                    "New Vector Store Name", value = "new_vector_store_name",
-                    help = "If choose <New> in the dropdown / multiselect box, name the new vector store. Otherwise, fill in the existing vector store to merge."
-                )
-    
-            save_button = st.form_submit_button("Save vector store")
-    
-        if save_button:
-            # Read the uploaded file
-            if document == None:
-                return st.error("No document uploaded...")
-            if document.name.endswith('.pdf'):
-                document = rag_functions.read_pdf(document)
-            elif document.name.endswith('.txt'):
-                document = rag_functions.read_txt(document)
-            else:
-                st.error('Unknown document format..' + '\n' + \
-                         'Check if the uploaded file is .pdf or .txt"')
-    
-            # Split document
-            split = rag_functions.split_doc(document, chunk_size, chunk_overlap)
-    
-            # Check whether to create new vector store
-            create_new_vs = None
-            if existing_vector_store == "<New>" and new_vs_name != "":
-                create_new_vs = True
-            elif existing_vector_store != "<New>" and new_vs_name != "":
-                create_new_vs = False
-            else:
-                st.error("Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'")
-            
-            # Embeddings and storing
-            rag_functions.embedding_storing(
-                instruct_embeddings, split, create_new_vs, existing_vector_store, new_vs_name
+bm25_retriever = 0
+with st.expander('Document Embedding'):
+    st.title("Document Embedding")
+    st.markdown("This page is used to upload the documents as the custom knowledge for the chatbot.")
+    # instructio_embedding = ["hkunlp/instructor-xl", "sentence-transformers/all-mpnet-base-v2"]
+    #--
+    with st.form("document_input"):
+        document = st.file_uploader("Knowledge Documents", type = ['pdf', 'txt'], help = ".pdf or .txt file")
+
+        row_ae = st.columns([2, 1, 1])
+        with row_ae[0]:
+            instruct_embeddings = st.selectbox(
+                "Model Name of the Instruct Embeddings", instruction_embedding
             )
-       
         
+        with row_ae[1]:
+            chunk_size = st.number_input(
+                "Chunk Size", value = 200, min_value = 0, step = 1,
+            )
+        
+        with row_ae[2]:
+            chunk_overlap = st.number_input(
+                "Chunk Overlap", value = 10, min_value = 0, step = 1,
+                help = "higher that chunk size"
+            )
+        
+        row_be = st.columns(2)
+        with row_be[0]:
+            # List the existing vector stores
+            vector_store_list = os.listdir("vector store/")
+            vector_store_list = ["<New>"] + vector_store_list
+            
+            existing_vector_store = st.selectbox(
+                "Vector Store to Merge the Knowledge", vector_store_list,
+                help = "Which vector store to add the new documents. Choose <New> to create a new vector store."
+            )
+
+        with row_be[1]:
+            # List the existing vector stores     
+            new_vs_name = st.text_input(
+                "New Vector Store Name", value = "new_vector_store_name",
+                help = "If choose <New> in the dropdown / multiselect box, name the new vector store. Otherwise, fill in the existing vector store to merge."
+            )
+        
+        #--
+        row_ce = st.columns(3)
+        
+        with row_ce[2]:
+            default_pipeline = (
+                                pipeline.index(pipeline[1])
+                            )
+            
+            pipeline_a = st.selectbox("Pipeline", pipeline,
+                                          default_pipeline,
+                                           help = help_['pipeline'])
+            
+        save_button = st.form_submit_button("Save vector store")
+
+        if pipeline_a.lower() == 'default':
+            if save_button:
+                # Read the uploaded file
+                if document == None:
+                    st.error("No document uploaded...")
+                if document.name.endswith('.pdf'):
+                    document = rag_functions.read_pdf(document)
+                elif document.name.endswith('.txt'):
+                    document = rag_functions.read_txt(document)
+                else:
+                    st.error('Unknown document format..' + '\n' + \
+                             'Check if the uploaded file is .pdf or .txt"')
+        
+                # Split document
+                split = rag_functions.split_doc(document, chunk_size, chunk_overlap)
+        
+                # Check whether to create new vector store
+                create_new_vs = None
+                if existing_vector_store == "<New>" and new_vs_name != "":
+                    create_new_vs = True
+                elif existing_vector_store != "<New>" and new_vs_name != "":
+                    create_new_vs = False
+                else:
+                    st.error("Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'")
+                
+                # Embeddings and storing
+                rag_functions.embedding_storing(
+                    instruct_embeddings, split, create_new_vs, existing_vector_store, new_vs_name
+                )
+        elif pipeline_a.lower() == 'cot':
+            if save_button:
+                # Read the uploaded file
+                if document == None:
+                    st.error("No document uploaded...")
+                if document.name.endswith('.pdf'):
+                    document = rag_functions.read_pdf(document)
+                    # Split document
+                    chunks = rag_functions.split_doc(document, chunk_size, chunk_overlap)
+                    bm25_retriever = BM25Retriever.from_documents(chunks)
+                    st.success('The BM25 PDF Retriever is created')
+                elif document.name.endswith('.txt'):
+                    document = rag_functions.read_txt(document)
+                    # Split document
+                    chunks = rag_functions.split_doc(document, chunk_size, chunk_overlap)
+                    bm25_retriever = BM25Retriever.from_documents(chunks)
+                    st.success('The BM25 Text Retriever is created')
+                else:
+                    st.error('Unknown document format..' + '\n' + \
+                             'Check if the uploaded file is .pdf or .txt"')
+            else:
+                # Read the uploaded file
+                if document == None:
+                    st.error("No document uploaded...")
+                elif document.name.endswith('.pdf'):
+                    document = rag_functions.read_pdf(document)
+                    # Split document
+                    chunks = rag_functions.split_doc(document, chunk_size, chunk_overlap)
+                    bm25_retriever = BM25Retriever.from_documents(chunks)
+                    st.success('The BM25 PDF Retriever is created')
+                elif document.name.endswith('.txt'):
+                    document = rag_functions.read_txt(document)
+                    # Split document
+                    chunks = rag_functions.split_doc(document, chunk_size, chunk_overlap)
+                    bm25_retriever = BM25Retriever.from_documents(chunks)
+                    st.success('The BM25 Text Retriever is created')
+                else:
+                    st.error('Unknown document format..' + '\n' + \
+                             'Check if the uploaded file is .pdf or .txt"')
+
+            
 #%% App main functions...chatbot
 
-# #-- tabs
-# tab_a, tab_b, tab_c = st.tabs(["Customized chatbot",
-#                                "Document Embedding",
-#                                "Document previewer"])
-# #-- 
-# tabs = {'tabA': tab_a, 'tabB': tab_b, 'tabC': tab_c,}
-embd_name = "sentence-transformers/all-mpnet-base-v2"
-#-- llm_name = "MBZUAI/LaMini-Flan-T5-248M"
-llm_name = 'MBZUAI/LaMini-GPT-774M'
-
-#-- Toggle sidebar...
 # theme()
 
 # Setting the LLM
-st.title("RAG Agent")
 #--load document embedding
-document_embed()
 with st.expander("LLM Settings"):
     st.title('LLM Settings')
     st.markdown("This page is used to have a chat with the uploaded documents")
@@ -204,7 +259,7 @@ with st.expander("LLM Settings"):
                                   help = help_['HuggingFace'])
 
         with row_a[1]:
-            llm_model = st.text_input("LLM model", value = llm_name,
+            llm_model = st.selectbox("LLM model", llm_name,
                                       help = help_['LLM_Model'])
 
         with row_a[2]:
@@ -230,21 +285,64 @@ with st.expander("LLM Settings"):
             max_length = st.number_input("Maximum character length", value = 500, step = 1,
                                          help = help_['Max_characer'])
         #--
+        row_c = st.columns(3)
+        with row_c[0]:
+            vector_type = st.selectbox("Vector type", vector_types,
+                                       help = help_['vector_type'])
+        
+        with row_c[1]:
+            pipeline_ = st.selectbox("Pipeline", pipeline,
+                                       help = help_['pipeline'])
+            
+            
         create_chatbot = st.form_submit_button("Create chatbot")
-
+        if token:
+            retriever_base, llm = rag_functions.prepare_rag_llm(
+                                                                token, llm_model,
+                                                                instruct_embeddings,
+                                                                existing_vector_store,
+                                                                temperature,
+                                                                max_length,
+                                                                vector_type,
+                                                            )
 # Prepare the LLM model
 if "conversation" not in st.session_state:
     st.session_state.conversation = None
 
-if token:
-    st.session_state.conversation = rag_functions.prepare_rag_llm(
-                                        token, llm_model,
-                                        instruct_embeddings,
-                                        existing_vector_store,
-                                        temperature,
-                                        max_length
-                                    )
+
+if pipeline_.lower() == 'default':
+    #-- Store in conversaional memory
+    memory = ConversationBufferWindowMemory(
+                                            k = 2,
+                                            memory_key = "chat_history",
+                                            output_key = "answer",
+                                            return_messages = True,
+                                        )
+    #-- Create the chatbot
+    qa_conversation = ConversationalRetrievalChain.from_llm(
+                                                            llm = llm,
+                                                            chain_type = "stuff",
+                                                            retriever = retriever_base.as_retriever(),
+                                                            return_source_documents = True,
+                                                            memory = memory,
+                                                            # combine_docs_chain_kwargs = {"prompt": custom_prompt},
+                                                        )
+    #-- session state and generate response
+    st.session_state.conversation = qa_conversation
     
+elif pipeline_.lower() == 'cot':
+    #---
+    # with st.form("document_input"):
+    #     document = st.file_uploader("Knowledge Documents", type = ['pdf', 'txt'], help = ".pdf or .txt file")
+    # chunked_data = rag_functions.file_processing(document, instruct_embeddings)
+    # bm25_retriever = BM25Retriever.from_documents(chunks)
+    pass
+elif pipeline_ == 'AsynCoT':
+    pass
+else:
+    ValueError(f'Unknown pipeline type {pipeline_}\n\
+               Please check that pipeline is of types in the list: ["Default", "CoT", "AsynCoT"]')
+
 # Chat history
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -265,6 +363,8 @@ st.sidebar.image(join(img_path, 'Dtgy.png'), width = 78, use_column_width = Fals
 
 #-- init mettrics
 fl, la, co, re, hhem, adv_hhem = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+fac, cons, hall = 0.0, 0.0, 0.0
+
 # Ask a question
 if question := st.chat_input("Ask a question"):
     # Append user question to history
@@ -272,29 +372,42 @@ if question := st.chat_input("Ask a question"):
     # Add user question
     with st.chat_message("user"):
         st.markdown(question)
-
+        
     # Answer the question
-    answer, doc_source, metrics_ = rag_functions.generate_answer(question, token)
+    if pipeline_.lower() == 'default': #kenneth
+        answer, doc_source, metrics_ = rag_functions.generate_answer(question, token)
+    elif pipeline_.lower() == 'cot': #mohamed
+        retriever_base = retriever_base.as_retriever(search_kwargs = {"k" : 2})
+        answer, doc_source, metrics_ = rag_functions.llm_reply(question, bm25_retriever, llm_model, retriever_base)
+    #-- Write assistant message
     with st.chat_message("assistant"):
         st.write(answer)
     # Append assistant answer to history
     st.session_state.history.append({"role": "assistant", "content": answer})
     #--
-    fl, la, co, re = metrics_['fluency'],\
-                        metrics_['latency'],\
-                            metrics_['coherence'],\
-                                metrics_['relevance']
+    fl, la, co, re, fac, cons, hall = metrics_['fluency'],\
+                                        metrics_['latency'],\
+                                            metrics_['coherence'],\
+                                                metrics_['relevance'],\
+                                                    metrics_['factuality'],\
+                                                        metrics_['consistency'],\
+                                                            metrics_['hhem']
     st.session_state.source.append({"question": question, "answer": answer, "document": doc_source})
 
 #-- Eval metrics w/ Latency
-st.sidebar.title('Metrics')
+st.sidebar.title('$Metrics$')
+st.sidebar.markdown('Metrics I')
 st.sidebar.text(f"Fluency: {fl:.2f}")
 st.sidebar.text(f'Coherence: {co:.2f}')
 st.sidebar.text(f'Relevance: {re:.2f}')
-st.sidebar.text(f'Latency: {la:.2f}-secs')
+st.sidebar.text(f'Latency: {la:.2f} secs')
+
 #-- Hallucination metrics
-st.sidebar.text(f'HHEM: {hhem}')
-st.sidebar.text(f'Adv-HHEM: {adv_hhem}')
+st.sidebar.markdown('Metrics II')
+st.sidebar.text(f'Factuality: {fac:.2f}')
+st.sidebar.text(f'Consistency: {cons:.2f}')
+st.sidebar.text(f'Hallucination: {hall:.2f}')
+# st.sidebar.text(f'Adv-HHEM: {adv_hhem}')
 
 
 #%% >Stop session while running to retrieve results...
@@ -327,22 +440,33 @@ with st.expander("Source documents"):
 #-- convert conversation to downloadable formats...
 json_string = json.dumps(st.session_state.source)
 
-@st.cache_data
-def convert_df(json_file):
-    #--
-    def convert_json_to_df(json_file):
-        source_dict = {k:v for (k,v) in zip(range(len(json_file)), json_file)}
-        dataframe = pd.DataFrame.from_dict(source_dict, orient = 'index').T
-        return dataframe
-    
-    #-- convert json --> pd.DataFrame
-    df = convert_json_to_df(json_file)
-    return df.to_csv().encode('utf-8')
+def convert_json_to_df(json_file):
+    source_dict = {k:v for (k,v) in zip(range(len(json_file)), json_file)}
+    dataframe = pd.DataFrame.from_dict(source_dict, orient = 'index').T
+    return dataframe
 
-csv = convert_df(json_string)
+data_frame = convert_json_to_df(json_string)
+
+@st.cache_data
+def convert_df(data_frame):
+    #-- convert json --> pd.DataFrame
+    return data_frame.to_csv().encode('utf-8')
+
+# csv = convert_df(data_frame)
+def xlxs(data):
+    output = io.BytesIO()
+    writer = pd.ExcelWriter(output, engine="xlsxwriter")
+    data.to_excel(writer, index = False,
+                  sheet_name = "sheet1")
+    writer.close()
+    data_bytes = output.getvalue()
+    return data_bytes
+
+data_bytes = xlxs(data_frame)
 
 st.sidebar.markdown("""<hr style="height:2px;border:none;color:#333;background-color:white;" /> """, unsafe_allow_html = True)
 st.sidebar.title('Download chat')
+#
 st.sidebar.download_button(
                 label = "json",
                 file_name = "data.json",
@@ -350,58 +474,15 @@ st.sidebar.download_button(
                 data = json_string,
             )
 
-
 st.sidebar.download_button(
                 label = "csv",
                 file_name = "data.csv",
-                mime = "text/csv",
-                data = csv,
+                # mime = "text/csv",
+                data = convert_df(data_frame),
             )
 
-#%%
 
-# download_path = '/Users/kennethezukwoke/Downloads'
-# with open(join(download_path, 'data.json'), 'rb') as filename:
-#     docs = json.load(filename)
-    
-    
-#%%
+st.sidebar.download_button(label = "xlsx",
+    data = data_bytes,
+    file_name = "data.xlsx")
 
-# #-- Preview metrics
-# def metric(metrics):
-#     fl, la, co, re = metrics['fluency'],\
-#                         metrics['latency'],\
-#                             metrics['coherence'],\
-#                                 metrics['relevance']
-#     st.sidebar.title('Metrics')
-#     st.sidebar.text(f'Fluency: {fl:.2f}')
-#     st.sidebar.text(f'Coherence: {co:.2f}')
-#     st.sidebar.text(f'Relevance: {re:.2f}')
-#     st.sidebar.text(f'Latency: {la:.2f} secs')
-
-# # #-- Metrics
-# metric(metrics_)
-# def docPrevier(tabs, ):
-#     pass
-
-#%%
-
-
-# if __name__ == "__main__":
-#     #-- tabs
-#     tab_a, tab_b, tab_c = st.tabs(["Customized chatbot",
-#                                    "Document Embedding",
-#                                    "Document previewer"])
-#     #-- 
-#     tabs = {'tabA': tab_a, 'tabB': tab_b, 'tabc': tab_c,}
-#     embd_name = "sentence-transformers/all-mpnet-base-v2"
-#     #-- llm_name = "MBZUAI/LaMini-Flan-T5-248M"
-#     llm_name = 'MBZUAI/LaMini-GPT-774M'
-#     #--Chatbot
-#     customizedChatter(tabs, embd_name, llm_name)
-#     #--load document embedding
-#     document_embed(tabs)
-#     #-- Toggle sidebar...
-#     theme()
-    
-    
