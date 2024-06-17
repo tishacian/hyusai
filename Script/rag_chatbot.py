@@ -29,7 +29,8 @@ help_ = { # help suggestions...
         'Max_characer': 'The maximum number of characters to generated. This can be similar to the maximum token'+'\n'+
                         ' size of the embedding space. The default is set to 500.',
         'vector_type': 'Slect desired vector types',
-        'pipeline': 'Select the desired pipeline. Default is without Chain of Thought (COT)'
+        'pipeline': 'Select the desired pipeline. Default is without Chain of Thought (COT)',
+        'template': 'Select a template style of choice. Default is a simple template.'
                         }
 
 #data_path = '/workspace/Ragger/ragger/Data' # for the cluster
@@ -56,7 +57,7 @@ llm_name = ['MBZUAI/LaMini-GPT-774M', 'MBZUAI/LaMini-GPT-1.5B', 'MBZUAI/LaMini-N
             'MBZUAI/LaMini-Flan-T5-783M']
 vector_types = ['FAISS', 'Chroma', 'Weaviate', 'PGVector']
 pipeline = ['Default', 'COT', 'AsynCOT']
-
+templates = ['Default', 'Custom']
 
 #%% import streamlit as st
 
@@ -294,6 +295,10 @@ with st.expander("LLM Settings"):
             pipeline_ = st.selectbox("Pipeline", pipeline,
                                        help = help_['pipeline'])
             
+        with row_c[2]:
+            template_opt = st.selectbox("Template format",
+                                        templates,
+                                       help = help_['template'])
             
         create_chatbot = st.form_submit_button("Create chatbot")
         if token:
@@ -305,6 +310,28 @@ with st.expander("LLM Settings"):
                                                                 max_length,
                                                                 vector_type,
                                                             )
+            
+with st.expander("Template"):
+    st.title('Template format')
+    template_input = st.text_area("",
+                                    "You are a professional question-answering AI assistant. You should provide a helpful response to the user question"+ '\n'
+                                    
+                                    "In your response, PLEASE ALWAYS:" + '\n'
+                                      "(0) Be a detail-oriented reader: read the question and context and understand both before answering"+ '\n'
+                                      "(1) Start your answer with a friendly tone, and reiterate the question so the user is sure you understood it"+ '\n'
+                                      "(2) If the context enables you to answer the question, write a detailed, helpful, and easily understandable answer with sources referenced inline."+ '\n'
+                                          "IF NOT: you can't find the answer, respond with an explanation, starting with: I couldn't find the information in the laws or cedes provided"+ '\n'
+                                      "(3) Below the answer, please list out all the referenced sources (i.e. legal paragraphs backing up your claims)"+ '\n'
+                                      "(4) Now you have your answer, that's amazing - review your answer to make sure it answers the question, is helpful and professional and formatted to be easily readable." + '\n'
+                                    
+                                    "Think step by step." + '\n'
+                                    
+                                    "Answer the following question using the context provided." + '\n'
+                                    "Question: {question}"+ '\n'
+                            
+                                    "Context: {context}",
+                               help = help_['template'])
+        
 # Prepare the LLM model
 if "conversation" not in st.session_state:
     st.session_state.conversation = None
@@ -330,18 +357,6 @@ if pipeline_.lower() == 'default':
     #-- session state and generate response
     st.session_state.conversation = qa_conversation
     
-elif pipeline_.lower() == 'cot':
-    #---
-    # with st.form("document_input"):
-    #     document = st.file_uploader("Knowledge Documents", type = ['pdf', 'txt'], help = ".pdf or .txt file")
-    # chunked_data = rag_functions.file_processing(document, instruct_embeddings)
-    # bm25_retriever = BM25Retriever.from_documents(chunks)
-    pass
-elif pipeline_ == 'AsynCoT':
-    pass
-else:
-    ValueError(f'Unknown pipeline type {pipeline_}\n\
-               Please check that pipeline is of types in the list: ["Default", "CoT", "AsynCoT"]')
 
 # Chat history
 if "history" not in st.session_state:
@@ -358,7 +373,6 @@ for message in st.session_state.history:
         st.markdown(message["content"])
 
 #-- Define sidebar
-# st.sidebar.header('', divider='rainbow')
 st.sidebar.image(join(img_path, 'Dtgy.png'), width = 78, use_column_width = False)
 
 #-- init mettrics
@@ -374,11 +388,14 @@ if question := st.chat_input("Ask a question"):
         st.markdown(question)
         
     # Answer the question
-    if pipeline_.lower() == 'default': #kenneth
+    if pipeline_.lower() == 'default':
         answer, doc_source, metrics_ = rag_functions.generate_answer(question, token)
-    elif pipeline_.lower() == 'cot': #mohamed
+    elif pipeline_.lower() == 'cot':
         retriever_base = retriever_base.as_retriever(search_kwargs = {"k" : 2})
-        answer, doc_source, metrics_ = rag_functions.llm_reply(question, bm25_retriever, llm_model, retriever_base)
+        answer, doc_source, metrics_ = rag_functions.llm_reply(question, bm25_retriever, llm, retriever_base, template_opt, template_input)
+    else:
+        ValueError(f'Unknown pipeline type {pipeline_}\n\
+                   Please check that pipeline is of types in the list: ["Default", "CoT", "AsynCoT"]')
     #-- Write assistant message
     with st.chat_message("assistant"):
         st.write(answer)
