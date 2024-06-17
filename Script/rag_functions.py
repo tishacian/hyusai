@@ -146,94 +146,95 @@ def file_processing(file, embed_name):
     return chunk_texts
 
 #-- LLM reply module...
-def llm_reply(input_question, bm25_retriever, llm_model, retriever):
+def llm_reply(question, bm25_retriever, llm_model, retriever, template_opt, template_input):
     '''
     Using Emsemble retriever w/ RunnablePassthrough
 
     '''
     #--
-    done = True
     start_time = time.time()
-    while done:
-        question = input_question
-        if question == 'exit':
-            done = False
-            break
-
-        # retriever = Vec.as_retriever(search_kwargs={"k": 2}) 
-        bm25_retriever.k = 2
-        ensemble_retriever = EnsembleRetriever(
-                                                retrievers = [bm25_retriever, retriever], weights = [0.5, 0.5]
-                                            )
-
-        docs = [ensemble_retriever.invoke(question)] # for query in queries] # apply asynchronoys retrival here...
+    # retriever = Vec.as_retriever(search_kwargs={"k": 2}) 
+    bm25_retriever.k = 2
+    ensemble_retriever = EnsembleRetriever(
+                                            retrievers = [bm25_retriever, retriever], weights = [0.5, 0.5]
+                                        )
+    # docs = [ensemble_retriever.invoke(question)] # for query in queries] # apply asynchronoys retrival here...
+    
+    format_docs = lambda x: "\n\n".join(doc.page_content for doc in x)
+    
+    # Define template
+    if template_opt.lower() == 'default':
+        template = """Use the following pieces of context to answer the question at the end.
+                                If you don't know the answer, just say that you don't know, don't try to make up an answer.
+                                
+                                {context}
+                                
+                                Question: {question}
+                            """
         
-        def format_docs(docs):
-            return "\n\n".join(doc.page_content for doc in docs)
-        
-        # Define the template
-        template = """ 
-                        ###INSTRUCTIONS: 
-                        You are polite and professional question-answering AI assistant. You must provide a helpful response to the user. 
-                        
-                        In your response, PLEASE ALWAYS:
-                          (0) Be a detail-oriented reader: read the question and context and understand both before answering
-                          (1) Start your answer with a friendly tone, and reiterate the question so the user is sure you understood it
-                          (2) If the context enables you to answer the question, write a detailed, helpful, and easily understandable answer with sources referenced inline. IF NOT: you can't find the answer, respond with an explanation, starting with: "I couldn't find the information in the laws I have access to". 
-                          (3) Below the answer, please list out all the referenced sources (i.e. legal paragraphs backing up your claims)
-                          (4) Now you have your answer, that's amazing - review your answer to make sure it answers the question, is helpful and professional and formatted to be easily readable.
-                        
-                        Think step by step.
-                        ###
-                        
-                        Answer the following question using the context provided.
-                        ### Question: {question} ###
-                
-                        ### Context: {context} ###
-                        
-                        ### Helpful Answer with Sources:
-                    """
-        
-        # Create the prompt template
-        prompt = PromptTemplate.from_template(template)
-        
-        # Define the runnable chain from docs
-        rag_chain_from_docs = (
-                                RunnablePassthrough.assign(context=lambda x: {"context": format_docs(x["context"])}) |
-                                prompt |  # prompt
-                                llm_model |  # LLM Model
-                                StrOutputParser()  # Output parser
-                            )
-        
-        # Define the parallel chain
-        rag_chain_with_source = RunnableParallel(
-                                                {"context": retriever, "question": RunnablePassthrough()}
-                                            ).assign(answer = rag_chain_from_docs)
-        #-- 
-        ans_datategy = rag_chain_with_source.invoke(question)
-        answer =  ans_datategy['answer']
-        end_time = time.time()
-        #-- Document source
-        doc_source = [doc.page_content for doc in ans_datategy['context']]
-        #-- Evaluation metrics
-        fluency_ = fluency(answer, tokenizer, model)
-        latency_ = latency(start_time, end_time)
-        coherence_ = coherence(answer, embedding_model)
-        relevance_ = relevance(question, answer, embedding_model)
-        factuality_ = factuality(answer, doc_source, nli_model)
-        consistency_ = consistency(answer, doc_source, embedding_model)
-        hhem_ = HHEM(answer, doc_source, nli_model, embedding_model)
-        metric = {'fluency': fluency_,
-                  'latency': latency_,
-                  'coherence': coherence_,
-                  'relevance': relevance_,
-                  'factuality': factuality_,
-                  'hhem': hhem_,
-                  'consistency': consistency_
-                  }
-        
-        #--
-        return answer, doc_source, metric
+    elif template_opt.lower() == 'custom':
+        if not template_input:
+            template = """Use the following pieces of context to answer the question at the end.
+                                    If you don't know the answer, just say that you don't know, don't try to make up an answer.
+                                    
+                                    {context}
+                                    
+                                    Question: {question}
+                                """
+        else:
+            template = f"""
+                                    {template_input}
+                                """
+    # Create the prompt template
+    prompt = PromptTemplate.from_template(template = template)
+    
+    # Define the runnable chain from docs
+    rag_chain_from_docs = (
+                            RunnablePassthrough.assign(context = lambda x: {"context": format_docs(x["context"])}) |
+                            prompt |  # prompt
+                            llm_model |  # LLM Model
+                            StrOutputParser()  # Output parser
+                        )
+    
+    """
+    ----
+    Define the parallel chain --> Runs N-questions in parallel from the Emsemble retriever
+    These documenst are then ranked and returns as document response. The top-k response is returned and the index zero
+    is the most favoured response of the LLM.
+    """
+    rag_chain_with_source = RunnableParallel(
+                                            {"context": ensemble_retriever, "question": RunnablePassthrough()}
+                                        ).assign(answer = rag_chain_from_docs)
+    #-- 
+    ans_datategy = rag_chain_with_source.invoke(question)
+    # answer =  ans_datategy['answer'] #does not return anwser: In fact, simply returns the template with the context
+    # print('this is the answer: ', answer)
+    
+    #-- Document source
+    doc_source = [doc.page_content for doc in ans_datategy['context']] # returns the source documents...
+    answer = doc_source[0]
+    end_time = time.time()
+    # print('Here is the context: ', doc_source) 
+    #-- Evaluation metrics
+    fluency_ = fluency(answer, tokenizer, model)
+    latency_ = latency(start_time, end_time)
+    coherence_ = coherence(answer, embedding_model)
+    relevance_ = relevance(question, answer, embedding_model)
+    factuality_ = factuality(answer, doc_source, nli_model)
+    consistency_ = consistency(answer, doc_source, embedding_model)
+    hhem_ = HHEM(answer, doc_source, nli_model, embedding_model)
+    #-- Evaluation metrics for the LLM replies...
+    metric = {'fluency': fluency_,
+              'latency': latency_,
+              'coherence': coherence_,
+              'relevance': relevance_,
+              'factuality': factuality_,
+              'hhem': hhem_,
+              'consistency': consistency_
+              }
+    
+    #--
+    return answer, doc_source, metric
     
 
 #--- Base retriever store...
