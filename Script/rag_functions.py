@@ -83,7 +83,28 @@ def split_doc(document, chunk_size, chunk_overlap):
     return split
 
 #--- Embedding storing...
-def embedding_storing(model_name, split, create_new_vs, existing_vector_store, new_vs_name, vectorization_type: str = ''):
+def embedding_storing(model_name, split, create_new_vs, existing_vector_store, vectorization_type: str = ''):
+    '''
+    Embedding stroe
+
+    Parameters
+    ----------
+    model_name (str): Model name
+    split (<Document>): Document chunks
+    create_new_vs (str): flag to create new vector store
+    existing_vector_store (str): Flag to skip creating VD if existing
+    new_vs_name (str): Ne vector store
+    vectorization_type (str): vectorization type
+
+    Raises
+    ------
+    ValueError (Eror): Error if no vector store.
+
+    Returns
+    -------
+    None.
+
+    '''
     if create_new_vs is not None:
         # Load embeddings instructor
         instructor_embeddings = HuggingFaceInstructEmbeddings(
@@ -148,8 +169,40 @@ def file_processing(file, embed_name):
 #-- LLM reply module...
 def llm_reply(question, bm25_retriever, llm_model, retriever, template_opt, template_input):
     '''
-    Using Emsemble retriever w/ RunnablePassthrough
+    Using Emsemble retriever w/ RunnablePassthrough/RunnableParrel
+    ------------------------------------
+    The EnsembleRetriever in LangChain is a retrieval algorithm that combines the results of multiple 
+    retrievers and reranks them using the Reciprocal Rank Fusion algorithm.
 
+    It is used to improve the performance of retrieval by leveraging the strengths of different algorithms.
+    You may need to use the EnsembleRetriever when you want to achieve better retrieval performance 
+    than any single algorithm can provide. It is particularly useful when combining a sparse 
+    retriever (e.g., BM25) with a dense retriever (e.g., embedding similarity) because their
+    strengths are complementary.
+    
+    The sparse retriever is good at finding relevant documents based on keywords, while the dense retriever (e.g FAISS)
+    is good at finding relevant documents based on semantic similarity.
+    
+    Parameters
+    ----------
+    token (str): HuggingFace token
+    
+        Add to environment using 
+        >> import os
+        >> os.environ['HUGGINGFACEHUB_API_TOKEN']
+        
+    bm25_retriever (BM25 retriever class): BM25 retriever class
+    llm_model (llm_model class): LLM model class
+    retriever (Dense retriever class): Dense retriever class
+    template_opt (str): template options
+    template_input (str): Custom template input
+    
+    Returns
+    ------
+    answer (str): answer
+    doc_source (list): Ranked document source
+    metric (dict): eveluation metrics
+    
     '''
     #--
     start_time = time.time()
@@ -269,6 +322,30 @@ def vectorizer(embeddings,
 
 #--- Use similar prepare RAG-LLM
 def prepare_rag_llm(token, llm_model, instruct_embeddings, vector_store_list, temperature, max_length, vect_type):
+    '''
+    Prepare the LLM Embedding and Model
+
+    Parameters
+    ----------
+    token (str): HuggingFace token
+    
+        Add to environment using 
+        >> import os
+        >> os.environ['HUGGINGFACEHUB_API_TOKEN']
+        
+    llm_model (str): LLM model name
+    instruct_embeddings (str) Embedding name
+        DESCRIPTION.
+    vector_store_list (str): vector store
+    temperature (sr): Temperature
+    max_length (str): Maximum token size
+    vect_type (str): vector type (e.g FAISS or Chroma)
+
+    Returns
+    -------
+    retriever_base (retriever_class): rettriver base class
+    llm (LLM class): Main LLm class
+    '''
     #-- Load embeddings instructor
     instructor_embeddings = HuggingFaceInstructEmbeddings(
                                                         model_name = instruct_embeddings, model_kwargs = {"device": device},
@@ -290,6 +367,24 @@ def prepare_rag_llm(token, llm_model, instruct_embeddings, vector_store_list, te
 
 #-- Generating answers
 def generate_answer(question, token):
+    '''
+    Stuff chain response model
+    
+    Parameters
+    ------------
+    question (str): input question
+    token (str): HuggingFace token
+    
+        Add to environment using 
+        >> import os
+        >> os.environ['HUGGINGFACEHUB_API_TOKEN']
+        
+    Returns
+    ------
+    answer (str): answer
+    doc_source (list): Ranked document source
+    metric (dict): eveluation metrics
+    '''
     #-- answer 
     answer = "An error has occured"
     #-- timer..
