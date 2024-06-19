@@ -30,7 +30,9 @@ help_ = { # help suggestions...
                         ' size of the embedding space. The default is set to 500.',
         'vector_type': 'Slect desired vector types',
         'pipeline': 'Select the desired pipeline. Default is without Chain of Thought (COT)',
-        'template': 'Select a template style of choice. Default is a simple template.'
+        'template': 'Select a template style of choice. Default is a simple template.',
+        'reranker': 'Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,' + '\n'+
+                    'The other is the Flash reranker, which uses a Cross-Encoder for reranking.'
                         }
 
 #data_path = '/workspace/Ragger/ragger/Data' # for the cluster
@@ -243,7 +245,12 @@ with st.expander('Document Embedding'):
                     st.error('Unknown document format..' + '\n' + \
                              'Check if the uploaded file is .pdf or .txt"')
 
-            
+#%% Metrics and reranking
+
+st.sidebar.image(join(img_path, 'Dtgy.png'), width = 78, use_column_width = False)
+reranker = st.sidebar.selectbox('Reranker', ['RRF', 'FlashReranker'],
+                                help = help_['reranker'])
+           
 #%% App main functions...chatbot
 
 # theme()
@@ -372,8 +379,6 @@ for message in st.session_state.history:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-#-- Define sidebar
-st.sidebar.image(join(img_path, 'Dtgy.png'), width = 78, use_column_width = False)
 
 #-- init mettrics
 fl, la, co, re, hhem, adv_hhem = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -392,7 +397,10 @@ if question := st.chat_input("Ask a question"):
         answer, doc_source, metrics_ = rag_functions.generate_answer(question, token)
     elif pipeline_.lower() == 'cot':
         retriever_base = retriever_base.as_retriever(search_kwargs = {"k" : 2})
-        answer, doc_source, metrics_ = rag_functions.llm_reply(question, bm25_retriever, llm, retriever_base, template_opt, template_input)
+        if reranker.lower() == 'rrf':
+            answer, doc_source, metrics_ = rag_functions.llm_reply(question, bm25_retriever, llm, retriever_base, template_opt, template_input)
+        elif reranker.lower() == 'flashreranker':
+            answer, doc_source, metrics_ = rag_functions.emsembleFlashreranker(question, bm25_retriever, llm, retriever_base, template_opt, template_input)
     else:
         ValueError(f'Unknown pipeline type {pipeline_}\n\
                    Please check that pipeline is of types in the list: ["Default", "CoT", "AsynCoT"]')
