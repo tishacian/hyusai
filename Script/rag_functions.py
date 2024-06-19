@@ -87,7 +87,7 @@ def split_doc(document, chunk_size, chunk_overlap):
     return split
 
 #--- Embedding storing...
-def embedding_storing(model_name, split, create_new_vs, existing_vector_store, vectorization_type: str = ''):
+def embedding_storing(model_name, split, create_new_vs, existing_vector_store, new_vs_name, vectorization_type: str = ''):
     '''
     Embedding stroe
 
@@ -97,7 +97,7 @@ def embedding_storing(model_name, split, create_new_vs, existing_vector_store, v
     split (<Document>): Document chunks
     create_new_vs (str): flag to create new vector store
     existing_vector_store (str): Flag to skip creating VD if existing
-    new_vs_name (str): Ne vector store
+    new_vs_name (str): New vector store
     vectorization_type (str): vectorization type
 
     Raises
@@ -116,26 +116,16 @@ def embedding_storing(model_name, split, create_new_vs, existing_vector_store, v
                                                             # trust_remote_code = True,
                                                         )
 
-        # Implement embeddings
-        # db = FAISS.from_documents(split, instructor_embeddings)
-        
-        if vectorization_type.lower() == 'chroma':
-            retriever_base = Chroma.from_documents(split,
-                                                  instructor_embeddings,
-                                                  persist_directory = f'vector store/Chr_{existing_vector_store}')
-            
-        elif vectorization_type.lower() == 'faiss':
-            retriever_base = FAISS.from_documents(split, embedding = instructor_embeddings)
-            retriever_base.save_local(f'vector store/FAIS_{existing_vector_store}')
-        else:
-            raise ValueError(f'Unknown vector database {vectorization_type}')
-            
         if create_new_vs == True:
             # Save db
             if vectorization_type.lower() == 'chroma':
+                retriever_base = Chroma.from_documents(split,
+                                                      instructor_embeddings,
+                                                      persist_directory = f'vector store/Chr_{new_vs_name}')
                 st.write('Chroma DB already saved')
             elif vectorization_type.lower() == 'faiss':
-                retriever_base.save_local(f'vector store/FAIS_{existing_vector_store}')
+                retriever_base = FAISS.from_documents(split, embedding = instructor_embeddings)
+                retriever_base.save_local(f'vector store/FAIS_{new_vs_name}')
                 st.write('Created and saved FAISS DB')
         else:
             # Load existing db
@@ -147,7 +137,7 @@ def embedding_storing(model_name, split, create_new_vs, existing_vector_store, v
                 ld_retriever_base.save_local(f'vector store/Chr_{existing_vector_store}')
             elif vectorization_type.lower() == 'faiss': 
                 ld_retriever_base = FAISS.load_local(
-                                            "vector store/" + existing_vector_store,
+                                            "vector store/" + new_vs_name,
                                             instructor_embeddings,
                                             allow_dangerous_deserialization=True
                                         )
@@ -304,7 +294,18 @@ def emsembleFlashreranker(question, bm25_retriever, llm_model, retriever, templa
         - Ultra-lite and fast. No Torch or Transformers needed.
         - Rerank speed is a function of # of tokens in passages, query + model depth (layers).
     
-    
+        Model card
+        ----------
+        ->[1] ms-marco-TinyBERT-L-2-v2 (default) Model card
+        ->[2] ms-marco-MiniLM-L-12-v2 Model card
+        ->[3] rank-T5-flan (Best non cross-encoder reranker) Model card
+        ->[4] ms-marco-MultiBERT-L-12 (Multi-lingual, supports 100+ languages)
+        ->[5] ce-esci-MiniLM-L12-v2 FT on Amazon ESCI dataset (This is interesting because most models are FT on MSFT MARCO Bing queries) Model card
+        ->[6] rank_zephyr_7b_v1_full (4-bit-quantised GGUF) Model card (Offers very competitive performance, with large context window and relatively faster for a 4GB model).
+                Important note: Our current integration of rank_zephyr supports a max of 20 passages in one pass. The sliding window logic support is yet to be added.
+
+        source: https://github.com/PrithivirajDamodaran/FlashRank?tab=readme-ov-file
+        
     References
     ----------
     Orginal paper, Reciprocal Rank Fusion Algorithm: https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf
@@ -338,7 +339,7 @@ def emsembleFlashreranker(question, bm25_retriever, llm_model, retriever, templa
                                             retrievers = [bm25_retriever, retriever], weights = [0.4, 0.6]
                                         )
     
-    model_name = "ms-marco-MiniLM-L-12-v2" #example Cros-Encoder model
+    model_name = "ms-marco-MiniLM-L-12-v2" #example Cross-Encoder model
     flashrank_client = Ranker(model_name=model_name)
     
     compressor = FlashrankRerank(client = flashrank_client,

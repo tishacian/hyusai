@@ -202,9 +202,12 @@ with st.expander('Document Embedding'):
                     st.error("Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'")
                 
                 # Embeddings and storing
-                rag_functions.embedding_storing(
-                    instruct_embeddings, split, create_new_vs, existing_vector_store, new_vs_name
-                )
+                rag_functions.embedding_storing(instruct_embeddings,
+                                                split,
+                                                create_new_vs,
+                                                existing_vector_store,
+                                                new_vs_name
+                                                )
         elif pipeline_a.lower() == 'cot':
             if save_button:
                 # Read the uploaded file
