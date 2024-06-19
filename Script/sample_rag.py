@@ -1,7 +1,7 @@
-import streamlit as st
 import os
-import rag_functions
 
+import rag_functions
+import streamlit as st
 
 st.title("Customized RAG Chatbot")
 
@@ -14,29 +14,35 @@ with st.expander("Setting the LLM"):
     with st.form("setting"):
         row_1 = st.columns(3)
         with row_1[0]:
-            token = st.text_input("Hugging Face Token", type = "password", value = "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")
+            token = st.text_input(
+                "Hugging Face Token",
+                type="password",
+                value="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",
+            )
 
         with row_1[1]:
-            llm_model = st.text_input("LLM model", value = llm_name)
+            llm_model = st.text_input("LLM model", value=llm_name)
 
         with row_1[2]:
-            instruct_embeddings = st.text_input("Instruct Embeddings", value = embd_name)
+            instruct_embeddings = st.text_input("Instruct Embeddings", value=embd_name)
 
         row_2 = st.columns(3)
         with row_2[0]:
             vector_store_list = os.listdir("vector store/")
             default_choice = (
-                vector_store_list.index('naruto_snake')
-                if 'naruto_snake' in vector_store_list
+                vector_store_list.index("naruto_snake")
+                if "naruto_snake" in vector_store_list
                 else 0
             )
-            existing_vector_store = st.selectbox("Vector Store", vector_store_list, default_choice)
-        
+            existing_vector_store = st.selectbox(
+                "Vector Store", vector_store_list, default_choice
+            )
+
         with row_2[1]:
-            temperature = st.number_input("Temperature", value = 1.0, step = 0.1)
+            temperature = st.number_input("Temperature", value=1.0, step=0.1)
 
         with row_2[2]:
-            max_length = st.number_input("Maximum character length", value = 300, step = 1)
+            max_length = st.number_input("Maximum character length", value=300, step=1)
 
         create_chatbot = st.form_submit_button("Create chatbot")
 
@@ -47,8 +53,13 @@ if "conversation" not in st.session_state:
 
 if token:
     st.session_state.conversation = rag_functions.prepare_rag_llm(
-                                        token, llm_model, instruct_embeddings, existing_vector_store, temperature, max_length
-                                    )
+        token,
+        llm_model,
+        instruct_embeddings,
+        existing_vector_store,
+        temperature,
+        max_length,
+    )
 
 # Chat history
 if "history" not in st.session_state:
@@ -79,7 +90,9 @@ if question := st.chat_input("Ask a question"):
     st.session_state.history.append({"role": "assistant", "content": answer})
 
     # Append the document sources
-    st.session_state.source.append({"question": question, "answer": answer, "document": doc_source})
+    st.session_state.source.append(
+        {"question": question, "answer": answer, "document": doc_source}
+    )
 
 
 # Source documents
