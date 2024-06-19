@@ -6,7 +6,8 @@ from langchain.document_loaders import TextLoader, PyPDFLoader
 from pypdf import PdfReader
 from langchain import HuggingFaceHub
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import HuggingFaceInstructEmbeddings
+from langchain.embeddings import HuggingFaceInstructEmbeddings, CacheBackedEmbeddings
+from langchain.storage import LocalFileStore
 from langchain.vectorstores import FAISS, Chroma
 from rag_metrics import (fluency,
                           coherence,
@@ -25,7 +26,7 @@ from sentence_transformers import SentenceTransformer, util
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
 
 from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 
 from langchain_core.output_parsers import StrOutputParser
@@ -33,14 +34,17 @@ from langchain_core.output_parsers import StrOutputParser
 #-- extras from github...
 
 from langchain.chains.prompt_selector import ConditionalPromptSelector, is_chat_model
-from langchain.prompts import PromptTemplate
 from langchain.prompts.chat import (
                                     ChatPromptTemplate,
                                     HumanMessagePromptTemplate,
                                     SystemMessagePromptTemplate,
                                 )
 
-#--
+#-- For FlashReranker
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import FlashrankRerank
+from flashrank import Ranker
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -181,7 +185,7 @@ def llm_reply(question, bm25_retriever, llm_model, retriever, template_opt, temp
     strengths are complementary.
     
     The sparse retriever is good at finding relevant documents based on keywords, while the dense retriever (e.g FAISS)
-    is good at finding relevant documents based on semantic similarity.
+    is good at finding relevant documents based on semantic similarity (Hybrid search =  keyword search + Semantic search).
     
     Parameters
     ----------
@@ -260,14 +264,11 @@ def llm_reply(question, bm25_retriever, llm_model, retriever, template_opt, temp
                                         ).assign(answer = rag_chain_from_docs)
     #-- 
     ans_datategy = rag_chain_with_source.invoke(question)
-    # answer =  ans_datategy['answer'] #does not return anwser: In fact, simply returns the template with the context
-    # print('this is the answer: ', answer)
     
     #-- Document source
     doc_source = [doc.page_content for doc in ans_datategy['context']] # returns the source documents...
     answer = doc_source[0]
     end_time = time.time()
-    # print('Here is the context: ', doc_source) 
     #-- Evaluation metrics
     fluency_ = fluency(answer, tokenizer, model)
     latency_ = latency(start_time, end_time)
@@ -289,6 +290,92 @@ def llm_reply(question, bm25_retriever, llm_model, retriever, template_opt, temp
     #--
     return answer, doc_source, metric
     
+#-- LLM reply module...
+def emsembleFlashreranker(question, bm25_retriever, llm_model, retriever, template_opt, template_input):
+    '''
+    Using Emsemble retriever w/ Flash Reranker
+    ------------------------------------
+    The EnsembleRetriever algorithm combines the results of multiple retrievers and reranks them 
+    using the Reciprocal ```Reciprocal Rank Fusion algorithm``` (RRF). However, instead of using the RFA Algorithm,
+    we opt for the FlashReranking algorithm.
+    
+
+    FlashReranker is a zero-shot cross-encoder reranking algorithm.
+        - Ultra-lite and fast. No Torch or Transformers needed.
+        - Rerank speed is a function of # of tokens in passages, query + model depth (layers).
+    
+    
+    References
+    ----------
+    Orginal paper, Reciprocal Rank Fusion Algorithm: https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf
+    Flash Reranker: https://github.com/PrithivirajDamodaran/FlashRank
+        
+    Parameters
+    ----------
+    token (str): HuggingFace token
+    
+        Add to environment using 
+        >> import os
+        >> os.environ['HUGGINGFACEHUB_API_TOKEN'] = 'api-key'
+        
+    bm25_retriever (BM25 retriever class): BM25 retriever class
+    llm_model (llm_model class): LLM model class
+    retriever (Dense retriever class): Dense retriever class
+    template_opt (str): template options
+    template_input (str): Custom template input
+    
+    Returns
+    ------
+    answer (str): answer
+    doc_source (list): Ranked document source
+    metric (dict): eveluation metrics
+    
+    '''
+    #--
+    start_time = time.time()
+    bm25_retriever.k = 2
+    ensemble_retriever = EnsembleRetriever(
+                                            retrievers = [bm25_retriever, retriever], weights = [0.4, 0.6]
+                                        )
+    
+    model_name = "ms-marco-MiniLM-L-12-v2" #example Cros-Encoder model
+    flashrank_client = Ranker(model_name=model_name)
+    
+    compressor = FlashrankRerank(client = flashrank_client,
+                                 top_n = 3,
+                                 model = model_name
+                                 )
+    compression_retriever = ContextualCompressionRetriever(base_compressor = compressor,
+                                                           base_retriever = ensemble_retriever
+                                                        )
+    compressed_docs = compression_retriever.invoke(question)
+    #-- Document source
+    doc_source = [doc.page_content for doc in compressed_docs] # returns the source documents...
+    # To use later (document_relevance) as context relevance --> Depending on the reranking model used ```model_name```...
+    document_relevance  = [doc.metadata['relevance_score'] for doc in compressed_docs]
+    answer = doc_source[0]
+    end_time = time.time()
+    #-- Evaluation metrics
+    fluency_ = fluency(answer, tokenizer, model)
+    latency_ = latency(start_time, end_time)
+    coherence_ = coherence(answer, embedding_model)
+    relevance_ = relevance(question, answer, embedding_model)
+    factuality_ = factuality(answer, doc_source, nli_model)
+    consistency_ = consistency(answer, doc_source, embedding_model)
+    hhem_ = HHEM(answer, doc_source, nli_model, embedding_model)
+    #-- Evaluation metrics for the LLM replies...
+    metric = {'fluency': fluency_,
+              'latency': latency_,
+              'coherence': coherence_,
+              'relevance': relevance_,
+              'factuality': factuality_,
+              'hhem': hhem_,
+              'consistency': consistency_
+              }
+    
+    #--
+    return answer, doc_source, metric
+
 
 #--- Base retriever store...
 def vectorizer(embeddings,
