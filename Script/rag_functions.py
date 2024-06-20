@@ -8,8 +8,7 @@ from langchain import HuggingFaceHub
 from langchain.document_loaders import PyPDFLoader
 from langchain.embeddings import HuggingFaceInstructEmbeddings
 from langchain.prompts import PromptTemplate
-
-# -- For FlashReranker
+from transformers import AutoTokenizer, GPT2LMHeadModel, GPT2Tokenizer, pipeline
 # --
 from langchain.retrievers import ContextualCompressionRetriever, EnsembleRetriever
 from langchain.retrievers.document_compressors import FlashrankRerank
@@ -18,34 +17,18 @@ from langchain.vectorstores import FAISS, Chroma
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from pypdf import PdfReader
-from rag_metrics import (
-    HHEM,
-    coherence,
-    consistency,
-    factuality,
-    fluency,
-    latency,
-    relevance,
-)
-from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, GPT2LMHeadModel, GPT2Tokenizer, pipeline
-
-# -- extras from github...
-
+# from rag_metrics import (
+#     HHEM,
+#     coherence,
+#     consistency,
+#     factuality,
+#     fluency,
+#     latency,
+#     relevance,
+# )
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# %% Starter...init
-
-# -- for computing fleuncy
-model_name = "gpt2"
-model = GPT2LMHeadModel.from_pretrained(model_name)
-tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-qa_model = pipeline("text2text-generation", model="facebook/bart-large-cnn")
-embedding_model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
-nli_model = pipeline(
-    "text-classification", model="facebook/bart-large-mnli"
-)  # to compute factuality
 
 # %%
 
@@ -213,8 +196,6 @@ def llm_reply(
 
     """
     # --
-    start_time = time.time()
-    # retriever = Vec.as_retriever(search_kwargs={"k": 2})
     bm25_retriever.k = 2
     ensemble_retriever = EnsembleRetriever(
         retrievers=[bm25_retriever, retriever], weights=[0.5, 0.5]
@@ -276,29 +257,7 @@ def llm_reply(
         doc.page_content for doc in ans_datategy["context"]
     ]  # returns the source documents...
     answer = doc_source[0]
-    end_time = time.time()
-    # -- Evaluation metrics
-    fluency_ = fluency(answer, tokenizer, model)
-    latency_ = latency(start_time, end_time)
-    coherence_ = coherence(answer, embedding_model)
-    relevance_ = relevance(question, answer, embedding_model)
-    factuality_ = factuality(answer, doc_source, nli_model)
-    consistency_ = consistency(answer, doc_source, embedding_model)
-    hhem_ = HHEM(answer, doc_source, nli_model, embedding_model)
-    # -- Evaluation metrics for the LLM replies...
-    metric = {
-        "fluency": fluency_,
-        "latency": latency_,
-        "coherence": coherence_,
-        "relevance": relevance_,
-        "factuality": factuality_,
-        "hhem": hhem_,
-        "consistency": consistency_,
-    }
-
-    # --
-    return answer, doc_source, metric
-
+    return answer, doc_source
 
 # -- LLM reply module...
 def emsembleFlashreranker(
@@ -355,7 +314,6 @@ def emsembleFlashreranker(
 
     """
     # --
-    start_time = time.time()
     bm25_retriever.k = 2
     ensemble_retriever = EnsembleRetriever(
         retrievers=[bm25_retriever, retriever], weights=[0.4, 0.6]
@@ -376,28 +334,8 @@ def emsembleFlashreranker(
     # To use later (document_relevance) as context relevance --> Depending on the reranking model used ```model_name```...
     document_relevance = [doc.metadata["relevance_score"] for doc in compressed_docs]
     answer = doc_source[0]
-    end_time = time.time()
-    # -- Evaluation metrics
-    fluency_ = fluency(answer, tokenizer, model)
-    latency_ = latency(start_time, end_time)
-    coherence_ = coherence(answer, embedding_model)
-    relevance_ = relevance(question, answer, embedding_model)
-    factuality_ = factuality(answer, doc_source, nli_model)
-    consistency_ = consistency(answer, doc_source, embedding_model)
-    hhem_ = HHEM(answer, doc_source, nli_model, embedding_model)
-    # -- Evaluation metrics for the LLM replies...
-    metric = {
-        "fluency": fluency_,
-        "latency": latency_,
-        "coherence": coherence_,
-        "relevance": relevance_,
-        "factuality": factuality_,
-        "hhem": hhem_,
-        "consistency": consistency_,
-    }
-
     # --
-    return answer, doc_source, metric
+    return answer, doc_source
 
 
 # --- Base retriever store...
@@ -510,7 +448,6 @@ def generate_answer(question, token):
     # -- answer
     answer = "An error has occured"
     # -- timer..
-    start_time = time.time()
     if token == "":
         answer = "Insert the Hugging Face token"
         doc_source = ["no source"]
@@ -519,25 +456,8 @@ def generate_answer(question, token):
         answer = response.get("answer").split("Helpful Answer:")[-1].strip()
         explanation = response.get("source_documents", [])
         doc_source = [d.page_content for d in explanation]
-    end_time = time.time()
-
-    fluency_ = fluency(answer, tokenizer, model)
-    latency_ = latency(start_time, end_time)
-    coherence_ = coherence(answer, embedding_model)
-    relevance_ = relevance(question, answer, embedding_model)
-    factuality_ = factuality(answer, doc_source, nli_model)
-    consistency_ = consistency(answer, doc_source, embedding_model)
-    hhem_ = HHEM(answer, doc_source, nli_model, embedding_model)
-    metric = {
-        "fluency": fluency_,
-        "latency": latency_,
-        "coherence": coherence_,
-        "relevance": relevance_,
-        "factuality": factuality_,
-        "hhem": hhem_,
-        "consistency": consistency_,
-    }
-    return answer, doc_source, metric
+    # -- 
+    return answer, doc_source
 
 
 # %%
