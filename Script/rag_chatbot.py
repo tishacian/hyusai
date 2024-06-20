@@ -12,8 +12,11 @@ import toml
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.retrievers import BM25Retriever
-
+from rag_metrics import (Evaluatrix, model_evaluator,
+                        tokenizer, qa_model, embedding_model,
+                        nli_model)
 # ---
+
 st.title("Customized RAG Agent")
 
 help_ = {  # help suggestions...
@@ -73,8 +76,9 @@ llm_name = [
     "MBZUAI/LaMini-Flan-T5-783M",
 ]
 vector_types = ["FAISS", "Chroma", "Weaviate", "PGVector"]
-pipeline = ["Default", "COT", "AsynCOT"]
+pipeline_rag = ["Default", "COT", "AsynCOT"]
 templates = ["Default", "Custom"]
+
 
 # %% import streamlit as st
 
@@ -208,10 +212,9 @@ with st.expander("Document Embedding"):
         row_ce = st.columns(3)
 
         with row_ce[2]:
-            default_pipeline = pipeline.index(pipeline[1])
-
+            default_pipeline = pipeline_rag.index(pipeline_rag[1]) #set defaullt pipeline
             pipeline_a = st.selectbox(
-                "Pipeline", pipeline, default_pipeline, help=help_["pipeline"]
+                "Pipeline", pipeline_rag, default_pipeline, help=help_["pipeline"]
             )
 
         save_button = st.form_submit_button("Save vector store")
@@ -379,7 +382,7 @@ with st.expander("LLM Settings"):
             )
 
         with row_c[1]:
-            pipeline_ = st.selectbox("Pipeline", pipeline, help=help_["pipeline"])
+            pipeline_ = st.selectbox("Pipeline", pipeline_rag, help=help_["pipeline"])
 
         with row_c[2]:
             template_opt = st.selectbox(
@@ -479,11 +482,21 @@ if question := st.chat_input("Ask a question"):
 
     # Answer the question
     if pipeline_.lower() == "default":
-        answer, doc_source, metrics_ = rag_functions.generate_answer(question, token)
+        start_time = time.time()
+        answer, doc_source = rag_functions.generate_answer(question, token)
+        metrics_ = Evaluatrix(answer,
+                              tokenizer,
+                              model_evaluator,
+                              embedding_model,
+                              nli_model, qa_model,
+                              doc_source,
+                              question,
+                              start_time)
     elif pipeline_.lower() == "cot":
         retriever_base = retriever_base.as_retriever(search_kwargs={"k": 2})
         if reranker.lower() == "rrf":
-            answer, doc_source, metrics_ = rag_functions.llm_reply(
+            start_time = time.time()
+            answer, doc_source = rag_functions.llm_reply(
                 question,
                 bm25_retriever,
                 llm,
@@ -491,8 +504,17 @@ if question := st.chat_input("Ask a question"):
                 template_opt,
                 template_input,
             )
+            metrics_ = Evaluatrix(answer,
+                                  tokenizer,
+                                  model_evaluator,
+                                  embedding_model,
+                                  nli_model, qa_model,
+                                  doc_source,
+                                  question,
+                                  start_time)
         elif reranker.lower() == "flashreranker":
-            answer, doc_source, metrics_ = rag_functions.emsembleFlashreranker(
+            start_time = time.time()
+            answer, doc_source = rag_functions.emsembleFlashreranker(
                 question,
                 bm25_retriever,
                 llm,
@@ -500,6 +522,14 @@ if question := st.chat_input("Ask a question"):
                 template_opt,
                 template_input,
             )
+            metrics_ = Evaluatrix(answer,
+                                  tokenizer,
+                                  model_evaluator,
+                                  embedding_model,
+                                  nli_model, qa_model,
+                                  doc_source,
+                                  question,
+                                  start_time)
     else:
         ValueError(
             f'Unknown pipeline type {pipeline_}\n\
