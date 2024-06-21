@@ -17,15 +17,7 @@ from langchain.vectorstores import FAISS, Chroma
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from pypdf import PdfReader
-# from rag_metrics import (
-#     HHEM,
-#     coherence,
-#     consistency,
-#     factuality,
-#     fluency,
-#     latency,
-#     relevance,
-# )
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
