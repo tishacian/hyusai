@@ -364,7 +364,7 @@ with st.expander("LLM Settings"):
 
         with row_b[1]:
             temperature = st.number_input(
-                "Temperature", value=0.0, step=0.1, help=help_["Temperature"]
+                "Temperature", value=0.1, step=0.1, help=help_["Temperature"]
             )
 
         with row_b[2]:
