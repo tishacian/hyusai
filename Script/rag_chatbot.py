@@ -364,7 +364,7 @@ with st.expander("LLM Settings"):
 
         with row_b[1]:
             temperature = st.number_input(
-                "Temperature", value=0.9, step=0.1, help=help_["Temperature"]
+                "Temperature", value=0.0, step=0.1, help=help_["Temperature"]
             )
 
         with row_b[2]:
@@ -557,16 +557,16 @@ if question := st.chat_input("Ask a question"):
 # -- Eval metrics w/ Latency
 st.sidebar.title("$Metrics$")
 st.sidebar.markdown("Metrics I")
-st.sidebar.text(f"Fluency: {fl:.2f}")
-st.sidebar.text(f"Coherence: {co:.2f}")
-st.sidebar.text(f"Relevance: {re:.2f}")
-st.sidebar.text(f"Latency: {la:.2f} secs")
+st.sidebar.markdown(f"Fluency: :green[{fl:.2f}]" if fl >=0.50 else f"Fluency: :red[{fl:.2f}]")
+st.sidebar.markdown(f"Coherence: :green[{co:.2f}]" if co >=0.50 else f"Fluency: :red[{co:.2f}]")
+st.sidebar.markdown(f"Relevance: :green[{re:.2f}]" if re >=0.50 else f"Relevance: :red[{re:.2f}]")
+st.sidebar.markdown(f"Latency: :grey[{la:.2f}] secs")
 
 # -- Hallucination metrics
 st.sidebar.markdown("Metrics II")
-st.sidebar.text(f"Factuality: {fac:.2f}")
-st.sidebar.text(f"Consistency: {cons:.2f}")
-st.sidebar.text(f"Hallucination: {hall:.2f}")
+st.sidebar.markdown(f"Factuality: :green[{fac:.2f}]" if fac >=0.50 else f"Factuality: :red[{fac:.2f}]")
+st.sidebar.markdown(f"Consistency: :green[{cons:.2f}]" if cons >=0.50 else f"Consistency: :red[{cons:.2f}]")
+st.sidebar.markdown(f"Hallucination: :green[{hall:.2f}]" if hall <=0.50 else f"Hallucination: :red[{hall:.2f}]")
 # st.sidebar.text(f'Adv-HHEM: {adv_hhem}')
 
 
