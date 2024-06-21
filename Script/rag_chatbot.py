@@ -45,8 +45,8 @@ help_ = {  # help suggestions...
 }
 
 # data_path = '/workspace/Ragger/ragger/Data' # for the cluster
-data_path = "/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data"
-img_path = "/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/image"
+data_path = "./Data"
+img_path = "./image"
 
 # Add supplmentary embedding models..
 supplement = [
@@ -191,7 +191,7 @@ with st.expander("Document Embedding"):
         row_be = st.columns(2)
         with row_be[0]:
             # List the existing vector stores
-            vector_store_list = os.listdir("vector store/")
+            vector_store_list = os.listdir("./Script/vector store/")
             vector_store_list = ["<New>"] + vector_store_list
 
             existing_vector_store = st.selectbox(
@@ -349,9 +349,11 @@ with st.expander("LLM Settings"):
 
         row_b = st.columns(3)
         with row_b[0]:
-            vector_store_list = os.listdir("vector store/")
+            vector_store_list = os.listdir("./Script/vector store/")
             vector_store_list = [
-                vect for vect in os.listdir("vector store/") if not vect.startswith(".")
+                vect
+                for vect in os.listdir("./Script/vector store/")
+                if not vect.startswith(".")
             ]
             vector_store_list.sort(key=lambda x: x.upper()[0])
             default_choice = vector_store_list.index(vector_store_list[0])

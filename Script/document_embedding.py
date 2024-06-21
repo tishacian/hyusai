@@ -44,7 +44,7 @@ with st.form("document_input"):
     row_2 = st.columns(2)
     with row_2[0]:
         # List the existing vector stores
-        vector_store_list = os.listdir("vector store/")
+        vector_store_list = os.listdir("./Script/vector store/")
         vector_store_list = ["<New>"] + vector_store_list
 
         existing_vector_store = st.selectbox(

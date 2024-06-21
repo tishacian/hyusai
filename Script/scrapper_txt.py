@@ -16,7 +16,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-data_path = "/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data"
+data_path = "./Data"
 
 # %% Download domain names from wiki tables
 
@@ -178,7 +178,7 @@ import tika
 tika.initVM()
 from tika import parser  # extract text from pdf
 
-pdf_path = "/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs"
+pdf_path = "./Data/pdfs"
 
 
 def method_scrap_all(path, filename: str = None):
@@ -265,7 +265,7 @@ for i, j in enumerate((parts)):
 
 # %% Extract the codes..
 
-save_env_codes_txt = "/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs/environmental_codes_fr"
+save_env_codes_txt = "./Data/pdfs/environmental_codes_fr"
 
 with open(join(pdf_path, "extracted_text.txt"), "r+") as text_file:
     text_file_r = text_file.read()
@@ -392,7 +392,7 @@ def translatee(
 
 # %% Begin translation..
 
-save_translated_art = "/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs/environmental_codes_en_all"
+save_translated_art = "./Data/pdfs/environmental_codes_en_all"
 # maximum token size for Google translate is 3900, we use 3500 to avoid unnecessary errors
 translated_articles = translatee(
     articles,
@@ -406,9 +406,7 @@ translated_articles = translatee(
 
 # %% Combine all translated codes in one code-book
 
-save_all_translated_codes = (
-    "/Users/kennethezukwoke/Documents/Datategy/Kenneth/ragger/Data/pdfs"
-)
+save_all_translated_codes = "./Data/pdfs"
 translated_articles_joined = "\n".join(translated_articles)
 with open(
     join(save_all_translated_codes, "environmental_code_en.txt"), "w"

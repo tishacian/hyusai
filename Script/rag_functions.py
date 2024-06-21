@@ -96,37 +96,37 @@ def embedding_storing(
                 retriever_base = Chroma.from_documents(
                     split,
                     instructor_embeddings,
-                    persist_directory=f"vector store/Chr_{new_vs_name}",
+                    persist_directory=f"./Script/vector store/Chr_{new_vs_name}",
                 )
                 st.write("Chroma DB already saved")
             elif vectorization_type.lower() == "faiss":
                 retriever_base = FAISS.from_documents(
                     split, embedding=instructor_embeddings
                 )
-                retriever_base.save_local(f"vector store/FAIS_{new_vs_name}")
+                retriever_base.save_local(f"./Script/vector store/FAIS_{new_vs_name}")
                 st.write("Created and saved FAISS DB")
         else:
             # Load existing db
             if vectorization_type.lower() == "chroma":
                 ld_retriever_base = Chroma(
-                    persist_directory=f"vector store/Chr_{existing_vector_store}",
+                    persist_directory=f"./Script/vector store/Chr_{existing_vector_store}",
                     embedding_function=instructor_embeddings,
                 )
                 # Merge two DBs and save
                 ld_retriever_base.merge_from(retriever_base)
                 ld_retriever_base.save_local(
-                    f"vector store/Chr_{existing_vector_store}"
+                    f"./Script/vector store/Chr_{existing_vector_store}"
                 )
             elif vectorization_type.lower() == "faiss":
                 ld_retriever_base = FAISS.load_local(
-                    "vector store/" + new_vs_name,
+                    "./Script/vector store/" + new_vs_name,
                     instructor_embeddings,
                     allow_dangerous_deserialization=True,
                 )
                 # Merge two DBs and save
                 ld_retriever_base.merge_from(retriever_base)
                 ld_retriever_base.save_local(
-                    f"vector store/FAIS_{existing_vector_store}"
+                    f"./Script/vector store/FAIS_{existing_vector_store}"
                 )
 
         st.success("The document has been saved.")
@@ -335,9 +335,9 @@ def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
 
     # --- initialize vector DB
     if vectorization_type.lower() == "chroma":
-        if os.path.exists(f"vector store/{vector_store_list}"):
+        if os.path.exists(f"./Script/vector store/{vector_store_list}"):
             retriever_base = Chroma(
-                persist_directory=f"vector store/{vector_store_list}",
+                persist_directory=f"./Script/vector store/{vector_store_list}",
                 embedding_function=embeddings,
             )
             st.success("Chroma vector DB loaded...")
@@ -345,9 +345,9 @@ def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
             st.error("Chroma vector DB [NOT] loaded...")
     # --
     if vectorization_type.lower() == "faiss":
-        if os.path.exists(f"vector store/{vector_store_list}"):
+        if os.path.exists(f"./Script/vector store/{vector_store_list}"):
             retriever_base = FAISS.load_local(
-                f"vector store/{vector_store_list}",
+                f"./Script/vector store/{vector_store_list}",
                 embeddings,
                 allow_dangerous_deserialization=True,
             )

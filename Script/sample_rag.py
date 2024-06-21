@@ -28,7 +28,7 @@ with st.expander("Setting the LLM"):
 
         row_2 = st.columns(3)
         with row_2[0]:
-            vector_store_list = os.listdir("vector store/")
+            vector_store_list = os.listdir("./Script/vector store/")
             default_choice = (
                 vector_store_list.index("naruto_snake")
                 if "naruto_snake" in vector_store_list
