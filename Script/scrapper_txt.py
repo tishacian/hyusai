@@ -5,18 +5,16 @@ Created on Wed May 15 11:21:38 2024
 
 @author: kennethezukwoke
 """
-import os
 import re
 from itertools import chain
-from os.path import join
+from os import makedirs
 from urllib.parse import urljoin
 
 import numpy as np
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-
-data_path = "./Data"
+from global_variables import DATA_PATH
 
 # %% Download domain names from wiki tables
 
@@ -72,7 +70,7 @@ def download_pdf(url, folder_path):
     soup = BeautifulSoup(response.text, "html.parser")
     for link in soup.select("a[href$='.pdf']"):
         # Name the pdf files using the last portion of each link which are unique in this case
-        filename = os.path.join(folder_path, link["href"].split("/")[-1])
+        filename = folder_path / link["href"].split("/")[-1]
         if "environnement" in filename:
             with open(filename, "wb") as f:
                 f.write(requests.get(urljoin(url, link["href"])).content)
@@ -111,12 +109,12 @@ def scrapper_url(url, http, main_com, pdf=False):
         if link not in visited_links:
             visited_links.add(link)
             if pdf:
-                download_pdf(link, join(data_path, "pdfs"))
+                download_pdf(link, DATA_PATH / "pdfs")
             else:
                 text = extract_data_from_site(link)
                 if text:
                     with open(
-                        join(data_path, f"{main_com[0]}.txt"), "a", encoding="utf-8"
+                        DATA_PATH / f"{main_com[0]}.txt", "a", encoding="utf-8"
                     ) as f:
                         f.write(text)
                         f.write("\n\n")
@@ -129,7 +127,7 @@ def scrapper_url(url, http, main_com, pdf=False):
 
 if __name__ == "__main__":
     # website_url = "https://safengy.com/our-skills/environmental-french-regulation/"
-    domain = list(np.load(join(data_path, "url.npy"), allow_pickle=True)) + [
+    domain = list(np.load(DATA_PATH / "url.npy", allow_pickle=True)) + [
         "www",
         "gouv",
         "fr",
@@ -170,30 +168,25 @@ if __name__ == "__main__":
 
 # %% Scrap the pdf --> Save pdf based on codes title L. 101- et al.
 
-import string
-
-import fitz
 import tika
 
 tika.initVM()
 from tika import parser  # extract text from pdf
 
-pdf_path = "./Data/pdfs"
+PDF_PATH = DATA_PATH / "pdfs"
 
 
 def method_scrap_all(path, filename: str = None):
-    assert os.path.exists(path), "File path does not exist"
+    assert path.exists(), "File path does not exist"
     if filename == None:
         return
     if filename.endswith(".pdf"):
         filename = "Code de l'environnement.pdf"
-        filename = filename
-        raw = parser.from_file(join(pdf_path, filename))
+        raw = parser.from_file(path, filename)
         text = raw["content"]
         text = text.replace("\n", " ")
     elif filename.endswith(".txt"):
-        filename = filename
-        with open(join(path, filename), "r+", encoding="utf8") as st:
+        with open(path / filename, "r+", encoding="utf8") as st:
             text = st.read()
         text = text.replace("\n", " ")
     else:
@@ -201,9 +194,9 @@ def method_scrap_all(path, filename: str = None):
     return text
 
 
-text = method_scrap_all(pdf_path, "Code de l'environnement.pdf")
+text = method_scrap_all(PDF_PATH, "Code de l'environnement.pdf")
 
-with open(join(pdf_path, "extracted_text.txt"), "w") as text_file:
+with open(PDF_PATH / "extracted_text.txt", "w") as text_file:
     text_file.write(text)
 
 
@@ -265,9 +258,9 @@ for i, j in enumerate((parts)):
 
 # %% Extract the codes..
 
-save_env_codes_txt = "./Data/pdfs/environmental_codes_fr"
+save_env_codes_txt = PDF_PATH / "environmental_codes_fr"
 
-with open(join(pdf_path, "extracted_text.txt"), "r+") as text_file:
+with open(PDF_PATH / "extracted_text.txt", "r+") as text_file:
     text_file_r = text_file.read()
 
 
@@ -309,12 +302,12 @@ def extractEnvCodes(text, save_dir, save=False):
                 env_codes_ = " ".join([parts[i], parts[i + 1]])
                 articles.append(env_codes_)
         # -- check if directory exists
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
+        if not save_dir.exists():
+            makedirs(save_dir)
         # -- Save env codes
         if save:
             if len(env_codes_) > 0:
-                with open(join(save_dir, f"{i}.txt"), "w") as txt_file:
+                with open(save_dir / f"{i}.txt", "w") as txt_file:
                     txt_file.write(env_codes_)
     return articles
 
@@ -327,8 +320,8 @@ articles = extractEnvCodes(text_file_r, save_env_codes_txt, save=True)
 
 articles = []
 
-for files_ in os.listdir(save_env_codes_txt):
-    with open(join(save_env_codes_txt, f"{files_}"), "r+") as txt_file:
+for files_ in list(save_env_codes_txt.iterdir()):
+    with open(save_env_codes_txt / f"{files_}", "r+") as txt_file:
         articles.append(txt_file.read())
 
 # %% Translate environmental codes from French to English
@@ -379,20 +372,20 @@ def translatee(
         for i in articles
     ]
     # -- check if directory exists
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+    if not save_dir.exists():
+        makedirs(save_dir)
     # -- Save env codes
     if save:
         print(">>> saving... >>>")
         for i, translated_ in enumerate(translated_articles, 1):
-            with open(join(save_dir, f"{i}.txt"), "w") as txt_file:
+            with open(save_dir, f"{i}.txt", "w") as txt_file:
                 txt_file.write(translated_)
     return translated_articles
 
 
 # %% Begin translation..
 
-save_translated_art = "./Data/pdfs/environmental_codes_en_all"
+save_translated_art = PDF_PATH / "environmental_codes_en_all"
 # maximum token size for Google translate is 3900, we use 3500 to avoid unnecessary errors
 translated_articles = translatee(
     articles,
@@ -406,11 +399,8 @@ translated_articles = translatee(
 
 # %% Combine all translated codes in one code-book
 
-save_all_translated_codes = "./Data/pdfs"
 translated_articles_joined = "\n".join(translated_articles)
-with open(
-    join(save_all_translated_codes, "environmental_code_en.txt"), "w"
-) as txt_file:
+with open(PDF_PATH / "environmental_code_en.txt", "w") as txt_file:
     txt_file.write(translated_articles_joined)
 
 # %% scrap hkuNLP for all model names
@@ -452,10 +442,10 @@ model_name_ = hkuNLP(url)
 
 # %% save models from hkuNLP
 
-np.save(join(data_path, "hkuNLP.npy"), model_name_)
+np.save(DATA_PATH / "hkuNLP.npy", model_name_)
 
 # %% load again..
 
-model_name_ = list(np.load(join(data_path, "hkuNLP.npy"), allow_pickle=True))
+model_name_ = list(np.load(DATA_PATH / "hkuNLP.npy", allow_pickle=True))
 
 # %%

@@ -1,20 +1,26 @@
 import io
 import json
-import os
 import time
-from os.path import join
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import rag_functions
 import streamlit as st
 import toml
+from global_variables import DATA_PATH, IMG_PATH, VECTOR_STORE_PATH
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.retrievers import BM25Retriever
-from rag_metrics import (Evaluatrix, model_evaluator,
-                        tokenizer, qa_model, embedding_model,
-                        nli_model)
+from rag_metrics import (
+    Evaluatrix,
+    embedding_model,
+    model_evaluator,
+    nli_model,
+    qa_model,
+    tokenizer,
+)
+
 # ---
 
 st.title("Customized RAG Agent")
@@ -44,9 +50,6 @@ help_ = {  # help suggestions...
     + "The other is the Flash reranker, which uses a Cross-Encoder for reranking.",
 }
 
-# data_path = '/workspace/Ragger/ragger/Data' # for the cluster
-data_path = "./Data"
-img_path = "./image"
 
 # Add supplmentary embedding models..
 supplement = [
@@ -61,7 +64,7 @@ supplement = [
 ]
 
 instruction_embedding = (
-    list(np.load(join(data_path, "hkuNLP.npy"), allow_pickle=True)) + supplement
+    list(np.load(DATA_PATH / "hkuNLP.npy", allow_pickle=True)) + supplement
 )
 # instruction_embedding.sort(key = lambda x: x.upper()[0])
 
@@ -85,11 +88,11 @@ templates = ["Default", "Custom"]
 
 def theme():
     st.sidebar.title("Settings")
-    CONFIG_PATH = "/Users/kennethezukwoke/.streamlit/config.toml"
+    CONFIG_PATH = Path("/Users/kennethezukwoke/.streamlit/config.toml")
 
     # Load the current theme from the config file
     def load_current_theme():
-        if os.path.exists(CONFIG_PATH):
+        if CONFIG_PATH.exists():
             with open(CONFIG_PATH, "r") as configfile:
                 config = toml.load(configfile)
                 return config["theme"]["backgroundColor"] == "black"
@@ -191,7 +194,7 @@ with st.expander("Document Embedding"):
         row_be = st.columns(2)
         with row_be[0]:
             # List the existing vector stores
-            vector_store_list = os.listdir("./Script/vector store/")
+            vector_store_list = list(VECTOR_STORE_PATH.iterdir())
             vector_store_list = ["<New>"] + vector_store_list
 
             existing_vector_store = st.selectbox(
@@ -212,7 +215,9 @@ with st.expander("Document Embedding"):
         row_ce = st.columns(3)
 
         with row_ce[2]:
-            default_pipeline = pipeline_rag.index(pipeline_rag[1]) #set defaullt pipeline
+            default_pipeline = pipeline_rag.index(
+                pipeline_rag[1]
+            )  # set defaullt pipeline
             pipeline_a = st.selectbox(
                 "Pipeline", pipeline_rag, default_pipeline, help=help_["pipeline"]
             )
@@ -313,7 +318,7 @@ with st.expander("Document Embedding"):
 
 # %% Metrics and reranking
 
-st.sidebar.image(join(img_path, "Dtgy.png"), width=78, use_column_width=False)
+st.sidebar.image(str(IMG_PATH / "Dtgy.png"), width=78, use_column_width=False)
 reranker = st.sidebar.selectbox(
     "Reranker", ["RRF", "FlashReranker"], help=help_["reranker"]
 )
@@ -349,13 +354,11 @@ with st.expander("LLM Settings"):
 
         row_b = st.columns(3)
         with row_b[0]:
-            vector_store_list = os.listdir("./Script/vector store/")
+            vector_store_list = list(VECTOR_STORE_PATH.iterdir())
             vector_store_list = [
-                vect
-                for vect in os.listdir("./Script/vector store/")
-                if not vect.startswith(".")
+                file for file in vector_store_list if not file.name.startswith(".")
             ]
-            vector_store_list.sort(key=lambda x: x.upper()[0])
+            vector_store_list.sort(key=lambda x: str(x).upper()[0])
             default_choice = vector_store_list.index(vector_store_list[0])
             existing_vector_store = st.selectbox(
                 "Vector Store",
@@ -486,14 +489,17 @@ if question := st.chat_input("Ask a question"):
     if pipeline_.lower() == "default":
         start_time = time.time()
         answer, doc_source = rag_functions.generate_answer(question, token)
-        metrics_ = Evaluatrix(answer,
-                              tokenizer,
-                              model_evaluator,
-                              embedding_model,
-                              nli_model, qa_model,
-                              doc_source,
-                              question,
-                              start_time)
+        metrics_ = Evaluatrix(
+            answer,
+            tokenizer,
+            model_evaluator,
+            embedding_model,
+            nli_model,
+            qa_model,
+            doc_source,
+            question,
+            start_time,
+        )
     elif pipeline_.lower() == "cot":
         retriever_base = retriever_base.as_retriever(search_kwargs={"k": 2})
         if reranker.lower() == "rrf":
@@ -506,14 +512,17 @@ if question := st.chat_input("Ask a question"):
                 template_opt,
                 template_input,
             )
-            metrics_ = Evaluatrix(answer,
-                                  tokenizer,
-                                  model_evaluator,
-                                  embedding_model,
-                                  nli_model, qa_model,
-                                  doc_source,
-                                  question,
-                                  start_time)
+            metrics_ = Evaluatrix(
+                answer,
+                tokenizer,
+                model_evaluator,
+                embedding_model,
+                nli_model,
+                qa_model,
+                doc_source,
+                question,
+                start_time,
+            )
         elif reranker.lower() == "flashreranker":
             start_time = time.time()
             answer, doc_source = rag_functions.emsembleFlashreranker(
@@ -524,14 +533,17 @@ if question := st.chat_input("Ask a question"):
                 template_opt,
                 template_input,
             )
-            metrics_ = Evaluatrix(answer,
-                                  tokenizer,
-                                  model_evaluator,
-                                  embedding_model,
-                                  nli_model, qa_model,
-                                  doc_source,
-                                  question,
-                                  start_time)
+            metrics_ = Evaluatrix(
+                answer,
+                tokenizer,
+                model_evaluator,
+                embedding_model,
+                nli_model,
+                qa_model,
+                doc_source,
+                question,
+                start_time,
+            )
     else:
         ValueError(
             f'Unknown pipeline type {pipeline_}\n\
@@ -559,16 +571,32 @@ if question := st.chat_input("Ask a question"):
 # -- Eval metrics w/ Latency
 st.sidebar.title("$Metrics$")
 st.sidebar.markdown("Metrics I")
-st.sidebar.markdown(f"Fluency: :green[{fl:.2f}]" if fl >=0.50 else f"Fluency: :red[{fl:.2f}]")
-st.sidebar.markdown(f"Coherence: :green[{co:.2f}]" if co >=0.50 else f"Fluency: :red[{co:.2f}]")
-st.sidebar.markdown(f"Relevance: :green[{re:.2f}]" if re >=0.50 else f"Relevance: :red[{re:.2f}]")
+st.sidebar.markdown(
+    f"Fluency: :green[{fl:.2f}]" if fl >= 0.50 else f"Fluency: :red[{fl:.2f}]"
+)
+st.sidebar.markdown(
+    f"Coherence: :green[{co:.2f}]" if co >= 0.50 else f"Fluency: :red[{co:.2f}]"
+)
+st.sidebar.markdown(
+    f"Relevance: :green[{re:.2f}]" if re >= 0.50 else f"Relevance: :red[{re:.2f}]"
+)
 st.sidebar.markdown(f"Latency: :grey[{la:.2f}] secs")
 
 # -- Hallucination metrics
 st.sidebar.markdown("Metrics II")
-st.sidebar.markdown(f"Factuality: :green[{fac:.2f}]" if fac >=0.50 else f"Factuality: :red[{fac:.2f}]")
-st.sidebar.markdown(f"Consistency: :green[{cons:.2f}]" if cons >=0.50 else f"Consistency: :red[{cons:.2f}]")
-st.sidebar.markdown(f"Hallucination: :green[{hall:.2f}]" if hall <=0.50 else f"Hallucination: :red[{hall:.2f}]")
+st.sidebar.markdown(
+    f"Factuality: :green[{fac:.2f}]" if fac >= 0.50 else f"Factuality: :red[{fac:.2f}]"
+)
+st.sidebar.markdown(
+    f"Consistency: :green[{cons:.2f}]"
+    if cons >= 0.50
+    else f"Consistency: :red[{cons:.2f}]"
+)
+st.sidebar.markdown(
+    f"Hallucination: :green[{hall:.2f}]"
+    if hall <= 0.50
+    else f"Hallucination: :red[{hall:.2f}]"
+)
 # st.sidebar.text(f'Adv-HHEM: {adv_hhem}')
 
 

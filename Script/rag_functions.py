@@ -1,14 +1,12 @@
-import os
-import time
-
 import streamlit as st
 import torch
 from flashrank import Ranker
+from global_variables import VECTOR_STORE_PATH
 from langchain import HuggingFaceHub
 from langchain.document_loaders import PyPDFLoader
 from langchain.embeddings import HuggingFaceInstructEmbeddings
 from langchain.prompts import PromptTemplate
-from transformers import AutoTokenizer, GPT2LMHeadModel, GPT2Tokenizer, pipeline
+
 # --
 from langchain.retrievers import ContextualCompressionRetriever, EnsembleRetriever
 from langchain.retrievers.document_compressors import FlashrankRerank
@@ -17,7 +15,7 @@ from langchain.vectorstores import FAISS, Chroma
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from pypdf import PdfReader
-
+from transformers import AutoTokenizer
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -96,37 +94,41 @@ def embedding_storing(
                 retriever_base = Chroma.from_documents(
                     split,
                     instructor_embeddings,
-                    persist_directory=f"./Script/vector store/Chr_{new_vs_name}",
+                    persist_directory=str(VECTOR_STORE_PATH / f"Chr_{new_vs_name}"),
                 )
                 st.write("Chroma DB already saved")
             elif vectorization_type.lower() == "faiss":
                 retriever_base = FAISS.from_documents(
                     split, embedding=instructor_embeddings
                 )
-                retriever_base.save_local(f"./Script/vector store/FAIS_{new_vs_name}")
+                retriever_base.save_local(
+                    str(VECTOR_STORE_PATH / f"FAIS_{new_vs_name}")
+                )
                 st.write("Created and saved FAISS DB")
         else:
             # Load existing db
             if vectorization_type.lower() == "chroma":
                 ld_retriever_base = Chroma(
-                    persist_directory=f"./Script/vector store/Chr_{existing_vector_store}",
+                    persist_directory=str(
+                        VECTOR_STORE_PATH / f"Chr_{existing_vector_store}"
+                    ),
                     embedding_function=instructor_embeddings,
                 )
                 # Merge two DBs and save
                 ld_retriever_base.merge_from(retriever_base)
                 ld_retriever_base.save_local(
-                    f"./Script/vector store/Chr_{existing_vector_store}"
+                    str(VECTOR_STORE_PATH / f"Chr_{existing_vector_store}")
                 )
             elif vectorization_type.lower() == "faiss":
                 ld_retriever_base = FAISS.load_local(
-                    "./Script/vector store/" + new_vs_name,
+                    str(VECTOR_STORE_PATH / new_vs_name),
                     instructor_embeddings,
                     allow_dangerous_deserialization=True,
                 )
                 # Merge two DBs and save
                 ld_retriever_base.merge_from(retriever_base)
                 ld_retriever_base.save_local(
-                    f"./Script/vector store/FAIS_{existing_vector_store}"
+                    str(VECTOR_STORE_PATH / f"FAIS_{existing_vector_store}")
                 )
 
         st.success("The document has been saved.")
@@ -251,6 +253,7 @@ def llm_reply(
     answer = doc_source[0]
     return answer, doc_source
 
+
 # -- LLM reply module...
 def emsembleFlashreranker(
     question, bm25_retriever, llm_model, retriever, template_opt, template_input
@@ -332,12 +335,12 @@ def emsembleFlashreranker(
 
 # --- Base retriever store...
 def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
-
+    vector_store_list_path = VECTOR_STORE_PATH / vector_store_list
     # --- initialize vector DB
     if vectorization_type.lower() == "chroma":
-        if os.path.exists(f"./Script/vector store/{vector_store_list}"):
+        if vector_store_list_path.exists():
             retriever_base = Chroma(
-                persist_directory=f"./Script/vector store/{vector_store_list}",
+                persist_directory=str(vector_store_list_path),
                 embedding_function=embeddings,
             )
             st.success("Chroma vector DB loaded...")
@@ -345,9 +348,9 @@ def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
             st.error("Chroma vector DB [NOT] loaded...")
     # --
     if vectorization_type.lower() == "faiss":
-        if os.path.exists(f"./Script/vector store/{vector_store_list}"):
+        if vector_store_list_path.exists():
             retriever_base = FAISS.load_local(
-                f"./Script/vector store/{vector_store_list}",
+                str(vector_store_list_path),
                 embeddings,
                 allow_dangerous_deserialization=True,
             )
@@ -448,7 +451,7 @@ def generate_answer(question, token):
         answer = response.get("answer").split("Helpful Answer:")[-1].strip()
         explanation = response.get("source_documents", [])
         doc_source = [d.page_content for d in explanation]
-    # -- 
+    # --
     return answer, doc_source
 
 

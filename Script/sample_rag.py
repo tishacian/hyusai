@@ -1,7 +1,6 @@
-import os
-
 import rag_functions
 import streamlit as st
+from global_variables import VECTOR_STORE_PATH
 
 st.title("Customized RAG Chatbot")
 
@@ -28,7 +27,7 @@ with st.expander("Setting the LLM"):
 
         row_2 = st.columns(3)
         with row_2[0]:
-            vector_store_list = os.listdir("./Script/vector store/")
+            vector_store_list = list(VECTOR_STORE_PATH.iterdir())
             default_choice = (
                 vector_store_list.index("naruto_snake")
                 if "naruto_snake" in vector_store_list

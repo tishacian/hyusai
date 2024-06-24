@@ -1,7 +1,6 @@
-import os
-
 import rag_functions
 import streamlit as st
+from global_variables import VECTOR_STORE_PATH
 
 st.title("Document Embedding")
 st.markdown(
@@ -44,7 +43,7 @@ with st.form("document_input"):
     row_2 = st.columns(2)
     with row_2[0]:
         # List the existing vector stores
-        vector_store_list = os.listdir("./Script/vector store/")
+        vector_store_list = list(VECTOR_STORE_PATH.iterdir())
         vector_store_list = ["<New>"] + vector_store_list
 
         existing_vector_store = st.selectbox(
