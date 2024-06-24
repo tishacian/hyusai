@@ -10,12 +10,29 @@ This README would normally document whatever steps are necessary to get your app
 
 ### How do I get set up? ###
 
-* Summary of set up
-* Configuration
-* Dependencies
-* Database configuration
-* How to run tests
-* Deployment instructions
+Clone the repository (see [help](https://support.atlassian.com/bitbucket-cloud/docs/clone-a-git-repository/)):
+
+```
+git clone git@bitbucket.org:neuropolisteam/rag.git
+```
+
+Install python3.12 using [brew](https://docs.brew.sh/Installation) for MacOS for example:
+```
+brew install python@3.12
+```
+
+Create a virtual environment and install the dependencies:
+
+```
+python3.12 -m venv venv
+source venv/bin/activate
+pip install requirements/requirements.txt
+```
+
+Launch the webapp on localhost:
+```
+python main.py
+```
 
 ### Contribution guidelines ###
 
