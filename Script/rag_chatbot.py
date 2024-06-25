@@ -575,7 +575,7 @@ st.sidebar.markdown(
     f"Fluency: :green[{fl:.2f}]" if fl >= 0.50 else f"Fluency: :red[{fl:.2f}]"
 )
 st.sidebar.markdown(
-    f"Coherence: :green[{co:.2f}]" if co >= 0.50 else f"Fluency: :red[{co:.2f}]"
+    f"Coherence: :green[{co:.2f}]" if co >= 0.50 else f"Coherence: :red[{co:.2f}]"
 )
 st.sidebar.markdown(
     f"Relevance: :green[{re:.2f}]" if re >= 0.50 else f"Relevance: :red[{re:.2f}]"
