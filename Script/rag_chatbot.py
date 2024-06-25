@@ -1,4 +1,5 @@
 import io
+import os
 import json
 import time
 from pathlib import Path
@@ -194,9 +195,11 @@ with st.expander("Document Embedding"):
         row_be = st.columns(2)
         with row_be[0]:
             # List the existing vector stores
-            vector_store_list = list(VECTOR_STORE_PATH.iterdir())
-            vector_store_list = ["<New>"] + vector_store_list
-
+            # vector_store_list = list(VECTOR_STORE_PATH.iterdir())
+            vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
+            vector_store_list = [
+                file for file in vector_store_list if not file.startswith(".")
+            ]
             existing_vector_store = st.selectbox(
                 "Vector Store to Merge the Knowledge",
                 vector_store_list,
@@ -354,9 +357,9 @@ with st.expander("LLM Settings"):
 
         row_b = st.columns(3)
         with row_b[0]:
-            vector_store_list = list(VECTOR_STORE_PATH.iterdir())
+            vector_store_list = os.listdir(VECTOR_STORE_PATH)
             vector_store_list = [
-                file for file in vector_store_list if not file.name.startswith(".")
+                file for file in vector_store_list if not file.startswith(".")
             ]
             vector_store_list.sort(key=lambda x: str(x).upper()[0])
             default_choice = vector_store_list.index(vector_store_list[0])
