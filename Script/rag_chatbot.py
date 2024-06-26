@@ -390,7 +390,10 @@ with st.expander("LLM Settings"):
             )
 
         with row_c[1]:
-            pipeline_ = st.selectbox("Pipeline", pipeline_rag, help=help_["pipeline"])
+            default_pipeline_cbot = pipeline_rag.index(
+                pipeline_rag[1]
+            )  # set defaullt pipeline
+            pipeline_ = st.selectbox("Pipeline", pipeline_rag, default_pipeline_cbot, help=help_["pipeline"])
 
         with row_c[2]:
             template_opt = st.selectbox(

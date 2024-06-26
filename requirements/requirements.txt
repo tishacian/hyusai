@@ -150,3 +150,5 @@ wrapt==1.16.0
 yarl==1.9.4
 zipp==3.18.2
 flashrank==0.2
+xlsxwriter==3.2
+rank_bm25==0.2

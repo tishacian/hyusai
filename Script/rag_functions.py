@@ -314,7 +314,7 @@ def emsembleFlashreranker(
         retrievers=[bm25_retriever, retriever], weights=[0.4, 0.6]
     )
 
-    model_name = "ms-marco-MiniLM-L-12-v2"  # example Cross-Encoder model
+    model_name = "ms-marco-MultiBERT-L-12"  # example Cross-Encoder model
     flashrank_client = Ranker(model_name=model_name)
 
     compressor = FlashrankRerank(client=flashrank_client, top_n=3, model=model_name)
