@@ -152,3 +152,4 @@ zipp==3.18.2
 flashrank==0.2
 xlsxwriter==3.2
 rank_bm25==0.2
+pymupdf==1.24.7

@@ -1,12 +1,13 @@
 import io
-import os
 import json
+import os
 import time
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 import numpy as np
 import pandas as pd
-import rag_functions
+import rag_functions as rf
 import streamlit as st
 import toml
 from global_variables import DATA_PATH, IMG_PATH, VECTOR_STORE_PATH
@@ -23,7 +24,6 @@ from rag_metrics import (
 )
 
 # ---
-
 st.title("Customized RAG Agent")
 
 help_ = {  # help suggestions...
@@ -51,7 +51,8 @@ help_ = {  # help suggestions...
     + "The other is the Flash reranker, which uses a Cross-Encoder for reranking.",
 }
 
-
+DEFAULT_PIPELINE = "default"
+COT_PIPELINE = "cot"
 # Add supplmentary embedding models..
 supplement = [
     "Alibaba-NLP/gte-large-en-v1.5",
@@ -83,7 +84,9 @@ vector_types = ["FAISS", "Chroma", "Weaviate", "PGVector"]
 pipeline_rag = ["Default", "COT", "AsynCOT"]
 templates = ["Default", "Custom"]
 
-
+# --
+LOADER_MAPPING = rf.LOADER_MAPPING
+ACCEPTABLE_DOC_TYPES = list(LOADER_MAPPING.keys())
 # %% import streamlit as st
 
 
@@ -162,13 +165,18 @@ with st.expander("Document Embedding"):
     st.markdown(
         "This page is used to upload the documents as the custom knowledge for the chatbot."
     )
-    # instructio_embedding = ["hkunlp/instructor-xl", "sentence-transformers/all-mpnet-base-v2"]
     # --
     with st.form("document_input"):
-        document = st.file_uploader(
-            "Knowledge Documents", type=["pdf", "txt"], help=".pdf or .txt file"
+        uploaded_files = st.file_uploader(
+            "Knowledge Documents",
+            accept_multiple_files=True,
+            type=ACCEPTABLE_DOC_TYPES,
+            help=" ".join(ACCEPTABLE_DOC_TYPES[:5]) + " et al.",
         )
-
+        # --
+        SINGLE_FILE = 1
+        NUMBER_OF_FILES = len(uploaded_files)
+        # --
         row_ae = st.columns([2, 1, 1])
         with row_ae[0]:
             instruct_embeddings = st.selectbox(
@@ -195,7 +203,6 @@ with st.expander("Document Embedding"):
         row_be = st.columns(2)
         with row_be[0]:
             # List the existing vector stores
-            # vector_store_list = list(VECTOR_STORE_PATH.iterdir())
             vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
             vector_store_list = [
                 file for file in vector_store_list if not file.startswith(".")
@@ -227,24 +234,32 @@ with st.expander("Document Embedding"):
 
         save_button = st.form_submit_button("Save vector store")
 
-        if pipeline_a.lower() == "default":
+        if pipeline_a.lower() == DEFAULT_PIPELINE:
             if save_button:
-                # Read the uploaded file
-                if document == None:
+                if not uploaded_files:
                     st.error("No document uploaded...")
-                if document.name.endswith(".pdf"):
-                    document = rag_functions.read_pdf(document)
-                elif document.name.endswith(".txt"):
-                    document = rag_functions.read_txt(document)
                 else:
-                    st.error(
-                        "Unknown document format.."
-                        + "\n"
-                        + 'Check if the uploaded file is .pdf or .txt"'
-                    )
-
+                    if NUMBER_OF_FILES == SINGLE_FILE:
+                        # -- load temporary folder first before loading document..
+                        _, extension = os.path.splitext(uploaded_files[0].name)
+                        with NamedTemporaryFile(
+                            delete=False, suffix=extension
+                        ) as temp_file:
+                            temp_file.write(uploaded_files[0].getbuffer())
+                            documents = rf.loadSingleDocument(temp_file.name)
+                    else:
+                        temp_files = []
+                        for uploaded_file in uploaded_files:
+                            _, extension = os.path.splitext(uploaded_file.name)
+                            with NamedTemporaryFile(
+                                delete=False, suffix=extension
+                            ) as temp_file:
+                                temp_file.write(uploaded_file.getbuffer())
+                                temp_files.append(temp_file.name)
+                        # -- Threaded loading of collected documents
+                        documents = rf.ThreadMultiDocLoader(temp_files)
                 # Split document
-                split = rag_functions.split_doc(document, chunk_size, chunk_overlap)
+                split = rf.split_doc(documents, chunk_size, chunk_overlap)
 
                 # Check whether to create new vector store
                 create_new_vs = None
@@ -258,66 +273,78 @@ with st.expander("Document Embedding"):
                     )
 
                 # Embeddings and storing
-                rag_functions.embedding_storing(
+                rf.embedding_storing(
                     instruct_embeddings,
                     split,
                     create_new_vs,
                     existing_vector_store,
                     new_vs_name,
                 )
-        elif pipeline_a.lower() == "cot":
+        elif pipeline_a.lower() == COT_PIPELINE:
             if save_button:
                 # Read the uploaded file
-                if document == None:
+                if not uploaded_files:
                     st.error("No document uploaded...")
-                if document.name.endswith(".pdf"):
-                    document = rag_functions.read_pdf(document)
-                    # Split document
-                    chunks = rag_functions.split_doc(
-                        document, chunk_size, chunk_overlap
-                    )
-                    bm25_retriever = BM25Retriever.from_documents(chunks)
-                    st.success("The BM25 PDF Retriever is created")
-                elif document.name.endswith(".txt"):
-                    document = rag_functions.read_txt(document)
-                    # Split document
-                    chunks = rag_functions.split_doc(
-                        document, chunk_size, chunk_overlap
-                    )
-                    bm25_retriever = BM25Retriever.from_documents(chunks)
-                    st.success("The BM25 Text Retriever is created")
                 else:
-                    st.error(
-                        "Unknown document format.."
-                        + "\n"
-                        + 'Check if the uploaded file is .pdf or .txt"'
-                    )
+                    if NUMBER_OF_FILES == SINGLE_FILE:
+                        # -- load temporary folder first before loading document..
+                        _, extension = os.path.splitext(uploaded_files[0].name)
+                        with NamedTemporaryFile(
+                            delete=False, suffix=extension
+                        ) as temp_file:
+                            temp_file.write(uploaded_files[0].getbuffer())
+                            documents = rf.loadSingleDocument(temp_file.name)
+                            chunks = rf.split_doc(documents, chunk_size, chunk_overlap)
+                        bm25_retriever = BM25Retriever.from_documents(chunks)
+                        st.success("The BM25 PDF Retriever is created")
+                    else:
+                        # -- Save the location of all the temporary files first..
+                        temp_files = []
+                        for uploaded_file in uploaded_files:
+                            _, extension = os.path.splitext(uploaded_file.name)
+                            with NamedTemporaryFile(
+                                delete=False, suffix=extension
+                            ) as temp_file:
+                                temp_file.write(uploaded_file.getbuffer())
+                                temp_files.append(temp_file.name)
+                        # -- Threaded loading of collected documents
+                        documents = rf.ThreadMultiDocLoader(temp_files)
+                        # Split document
+                        chunks = rf.split_doc(documents, chunk_size, chunk_overlap)
+                        bm25_retriever = BM25Retriever.from_documents(chunks)
+                        st.success("The BM25 PDF Retriever is created")
             else:
                 # Read the uploaded file
-                if document == None:
+                if not uploaded_files:
                     st.error("No document uploaded...")
-                elif document.name.endswith(".pdf"):
-                    document = rag_functions.read_pdf(document)
-                    # Split document
-                    chunks = rag_functions.split_doc(
-                        document, chunk_size, chunk_overlap
-                    )
-                    bm25_retriever = BM25Retriever.from_documents(chunks)
-                    st.success("The BM25 PDF Retriever is created")
-                elif document.name.endswith(".txt"):
-                    document = rag_functions.read_txt(document)
-                    # Split document
-                    chunks = rag_functions.split_doc(
-                        document, chunk_size, chunk_overlap
-                    )
-                    bm25_retriever = BM25Retriever.from_documents(chunks)
-                    st.success("The BM25 Text Retriever is created")
                 else:
-                    st.error(
-                        "Unknown document format.."
-                        + "\n"
-                        + 'Check if the uploaded file is .pdf or .txt"'
-                    )
+                    if NUMBER_OF_FILES == SINGLE_FILE:
+                        # -- load temporary folder first before loading document..
+                        _, extension = os.path.splitext(uploaded_files[0].name)
+                        with NamedTemporaryFile(
+                            delete=False, suffix=extension
+                        ) as temp_file:
+                            temp_file.write(uploaded_files[0].getbuffer())
+                            documents = rf.loadSingleDocument(temp_file.name)
+                            chunks = rf.split_doc(documents, chunk_size, chunk_overlap)
+                        bm25_retriever = BM25Retriever.from_documents(chunks)
+                        st.success("The BM25 PDF Retriever is created")
+                    else:
+                        # -- Save the location of all the temporary files first..
+                        temp_files = []
+                        for uploaded_file in uploaded_files:
+                            _, extension = os.path.splitext(uploaded_file.name)
+                            with NamedTemporaryFile(
+                                delete=False, suffix=extension
+                            ) as temp_file:
+                                temp_file.write(uploaded_file.getbuffer())
+                                temp_files.append(temp_file.name)
+                        # -- Threaded loading of collected documents
+                        documents = rf.ThreadMultiDocLoader(temp_files)
+                        # Split document
+                        chunks = rf.split_doc(documents, chunk_size, chunk_overlap)
+                        bm25_retriever = BM25Retriever.from_documents(chunks)
+                        st.success("The BM25 PDF Retriever is created")
 
 # %% Metrics and reranking
 
@@ -393,7 +420,9 @@ with st.expander("LLM Settings"):
             default_pipeline_cbot = pipeline_rag.index(
                 pipeline_rag[1]
             )  # set defaullt pipeline
-            pipeline_ = st.selectbox("Pipeline", pipeline_rag, default_pipeline_cbot, help=help_["pipeline"])
+            pipeline_ = st.selectbox(
+                "Pipeline", pipeline_rag, default_pipeline_cbot, help=help_["pipeline"]
+            )
 
         with row_c[2]:
             template_opt = st.selectbox(
@@ -402,7 +431,7 @@ with st.expander("LLM Settings"):
 
         create_chatbot = st.form_submit_button("Create chatbot")
         if token:
-            retriever_base, llm = rag_functions.prepare_rag_llm(
+            retriever_base, llm = rf.prepare_rag_llm(
                 token,
                 llm_model,
                 instruct_embeddings,
@@ -494,7 +523,7 @@ if question := st.chat_input("Ask a question"):
     # Answer the question
     if pipeline_.lower() == "default":
         start_time = time.time()
-        answer, doc_source = rag_functions.generate_answer(question, token)
+        answer, doc_source = rf.generate_answer(question, token)
         metrics_ = Evaluatrix(
             answer,
             tokenizer,
@@ -510,7 +539,7 @@ if question := st.chat_input("Ask a question"):
         retriever_base = retriever_base.as_retriever(search_kwargs={"k": 2})
         if reranker.lower() == "rrf":
             start_time = time.time()
-            answer, doc_source = rag_functions.llm_reply(
+            answer, doc_source = rf.llm_reply(
                 question,
                 bm25_retriever,
                 llm,
@@ -531,7 +560,7 @@ if question := st.chat_input("Ask a question"):
             )
         elif reranker.lower() == "flashreranker":
             start_time = time.time()
-            answer, doc_source = rag_functions.emsembleFlashreranker(
+            answer, doc_source = rf.emsembleFlashreranker(
                 question,
                 bm25_retriever,
                 llm,
