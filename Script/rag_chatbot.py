@@ -7,10 +7,20 @@ from tempfile import NamedTemporaryFile
 
 import numpy as np
 import pandas as pd
-import rag_functions as rf
+from rag_functions import (LOADER_MAPPING,
+                           loadSingleDocument,
+                           ThreadMultiDocLoader,
+                           split_doc,
+                           embedding_storing,
+                           prepare_rag_llm,
+                           generate_answer,
+                           llm_reply,
+                           emsembleFlashreranker
+                           )
 import streamlit as st
 import toml
-from global_variables import DATA_PATH, IMG_PATH, VECTOR_STORE_PATH
+from global_variables import (DATA_PATH, IMG_PATH, VECTOR_STORE_PATH,
+                              DefaultValues)
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.retrievers import BM25Retriever
@@ -26,67 +36,22 @@ from rag_metrics import (
 # ---
 st.title("Customized RAG Agent")
 
-help_ = {  # help suggestions...
-    "HuggingFace": "You can get theHuggingFace token from settings of your Huggingface account",
-    "LLM_Model": "An instruction LLM model well (distilled or not) necessary to provide the right anwser"
-    + "\n"
-    "toward the particular context",
-    "Instruction_Embedding": "An instruction LLM Embedding well suited to provide the right anwser"
-    + "\n"
-    + "toward the particular context",
-    "Vector_store": "A lsit vector embedding created using the instruction embedding",
-    "Temperature": "Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore"
-    + "\n"
-    + "diverse choices. A smaller temperature for confident tokens avoiding the influence "
-    + "\n"
-    + "of tail randomness noises",
-    "Max_characer": "The maximum number of characters to generated. This can be similar to the maximum token"
-    + "\n"
-    + " size of the embedding space. The default is set to 500.",
-    "vector_type": "Slect desired vector types",
-    "pipeline": "Select the desired pipeline. Default is without Chain of Thought (COT)",
-    "template": "Select a template style of choice. Default is a simple template.",
-    "reranker": "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
-    + "\n"
-    + "The other is the Flash reranker, which uses a Cross-Encoder for reranking.",
-}
-
-DEFAULT_PIPELINE = "default"
-COT_PIPELINE = "cot"
-# Add supplmentary embedding models..
-supplement = [
-    "Alibaba-NLP/gte-large-en-v1.5",
-    "sentence-transformers/all-mpnet-base-v2",
-    "mixedbread-ai/mxbai-embed-large-v1",
-    "WhereIsAI/UAE-Large-V1",
-    "avsolatorio/GIST-large-Embedding-v0",
-    "w601sxs/b1ade-embed",
-    "Labib11/MUG-B-1.6",
-    "WhereIsAI/UAE-Large-V1",
-]
-
-instruction_embedding = (
-    list(np.load(DATA_PATH / "hkuNLP.npy", allow_pickle=True)) + supplement
+# -- Defaults
+HELP = DefaultValues.HELP.value
+DEFAULT_PIPELINE = DefaultValues.DEFAULT.value
+LLM_NAMES = DefaultValues.LLM_NAMES.value
+EMBEDDING_NAME = DefaultValues.EMBEDDING_NAME.value
+VECTOR_TYPES = DefaultValues.VECTOR_TYPES.value
+PIPELINE_RAG = DefaultValues.PIPELINE_RAG.value
+TEMPLATES = DefaultValues.TEMPLATES.value
+COT_PIPELINE = DefaultValues.COT_PIPELINE.value
+SUPPLEMENT = DefaultValues.SUPPLEMENT.value
+INSTRUCTUION_EMBEDDING = (
+    list(np.load(DATA_PATH / "hkuNLP.npy", allow_pickle=True)) + SUPPLEMENT
 )
-# instruction_embedding.sort(key = lambda x: x.upper()[0])
-
-embd_name = "sentence-transformers/all-mpnet-base-v2"
-llm_name = [
-    "MBZUAI/LaMini-GPT-774M",
-    "MBZUAI/LaMini-GPT-1.5B",
-    "MBZUAI/LaMini-Neo-125M",
-    "MBZUAI/LaMini-Neo-1.3B",
-    "MBZUAI/LaMini-Cerebras-590M",
-    "MBZUAI/LaMini-Cerebras-1.3B",
-    "MBZUAI/LaMini-Flan-T5-783M",
-]
-vector_types = ["FAISS", "Chroma", "Weaviate", "PGVector"]
-pipeline_rag = ["Default", "COT", "AsynCOT"]
-templates = ["Default", "Custom"]
-
 # --
-LOADER_MAPPING = rf.LOADER_MAPPING
-ACCEPTABLE_DOC_TYPES = list(LOADER_MAPPING.keys())
+LOADER_MAPPING = LOADER_MAPPING
+ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
 # %% import streamlit as st
 
 
@@ -144,12 +109,9 @@ def theme():
             toml.dump(config, configfile)
 
     # Sidebar for theme toggle
-    # st.sidebar.title("Settings")
     theme = st.sidebar.toggle(
         "Switch theme",
     )
-    # st.divider()
-    # switch
     if theme:
         update_config("light")
     else:
@@ -171,7 +133,7 @@ with st.expander("Document Embedding"):
             "Knowledge Documents",
             accept_multiple_files=True,
             type=ACCEPTABLE_DOC_TYPES,
-            help=" ".join(ACCEPTABLE_DOC_TYPES[:5]) + " et al.",
+            help="Acceptable document formats includes: "+" ".join(ACCEPTABLE_DOC_TYPES[:5]) + " et al.",
         )
         # --
         SINGLE_FILE = 1
@@ -180,7 +142,7 @@ with st.expander("Document Embedding"):
         row_ae = st.columns([2, 1, 1])
         with row_ae[0]:
             instruct_embeddings = st.selectbox(
-                "Model Name of the Instruct Embeddings", instruction_embedding
+                "Model Name of the Instruct Embeddings", INSTRUCTUION_EMBEDDING
             )
 
         with row_ae[1]:
@@ -223,31 +185,52 @@ with st.expander("Document Embedding"):
 
         # --
         row_ce = st.columns(3)
-
+        #-- 
+        default_pipeline_doc = VECTOR_TYPES.index(
+            VECTOR_TYPES[0]
+        )
+        with row_ce[1]:
+            vector_type_doc = st.selectbox(
+                "Vector type", VECTOR_TYPES, default_pipeline_doc, help=HELP["vector_type"]
+            )
         with row_ce[2]:
-            default_pipeline = pipeline_rag.index(
-                pipeline_rag[1]
+            default_pipeline = PIPELINE_RAG.index(
+                PIPELINE_RAG[1]
             )  # set defaullt pipeline
             pipeline_a = st.selectbox(
-                "Pipeline", pipeline_rag, default_pipeline, help=help_["pipeline"]
+                "Pipeline", PIPELINE_RAG, default_pipeline, help=HELP["pipeline"]
             )
-
+        
         save_button = st.form_submit_button("Save vector store")
 
+        # Check whether to create new vector store --> Checking params
+        create_new_vs = None
+        if existing_vector_store == "<New>" and new_vs_name != "":
+            #-- Create new embedding..
+            create_new_vs = True
+        elif existing_vector_store != "<New>" and new_vs_name != "":
+            #-- Use existing embedding..
+            create_new_vs = False
+        else:
+            st.error(
+                "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
+            )
+            
         if pipeline_a.lower() == DEFAULT_PIPELINE:
             if save_button:
                 if not uploaded_files:
-                    st.error("No document uploaded...")
+                    st.warning("No document uploaded...")
                 else:
                     if NUMBER_OF_FILES == SINGLE_FILE:
-                        # -- load temporary folder first before loading document..
+                        # -- load file in a temporary placeholder on the memory
                         _, extension = os.path.splitext(uploaded_files[0].name)
                         with NamedTemporaryFile(
                             delete=False, suffix=extension
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
-                            documents = rf.loadSingleDocument(temp_file.name)
+                            documents = loadSingleDocument(temp_file.name)
                     else:
+                        # -- load files in a temporary placeholders on the memory
                         temp_files = []
                         for uploaded_file in uploaded_files:
                             _, extension = os.path.splitext(uploaded_file.name)
@@ -257,28 +240,18 @@ with st.expander("Document Embedding"):
                                 temp_file.write(uploaded_file.getbuffer())
                                 temp_files.append(temp_file.name)
                         # -- Threaded loading of collected documents
-                        documents = rf.ThreadMultiDocLoader(temp_files)
+                        documents = ThreadMultiDocLoader(temp_files)
                 # Split document
-                split = rf.split_doc(documents, chunk_size, chunk_overlap)
-
-                # Check whether to create new vector store
-                create_new_vs = None
-                if existing_vector_store == "<New>" and new_vs_name != "":
-                    create_new_vs = True
-                elif existing_vector_store != "<New>" and new_vs_name != "":
-                    create_new_vs = False
-                else:
-                    st.error(
-                        "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
-                    )
-
+                split = split_doc(documents, chunk_size, chunk_overlap)
+                
                 # Embeddings and storing
-                rf.embedding_storing(
-                    instruct_embeddings,
-                    split,
-                    create_new_vs,
-                    existing_vector_store,
-                    new_vs_name,
+                embedding_storing(
+                    model_name = instruct_embeddings, #instruction embedding model name
+                    split = split, #chunks
+                    create_new_vs = create_new_vs, #flag to create new VDB
+                    existing_vector_store = existing_vector_store, #if VDB is existing already
+                    new_vs_name = new_vs_name, #Name of new VDB
+                    vectorization_type = vector_type_doc
                 )
         elif pipeline_a.lower() == COT_PIPELINE:
             if save_button:
@@ -293,10 +266,14 @@ with st.expander("Document Embedding"):
                             delete=False, suffix=extension
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
-                            documents = rf.loadSingleDocument(temp_file.name)
-                            chunks = rf.split_doc(documents, chunk_size, chunk_overlap)
+                            documents = loadSingleDocument(temp_file.name)
+                            chunks = split_doc(documents, chunk_size, chunk_overlap)
+                            
+                        #-- Save the vector
                         bm25_retriever = BM25Retriever.from_documents(chunks)
-                        st.success("The BM25 PDF Retriever is created")
+                        st.success("The BM25 PDF Retriever is initialized...")
+                        #-- 
+                        
                     else:
                         # -- Save the location of all the temporary files first..
                         temp_files = []
@@ -308,11 +285,22 @@ with st.expander("Document Embedding"):
                                 temp_file.write(uploaded_file.getbuffer())
                                 temp_files.append(temp_file.name)
                         # -- Threaded loading of collected documents
-                        documents = rf.ThreadMultiDocLoader(temp_files)
+                        documents = ThreadMultiDocLoader(temp_files)
                         # Split document
-                        chunks = rf.split_doc(documents, chunk_size, chunk_overlap)
+                        chunks = split_doc(documents, chunk_size, chunk_overlap)
                         bm25_retriever = BM25Retriever.from_documents(chunks)
-                        st.success("The BM25 PDF Retriever is created")
+                        st.success("The BM25 PDF Retriever is initializing...")
+                        
+                    # Embeddings and storing for Single or multiple docs of CoT
+                    embedding_storing(
+                        model_name = instruct_embeddings, #instruction embedding model name
+                        split = chunks, #chunks
+                        create_new_vs = create_new_vs, #flag to create new VDB
+                        existing_vector_store = existing_vector_store, #if VDB is existing already
+                        new_vs_name = new_vs_name, #Name of new VDB
+                        vectorization_type = vector_type_doc
+                    )
+                    
             else:
                 # Read the uploaded file
                 if not uploaded_files:
@@ -325,8 +313,8 @@ with st.expander("Document Embedding"):
                             delete=False, suffix=extension
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
-                            documents = rf.loadSingleDocument(temp_file.name)
-                            chunks = rf.split_doc(documents, chunk_size, chunk_overlap)
+                            documents = loadSingleDocument(temp_file.name)
+                            chunks = split_doc(documents, chunk_size, chunk_overlap)
                         bm25_retriever = BM25Retriever.from_documents(chunks)
                         st.success("The BM25 PDF Retriever is created")
                     else:
@@ -340,17 +328,26 @@ with st.expander("Document Embedding"):
                                 temp_file.write(uploaded_file.getbuffer())
                                 temp_files.append(temp_file.name)
                         # -- Threaded loading of collected documents
-                        documents = rf.ThreadMultiDocLoader(temp_files)
+                        documents = ThreadMultiDocLoader(temp_files)
                         # Split document
-                        chunks = rf.split_doc(documents, chunk_size, chunk_overlap)
+                        chunks = split_doc(documents, chunk_size, chunk_overlap)
                         bm25_retriever = BM25Retriever.from_documents(chunks)
                         st.success("The BM25 PDF Retriever is created")
+                    # Embeddings and storing
+                    embedding_storing(
+                        model_name = instruct_embeddings, #instruction embedding model name
+                        split = chunks, #chunks
+                        create_new_vs = create_new_vs, #flag to create new VDB
+                        existing_vector_store = existing_vector_store, #if VDB is existing already
+                        new_vs_name = new_vs_name, #Name of new VDB
+                        vectorization_type = vector_type_doc
+                    )
 
 # %% Metrics and reranking
 
 st.sidebar.image(str(IMG_PATH / "Dtgy.png"), width=78, use_column_width=False)
 reranker = st.sidebar.selectbox(
-    "Reranker", ["RRF", "FlashReranker"], help=help_["reranker"]
+    "Reranker", ["RRF", "FlashReranker"], help=HELP["reranker"]
 )
 
 # %% App main functions...chatbot
@@ -369,17 +366,17 @@ with st.expander("LLM Settings"):
                 "Hugging Face Token",
                 type="password",
                 value="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",
-                help=help_["HuggingFace"],
+                help=HELP["HuggingFace"],
             )
 
         with row_a[1]:
-            llm_model = st.selectbox("LLM model", llm_name, help=help_["LLM_Model"])
+            llm_model = st.selectbox("LLM model", LLM_NAMES, help=HELP["LLM_Model"])
 
         with row_a[2]:
             instruct_embeddings = st.selectbox(
                 "Instruct Embeddings",
-                instruction_embedding,
-                help=help_["Instruction_Embedding"],
+                INSTRUCTUION_EMBEDDING,
+                help=HELP["Instruction_Embedding"],
             )
 
         row_b = st.columns(3)
@@ -389,17 +386,23 @@ with st.expander("LLM Settings"):
                 file for file in vector_store_list if not file.startswith(".")
             ]
             vector_store_list.sort(key=lambda x: str(x).upper()[0])
-            default_choice = vector_store_list.index(vector_store_list[0])
-            existing_vector_store = st.selectbox(
-                "Vector Store",
-                vector_store_list,
-                default_choice,
-                help=help_["Vector_store"],
-            )
-
+            if not vector_store_list:
+                existing_vector_store = st.selectbox(
+                    "Vector Store",
+                    ["No Available Vector DB"],
+                    help=HELP["Vector_store"],
+                )
+            else:
+                default_choice = vector_store_list.index(vector_store_list[0])
+                existing_vector_store = st.selectbox(
+                    "Vector Store",
+                    vector_store_list,
+                    default_choice,
+                    help=HELP["Vector_store"],
+                )
         with row_b[1]:
             temperature = st.number_input(
-                "Temperature", value=0.1, step=0.1, help=help_["Temperature"]
+                "Temperature", value=0.1, step=0.1, help=HELP["Temperature"]
             )
 
         with row_b[2]:
@@ -407,31 +410,35 @@ with st.expander("LLM Settings"):
                 "Maximum character length",
                 value=500,
                 step=1,
-                help=help_["Max_characer"],
+                help=HELP["Max_characer"],
             )
         # --
         row_c = st.columns(3)
         with row_c[0]:
             vector_type = st.selectbox(
-                "Vector type", vector_types, help=help_["vector_type"]
+                "Vector type", VECTOR_TYPES, help=HELP["vector_type"]
             )
 
         with row_c[1]:
-            default_pipeline_cbot = pipeline_rag.index(
-                pipeline_rag[1]
+            default_pipeline_cbot = PIPELINE_RAG.index(
+                PIPELINE_RAG[1]
             )  # set defaullt pipeline
             pipeline_ = st.selectbox(
-                "Pipeline", pipeline_rag, default_pipeline_cbot, help=help_["pipeline"]
+                "Pipeline", PIPELINE_RAG, default_pipeline_cbot, help=HELP["pipeline"]
             )
 
         with row_c[2]:
             template_opt = st.selectbox(
-                "Template format", templates, help=help_["template"]
+                "Template format", TEMPLATES, help=HELP["template"]
             )
 
         create_chatbot = st.form_submit_button("Create chatbot")
         if token:
-            retriever_base, llm = rf.prepare_rag_llm(
+            # Here the objective is to initialize three things:
+            #     1° Initialize the LLm Model
+            #     2° Vector DB if their is an available vector DB of choice else (return None)
+            #     3° Initialize the Embedding Model
+            retriever_base, llm = prepare_rag_llm(
                 token,
                 llm_model,
                 instruct_embeddings,
@@ -464,7 +471,7 @@ with st.expander("Template"):
         "Answer the following question using the context provided." + "\n"
         "Question: {question}" + "\n"
         "Context: {context}",
-        help=help_["template"],
+        help=HELP["template"],
     )
 
 # Prepare the LLM model
@@ -523,7 +530,7 @@ if question := st.chat_input("Ask a question"):
     # Answer the question
     if pipeline_.lower() == "default":
         start_time = time.time()
-        answer, doc_source = rf.generate_answer(question, token)
+        answer, doc_source = generate_answer(question, token)
         metrics_ = Evaluatrix(
             answer,
             tokenizer,
@@ -539,7 +546,7 @@ if question := st.chat_input("Ask a question"):
         retriever_base = retriever_base.as_retriever(search_kwargs={"k": 2})
         if reranker.lower() == "rrf":
             start_time = time.time()
-            answer, doc_source = rf.llm_reply(
+            answer, doc_source = llm_reply(
                 question,
                 bm25_retriever,
                 llm,
@@ -560,7 +567,7 @@ if question := st.chat_input("Ask a question"):
             )
         elif reranker.lower() == "flashreranker":
             start_time = time.time()
-            answer, doc_source = rf.emsembleFlashreranker(
+            answer, doc_source = emsembleFlashreranker(
                 question,
                 bm25_retriever,
                 llm,
