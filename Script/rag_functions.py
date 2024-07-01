@@ -155,8 +155,6 @@ def ThreadMultiDocLoader(
 
 
 # %%
-
-
 # -- Using RecursiveCharacterTextSplitter from langchain...
 def split_doc(document, chunk_size, chunk_overlap):
     splitter = RecursiveCharacterTextSplitter(
@@ -167,6 +165,36 @@ def split_doc(document, chunk_size, chunk_overlap):
 
     return split
 
+# --- Base retriever store...
+def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
+    vector_store_list_path = VECTOR_STORE_PATH / vector_store_list
+    print("Loaidng VDB from ", vector_store_list_path)
+    # --- initialize vector DB
+    if vectorization_type.lower() == "chroma":
+        if vector_store_list_path.exists():
+            retriever_base = Chroma(
+                persist_directory=str(vector_store_list_path),
+                embedding_function=embeddings,
+            )
+            st.success("Chroma vector DB loaded...")
+        else:
+            st.error("Chroma vector DB [NOT] loaded...")
+    # --
+    if vectorization_type.lower() == "faiss":
+        if vector_store_list_path.exists():
+            retriever_base = FAISS.load_local(
+                str(vector_store_list_path),
+                embeddings,
+                allow_dangerous_deserialization=True,
+            )
+            st.success("FAISS vector DB loaded...")
+        else:
+            st.error("FAISS vector DB [NOT] loaded...")
+
+    else:
+        st.write(f"Unknown vector database {vectorization_type}")
+
+    return retriever_base
 
 # --- Embedding storing...
 def embedding_storing(
@@ -212,19 +240,17 @@ def embedding_storing(
                 retriever_base = Chroma.from_documents(
                     split,
                     instructor_embeddings,
-                    persist_directory=str(VECTOR_STORE_PATH / f"Chr_{new_vs_name}"),
+                    persist_directory=VECTOR_STORE_PATH / f"Chr_{new_vs_name}",
                 )
-                st.write("Chroma DB already saved")
             elif vectorization_type.lower() == "faiss":
                 retriever_base = FAISS.from_documents(
                     split, embedding=instructor_embeddings
                 )
                 retriever_base.save_local(
-                    str(VECTOR_STORE_PATH / f"FAIS_{new_vs_name}")
+                    VECTOR_STORE_PATH / f"FAIS_{new_vs_name}"
                 )
-                st.write("Created and saved FAISS DB")
         else:
-            # Load existing db
+            # VDB Merging happens here...
             if vectorization_type.lower() == "chroma":
                 ld_retriever_base = Chroma(
                     persist_directory=str(
@@ -235,21 +261,20 @@ def embedding_storing(
                 # Merge two DBs and save
                 ld_retriever_base.merge_from(retriever_base)
                 ld_retriever_base.save_local(
-                    str(VECTOR_STORE_PATH / f"Chr_{existing_vector_store}")
+                    VECTOR_STORE_PATH / f"Chr_{existing_vector_store}"
                 )
             elif vectorization_type.lower() == "faiss":
                 ld_retriever_base = FAISS.load_local(
-                    str(VECTOR_STORE_PATH / new_vs_name),
+                    VECTOR_STORE_PATH / new_vs_name,
                     instructor_embeddings,
                     allow_dangerous_deserialization=True,
                 )
                 # Merge two DBs and save
                 ld_retriever_base.merge_from(retriever_base)
                 ld_retriever_base.save_local(
-                    str(VECTOR_STORE_PATH / f"FAIS_{existing_vector_store}")
+                    VECTOR_STORE_PATH / f"FAIS_{existing_vector_store}",
                 )
-
-        st.success("The document has been saved.")
+        st.success(f"The document has been saved using {vectorization_type.upper()} Vector DB")
 
 
 # - File processing...
@@ -449,37 +474,6 @@ def emsembleFlashreranker(
     answer = doc_source[0]
     # --
     return answer, doc_source
-
-
-# --- Base retriever store...
-def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
-    vector_store_list_path = VECTOR_STORE_PATH / vector_store_list
-    # --- initialize vector DB
-    if vectorization_type.lower() == "chroma":
-        if vector_store_list_path.exists():
-            retriever_base = Chroma(
-                persist_directory=str(vector_store_list_path),
-                embedding_function=embeddings,
-            )
-            st.success("Chroma vector DB loaded...")
-        else:
-            st.error("Chroma vector DB [NOT] loaded...")
-    # --
-    if vectorization_type.lower() == "faiss":
-        if vector_store_list_path.exists():
-            retriever_base = FAISS.load_local(
-                str(vector_store_list_path),
-                embeddings,
-                allow_dangerous_deserialization=True,
-            )
-            st.success("FAISS vector DB loaded...")
-        else:
-            st.error("FAISS vector DB [NOT] loaded...")
-
-    else:
-        st.write(f"Unknown vector database {vectorization_type}")
-
-    return retriever_base
 
 
 # --- Use similar prepare RAG-LLM
