@@ -6,12 +6,12 @@ Created on Tue May 20 10:24:56 2024
 @author: kennethezukwoke
 """
 
-import threading
 import time
 
 import torch
 
 # --
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from sentence_transformers import SentenceTransformer, util
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import GPT2LMHeadModel, GPT2Tokenizer, pipeline
@@ -39,20 +39,16 @@ nli_model = pipeline(
 
 # %%
 
-
-# Function to calculate perplexity
-def perplexity(generated_text, tokenizer, model):
+# Define the utility function
+def perplexity(generated_text,
+               tokenizer,
+               model):
     if not generated_text.strip():
         return float("inf")  # Return a high perplexity for empty text
     # Encoding
-    encodings = tokenizer(
-        generated_text,
-        return_tensors="pt",
-    )
-    # --
+    encodings = tokenizer(generated_text, return_tensors="pt")
     if encodings.input_ids.size(1) == 0:
         return float("inf")  # Return a high perplexity for improper encoding
-    # --
     input_ids = encodings.input_ids
     """
     If you experience any IndexError: index out of range in self,
@@ -65,9 +61,10 @@ def perplexity(generated_text, tokenizer, model):
         perplexity = torch.exp(loss)
     return perplexity.item()
 
-
-# Function to calculate fluency
-def fluency(generated_text, tokenizer, model, result, lock):
+# Define evaluation functions
+def fluency(generated_text,
+            tokenizer,
+            model):
     """
     Fluency is a measures the grammatical fluency of the generated response.
 
@@ -80,36 +77,17 @@ def fluency(generated_text, tokenizer, model, result, lock):
 
     Returns
     None: Coherence
-    """
+    """    
     ppl = perplexity(generated_text, tokenizer, model)
     min_ppl = 10
     max_ppl = 100
     norm_perplexity = max(min(ppl, max_ppl), min_ppl)
     fluency_ = (max_ppl - norm_perplexity) / (max_ppl - min_ppl)
-    with lock:
-        result["fluency"] = fluency_
-
-
-# # Function to calculate latency
-# def latency(start_time, end_time, result, lock):
-#     """
-#     Latency is the inference computational time
-
-#     Parameters
-#         start_time (time): start time.
-#         end_time (time): end time.
-#         result (str): result dictionary
-#         lock (Thread): Thread
-
-#     Returns (time): final inference time. The lower the better.
-#     """
-#     result_value = end_time - start_time
-#     with lock:
-#         result["latency"] = result_value
-
+    return fluency_
 
 # Function to calculate coherence
-def coherence(generated_text, embedding_model, result, lock):
+def coherence(generated_text,
+              embedding_model):
     """
     Coherence measures the formation of a cohesive body of text from the sentences.
 
@@ -131,12 +109,12 @@ def coherence(generated_text, embedding_model, result, lock):
         for i in range(len(sentences) - 1)
     ]
     coherence_value = sum(coherence_scores) / (len(coherence_scores) + 1e-8)
-    with lock:
-        result["coherence"] = coherence_value
-
+    return coherence_value
 
 # Function to calculate relevance
-def relevance(question, generated_text, embedding_model, result, lock):
+def relevance(question,
+              generated_text,
+              embedding_model):
     """
     Relevance measure the factual alignment between anwser and response.
 
@@ -153,16 +131,16 @@ def relevance(question, generated_text, embedding_model, result, lock):
     question_embedding = embedding_model.encode(question, convert_to_tensor=True)
     response_embedding = embedding_model.encode(generated_text, convert_to_tensor=True)
     similarity = util.pytorch_cos_sim(question_embedding, response_embedding).item()
-    with lock:
-        result["relevance"] = similarity
-
+    return similarity
 
 # %% Factuality,  Consistency and HHEM require knowledge of source text --> We can use the document for this or tavily for search online
 # Imagine if we have no idea of the source response (aka ground-truth)? Coin N-inputs from source document for evaluation. --> Tavily it.
 
 
 # Function to calculate factuality
-def factuality(generated_text, source_texts, nli_model, result, lock):
+def factuality(generated_text,
+               source_texts,
+               nli_model):
     """
     Consistency measures the factual alignment between the anwer and the context.
 
@@ -182,12 +160,12 @@ def factuality(generated_text, source_texts, nli_model, result, lock):
         score = result_nli[0]["score"] if result_nli[0]["label"] == "entailment" else 0
         nli_scores.append(score)
     factuality_value = max(nli_scores) if len(nli_scores) > 0 else 0
-    with lock:
-        result["factuality"] = factuality_value
-
+    return factuality_value
 
 # Function to calculate consistency
-def consistency(generated_text, source_texts, embedding_model, result, lock):
+def consistency(generated_text,
+                source_texts,
+                embedding_model):
     """
     Consistency measures the factual alignment between the anwer and the context.
 
@@ -208,12 +186,13 @@ def consistency(generated_text, source_texts, embedding_model, result, lock):
         for src_embed in source_embeddings
     ]
     consistency_value = max(similarities).item()
-    with lock:
-        result["consistency"] = consistency_value
-
+    return consistency_value
 
 # Function to calculate HHEM
-def HHEM(generated_text, source_texts, nli_model, embedding_model, result, lock):
+def HHEM(generated_text,
+         source_texts,
+         nli_model,
+         embedding_model):
     """
     Computes the HHEM (Hallucination Evaluation Metric) for the generated text.
 
@@ -245,9 +224,7 @@ def HHEM(generated_text, source_texts, nli_model, embedding_model, result, lock)
     hhem_score = (mean_nli_score * mean_similarity_score) / (
         1 + mean_nli_score * mean_similarity_score
     )
-    with lock:
-        result["hhem"] = hhem_score
-
+    return hhem_score
 
 # Function to calculate Advanced HHEM
 def Advance_HHEM(
@@ -257,8 +234,6 @@ def Advance_HHEM(
     nli_model,
     embedding_model,
     qa_model,
-    result,
-    lock,
 ):
     """
     Computes the Advanced HHEM (Adv. Hallucination Evaluation Metric) for the generated text.
@@ -277,9 +252,7 @@ def Advance_HHEM(
     """
     nli_scores = []
     for source_text in source_texts:
-        result_nli = nli_model(
-            inputs=generated_text,
-        )
+        result_nli = nli_model(inputs=generated_text)
         entailment_score = (
             result_nli[0]["score"] if result_nli[0]["label"] == "entailment" else 0
         )
@@ -306,75 +279,31 @@ def Advance_HHEM(
     hhem_score = 1 / (
         mean_similarity_score * mean_nli_score * fact_validation_score + 1e-8
     )
-    with lock:
-        result["adv_hhem"] = hhem_score
+    return hhem_score
 
-
-# %%
-
-
-def Evaluatrix(
-    generated_text,
-    tokenizer,
-    model,
-    embedding_model,
-    nli_model,
-    qa_model,
-    source_texts,
-    question,
-    start_time,
-):
+def Evaluatrix(generated_text, tokenizer, model, embedding_model, nli_model, qa_model, source_texts, question, start_time):
     result = {}
-    lock = threading.Lock()
 
-    # -- list of threaded metrics
-    threads = [
-        threading.Thread(
-            target=fluency, args=(generated_text, tokenizer, model, result, lock)
-        ),
-        # threading.Thread(target = latency,
-        #                  args = (start_time, end_time, result, lock)),
-        threading.Thread(
-            target=coherence, args=(generated_text, embedding_model, result, lock)
-        ),
-        threading.Thread(
-            target=relevance,
-            args=(question, generated_text, embedding_model, result, lock),
-        ),
-        threading.Thread(
-            target=factuality,
-            args=(generated_text, source_texts, nli_model, result, lock),
-        ),
-        threading.Thread(
-            target=consistency,
-            args=(generated_text, source_texts, embedding_model, result, lock),
-        ),
-        threading.Thread(
-            target=HHEM,
-            args=(
-                generated_text,
-                source_texts,
-                nli_model,
-                embedding_model,
-                result,
-                lock,
-            ),
-        ),
-        # --
-        # threading.Thread(target = Advance_HHEM,
-        #                  args = (generated_text, source_texts, question, nli_model, embedding_model, qa_model, result, lock)),
-    ]
-    # -- Start thread
-    for thread in threads:
-        thread.start()
-    # -- Parallelize
-    for thread in threads:
-        thread.join()
+    # Using ThreadPoolExecutor
+    with ThreadPoolExecutor() as executor:
+        futures = {
+            "fluency": executor.submit(fluency, generated_text, tokenizer, model),
+            "coherence": executor.submit(coherence, generated_text, embedding_model),
+            "relevance": executor.submit(relevance, question, generated_text, embedding_model),
+            "factuality": executor.submit(factuality, generated_text, source_texts, nli_model),
+            "consistency": executor.submit(consistency, generated_text, source_texts, embedding_model),
+            "hhem": executor.submit(HHEM, generated_text, source_texts, nli_model, embedding_model),
+            # Uncomment the line below to include Advance_HHEM in the evaluation
+            # "Advance_HHEM": executor.submit(Advance_HHEM, generated_text, source_texts, question, nli_model, embedding_model, qa_model)
+        }
 
-    end_timme = time.time()
-    result["latency"] = end_timme - start_time
-    # --
+        for key, future in futures.items():
+            result[key] = future.result()
+
+    end_time = time.time()
+    result["latency"] = end_time - start_time
     return result
+
 
 
 # %% Download source of conversations to test here
