@@ -8,10 +8,10 @@ Created on Tue May 20 10:24:56 2024
 
 import time
 
-import torch
-
 # --
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
+
+import torch
 from sentence_transformers import SentenceTransformer, util
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import GPT2LMHeadModel, GPT2Tokenizer, pipeline
@@ -39,10 +39,9 @@ nli_model = pipeline(
 
 # %%
 
+
 # Define the utility function
-def perplexity(generated_text,
-               tokenizer,
-               model):
+def perplexity(generated_text, tokenizer, model):
     if not generated_text.strip():
         return float("inf")  # Return a high perplexity for empty text
     # Encoding
@@ -61,10 +60,9 @@ def perplexity(generated_text,
         perplexity = torch.exp(loss)
     return perplexity.item()
 
+
 # Define evaluation functions
-def fluency(generated_text,
-            tokenizer,
-            model):
+def fluency(generated_text, tokenizer, model):
     """
     Fluency is a measures the grammatical fluency of the generated response.
 
@@ -77,7 +75,7 @@ def fluency(generated_text,
 
     Returns
     None: Coherence
-    """    
+    """
     ppl = perplexity(generated_text, tokenizer, model)
     min_ppl = 10
     max_ppl = 100
@@ -85,9 +83,9 @@ def fluency(generated_text,
     fluency_ = (max_ppl - norm_perplexity) / (max_ppl - min_ppl)
     return fluency_
 
+
 # Function to calculate coherence
-def coherence(generated_text,
-              embedding_model):
+def coherence(generated_text, embedding_model):
     """
     Coherence measures the formation of a cohesive body of text from the sentences.
 
@@ -111,10 +109,9 @@ def coherence(generated_text,
     coherence_value = sum(coherence_scores) / (len(coherence_scores) + 1e-8)
     return coherence_value
 
+
 # Function to calculate relevance
-def relevance(question,
-              generated_text,
-              embedding_model):
+def relevance(question, generated_text, embedding_model):
     """
     Relevance measure the factual alignment between anwser and response.
 
@@ -139,9 +136,7 @@ def relevance(question,
 
 
 # Function to calculate factuality
-def factuality(generated_text,
-               source_texts,
-               nli_model):
+def factuality(generated_text, source_texts, nli_model):
     """
     Consistency measures the factual alignment between the anwer and the context.
 
@@ -163,10 +158,9 @@ def factuality(generated_text,
     factuality_value = max(nli_scores) if len(nli_scores) > 0 else 0
     return factuality_value
 
+
 # Function to calculate consistency
-def consistency(generated_text,
-                source_texts,
-                embedding_model):
+def consistency(generated_text, source_texts, embedding_model):
     """
     Consistency measures the factual alignment between the anwer and the context.
 
@@ -189,11 +183,9 @@ def consistency(generated_text,
     consistency_value = max(similarities).item()
     return consistency_value
 
+
 # Function to calculate HHEM
-def HHEM(generated_text,
-         source_texts,
-         nli_model,
-         embedding_model):
+def HHEM(generated_text, source_texts, nli_model, embedding_model):
     """
     Computes the HHEM (Hallucination Evaluation Metric) for the generated text.
 
@@ -226,6 +218,7 @@ def HHEM(generated_text,
         1 + mean_nli_score * mean_similarity_score
     )
     return hhem_score
+
 
 # Function to calculate Advanced HHEM
 def Advance_HHEM(
@@ -282,7 +275,18 @@ def Advance_HHEM(
     )
     return hhem_score
 
-def Evaluatrix(generated_text, tokenizer, model, embedding_model, nli_model, qa_model, source_texts, question, start_time):
+
+def Evaluatrix(
+    generated_text,
+    tokenizer,
+    model,
+    embedding_model,
+    nli_model,
+    qa_model,
+    source_texts,
+    question,
+    start_time,
+):
     result = {}
 
     # Using ThreadPoolExecutor
@@ -290,10 +294,18 @@ def Evaluatrix(generated_text, tokenizer, model, embedding_model, nli_model, qa_
         futures = {
             "fluency": executor.submit(fluency, generated_text, tokenizer, model),
             "coherence": executor.submit(coherence, generated_text, embedding_model),
-            "relevance": executor.submit(relevance, question, generated_text, embedding_model),
-            "factuality": executor.submit(factuality, generated_text, source_texts, nli_model),
-            "consistency": executor.submit(consistency, generated_text, source_texts, embedding_model),
-            "hhem": executor.submit(HHEM, generated_text, source_texts, nli_model, embedding_model),
+            "relevance": executor.submit(
+                relevance, question, generated_text, embedding_model
+            ),
+            "factuality": executor.submit(
+                factuality, generated_text, source_texts, nli_model
+            ),
+            "consistency": executor.submit(
+                consistency, generated_text, source_texts, embedding_model
+            ),
+            "hhem": executor.submit(
+                HHEM, generated_text, source_texts, nli_model, embedding_model
+            ),
             # Uncomment the line below to include Advance_HHEM in the evaluation
             # "Advance_HHEM": executor.submit(Advance_HHEM, generated_text, source_texts, question, nli_model, embedding_model, qa_model)
         }
@@ -304,7 +316,6 @@ def Evaluatrix(generated_text, tokenizer, model, embedding_model, nli_model, qa_
     end_time = time.time()
     result["latency"] = end_time - start_time
     return result
-
 
 
 # %% Download source of conversations to test here

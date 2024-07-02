@@ -1,5 +1,6 @@
-import rag_functions
 import streamlit as st
+
+import rag_functions
 from global_variables import VECTOR_STORE_PATH
 
 st.title("Document Embedding")
@@ -7,7 +8,7 @@ st.markdown(
     "This page is used to upload the documents as the custom knowledge for the chatbot."
 )
 
-instructio_embedding = [
+instruction_embedding = [
     "hkunlp/instructor-xl",
     "sentence-transformers/all-mpnet-base-v2",
 ]
@@ -20,7 +21,7 @@ with st.form("document_input"):
     row_1 = st.columns([2, 1, 1])
     with row_1[0]:
         instruct_embeddings = st.selectbox(
-            "Model Name of the Instruct Embeddings", instructio_embedding
+            "Model Name of the Instruct Embeddings", instruction_embedding
         )
 
     with row_1[1]:

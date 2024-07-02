@@ -7,28 +7,24 @@ from tempfile import NamedTemporaryFile
 
 import numpy as np
 import pandas as pd
-from rag_functions import (
-    LOADER_MAPPING,
-    loadSingleDocument,
-    ThreadMultiDocLoader,
-    split_doc,
-    embedding_storing,
-    prepare_rag_llm,
-    generate_answer,
-    llm_reply,
-    emsembleFlashreranker,
-)
 import streamlit as st
 import toml
-from global_variables import (
-    DATA_PATH,
-    IMG_PATH,
-    VECTOR_STORE_PATH,
-    DefaultValues,
-)
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.retrievers import BM25Retriever
+
+from global_variables import DATA_PATH, IMG_PATH, VECTOR_STORE_PATH, DefaultValues
+from rag_functions import (
+    LOADER_MAPPING,
+    ThreadMultiDocLoader,
+    embedding_storing,
+    emsembleFlashreranker,
+    generate_answer,
+    llm_reply,
+    loadSingleDocument,
+    prepare_rag_llm,
+    split_doc,
+)
 from rag_metrics import (
     Evaluatrix,
     embedding_model,
@@ -37,7 +33,6 @@ from rag_metrics import (
     qa_model,
     tokenizer,
 )
-
 
 # ---
 st.title("Customized RAG Agent")
@@ -53,7 +48,7 @@ TEMPLATES = DefaultValues.TEMPLATES.value
 COT_PIPELINE = DefaultValues.COT_PIPELINE.value
 SUPPLEMENT = DefaultValues.SUPPLEMENT.value
 INSTRUCTUION_EMBEDDING = (
-    list(np.load(DATA_PATH / "hkuNLP.npy", allow_pickle=True)) + SUPPLEMENT
+    list(np.load(DATA_PATH / "hkunlp_embeddings.npy", allow_pickle=True)) + SUPPLEMENT
 )
 # --
 LOADER_MAPPING = LOADER_MAPPING
@@ -91,18 +86,14 @@ def theme():
         }
 
         if theme == "dark":
-            config["theme.dark"]["primaryColor"] = config["theme.dark"][
-                "primaryColor"
-            ]
+            config["theme.dark"]["primaryColor"] = config["theme.dark"]["primaryColor"]
             config["theme.dark"]["backgroundColor"] = config["theme.dark"][
                 "backgroundColor"
             ]
-            config["theme.dark"]["secondaryBackgroundColor"] = config[
-                "theme.dark"
-            ]["secondaryBackgroundColor"]
-            config["theme.dark"]["textColor"] = config["theme.dark"][
-                "textColor"
+            config["theme.dark"]["secondaryBackgroundColor"] = config["theme.dark"][
+                "secondaryBackgroundColor"
             ]
+            config["theme.dark"]["textColor"] = config["theme.dark"]["textColor"]
         else:
             config["theme.light"]["primaryColor"] = config["theme.light"][
                 "primaryColor"
@@ -110,12 +101,10 @@ def theme():
             config["theme.light"]["backgroundColor"] = config["theme.light"][
                 "backgroundColor"
             ]
-            config["theme.light"]["secondaryBackgroundColor"] = config[
-                "theme.light"
-            ]["secondaryBackgroundColor"]
-            config["theme.light"]["textColor"] = config["theme.light"][
-                "textColor"
+            config["theme.light"]["secondaryBackgroundColor"] = config["theme.light"][
+                "secondaryBackgroundColor"
             ]
+            config["theme.light"]["textColor"] = config["theme.light"]["textColor"]
 
         with open(CONFIG_PATH, "w") as configfile:
             toml.dump(config, configfile)
@@ -285,9 +274,7 @@ with st.expander("Document Embedding"):
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
                             documents = loadSingleDocument(temp_file.name)
-                            chunks = split_doc(
-                                documents, chunk_size, chunk_overlap
-                            )
+                            chunks = split_doc(documents, chunk_size, chunk_overlap)
 
                         # -- Save the vector
                         bm25_retriever = BM25Retriever.from_documents(chunks)
@@ -307,9 +294,7 @@ with st.expander("Document Embedding"):
                         # -- Threaded loading of collected documents
                         documents = ThreadMultiDocLoader(temp_files)
                         # Split document
-                        chunks = split_doc(
-                            documents, chunk_size, chunk_overlap
-                        )
+                        chunks = split_doc(documents, chunk_size, chunk_overlap)
                         bm25_retriever = BM25Retriever.from_documents(chunks)
                         st.success("The BM25 PDF Retriever is initializing...")
 
@@ -336,9 +321,7 @@ with st.expander("Document Embedding"):
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
                             documents = loadSingleDocument(temp_file.name)
-                            chunks = split_doc(
-                                documents, chunk_size, chunk_overlap
-                            )
+                            chunks = split_doc(documents, chunk_size, chunk_overlap)
                         bm25_retriever = BM25Retriever.from_documents(chunks)
                         st.success("The BM25 PDF Retriever is created")
                     else:
@@ -354,9 +337,7 @@ with st.expander("Document Embedding"):
                         # -- Threaded loading of collected documents
                         documents = ThreadMultiDocLoader(temp_files)
                         # Split document
-                        chunks = split_doc(
-                            documents, chunk_size, chunk_overlap
-                        )
+                        chunks = split_doc(documents, chunk_size, chunk_overlap)
                         bm25_retriever = BM25Retriever.from_documents(chunks)
                         st.success("The BM25 PDF Retriever is created")
                     # Embeddings and storing
@@ -371,7 +352,11 @@ with st.expander("Document Embedding"):
 
 # %% Metrics and reranking
 
-st.sidebar.image(str(IMG_PATH / "Dtgy.png"), width=78, use_column_width=False)
+st.sidebar.image(
+    "https://upload.wikimedia.org/wikipedia/commons/d/dc/LOGO-DATATEGY-transparent.png",
+    width=78,
+    use_column_width=False,
+)
 reranker = st.sidebar.selectbox(
     "Reranker", ["RRF", "FlashReranker"], help=HELP["reranker"]
 )
@@ -396,9 +381,7 @@ with st.expander("LLM Settings"):
             )
 
         with row_a[1]:
-            llm_model = st.selectbox(
-                "LLM model", LLM_NAMES, help=HELP["LLM_Model"]
-            )
+            llm_model = st.selectbox("LLM model", LLM_NAMES, help=HELP["LLM_Model"])
 
         with row_a[2]:
             instruct_embeddings = st.selectbox(
@@ -648,23 +631,17 @@ st.sidebar.markdown(
     f"Fluency: :green[{fl:.2f}]" if fl >= 0.50 else f"Fluency: :red[{fl:.2f}]"
 )
 st.sidebar.markdown(
-    f"Coherence: :green[{co:.2f}]"
-    if co >= 0.50
-    else f"Coherence: :red[{co:.2f}]"
+    f"Coherence: :green[{co:.2f}]" if co >= 0.50 else f"Coherence: :red[{co:.2f}]"
 )
 st.sidebar.markdown(
-    f"Relevance: :green[{re:.2f}]"
-    if re >= 0.50
-    else f"Relevance: :red[{re:.2f}]"
+    f"Relevance: :green[{re:.2f}]" if re >= 0.50 else f"Relevance: :red[{re:.2f}]"
 )
 st.sidebar.markdown(f"Latency: :grey[{la:.2f}] secs")
 
 # -- Hallucination metrics
 st.sidebar.markdown("Metrics II")
 st.sidebar.markdown(
-    f"Factuality: :green[{fac:.2f}]"
-    if fac >= 0.50
-    else f"Factuality: :red[{fac:.2f}]"
+    f"Factuality: :green[{fac:.2f}]" if fac >= 0.50 else f"Factuality: :red[{fac:.2f}]"
 )
 st.sidebar.markdown(
     f"Consistency: :green[{cons:.2f}]"
@@ -760,6 +737,4 @@ st.sidebar.download_button(
 )
 
 
-st.sidebar.download_button(
-    label="xlsx", data=data_bytes, file_name="data.xlsx"
-)
+st.sidebar.download_button(label="xlsx", data=data_bytes, file_name="data.xlsx")

@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+
 from global_variables import DATA_PATH
 
 # %% Download domain names from wiki tables
@@ -47,7 +48,7 @@ def extractwebsite_links(
 # wikiurl = "https://en.wikipedia.org/wiki/List_of_Internet_top-level_domains"
 # table_class = "wikitable"
 # urls = extractwebsite_links(wikiurl, table_class,)
-# np.save(join(data_path, 'url.npy'), urls)
+# np.save(join(data_path, "url_suffixes.npy"), urls)
 
 # %% utilities for web scrapping...
 
@@ -127,7 +128,7 @@ def scrapper_url(url, http, main_com, pdf=False):
 
 if __name__ == "__main__":
     # website_url = "https://safengy.com/our-skills/environmental-french-regulation/"
-    domain = list(np.load(DATA_PATH / "url.npy", allow_pickle=True)) + [
+    domain = list(np.load(DATA_PATH / "url_suffixes.npy", allow_pickle=True)) + [
         "www",
         "gouv",
         "fr",
@@ -327,7 +328,7 @@ for files_ in list(save_env_codes_txt.iterdir()):
 # %% Translate environmental codes from French to English
 
 import nltk
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator  # TODO: add to requirements
 
 
 def googleTranslator(env_codes, g_translator):
@@ -403,11 +404,11 @@ translated_articles_joined = "\n".join(translated_articles)
 with open(PDF_PATH / "environmental_code_en.txt", "w") as txt_file:
     txt_file.write(translated_articles_joined)
 
-# %% scrap hkuNLP for all model names
+# %% scrap Hong-Kong University embeddings for all model names
 
 import time
 
-from selenium import webdriver
+from selenium import webdriver  # TODO: add to requirements
 from selenium.webdriver.common.by import By
 
 url = "https://huggingface.co/hkunlp"
@@ -442,10 +443,10 @@ model_name_ = hkuNLP(url)
 
 # %% save models from hkuNLP
 
-np.save(DATA_PATH / "hkuNLP.npy", model_name_)
+np.save(DATA_PATH / "hkunlp_embeddings.npy", model_name_)
 
 # %% load again..
 
-model_name_ = list(np.load(DATA_PATH / "hkuNLP.npy", allow_pickle=True))
+model_name_ = list(np.load(DATA_PATH / "hkunlp_embeddings.npy", allow_pickle=True))
 
 # %%

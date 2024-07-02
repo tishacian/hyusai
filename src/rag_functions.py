@@ -4,7 +4,6 @@ from typing import List
 import streamlit as st
 import torch
 from flashrank import Ranker
-from global_variables import VECTOR_STORE_PATH
 from langchain import HuggingFaceHub
 from langchain.docstore.document import Document
 from langchain.document_loaders import (
@@ -25,10 +24,7 @@ from langchain.embeddings import HuggingFaceInstructEmbeddings
 from langchain.prompts import PromptTemplate
 
 # --
-from langchain.retrievers import (
-    ContextualCompressionRetriever,
-    EnsembleRetriever,
-)
+from langchain.retrievers import ContextualCompressionRetriever, EnsembleRetriever
 from langchain.retrievers.document_compressors import FlashrankRerank
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS, Chroma
@@ -36,6 +32,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from tqdm import tqdm
 from transformers import AutoTokenizer
+
+from global_variables import VECTOR_STORE_PATH
 
 # %%
 
@@ -140,8 +138,7 @@ def ThreadMultiDocLoader(
     results = []
     with ThreadPoolExecutor() as executor:
         future_to_file = {
-            executor.submit(loadSingleDocument, file): file
-            for file in filtered_files
+            executor.submit(loadSingleDocument, file): file for file in filtered_files
         }
         with tqdm(
             total=len(filtered_files), desc="Loading new documents", ncols=80
@@ -173,7 +170,7 @@ def split_doc(document, chunk_size, chunk_overlap):
 # --- Base retriever store...
 def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
     vector_store_list_path = VECTOR_STORE_PATH / vector_store_list
-    print("Loaidng VDB from ", vector_store_list_path)
+    print("Loading VDB from ", vector_store_list_path)
     # --- initialize vector DB
     if vectorization_type.lower() == "chroma":
         if vector_store_list_path.exists():
@@ -252,9 +249,7 @@ def embedding_storing(
                 retriever_base = FAISS.from_documents(
                     split, embedding=instructor_embeddings
                 )
-                retriever_base.save_local(
-                    VECTOR_STORE_PATH / f"FAIS_{new_vs_name}"
-                )
+                retriever_base.save_local(VECTOR_STORE_PATH / f"FAIS_{new_vs_name}")
         else:
             # VDB Merging happens here...
             if vectorization_type.lower() == "chroma":
@@ -478,9 +473,7 @@ def emsembleFlashreranker(
     model_name = "ms-marco-MultiBERT-L-12"  # example Cross-Encoder model
     flashrank_client = Ranker(model_name=model_name)
 
-    compressor = FlashrankRerank(
-        client=flashrank_client, top_n=3, model=model_name
-    )
+    compressor = FlashrankRerank(client=flashrank_client, top_n=3, model=model_name)
     compression_retriever = ContextualCompressionRetriever(
         base_compressor=compressor, base_retriever=ensemble_retriever
     )
@@ -490,9 +483,7 @@ def emsembleFlashreranker(
         doc.page_content for doc in compressed_docs
     ]  # returns the source documents...
     # To use later (document_relevance) as context relevance --> Depending on the reranking model used ```model_name```...
-    document_relevance = [
-        doc.metadata["relevance_score"] for doc in compressed_docs
-    ]
+    document_relevance = [doc.metadata["relevance_score"] for doc in compressed_docs]
     answer = doc_source[0]
     # --
     return answer, doc_source

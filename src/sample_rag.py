@@ -1,5 +1,6 @@
-import rag_functions
 import streamlit as st
+
+import rag_functions
 from global_variables import VECTOR_STORE_PATH
 
 st.title("Customized RAG Chatbot")

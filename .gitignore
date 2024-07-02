@@ -25,3 +25,7 @@ Thumbs.db
 env/
 venv/
 ENV/
+
+# Generated vector database
+vector_store/*
+!vector_store/default_environment_code
