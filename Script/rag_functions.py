@@ -25,7 +25,10 @@ from langchain.embeddings import HuggingFaceInstructEmbeddings
 from langchain.prompts import PromptTemplate
 
 # --
-from langchain.retrievers import ContextualCompressionRetriever, EnsembleRetriever
+from langchain.retrievers import (
+    ContextualCompressionRetriever,
+    EnsembleRetriever,
+)
 from langchain.retrievers.document_compressors import FlashrankRerank
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS, Chroma
@@ -137,7 +140,8 @@ def ThreadMultiDocLoader(
     results = []
     with ThreadPoolExecutor() as executor:
         future_to_file = {
-            executor.submit(loadSingleDocument, file): file for file in filtered_files
+            executor.submit(loadSingleDocument, file): file
+            for file in filtered_files
         }
         with tqdm(
             total=len(filtered_files), desc="Loading new documents", ncols=80
@@ -164,6 +168,7 @@ def split_doc(document, chunk_size, chunk_overlap):
     split = splitter.create_documents(split)
 
     return split
+
 
 # --- Base retriever store...
 def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
@@ -195,6 +200,7 @@ def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
         st.write(f"Unknown vector database {vectorization_type}")
 
     return retriever_base
+
 
 # --- Embedding storing...
 def embedding_storing(
@@ -274,7 +280,9 @@ def embedding_storing(
                 ld_retriever_base.save_local(
                     VECTOR_STORE_PATH / f"FAIS_{existing_vector_store}",
                 )
-        st.success(f"The document has been saved using {vectorization_type.upper()} Vector DB")
+        st.success(
+            f"The document has been saved using {vectorization_type.upper()} Vector DB"
+        )
 
 
 # - File processing...
@@ -294,7 +302,12 @@ def file_processing(file, embed_name):
 
 # -- LLM reply module...
 def llm_reply(
-    question, bm25_retriever, llm_model, retriever, template_opt, template_input
+    question,
+    bm25_retriever,
+    llm_model,
+    retriever,
+    template_opt,
+    template_input,
 ):
     """
     Using Emsemble retriever w/ RunnablePassthrough/RunnableParrel
@@ -399,7 +412,12 @@ def llm_reply(
 
 # -- LLM reply module...
 def emsembleFlashreranker(
-    question, bm25_retriever, llm_model, retriever, template_opt, template_input
+    question,
+    bm25_retriever,
+    llm_model,
+    retriever,
+    template_opt,
+    template_input,
 ):
     """
     Using Emsemble retriever w/ Flash Reranker
@@ -460,7 +478,9 @@ def emsembleFlashreranker(
     model_name = "ms-marco-MultiBERT-L-12"  # example Cross-Encoder model
     flashrank_client = Ranker(model_name=model_name)
 
-    compressor = FlashrankRerank(client=flashrank_client, top_n=3, model=model_name)
+    compressor = FlashrankRerank(
+        client=flashrank_client, top_n=3, model=model_name
+    )
     compression_retriever = ContextualCompressionRetriever(
         base_compressor=compressor, base_retriever=ensemble_retriever
     )
@@ -470,7 +490,9 @@ def emsembleFlashreranker(
         doc.page_content for doc in compressed_docs
     ]  # returns the source documents...
     # To use later (document_relevance) as context relevance --> Depending on the reranking model used ```model_name```...
-    document_relevance = [doc.metadata["relevance_score"] for doc in compressed_docs]
+    document_relevance = [
+        doc.metadata["relevance_score"] for doc in compressed_docs
+    ]
     answer = doc_source[0]
     # --
     return answer, doc_source

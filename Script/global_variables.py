@@ -1,4 +1,3 @@
-
 from pathlib import Path
 from enum import Enum
 
@@ -7,7 +6,8 @@ DATA_PATH = REPO_PATH / "Data"
 IMG_PATH = REPO_PATH / "image"
 VECTOR_STORE_PATH = REPO_PATH / "Script" / "vector store"
 
-#%% Default variables
+# %% Default variables
+
 
 class DefaultValues(Enum):
     SINGLE_FILE = 1
@@ -20,6 +20,7 @@ class DefaultValues(Enum):
         "MBZUAI/LaMini-Cerebras-590M",
         "MBZUAI/LaMini-Cerebras-1.3B",
         "MBZUAI/LaMini-Flan-T5-783M",
+        "TheBloke/Mistral-7B-Instruct-v0.1-GPTQ",
     ]
     EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"
     VECTOR_TYPES = ["FAISS", "Chroma", "Weaviate", "PGVector"]
@@ -37,7 +38,7 @@ class DefaultValues(Enum):
         "Labib11/MUG-B-1.6",
         "WhereIsAI/UAE-Large-V1",
     ]
-    #--
+    # --
     HELP = {  # help suggestions...
         "HuggingFace": "You can get theHuggingFace token from settings of your Huggingface account",
         "LLM_Model": "An instruction LLM model well (distilled or not) necessary to provide the right anwser"
@@ -62,5 +63,3 @@ class DefaultValues(Enum):
         + "\n"
         + "The other is the Flash reranker, which uses a Cross-Encoder for reranking.",
     }
-    
-    

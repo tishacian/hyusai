@@ -133,6 +133,7 @@ def relevance(question,
     similarity = util.pytorch_cos_sim(question_embedding, response_embedding).item()
     return similarity
 
+
 # %% Factuality,  Consistency and HHEM require knowledge of source text --> We can use the document for this or tavily for search online
 # Imagine if we have no idea of the source response (aka ground-truth)? Coin N-inputs from source document for evaluation. --> Tavily it.
 

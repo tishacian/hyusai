@@ -7,20 +7,25 @@ from tempfile import NamedTemporaryFile
 
 import numpy as np
 import pandas as pd
-from rag_functions import (LOADER_MAPPING,
-                           loadSingleDocument,
-                           ThreadMultiDocLoader,
-                           split_doc,
-                           embedding_storing,
-                           prepare_rag_llm,
-                           generate_answer,
-                           llm_reply,
-                           emsembleFlashreranker
-                           )
+from rag_functions import (
+    LOADER_MAPPING,
+    loadSingleDocument,
+    ThreadMultiDocLoader,
+    split_doc,
+    embedding_storing,
+    prepare_rag_llm,
+    generate_answer,
+    llm_reply,
+    emsembleFlashreranker,
+)
 import streamlit as st
 import toml
-from global_variables import (DATA_PATH, IMG_PATH, VECTOR_STORE_PATH,
-                              DefaultValues)
+from global_variables import (
+    DATA_PATH,
+    IMG_PATH,
+    VECTOR_STORE_PATH,
+    DefaultValues,
+)
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.retrievers import BM25Retriever
@@ -32,6 +37,7 @@ from rag_metrics import (
     qa_model,
     tokenizer,
 )
+
 
 # ---
 st.title("Customized RAG Agent")
@@ -85,14 +91,18 @@ def theme():
         }
 
         if theme == "dark":
-            config["theme.dark"]["primaryColor"] = config["theme.dark"]["primaryColor"]
+            config["theme.dark"]["primaryColor"] = config["theme.dark"][
+                "primaryColor"
+            ]
             config["theme.dark"]["backgroundColor"] = config["theme.dark"][
                 "backgroundColor"
             ]
-            config["theme.dark"]["secondaryBackgroundColor"] = config["theme.dark"][
-                "secondaryBackgroundColor"
+            config["theme.dark"]["secondaryBackgroundColor"] = config[
+                "theme.dark"
+            ]["secondaryBackgroundColor"]
+            config["theme.dark"]["textColor"] = config["theme.dark"][
+                "textColor"
             ]
-            config["theme.dark"]["textColor"] = config["theme.dark"]["textColor"]
         else:
             config["theme.light"]["primaryColor"] = config["theme.light"][
                 "primaryColor"
@@ -100,10 +110,12 @@ def theme():
             config["theme.light"]["backgroundColor"] = config["theme.light"][
                 "backgroundColor"
             ]
-            config["theme.light"]["secondaryBackgroundColor"] = config["theme.light"][
-                "secondaryBackgroundColor"
+            config["theme.light"]["secondaryBackgroundColor"] = config[
+                "theme.light"
+            ]["secondaryBackgroundColor"]
+            config["theme.light"]["textColor"] = config["theme.light"][
+                "textColor"
             ]
-            config["theme.light"]["textColor"] = config["theme.light"]["textColor"]
 
         with open(CONFIG_PATH, "w") as configfile:
             toml.dump(config, configfile)
@@ -133,7 +145,9 @@ with st.expander("Document Embedding"):
             "Knowledge Documents",
             accept_multiple_files=True,
             type=ACCEPTABLE_DOC_TYPES,
-            help="Acceptable document formats includes: "+" ".join(ACCEPTABLE_DOC_TYPES[:5]) + " et al.",
+            help="Acceptable document formats includes: "
+            + " ".join(ACCEPTABLE_DOC_TYPES[:5])
+            + " et al.",
         )
         # --
         SINGLE_FILE = 1
@@ -185,37 +199,41 @@ with st.expander("Document Embedding"):
 
         # --
         row_ce = st.columns(3)
-        #-- 
-        default_pipeline_doc = VECTOR_TYPES.index(
-            VECTOR_TYPES[0]
-        )
+        # --
+        default_pipeline_doc = VECTOR_TYPES.index(VECTOR_TYPES[0])
         with row_ce[1]:
             vector_type_doc = st.selectbox(
-                "Vector type", VECTOR_TYPES, default_pipeline_doc, help=HELP["vector_type"]
+                "Vector type",
+                VECTOR_TYPES,
+                default_pipeline_doc,
+                help=HELP["vector_type"],
             )
         with row_ce[2]:
             default_pipeline = PIPELINE_RAG.index(
                 PIPELINE_RAG[1]
             )  # set defaullt pipeline
             pipeline_a = st.selectbox(
-                "Pipeline", PIPELINE_RAG, default_pipeline, help=HELP["pipeline"]
+                "Pipeline",
+                PIPELINE_RAG,
+                default_pipeline,
+                help=HELP["pipeline"],
             )
-        
+
         save_button = st.form_submit_button("Save vector store")
 
         # Check whether to create new vector store --> Checking params
         create_new_vs = None
         if existing_vector_store == "<New>" and new_vs_name != "":
-            #-- Create new embedding..
+            # -- Create new embedding..
             create_new_vs = True
         elif existing_vector_store != "<New>" and new_vs_name != "":
-            #-- Use existing embedding..
+            # -- Use existing embedding..
             create_new_vs = False
         else:
             st.error(
                 "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
             )
-            
+
         if pipeline_a.lower() == DEFAULT_PIPELINE:
             if save_button:
                 if not uploaded_files:
@@ -243,15 +261,15 @@ with st.expander("Document Embedding"):
                         documents = ThreadMultiDocLoader(temp_files)
                 # Split document
                 split = split_doc(documents, chunk_size, chunk_overlap)
-                
+
                 # Embeddings and storing
                 embedding_storing(
-                    model_name = instruct_embeddings, #instruction embedding model name
-                    split = split, #chunks
-                    create_new_vs = create_new_vs, #flag to create new VDB
-                    existing_vector_store = existing_vector_store, #if VDB is existing already
-                    new_vs_name = new_vs_name, #Name of new VDB
-                    vectorization_type = vector_type_doc
+                    model_name=instruct_embeddings,  # instruction embedding model name
+                    split=split,  # chunks
+                    create_new_vs=create_new_vs,  # flag to create new VDB
+                    existing_vector_store=existing_vector_store,  # if VDB is existing already
+                    new_vs_name=new_vs_name,  # Name of new VDB
+                    vectorization_type=vector_type_doc,
                 )
         elif pipeline_a.lower() == COT_PIPELINE:
             if save_button:
@@ -267,13 +285,15 @@ with st.expander("Document Embedding"):
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
                             documents = loadSingleDocument(temp_file.name)
-                            chunks = split_doc(documents, chunk_size, chunk_overlap)
-                            
-                        #-- Save the vector
+                            chunks = split_doc(
+                                documents, chunk_size, chunk_overlap
+                            )
+
+                        # -- Save the vector
                         bm25_retriever = BM25Retriever.from_documents(chunks)
                         st.success("The BM25 PDF Retriever is initialized...")
-                        #-- 
-                        
+                        # --
+
                     else:
                         # -- Save the location of all the temporary files first..
                         temp_files = []
@@ -287,20 +307,22 @@ with st.expander("Document Embedding"):
                         # -- Threaded loading of collected documents
                         documents = ThreadMultiDocLoader(temp_files)
                         # Split document
-                        chunks = split_doc(documents, chunk_size, chunk_overlap)
+                        chunks = split_doc(
+                            documents, chunk_size, chunk_overlap
+                        )
                         bm25_retriever = BM25Retriever.from_documents(chunks)
                         st.success("The BM25 PDF Retriever is initializing...")
-                        
+
                     # Embeddings and storing for Single or multiple docs of CoT
                     embedding_storing(
-                        model_name = instruct_embeddings, #instruction embedding model name
-                        split = chunks, #chunks
-                        create_new_vs = create_new_vs, #flag to create new VDB
-                        existing_vector_store = existing_vector_store, #if VDB is existing already
-                        new_vs_name = new_vs_name, #Name of new VDB
-                        vectorization_type = vector_type_doc
+                        model_name=instruct_embeddings,  # instruction embedding model name
+                        split=chunks,  # chunks
+                        create_new_vs=create_new_vs,  # flag to create new VDB
+                        existing_vector_store=existing_vector_store,  # if VDB is existing already
+                        new_vs_name=new_vs_name,  # Name of new VDB
+                        vectorization_type=vector_type_doc,
                     )
-                    
+
             else:
                 # Read the uploaded file
                 if not uploaded_files:
@@ -314,7 +336,9 @@ with st.expander("Document Embedding"):
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
                             documents = loadSingleDocument(temp_file.name)
-                            chunks = split_doc(documents, chunk_size, chunk_overlap)
+                            chunks = split_doc(
+                                documents, chunk_size, chunk_overlap
+                            )
                         bm25_retriever = BM25Retriever.from_documents(chunks)
                         st.success("The BM25 PDF Retriever is created")
                     else:
@@ -330,17 +354,19 @@ with st.expander("Document Embedding"):
                         # -- Threaded loading of collected documents
                         documents = ThreadMultiDocLoader(temp_files)
                         # Split document
-                        chunks = split_doc(documents, chunk_size, chunk_overlap)
+                        chunks = split_doc(
+                            documents, chunk_size, chunk_overlap
+                        )
                         bm25_retriever = BM25Retriever.from_documents(chunks)
                         st.success("The BM25 PDF Retriever is created")
                     # Embeddings and storing
                     embedding_storing(
-                        model_name = instruct_embeddings, #instruction embedding model name
-                        split = chunks, #chunks
-                        create_new_vs = create_new_vs, #flag to create new VDB
-                        existing_vector_store = existing_vector_store, #if VDB is existing already
-                        new_vs_name = new_vs_name, #Name of new VDB
-                        vectorization_type = vector_type_doc
+                        model_name=instruct_embeddings,  # instruction embedding model name
+                        split=chunks,  # chunks
+                        create_new_vs=create_new_vs,  # flag to create new VDB
+                        existing_vector_store=existing_vector_store,  # if VDB is existing already...
+                        new_vs_name=new_vs_name,  # Name of new VDB
+                        vectorization_type=vector_type_doc,
                     )
 
 # %% Metrics and reranking
@@ -370,7 +396,9 @@ with st.expander("LLM Settings"):
             )
 
         with row_a[1]:
-            llm_model = st.selectbox("LLM model", LLM_NAMES, help=HELP["LLM_Model"])
+            llm_model = st.selectbox(
+                "LLM model", LLM_NAMES, help=HELP["LLM_Model"]
+            )
 
         with row_a[2]:
             instruct_embeddings = st.selectbox(
@@ -424,7 +452,10 @@ with st.expander("LLM Settings"):
                 PIPELINE_RAG[1]
             )  # set defaullt pipeline
             pipeline_ = st.selectbox(
-                "Pipeline", PIPELINE_RAG, default_pipeline_cbot, help=HELP["pipeline"]
+                "Pipeline",
+                PIPELINE_RAG,
+                default_pipeline_cbot,
+                help=HELP["pipeline"],
             )
 
         with row_c[2]:
@@ -617,17 +648,23 @@ st.sidebar.markdown(
     f"Fluency: :green[{fl:.2f}]" if fl >= 0.50 else f"Fluency: :red[{fl:.2f}]"
 )
 st.sidebar.markdown(
-    f"Coherence: :green[{co:.2f}]" if co >= 0.50 else f"Coherence: :red[{co:.2f}]"
+    f"Coherence: :green[{co:.2f}]"
+    if co >= 0.50
+    else f"Coherence: :red[{co:.2f}]"
 )
 st.sidebar.markdown(
-    f"Relevance: :green[{re:.2f}]" if re >= 0.50 else f"Relevance: :red[{re:.2f}]"
+    f"Relevance: :green[{re:.2f}]"
+    if re >= 0.50
+    else f"Relevance: :red[{re:.2f}]"
 )
 st.sidebar.markdown(f"Latency: :grey[{la:.2f}] secs")
 
 # -- Hallucination metrics
 st.sidebar.markdown("Metrics II")
 st.sidebar.markdown(
-    f"Factuality: :green[{fac:.2f}]" if fac >= 0.50 else f"Factuality: :red[{fac:.2f}]"
+    f"Factuality: :green[{fac:.2f}]"
+    if fac >= 0.50
+    else f"Factuality: :red[{fac:.2f}]"
 )
 st.sidebar.markdown(
     f"Consistency: :green[{cons:.2f}]"
@@ -723,4 +760,6 @@ st.sidebar.download_button(
 )
 
 
-st.sidebar.download_button(label="xlsx", data=data_bytes, file_name="data.xlsx")
+st.sidebar.download_button(
+    label="xlsx", data=data_bytes, file_name="data.xlsx"
+)
