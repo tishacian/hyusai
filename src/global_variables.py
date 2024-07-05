@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 
 REPO_PATH = Path(__file__).parent.parent
@@ -7,6 +7,17 @@ IMG_PATH = REPO_PATH / "image"
 VECTOR_STORE_PATH = REPO_PATH / "vector_store"
 
 # %% Default variables
+
+
+class PipelineTypes(StrEnum):
+    DEFAULT = "default"
+    COT = "cot"
+    AsynCOT = "asyncot"
+
+
+class Reranker(StrEnum):
+    RRF = "rrf"
+    FLASHRERANKER = "flashreranker"
 
 
 class DefaultValues(Enum):
@@ -24,7 +35,6 @@ class DefaultValues(Enum):
     ]
     EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"
     VECTOR_TYPES = ["FAISS", "Chroma", "Weaviate", "PGVector"]
-    PIPELINE_RAG = ["Default", "COT", "AsynCOT"]
     TEMPLATES = ["Default", "Custom"]
     DEFAULT_PIPELINE = "default"
     COT_PIPELINE = "cot"
