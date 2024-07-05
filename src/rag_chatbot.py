@@ -4,7 +4,7 @@ import os
 import time
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-
+import pickle
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -13,7 +13,14 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.retrievers import BM25Retriever
 
-from global_variables import DATA_PATH, IMG_PATH, VECTOR_STORE_PATH, DefaultValues
+from global_variables import (
+    DATA_PATH,
+    IMG_PATH,
+    VECTOR_STORE_PATH,
+    DefaultValues,
+    PipelineTypes,
+    Reranker,
+)
 from rag_functions import (
     LOADER_MAPPING,
     ThreadMultiDocLoader,
@@ -24,6 +31,7 @@ from rag_functions import (
     loadSingleDocument,
     prepare_rag_llm,
     split_doc,
+    load_bm25_retriever,
 )
 from rag_metrics import (
     Evaluatrix,
@@ -35,7 +43,9 @@ from rag_metrics import (
 )
 
 # ---
+st.set_page_config(layout="wide")  # Scale the app to screen size
 st.title("Customized RAG Agent")
+
 
 # -- Defaults
 HELP = DefaultValues.HELP.value
@@ -43,12 +53,13 @@ DEFAULT_PIPELINE = DefaultValues.DEFAULT.value
 LLM_NAMES = DefaultValues.LLM_NAMES.value
 EMBEDDING_NAME = DefaultValues.EMBEDDING_NAME.value
 VECTOR_TYPES = DefaultValues.VECTOR_TYPES.value
-PIPELINE_RAG = DefaultValues.PIPELINE_RAG.value
+PIPELINE_RAG = list(map(str, PipelineTypes))
 TEMPLATES = DefaultValues.TEMPLATES.value
 COT_PIPELINE = DefaultValues.COT_PIPELINE.value
 SUPPLEMENT = DefaultValues.SUPPLEMENT.value
 INSTRUCTUION_EMBEDDING = (
-    list(np.load(DATA_PATH / "hkunlp_embeddings.npy", allow_pickle=True)) + SUPPLEMENT
+    list(np.load(DATA_PATH / "hkunlp_embeddings.npy", allow_pickle=True))
+    + SUPPLEMENT
 )
 # --
 LOADER_MAPPING = LOADER_MAPPING
@@ -86,14 +97,18 @@ def theme():
         }
 
         if theme == "dark":
-            config["theme.dark"]["primaryColor"] = config["theme.dark"]["primaryColor"]
+            config["theme.dark"]["primaryColor"] = config["theme.dark"][
+                "primaryColor"
+            ]
             config["theme.dark"]["backgroundColor"] = config["theme.dark"][
                 "backgroundColor"
             ]
-            config["theme.dark"]["secondaryBackgroundColor"] = config["theme.dark"][
-                "secondaryBackgroundColor"
+            config["theme.dark"]["secondaryBackgroundColor"] = config[
+                "theme.dark"
+            ]["secondaryBackgroundColor"]
+            config["theme.dark"]["textColor"] = config["theme.dark"][
+                "textColor"
             ]
-            config["theme.dark"]["textColor"] = config["theme.dark"]["textColor"]
         else:
             config["theme.light"]["primaryColor"] = config["theme.light"][
                 "primaryColor"
@@ -101,10 +116,12 @@ def theme():
             config["theme.light"]["backgroundColor"] = config["theme.light"][
                 "backgroundColor"
             ]
-            config["theme.light"]["secondaryBackgroundColor"] = config["theme.light"][
-                "secondaryBackgroundColor"
+            config["theme.light"]["secondaryBackgroundColor"] = config[
+                "theme.light"
+            ]["secondaryBackgroundColor"]
+            config["theme.light"]["textColor"] = config["theme.light"][
+                "textColor"
             ]
-            config["theme.light"]["textColor"] = config["theme.light"]["textColor"]
 
         with open(CONFIG_PATH, "w") as configfile:
             toml.dump(config, configfile)
@@ -121,8 +138,13 @@ def theme():
 
 # %% Document embedding...
 
+
 # --Different columns for Embedding/Chat app
-bm25_retriever = 0
+# -- Document Embedding does the following:
+# 1° Load document(s)
+# 2° Chunk documents
+# 3° Create/Store Retriever(s)
+# 4° Initializes when "Save vector store" is clicked
 with st.expander("Document Embedding"):
     st.title("Document Embedding")
     st.markdown(
@@ -145,7 +167,8 @@ with st.expander("Document Embedding"):
         row_ae = st.columns([2, 1, 1])
         with row_ae[0]:
             instruct_embeddings = st.selectbox(
-                "Model Name of the Instruct Embeddings", INSTRUCTUION_EMBEDDING
+                "Model Name of the Instruct Embeddings",
+                INSTRUCTUION_EMBEDDING,
             )
 
         with row_ae[1]:
@@ -170,7 +193,10 @@ with st.expander("Document Embedding"):
             # List the existing vector stores
             vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
             vector_store_list = [
-                file for file in vector_store_list if not file.startswith(".")
+                file
+                for file in vector_store_list
+                if not file.startswith(".")
+                if not file.startswith("BM25")
             ]
             existing_vector_store = st.selectbox(
                 "Vector Store to Merge the Knowledge",
@@ -209,22 +235,22 @@ with st.expander("Document Embedding"):
             )
 
         save_button = st.form_submit_button("Save vector store")
+        # --
+        if save_button:
+            # Check whether to create new vector store --> Checking params
+            create_new_vs = None
+            if existing_vector_store == "<New>" and new_vs_name != "":
+                # -- Create new embedding..
+                create_new_vs = True
+            elif existing_vector_store != "<New>" and new_vs_name != "":
+                # -- Use existing embedding..
+                create_new_vs = False
+            else:
+                st.error(
+                    "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
+                )
 
-        # Check whether to create new vector store --> Checking params
-        create_new_vs = None
-        if existing_vector_store == "<New>" and new_vs_name != "":
-            # -- Create new embedding..
-            create_new_vs = True
-        elif existing_vector_store != "<New>" and new_vs_name != "":
-            # -- Use existing embedding..
-            create_new_vs = False
-        else:
-            st.error(
-                "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
-            )
-
-        if pipeline_a.lower() == DEFAULT_PIPELINE:
-            if save_button:
+            if pipeline_a.lower() == DEFAULT_PIPELINE:
                 if not uploaded_files:
                     st.warning("No document uploaded...")
                 else:
@@ -260,9 +286,8 @@ with st.expander("Document Embedding"):
                     new_vs_name=new_vs_name,  # Name of new VDB
                     vectorization_type=vector_type_doc,
                 )
-        elif pipeline_a.lower() == COT_PIPELINE:
-            if save_button:
-                # Read the uploaded file
+            elif pipeline_a.lower() == COT_PIPELINE:
+                # -- Read the uploaded file
                 if not uploaded_files:
                     st.error("No document uploaded...")
                 else:
@@ -274,13 +299,21 @@ with st.expander("Document Embedding"):
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
                             documents = loadSingleDocument(temp_file.name)
-                            chunks = split_doc(documents, chunk_size, chunk_overlap)
+                            chunks = split_doc(
+                                documents, chunk_size, chunk_overlap
+                            )
 
                         # -- Save the vector
                         bm25_retriever = BM25Retriever.from_documents(chunks)
+                        bm25_path = VECTOR_STORE_PATH / f"BM25_{new_vs_name}"
+                        if not os.path.exists(bm25_path):
+                            os.makedirs(bm25_path)
+                        bm25_pickled_file = bm25_path / "bm25_retriever.pkl"
+                        if not os.path.exists(bm25_pickled_file):
+                            with open(bm25_pickled_file, "wb") as bm25_pickler:
+                                pickle.dump(bm25_retriever, bm25_pickler)
                         st.success("The BM25 PDF Retriever is initialized...")
-                        # --
-
+                    # --
                     else:
                         # -- Save the location of all the temporary files first..
                         temp_files = []
@@ -294,8 +327,17 @@ with st.expander("Document Embedding"):
                         # -- Threaded loading of collected documents
                         documents = ThreadMultiDocLoader(temp_files)
                         # Split document
-                        chunks = split_doc(documents, chunk_size, chunk_overlap)
+                        chunks = split_doc(
+                            documents, chunk_size, chunk_overlap
+                        )
                         bm25_retriever = BM25Retriever.from_documents(chunks)
+                        bm25_path = VECTOR_STORE_PATH / f"BM25_{new_vs_name}"
+                        if not os.path.exists(bm25_path):
+                            os.makedirs(bm25_path)
+                        bm25_pickled_file = bm25_path / "bm25_retriever.pkl"
+                        if not os.path.exists(bm25_pickled_file):
+                            with open(bm25_pickled_file, "wb") as bm25_pickler:
+                                pickle.dump(bm25_retriever, bm25_pickler)
                         st.success("The BM25 PDF Retriever is initializing...")
 
                     # Embeddings and storing for Single or multiple docs of CoT
@@ -307,7 +349,6 @@ with st.expander("Document Embedding"):
                         new_vs_name=new_vs_name,  # Name of new VDB
                         vectorization_type=vector_type_doc,
                     )
-
             else:
                 # Read the uploaded file
                 if not uploaded_files:
@@ -321,8 +362,17 @@ with st.expander("Document Embedding"):
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
                             documents = loadSingleDocument(temp_file.name)
-                            chunks = split_doc(documents, chunk_size, chunk_overlap)
+                            chunks = split_doc(
+                                documents, chunk_size, chunk_overlap
+                            )
                         bm25_retriever = BM25Retriever.from_documents(chunks)
+                        bm25_path = VECTOR_STORE_PATH / f"BM25_{new_vs_name}"
+                        if not os.path.exists(bm25_path):
+                            os.makedirs(bm25_path)
+                        bm25_pickled_file = bm25_path / "bm25_retriever.pkl"
+                        if not os.path.exists(bm25_pickled_file):
+                            with open(bm25_pickled_file, "wb") as bm25_pickler:
+                                pickle.dump(bm25_retriever, bm25_pickler)
                         st.success("The BM25 PDF Retriever is created")
                     else:
                         # -- Save the location of all the temporary files first..
@@ -337,8 +387,17 @@ with st.expander("Document Embedding"):
                         # -- Threaded loading of collected documents
                         documents = ThreadMultiDocLoader(temp_files)
                         # Split document
-                        chunks = split_doc(documents, chunk_size, chunk_overlap)
+                        chunks = split_doc(
+                            documents, chunk_size, chunk_overlap
+                        )
                         bm25_retriever = BM25Retriever.from_documents(chunks)
+                        bm25_path = VECTOR_STORE_PATH / f"BM25_{new_vs_name}"
+                        if not os.path.exists(bm25_path):
+                            os.makedirs(bm25_path)
+                        bm25_pickled_file = bm25_path / "bm25_retriever.pkl"
+                        if not os.path.exists(bm25_pickled_file):
+                            with open(bm25_pickled_file, "wb") as bm25_pickler:
+                                pickle.dump(bm25_retriever, bm25_pickler)
                         st.success("The BM25 PDF Retriever is created")
                     # Embeddings and storing
                     embedding_storing(
@@ -358,7 +417,7 @@ st.sidebar.image(
     use_column_width=False,
 )
 reranker = st.sidebar.selectbox(
-    "Reranker", ["RRF", "FlashReranker"], help=HELP["reranker"]
+    "Reranker", list(map(str, Reranker)), help=HELP["reranker"]
 )
 
 # %% App main functions...chatbot
@@ -381,7 +440,9 @@ with st.expander("LLM Settings"):
             )
 
         with row_a[1]:
-            llm_model = st.selectbox("LLM model", LLM_NAMES, help=HELP["LLM_Model"])
+            llm_model = st.selectbox(
+                "LLM model", LLM_NAMES, help=HELP["LLM_Model"]
+            )
 
         with row_a[2]:
             instruct_embeddings = st.selectbox(
@@ -394,8 +455,12 @@ with st.expander("LLM Settings"):
         with row_b[0]:
             vector_store_list = os.listdir(VECTOR_STORE_PATH)
             vector_store_list = [
-                file for file in vector_store_list if not file.startswith(".")
+                file
+                for file in vector_store_list
+                if not file.startswith(".")
+                if not file.startswith("BM25")
             ]
+
             vector_store_list.sort(key=lambda x: str(x).upper()[0])
             if not vector_store_list:
                 existing_vector_store = st.selectbox(
@@ -447,10 +512,12 @@ with st.expander("LLM Settings"):
             )
 
         create_chatbot = st.form_submit_button("Create chatbot")
+
+        # if create_chatbot:
         if token:
             # Here the objective is to initialize three things:
-            #     1° Initialize the LLm Model
-            #     2° Vector DB if their is an available vector DB of choice else (return None)
+            #     1° Initialize the LLM Model
+            #     2° Vector DB if their is an available vector DB of choice else return None
             #     3° Initialize the Embedding Model
             retriever_base, llm = prepare_rag_llm(
                 token,
@@ -461,6 +528,14 @@ with st.expander("LLM Settings"):
                 max_length,
                 vector_type,
             )
+        if pipeline_.lower() == PipelineTypes.COT:
+            # -- Load BM25 retriever
+            existing_vector_store_bm25 = existing_vector_store.split("_")[1]
+            bm25_path = (
+                VECTOR_STORE_PATH / f"BM25_{existing_vector_store_bm25}"
+            )
+            bm25_retriever = load_bm25_retriever(bm25_path)
+            st.success("The BM25 PDF Retriever is initialized...")
 
 with st.expander("Template"):
     st.title("Template format")
@@ -493,7 +568,7 @@ if "conversation" not in st.session_state:
     st.session_state.conversation = None
 
 
-if pipeline_.lower() == "default":
+if pipeline_.lower() == PipelineTypes.DEFAULT:
     # -- Store in conversaional memory
     memory = ConversationBufferWindowMemory(
         k=2,
@@ -533,6 +608,7 @@ for message in st.session_state.history:
 fl, la, co, re, hhem, adv_hhem = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 fac, cons, hall = 0.0, 0.0, 0.0
 
+
 # Ask a question
 if question := st.chat_input("Ask a question"):
     # Append user question to history
@@ -542,7 +618,7 @@ if question := st.chat_input("Ask a question"):
         st.markdown(question)
 
     # Answer the question
-    if pipeline_.lower() == "default":
+    if pipeline_.lower() == PipelineTypes.DEFAULT:
         start_time = time.time()
         answer, doc_source = generate_answer(question, token)
         metrics_ = Evaluatrix(
@@ -556,9 +632,9 @@ if question := st.chat_input("Ask a question"):
             question,
             start_time,
         )
-    elif pipeline_.lower() == "cot":
+    elif pipeline_.lower() == PipelineTypes.COT:
         retriever_base = retriever_base.as_retriever(search_kwargs={"k": 2})
-        if reranker.lower() == "rrf":
+        if reranker.lower() == Reranker.RRF:
             start_time = time.time()
             answer, doc_source = llm_reply(
                 question,
@@ -579,7 +655,7 @@ if question := st.chat_input("Ask a question"):
                 question,
                 start_time,
             )
-        elif reranker.lower() == "flashreranker":
+        elif reranker.lower() == Reranker.FLASHRERANKER:
             start_time = time.time()
             answer, doc_source = emsembleFlashreranker(
                 question,
@@ -631,17 +707,23 @@ st.sidebar.markdown(
     f"Fluency: :green[{fl:.2f}]" if fl >= 0.50 else f"Fluency: :red[{fl:.2f}]"
 )
 st.sidebar.markdown(
-    f"Coherence: :green[{co:.2f}]" if co >= 0.50 else f"Coherence: :red[{co:.2f}]"
+    f"Coherence: :green[{co:.2f}]"
+    if co >= 0.50
+    else f"Coherence: :red[{co:.2f}]"
 )
 st.sidebar.markdown(
-    f"Relevance: :green[{re:.2f}]" if re >= 0.50 else f"Relevance: :red[{re:.2f}]"
+    f"Relevance: :green[{re:.2f}]"
+    if re >= 0.50
+    else f"Relevance: :red[{re:.2f}]"
 )
 st.sidebar.markdown(f"Latency: :grey[{la:.2f}] secs")
 
 # -- Hallucination metrics
 st.sidebar.markdown("Metrics II")
 st.sidebar.markdown(
-    f"Factuality: :green[{fac:.2f}]" if fac >= 0.50 else f"Factuality: :red[{fac:.2f}]"
+    f"Factuality: :green[{fac:.2f}]"
+    if fac >= 0.50
+    else f"Factuality: :red[{fac:.2f}]"
 )
 st.sidebar.markdown(
     f"Consistency: :green[{cons:.2f}]"
@@ -737,4 +819,6 @@ st.sidebar.download_button(
 )
 
 
-st.sidebar.download_button(label="xlsx", data=data_bytes, file_name="data.xlsx")
+st.sidebar.download_button(
+    label="xlsx", data=data_bytes, file_name="data.xlsx"
+)
