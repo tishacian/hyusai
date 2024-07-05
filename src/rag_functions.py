@@ -1,8 +1,11 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
+import os
+import torch
 import pickle
 import streamlit as st
-import torch
+from langchain.storage import LocalFileStore
+from langchain.embeddings import CacheBackedEmbeddings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List
 from flashrank import Ranker
 from langchain import HuggingFaceHub
 from langchain.docstore.document import Document
@@ -220,6 +223,17 @@ def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
     return retriever_base
 
 
+def EmbeddingCache(embedding_model, vector_store_name):
+    embedding_cache_store = "./cache/"
+    if not os.path.exists(embedding_cache_store):
+        os.makedirs(embedding_cache_store)
+    store_cached_emdding = LocalFileStore(embedding_cache_store)
+    cached_embed = CacheBackedEmbeddings.from_bytes_store(
+        embedding_model, store_cached_emdding, namespace="openai_embeddings"
+    )
+    return cached_embed
+
+
 # --- Embedding storing...
 def embedding_storing(
     model_name,
@@ -257,18 +271,21 @@ def embedding_storing(
             model_kwargs={"device": device},
             # trust_remote_code = True,
         )
-
+        # -- Cache Embedding
+        cached_emnedding = EmbeddingCache(instructor_embeddings, new_vs_name)
+        print("Cached Embedding: ", cached_emnedding)
+        print("Type ", type(cached_emnedding))
         if create_new_vs == True:
             # Save db
             if vectorization_type.lower() == "chroma":
                 retriever_base = Chroma.from_documents(
                     split,
-                    instructor_embeddings,
+                    cached_emnedding,
                     persist_directory=VECTOR_STORE_PATH / f"Chr_{new_vs_name}",
                 )
             elif vectorization_type.lower() == "faiss":
                 retriever_base = FAISS.from_documents(
-                    split, embedding=instructor_embeddings
+                    split, embedding=cached_emnedding
                 )
                 retriever_base.save_local(
                     VECTOR_STORE_PATH / f"FAIS_{new_vs_name}"
@@ -280,7 +297,7 @@ def embedding_storing(
                     persist_directory=str(
                         VECTOR_STORE_PATH / f"Chr_{existing_vector_store}"
                     ),
-                    embedding_function=instructor_embeddings,
+                    embedding_function=cached_emnedding,
                 )
                 # Merge two DBs and save
                 ld_retriever_base.merge_from(retriever_base)
@@ -290,7 +307,7 @@ def embedding_storing(
             elif vectorization_type.lower() == "faiss":
                 ld_retriever_base = FAISS.load_local(
                     VECTOR_STORE_PATH / new_vs_name,
-                    instructor_embeddings,
+                    cached_emnedding,
                     allow_dangerous_deserialization=True,
                 )
                 # Merge two DBs and save
@@ -556,10 +573,16 @@ def prepare_rag_llm(
         model_kwargs={"device": device},
         # trust_remote_code = True,
     )
+    # -- Load Embedding from Cache
+    cache_path = "./cache/"
+    store = LocalFileStore(cache_path)
+    cached_embedder = CacheBackedEmbeddings.from_bytes_store(
+        instructor_embeddings, store, namespace="openai_embeddings"
+    )
 
     # -- Load db
     retriever_base = vectorizer(
-        instructor_embeddings, vector_store_list, vectorization_type=vect_type
+        cached_embedder, vector_store_list, vectorization_type=vect_type
     )
 
     # -- Load LLM
