@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
-
+import pickle
 import streamlit as st
 import torch
 from flashrank import Ranker
@@ -24,7 +24,10 @@ from langchain.embeddings import HuggingFaceInstructEmbeddings
 from langchain.prompts import PromptTemplate
 
 # --
-from langchain.retrievers import ContextualCompressionRetriever, EnsembleRetriever
+from langchain.retrievers import (
+    ContextualCompressionRetriever,
+    EnsembleRetriever,
+)
 from langchain.retrievers.document_compressors import FlashrankRerank
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import FAISS, Chroma
@@ -87,7 +90,7 @@ class Preprocess:
         self.document = document
 
     def __get__(self):
-        return self.document.replace("\n", "").replace("\r", "")
+        document = self.document.replace("\n", "").replace("\r", "")
 
 
 def loadSingleDocument(file_path: str) -> List[Document]:
@@ -112,7 +115,7 @@ def loadSingleDocument(file_path: str) -> List[Document]:
         result = loader.load()
         page_content = [doc.page_content for doc in result]
         page_content = "".join(page_content)
-        document = Preprocess(page_content).__get__()
+        document = Preprocess(page_content).document
         return document
     raise ValueError(f"Unsupported file extension '{ext}'")
 
@@ -138,7 +141,8 @@ def ThreadMultiDocLoader(
     results = []
     with ThreadPoolExecutor() as executor:
         future_to_file = {
-            executor.submit(loadSingleDocument, file): file for file in filtered_files
+            executor.submit(loadSingleDocument, file): file
+            for file in filtered_files
         }
         with tqdm(
             total=len(filtered_files), desc="Loading new documents", ncols=80
@@ -151,8 +155,26 @@ def ThreadMultiDocLoader(
                 except Exception as e:
                     print(f"Error loading document {file}: {e}")
                 pbar.update()
-    document = Preprocess("".join(results)).__get__()
+    document = Preprocess("".join(results)).document
     return document
+
+
+# %% Load BM25 Retriever
+
+
+def load_bm25_retriever(vectore_store):
+    bm25_retriever_file = vectore_store / "bm25_retriever.pkl"
+    try:
+        with open(bm25_retriever_file, "rb") as bm25:
+            bm25_retriever = pickle.load(bm25)
+        return bm25_retriever
+    except FileNotFoundError:
+        return ValueError(f"File not found: {bm25_retriever_file}")
+    except Exception as e:
+        return ValueError(
+            f"An error occurred while loading the BM25 retriever: {e}"
+        )
+    return None
 
 
 # %%
@@ -170,7 +192,6 @@ def split_doc(document, chunk_size, chunk_overlap):
 # --- Base retriever store...
 def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
     vector_store_list_path = VECTOR_STORE_PATH / vector_store_list
-    print("Loading VDB from ", vector_store_list_path)
     # --- initialize vector DB
     if vectorization_type.lower() == "chroma":
         if vector_store_list_path.exists():
@@ -249,7 +270,9 @@ def embedding_storing(
                 retriever_base = FAISS.from_documents(
                     split, embedding=instructor_embeddings
                 )
-                retriever_base.save_local(VECTOR_STORE_PATH / f"FAIS_{new_vs_name}")
+                retriever_base.save_local(
+                    VECTOR_STORE_PATH / f"FAIS_{new_vs_name}"
+                )
         else:
             # VDB Merging happens here...
             if vectorization_type.lower() == "chroma":
@@ -473,7 +496,9 @@ def emsembleFlashreranker(
     model_name = "ms-marco-MultiBERT-L-12"  # example Cross-Encoder model
     flashrank_client = Ranker(model_name=model_name)
 
-    compressor = FlashrankRerank(client=flashrank_client, top_n=3, model=model_name)
+    compressor = FlashrankRerank(
+        client=flashrank_client, top_n=3, model=model_name
+    )
     compression_retriever = ContextualCompressionRetriever(
         base_compressor=compressor, base_retriever=ensemble_retriever
     )
@@ -483,7 +508,9 @@ def emsembleFlashreranker(
         doc.page_content for doc in compressed_docs
     ]  # returns the source documents...
     # To use later (document_relevance) as context relevance --> Depending on the reranking model used ```model_name```...
-    document_relevance = [doc.metadata["relevance_score"] for doc in compressed_docs]
+    document_relevance = [
+        doc.metadata["relevance_score"] for doc in compressed_docs
+    ]
     answer = doc_source[0]
     # --
     return answer, doc_source
