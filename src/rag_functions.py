@@ -41,6 +41,9 @@ from transformers import AutoTokenizer
 
 from global_variables import VECTOR_STORE_PATH
 
+
+from langchain.chains import LLMChain
+
 # %%
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -528,8 +531,22 @@ def emsembleFlashreranker(
     document_relevance = [
         doc.metadata["relevance_score"] for doc in compressed_docs
     ]
-    answer = doc_source[0]
     # --
+    # Define a prompt template
+    prompt_template = PromptTemplate(
+        input_variables=["question", "context"],
+        template="""Use the following pieces of context to answer the question at the end.
+                                If you don't know the answer, just say that you don't know, don't try to make up an answer.
+
+                                Question: {question}
+                                Context: {context}
+                            """,
+    )
+    # Combine the ranked relevant documents
+    context = " ".join(doc_source)
+    chain = LLMChain(llm=llm_model, prompt=prompt_template)
+    answer = chain.run({"question": question, "context": context})
+    answer = answer.split("Context:")[-1].strip()
     return answer, doc_source
 
 
