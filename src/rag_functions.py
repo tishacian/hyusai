@@ -175,9 +175,9 @@ def load_bm25_retriever(vectore_store):
             bm25_retriever = pickle.load(bm25)
         return bm25_retriever
     except FileNotFoundError:
-        raise ValueError(f"File not found: {bm25_retriever_file}")
+        return ValueError(f"File not found: {bm25_retriever_file}")
     except Exception as e:
-        raise ValueError(
+        return ValueError(
             f"An error occurred while loading the BM25 retriever: {e}"
         )
     return None
