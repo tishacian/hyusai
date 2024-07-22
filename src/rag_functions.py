@@ -543,9 +543,7 @@ def emsembleFlashreranker(
     context = "\n".join(doc_source)
     chain = LLMChain(llm=llm_model, prompt=prompt_template)
     answer = chain.invoke({"question": question, "context": context})
-    # print(answer)
     answer = answer["context"].strip()
-    # answer = answer.split("Context:")[-1].strip()
     return answer, doc_source
 
 
