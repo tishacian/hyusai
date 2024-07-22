@@ -34,6 +34,9 @@ HELP = {  # help suggestions...
     "reranker": "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
     + "\n"
     + "The other is the Flash reranker, which uses a Cross-Encoder for reranking.",
+    "new_vector_store": "If choose <New> in the dropdown / multiselect box, name the new vector store. Otherwise, "
+    + "\n"
+    + "fill in the existing vector store to merge.",
 }
 
 # -- Template for LLM prompting -->
