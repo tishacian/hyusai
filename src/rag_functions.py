@@ -39,7 +39,7 @@ from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
-from global_variables import VECTOR_STORE_PATH
+from global_variables import VECTOR_STORE_PATH, EMBEDDING_CACHE_STORE
 
 
 from langchain.chains import LLMChain
@@ -95,8 +95,8 @@ class Preprocess:
     def __init__(self, document: str):
         self.document = document
 
-    def __get__(self):
-        document = self.document.replace("\n", "").replace("\r", "")
+    def prep(self):
+        return self.document.replace("\n", "").replace("\r", "")
 
 
 def loadSingleDocument(file_path: str) -> List[Document]:
@@ -121,7 +121,7 @@ def loadSingleDocument(file_path: str) -> List[Document]:
         result = loader.load()
         page_content = [doc.page_content for doc in result]
         page_content = "".join(page_content)
-        document = Preprocess(page_content).document
+        document = Preprocess(page_content).prep()
         return document
     raise ValueError(f"Unsupported file extension '{ext}'")
 
@@ -161,7 +161,7 @@ def ThreadMultiDocLoader(
                 except Exception as e:
                     print(f"Error loading document {file}: {e}")
                 pbar.update()
-    document = Preprocess("".join(results)).document
+    document = Preprocess("".join(results)).prep()
     return document
 
 
@@ -175,9 +175,9 @@ def load_bm25_retriever(vectore_store):
             bm25_retriever = pickle.load(bm25)
         return bm25_retriever
     except FileNotFoundError:
-        return ValueError(f"File not found: {bm25_retriever_file}")
+        raise ValueError(f"File not found: {bm25_retriever_file}")
     except Exception as e:
-        return ValueError(
+        raise ValueError(
             f"An error occurred while loading the BM25 retriever: {e}"
         )
     return None
@@ -227,10 +227,9 @@ def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
 
 
 def EmbeddingCache(embedding_model, vector_store_name):
-    embedding_cache_store = "./cache/"
-    if not os.path.exists(embedding_cache_store):
-        os.makedirs(embedding_cache_store)
-    store_cached_emdding = LocalFileStore(embedding_cache_store)
+    if not os.path.exists(EMBEDDING_CACHE_STORE):
+        os.makedirs(EMBEDDING_CACHE_STORE)
+    store_cached_emdding = LocalFileStore(EMBEDDING_CACHE_STORE)
     cached_embed = CacheBackedEmbeddings.from_bytes_store(
         embedding_model, store_cached_emdding, namespace="openai_embeddings"
     )
@@ -275,20 +274,18 @@ def embedding_storing(
             # trust_remote_code = True,
         )
         # -- Cache Embedding
-        cached_emnedding = EmbeddingCache(instructor_embeddings, new_vs_name)
-        print("Cached Embedding: ", cached_emnedding)
-        print("Type ", type(cached_emnedding))
+        cached_embedding = EmbeddingCache(instructor_embeddings, new_vs_name)
         if create_new_vs == True:
             # Save db
             if vectorization_type.lower() == "chroma":
                 retriever_base = Chroma.from_documents(
                     split,
-                    cached_emnedding,
+                    cached_embedding,
                     persist_directory=VECTOR_STORE_PATH / f"Chr_{new_vs_name}",
                 )
             elif vectorization_type.lower() == "faiss":
                 retriever_base = FAISS.from_documents(
-                    split, embedding=cached_emnedding
+                    split, embedding=cached_embedding
                 )
                 retriever_base.save_local(
                     VECTOR_STORE_PATH / f"FAIS_{new_vs_name}"
@@ -300,7 +297,7 @@ def embedding_storing(
                     persist_directory=str(
                         VECTOR_STORE_PATH / f"Chr_{existing_vector_store}"
                     ),
-                    embedding_function=cached_emnedding,
+                    embedding_function=cached_embedding,
                 )
                 # Merge two DBs and save
                 ld_retriever_base.merge_from(retriever_base)
@@ -310,7 +307,7 @@ def embedding_storing(
             elif vectorization_type.lower() == "faiss":
                 ld_retriever_base = FAISS.load_local(
                     VECTOR_STORE_PATH / new_vs_name,
-                    cached_emnedding,
+                    cached_embedding,
                     allow_dangerous_deserialization=True,
                 )
                 # Merge two DBs and save
@@ -543,10 +540,12 @@ def emsembleFlashreranker(
                             """,
     )
     # Combine the ranked relevant documents
-    context = " ".join(doc_source)
+    context = "\n".join(doc_source)
     chain = LLMChain(llm=llm_model, prompt=prompt_template)
-    answer = chain.run({"question": question, "context": context})
-    answer = answer.split("Context:")[-1].strip()
+    answer = chain.invoke({"question": question, "context": context})
+    # print(answer)
+    answer = answer["context"].strip()
+    # answer = answer.split("Context:")[-1].strip()
     return answer, doc_source
 
 
@@ -591,8 +590,7 @@ def prepare_rag_llm(
         # trust_remote_code = True,
     )
     # -- Load Embedding from Cache
-    cache_path = "./cache/"
-    store = LocalFileStore(cache_path)
+    store = LocalFileStore(EMBEDDING_CACHE_STORE)
     cached_embedder = CacheBackedEmbeddings.from_bytes_store(
         instructor_embeddings, store, namespace="openai_embeddings"
     )
