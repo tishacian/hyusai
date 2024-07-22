@@ -17,10 +17,16 @@ from global_variables import (
     DATA_PATH,
     IMG_PATH,
     VECTOR_STORE_PATH,
-    DefaultValues,
     PipelineTypes,
     Reranker,
+    HELP,
+    TEMPLATE,
+    LLM_NAMES,
+    EMBEDDING_NAME,
+    VECTOR_TYPES,
+    SUPPLEMENT,
 )
+
 from rag_functions import (
     LOADER_MAPPING,
     ThreadMultiDocLoader,
@@ -33,6 +39,7 @@ from rag_functions import (
     split_doc,
     load_bm25_retriever,
 )
+
 from rag_metrics import (
     Evaluatrix,
     embedding_model,
@@ -47,16 +54,8 @@ st.set_page_config(layout="wide")  # Scale the app to screen size
 st.title("Customized RAG Agent")
 
 
-# -- Defaults
-HELP = DefaultValues.HELP.value
-DEFAULT_PIPELINE = DefaultValues.DEFAULT.value
-LLM_NAMES = DefaultValues.LLM_NAMES.value
-EMBEDDING_NAME = DefaultValues.EMBEDDING_NAME.value
-VECTOR_TYPES = DefaultValues.VECTOR_TYPES.value
+# -- Pipeline/Embedding...
 PIPELINE_RAG = list(map(str, PipelineTypes))
-TEMPLATES = DefaultValues.TEMPLATES.value
-COT_PIPELINE = DefaultValues.COT_PIPELINE.value
-SUPPLEMENT = DefaultValues.SUPPLEMENT.value
 INSTRUCTUION_EMBEDDING = (
     list(np.load(DATA_PATH / "hkunlp_embeddings.npy", allow_pickle=True))
     + SUPPLEMENT
@@ -195,8 +194,7 @@ with st.expander("Document Embedding"):
             vector_store_list = [
                 file
                 for file in vector_store_list
-                if not file.startswith(".")
-                if not file.startswith("BM25")
+                if not file.startswith((".", "B25"))
             ]
             existing_vector_store = st.selectbox(
                 "Vector Store to Merge the Knowledge",
@@ -250,7 +248,7 @@ with st.expander("Document Embedding"):
                     "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
                 )
 
-            if pipeline_a.lower() == DEFAULT_PIPELINE:
+            if pipeline_a.lower() == PipelineTypes.DEFAULT.lower():
                 if not uploaded_files:
                     st.warning("No document uploaded...")
                 else:
@@ -286,7 +284,7 @@ with st.expander("Document Embedding"):
                     new_vs_name=new_vs_name,  # Name of new VDB
                     vectorization_type=vector_type_doc,
                 )
-            elif pipeline_a.lower() == COT_PIPELINE:
+            elif pipeline_a.lower() == PipelineTypes.COT.lower():
                 # -- Read the uploaded file
                 if not uploaded_files:
                     st.error("No document uploaded...")
@@ -457,8 +455,7 @@ with st.expander("LLM Settings"):
             vector_store_list = [
                 file
                 for file in vector_store_list
-                if not file.startswith(".")
-                if not file.startswith("BM25")
+                if not file.startswith((".", "BM25"))
             ]
 
             vector_store_list.sort(key=lambda x: str(x).upper()[0])
@@ -508,7 +505,7 @@ with st.expander("LLM Settings"):
 
         with row_c[2]:
             template_opt = st.selectbox(
-                "Template format", TEMPLATES, help=HELP["template"]
+                "Template format", TEMPLATE, help=HELP["template"]
             )
 
         create_chatbot = st.form_submit_button("Create chatbot")
@@ -528,7 +525,7 @@ with st.expander("LLM Settings"):
                 max_length,
                 vector_type,
             )
-        if pipeline_.lower() == PipelineTypes.COT:
+        if pipeline_.lower() == PipelineTypes.COT.lower():
             # -- Load BM25 retriever
             existing_vector_store_bm25 = existing_vector_store.split("_")[1]
             bm25_path = (
@@ -618,7 +615,7 @@ if question := st.chat_input("Ask a question"):
         st.markdown(question)
 
     # Answer the question
-    if pipeline_.lower() == PipelineTypes.DEFAULT:
+    if pipeline_.lower() == PipelineTypes.DEFAULT.lower():
         start_time = time.time()
         answer, doc_source = generate_answer(question, token)
         metrics_ = Evaluatrix(
@@ -632,9 +629,9 @@ if question := st.chat_input("Ask a question"):
             question,
             start_time,
         )
-    elif pipeline_.lower() == PipelineTypes.COT:
+    elif pipeline_.lower() == PipelineTypes.COT.lower():
         retriever_base = retriever_base.as_retriever(search_kwargs={"k": 2})
-        if reranker.lower() == Reranker.RRF:
+        if reranker.lower() == Reranker.RRF.lower():
             start_time = time.time()
             answer, doc_source = llm_reply(
                 question,
@@ -655,7 +652,7 @@ if question := st.chat_input("Ask a question"):
                 question,
                 start_time,
             )
-        elif reranker.lower() == Reranker.FLASHRERANKER:
+        elif reranker.lower() == Reranker.FLASHRERANKER.lower():
             start_time = time.time()
             answer, doc_source = emsembleFlashreranker(
                 question,
