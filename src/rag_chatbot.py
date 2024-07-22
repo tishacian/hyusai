@@ -194,7 +194,7 @@ with st.expander("Document Embedding"):
             vector_store_list = [
                 file
                 for file in vector_store_list
-                if not file.startswith((".", "B25"))
+                if not file.startswith((".", "BM25"))
             ]
             existing_vector_store = st.selectbox(
                 "Vector Store to Merge the Knowledge",
@@ -206,8 +206,8 @@ with st.expander("Document Embedding"):
             # List the existing vector stores
             new_vs_name = st.text_input(
                 "New Vector Store Name",
-                value="new_vector_store_name",
-                help="If choose <New> in the dropdown / multiselect box, name the new vector store. Otherwise, fill in the existing vector store to merge.",
+                value="New_vector_store_name",
+                help=HELP["new_vector_store"],
             )
 
         # --
@@ -527,7 +527,10 @@ with st.expander("LLM Settings"):
             )
         if pipeline_.lower() == PipelineTypes.COT.lower():
             # -- Load BM25 retriever
-            existing_vector_store_bm25 = existing_vector_store.split("_")[1]
+            length_of_vector_type = len(vector_type)
+            existing_vector_store_bm25 = existing_vector_store[
+                length_of_vector_type:
+            ]
             bm25_path = (
                 VECTOR_STORE_PATH / f"BM25_{existing_vector_store_bm25}"
             )
