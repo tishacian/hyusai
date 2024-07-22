@@ -7,6 +7,7 @@ REPO_PATH = Path(__file__).parent.parent
 DATA_PATH = REPO_PATH / "data"
 IMG_PATH = REPO_PATH / "image"
 VECTOR_STORE_PATH = REPO_PATH / "vector_store"
+EMBEDDING_CACHE_STORE = REPO_PATH / "cache"
 
 # %%
 # -- Helper for suggestions
