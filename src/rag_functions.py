@@ -540,7 +540,7 @@ def emsembleFlashreranker(
                             """,
     )
     # Combine the ranked relevant documents
-    context = "\n".join(doc_source)
+    context = "\n\n".join(doc_source)
     chain = LLMChain(llm=llm_model, prompt=prompt_template)
     answer = chain.invoke({"question": question, "context": context})
     answer = answer["context"].strip()
