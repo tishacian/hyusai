@@ -7,7 +7,7 @@ REPO_PATH = Path(__file__).parent.parent
 DATA_PATH = REPO_PATH / "data"
 IMG_PATH = REPO_PATH / "image"
 VECTOR_STORE_PATH = REPO_PATH / "vector_store"
-EMBEDDING_CACHE_STORE = REPO_PATH / "cache"
+EMBEDDING_CACHE_STORE = ".cache/"
 
 # %%
 # -- Helper for suggestions
@@ -66,7 +66,7 @@ LLM_NAMES = [
     "TheBloke/Mistral-7B-Instruct-v0.1-GPTQ",
 ]
 
-# -- Emedding name
+# -- Embedding name
 EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"
 
 SINGLE_FILE = 1  # single files

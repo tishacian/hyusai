@@ -56,7 +56,7 @@ st.title("Customized RAG Agent")
 
 # -- Pipeline/Embedding...
 PIPELINE_RAG = list(map(str, PipelineTypes))
-INSTRUCTUION_EMBEDDING = (
+INSTRUCTION_EMBEDDING = (
     list(np.load(DATA_PATH / "hkunlp_embeddings.npy", allow_pickle=True))
     + SUPPLEMENT
 )
@@ -445,7 +445,7 @@ with st.expander("LLM Settings"):
         with row_a[2]:
             instruct_embeddings = st.selectbox(
                 "Instruct Embeddings",
-                INSTRUCTUION_EMBEDDING,
+                INSTRUCTION_EMBEDDING,
                 help=HELP["Instruction_Embedding"],
             )
 
