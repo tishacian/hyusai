@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.cache/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -28,4 +29,3 @@ ENV/
 
 # Generated vector database
 vector_store/*
-!vector_store/default_environment_code
