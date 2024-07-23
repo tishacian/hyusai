@@ -167,7 +167,7 @@ with st.expander("Document Embedding"):
         with row_ae[0]:
             instruct_embeddings = st.selectbox(
                 "Model Name of the Instruct Embeddings",
-                INSTRUCTUION_EMBEDDING,
+                INSTRUCTION_EMBEDDING,
             )
 
         with row_ae[1]:
