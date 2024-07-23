@@ -26,6 +26,7 @@ faiss-cpu==1.8.0
 fastapi==0.111.0
 fastapi-cli==0.0.4
 filelock==3.14.0
+FlashRank==0.2.0
 flatbuffers==24.3.25
 frozenlist==1.4.1
 fsspec==2024.3.1
@@ -43,7 +44,6 @@ humanfriendly==10.0
 idna==3.7
 importlib-metadata==7.0.0
 importlib_resources==6.4.0
-install==1.3.5
 InstructorEmbedding==1.0.1
 Jinja2==3.1.4
 joblib==1.4.2
@@ -93,10 +93,12 @@ psutil==5.9.8
 pyarrow==16.0.0
 pyasn1==0.6.0
 pyasn1_modules==0.4.0
-pydantic==2.7.1
-pydantic_core==2.18.2
+pydantic==2.8.2
+pydantic_core==2.20.1
 pydeck==0.9.1
 Pygments==2.18.0
+PyMuPDF==1.24.7
+PyMuPDFb==1.24.6
 pypdf==4.2.0
 PyPika==0.48.9
 pyproject_hooks==1.1.0
@@ -105,6 +107,7 @@ python-dotenv==1.0.1
 python-multipart==0.0.9
 pytz==2024.1
 PyYAML==6.0.1
+rank-bm25==0.2
 referencing==0.35.1
 regex==2024.5.10
 requests==2.31.0
@@ -117,6 +120,7 @@ scikit-learn==1.4.2
 scipy==1.13.0
 sentence-transformers==2.2.2
 sentencepiece==0.2.0
+setuptools==71.1.0
 shellingham==1.5.4
 six==1.16.0
 smmap==5.0.1
@@ -146,10 +150,8 @@ uvloop==0.19.0
 watchfiles==0.21.0
 websocket-client==1.8.0
 websockets==12.0
+wheel==0.43.0
 wrapt==1.16.0
+XlsxWriter==3.2.0
 yarl==1.9.4
 zipp==3.18.2
-flashrank==0.2
-xlsxwriter==3.2
-rank_bm25==0.2
-pymupdf==1.24.7
