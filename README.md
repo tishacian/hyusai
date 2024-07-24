@@ -15,7 +15,21 @@ Clone the repository (see [help](https://support.atlassian.com/bitbucket-cloud/d
 ```
 git clone git@bitbucket.org:neuropolisteam/rag.git
 ```
+#### Bash installation
+Run command
+```
+bash install.sh
+```
+Activate virtaul environment
+```
+source .venv/bin/activate
+```
+Launch the webapp on localhost:
+```
+python main.py
+```
 
+#### Scratch installation
 Install python3.12 using [brew](https://docs.brew.sh/Installation) for MacOS for example:
 ```
 brew install python@3.12
