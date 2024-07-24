@@ -16,7 +16,7 @@ Clone the repository (see [help](https://support.atlassian.com/bitbucket-cloud/d
 git clone git@bitbucket.org:neuropolisteam/rag.git
 ```
 #### Bash installation
-Run command
+Run the command
 ```
 bash install.sh
 ```
@@ -24,7 +24,7 @@ Activate virtaul environment
 ```
 source .venv/bin/activate
 ```
-Launch the webapp on localhost:
+Launch the web application
 ```
 python main.py
 ```
