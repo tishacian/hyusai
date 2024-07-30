@@ -9,6 +9,7 @@ Created on Tue May 20 10:24:56 2024
 import time
 
 # --
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
 import torch
@@ -84,31 +85,52 @@ def fluency(generated_text, tokenizer, model):
     return fluency_
 
 
-# Function to calculate coherence
 def coherence(generated_text, embedding_model):
     """
     Coherence measures the formation of a cohesive body of text from the sentences.
 
-    Parameters
-        generated_tex (str): model generated text.
-        embedding_model (torch model): embedding model
-        result (str): result dictionary
-        lock (Thread): Thread
+    Parameters:
+        generated_text (str): model generated text.
+        embedding_model (torch model): embedding model.
 
-    Returns
-    None: Coherence
+    Returns:
+        float: Coherence value
     """
-    sentences = generated_text.split(".")
-    embeddings = embedding_model.encode(sentences, convert_to_tensor=True)
-    coherence_scores = [
-        cosine_similarity(
-            [embeddings[i].cpu().numpy()], [embeddings[i + 1].cpu().numpy()]
-        )[0][0]
-        for i in range(len(sentences) - 1)
+    # Split text into sentences and remove empty sentences
+    sentences = [
+        sentence.strip()
+        for sentence in generated_text.split(".")
+        if sentence.strip()
     ]
-    coherence_value = sum(coherence_scores) / (len(coherence_scores) + 1e-8)
-    return coherence_value
 
+    # Return 0.0 if there are fewer than 2 sentences
+    if len(sentences) < 2:
+        return 0.0
+
+    # Compute embeddings
+    embeddings = embedding_model.encode(sentences, convert_to_tensor=True)
+
+    coherence_scores = []
+    for i in range(len(sentences) - 1):
+        try:
+            similarity = cosine_similarity(
+                [embeddings[i].cpu().numpy()],
+                [embeddings[i + 1].cpu().numpy()],
+            )[0][0]
+            # Check for NaN similarity values
+            if not np.isnan(similarity):
+                coherence_scores.append(similarity)
+        except Exception as e:
+            print(
+                f"Error calculating cosine similarity for sentences {i} and {i + 1}: {e}"
+            )
+
+    # Return 0.0 if no valid coherence scores were calculated
+    if not coherence_scores:
+        return 0.0
+
+    coherence_value = sum(coherence_scores) / len(coherence_scores)
+    return coherence_value
 
 # Function to calculate relevance
 def relevance(question, generated_text, embedding_model):
@@ -311,7 +333,15 @@ def Evaluatrix(
         }
 
         for key, future in futures.items():
-            result[key] = future.result()
+            try:
+                result_value = future.result()
+                if isinstance(result_value, float) and not np.isnan(result_value):
+                    result[key] = result_value
+                else:
+                    result[key] = 0.0
+            except Exception as e:
+                print(f"Error processing {key}: {e}")
+                result[key] = 0.0
 
     end_time = time.time()
     result["latency"] = end_time - start_time
