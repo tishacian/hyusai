@@ -475,13 +475,13 @@ with st.expander("LLM Settings"):
                 )
         with row_b[1]:
             temperature = st.number_input(
-                "Temperature", value=0.1, step=0.1, help=HELP["Temperature"]
+                "Temperature", value=1e-6, step=0.1, help=HELP["Temperature"]
             )
 
         with row_b[2]:
             max_length = st.number_input(
                 "Maximum character length",
-                value=500,
+                value=-1,
                 step=1,
                 help=HELP["Max_characer"],
             )
