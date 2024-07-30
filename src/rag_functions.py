@@ -2,6 +2,7 @@ import os
 import torch
 import pickle
 import streamlit as st
+import re
 from langchain.storage import LocalFileStore
 from langchain.embeddings import CacheBackedEmbeddings
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,7 +25,7 @@ from langchain.document_loaders import (
     UnstructuredWordDocumentLoader,
 )
 from langchain.embeddings import HuggingFaceInstructEmbeddings
-from langchain.prompts import PromptTemplate
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
 
 # --
 from langchain.retrievers import (
@@ -218,10 +219,12 @@ def vectorizer(embeddings, vector_store_list, vectorization_type: str = ""):
             )
             st.success("FAISS vector DB loaded...")
         else:
-            st.error("FAISS vector DB [NOT] loaded...")
+            # -- return this error to prevent app blocking
+            # -- if vector store is not existing..
+            return st.error("FAISS vector DB [NOT] loaded...")
 
     else:
-        st.write(f"Unknown vector database {vectorization_type}")
+        return st.write(f"Unknown vector database {vectorization_type}")
 
     return retriever_base
 
@@ -510,7 +513,7 @@ def emsembleFlashreranker(
         retrievers=[bm25_retriever, retriever], weights=[0.4, 0.6]
     )
 
-    model_name = "ms-marco-MultiBERT-L-12"  # example Cross-Encoder model
+    model_name = "ms-marco-MiniLM-L-12-v2"  # example Cross-Encoder model
     flashrank_client = Ranker(model_name=model_name)
 
     compressor = FlashrankRerank(
@@ -530,20 +533,37 @@ def emsembleFlashreranker(
     ]
     # --
     # Define a prompt template
-    prompt_template = PromptTemplate(
-        input_variables=["question", "context"],
-        template="""Use the following pieces of context to answer the question at the end.
-                                If you don't know the answer, just say that you don't know, don't try to make up an answer.
+    # prompt_template = PromptTemplate(
+    #     input_variables=["question", "context"],
+    template = """Use the following pieces of context to answer the question at the end.
+                    If you don't know the answer, just say that you don't know, don't try to make up an answer.
+                    
+                    {context}
+                    
+                    Question: {question}
+                    Answer:"""
+    prompt = ChatPromptTemplate.from_template(template)
 
-                                Question: {question}
-                                Context: {context}
-                            """,
-    )
+    # -- Strip/Extract answer
+    def extract_answer(text):
+        # Regular expression to find the answer
+        pattern = re.compile(r"Answer:\s*(.*)", re.DOTALL)
+        match = pattern.search(text)
+        if match:
+            # Stripping any leading/trailing whitespace
+            answer = match.group(1).strip()
+            return answer
+        else:
+            return "Answer not found."
+
     # Combine the ranked relevant documents
     context = "\n\n".join(doc_source)
-    chain = LLMChain(llm=llm_model, prompt=prompt_template)
+    chain = LLMChain(
+        llm=llm_model, prompt=prompt, output_parser=StrOutputParser()
+    )
     answer = chain.invoke({"question": question, "context": context})
-    answer = answer["context"].strip()
+    answer = answer["text"].strip()
+    answer = extract_answer(answer)
     return answer, doc_source
 
 
