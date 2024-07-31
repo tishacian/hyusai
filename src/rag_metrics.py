@@ -120,7 +120,7 @@ def coherence(generated_text, embedding_model):
             # Check for NaN similarity values
             if not np.isnan(similarity):
                 coherence_scores.append(similarity)
-        except Exception as e:
+        except ValueError as e:
             print(
                 f"Error calculating cosine similarity for sentences {i} and {i + 1}: {e}"
             )
