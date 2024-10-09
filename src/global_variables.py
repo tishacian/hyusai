@@ -7,7 +7,7 @@ from pathlib import Path
 REPO_PATH = Path(__file__).parent.parent
 DATA_PATH = REPO_PATH / "data"
 IMG_PATH = REPO_PATH / "image"
-VECTOR_STORE_PATH = REPO_PATH / "vector store"
+VECTOR_STORE_PATH = REPO_PATH / "vector_store"
 EMBEDDING_CACHE_STORE = ".cache/"
 
 # -- Check if paths exist otherwise, create one
@@ -38,7 +38,7 @@ HELP = {  # help suggestions...
     "Max_characer": "The maximum number of characters to generated. This can be similar to the maximum token"
     + "\n"
     + " size of the embedding space. The default is set to 500.",
-    "vector_type": "Slect desired vector types",
+    "index_type": "Slect desired vector types",
     "pipeline": "Select the desired pipeline. Default is without Chain of Thought (COT)",
     "template": "Select a template style of choice. Default is a simple template.",
     "reranker": "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
@@ -80,9 +80,9 @@ LLM_NAMES = [
 EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"
 
 SINGLE_FILE = 1  # single files
-
+RANDOM_SEED = 42
 # -- Vector types
-VECTOR_TYPES = ["FAISS", "Chroma", "Weaviate", "PGVector"]
+#VECTOR_TYPES = ["FAISS", "Chroma", "Weaviate", "PGVector"]
 
 # %% StrEnums
 
@@ -96,3 +96,32 @@ class PipelineTypes(StrEnum):
 class Reranker(StrEnum):
     RRF = "RRF"
     FLASHRERANKER = "FlashReranker"
+
+class Models(StrEnum):
+    LLAMA3 = "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"
+    MISTRAL = "TheBloke/Mistral-7B-v0.1-AWQ"
+    TINYLLAMA = "TheBloke/TinyLlama-1.1B-Chat-v0.3-AWQ"
+    GEMMA2 = "neuralmagic/gemma-2-9b-it-quantized.w4a16"
+    LAMINIGPT = "MBZUAI/LaMini-GPT-774M"
+
+
+class ChunkingMethod(StrEnum):
+    FIXED = "fixed"
+    RECURSIVE_CHARACTER = "recursive_character"
+    SEMANTIC = "semantic"
+    TOKEN_BASED = "token_based"
+    HIERARCHICAL = "hierarchical"
+    MODEL_BASED = "model_based"
+
+
+class IndexType(StrEnum):
+    FAISS = "faiss"
+    CHROMA = "chroma"
+    WEAVIATE = "weaviate"
+    # HNSW = "hnsw" # uses faiss also
+
+class OPTIMIAL_K_METHOD(StrEnum):
+    ELBOW = "elbow"
+    SILHOUETTE = "silhouette"
+    GAP = "gap"
+
