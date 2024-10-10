@@ -1,83 +1,37 @@
 import torch
 import re
-import os
-import faiss
-import pickle
-import weaviate
+import math
 import numpy as np
-from langchain_community.vectorstores import Chroma
+from typing import List
 
 # --
 import warnings
-import asyncio
-from vllm import SamplingParams
-from functools import wraps, lru_cache
-from sentence_transformers import SentenceTransformer
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
+# -- utils for Semantic chunking
+from sklearn.cluster import KMeans
+from sklearn.feature_extraction.text import TfidfVectorizer
+
 # --
-import sys
 import logging
-from rank_bm25 import BM25Okapi
-from global_variables import (
-    VECTOR_STORE_PATH,
+from functools import wraps, lru_cache  # caching mechanism
+
+# - KMeans dependencies
+from scipy.spatial.distance import cdist
+from sklearn.metrics import silhouette_score
+
+# -- tokenizer
+from LoaderModelTokenizer import (
+    tokenizer,
 )
 
 # --
-from torch import autocast
 from global_variables import (
-    IndexType,
+    ChunkingMethod,
+    OPTIMIAL_K_METHOD,
+    RANDOM_SEED,
 )
-
-# -- Model evalmiation
-from Metrics import Evaluatrix
-
-# --
-logging.basicConfig(
-    stream=sys.stdout,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-
-
-class BM25Retriever:
-    def __init__(self, documents):
-        """
-        Initialize BM25 retriever with a list of documents.
-        """
-        self.documents = documents
-        self.bm25 = self.create_bm25_index()
-
-    def create_bm25_index(self):
-        """
-        Create and return a BM25 index using the provided documents.
-        """
-        tokenized_docs = [doc.split() for doc in self.documents]
-        return BM25Okapi(tokenized_docs)
-
-    def get_scores(self, query):
-        """
-        Get BM25 scores for a query.
-        """
-        tokenized_query = query.split()
-        return self.bm25.get_scores(tokenized_query)
-
-    def save_bm25(self, filepath):
-        """
-        Save BM25 retriever to a file.
-        """
-        with open(filepath, "wb") as f:
-            pickle.dump(self, f)
-
-    @staticmethod
-    def load_bm25(filepath):
-        """
-        Load BM25 retriever from a file.
-        """
-        with open(filepath, "rb") as f:
-            return pickle.load(f)
 
 
 def cache_chunker_embedding_chain(func):
@@ -99,642 +53,485 @@ def cache_chunker_embedding_chain(func):
 
 @lru_cache(maxsize=None)
 @cache_chunker_embedding_chain
-class CustomLLMChain:
-    def __init__(
-        self,
-        tokenizer,
-        model,
-        model_name,
-        vector_store_name,
-        embedding_model_name="sentence-transformers/all-mpnet-base-v2",
-        index_type=IndexType.FAISS,
-    ):
-        """Custom LLMChain
+class TextChunker:
+    def __init__(self, tokenizer, model, device=None):
+        """
+        Document text chunker
 
         Parameters
-        ----------
-            - tokenizer (tokenizer) : tokenizer
-            - model (model) : llm model
-            - embedding_model_name (str), optional : embedding model name. The default is "sentence-transformers/all-mpnet-base-v2".
-            - index_type (str), optional : index type. The default is "faiss".
-
-        Raises
-        ------
-            ValueError : if model and tokenizer is None
+        ---------
+        - model_name (str), optional : The name of the mode of choice. loading is usually from HuggingFace. The default is None.
+        - device (str), optional : cuda or cpu device used in computation. The default is None.
 
         Returns
         -------
-        None.
+        - None.
+
+        Example of LLM chunking
+        -----------------------
+        >> chunker = TextChunker(model_name="MBZUAI/LaMini-GPT-774M")
+        >> chunks = chunker.chunker(" ".join(texts), method="llm", max_tokens=20)
+
+        Time complexity (in order of performance):
+        -----------------------------------------
+        The performance of the chunkers is tested for small example text and
+        the results is order accordingly. **Recursive Character Splitter** result is without k-optimization.
+
+        [1] Fixed Chunking              ----> 532 ns ± 2.83 ns                   --> Big O: O(N) Space: O(1)
+        [2] Recursive Character Splitter ---> 9.42 μs ± 77.7 ns                  --> Big O: O(Nlog N)
+        [3] LLM based chunking          ----> 96.9 μs ± 214 ns                   --> Big O: O(N * k) if BPE/WordPiece or O(N log N) if SentencePiece
+        [4] Semantic Chunking           ----> 1.4 ms ± 47.7 μs                   --> Big O: O(N * k * i * d)
+
+        The best performing without taking time into consideration
+        ----------------------------------------------------------
+        [1] Semantic chunking (unstable with changing cluster labels)
+        [2] Recursive Character Splitter (depending on chunk size and overlap)
+        [3] LLM based chunking (best depending on LLM)
+        [4] Fixed chunking
+
+        Note: that for Hybrid search, Semantic chunking is sufficient.
 
         """
         self.tokenizer = tokenizer
         self.model = model
-        self.model_name = model_name
-        self.vector_store_name = vector_store_name
-        self.device = torch.device(
-            "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.device = (
+            torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            if not device
+            else device
         )
-        # --
-        if self.model is None or self.tokenizer is None:
-            raise ValueError(
-                f"🚩 Failed to load model or tokenizer. \nModel: {None if not self.model else self.model} and "
-                + f"\nTokenizer: {None if not self.tokenizer else self.tokenizer} cannot be None"
-            )
 
-        self.index_type = index_type
-        self.embedding_model_name = embedding_model_name
-        if index_type == IndexType.FAISS:
-            self.embedding_model_name = "all-MiniLM-L6-v2"
-            self.embedding_model = SentenceTransformer(
-                self.embedding_model_name
-            )
-        elif index_type == [IndexType.CHROMA, IndexType.WEAVIATE]:
-            self.embedding_model_name = (
-                "sentence-transformers/all-mpnet-base-v2"
-            )
-            self.embedding_model = SentenceTransformer(
-                self.embedding_model_name
-            )
-        # -- loading index
-        self.load_index()
+    def estimate_chunk_size(
+        self, text, overlap, chunk_size=None, tokenizer_model_max_length=512
+    ):
+        if chunk_size is None:
+            chunk_size = tokenizer_model_max_length // 2
 
-        # -- CoT Template
-        self.template = """[INST] You are an AI assistant specialized in providing precise and detailed information. Focus on important information that directly addresses the main topic or question.
-                            Include relevant details that provide context or support your points.
-                            Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, 
-                            objectivity, and emotional resonance.
-                            
-                            Your task is to answer the following question based on the given context:
-                            {context}
-                            
-                            Question: {question}
-                            
-                            Answer: [/INST]"""
+        text_length = len(text)
+        if chunk_size >= text_length:
+            return 1
 
-    def load_index(self):
-        # -- load BM25 retriever first
-        vector_store_path = VECTOR_STORE_PATH / self.vector_store_name
-        self.bm25_retriever = BM25Retriever.load_bm25(
-            vector_store_path / "bm25_retriever.pkl"
+        effective_chunk_size = chunk_size - overlap
+        estimated_chunks = math.ceil(text_length / effective_chunk_size)
+
+        adjustment_factor = 1.1
+        adjusted_estimated_chunks = math.ceil(
+            estimated_chunks * adjustment_factor
         )
-        if self.index_type == IndexType.FAISS:
-            if os.path.exists(
-                str(vector_store_path / "faiss.index")
-            ) and os.path.exists(str(vector_store_path / "faiss.pkl")):
-                self.index = faiss.read_index(
-                    str(vector_store_path / "faiss.index")
-                )
-                with open(str(vector_store_path / "faiss.pkl"), "rb") as f:
-                    self.texts = pickle.load(f)
-                logging.info("FAISS index and texts loaded successfully.")
+
+        return adjusted_estimated_chunks
+
+    def apply_overlap(
+        self, chunks: List[str], chunk_overlap: int
+    ) -> List[str]:
+        """
+        Apply chunk overlap to the list of chunks.
+
+        Parameters:
+        - chunks (List[str]): The list of text chunks.
+
+        Returns:
+        - List[str]: A list of text chunks with overlap applied.
+        """
+        overlapped_chunks = []
+        for i in range(len(chunks)):
+            start = max(0, i - 1)
+            if start == i:
+                overlapped_chunks.append(chunks[i])
             else:
-                raise FileNotFoundError(
-                    "🚩 FAISS index or texts file not found. Please create an index first."
-                )
-        elif self.index_type == IndexType.CHROMA:
-            self.vectorstore = Chroma(
-                persist_directory=str(vector_store_path),
-                embedding_function=self.embedding_model,
-            )
-            logging.info("Chroma index loaded successfully.")
-        elif self.index_type == IndexType.WEAVIATE:
-            self.weaviate_client = weaviate.Client("http://localhost:8080")
-            self.class_name = "Document"
-            if not self.weaviate_client.schema.contains(self.class_name):
-                raise ValueError(
-                    "🚩 Weaviate index not found. Please create an index first."
-                )
-            logging.info("Weaviate index loaded successfully.")
-        else:
-            raise ValueError(
-                "Unsupported index type. Choose 'faiss', 'chroma', or 'weaviate'."
-            )
+                overlap = chunks[start][-chunk_overlap:] + " " + chunks[i]
+                overlapped_chunks.append(overlap.strip())
 
-    def compute_mmr(
-        self,
-        all_texts,
-        all_embeddings,
-        query_embedding,
-        k=100,
-        lambda_param=0.5,
-    ):
-        """Maximal Marginal Relevance (MMR)
-        -----------------------------------
-            Maximal Marginal Relevance (MMR): This approach balances relevance (how similar a document
-            is to the query) and diversity (how different the document is from those already selected).
-            This helps in selecting a set of documents that are both relevant and diverse.
+        return overlapped_chunks
 
+    def optimal_k_elbow(self, X, max_k=10):
+        """Elbow method for finding optimal k
+
+        Parameters
+        - X (vectors) : embedding.
+        - max_k (int), optional : maximum cluster value (k). The default is 10.
+
+        Returns
+        - elbow_k (float) : k-elbow value
         """
-        query_similarity = np.dot(all_embeddings, query_embedding.T)
-        selected_indices = []
-        candidate_indices = list(range(len(all_texts)))
-
-        # --
-        def compute_mmr_score(i):
-            relevance = query_similarity[i]
-            diversity = (
-                max(
-                    [
-                        np.dot(all_embeddings[i], all_embeddings[j].T)
-                        for j in selected_indices
-                    ]
-                )
-                if selected_indices
-                else 0
-            )
-            return lambda_param * relevance - (1 - lambda_param) * diversity
-
-        # --
-        for _ in range(k):
-            if not candidate_indices:
-                break
-
-            with ThreadPoolExecutor() as executor:
-                mmr_scores = list(
-                    executor.map(compute_mmr_score, candidate_indices)
-                )
-
-            # -- Select the document with the highest MMR score
-            best_index = candidate_indices[np.argmax(mmr_scores)]
-            selected_indices.append(best_index)
-            candidate_indices.remove(best_index)
-
-        return [all_texts[i] for i in selected_indices]
-
-    def reciprocal_rank_fusion(
-        self, bm25_ranks, faiss_ranks, k=60, weight_bm25=0.4, weight_faiss=0.6
-    ):
-        """
-        Compute Reciprocal Rank Fusion (RRF) scores for the combined results.
-
-        Parameters:
-        ----------
-            bm25_ranks : dict
-                Document rankings from BM25. Keys are document indices, values are their ranks.
-            faiss_ranks : dict
-                Document rankings from FAISS. Keys are document indices, values are their ranks.
-            k : int
-                The constant k used in the RRF formula.
-            weight_bm25 : float
-                The weight for the BM25 ranking scores.
-            weight_faiss : float
-                The weight for the FAISS ranking scores.
-
-        Returns:
-        --------
-            dict : Combined RRF scores for each document.
-        """
-        combined_scores = {}
-
-        # -- RRF for BM25 results
-        for doc_id, rank in bm25_ranks.items():
-            if doc_id not in combined_scores:
-                combined_scores[doc_id] = 0
-            combined_scores[doc_id] += weight_bm25 / (k + rank)
-
-        # -- RRF for FAISS results
-        for doc_id, rank in faiss_ranks.items():
-            if doc_id not in combined_scores:
-                combined_scores[doc_id] = 0
-            combined_scores[doc_id] += weight_faiss / (k + rank)
-
-        return combined_scores
-
-    def rank_documents(self, scores):
-        """
-        Rank documents based on their fusion scores.
-
-        Parameters:
-        ----------
-        scores : dict
-            Document scores from Reciprocal Rank Fusion.
-
-        Returns:
-        --------
-        List of ranked document indices.
-        """
-        return sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-
-    def create_embeddings(self, texts):
-        """
-        Create embedding using tokenizer class or vLLM if available
-        """
-        if torch.cuda.is_available():
-            try:
-                # Load pre-trained sentence transformer model
-                sentence_model = SentenceTransformer("all-MiniLM-L6-v2").to(
-                    self.device
-                )
-                with torch.no_grad():
-                    # Create embeddings
-                    self.embeddings = sentence_model.encode(
-                        texts, convert_to_tensor=True, show_progress_bar=False
+        distortions = []
+        K = range(1, max_k + 1)
+        for k in K:
+            km = KMeans(n_clusters=k, random_state=RANDOM_SEED)
+            km.fit(X)
+            distortions.append(
+                sum(
+                    np.min(
+                        cdist(X.toarray(), km.cluster_centers_, "euclidean"),
+                        axis=1,
                     )
-                    # Move embeddings to CPU and convert to numpy array
-                    self.embeddings = self.embeddings.cpu().numpy()
-            except Exception as e:
-                logging.error(
-                    f"🚩 Error creating embeddings with sentence transformers: {e}"
                 )
-                return np.array([])
-        else:
-            # Handle different index types (CHROMA, FAISS, WEAVIATE)
-            if self.index_type == IndexType.CHROMA:
-                self.embeddings = np.array(
-                    self.embedding_model.embed_documents(texts)
-                )
-            elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
-                try:
-                    inputs = self.tokenizer(
-                        texts,
-                        return_tensors="pt",
-                        padding=True,
-                        truncation=True,
-                        max_length=self.tokenizer.model_max_length,  # Ensure max length is respected
-                    ).to(self.device)
+                / X.shape[0]
+            )
 
-                    if (
-                        inputs["input_ids"].size(1)
-                        > self.tokenizer.model_max_length
-                    ):
-                        logging.warning(
-                            "🚩 Input text exceeds model's maximum length, truncating."
+        # -- Elbow point is where the decrease in distortion slows down
+        elbow_k = (
+            np.diff(distortions, 2).argmin() + 2
+        )  # +2 due to diff reducing the length
+        return elbow_k
+
+    def optimal_k_silhouette(self, X, max_k=10):
+        """silhouette method for finding optimal k
+
+        Parameters
+        - X (vectors) : embedding.
+        - max_k (int), optional : maximum cluster value (k). The default is 10.
+
+        Returns
+        - silhouette (float) : k-silhouette value
+        """
+        sil_scores = []
+        K = range(2, max_k + 1)
+        for k in K:
+            km = KMeans(n_clusters=k, random_state=RANDOM_SEED)
+            labels = km.fit_predict(X)
+            sil_scores.append(silhouette_score(X, labels))
+
+        best_k = K[np.argmax(sil_scores)]
+        return best_k
+
+    def optimal_k_gap(self, X, max_k=10, n_refs=10):
+        """Gap method for finding optimal k
+
+        Parameters
+        - X (vectors) : embedding.
+        - max_k (int), optional : maximum cluster value (k). The default is 10.
+
+        Returns
+        - silhouette (float) : k-silhouette value
+        """
+        gaps = []
+        ref_disps = []
+        K = range(1, max_k + 1)
+        for k in K:
+            km = KMeans(n_clusters=k, random_state=RANDOM_SEED)
+            km.fit(X)
+            disp = np.log(
+                sum(
+                    np.min(
+                        cdist(X.toarray(), km.cluster_centers_, "euclidean"),
+                        axis=1,
+                    )
+                )
+            )
+
+            ref_disps_k = []
+            for i in range(n_refs):
+                random_ref = np.random.random_sample(size=X.shape)
+                km.fit(random_ref)
+                ref_disp = np.log(
+                    sum(
+                        np.min(
+                            cdist(
+                                random_ref, km.cluster_centers_, "euclidean"
+                            ),
+                            axis=1,
                         )
-                    with torch.no_grad():
-                        self.embeddings = self.model.transformer.wte(
-                            inputs["input_ids"]
-                        ).mean(dim=1)
-
-                    self.embeddings = (
-                        self.embeddings.to(dtype=torch.float32).cpu().numpy()
                     )
-                except IndexError as e:
-                    logging.error(
-                        f"🚩 Index out of range error: {e}. Check input text length."
-                    )
-                    return np.array([])
-                except Exception as e:
-                    logging.error(f"🚩 Error creating embeddings: {e}")
-                    return np.array([])
-            else:
-                logging.error(
-                    f"🚩 Unsupported embedding type: {self.index_type}"
                 )
-                return np.array([])
+                ref_disps_k.append(ref_disp)
+            # -- compute  mean euclid
+            gap = np.mean(ref_disps_k) - disp
+            gaps.append(gap)
+            ref_disps.append(np.mean(ref_disps_k))
 
-        return self.embeddings
+        best_k = K[np.argmax(gaps)]
+        return best_k
 
-    def available_device_count(self, device):
+    def find_optimal_k(self, X, method="elbow", max_k=10):
         """
-        Get the number of available devices (GPUs or CPU cores).
+        Finding the optimal (k) given a set of vectors
+        ----------
+        - X (nd.array) : input vector
+        - method (str), optional : choice of compputing optimal k. The default is "elbow".
+        - max_k (int), optional : maximum extent to search k. The default is 10.
+
+        Raises
+        - ValueError.
+
+        Returns
+        - (int) : optimal k.
+
         """
-        if device.type == "cuda:0" and torch.cuda.is_available():
-            return torch.cuda.device_count()
+        if method == OPTIMIAL_K_METHOD.ELBOW:
+            optimal_k = self.optimal_k_elbow(X, max_k)
+        elif method == OPTIMIAL_K_METHOD.SILHOUETTE:
+            optimal_k = self.optimal_k_silhouette(X, max_k)
+        elif method == OPTIMIAL_K_METHOD.GAP:
+            optimal_k = self.optimal_k_gap(X, max_k)
         else:
-            return torch.get_num_threads()
+            optimal_k = None
 
-    def device_transfer(self, chunk, device):
-        """
-        Transfer a chunk of the tensor to the specified device -- CPU/GPU
-        """
-        return chunk.to(device, non_blocking=True)
+        if not method:
+            raise ValueError(
+                f"🚩 method cannot be : {method}. Select from the list : ['elbow', 'silhouette', 'gap']"
+            )
+        return optimal_k
 
-    def parallel_chunk_transfer(self, tensor, device):
+    def fixed_chunking(self, text, chunk_size=None):
         """
-        Transfer the tensor to the device in chunks using ThreadPoolExecutor,
-        distributing across available devices (GPUs or CPU cores).
+        Fixed chunking
+        """
+        self.chunk_size = (
+            self.tokenizer.max_len_single_sentence
+            if not chunk_size
+            else chunk_size
+        )
+        return [
+            text[i : i + self.chunk_size]
+            for i in range(0, len(text), self.chunk_size)
+        ]
+
+    def sentence_boundary_detection(self, text):
+        """
+        Chunk text based on sentence boundaries.
 
         Parameters:
-            - tensor: The tensor to transfer.
-            - device: The target device (e.g., "cuda:0" or "cpu").
+        - text (str): The input text to chunk.
 
         Returns:
-            - The tensor on the target device, reassembled from the chunks.
+        - List[str]: List of sentences.
         """
-        if tensor.dim() == 1:
-            tensor = tensor.unsqueeze(0)
+        chunks = re.split(r"(?<=[.!?]) +", text)
+        return chunks
 
-        # Determine the number of available devices
-        num_devices = self.available_device_count(device)
-        num_chunks = max(1, num_devices)
+    def recursive_character_chunking(
+        self, text, chunk_size=None, overlap=None
+    ) -> List[str]:
+        """
+        Recursively split the text into chunks of specified size.
 
-        # Chunk the tensor based on the number of devices
-        chunk_size = tensor.size(1) // num_chunks
-        chunks = []
+        Parameters:
+        - text (str): The input text to be split.
+        - chunk_size (int): The size of the chunks to split from larger text. Default is 200.
+        - overlap (int): size of permitted overlapping chunks. Default is 50.
 
-        for i in range(num_chunks):
-            start_idx = i * chunk_size
-            end_idx = start_idx + chunk_size
-            if i == num_chunks - 1:
-                end_idx = tensor.size(1)
-            chunks.append(tensor[:, start_idx:end_idx])
-
-        # Transfer chunks in parallel
-        with ThreadPoolExecutor(max_workers=num_chunks) as executor:
-            futures = [
-                executor.submit(self.device_transfer, chunk, device)
-                for chunk in chunks
-            ]
-            device_chunks = [
-                future.result() for future in as_completed(futures)
-            ]
-
-        return torch.cat(device_chunks, dim=1)
-
-    def _format_llm_response(self, text):
-        try:
-            text = re.sub(
-                r"\[INST\].*?\[/INST\]", "", text, flags=re.DOTALL
-            ).strip()
-            text = re.sub(
-                r"Your task is to answer the following question based on the given context:",
-                "",
+        Returns:
+        - List[str]: A list of text chunks.
+        """
+        self.overlap = (
+            int(self.tokenizer.model_max_length // 10.1)
+            if not overlap
+            else overlap
+        )
+        self.chunk_size = (
+            self.estimate_chunk_size(
                 text,
-                flags=re.DOTALL,
-            ).strip()
-            text = re.sub(
-                r"^(Question:|Answer:)\s*", "", text, flags=re.MULTILINE
-            ).strip()
-            text = re.split(r"\n\s*(?:Question:|Answer:)", text)[0].strip()
-            text = re.sub(
-                r"objectivity, and emotional resonance\.", "", text
-            ).strip()
-            return text
-        except Exception as e:
-            logging.error(
-                f"🚩 An error occurred during text formatting: {str(e)}"
+                self.overlap,
+                None,
+                self.tokenizer.model_max_length,
             )
-            return "No sufficient context to respond to the question."
+            if not chunk_size
+            else chunk_size
+        )
 
-    async def generate_text(
-        self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=10
+        if len(text) <= self.chunk_size:
+            return [text]
+
+        # -- sentence splitting
+        sentences = re.split(r"(?<=[.!?]) +", text)
+        chunks = []
+        current_chunk = ""
+        # --
+        for sentence in sentences:
+            if len(current_chunk) + len(sentence) + 1 <= self.chunk_size:
+                current_chunk += sentence + " "
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sentence + " "
+
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+
+        # -- handling chunk overlap
+        if self.overlap > 0:
+            chunks = self.apply_overlap(chunks, self.overlap)
+
+        return chunks
+
+    def semantic_chunking(
+        self, text, method="silhouette", max_k=10
+    ) -> List[str]:
+        """
+        Dynamic chunking
+        -------------
+        - text (str), input text to chunk
+        - method (str), method to determine optimal number of clusters ('elbow', 'silhouette', 'gap')
+        - max_k (int), maximum number of clusters to evaluate
+        """
+        sentences = re.split(r"(?<=[.!?]) +", text)
+        vectorizer = TfidfVectorizer(stop_words="english")
+        X = vectorizer.fit_transform(sentences)
+
+        # Find the optimal number of clusters
+        num_clusters = (
+            6
+            if not method
+            else self.find_optimal_k(X, method=method, max_k=max_k)
+        )
+
+        # Cluster sentences using k-Means
+        km = KMeans(n_clusters=num_clusters, random_state=RANDOM_SEED)
+        logging.info(
+            f"Using {method} method..The number of clusters is: {num_clusters}"
+        )
+        km.fit(X)
+        clusters = km.labels_.tolist()
+
+        # Extract clustered chunks
+        clustered_sentences = [[] for _ in range(num_clusters)]
+        for i, label in enumerate(clusters):
+            clustered_sentences[label].append(sentences[i])
+
+        chunks = [" ".join(cluster) for cluster in clustered_sentences]
+        return chunks
+
+    def token_based_chunking(
+        self, text: str, max_tokens: int = 512
+    ) -> List[str]:
+        """
+        LLM Chunking
+        -------------
+        text (str): Input text to chunk.
+        max_tokens (int): Maximum number of tokens per chunk. Default is 512.
+
+        Returns:
+        List[str]: A list of text chunks.
+        """
+        inputs = self.tokenizer(
+            text, return_tensors="pt", padding=False, truncation=False
+        )
+        tokens = inputs["input_ids"].to(self.device)
+        token_count = tokens.size(1)  # Get number of tokens in the input
+        logging.info(f"Token count: {token_count}")
+        # --
+        if token_count <= max_tokens:
+            return [text]
+        # --
+        chunks = []
+        for i in range(0, token_count, max_tokens):
+            chunk_tokens = tokens[:, i : i + max_tokens]
+            chunks.append(
+                self.tokenizer.decode(
+                    chunk_tokens[0], skip_special_tokens=True
+                )
+            )
+
+        return chunks
+
+    def hierarchical_chunking(
+        self, text, paragraph_chunk_size=5, sentence_chunk_size=5
     ):
         """
-        Generate text from the model with chunked input transfer using ThreadPoolExecutor.
+        Hierarchically chunk text into paragraphs and then sentences.
 
         Parameters:
-            - prompt: The input prompt for the model.
-            - temperature: The temperature for text generation.
-            - max_length: The maximum length of the generated text.
+        - text (str): The input text to chunk.
+        - paragraph_chunk_size (int): Maximum size of each paragraph chunk.
+        - sentence_chunk_size (int): Maximum size of each sentence chunk.
 
         Returns:
-            - The generated text.
+        - List[str]: List of text chunks.
         """
-        max_new_tokens = (
-            self.tokenizer.max_len_single_sentence
-            if max_length is None
-            else max_length
-        )
-        inputs = self.tokenizer(
-            prompt,
-            return_tensors="pt",  # NOTE:  No need to truncate or pad input during generation.
-        )
+        paragraphs = text.split("\n\n")
+        chunks = []
+        for paragraph in paragraphs:
+            if len(paragraph) > paragraph_chunk_size:
+                sentences = re.split(r"(?<=[.!?]) +", paragraph)
+                current_chunk = ""
+                for sentence in sentences:
+                    if (
+                        len(current_chunk) + len(sentence)
+                        <= sentence_chunk_size
+                    ):
+                        current_chunk += sentence + " "
+                    else:
+                        chunks.append(current_chunk.strip())
+                        current_chunk = sentence + " "
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+            else:
+                chunks.append(paragraph.strip())
 
-        # -- transfer the input_ids to the device
-        inputs_on_device = self.parallel_chunk_transfer(
-            inputs["input_ids"], self.device
-        )
+        return chunks
+
+    def model_based_chunking(
+        self, text, max_tokens=512, threshold=1e-4
+    ) -> List[str]:
         """
-        check if model.generate returns empty strings..otherwise, return empty text.
-        Sometimes, the model returns empty strings 
-        """
-        # -- choose whether to use mixed precision based on the device
-        use_mixed_precision = True if self.device.type == "cuda:0" else False
-        if torch.cuda.is_available():
-            sampling_params = SamplingParams(
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                max_tokens=max_new_tokens,
-                stop=[
-                    "[INST]",
-                    "[/INST]",
-                    "<INST>",
-                    "</INST>",
-                    "<|assistant|>",
-                ],
-            )
-            outputs = self.model.generate([prompt], sampling_params)
-            return outputs[0].outputs[0].text.strip()
-        else:
-            with (
-                autocast(device_type=self.device.type)
-                if use_mixed_precision
-                else torch.no_grad()
-            ):
-                try:
-                    outputs = self.model.generate(
-                        inputs_on_device,
-                        max_new_tokens=max_new_tokens,
-                        temperature=temperature,
-                        num_return_sequences=1,
-                        do_sample=True,
-                        top_p=top_p,
-                        top_k=top_k,
-                        repetition_penalty=1.0,
-                        pad_token_id=self.tokenizer.pad_token_id,
-                    )
-                    text = self.tokenizer.decode(
-                        outputs[0], skip_special_tokens=True
-                    )
-                except (IndexError, ValueError, RuntimeError, KeyError) as e:
-                    logging.error(
-                        f"🚩 An error occurred during text generation: {str(e)}"
-                    )
-                    text = ""
+        Use a machine learning model to determine chunk boundaries.
 
-            return text
-
-    async def custom_llm_chain(self, context, question):
-        """Custom LLM chain
-
-        Args:
-            context (str): context
-            question (str): input question
+        Parameters:
+        - text (str): The input text to chunk.
+        - max_tokens (int): Maximum number of tokens per chunk.
+        - threshold (float): Threshold for determining chunk boundaries from model outputs.
 
         Returns:
-            str: LLM generated text
+        - List[str]: List of text chunks.
         """
-        prompt_format = self.template.format(
-            context=context, question=question
+        tokens = self.tokenizer(
+            text,
+            return_tensors="pt",
+            truncation=False,
+            add_special_tokens=False,
         )
-        generated_text = await self.generate_text(prompt_format)
-        return generated_text
+        input_ids = tokens["input_ids"].squeeze(0)
 
-    def chunk_document(self, document, num_chunks=3):
-        """Split the document into sub-chunks."""
-        words = document.split()
-        chunk_size = max(1, len(words) // num_chunks)
-        return [
-            " ".join(words[i : i + chunk_size])
-            for i in range(0, len(words), chunk_size)
-        ]
+        chunks = []
+        current_chunk = []
 
-    async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
-        """Asynchronous version of search_similar_texts for a single chunk."""
-        # -- BM25 search
-        bm25_scores = self.bm25_retriever.get_scores(chunk)
-        bm25_ranked_indices = np.argsort(bm25_scores)[::-1]
-        bm25_ranks = {
-            doc_id: rank for rank, doc_id in enumerate(bm25_ranked_indices)
-        }
+        for i in range(0, len(input_ids), max_tokens):
+            chunk_ids = input_ids[i : i + max_tokens]
+            inputs = {"input_ids": chunk_ids.unsqueeze(0)}
 
-        # -- vector search
-        if self.index_type == IndexType.FAISS:
-            chunk_embedding = await self.create_embeddings_async([chunk])
-            faiss.normalize_L2(chunk_embedding)
-            _, faiss_indices = self.index.search(chunk_embedding, k)
-            dense_ranks = {
-                str(doc_id): rank
-                for rank, doc_id in enumerate(faiss_indices[0])
-            }
-        elif self.index_type in [IndexType.CHROMA, IndexType.WEAVIATE]:
-            chunk_embedding = await self.create_embeddings_async([chunk])
-            dense_results = await self.vector_search_async(chunk_embedding, k)
-            dense_ranks = {
-                str(doc_id): rank for rank, doc_id in enumerate(dense_results)
-            }
-
-        # -- combine BM25 and dense retrieval results
-        combined_rrf_scores = self.reciprocal_rank_fusion(
-            bm25_ranks, dense_ranks, k=k
-        )
-        ranked_docs = self.rank_documents(combined_rrf_scores)
-        # --
-        if isinstance(self.bm25_retriever.documents, list):
-            ranked_docs = [
-                int(doc_id)
-                for doc_id in ranked_docs[:k]
-                if isinstance(doc_id, (int, np.integer))
-            ]
-        elif isinstance(self.bm25_retriever.documents, dict):
-            ranked_docs = [doc_id for doc_id in ranked_docs[:k]]
-
-        return [
-            self.bm25_retriever.documents[doc_id] for doc_id in ranked_docs[:k]
-        ]
-
-    async def create_embeddings_async(self, texts):
-        """Asynchronous version of create_embeddings."""
-        if torch.cuda.is_available():
             with torch.no_grad():
-                embeddings = self.embedding_model.encode(
-                    texts, convert_to_tensor=True, show_progress_bar=False
-                )
-                embeddings = embeddings.cpu().numpy()
+                outputs = self.model(**inputs)
+                logits = outputs.logits.squeeze(0)
+                chunk_end_signal = torch.sigmoid(logits).mean().item()
+                current_chunk.extend(chunk_ids.tolist())
+                # -- chunking
+                if chunk_end_signal > threshold:
+                    chunks.append(
+                        tokenizer.decode(
+                            current_chunk, skip_special_tokens=True
+                        )
+                    )
+                    current_chunk = []
+
+        if current_chunk:
+            chunks.append(
+                self.tokenizer.decode(current_chunk, skip_special_tokens=True)
+            )
+
+        return chunks
+
+    def chunker(self, text, method="recursive_character", **kwargs):
+        """
+        Chunking call. Default is using ```recursive character splitting```
+        """
+        if method == ChunkingMethod.FIXED:
+            self.chunks = self.fixed_chunking(text, **kwargs)
+        elif method == ChunkingMethod.RECURSIVE_CHARACTER:
+            self.chunks = self.recursive_character_chunking(text, **kwargs)
+        elif method == ChunkingMethod.SEMANTIC:
+            self.chunks = self.semantic_chunking(text, **kwargs)
+        elif method == ChunkingMethod.TOKEN_BASED:
+            self.chunks = self.token_based_chunking(text, **kwargs)
+        elif method == ChunkingMethod.HIERARCHICAL:
+            self.chunks = self.hierarchical_chunking(text, **kwargs)
+        elif method == ChunkingMethod.MODEL_BASED:
+            self.chunks = self.model_based_chunking(text, **kwargs)
+        elif method == ChunkingMethod.SENTENCE_BOUNDARY:
+            self.chunks = self.sentence_boundary_detection(text, **kwargs)
         else:
-            if self.index_type == IndexType.CHROMA:
-                embeddings = np.array(
-                    self.embedding_model.embed_documents(texts)
-                )
-            elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
-                inputs = self.tokenizer(
-                    texts,
-                    return_tensors="pt",
-                    padding=True,
-                    # truncation=True,
-                    max_length=self.tokenizer.model_max_length,
-                ).to(self.device)
-                with torch.no_grad():
-                    embeddings = self.model.transformer.wte(
-                        inputs["input_ids"]
-                    ).mean(dim=1)
-                embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
-        return embeddings
-
-    async def vector_search_async(self, embedding, k):
-        """Asynchronous vector search for Chroma and Weaviate."""
-        if self.index_type == IndexType.CHROMA:
-            results = await asyncio.to_thread(
-                self.vectorstore.similarity_search_by_vector,
-                embedding.tolist(),
-                k,
-            )
-            return [result.page_content for result in results]
-        elif self.index_type == IndexType.WEAVIATE:
-            results = await asyncio.to_thread(
-                self.weaviate_client.query.get(
-                    self.class_name, ["page_content"]
-                )
-                .with_near_vector({"vector": embedding.tolist()})
-                .with_limit(k)
-                .do
-            )
-            return [
-                result["page_content"]
-                for result in results["data"]["Get"][self.class_name]
-            ]
-
-    async def parallel_search(self, document, k=5):
-        chunks = self.chunk_document(document, k)
-        async with asyncio.TaskGroup() as tg:
-            tasks = [
-                tg.create_task(self.search_similar_texts_async(chunk, k))
-                for chunk in chunks
-            ]
-        results = [task.result() for task in tasks]
-        return self.merge_results(results, k)
-
-    def merge_results(self, results, k):
-        """Merge top-k results from parallel searches."""
-        all_docs = []
-        for result in results:
-            all_docs.extend(result)
-
-        # -- remove duplicates while preserving order
-        seen = set()
-        merged = []
-        for doc in all_docs:
-            if doc not in seen:
-                seen.add(doc)
-                merged.append(doc)
-
-        return merged[:k]  # return top-k unique elements
-
-    async def search_similar_texts(self, question, k=5, lambda_param=0.5):
-        """Parallelized version of search_similar_texts."""
-        return await self.parallel_search(question, k)
-
-    def run_async_in_thread(self, coro):
-        """Run an async coroutine in a separate thread."""
-
-        def wrapper():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(coro)
-            finally:
-                loop.close()
-
-        with ThreadPoolExecutor() as executor:
-            future = executor.submit(wrapper)
-            return future.result()
-
-    async def invoke_async(self, question):
-        """Use the parallelized search_similar_texts method."""
-        # -- init context
-        initial_contexts = await self.search_similar_texts_async(question, k=5)
-        if not initial_contexts:
-            return "No relevant context found to answer the question."
+            self.chunks = None
+        if not method:
+            raise ValueError(f"🚩 Unknown chunking method: {method}")
 
         # --
-        document = initial_contexts[0]
-        relevant_contexts = await self.search_similar_texts(document, k=5)
-        combined_context = "\n\n".join(relevant_contexts)
-        result_text = await self.custom_llm_chain(combined_context, question)
-        answer = self._format_llm_response(result_text)
-        eval_metrics = await Evaluatrix(
-            answer,
-            combined_context,
-            self.tokenizer,
-            self.model,
-            self.embedding_model,
-            question,
-            method="ngram",
-            n_gram=3,
-        )
-        return answer, combined_context, eval_metrics
-
-    def ainvoke(self, question):
-        """Use the enhanced asynchronous invoke method."""
-        return self.run_async_in_thread(self.invoke_async(question))
+        return self.chunks
