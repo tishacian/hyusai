@@ -10,7 +10,9 @@ This README would normally document whatever steps are necessary to get your app
 
 ### How do I get set up? ###
 
-Clone the repository (see [help](https://support.atlassian.com/bitbucket-cloud/docs/clone-a-git-repository/)):
+For security reasons, you must clone this repo using an SSH key. You can follow [this guide](https://support.atlassian.com/bitbucket-cloud/docs/configure-ssh-and-two-step-verification/) from Atlassian to generate and add the SSH key to your account.
+
+Once set up, you can safely clone this repository on your computer.
 
 ```
 git clone git@bitbucket.org:neuropolisteam/rag.git
