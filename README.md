@@ -17,6 +17,35 @@ Once set up, you can safely clone this repository on your computer.
 ```
 git clone git@bitbucket.org:neuropolisteam/rag.git
 ```
+
+#### Folder structure
+The arrangment of files in the RAGGER folder
+
+```
+.
+├── README.md
+├── data
+│   ├── hkunlp_embeddings.npy
+│   └── url_suffixes.npy
+├── install.sh
+├── main.py
+├── requirements
+│   ├── requirements_cpu.txt
+│   └── requirements_gpu.txt
+├── src
+│   ├── Chunker.py
+│   ├── CustomChain.py
+│   ├── DocLoader.py
+│   ├── Embedding.py
+│   ├── LoaderModelTokenizer.py
+│   ├── Metrics.py
+│   ├── RAGGER.py
+│   ├── __init__.py
+│   ├── global_variables.py
+│   └── scrapper.py
+└── vector_store
+````
+
 #### Bash installation
 Run command
 ```
