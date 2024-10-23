@@ -8,6 +8,7 @@ import base64
 from datetime import datetime
 import pandas as pd
 from global_variables import (
+    IMG_PATH,
     VECTOR_STORE_PATH,
     PipelineTypes,
     HELP,
@@ -27,9 +28,9 @@ from DocLoader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
 # --
 from PIL import Image
 
-IMAGES_PATH = os.path.join(os.path.dirname(__file__), "image")
-HUMAN_AVATAR_PATH = os.path.join(IMAGES_PATH, "aitubo.jpg")
-AI_AVATAR_PATH = os.path.join(IMAGES_PATH, "datategy_logo.png")
+# IMAGES_PATH = IMG_PATH / "image"
+HUMAN_AVATAR_PATH = os.path.join(IMG_PATH, "aitubo.jpg")
+AI_AVATAR_PATH = os.path.join(IMG_PATH, "datategy_logo.png")
 
 
 def load_avatar(image_path):
@@ -626,6 +627,15 @@ if st.sidebar.button("New Chat"):
         )
     st.session_state.chat_history = []
     st.session_state.current_chat_id = None
+    # -- erase old chat history
+    if "chain" in st.session_state:
+        st.session_state.chain = CustomLLMChain(
+            st.session_state.tokenizer,
+            st.session_state.model,
+            st.session_state.get("model_name", ""),
+            st.session_state.get("vector_store", ""),
+            index_type=st.session_state.get("index_type", ""),
+        )
     st.rerun()
 
 
@@ -822,4 +832,4 @@ if not df.empty:
 # Add a button to clear chat history
 if st.button("Clear Chat History"):
     st.session_state.chat_history.clear()
-    st.experimental_rerun()
+    st.rerun()
