@@ -50,17 +50,16 @@ HUMAN_AVATAR_B64 = image_to_base64(HUMAN_AVATAR)
 AI_AVATAR_B64 = image_to_base64(AI_AVATAR)
 
 
-# --
+# -- initialize database
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
 
-    # Check if the table exists
+    # -- check if the table exists
     c.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='chats'"
     )
     if c.fetchone() is None:
-        # Create the table if it doesn't exist
         c.execute(
             """
             CREATE TABLE chats (
@@ -75,7 +74,6 @@ def init_db():
         """
         )
     else:
-        # Check for missing columns and add them if necessary
         columns_to_add = [
             ("model_name", "TEXT"),
             ("chunking_method", "TEXT"),
@@ -248,7 +246,7 @@ button[key^="chat_"]:focus {
 </style>
 
 <script>
-// Use localStorage to persist the sidebar state (expanded/collapsed) across page reloads
+// Using localStorage to persist the sidebar state (expanded/collapsed) across page reloads
 document.addEventListener('DOMContentLoaded', function () {
     const sidebar = document.querySelector('[data-testid="stSidebar"]');
     const mainContainer = document.querySelector('.main .block-container');
@@ -264,14 +262,14 @@ document.addEventListener('DOMContentLoaded', function () {
         mainContainer.style.paddingLeft = '20px';
     }
 
-    // Add hover event listener to expand the sidebar
+    // -- hover event listener to expand the sidebar
     sidebar.addEventListener('mouseenter', function () {
         sidebar.style.left = '0';
         mainContainer.style.paddingLeft = '320px';
         localStorage.setItem('sidebarExpanded', 'true');  // Save expanded state
     });
 
-    // Add event listener to collapse the sidebar on mouse leave
+    // -- event listener to collapse the sidebar on mouse leave
     sidebar.addEventListener('mouseleave', function () {
         sidebar.style.left = '-240px';
         mainContainer.style.paddingLeft = '20px';

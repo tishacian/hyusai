@@ -24,9 +24,9 @@ The arrangment of files in the RAGGER folder
 ```
 .
 ├── README.md
-├── data
-│   ├── hkunlp_embeddings.npy
-│   └── url_suffixes.npy
+├── image
+│   ├── aitubo.jpg
+│   └── datategy_logo.png
 ├── install.sh
 ├── main.py
 ├── requirements
@@ -43,7 +43,8 @@ The arrangment of files in the RAGGER folder
 │   ├── __init__.py
 │   ├── global_variables.py
 │   └── scrapper.py
-└── vector_store
+└── vector_store (created upon indexing)
+
 ````
 
 #### Bash installation
