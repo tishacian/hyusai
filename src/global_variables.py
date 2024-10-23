@@ -1,5 +1,5 @@
 import os
-from enum import Enum, StrEnum
+from enum import StrEnum
 from pathlib import Path
 
 # %% Directory
@@ -38,7 +38,7 @@ HELP = {  # help suggestions...
     "Max_characer": "The maximum number of characters to generated. This can be similar to the maximum token"
     + "\n"
     + " size of the embedding space. The default is set to 500.",
-    "index_type": "Slect desired vector types",
+    "index_type": "Select desired vector types",
     "pipeline": "Select the desired pipeline. Default is without Chain of Thought (COT)",
     "template": "Select a template style of choice. Default is a simple template.",
     "reranker": "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
@@ -81,8 +81,7 @@ EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"
 
 SINGLE_FILE = 1  # single files
 RANDOM_SEED = 42
-# -- Vector types
-#VECTOR_TYPES = ["FAISS", "Chroma", "Weaviate", "PGVector"]
+
 
 # %% StrEnums
 
@@ -96,6 +95,7 @@ class PipelineTypes(StrEnum):
 class Reranker(StrEnum):
     RRF = "RRF"
     FLASHRERANKER = "FlashReranker"
+
 
 class Models(StrEnum):
     LLAMA3 = "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"
@@ -120,8 +120,8 @@ class IndexType(StrEnum):
     WEAVIATE = "weaviate"
     # HNSW = "hnsw" # uses faiss also
 
-class OPTIMIAL_K_METHOD(StrEnum):
+
+class OptimalMethod(StrEnum):
     ELBOW = "elbow"
     SILHOUETTE = "silhouette"
     GAP = "gap"
-
