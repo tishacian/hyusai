@@ -11,7 +11,7 @@ from langchain_community.vectorstores import Chroma
 import warnings
 import asyncio
 from vllm import SamplingParams
-from functools import wraps, lru_cache
+from functools import lru_cache
 from sentence_transformers import SentenceTransformer
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -20,16 +20,12 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import sys
 import logging
-from rank_bm25 import BM25Okapi
-from global_variables import (
-    VECTOR_STORE_PATH,
-)
+from global_variables import VECTOR_STORE_PATH
+from Chunker import cache_chunker_embedding_chain, BM25Retriever
 
 # --
 from torch import autocast
-from global_variables import (
-    IndexType,
-)
+from global_variables import IndexType
 
 # -- Model evalmiation
 from Metrics import Evaluatrix
@@ -40,61 +36,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-
-
-class BM25Retriever:
-    def __init__(self, documents):
-        """
-        Initialize BM25 retriever with a list of documents.
-        """
-        self.documents = documents
-        self.bm25 = self.create_bm25_index()
-
-    def create_bm25_index(self):
-        """
-        Create and return a BM25 index using the provided documents.
-        """
-        tokenized_docs = [doc.split() for doc in self.documents]
-        return BM25Okapi(tokenized_docs)
-
-    def get_scores(self, query):
-        """
-        Get BM25 scores for a query.
-        """
-        tokenized_query = query.split()
-        return self.bm25.get_scores(tokenized_query)
-
-    def save_bm25(self, filepath):
-        """
-        Save BM25 retriever to a file.
-        """
-        with open(filepath, "wb") as f:
-            pickle.dump(self, f)
-
-    @staticmethod
-    def load_bm25(filepath):
-        """
-        Load BM25 retriever from a file.
-        """
-        with open(filepath, "rb") as f:
-            return pickle.load(f)
-
-
-def cache_chunker_embedding_chain(func):
-    """
-    Decorator to cache the model and tokenizer loading.
-    """
-
-    @wraps(func)
-    def wrapper(tokenizer, model, *args, **kwargs):
-        try:
-            # -- Check if the model and tokenizer are already cached
-            return func(tokenizer, model, *args, **kwargs)
-        except Exception as e:
-            logging.error(f"🚩 Error loading model and tokenizer: {e}")
-            return None, None
-
-    return wrapper
 
 
 @lru_cache(maxsize=None)
@@ -143,17 +84,31 @@ class CustomLLMChain:
 
         self.index_type = index_type
         self.embedding_model_name = embedding_model_name
-        if index_type == IndexType.FAISS:
+        if self.index_type == IndexType.FAISS:
             self.embedding_model_name = "all-MiniLM-L6-v2"
             self.embedding_model = SentenceTransformer(
                 self.embedding_model_name
             )
-        elif index_type == [IndexType.CHROMA, IndexType.WEAVIATE]:
+        elif self.index_type == IndexType.CHROMA:
             self.embedding_model_name = (
                 "sentence-transformers/all-mpnet-base-v2"
             )
             self.embedding_model = SentenceTransformer(
                 self.embedding_model_name
+            )
+        elif self.index_type == IndexType.WEAVIATE:
+            self.embedding_model = weaviate.Client("http://localhost:8080")
+            self.class_name = "Document"
+            if not self.weaviate_client.schema.contains(self.class_name):
+                self.embedding_model.schema.create_class(
+                    {
+                        "class": self.class_name,
+                        "vectorizer": "none",
+                    }
+                )
+        else:
+            raise ValueError(
+                "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
             )
         # -- loading index
         self.load_index()
@@ -314,75 +269,6 @@ class CustomLLMChain:
         List of ranked document indices.
         """
         return sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-
-    def create_embeddings(self, texts):
-        """
-        Create embedding using tokenizer class or vLLM if available
-        """
-        if torch.cuda.is_available():
-            try:
-                # Load pre-trained sentence transformer model
-                sentence_model = SentenceTransformer("all-MiniLM-L6-v2").to(
-                    self.device
-                )
-                with torch.no_grad():
-                    # Create embeddings
-                    self.embeddings = sentence_model.encode(
-                        texts, convert_to_tensor=True, show_progress_bar=False
-                    )
-                    # Move embeddings to CPU and convert to numpy array
-                    self.embeddings = self.embeddings.cpu().numpy()
-            except Exception as e:
-                logging.error(
-                    f"🚩 Error creating embeddings with sentence transformers: {e}"
-                )
-                return np.array([])
-        else:
-            # Handle different index types (CHROMA, FAISS, WEAVIATE)
-            if self.index_type == IndexType.CHROMA:
-                self.embeddings = np.array(
-                    self.embedding_model.embed_documents(texts)
-                )
-            elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
-                try:
-                    inputs = self.tokenizer(
-                        texts,
-                        return_tensors="pt",
-                        padding=True,
-                        truncation=True,
-                        max_length=self.tokenizer.model_max_length,  # Ensure max length is respected
-                    ).to(self.device)
-
-                    if (
-                        inputs["input_ids"].size(1)
-                        > self.tokenizer.model_max_length
-                    ):
-                        logging.warning(
-                            "🚩 Input text exceeds model's maximum length, truncating."
-                        )
-                    with torch.no_grad():
-                        self.embeddings = self.model.transformer.wte(
-                            inputs["input_ids"]
-                        ).mean(dim=1)
-
-                    self.embeddings = (
-                        self.embeddings.to(dtype=torch.float32).cpu().numpy()
-                    )
-                except IndexError as e:
-                    logging.error(
-                        f"🚩 Index out of range error: {e}. Check input text length."
-                    )
-                    return np.array([])
-                except Exception as e:
-                    logging.error(f"🚩 Error creating embeddings: {e}")
-                    return np.array([])
-            else:
-                logging.error(
-                    f"🚩 Unsupported embedding type: {self.index_type}"
-                )
-                return np.array([])
-
-        return self.embeddings
 
     def available_device_count(self, device):
         """
@@ -615,32 +501,68 @@ class CustomLLMChain:
         ]
 
     async def create_embeddings_async(self, texts):
-        """Asynchronous version of create_embeddings."""
-        if torch.cuda.is_available():
-            with torch.no_grad():
-                embeddings = self.embedding_model.encode(
-                    texts, convert_to_tensor=True, show_progress_bar=False
-                )
-                embeddings = embeddings.cpu().numpy()
-        else:
-            if self.index_type == IndexType.CHROMA:
-                embeddings = np.array(
-                    self.embedding_model.embed_documents(texts)
-                )
-            elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
-                inputs = self.tokenizer(
-                    texts,
-                    return_tensors="pt",
-                    padding=True,
-                    # truncation=True,
-                    max_length=self.tokenizer.model_max_length,
-                ).to(self.device)
+        """
+        Asynchronous version of create_embeddings.
+        Creates embeddings using pre-loaded SentenceTransformer or tokenizer based on availability.
+        """
+        try:
+            if torch.cuda.is_available():
+                # Use pre-loaded sentence transformer model
                 with torch.no_grad():
-                    embeddings = self.model.transformer.wte(
-                        inputs["input_ids"]
-                    ).mean(dim=1)
-                embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
-        return embeddings
+                    embeddings = self.embedding_model.encode(
+                        texts,
+                        convert_to_tensor=True,
+                        show_progress_bar=False,
+                        device=self.device,  # Ensure it uses the correct device
+                    )
+                    embeddings = embeddings.cpu().numpy()
+            else:
+                # Handle different index types
+                if self.index_type == IndexType.CHROMA:
+                    embeddings = np.array(
+                        self.embedding_model.embed_documents(texts)
+                    )
+                elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
+                    try:
+                        inputs = self.tokenizer(
+                            texts,
+                            return_tensors="pt",
+                            padding=True,
+                            max_length=self.tokenizer.model_max_length,
+                        ).to(self.device)
+
+                        # Check if input exceeds max length
+                        if (
+                            inputs["input_ids"].size(1)
+                            > self.tokenizer.model_max_length
+                        ):
+                            logging.warning(
+                                "🚩 Input text exceeds model's maximum length, truncating."
+                            )
+
+                        with torch.no_grad():
+                            embeddings = self.model.transformer.wte(
+                                inputs["input_ids"]
+                            ).mean(dim=1)
+                        embeddings = (
+                            embeddings.to(dtype=torch.float32).cpu().numpy()
+                        )
+                    except IndexError as e:
+                        logging.error(
+                            f"🚩 Index out of range error: {e}. Check input text length."
+                        )
+                        return np.array([])
+                else:
+                    logging.error(
+                        f"🚩 Unsupported embedding type: {self.index_type}"
+                    )
+                    return np.array([])
+
+            return embeddings
+
+        except Exception as e:
+            logging.error(f"🚩 Error creating embeddings: {e}")
+            return np.array([])
 
     async def vector_search_async(self, embedding, k):
         """Asynchronous vector search for Chroma and Weaviate."""
@@ -691,7 +613,7 @@ class CustomLLMChain:
 
         return merged[:k]  # return top-k unique elements
 
-    async def search_similar_texts(self, question, k=5, lambda_param=0.5):
+    async def search_similar_texts(self, question, k=5):
         """Parallelized version of search_similar_texts."""
         return await self.parallel_search(question, k)
 
