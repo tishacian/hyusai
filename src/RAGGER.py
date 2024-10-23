@@ -1,27 +1,16 @@
 import os
-import sys
-import torch
-import pickle
+from tempfile import NamedTemporaryFile
+import streamlit as st
 import sqlite3
 from io import BytesIO
-import xlsxwriter
-import logging
-import numpy as np
+import json
+import base64
+from datetime import datetime
 import pandas as pd
-import streamlit as st
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 from global_variables import (
-    DATA_PATH,
-    IMG_PATH,
     VECTOR_STORE_PATH,
     PipelineTypes,
-    Reranker,
     HELP,
-    TEMPLATE,
-    LLM_NAMES,
-    EMBEDDING_NAME,
-    SUPPLEMENT,
     Models,
     ChunkingMethod,
     IndexType,
@@ -30,33 +19,109 @@ from LoaderModelTokenizer import (
     tokenizer,
     model,
 )
-import json
-from datetime import datetime
 from Embedding import EmbeddingVectors
 from Chunker import TextChunker
 from CustomChain import CustomLLMChain
 from DocLoader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
 
 # --
-conn = sqlite3.connect("chat_history.db", check_same_thread=False)
-c = conn.cursor()
-c.execute(
-    """CREATE TABLE IF NOT EXISTS chats
-             (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, chat_data TEXT)"""
-)
-conn.commit()
+from PIL import Image
 
-logging.basicConfig(
-    stream=sys.stdout,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+IMAGES_PATH = os.path.join(os.path.dirname(__file__), "image")
+HUMAN_AVATAR_PATH = os.path.join(IMAGES_PATH, "aitubo.jpg")
+AI_AVATAR_PATH = os.path.join(IMAGES_PATH, "datategy_logo.png")
+
+
+def load_avatar(image_path):
+    return Image.open(image_path).resize((32, 32))
+
+
+def image_to_base64(image):
+    buffered = BytesIO()
+    image.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode()
+
+
+# -- avatars
+HUMAN_AVATAR = load_avatar(HUMAN_AVATAR_PATH)
+AI_AVATAR = load_avatar(AI_AVATAR_PATH)
+
+# -- avatars to base64
+HUMAN_AVATAR_B64 = image_to_base64(HUMAN_AVATAR)
+AI_AVATAR_B64 = image_to_base64(AI_AVATAR)
+
+
+# --
+def init_db():
+    conn = sqlite3.connect("chat_history.db", check_same_thread=False)
+    c = conn.cursor()
+
+    # Check if the table exists
+    c.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chats'"
+    )
+    if c.fetchone() is None:
+        # Create the table if it doesn't exist
+        c.execute(
+            """
+            CREATE TABLE chats (
+                id INTEGER PRIMARY KEY,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                chat_data TEXT,
+                model_name TEXT,
+                chunking_method TEXT,
+                index_type TEXT,
+                vector_store TEXT
+            )
+        """
+        )
+    else:
+        # Check for missing columns and add them if necessary
+        columns_to_add = [
+            ("model_name", "TEXT"),
+            ("chunking_method", "TEXT"),
+            ("index_type", "TEXT"),
+            ("vector_store", "TEXT"),
+        ]
+        for column_name, column_type in columns_to_add:
+            c.execute(f"PRAGMA table_info(chats)")
+            existing_columns = [column[1] for column in c.fetchall()]
+            if column_name not in existing_columns:
+                c.execute(
+                    f"ALTER TABLE chats ADD COLUMN {column_name} {column_type}"
+                )
+
+    conn.commit()
+    return conn, c
+
+
+conn, c = init_db()
 
 st.set_page_config(page_title="RAGGER", page_icon="🦙", layout="wide")
 
 st.markdown(
     """
 <style>
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #f0f2f6;
+    padding: 10px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+.app-header img {
+    margin-right: 10px;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+}
+.app-header h1 {
+    color: #262730;
+    font-size: 2.5rem;
+    margin: 0;
+}
 .metrics-container {
     background-color: transparent;
     padding: 5px;
@@ -88,6 +153,148 @@ n: 0 !important;
     unsafe_allow_html=True,
 )
 
+st.markdown(
+    """
+<style>
+.stButton > button {
+    border: none !important;
+    text-align: center !important;
+    font-size: 14px !important;
+    padding: 5px 10px !important;
+    width: 100% !important;
+    background-color: transparent !important;
+    color: white !important;
+    transition: background-color 0.3s ease !important;
+}
+
+.stButton > button:hover {
+    background-color: #f0f0f0 !important;
+    color: #262730 !important;
+}
+
+/* Chat history buttons */
+button[key^="chat_"] {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    margin-bottom: 5px !important;
+    transition: background-color 0.3s ease !important;
+}
+
+button[key^="chat_"]:hover {
+    background-color: #f0f0f0 !important;
+}
+
+/* Delete button */
+button[key^="delete_"] {
+    background-color: transparent !important;
+    color: #ff4b4b !important;
+    padding: 0 !important;
+    font-size: 18px !important;
+    width: auto !important;
+    float: right !important;
+    transition: background-color 0.3s ease !important;
+}
+
+button[key^="delete_"]:hover {
+    background-color: #f0f0f0 !important;
+}
+
+/* Highlight for chat hover */
+button[key^="chat_"]:focus {
+    background-color: #e6f3ff !important;
+}
+
+/* Download styler */
+.stDownloadButton > button {
+    border: none !important;
+    text-align: center !important;
+    font-size: 12px !important;
+    padding: 5px !important;
+    width: 100% !important;
+    margin-bottom: 5px !important;
+    transition: background-color 0.3s ease !important;
+}
+
+.stDownloadButton > button:hover {
+    background-color: #f0f0f0 !important;
+}
+
+/* Auto-hide sidebar */
+[data-testid="stSidebar"] {
+    position: fixed !important;
+    left: -350px;
+    top: -50px;
+    height: 100vh;
+    width: 300px;
+    transition: left 0.3s ease-in-out;
+    z-index: 100; /* Ensure sidebar is above other elements */
+}
+
+/* Sidebar hover effect for expansion */
+[data-testid="stSidebar"]:hover {
+    left: 0 !important;
+}
+
+/* Adjust main content when sidebar is hidden or shown */
+.main .block-container {
+    padding-left: 20px;
+    transition: padding-left 0.3s ease-in-out;
+}
+
+[data-testid="stSidebar"]:hover + .main .block-container {
+    padding-left: 320px;
+}
+</style>
+
+<script>
+// Use localStorage to persist the sidebar state (expanded/collapsed) across page reloads
+document.addEventListener('DOMContentLoaded', function () {
+    const sidebar = document.querySelector('[data-testid="stSidebar"]');
+    const mainContainer = document.querySelector('.main .block-container');
+    
+    // Check if the sidebar state is saved in localStorage
+    const isSidebarExpanded = localStorage.getItem('sidebarExpanded');
+
+    if (isSidebarExpanded === 'true') {
+        sidebar.style.left = '0';
+        mainContainer.style.paddingLeft = '320px';
+    } else {
+        sidebar.style.left = '-240px';
+        mainContainer.style.paddingLeft = '20px';
+    }
+
+    // Add hover event listener to expand the sidebar
+    sidebar.addEventListener('mouseenter', function () {
+        sidebar.style.left = '0';
+        mainContainer.style.paddingLeft = '320px';
+        localStorage.setItem('sidebarExpanded', 'true');  // Save expanded state
+    });
+
+    // Add event listener to collapse the sidebar on mouse leave
+    sidebar.addEventListener('mouseleave', function () {
+        sidebar.style.left = '-240px';
+        mainContainer.style.paddingLeft = '20px';
+        localStorage.setItem('sidebarExpanded', 'false');  // Save collapsed state
+    });
+});
+</script>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+st.markdown(
+    f"""
+<div class="app-header">
+    <img src="data:image/png;base64,{AI_AVATAR_B64}" alt="AI Avatar"/>
+    <h1>RAGGER</h1>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
 
 # -- style metrics
 def display_metrics(metrics):
@@ -105,29 +312,66 @@ def display_metrics(metrics):
 # Initialize session state variables
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-
 if "current_chat_id" not in st.session_state:
     st.session_state.current_chat_id = None
-
 if "embedding_index" not in st.session_state:
     st.session_state.embedding_index = None
-
 if "display_history" not in st.session_state:
     st.session_state.display_history = False
-
 if "chain" not in st.session_state:
     st.session_state.chain = None
 
 
 # Function to save chat history to database
-def save_chat_to_db(chat_history):
-    chat_json = json.dumps(chat_history)
+def save_chat_to_db(
+    chat_history, model_name, chunking_method, index_type, vector_store
+):
+    chat_data = []
+    for msg in chat_history:
+        msg_copy = msg.copy()
+        if "avatar" in msg_copy and isinstance(msg_copy["avatar"], str):
+            msg_copy["avatar"] = msg_copy["avatar"].split(",")[-1]
+        chat_data.append(msg_copy)
+
+    chat_json = json.dumps(chat_data)
     current_time = datetime.now().isoformat()
+
     c.execute(
-        "INSERT INTO chats (chat_data, timestamp) VALUES (?, ?)",
-        (chat_json, current_time),
+        """
+        INSERT INTO chats 
+        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store) 
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            chat_json,
+            current_time,
+            model_name,
+            chunking_method,
+            index_type,
+            vector_store,
+        ),
     )
     conn.commit()
+
+
+# Update the load_chat_from_db function
+def load_chat_from_db(chat_id):
+    c.execute(
+        """
+        SELECT chat_data, model_name, chunking_method, index_type, vector_store 
+        FROM chats WHERE id = ?
+    """,
+        (chat_id,),
+    )
+    result = c.fetchone()
+    if result:
+        chat_history = json.loads(result[0])
+        for msg in chat_history:
+            if "avatar" in msg and msg["avatar"]:
+                if not msg["avatar"].startswith("data:image/png;base64,"):
+                    msg["avatar"] = f"data:image/png;base64,{msg['avatar']}"
+        return chat_history, result[1], result[2], result[3], result[4]
+    return [], None, None, None, None
 
 
 def delete_chat_from_db(chat_id):
@@ -142,15 +386,6 @@ def delete_chat(chat_id):
         st.session_state.current_chat_id = None
         st.session_state.chat_history = []
     st.experimental_rerun()
-
-
-# Function to load chat history from database
-def load_chat_from_db(chat_id):
-    c.execute("SELECT chat_data FROM chats WHERE id = ?", (chat_id,))
-    result = c.fetchone()
-    if result:
-        return json.loads(result[0])
-    return []
 
 
 # --get all chat history
@@ -174,10 +409,6 @@ def get_all_chats():
         # Fetch the updated results
         c.execute("SELECT id, timestamp FROM chats ORDER BY timestamp DESC")
         return c.fetchall()
-
-
-# -- side bar
-# st.sidebar.title("Chat Options")
 
 
 # -- Loader tokenizer and model
@@ -208,7 +439,6 @@ with st.expander("Document Embedding"):
     st.markdown(
         "This page is used to upload the documents as the custom knowledge for the chatbot."
     )
-    # --
     with st.form("document_input"):
         uploaded_files = st.file_uploader(
             "Knowledge Documents",
@@ -218,49 +448,79 @@ with st.expander("Document Embedding"):
             + " ".join(ACCEPTABLE_DOC_TYPES[:5])
             + " et al.",
         )
-        # --
-        SINGLE_FILE = 1
+
         NUMBER_OF_FILES = len(uploaded_files)
-        # --
+
         row_ae = st.columns([2, 1, 1])
         with row_ae[0]:
             model_name = st.selectbox(
                 "Models",
                 Models,
+                index=(
+                    Models.index(st.session_state.get("model_name", Models[0]))
+                    if st.session_state.get("model_name") in Models
+                    else 0
+                ),
             )
 
         with row_ae[1]:
             chunking_method = st.selectbox(
                 "Chunking method",
                 ChunkingMethod,
+                index=(
+                    ChunkingMethod.index(
+                        st.session_state.get(
+                            "chunking_method", ChunkingMethod[0]
+                        )
+                    )
+                    if st.session_state.get("chunking_method")
+                    in ChunkingMethod
+                    else 0
+                ),
             )
 
         with row_ae[2]:
             index_type = st.selectbox(
                 "Index Type",
                 IndexType,
+                index=(
+                    IndexType.index(
+                        st.session_state.get("index_type", IndexType[0])
+                    )
+                    if st.session_state.get("index_type") in IndexType
+                    else 0
+                ),
             )
 
         row_be = st.columns(2)
         with row_be[0]:
-            # List the existing vector stores
             vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
             vector_store_list = [
                 file
                 for file in vector_store_list
                 if not file.startswith((".", "BM25"))
             ]
+            current_vector_store = st.session_state.get(
+                "vector_store", "<New>"
+            )
+            if current_vector_store not in vector_store_list:
+                current_vector_store = "<New>"
+
             existing_vector_store = st.selectbox(
                 "Vector Store to Merge the Knowledge",
                 vector_store_list,
+                index=vector_store_list.index(
+                    current_vector_store
+                ),  # This will now be safe
                 help="Which vector store to add the new documents. Choose <New> to create a new vector store.",
             )
 
         with row_be[1]:
-            # List the existing vector stores
             new_vs_name = st.text_input(
                 "New Vector Store Name",
-                value="New_vector_store_name",
+                value=st.session_state.get(
+                    "new_vs_name", "New_vector_store_name"
+                ),
                 help=HELP["new_vector_store"],
             )
 
@@ -289,7 +549,7 @@ with st.expander("Document Embedding"):
             if not uploaded_files:
                 st.error("No document uploaded...")
             else:
-                if NUMBER_OF_FILES == SINGLE_FILE:
+                if NUMBER_OF_FILES == 1:
                     # -- load temporary folder first before loading document..
                     _, extension = os.path.splitext(uploaded_files[0].name)
                     with NamedTemporaryFile(
@@ -325,7 +585,16 @@ with st.expander("Document Embedding"):
                 embedding_vector.create_and_save_index(chunks)
             )
             st.success("PDF processed and embedding index created!")
-
+            st.session_state.model_name = model_name
+            st.session_state.chunking_method = chunking_method
+            st.session_state.index_type = index_type
+            st.session_state.vector_store = (
+                existing_vector_store
+                if existing_vector_store != "<New>"
+                else new_vs_name
+            )
+            st.session_state.new_vs_name = new_vs_name
+            st.rerun()
         if custom_chain_button:
             chain = CustomLLMChain(
                 st.session_state.tokenizer,
@@ -336,14 +605,31 @@ with st.expander("Document Embedding"):
             )
             st.session_state.chain = chain
 
-# New Chat
+if "model_name" not in st.session_state:
+    st.session_state.model_name = Models[0]
+if "chunking_method" not in st.session_state:
+    st.session_state.chunking_name = ChunkingMethod[0]
+if "index_type" not in st.session_state:
+    st.session_state.index_type = IndexType[0]
+if "vector_store" not in st.session_state:
+    st.session_state.vector_store = "<New>"
+
+# -- New chat
 if st.sidebar.button("New Chat"):
     if st.session_state.chat_history:
-        save_chat_to_db(st.session_state.chat_history)
+        save_chat_to_db(
+            st.session_state.chat_history,
+            st.session_state.get("model_name", ""),
+            st.session_state.get("chunking_method", ""),
+            st.session_state.get("index_type", ""),
+            st.session_state.get("vector_store", ""),
+        )
     st.session_state.chat_history = []
     st.session_state.current_chat_id = None
-    st.experimental_rerun()
+    st.rerun()
 
+
+# -- Recently saved chats...
 st.sidebar.markdown("Recents")
 historical_chats = get_all_chats()
 for chat_id, timestamp in historical_chats:
@@ -355,26 +641,61 @@ for chat_id, timestamp in historical_chats:
 
     with col1:
         if st.button(chat_label, key=f"chat_{chat_id}"):
-            st.session_state.chat_history = load_chat_from_db(chat_id)
+            (
+                chat_history,
+                model_name,
+                chunking_method,
+                index_type,
+                vector_store,
+            ) = load_chat_from_db(chat_id)
+            st.session_state.chat_history = chat_history
             st.session_state.current_chat_id = chat_id
-            st.experimental_rerun()
+            st.session_state.model_name = model_name
+            st.session_state.chunking_method = chunking_method
+            st.session_state.index_type = index_type
+            st.session_state.vector_store = vector_store
+
+            # Reinitialize the chain with the loaded information
+            chain = CustomLLMChain(
+                st.session_state.tokenizer,
+                st.session_state.model,
+                model_name,
+                vector_store,
+                index_type=index_type,
+            )
+            st.session_state.chain = chain
+
+            st.rerun()
 
     with col2:
         if st.button("×", key=f"delete_{chat_id}"):
             delete_chat(chat_id)
-            st.experimental_rerun()
+            st.rerun()
 
-# Add a button to clear all chat history
+# -- Clear all chat history + from DB..
 if st.sidebar.button("Clear All Chat History"):
     c.execute("DELETE FROM chats")
     conn.commit()
     st.session_state.chat_history.clear()
     st.session_state.current_chat_id = None
-    st.experimental_rerun()
+    st.rerun()
 
+# -- view chat history...
 if st.session_state.chat_history:
     for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
+        avatar = msg.get("avatar")
+        if (
+            avatar
+            and isinstance(avatar, str)
+            and avatar.startswith("data:image/png;base64,")
+        ):
+            avatar = avatar
+        elif msg["role"] == "human":
+            avatar = HUMAN_AVATAR
+        else:
+            avatar = AI_AVATAR
+
+        with st.chat_message(msg["role"], avatar=avatar):
             st.write(msg["content"])
             if "metrics" in msg:
                 display_metrics(msg["metrics"])
@@ -384,34 +705,71 @@ else:
 
 col1, col2 = st.columns([3, 1])  # Create two columns
 # -- main
-if prompt := st.chat_input("Type your message here..."):
+response_placeholder = st.empty()
+progress_bar = st.progress(0)
+if prompt := st.chat_input("Message RAGGER..."):
+    response, context, metrics = None, None, None
     # Display and store user's question
-    st.chat_message("human").write(prompt)
-    st.session_state.chat_history.append({"role": "human", "content": prompt})
+    progress_bar.progress(0)
+    response_placeholder.empty()
+    st.chat_message("human", avatar=HUMAN_AVATAR).write(prompt)
+    st.session_state.chat_history.append(
+        {"role": "human", "content": prompt, "avatar": HUMAN_AVATAR_B64}
+    )
 
-    with st.spinner("Executing chain-of-thoughts"):
-        # Use CustomLLMChain.ainvoke to get the response
-        response, context, metrics = st.session_state.chain.ainvoke(prompt)
+    progress_bar.progress(10)
+    progress_bar.progress(50)
+    response_placeholder.markdown("Thinking...")
+    response, context, metrics = st.session_state.chain.ainvoke(prompt)
+    progress_bar.progress(80)
+    # Display ragger response
+    with st.chat_message("ai", avatar=AI_AVATAR):
+        st.write(response)
+        display_metrics(metrics)
 
-        # Display and store AI's response with metrics
-        with st.chat_message("ai"):
-            st.write(response)
-            display_metrics(metrics)
+    st.session_state.chat_history.append(
+        {
+            "role": "ai",
+            "content": response,
+            "metrics": metrics,
+            "avatar": AI_AVATAR_B64,
+        }
+    )
 
-        st.session_state.chat_history.append(
-            {"role": "ai", "content": response, "metrics": metrics}
-        )
-
-    # Save the updated chat history if we're continuing an existing chat
+    # Save or update chat history
     if st.session_state.current_chat_id:
+        # Update existing chat
         c.execute(
-            "UPDATE chats SET chat_data = ? WHERE id = ?",
+            """
+            UPDATE chats 
+            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ? 
+            WHERE id = ?
+            """,
             (
                 json.dumps(st.session_state.chat_history),
+                st.session_state.get("model_name", ""),
+                st.session_state.get("chunking_method", ""),
+                st.session_state.get("index_type", ""),
+                st.session_state.get("vector_store", ""),
                 st.session_state.current_chat_id,
             ),
         )
-        conn.commit()
+    else:
+        # Create new chat
+        save_chat_to_db(
+            st.session_state.chat_history,
+            st.session_state.get("model_name", ""),
+            st.session_state.get("chunking_method", ""),
+            st.session_state.get("index_type", ""),
+            st.session_state.get("vector_store", ""),
+        )
+        st.session_state.current_chat_id = c.lastrowid
+
+    conn.commit()
+    progress_bar.progress(100)
+    progress_bar.empty()
+    response_placeholder.empty()
+
 
 data = []
 for i in range(0, len(st.session_state.chat_history), 2):
