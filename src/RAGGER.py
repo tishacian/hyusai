@@ -20,15 +20,13 @@ from LoaderModelTokenizer import (
     tokenizer,
     model,
 )
+from PIL import Image
 from Embedding import EmbeddingVectors
 from Chunker import TextChunker
 from CustomChain import CustomLLMChain
 from DocLoader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
 
-# --
-from PIL import Image
 
-# IMAGES_PATH = IMG_PATH / "image"
 HUMAN_AVATAR_PATH = os.path.join(IMG_PATH, "aitubo.jpg")
 AI_AVATAR_PATH = os.path.join(IMG_PATH, "datategy_logo.png")
 
