@@ -1,12 +1,16 @@
 import torch
 import re
 import math
+import nltk
+import pickle
+import warnings
 import numpy as np
 from typing import List
+from nltk.tokenize import sent_tokenize
 
 # --
-import warnings
-
+nltk.download("punkt")
+nltk.download("punkt_tab")
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 # -- utils for Semantic chunking
@@ -15,6 +19,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 # --
 import logging
+from rank_bm25 import BM25Okapi
 from functools import wraps, lru_cache  # caching mechanism
 
 # - KMeans dependencies
@@ -29,7 +34,7 @@ from LoaderModelTokenizer import (
 # --
 from global_variables import (
     ChunkingMethod,
-    OPTIMIAL_K_METHOD,
+    OptimalMethod,
     RANDOM_SEED,
 )
 
@@ -49,6 +54,44 @@ def cache_chunker_embedding_chain(func):
             return None, None
 
     return wrapper
+
+
+class BM25Retriever:
+    def __init__(self, documents):
+        """
+        Initialize BM25 retriever with a list of documents.
+        """
+        self.documents = documents
+        self.bm25 = self.create_bm25_index()
+
+    def create_bm25_index(self):
+        """
+        Create and return a BM25 index using the provided documents.
+        """
+        tokenized_docs = [doc.split() for doc in self.documents]
+        return BM25Okapi(tokenized_docs)
+
+    def get_scores(self, query):
+        """
+        Get BM25 scores for a query.
+        """
+        tokenized_query = query.split()
+        return self.bm25.get_scores(tokenized_query)
+
+    def save_bm25(self, filepath):
+        """
+        Save BM25 retriever to a file.
+        """
+        with open(filepath, "wb") as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load_bm25(filepath):
+        """
+        Load BM25 retriever from a file.
+        """
+        with open(filepath, "rb") as f:
+            return pickle.load(f)
 
 
 @lru_cache(maxsize=None)
@@ -257,11 +300,11 @@ class TextChunker:
         - (int) : optimal k.
 
         """
-        if method == OPTIMIAL_K_METHOD.ELBOW:
+        if method == OptimalMethod.ELBOW:
             optimal_k = self.optimal_k_elbow(X, max_k)
-        elif method == OPTIMIAL_K_METHOD.SILHOUETTE:
+        elif method == OptimalMethod.SILHOUETTE:
             optimal_k = self.optimal_k_silhouette(X, max_k)
-        elif method == OPTIMIAL_K_METHOD.GAP:
+        elif method == OptimalMethod.GAP:
             optimal_k = self.optimal_k_gap(X, max_k)
         else:
             optimal_k = None
@@ -279,7 +322,7 @@ class TextChunker:
         self.chunk_size = (
             self.tokenizer.max_len_single_sentence
             if not chunk_size
-            else chunk_size
+            else max(chunk_size, self.tokenizer.max_len_single_sentence)
         )
         return [
             text[i : i + self.chunk_size]
@@ -290,14 +333,30 @@ class TextChunker:
         """
         Chunk text based on sentence boundaries.
 
+
         Parameters:
-        - text (str): The input text to chunk.
+            text (str): The input text to chunk.
 
         Returns:
-        - List[str]: List of sentences.
+            List[str]: List of sentences.
         """
-        chunks = re.split(r"(?<=[.!?]) +", text)
-        return chunks
+        try:
+            if not text or not text.strip():
+                return []
+
+            chunks = sent_tokenize(text)
+            return chunks
+
+        except LookupError:
+            raise RuntimeError(
+                "🚩 NLTK punkt tokenizer not found. Please install it using:\n"
+                ">>> import nltk\n"
+                ">>> nltk.download('punkt')"
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"🚩 Error during sentence tokenization: {str(e)}"
+            )
 
     def recursive_character_chunking(
         self, text, chunk_size=None, overlap=None
@@ -364,7 +423,7 @@ class TextChunker:
         - method (str), method to determine optimal number of clusters ('elbow', 'silhouette', 'gap')
         - max_k (int), maximum number of clusters to evaluate
         """
-        sentences = re.split(r"(?<=[.!?]) +", text)
+        sentences = sent_tokenize(text)
         vectorizer = TfidfVectorizer(stop_words="english")
         X = vectorizer.fit_transform(sentences)
 
@@ -442,7 +501,7 @@ class TextChunker:
         chunks = []
         for paragraph in paragraphs:
             if len(paragraph) > paragraph_chunk_size:
-                sentences = re.split(r"(?<=[.!?]) +", paragraph)
+                sentences = sent_tokenize(paragraph)
                 current_chunk = ""
                 for sentence in sentences:
                     if (
