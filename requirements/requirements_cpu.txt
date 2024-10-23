@@ -116,7 +116,7 @@ opentelemetry-proto==1.27.0
 opentelemetry-sdk==1.27.0
 opentelemetry-semantic-conventions==0.48b0
 opentelemetry-util-http==0.48b0
-optimum==1.22.0
+optimum>=1.22.0
 orjson==3.10.3
 outlines==0.0.46
 overrides==7.7.0
