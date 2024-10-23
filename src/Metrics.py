@@ -1,9 +1,11 @@
 import re
+import sys
 import math
 import torch
 import asyncio
+import logging
 from collections import Counter
-
+import nltk
 from nltk.corpus import wordnet
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -12,16 +14,38 @@ from sentence_transformers import util
 from sklearn.metrics.pairwise import cosine_similarity
 
 # --
-import nltk
-
 nltk.download("punkt")
 nltk.download("wordnet")
 nltk.download("stopwords")
+
+# --
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
 # %%
 
 
 # N-gram model
 def _ngram_model(text, n=2):
+    """N-gram model
+
+    Parameters
+        text (str) : input text
+        n (int): n-tokens to use for n-gram evaluation. The default is 2.
+
+    Raises
+    ------
+    ValueError
+        Input value error is returned is input text is not string.
+
+    Returns
+    -------
+    model (n-gram model): n-gram model
+
+    """
     if not isinstance(text, str):
         raise ValueError("Input text must be a string")
     words = re.findall(r"\w+", text.lower())
@@ -56,6 +80,19 @@ def calculate_fluency(text, model, n=2):
 
 # computes perplexity
 async def perplexity(generated_text, tokenizer, model):
+    """Perplexity
+
+    Parameters
+    ----------
+        generated_text (str): generated input text
+        tokenizer (Model): Tokenizer model
+        model (Model): Huggingface Model
+
+    Returns
+    -------
+    float
+        Perplexity.
+    """
     if not generated_text.strip():
         return float("inf")  # Return a high perplexity for empty text
     # Encoding
@@ -63,15 +100,16 @@ async def perplexity(generated_text, tokenizer, model):
     if encodings.input_ids.size(1) == 0:
         return float("inf")  # Return a high perplexity for improper encoding
     input_ids = encodings.input_ids
-    """
-    If you experience any IndexError: index out of range in self,
-    Check that your propmpt has similar embedding impute size with the model.
-    or simply truncate based on maximum token size. 
-    """
-    with torch.no_grad():
-        outputs = model(input_ids, labels=input_ids)
-        loss = outputs.loss
-        perplexity = torch.exp(loss)
+    try:
+        with torch.no_grad():
+            outputs = model(input_ids, labels=input_ids)
+            loss = outputs.loss
+            perplexity = torch.exp(loss)
+    except (ValueError, IndexError, IOError, KeyError, RuntimeError) as e:
+        logging.error(
+            f"🚩 A perplexity computation error occurred during computation: {str(e)}"
+        )
+
     return perplexity.item()
 
 
@@ -106,6 +144,7 @@ async def fluency_ngram(generated_text, reference_text, n_gram=3):
     Parameters:
         generated_text (str): model generated text.
         reference_text (str): reference text to build the language model.
+        n_gram (int): size of n-gram
 
     Returns:
         float: Fluency score using n-gram
