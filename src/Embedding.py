@@ -83,7 +83,7 @@ class EmbeddingVectors:
         elif self.embedding_type == IndexType.WEAVIATE:
             self.embedding_model = weaviate.Client("http://localhost:8080")
             self.class_name = "Document"
-            if not self.weaviate_client.schema.contains(self.class_name):
+            if not self.embedding_model.schema.contains(self.class_name):
                 self.embedding_model.schema.create_class(
                     {
                         "class": self.class_name,
@@ -113,16 +113,17 @@ class EmbeddingVectors:
                     embeddings = embeddings.cpu().numpy()
             else:
                 # Handle different index types
-                if self.index_type == IndexType.CHROMA:
+                if self.embedding_type == IndexType.CHROMA:
                     embeddings = np.array(
                         self.embedding_model.embed_documents(texts)
                     )
-                elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
+                elif self.embedding_type in [IndexType.FAISS, IndexType.WEAVIATE]:
                     try:
                         inputs = self.tokenizer(
                             texts,
                             return_tensors="pt",
                             padding=True,
+                            truncation=True,
                             max_length=self.tokenizer.model_max_length,
                         ).to(self.device)
 
@@ -161,28 +162,63 @@ class EmbeddingVectors:
 
     def create_faiss_index(self, embeddings, chunk_size=None):
         """
-        Create ```FAISS``` index
+        Create ```FAISS``` index with validation checks
         """
-        train = False if self.device.type == "cpu" else True
-        assert isinstance(
-            embeddings, np.ndarray
-        ), f"Embedding is type : {type(embeddings)} not an ndarray"
-        faiss.normalize_L2(embeddings)
-        dimension = embeddings.shape[1]
-        quantizer_index = faiss.IndexFlatL2(dimension)
-        if not train:
-            quantizer_index.add(embeddings)
-            return quantizer_index
-        else:
-            nlist = chunk_size
-            index = faiss.IndexIVFFlat(
-                quantizer_index, dimension, nlist, faiss.METRIC_INNER_PRODUCT
-            )
-            # -- Start training
-            index.train(embeddings)
-            index.add(embeddings)
-            assert index.is_trained, "🚩 FAISS index training failed!"
-            return index
+        try:
+            if embeddings is None or len(embeddings) == 0:
+                logging.error("🚩 Empty embeddings array received")
+                return None
+
+            assert isinstance(
+                embeddings, np.ndarray
+            ), f"Embedding is type : {type(embeddings)} not an ndarray"
+
+            if embeddings.shape[0] == 0 or embeddings.shape[1] == 0:
+                logging.error("🚩 Embeddings array has zero dimensions")
+                return None
+
+            if np.isnan(embeddings).any() or np.isinf(embeddings).any():
+                logging.error("🚩 Embeddings contain NaN or Inf values")
+                return None
+
+            train = False if self.device.type == "cpu" else True
+            dimension = embeddings.shape[1]
+
+            # --
+            embeddings_normalized = embeddings.copy()
+            faiss.normalize_L2(embeddings_normalized)
+
+            quantizer_index = faiss.IndexFlatL2(dimension)
+            if not train:
+                quantizer_index.add(embeddings_normalized)
+                return quantizer_index
+            else:
+                # -- check chunk_size validity
+                if chunk_size is None or chunk_size <= 0:
+                    nlist = min(
+                        4096, max(embeddings.shape[0] // 4, 1)
+                    )  # reasonable default
+                    logging.warning(f"🚩 Using default nlist value: {nlist}")
+                else:
+                    nlist = chunk_size
+
+                index = faiss.IndexIVFFlat(
+                    quantizer_index,
+                    dimension,
+                    nlist,
+                    faiss.METRIC_INNER_PRODUCT,
+                )
+                # -- train before adding to index
+                index.train(embeddings_normalized)
+                index.add(embeddings_normalized)
+                if not index.is_trained:
+                    logging.error("🚩 FAISS index training failed!")
+                    return None
+                return index
+
+        except Exception as e:
+            logging.error(f"🚩 Error creating FAISS index: {e}")
+            return None
 
     def save_index(self, index, texts):
         """
@@ -258,24 +294,24 @@ class EmbeddingVectors:
                 if self.create_new_vs:
                     # Assuming self.weaviate_client is already configured for the new class
                     for i, text in enumerate(texts):
-                        self.weaviate_client.batch.add_data_object(
+                        self.embedding_model.batch.add_data_object(
                             {"text": text},
                             self.class_name,
                             vector=self.embeddings[i],
                         )
-                    self.weaviate_client.batch.flush()
+                    self.embedding_model.batch.flush()
                     logging.info(
                         "New Weaviate index created and texts saved successfully"
                     )
                 else:
                     # For merging, we simply add new data to the existing class
                     for i, text in enumerate(texts):
-                        self.weaviate_client.batch.add_data_object(
+                        self.embedding_model.batch.add_data_object(
                             {"text": text},
                             self.class_name,
                             vector=self.embeddings[i],
                         )
-                    self.weaviate_client.batch.flush()
+                    self.embedding_model.batch.flush()
                     logging.info("Weaviate index updated with new texts")
 
             else:
@@ -291,21 +327,36 @@ class EmbeddingVectors:
 
     def create_and_save_index(self, texts):
         """
-        Create and save the index -- vector DB
+        Create and save the index -- vector DB with validation
         """
-        chunk_size = len(texts)
-        # -- other index
-        self.embeddings = self.create_embeddings(texts)
-        if self.embedding_type == IndexType.FAISS:
-            index = self.create_faiss_index(self.embeddings, chunk_size)
-            self.save_index(index, texts)
-        elif self.embedding_type == IndexType.CHROMA:
-            self.save_index(
-                None, texts
-            )  # -- Index is saved during vectorstore creation in Chroma
-        elif self.embedding_type == IndexType.WEAVIATE:
-            self.save_index(None, texts)
-        else:
-            raise ValueError(
-                "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
-            )
+        try:
+            if not texts or len(texts) == 0:
+                logging.error("🚩 Empty texts array received")
+                return
+
+            chunk_size = len(texts)
+            self.embeddings = self.create_embeddings(texts)
+
+            # Validate embeddings before proceeding
+            if self.embeddings is None or len(self.embeddings) == 0:
+                logging.error("🚩 Failed to create embeddings")
+                return
+
+            if self.embedding_type == IndexType.FAISS:
+                index = self.create_faiss_index(self.embeddings, chunk_size)
+                if index is not None:
+                    self.save_index(index, texts)
+                else:
+                    logging.error("🚩 Failed to create FAISS index")
+            elif self.embedding_type == IndexType.CHROMA:
+                self.save_index(
+                    None, texts
+                )  # -- Index is saved during vectorstore creation in Chroma
+            elif self.embedding_type == IndexType.WEAVIATE:
+                self.save_index(None, texts)
+            else:
+                raise ValueError(
+                    "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
+                )
+        except Exception as e:
+            logging.error(f"🚩 Error in create_and_save_index: {e}")
