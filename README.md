@@ -45,7 +45,7 @@ The arrangment of files in the RAGGER folder
 │   └── scrapper.py
 └── vector_store (created upon indexing)
 
-````
+```
 
 #### Bash installation
 Run command
