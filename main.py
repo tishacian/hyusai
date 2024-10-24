@@ -6,7 +6,7 @@ if __name__ == "__main__":
     sys.argv = [
         "streamlit",
         "run",
-        "src/RAGGER.py",
+        "src/ragger.py",
         "--server.port",
         "8508",
     ]
