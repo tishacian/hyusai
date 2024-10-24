@@ -7,7 +7,7 @@ import json
 import base64
 from datetime import datetime
 import pandas as pd
-from global_variables import (
+from globalvariables import (
     IMG_PATH,
     VECTOR_STORE_PATH,
     PipelineTypes,
@@ -16,15 +16,15 @@ from global_variables import (
     ChunkingMethod,
     IndexType,
 )
-from LoaderModelTokenizer import (
+from modeltokenizer import (
     tokenizer,
     model,
 )
 from PIL import Image
-from Embedding import EmbeddingVectors
-from Chunker import TextChunker
-from CustomChain import CustomLLMChain
-from DocLoader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
+from embedding import EmbeddingVectors
+from chunker import TextChunker
+from customchain import CustomLLMChain
+from docloader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
 
 
 HUMAN_AVATAR_PATH = os.path.join(IMG_PATH, "aitubo.jpg")

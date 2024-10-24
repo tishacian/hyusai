@@ -27,12 +27,12 @@ from scipy.spatial.distance import cdist
 from sklearn.metrics import silhouette_score
 
 # -- tokenizer
-from LoaderModelTokenizer import (
+from modeltokenizer import (
     tokenizer,
 )
 
 # --
-from global_variables import (
+from globalvariables import (
     ChunkingMethod,
     OptimalMethod,
     RANDOM_SEED,

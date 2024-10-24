@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Wed May 15 11:21:38 2024
-
-@author: kennethezukwoke
-"""
 import re
 from itertools import chain
 from os import makedirs

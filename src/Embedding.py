@@ -6,14 +6,13 @@ import weaviate
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceInstructEmbeddings
-from Chunker import cache_chunker_embedding_chain, BM25Retriever
+from chunker import cache_chunker_embedding_chain, BM25Retriever
 
 # --
 import warnings
 import logging
 from functools import lru_cache
-from global_variables import (
+from globalvariables import (
     VECTOR_STORE_PATH,
     IndexType,
 )

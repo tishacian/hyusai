@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Sep  1 15:37:39 2024
-
-@author: kennethezukwoke
-"""
 import os
 import torch
 import logging
@@ -15,17 +8,9 @@ from transformers import (
     AutoTokenizer,
     AutoConfig,
 )
-
-# --
-from concurrent.futures import ThreadPoolExecutor
-
-# -- cached vLLM dependencies
-from enum import StrEnum
 from vllm import LLM
-
-# -- global variables
-from global_variables import Models
-
+from globalvariables import Models
+from concurrent.futures import ThreadPoolExecutor
 
 def model_and_tokenizer_cache(func):
     """
