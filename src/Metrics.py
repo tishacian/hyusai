@@ -287,7 +287,7 @@ async def factuality(generated_text, source_texts, embedding_model):
     return entailment_score
 
 
-# computes the consistency
+# computes consistency
 async def consistency(generated_text, source_texts, embedding_model):
     """
     Consistency measures the factual alignment between the answer and the context.

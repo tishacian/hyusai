@@ -21,7 +21,7 @@ if not os.path.exists(VECTOR_STORE_PATH):
     os.makedirs(VECTOR_STORE_PATH)
 # %%
 # -- Helper for suggestions
-HELP = {  # help suggestions...
+HELP = {  # help suggestions..
     "HuggingFace": "You can get theHuggingFace token from settings of your Huggingface account",
     "LLM_Model": "An instruction LLM model well (distilled or not) necessary to provide the right anwser"
     + "\n"

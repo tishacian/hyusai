@@ -27,9 +27,7 @@ from scipy.spatial.distance import cdist
 from sklearn.metrics import silhouette_score
 
 # -- tokenizer
-from modeltokenizer import (
-    tokenizer,
-)
+from modeltokenizer import tokenizer
 
 # --
 from globalvariables import (
@@ -41,7 +39,7 @@ from globalvariables import (
 
 def cache_chunker_embedding_chain(func):
     """
-    Decorator to cache the model and tokenizer loading.
+    Decorator to cache the model and tokenizer.
     """
 
     @wraps(func)

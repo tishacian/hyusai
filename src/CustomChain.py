@@ -27,7 +27,7 @@ from chunker import cache_chunker_embedding_chain, BM25Retriever
 from torch import autocast
 from globalvariables import IndexType
 
-# -- Model evalmiation
+# -- Model evaluation
 from metrics import Evaluatrix
 
 # --
@@ -54,10 +54,10 @@ class CustomLLMChain:
 
         Parameters
         ----------
-            - tokenizer (tokenizer) : tokenizer
-            - model (model) : llm model
-            - embedding_model_name (str), optional : embedding model name. The default is "sentence-transformers/all-mpnet-base-v2".
-            - index_type (str), optional : index type. The default is "faiss".
+            tokenizer (tokenizer) : tokenizer
+            model (model) : llm model
+            embedding_model_name (str), optional : embedding model name. The default is "sentence-transformers/all-mpnet-base-v2".
+            index_type (str), optional : index type. The default is "faiss".
 
         Raises
         ------

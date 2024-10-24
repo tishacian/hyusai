@@ -3,19 +3,17 @@ import torch
 import faiss
 import pickle
 import weaviate
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from langchain_community.vectorstores import Chroma
-from chunker import cache_chunker_embedding_chain, BM25Retriever
-
-# --
 import warnings
 import logging
+import numpy as np
 from functools import lru_cache
 from globalvariables import (
     VECTOR_STORE_PATH,
     IndexType,
 )
+from sentence_transformers import SentenceTransformer
+from langchain_community.vectorstores import Chroma
+from chunker import cache_chunker_embedding_chain, BM25Retriever
 
 
 logging.basicConfig(
@@ -116,7 +114,10 @@ class EmbeddingVectors:
                     embeddings = np.array(
                         self.embedding_model.embed_documents(texts)
                     )
-                elif self.embedding_type in [IndexType.FAISS, IndexType.WEAVIATE]:
+                elif self.embedding_type in [
+                    IndexType.FAISS,
+                    IndexType.WEAVIATE,
+                ]:
                     try:
                         inputs = self.tokenizer(
                             texts,

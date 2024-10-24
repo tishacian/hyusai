@@ -293,7 +293,7 @@ st.markdown(
 )
 
 
-# -- style metrics
+# -- metrics style
 def display_metrics(metrics):
     metrics_html = "<div class='metrics-container'>"
     for key, value in metrics.items():

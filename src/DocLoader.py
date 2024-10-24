@@ -20,7 +20,7 @@ from langchain.document_loaders import (
 # %%
 
 
-class MyElmLoader(UnstructuredEmailLoader):
+class MyEmlLoader(UnstructuredEmailLoader):
     """Wrapper to fallback to text/plain when default does not work"""
 
     def load(self) -> List[Document]:
@@ -43,7 +43,7 @@ LOADER_MAPPING = {
     ".doc": (UnstructuredWordDocumentLoader, {}),
     ".docx": (UnstructuredWordDocumentLoader, {}),
     ".enex": (EverNoteLoader, {}),
-    ".eml": (MyElmLoader, {}),
+    ".eml": (MyEmlLoader, {}),
     ".epub": (UnstructuredEPubLoader, {}),
     ".html": (UnstructuredHTMLLoader, {}),
     ".md": (UnstructuredMarkdownLoader, {}),
