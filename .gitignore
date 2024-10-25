@@ -29,3 +29,6 @@ ENV/
 
 # Generated vector database
 vector_store/*
+.safetensors
+.json
+.db
