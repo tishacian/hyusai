@@ -1,5 +1,5 @@
 import os
-from enum import StrEnum
+from enum import Enum, StrEnum
 from pathlib import Path
 
 # %% Directory
@@ -64,18 +64,6 @@ SUPPLEMENT = [
     "WhereIsAI/UAE-Large-V1",
 ]
 
-# -- LLM Models
-LLM_NAMES = [
-    "MBZUAI/LaMini-GPT-774M",
-    "MBZUAI/LaMini-GPT-1.5B",
-    "MBZUAI/LaMini-Neo-125M",
-    "MBZUAI/LaMini-Neo-1.3B",
-    "MBZUAI/LaMini-Cerebras-590M",
-    "MBZUAI/LaMini-Cerebras-1.3B",
-    "MBZUAI/LaMini-Flan-T5-783M",
-    "TheBloke/Mistral-7B-Instruct-v0.1-GPTQ",
-]
-
 # -- Embedding name
 EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"
 
@@ -103,6 +91,30 @@ class Models(StrEnum):
     TINYLLAMA = "TheBloke/TinyLlama-1.1B-Chat-v0.3-AWQ"
     GEMMA2 = "neuralmagic/gemma-2-9b-it-quantized.w4a16"
     LAMINIGPT = "MBZUAI/LaMini-GPT-774M"
+    LAMININEO = "MBZUAI/LaMini-Neo-125M"
+    LAMINICEREBRAS = "MBZUAI/LaMini-Cerebras-590M"
+    LAMNINIFLAN = "MBZUAI/LaMini-Flan-T5-783M"
+
+
+class GPUModels(StrEnum):
+    LLAMA3 = "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"
+    MISTRAL = "TheBloke/Mistral-7B-v0.1-AWQ"
+    TINYLLAMA = "TheBloke/TinyLlama-1.1B-Chat-v0.3-AWQ"
+    GEMMA2 = "neuralmagic/gemma-2-9b-it-quantized.w4a16"
+
+
+class CPUModels(StrEnum):
+    LAMINIGPT = "MBZUAI/LaMini-GPT-774M"
+    LAMININEO = "MBZUAI/LaMini-Neo-125M"
+    LAMINICEREBRAS = "MBZUAI/LaMini-Cerebras-590M"
+    LAMNINIFLAN = "MBZUAI/LaMini-Flan-T5-783M"
+
+
+GPU_MODEL_SET = {model for model in GPUModels}
+CPU_MODEL_SET = {model for model in CPUModels}
+
+DEFAULT_GPU_MODEL = GPUModels.LLAMA3
+DEFAULT_CPU_MODEL = CPUModels.LAMINIGPT
 
 
 class ChunkingMethod(StrEnum):

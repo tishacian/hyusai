@@ -1,4 +1,5 @@
 import os
+import torch
 from tempfile import NamedTemporaryFile
 import streamlit as st
 import sqlite3
@@ -9,22 +10,40 @@ from datetime import datetime
 import pandas as pd
 from globalvariables import (
     IMG_PATH,
+    REPO_PATH,
     VECTOR_STORE_PATH,
     PipelineTypes,
     HELP,
     Models,
     ChunkingMethod,
     IndexType,
+    GPU_MODEL_SET,
+    CPU_MODEL_SET,
+    DEFAULT_GPU_MODEL,
+    DEFAULT_CPU_MODEL,
 )
-from modeltokenizer import (
-    tokenizer,
-    model,
-)
+from modeltokenizer import load_model_and_tokenizer
 from PIL import Image
 from embedding import EmbeddingVectors
 from chunker import TextChunker
 from customchain import CustomLLMChain
 from docloader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
+
+
+# -- device available model
+def device_available_models():
+    """List of available models based on device."""
+    if torch.cuda.is_available():
+        return list(GPU_MODEL_SET)
+    return list(CPU_MODEL_SET)
+
+
+# -- device default model
+def device_default_model():
+    """Default model based on device."""
+    return (
+        DEFAULT_GPU_MODEL if torch.cuda.is_available() else DEFAULT_CPU_MODEL
+    )
 
 
 HUMAN_AVATAR_PATH = os.path.join(IMG_PATH, "aitubo.jpg")
@@ -409,20 +428,18 @@ def get_all_chats():
 
 
 # -- Loader tokenizer and model
-@st.cache_resource
-def load_model_and_tokenizer():
-    return tokenizer, model
+# @st.cache_resource
+# def cache_model_and_tokenizer():
+#     return tokenizer, model
 
 
-tokenizer, model = load_model_and_tokenizer()
-
-st.session_state.model = model
-st.session_state.tokenizer = tokenizer
+# st.session_state.model = model
+# st.session_state.tokenizer = tokenizer
 
 
 # -- Pipeline/Embedding...
 PIPELINE_RAG = list(map(str, PipelineTypes))
-Models = list(map(str, Models))
+Models = device_available_models()
 ChunkingMethod = list(map(str, ChunkingMethod))
 IndexType = list(map(str, IndexType))
 
@@ -450,15 +467,38 @@ with st.expander("Document Embedding"):
 
         row_ae = st.columns([2, 1, 1])
         with row_ae[0]:
+            current_model = st.session_state.get(
+                "model_name", device_available_models()
+            )
+
+            # Validate current model against available models
+            if current_model not in Models:
+                current_model = device_default_model()
+
             model_name = st.selectbox(
                 "Models",
                 Models,
                 index=(
-                    Models.index(st.session_state.get("model_name", Models[0]))
+                    Models.index(
+                        st.session_state.get("model_name", current_model)
+                    )
                     if st.session_state.get("model_name") in Models
                     else 0
                 ),
             )
+            # Update model and tokenizer when model changes
+            if model_name != st.session_state.get("model_name"):
+                st.session_state.model_name = model_name
+                # Load new model and tokenizer
+                model, tokenizer = load_model_and_tokenizer(
+                    model_name, REPO_PATH
+                )
+                if model and tokenizer:
+                    st.session_state.model = model
+                    st.session_state.tokenizer = tokenizer
+                    st.success(f"Successfully loaded model: {model_name}")
+                else:
+                    st.error(f"Failed to load model: {model_name}")
 
         with row_ae[1]:
             chunking_method = st.selectbox(

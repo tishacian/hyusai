@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 import logging
 from functools import wraps, lru_cache
@@ -9,8 +10,55 @@ from transformers import (
     AutoConfig,
 )
 from vllm import LLM
-from globalvariables import Models
+from globalvariables import (
+    Models,
+    GPU_MODEL_SET,
+    CPU_MODEL_SET,
+    DEFAULT_GPU_MODEL,
+    DEFAULT_CPU_MODEL,
+)
 from concurrent.futures import ThreadPoolExecutor
+
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+
+def validate_model_name(selected_model: str) -> str:
+    """
+    Validate the selected model and return appropriate model name based on hardware.
+    """
+    has_gpu = torch.cuda.is_available()
+
+    if has_gpu:
+        if selected_model in GPU_MODEL_SET:
+            return selected_model
+        elif selected_model in CPU_MODEL_SET:
+            logging.warning(
+                f"Selected CPU model {selected_model} but GPU is available. Using default GPU model {DEFAULT_GPU_MODEL}"
+            )
+            return DEFAULT_GPU_MODEL
+        else:
+            logging.warning(
+                f"Unknown model {selected_model}. Using default GPU model {DEFAULT_GPU_MODEL}"
+            )
+            return DEFAULT_GPU_MODEL
+    else:
+        if selected_model in CPU_MODEL_SET:
+            return selected_model
+        elif selected_model in GPU_MODEL_SET:
+            logging.warning(
+                f"Selected GPU model {selected_model} but no GPU available. Using default CPU model {DEFAULT_CPU_MODEL}"
+            )
+            return DEFAULT_CPU_MODEL
+        else:
+            logging.warning(
+                f"Unknown model {selected_model}. Using default CPU model {DEFAULT_CPU_MODEL}"
+            )
+            return DEFAULT_CPU_MODEL
+
 
 def model_and_tokenizer_cache(func):
     """
@@ -32,27 +80,31 @@ def model_and_tokenizer_cache(func):
 @model_and_tokenizer_cache
 def load_model_and_tokenizer(model_name: str, abs_path: str):
     """
-    Helper function to load and cache the model and tokenizer.
+    Load and cache the model (GPu or CPu) and tokenizer.
 
     Parameters
-    - model_name (str): The name or path of the pre-trained model to load.
-    - abs_path (str): The absolute path for model storage.
+        model_name (str): The name or path of the pre-trained model to load.
+        abs_path (str): The absolute path for model storage.
 
     Returns:
-    - model: The loaded LLM model.
-    - tokenizer: The loaded tokenizer associated with the model.
+        model: The loaded LLM model.
+        tokenizer: The loaded tokenizer associated with the model.
     """
+    validated_model_name = validate_model_name(model_name)
+
     try:
         if torch.cuda.is_available():
-            cached_llm = CachedLLM(model_name)
+            cached_llm = CachedLLM(validated_model_name)
             model, tokenizer = cached_llm.get_model_and_tokenizer()
         else:
-            tokenizer = TokenizerLoader(model_name).from_pretrained()
-            model = CustomLLMLoader(model_name, abs_path).from_pretrained()
+            tokenizer = TokenizerLoader(validated_model_name).from_pretrained()
+            model = CustomLLMLoader(
+                validated_model_name, abs_path
+            ).from_pretrained()
         return model, tokenizer
     except Exception as e:
         logging.error(
-            f"Failed to load model or tokenizer for {model_name}: {e}"
+            f"Failed to load model or tokenizer for {validated_model_name}: {e}"
         )
         return None, None
 
@@ -136,12 +188,15 @@ class CachedLLM:
         self.max_model_len = self.max_model_len()
 
     def max_model_len(self):
-        if self.model_name in [Models.LLAMA3, Models.MISTRAL]:
-            return 8192
-        elif self.model_name == Models.TINYLLAMA:
-            return 2048
-        elif self.model_name == Models.GEMMA2:
-            return 4096
+        if self.model_name in GPU_MODEL_SET:
+            if self.model_name in [Models.LLAMA3, Models.MISTRAL]:
+                return 8192
+            elif self.model_name == Models.TINYLLAMA:
+                return 2048
+            elif self.model_name == Models.GEMMA2:
+                return 4096
+        elif self.model_name in CPU_MODEL_SET:
+            return 512
         else:
             raise ValueError(f"Error: Unknown model name {self.model_name}")
 
@@ -370,14 +425,3 @@ class CustomLLMLoader:
 
         except Exception as e:
             logging.error(f"🚩 Error during CPU transfer: {e}")
-
-
-# %% initialize model and cache..time saving upon calling
-if torch.cuda.is_available():
-    abs_path = "/workspace/FixLoCL/customLLM"
-    model_name = Models.LLAMA3
-else:
-    abs_path = "/Users/kennethezukwoke/Documents/Datategy/Kenneth/RAGGER/src/LLMCustomChain"
-    model_name = Models.LAMINIGPT
-
-model, tokenizer = load_model_and_tokenizer(model_name, abs_path)
