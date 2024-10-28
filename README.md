@@ -22,28 +22,31 @@ git clone git@bitbucket.org:neuropolisteam/rag.git
 The arrangment of files in the RAGGER folder
 
 ```
-.
-├── README.md
-├── image
+📦 RAG
+├── 📜 README.md
+├── 📂 data
+│   ├── 📜 hkunlp_embeddings.npy
+│   └── 📜 url_suffixes.npy
+├── 📂 image
 │   ├── aitubo.jpg
 │   └── datategy_logo.png
-├── install.sh
-├── main.py
-├── requirements
-│   ├── requirements_cpu.txt
-│   └── requirements_gpu.txt
-├── src
-│   ├── Chunker.py
-│   ├── CustomChain.py
-│   ├── DocLoader.py
-│   ├── Embedding.py
-│   ├── LoaderModelTokenizer.py
-│   ├── Metrics.py
-│   ├── RAGGER.py
-│   ├── __init__.py
-│   ├── global_variables.py
-│   └── scrapper.py
-└── vector_store (created upon indexing)
+├── 📜 install.sh
+├── 📜 main.py
+├── 📂 requirements
+│   ├── 📜 requirements_cpu.txt
+│   └── 📜 requirements_gpu.txt
+├── 📂 src
+│   ├── 📜 __init__.py
+│   ├── 📜 chunker.py
+│   ├── 📜 customchain.py
+│   ├── 📜 docloader.py
+│   ├── 📜 embedding.py
+│   ├── 📜 globalvariables.py
+│   ├── 📜 metrics.py
+│   ├── 📜 modeltokenizer.py
+│   ├── 📜 ragger.py
+│   └── 📜 scrapper.py
+└── 📂 vector_store (created upon indexing)
 
 ```
 
