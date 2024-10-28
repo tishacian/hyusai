@@ -28,13 +28,13 @@ The arrangment of files in the RAGGER folder
 │   ├── 📜 hkunlp_embeddings.npy
 │   └── 📜 url_suffixes.npy
 ├── 📂 image
-│   ├── aitubo.jpg
-│   └── datategy_logo.png
+│   ├── 🖼  aitubo.jpg
+│   └── 🖼  datategy_logo.png
 ├── 📜 install.sh
 ├── 📜 main.py
 ├── 📂 requirements
-│   ├── 📜 requirements_cpu.txt
-│   └── 📜 requirements_gpu.txt
+│   ├── 📄 requirements_cpu.txt
+│   └── 📄 requirements_gpu.txt
 ├── 📂 src
 │   ├── 📜 __init__.py
 │   ├── 📜 chunker.py
