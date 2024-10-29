@@ -142,6 +142,7 @@ vllm==0.6.1.post2
 watchfiles==0.24.0
 weaviate-client==4.7.1
 websockets==13.1
+XlsxWriter==3.2.0
 xxhash==3.5.0
 yarl==1.16.0
 zipp==3.20.2
