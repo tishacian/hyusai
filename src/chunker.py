@@ -26,8 +26,6 @@ from functools import wraps, lru_cache  # caching mechanism
 from scipy.spatial.distance import cdist
 from sklearn.metrics import silhouette_score
 
-# -- tokenizer
-from modeltokenizer import tokenizer
 
 # --
 from globalvariables import (
@@ -101,12 +99,12 @@ class TextChunker:
 
         Parameters
         ---------
-        - model_name (str), optional : The name of the mode of choice. loading is usually from HuggingFace. The default is None.
-        - device (str), optional : cuda or cpu device used in computation. The default is None.
+            model_name (str), optional : The name of the mode of choice. loading is usually from HuggingFace. The default is None.
+            device (str), optional : cuda or cpu device used in computation. The default is None.
 
         Returns
         -------
-        - None.
+            None.
 
         Example of LLM chunking
         -----------------------
@@ -554,7 +552,7 @@ class TextChunker:
                 # -- chunking
                 if chunk_end_signal > threshold:
                     chunks.append(
-                        tokenizer.decode(
+                        self.tokenizer.decode(
                             current_chunk, skip_special_tokens=True
                         )
                     )
