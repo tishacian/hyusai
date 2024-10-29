@@ -14,7 +14,6 @@ from globalvariables import (
     VECTOR_STORE_PATH,
     PipelineTypes,
     HELP,
-    Models,
     ChunkingMethod,
     IndexType,
     GPU_MODEL_SET,
@@ -240,7 +239,7 @@ button[key^="chat_"]:focus {
 /* Auto-hide sidebar */
 [data-testid="stSidebar"] {
     position: fixed !important;
-    left: -350px;
+    left: -330px;
     top: -50px;
     height: 100vh;
     width: 300px;
@@ -428,13 +427,9 @@ def get_all_chats():
 
 
 # -- Loader tokenizer and model
-# @st.cache_resource
-# def cache_model_and_tokenizer():
-#     return tokenizer, model
-
-
-# st.session_state.model = model
-# st.session_state.tokenizer = tokenizer
+@st.cache_resource
+def cache_model_and_tokenizer(model_name, abs_path):
+    return load_model_and_tokenizer(model_name, abs_path)
 
 
 # -- Pipeline/Embedding...
@@ -489,8 +484,7 @@ with st.expander("Document Embedding"):
             # Update model and tokenizer when model changes
             if model_name != st.session_state.get("model_name"):
                 st.session_state.model_name = model_name
-                # Load new model and tokenizer
-                model, tokenizer = load_model_and_tokenizer(
+                model, tokenizer = cache_model_and_tokenizer(
                     model_name, REPO_PATH
                 )
                 if model and tokenizer:
@@ -582,6 +576,20 @@ with st.expander("Document Embedding"):
                 st.error(
                     "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
                 )
+
+            # Load model & tokenizer if not loaded
+            if not hasattr(st.session_state, "tokenizer") or not hasattr(
+                st.session_state, "model"
+            ):
+                model, tokenizer = cache_model_and_tokenizer(
+                    model_name, REPO_PATH
+                )
+                if model is None or tokenizer is None:
+                    st.error("Failed to load model and tokenizer")
+                    st.stop()
+                st.session_state.model = model
+                st.session_state.tokenizer = tokenizer
+
             # -- check for uploaded document
             if not uploaded_files:
                 st.error("No document uploaded...")
@@ -606,33 +614,67 @@ with st.expander("Document Embedding"):
                             temp_files.append(temp_file.name)
                     # -- Threaded loading of collected documents
                     documents = ThreadMultiDocLoader(temp_files)
-            chunker = TextChunker(tokenizer, model)
+
+            chunker = TextChunker(
+                st.session_state.tokenizer, st.session_state.model
+            )
             chunks = chunker.chunker(documents, method=chunking_method)
 
             embedding_vector = EmbeddingVectors(
-                tokenizer,
-                model,
+                st.session_state.tokenizer,
+                st.session_state.model,
                 create_new_vs,
                 existing_vector_store,
                 new_vs_name,
                 embedding_model_name="sentence-transformers/all-mpnet-base-v2",
                 embedding_type=index_type,
             )
-            st.session_state.embedding_index = (
-                embedding_vector.create_and_save_index(chunks)
-            )
-            st.success("PDF processed and embedding index created!")
-            st.session_state.model_name = model_name
-            st.session_state.chunking_method = chunking_method
-            st.session_state.index_type = index_type
-            st.session_state.vector_store = (
-                existing_vector_store
-                if existing_vector_store != "<New>"
-                else new_vs_name
-            )
-            st.session_state.new_vs_name = new_vs_name
-            st.rerun()
+
+            vector_store = embedding_vector.create_and_save_index(chunks)
+
+            if vector_store is not None:
+                st.session_state.embedding_index = vector_store
+                st.success(
+                    "Documents processed and embedding index created successfully!"
+                )
+
+                # Update session state
+                st.session_state.model_name = model_name
+                st.session_state.chunking_method = chunking_method
+                st.session_state.index_type = index_type
+                st.session_state.vector_store = (
+                    existing_vector_store
+                    if existing_vector_store != "<New>"
+                    else new_vs_name
+                )
+                st.session_state.new_vs_name = new_vs_name
+
+                st.rerun()
+            else:
+                st.error("Failed to create embedding index")
+
         if custom_chain_button:
+            # Check if tokenizer and model are initialized
+            if (
+                "tokenizer" not in st.session_state
+                or "model" not in st.session_state
+            ):
+                st.session_state.model, st.session_state.tokenizer = (
+                    cache_model_and_tokenizer(model_name, REPO_PATH)
+                )
+            # Update model and tokenizer when model changes
+            if model_name != st.session_state.get("model_name"):
+                st.session_state.model_name = model_name
+                model, tokenizer = cache_model_and_tokenizer(
+                    model_name, REPO_PATH
+                )
+                if model and tokenizer:
+                    st.session_state.model = model
+                    st.session_state.tokenizer = tokenizer
+                    st.success(f"Successfully loaded model: {model_name}")
+                else:
+                    st.error(f"Failed to load model: {model_name}")
+
             chain = CustomLLMChain(
                 st.session_state.tokenizer,
                 st.session_state.model,
