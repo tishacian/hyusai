@@ -91,7 +91,6 @@ def load_model_and_tokenizer(model_name: str, abs_path: str):
         tokenizer: The loaded tokenizer associated with the model.
     """
     validated_model_name = validate_model_name(model_name)
-
     try:
         if torch.cuda.is_available():
             cached_llm = CachedLLM(validated_model_name)
@@ -132,8 +131,10 @@ class TokenizerLoader:
         if self.model_name:
             try:
                 self.tokenizer = AutoTokenizer.from_pretrained(
-                    self.model_name,
+                    self.model_name, trust_remote_code=True
                 )
+                if not hasattr(self.tokenizer, "model_max_length"):
+                    self.tokenizer.model_max_length = 512
             except (OSError, ValueError, RuntimeError, KeyError) as e:
                 logging.error(f"🚩 Unexpected error loading tokenizer: {e}")
                 self.tokenizer = None
@@ -158,7 +159,9 @@ class InstructionEmbeddingLoader:
         """
         self.embedding_model_name = embedding_model_name
         self.device = torch.device(
-            "cuda:0" if torch.cuda.is_available() else "cpu"
+            "cuda:0"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
         )
         self.model_kwargs = {"device": self.device.type}
         self.encode_kwargs = {"normalize_embeddings": True}
@@ -250,7 +253,9 @@ class CustomLLMLoader:
         self.precision = precision
         self.cache_dir = cache_dir
         self.device = torch.device(
-            "cuda:0" if torch.cuda.is_available() else "cpu"
+            "cuda:0"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
         )
         self.model_path = os.path.join(
             self.abs_path, self.model_name.split("/")[-1]
@@ -280,8 +285,6 @@ class CustomLLMLoader:
         # Ensure the model directory exists
         os.makedirs(self.model_path, exist_ok=True)
 
-        self.model = self._load_model()
-
     def _load_model(self):
         """
         Load or download the model.
@@ -294,7 +297,9 @@ class CustomLLMLoader:
                 model = AutoModelForCausalLM.from_pretrained(
                     self.model_name,
                     torch_dtype=self.torch_dtype,
-                    low_cpu_mem_usage=True,  # Minimize CPU memory usage during loading
+                    device_map="auto",
+                    # low_cpu_mem_usage=True,  # Minimize CPU memory usage during loading
+                    trust_remote_code=True,
                 )
                 model = model.module if hasattr(model, "module") else model
                 model.save_pretrained(self.model_path)
@@ -304,91 +309,75 @@ class CustomLLMLoader:
         else:
             try:
                 model = AutoModelForCausalLM.from_pretrained(
-                    pretrained_model_name_or_path=self.model_name,
+                    self.model_path,
                     torch_dtype=self.torch_dtype,
                     cache_dir=self.cache_dir if self.cache_dir else None,
-                    low_cpu_mem_usage=True,  # Minimize CPU memory usage during loading
+                    device_map="auto",
+                    # low_cpu_mem_usage=True,  # Minimize CPU memory usage during loading
+                    trust_remote_code=True,
                 )
             except (OSError, ValueError, RuntimeError, KeyError) as e:
                 logging.error(f"🚩 Error loading model: {e}")
                 model = None
+
         return model
 
     def from_pretrained(self):
         """
         Prepare the model for inference.
         """
-        if torch.cuda.is_available():
-            config = AutoConfig.from_pretrained(self.model_name)
+        try:
+            self.model = self._load_model()
+            if self.model is None:
+                return None
 
-            if hasattr(config, "attn_implementation"):
-                config.attn_implementation = (
-                    "flash_attention_2"  # Enable flash attention if supported
-                )
+            # Handle device placement based on model state
+            if hasattr(self.model, "is_meta") and self.model.is_meta:
+                self.model = self.model.to_empty(device=self.device.type)
 
-            self.model.config = config
+            # Configure model based on device
+            if self.device.type == "cuda":
+                config = AutoConfig.from_pretrained(self.model_name)
+                if hasattr(config, "attn_implementation"):
+                    config.attn_implementation = "flash_attention_2"
+                self.model.config = config
+                self._distributed_gpu_transfer()
+            elif self.device.type == "mps":
+                if hasattr(self.model.config, "attn_implementation"):
+                    self.model.config.attn_implementation = None
+                self.model = self.model.to(self.device.type)
+            else:  # CPU
+                if hasattr(self.model.config, "attn_implementation"):
+                    self.model.config.attn_implementation = None
+                self._distributed_cpu_transfer()
 
-            # Use a distributed approach to load the model onto the GPU
-            self._distributed_gpu_transfer()
+            return self.model
 
-        else:
-            # Disable GPU-specific settings for CPU
-            if hasattr(self.model.config, "attn_implementation"):
-                self.model.config.attn_implementation = None
-
-            self._distributed_cpu_transfer()
-
-        return self.model
+        except Exception as e:
+            logging.error(f"🚩 Error during model initialization: {e}")
+            return None
 
     def available_device_count(self, device):
         """
-        Get the number of available devices (GPUs or CPU cores).
+        Get number of available devices.
         """
-        if device.type == "cuda" and torch.cuda.is_available():
+        if device.type == "cuda":
             return torch.cuda.device_count()
+        elif device.type == "mps":
+            return 1
         else:
             return torch.get_num_threads()
 
-    def _distributed_gpu_transfer(self):
-        """
-        Move the model to GPU in parallel using multiple CUDA streams to maximize GPU usage.
-        """
-        try:
-            # -- Number of streams (you can adjust based on your GPU's capabilities)
-            num_streams = self.available_device_count(self.device)
-            streams = [torch.cuda.Stream(device=i) for i in range(num_streams)]
-
-            # -- Divide parameters into chunks
-            params = list(self.model.parameters())
-            chunk_size = len(params) // 10
-            chunks = [
-                params[i * chunk_size : (i + 1) * chunk_size]
-                for i in range(num_streams)
-            ]
-            # -- Use CUDA streams to transfer chunks in parallel
-            for stream, chunk in zip(streams, chunks):
-                with torch.cuda.stream(stream):
-                    for param in chunk:
-                        param.data = param.data.to(
-                            self.device, non_blocking=True
-                        )
-
-            # -- Synchronize all streams to ensure completion
-            for stream in streams:
-                stream.synchronize()
-            # --
-            with torch.cuda.amp.autocast(enabled=True):
-                self.model.to(self.device)
-
-        except Exception as e:
-            logging.error(f"🚩 Error during GPU transfer: {e}")
-
     def _distributed_cpu_transfer(self):
         """
-        Move the model to CPU in parallel
+        Move model to CPU in parallel.
         """
         try:
-            num_cores = self.available_device_count(self.device)
+            if hasattr(self.model, "is_meta") and self.model.is_meta:
+                self.model = self.model.to_empty(device="cpu")
+                return
+
+            num_cores = self.available_device_count(self.device.type)
             params = list(self.model.parameters())
             chunk_size = max(1, len(params) // num_cores)
             param_chunks = [
@@ -396,7 +385,6 @@ class CustomLLMLoader:
                 for i in range(num_cores)
             ]
 
-            # -- chunk and load buffers into CPU
             buffers = list(self.model.buffers())
             buffer_chunk_size = max(1, len(buffers) // num_cores)
             buffer_chunks = [
@@ -405,23 +393,50 @@ class CustomLLMLoader:
             ]
 
             def transfer_to_cpu(chunk):
-                """
-                Transfer tensor data to cpu
-                """
                 for tensor in chunk:
-                    tensor.data = tensor.data.to("cpu", non_blocking=True)
+                    if not tensor.is_meta:
+                        tensor.data = tensor.data.to("cpu", non_blocking=True)
 
-            def transfer_tensors():
-                """
-                model transfer
-                """
-                self.model.to("cpu")
-
-            # --
             with ThreadPoolExecutor(max_workers=num_cores) as executor:
                 executor.map(transfer_to_cpu, param_chunks)
                 executor.map(transfer_to_cpu, buffer_chunks)
-                executor.submit(transfer_tensors).result()
+                self.model = self.model.to("cpu")
 
         except Exception as e:
             logging.error(f"🚩 Error during CPU transfer: {e}")
+
+    def _distributed_gpu_transfer(self):
+        """
+        Move model to GPU using CUDA streams.
+        """
+        try:
+            if hasattr(self.model, "is_meta") and self.model.is_meta:
+                self.model = self.model.to_empty(device=self.device.type)
+                return
+
+            num_streams = self.available_device_count(self.device.type)
+            streams = [torch.cuda.Stream(device=i) for i in range(num_streams)]
+
+            params = list(self.model.parameters())
+            chunk_size = len(params) // num_streams
+            chunks = [
+                params[i * chunk_size : (i + 1) * chunk_size]
+                for i in range(num_streams)
+            ]
+
+            for stream, chunk in zip(streams, chunks):
+                with torch.cuda.stream(stream):
+                    for param in chunk:
+                        if not param.is_meta:
+                            param.data = param.data.to(
+                                self.device.type, non_blocking=True
+                            )
+
+            for stream in streams:
+                stream.synchronize()
+
+            with torch.cuda.amp.autocast(enabled=True):
+                self.model = self.model.to(self.device.type)
+
+        except Exception as e:
+            logging.error(f"🚩 Error during GPU transfer: {e}")
