@@ -369,7 +369,7 @@ def save_chat_to_db(
     conn.commit()
 
 
-# Update the load_chat_from_db function
+# -- update the load_chat_from_db function
 def load_chat_from_db(chat_id):
     c.execute(
         """
@@ -389,14 +389,10 @@ def load_chat_from_db(chat_id):
     return [], None, None, None, None
 
 
-def delete_chat_from_db(chat_id):
-    c.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
-    conn.commit()
-
-
 # -- delete chat
 def delete_chat(chat_id):
-    delete_chat_from_db(chat_id)
+    c.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
+    conn.commit()
     if st.session_state.current_chat_id == chat_id:
         st.session_state.current_chat_id = None
         st.session_state.chat_history = []
