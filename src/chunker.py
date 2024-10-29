@@ -133,10 +133,10 @@ class TextChunker:
         """
         self.tokenizer = tokenizer
         self.model = model
-        self.device = (
-            torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-            if not device
-            else device
+        self.device = torch.device(
+            "cuda:0"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
         )
 
     def estimate_chunk_size(
