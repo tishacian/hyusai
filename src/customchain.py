@@ -72,12 +72,11 @@ class CustomLLMChain:
         self.model = model
         self.model_name = model_name
         self.vector_store_name = vector_store_name
-        if torch.backends.mps.is_available():
-            self.device = "mps"
-        elif torch.cuda.is_available():
-            self.device = "cuda:0"
-        else:
-            self.device = "cpu"
+        self.device = torch.device(
+            "cuda:0"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
 
         if self.model is None or self.tokenizer is None:
             raise ValueError(
@@ -92,14 +91,14 @@ class CustomLLMChain:
             if self.index_type == IndexType.FAISS:
                 self.embedding_model_name = "all-MiniLM-L6-v2"
                 self.embedding_model = SentenceTransformer(
-                    self.embedding_model_name, device=self.device
+                    self.embedding_model_name, device=self.device.type
                 )
             elif self.index_type == IndexType.CHROMA:
                 self.embedding_model_name = (
                     "sentence-transformers/all-mpnet-base-v2"
                 )
                 self.embedding_model = SentenceTransformer(
-                    self.embedding_model_name, device=self.device
+                    self.embedding_model_name, device=self.device.type
                 )
             elif self.index_type == IndexType.WEAVIATE:
                 self.embedding_model = weaviate.Client("http://localhost:8080")
@@ -395,14 +394,14 @@ class CustomLLMChain:
 
         # -- transfer the input_ids to the device
         inputs_on_device = self.parallel_chunk_transfer(
-            inputs["input_ids"], self.device
+            inputs["input_ids"], self.device.type
         )
         """
         check if model.generate returns empty strings..otherwise, return empty text.
         Sometimes, the model returns empty strings 
         """
         # -- choose whether to use mixed precision based on the device
-        use_mixed_precision = True if self.device == "cuda:0" else False
+        use_mixed_precision = True if self.device.type == "cuda:0" else False
         if torch.cuda.is_available():
             sampling_params = SamplingParams(
                 temperature=temperature,
@@ -421,7 +420,7 @@ class CustomLLMChain:
             return outputs[0].outputs[0].text.strip()
         else:
             with (
-                autocast(device_type=self.device)
+                autocast(device_type=self.device.type)
                 if use_mixed_precision
                 else torch.no_grad()
             ):
@@ -545,7 +544,7 @@ class CustomLLMChain:
                         texts,  # use [texts] if texts does not work
                         convert_to_tensor=True,
                         show_progress_bar=False,
-                        device=self.device,  # Ensure it uses the correct device
+                        device=self.device.type,  # Ensure it uses the correct device
                     )
                     embeddings = embeddings.cpu().numpy()
             else:
@@ -560,7 +559,7 @@ class CustomLLMChain:
                             texts,
                             convert_to_tensor=True,
                             show_progress_bar=False,
-                            device=self.device,  # Ensure it uses the correct device
+                            device=self.device.type,  # Ensure it uses the correct device
                         )
                         embeddings = (
                             embeddings.to(dtype=torch.float32).cpu().numpy()
