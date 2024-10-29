@@ -88,27 +88,24 @@ class EmbeddingVectors:
         self.create_new_vs = create_new_vs
         self.existing_vector_store = existing_vector_store
         self.new_vs_name = new_vs_name
-
-        if torch.backends.mps.is_available():
-            self.device = "cpu"
-        elif torch.cuda.is_available():
-            self.device = "cuda:0"
-        else:
-            self.device = "cpu"
-
+        self.device = torch.device(
+            "cuda:0"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
         # initialize embedding model
         try:
             if self.embedding_type == IndexType.FAISS:
                 self.embedding_model_name = "all-MiniLM-L6-v2"
                 self.embedding_model = SentenceTransformer(
-                    self.embedding_model_name, device=self.device
+                    self.embedding_model_name, device=self.device.type
                 )
             elif self.embedding_type == IndexType.CHROMA:
                 self.embedding_model_name = (
                     "sentence-transformers/all-mpnet-base-v2"
                 )
                 self.embedding_model = SentenceTransformer(
-                    self.embedding_model_name, device=self.device
+                    self.embedding_model_name, device=self.device.type
                 )
             elif self.embedding_type == IndexType.WEAVIATE:
                 self.embedding_model = weaviate.Client("http://localhost:8080")
@@ -139,12 +136,14 @@ class EmbeddingVectors:
         try:
             if self.embedding_type in [IndexType.FAISS, IndexType.CHROMA]:
                 # Using SentenceTransformer for both FAISS and Chroma
-                logging.info(f"Creating embeddings on device: {self.device}")
+                logging.info(
+                    f"Creating embeddings on device: {self.device.type}"
+                )
                 embeddings = self.embedding_model.encode(
                     texts,
                     show_progress_bar=False,
                     convert_to_tensor=True,
-                    device=self.device,
+                    device=self.device.type,
                 )
                 embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
                 return embeddings
@@ -158,7 +157,7 @@ class EmbeddingVectors:
                         padding=True,
                         truncation=True,
                         max_length=self.tokenizer.model_max_length,
-                    ).to(self.device)
+                    ).to(self.device.type)
 
                     if (
                         inputs["input_ids"].size(1)
@@ -220,7 +219,7 @@ class EmbeddingVectors:
                 return None
 
             # Ensure device is correctly set
-            train = False if self.device == "cpu" else True
+            train = False if self.device.type == "cpu" else True
             dimension = embeddings.shape[1]
 
             # Normalize embeddings
@@ -417,7 +416,7 @@ class EmbeddingVectors:
         Cleanup method
         """
         try:
-            if hasattr(self, "device") and "cuda" in str(self.device):
+            if hasattr(self, "device") and "cuda" in str(self.device.type):
                 torch.cuda.empty_cache()
 
             if hasattr(self, "embedding_model"):
