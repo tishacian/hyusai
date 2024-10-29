@@ -6,8 +6,6 @@ import weaviate
 import warnings
 import logging
 import numpy as np
-
-import atexit
 from functools import lru_cache
 from globalvariables import (
     VECTOR_STORE_PATH,
@@ -16,7 +14,7 @@ from globalvariables import (
 from sentence_transformers import SentenceTransformer
 from langchain_community.vectorstores import Chroma
 from chunker import cache_chunker_embedding_chain, BM25Retriever
-import multiprocessing as mp
+
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -24,27 +22,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 warnings.simplefilter(action="ignore", category=FutureWarning)
-
-_process_pool = None
-
-
-def get_process_pool():
-    global _process_pool
-    if _process_pool is None:
-        _process_pool = mp.Pool(processes=mp.cpu_count())
-    return _process_pool
-
-
-def cleanup_resources():
-    global _process_pool
-    if _process_pool is not None:
-        _process_pool.close()
-        _process_pool.join()
-        _process_pool = None
-
-
-# pool cleanup
-atexit.register(cleanup_resources)
 
 
 @lru_cache(maxsize=None)
@@ -91,7 +68,7 @@ class EmbeddingVectors:
         self.device = torch.device(
             "cuda:0"
             if torch.cuda.is_available()
-            else "mps" if torch.backends.mps.is_available() else "cpu"
+            else "cpu" if torch.backends.mps.is_available() else "cpu"
         )
         # initialize embedding model
         try:
@@ -410,20 +387,3 @@ class EmbeddingVectors:
                 )
         except Exception as e:
             logging.error(f"🚩 Error in create_and_save_index: {e}")
-
-    def __del__(self):
-        """
-        Cleanup method
-        """
-        try:
-            if hasattr(self, "device") and "cuda" in str(self.device.type):
-                torch.cuda.empty_cache()
-
-            if hasattr(self, "embedding_model"):
-                del self.embedding_model
-
-            # -- clean
-            cleanup_resources()
-
-        except Exception as e:
-            logging.error(f"Error during cleanup: {e}")
