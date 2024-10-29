@@ -72,10 +72,13 @@ class CustomLLMChain:
         self.model = model
         self.model_name = model_name
         self.vector_store_name = vector_store_name
-        self.device = torch.device(
-            "cuda:0" if torch.cuda.is_available() else "cpu"
-        )
-        # --
+        if torch.backends.mps.is_available():
+            self.device = "mps"
+        elif torch.cuda.is_available():
+            self.device = "cuda:0"
+        else:
+            self.device = "cpu"
+
         if self.model is None or self.tokenizer is None:
             raise ValueError(
                 f"🚩 Failed to load model or tokenizer. \nModel: {None if not self.model else self.model} and "
@@ -84,32 +87,38 @@ class CustomLLMChain:
 
         self.index_type = index_type
         self.embedding_model_name = embedding_model_name
-        if self.index_type == IndexType.FAISS:
-            self.embedding_model_name = "all-MiniLM-L6-v2"
-            self.embedding_model = SentenceTransformer(
-                self.embedding_model_name
-            )
-        elif self.index_type == IndexType.CHROMA:
-            self.embedding_model_name = (
-                "sentence-transformers/all-mpnet-base-v2"
-            )
-            self.embedding_model = SentenceTransformer(
-                self.embedding_model_name
-            )
-        elif self.index_type == IndexType.WEAVIATE:
-            self.embedding_model = weaviate.Client("http://localhost:8080")
-            self.class_name = "Document"
-            if not self.weaviate_client.schema.contains(self.class_name):
-                self.embedding_model.schema.create_class(
-                    {
-                        "class": self.class_name,
-                        "vectorizer": "none",
-                    }
+        # --initialize embedding model
+        try:
+            if self.index_type == IndexType.FAISS:
+                self.embedding_model_name = "all-MiniLM-L6-v2"
+                self.embedding_model = SentenceTransformer(
+                    self.embedding_model_name, device=self.device
                 )
-        else:
-            raise ValueError(
-                "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
-            )
+            elif self.index_type == IndexType.CHROMA:
+                self.embedding_model_name = (
+                    "sentence-transformers/all-mpnet-base-v2"
+                )
+                self.embedding_model = SentenceTransformer(
+                    self.embedding_model_name, device=self.device
+                )
+            elif self.index_type == IndexType.WEAVIATE:
+                self.embedding_model = weaviate.Client("http://localhost:8080")
+                self.class_name = "Document"
+                if not self.embedding_model.schema.contains(self.class_name):
+                    self.embedding_model.schema.create_class(
+                        {
+                            "class": self.class_name,
+                            "vectorizer": "none",
+                        }
+                    )
+            else:
+                raise ValueError(
+                    "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
+                )
+        except Exception as e:
+            logging.error(f"🚩 Error initializing embedding model: {e}")
+            raise
+
         # -- loading index
         self.load_index()
 
@@ -274,7 +283,7 @@ class CustomLLMChain:
         """
         Get the number of available devices (GPUs or CPU cores).
         """
-        if device.type == "cuda:0" and torch.cuda.is_available():
+        if self.device == "cuda:0":
             return torch.cuda.device_count()
         else:
             return torch.get_num_threads()
@@ -328,6 +337,14 @@ class CustomLLMChain:
         return torch.cat(device_chunks, dim=1)
 
     def _format_llm_response(self, text):
+        """format LLM response
+
+        Parameters:
+            text (str): input string
+
+        Returns:
+            str: formatted text
+        """
         try:
             text = re.sub(
                 r"\[INST\].*?\[/INST\]", "", text, flags=re.DOTALL
@@ -359,9 +376,9 @@ class CustomLLMChain:
         Generate text from the model with chunked input transfer using ThreadPoolExecutor.
 
         Parameters:
-            - prompt: The input prompt for the model.
-            - temperature: The temperature for text generation.
-            - max_length: The maximum length of the generated text.
+            prompt: The input prompt for the model.
+            temperature: The temperature for text generation.
+            max_length: The maximum length of the generated text.
 
         Returns:
             - The generated text.
@@ -385,7 +402,7 @@ class CustomLLMChain:
         Sometimes, the model returns empty strings 
         """
         # -- choose whether to use mixed precision based on the device
-        use_mixed_precision = True if self.device.type == "cuda:0" else False
+        use_mixed_precision = True if self.device == "cuda:0" else False
         if torch.cuda.is_available():
             sampling_params = SamplingParams(
                 temperature=temperature,
@@ -404,7 +421,7 @@ class CustomLLMChain:
             return outputs[0].outputs[0].text.strip()
         else:
             with (
-                autocast(device_type=self.device.type)
+                autocast(device_type=self.device)
                 if use_mixed_precision
                 else torch.no_grad()
             ):
@@ -434,7 +451,7 @@ class CustomLLMChain:
     async def custom_llm_chain(self, context, question):
         """Custom LLM chain
 
-        Args:
+        Parameters:
             context (str): context
             question (str): input question
 
@@ -457,7 +474,16 @@ class CustomLLMChain:
         ]
 
     async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
-        """Asynchronous version of search_similar_texts for a single chunk."""
+        """Asynchronous version of search_similar_texts for a single chunk.
+
+        Args:
+            chunk (list): list of chunked text
+            k (int, optional): number of context to return. Defaults to 5.
+            lambda_param (float, optional): search hyper-parameter. Defaults to 0.5.
+
+        Returns:
+            list: list of searched contexts
+        """
         # -- BM25 search
         bm25_scores = self.bm25_retriever.get_scores(chunk)
         bm25_ranked_indices = np.argsort(bm25_scores)[::-1]
@@ -504,13 +530,19 @@ class CustomLLMChain:
         """
         Asynchronous version of create_embeddings.
         Creates embeddings using pre-loaded SentenceTransformer or tokenizer based on availability.
+
+        Parameters:
+            text (str): input text
+
+        Returns
+            prompt (text) embedding
         """
         try:
             if torch.cuda.is_available():
                 # Use pre-loaded sentence transformer model
                 with torch.no_grad():
                     embeddings = self.embedding_model.encode(
-                        texts,
+                        texts,  # use [texts] if texts does not work
                         convert_to_tensor=True,
                         show_progress_bar=False,
                         device=self.device,  # Ensure it uses the correct device
@@ -524,26 +556,12 @@ class CustomLLMChain:
                     )
                 elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
                     try:
-                        inputs = self.tokenizer(
+                        embeddings = self.embedding_model.encode(
                             texts,
-                            return_tensors="pt",
-                            padding=True,
-                            max_length=self.tokenizer.model_max_length,
-                        ).to(self.device)
-
-                        # Check if input exceeds max length
-                        if (
-                            inputs["input_ids"].size(1)
-                            > self.tokenizer.model_max_length
-                        ):
-                            logging.warning(
-                                "🚩 Input text exceeds model's maximum length, truncating."
-                            )
-
-                        with torch.no_grad():
-                            embeddings = self.model.transformer.wte(
-                                inputs["input_ids"]
-                            ).mean(dim=1)
+                            convert_to_tensor=True,
+                            show_progress_bar=False,
+                            device=self.device,  # Ensure it uses the correct device
+                        )
                         embeddings = (
                             embeddings.to(dtype=torch.float32).cpu().numpy()
                         )
@@ -565,7 +583,15 @@ class CustomLLMChain:
             return np.array([])
 
     async def vector_search_async(self, embedding, k):
-        """Asynchronous vector search for Chroma and Weaviate."""
+        """Asynchronous vector search for Chroma and Weaviate.
+
+        Args:
+            embedding (np): embedding model
+            k (int): number of context to return after search
+
+        Returns:
+            list: list of context generated from vector (index) search
+        """
         if self.index_type == IndexType.CHROMA:
             results = await asyncio.to_thread(
                 self.vectorstore.similarity_search_by_vector,
@@ -588,6 +614,15 @@ class CustomLLMChain:
             ]
 
     async def parallel_search(self, document, k=5):
+        """Parallel search
+
+        Parameters:
+            document (str): input document
+            k (int, optional): size of context to return. Defaults to 5.
+
+        Returns:
+            str: Merged unique context
+        """
         chunks = self.chunk_document(document, k)
         async with asyncio.TaskGroup() as tg:
             tasks = [
@@ -598,7 +633,15 @@ class CustomLLMChain:
         return self.merge_results(results, k)
 
     def merge_results(self, results, k):
-        """Merge top-k results from parallel searches."""
+        """Merge top-k results from parallel searches.
+
+        Parameter:
+            results (lis): list of input context to filter
+            k (int): top-k context to return after merging
+
+        Returns:
+            list: merged top-k context
+        """
         all_docs = []
         for result in results:
             all_docs.extend(result)
@@ -614,11 +657,23 @@ class CustomLLMChain:
         return merged[:k]  # return top-k unique elements
 
     async def search_similar_texts(self, question, k=5):
-        """Parallelized version of search_similar_texts."""
+        """Parallelized version of search_similar_texts.
+
+        Parameters:
+            question (str): Prompt or input question
+            k (int, optional): top-k input context to return. Defaults to 5.
+
+        Returns:
+            str : Merged unique top-k context
+        """
         return await self.parallel_search(question, k)
 
     def run_async_in_thread(self, coro):
-        """Run an async coroutine in a separate thread."""
+        """Run an async coroutine in a separate thread.
+
+        Parameters:
+            coro (coroutine): Coroutines to assemble
+        """
 
         def wrapper():
             loop = asyncio.new_event_loop()
@@ -633,7 +688,14 @@ class CustomLLMChain:
             return future.result()
 
     async def invoke_async(self, question):
-        """Use the parallelized search_similar_texts method."""
+        """Use the parallelized search_similar_texts method.
+
+        Parameters:
+            question (str): input question
+
+        Returns:
+            tuple (str, str, dict): answer, conbined context, evaluation metrics
+        """
         # -- init context
         initial_contexts = await self.search_similar_texts_async(question, k=5)
         if not initial_contexts:
@@ -658,5 +720,12 @@ class CustomLLMChain:
         return answer, combined_context, eval_metrics
 
     def ainvoke(self, question):
-        """Use the enhanced asynchronous invoke method."""
+        """Use the enhanced asynchronous invoke method.
+
+        Parameters:
+            question (str): input question
+
+        Returns:
+            tuple: result of invoke_async
+        """
         return self.run_async_in_thread(self.invoke_async(question))
