@@ -6,6 +6,8 @@ import weaviate
 import warnings
 import logging
 import numpy as np
+
+import atexit
 from functools import lru_cache
 from globalvariables import (
     VECTOR_STORE_PATH,
@@ -14,7 +16,7 @@ from globalvariables import (
 from sentence_transformers import SentenceTransformer
 from langchain_community.vectorstores import Chroma
 from chunker import cache_chunker_embedding_chain, BM25Retriever
-
+import multiprocessing as mp
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -22,6 +24,27 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 warnings.simplefilter(action="ignore", category=FutureWarning)
+
+_process_pool = None
+
+
+def get_process_pool():
+    global _process_pool
+    if _process_pool is None:
+        _process_pool = mp.Pool(processes=mp.cpu_count())
+    return _process_pool
+
+
+def cleanup_resources():
+    global _process_pool
+    if _process_pool is not None:
+        _process_pool.close()
+        _process_pool.join()
+        _process_pool = None
+
+
+# pool cleanup
+atexit.register(cleanup_resources)
 
 
 @lru_cache(maxsize=None)
@@ -35,17 +58,20 @@ class EmbeddingVectors:
         existing_vector_store,
         new_vs_name,
         embedding_model_name="sentence-transformers/all-mpnet-base-v2",
-        embedding_type="chroma",
+        embedding_type="faiss",
     ):
         """
         Creating embedding vector for different vector class
 
         Parameters
         ----------
+            tokenizer (tokenizer model): tokenizer model)
             model_name (huggingface model) :  The name of the mode of choice. loading is usually from HuggingFace.
+            create_new_vs (str): floag to create a new index
+            existing_vector_store (str): flag to indeicate existing vector store
+            new_vs_name (str): New vector store name. name are seperated by underscore (_). e.x This_is_a_new_vector_store_name
             embedding_model_name (embedding model), optional : name of the embedding model used for HuggingFaceInstructEmbeddings. The default is "sentence-transformers/all-mpnet-base-v2".
-            index_path : (str), optional : path name to save the faiss or chroma or weaviate index. The default is "index".
-            embedding_type (str), optional : Type of embedding type e.g faiss or chroma or weaviate. The default is "chroma".
+            embedding_type (str), optional : Type of embedding type e.g faiss or chroma or weaviate. The default is "faiss".
 
         Raises
         ------
@@ -58,103 +84,108 @@ class EmbeddingVectors:
         """
         self.tokenizer = tokenizer
         self.model = model
-        self.device = torch.device(
-            "cuda:0" if torch.cuda.is_available() else "cpu"
-        )
         self.embedding_type = embedding_type
         self.create_new_vs = create_new_vs
         self.existing_vector_store = existing_vector_store
         self.new_vs_name = new_vs_name
-        if self.embedding_type == IndexType.FAISS:
-            self.embedding_model_name = "all-MiniLM-L6-v2"
-            self.embedding_model = SentenceTransformer(
-                self.embedding_model_name
-            )
-        elif self.embedding_type == IndexType.CHROMA:
-            self.embedding_model_name = (
-                "sentence-transformers/all-mpnet-base-v2"
-            )
-            self.embedding_model = SentenceTransformer(
-                self.embedding_model_name
-            )
-        elif self.embedding_type == IndexType.WEAVIATE:
-            self.embedding_model = weaviate.Client("http://localhost:8080")
-            self.class_name = "Document"
-            if not self.embedding_model.schema.contains(self.class_name):
-                self.embedding_model.schema.create_class(
-                    {
-                        "class": self.class_name,
-                        "vectorizer": "none",
-                    }
-                )
+
+        if torch.backends.mps.is_available():
+            self.device = "cpu"
+        elif torch.cuda.is_available():
+            self.device = "cuda:0"
         else:
-            raise ValueError(
-                "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
-            )
+            self.device = "cpu"
+
+        # initialize embedding model
+        try:
+            if self.embedding_type == IndexType.FAISS:
+                self.embedding_model_name = "all-MiniLM-L6-v2"
+                self.embedding_model = SentenceTransformer(
+                    self.embedding_model_name, device=self.device
+                )
+            elif self.embedding_type == IndexType.CHROMA:
+                self.embedding_model_name = (
+                    "sentence-transformers/all-mpnet-base-v2"
+                )
+                self.embedding_model = SentenceTransformer(
+                    self.embedding_model_name, device=self.device
+                )
+            elif self.embedding_type == IndexType.WEAVIATE:
+                self.embedding_model = weaviate.Client("http://localhost:8080")
+                self.class_name = "Document"
+                if not self.embedding_model.schema.contains(self.class_name):
+                    self.embedding_model.schema.create_class(
+                        {
+                            "class": self.class_name,
+                            "vectorizer": "none",
+                        }
+                    )
+            else:
+                raise ValueError(
+                    "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
+                )
+        except Exception as e:
+            logging.error(f"🚩 Error initializing embedding model: {e}")
+            raise
 
     def create_embeddings(self, texts):
         """
         Create_embeddings.
         Creates embeddings using pre-loaded SentenceTransformer or tokenizer based on availability.
+
+        Parameters:
+            texts (str): input texts
         """
         try:
-            if torch.cuda.is_available():
-                # Use pre-loaded sentence transformer model
-                with torch.no_grad():
-                    embeddings = self.embedding_model.encode(
+            if self.embedding_type in [IndexType.FAISS, IndexType.CHROMA]:
+                # Using SentenceTransformer for both FAISS and Chroma
+                logging.info(f"Creating embeddings on device: {self.device}")
+                embeddings = self.embedding_model.encode(
+                    texts,
+                    show_progress_bar=False,
+                    convert_to_tensor=True,
+                    device=self.device,
+                )
+                embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
+                return embeddings
+
+            elif self.embedding_type == IndexType.WEAVIATE:
+                # Use tokenizer-based embeddings for Weaviate
+                try:
+                    inputs = self.tokenizer(
                         texts,
-                        convert_to_tensor=True,
-                        show_progress_bar=False,
-                        device=self.device,  # Ensure it uses the correct device
-                    )
-                    embeddings = embeddings.cpu().numpy()
-            else:
-                # Handle different index types
-                if self.embedding_type == IndexType.CHROMA:
-                    embeddings = np.array(
-                        self.embedding_model.embed_documents(texts)
-                    )
-                elif self.embedding_type in [
-                    IndexType.FAISS,
-                    IndexType.WEAVIATE,
-                ]:
-                    try:
-                        inputs = self.tokenizer(
-                            texts,
-                            return_tensors="pt",
-                            padding=True,
-                            truncation=True,
-                            max_length=self.tokenizer.model_max_length,
-                        ).to(self.device)
+                        return_tensors="pt",
+                        padding=True,
+                        truncation=True,
+                        max_length=self.tokenizer.model_max_length,
+                    ).to(self.device)
 
-                        # Check if input exceeds max length
-                        if (
-                            inputs["input_ids"].size(1)
-                            > self.tokenizer.model_max_length
-                        ):
-                            logging.warning(
-                                "🚩 Input text exceeds model's maximum length, truncating."
-                            )
+                    if (
+                        inputs["input_ids"].size(1)
+                        > self.tokenizer.model_max_length
+                    ):
+                        logging.warning(
+                            "🚩 Input text exceeds model's maximum length, truncating."
+                        )
 
-                        with torch.no_grad():
-                            embeddings = self.model.transformer.wte(
-                                inputs["input_ids"]
-                            ).mean(dim=1)
-                        embeddings = (
-                            embeddings.to(dtype=torch.float32).cpu().numpy()
-                        )
-                    except IndexError as e:
-                        logging.error(
-                            f"🚩 Index out of range error: {e}. Check input text length."
-                        )
-                        return np.array([])
-                else:
+                    with torch.no_grad():
+                        embeddings = self.model.transformer.wte(
+                            inputs["input_ids"]
+                        ).mean(dim=1)
+                    embeddings = (
+                        embeddings.to(dtype=torch.float32).cpu().numpy()
+                    )
+                    return embeddings
+                except IndexError as e:
                     logging.error(
-                        f"🚩 Unsupported embedding type: {self.index_type}"
+                        f"🚩 Index out of range error: {e}. Check input text length."
                     )
                     return np.array([])
-
-            return embeddings
+            else:
+                logging.error(
+                    f"🚩 Unsupported embedding type: {self.embedding_type}"
+                )
+                return np.array([])
 
         except Exception as e:
             logging.error(f"🚩 Error creating embeddings: {e}")
@@ -162,7 +193,14 @@ class EmbeddingVectors:
 
     def create_faiss_index(self, embeddings, chunk_size=None):
         """
-        Create ```FAISS``` index with validation checks
+        Create FAISS index with validation checks
+
+        Parameters:
+            embeddings (np.array): text embeddings
+            chunk_size (int): chunk size to split texts
+
+        Returns
+            Index/Vector store
         """
         try:
             if embeddings is None or len(embeddings) == 0:
@@ -181,10 +219,11 @@ class EmbeddingVectors:
                 logging.error("🚩 Embeddings contain NaN or Inf values")
                 return None
 
-            train = False if self.device.type == "cpu" else True
+            # Ensure device is correctly set
+            train = False if self.device == "cpu" else True
             dimension = embeddings.shape[1]
 
-            # --
+            # Normalize embeddings
             embeddings_normalized = embeddings.copy()
             faiss.normalize_L2(embeddings_normalized)
 
@@ -193,7 +232,7 @@ class EmbeddingVectors:
                 quantizer_index.add(embeddings_normalized)
                 return quantizer_index
             else:
-                # -- check chunk_size validity
+                # Check chunk_size validity
                 if chunk_size is None or chunk_size <= 0:
                     nlist = min(
                         4096, max(embeddings.shape[0] // 4, 1)
@@ -208,7 +247,6 @@ class EmbeddingVectors:
                     nlist,
                     faiss.METRIC_INNER_PRODUCT,
                 )
-                # -- train before adding to index
                 index.train(embeddings_normalized)
                 index.add(embeddings_normalized)
                 if not index.is_trained:
@@ -225,6 +263,13 @@ class EmbeddingVectors:
         Save index -- vector database
         If create_new_vs is True, create a new vector store.
         Otherwise, merge the new vectors with the existing index.
+
+        Parameters:
+                index (Index/vector store): Index or vector store
+                texts: input texts
+
+        Returns
+            None
         """
         try:
             if self.create_new_vs:
@@ -328,6 +373,12 @@ class EmbeddingVectors:
     def create_and_save_index(self, texts):
         """
         Create and save the index -- vector DB with validation
+
+        Parameters:
+            texts (str): input texts
+
+        Return
+            None
         """
         try:
             if not texts or len(texts) == 0:
@@ -360,3 +411,20 @@ class EmbeddingVectors:
                 )
         except Exception as e:
             logging.error(f"🚩 Error in create_and_save_index: {e}")
+
+    def __del__(self):
+        """
+        Cleanup method
+        """
+        try:
+            if hasattr(self, "device") and "cuda" in str(self.device):
+                torch.cuda.empty_cache()
+
+            if hasattr(self, "embedding_model"):
+                del self.embedding_model
+
+            # -- clean
+            cleanup_resources()
+
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
