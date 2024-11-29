@@ -23,7 +23,7 @@ The arrangment of files in the benchmarking folder
 
 ```
 📜 Benchmarking
-├── 📂 README.md
+├── 📄 README.md
 ├── 📜 benchmarking.py
 ├── 📜 bm_data.py
 ├── 📜 customchain_hah.py
