@@ -16,7 +16,7 @@ from modeltokenizer import load_model_and_tokenizer
 from globalvariables import Models, REPO_PATH, ChunkingMethod
 from customchain_naive import (
     CustomLLMChain,
-)  # chain this for different pipeline [1]
+)  # change this for different pipeline [1]
 from embedding import EmbeddingVectors
 from chunker import TextChunker
 from sklearn.metrics.pairwise import cosine_similarity
