@@ -1,31 +1,11 @@
 import os
 import torch
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 import datasets
-import numpy as np
-import matplotlib.pyplot as plt
-import time
-from tqdm import tqdm
-import pandas as pd
-import seaborn as sns
-from time import time
-from modeltokenizer import load_model_and_tokenizer
-from globalvariables import Models, REPO_PATH, ChunkingMethod
-from customchain import CustomLLMChain
-from embedding import EmbeddingVectors
-from chunker import TextChunker
-
-from collections import Counter
-from sklearn.metrics.pairwise import cosine_similarity
-import nltk
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-from nltk.tokenize import word_tokenize
-import string
-import re
-from rouge_score import rouge_scorer
+from globalvariables import Models
 
 
-class HAHRAGEvaluator:
+class EvaluatorDataDownload:
     def __init__(self):
         """Initialize model based on available hardware"""
         self.device = torch.device(
@@ -131,7 +111,7 @@ class HAHRAGEvaluator:
 
     def evaluate_dataset(
         self, dataset: datasets.Dataset, dataset_name: str
-    ) -> Tuple[Dict[str, float], float]:
+    ) -> List[Tuple[Dict[str, float], float]]:
         """Evaluate HAH-RAG on a single dataset"""
         batch_size = 100
         qa_pairs = []
@@ -155,7 +135,7 @@ class HAHRAGEvaluator:
 
 
 def main():
-    evaluator = HAHRAGEvaluator()
+    evaluator = EvaluatorDataDownload()
     datasets_dict = evaluator.load_datasets()
     output_base_dir = "evaluation_results"
     os.makedirs(output_base_dir, exist_ok=True)
