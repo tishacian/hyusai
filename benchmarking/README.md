@@ -58,7 +58,7 @@ Create a virtual environment and install the dependencies:
 ```
 python3.12 -m venv venv
 source venv/bin/activate
-pip install -r requirements/requirements.txt
+pip install -r benchmarking/requirements/requirements.txt
 ```
 
 
