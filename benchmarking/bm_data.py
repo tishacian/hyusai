@@ -2,7 +2,7 @@ import os
 import torch
 from typing import Dict, Tuple, Optional, List
 import datasets
-from globalvariables import Models
+from src.globalvariables import Models
 
 
 class EvaluatorDataDownload:
