@@ -88,7 +88,7 @@ python benchmarking.py
 | Metric | HAH RAG | Hybrid RAG | Naive RAG |
 |--------|---------|------------|------------|
 | Latency (s) | **4.47 ± 2.28** | 12.60 ± 5.27 | 12.25 ± 3.73 |
-| NDCG | 0.821 ± 0.178 | 0.821 ± 0.178 | 0.821 ± 0.178 |
+| NDCG | **0.821 ± 0.178** | 0.821 ± 0.178 | 0.821 ± 0.178 |
 | ROUGE-1 | 0.246 ± 0.397 | 0.452 ± 0.521 | 0.291 ± 0.483 |
 | ROUGE-2 | 0.194 ± 0.389 | 0.431 ± 0.499 | 0.274 ± 0.483 |
 | ROUGE-L | 0.246 ± 0.397 | 0.452 ± 0.521 | 0.291 ± 0.483 |
@@ -113,8 +113,7 @@ Datasets used: NQ [Kwiatkowski et al., 2019], TriviaQA [Joshi et al., 2017], Hot
 | **Naive RAG** | 6.76 ± 0.03 | 4.19 ± 0.01 | 4.29 ± 0.06 | 0.0271 ± 0.013 | 0.00190 ± 0.001 | 70 | 86.31 ± 0.91 | 40399 ± 225 | 40409 | 46068 | 215.99 ± 2.44 |
 
 *Note:*
+- **Bold** values indicate best performing metrics. Values are presented as mean ± standard deviation
 - Carbon Intensity measured in g CO2/kWh
-- **Bold** values indicate best performing metrics
-- Values are presented as mean ± standard deviation
 
 *Datasets used:* NQ [Kwiatkowski et al., 2019], TriviaQA [Joshi et al., 2017], HotpotQA [Yang et al., 2018], and NarrativeQA [Kociský et al., 2018]
