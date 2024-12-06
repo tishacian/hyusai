@@ -26,6 +26,7 @@ class HAHRAGEvaluator:
         Args:
             country_code: ISO country code for CO2 emissions calculation
         """
+        self.country_code = country_code
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -41,7 +42,7 @@ class HAHRAGEvaluator:
         self.compute_metricx = ExtraMetrics()
         self.resource_monitor = ResourceMonitor(
             sampling_interval=0.1,
-            country_code="FR",
+            country_code=self.country_code,
         )
 
     def load_datasets(self) -> Dict[str, datasets.Dataset]:
