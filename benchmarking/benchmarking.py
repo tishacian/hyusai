@@ -41,6 +41,7 @@ class HAHRAGEvaluator:
         self.compute_metricx = ExtraMetrics()
         self.resource_monitor = ResourceMonitor(
             sampling_interval=0.1,
+            country_code="FR",
         )
 
     def load_datasets(self) -> Dict[str, datasets.Dataset]:
@@ -123,10 +124,7 @@ class HAHRAGEvaluator:
                     if isinstance(example["question"], dict)
                     else example["question"]
                 )
-                if isinstance(example["answers"], list) and example["answers"]:
-                    answer = example["answers"][0]["text"]
-                else:
-                    answer = example["answers"][0]["text"]
+                answer = example["answers"][0]["text"]
                 return str(question), str(answer)
 
         except Exception as e:
@@ -220,7 +218,6 @@ class HAHRAGEvaluator:
                 )
 
         finally:
-            # Stop resource monitoring and get summary
             print("\nCollecting resource usage metrics...")
             resource_metrics = self.resource_monitor.stop_monitoring()
 
