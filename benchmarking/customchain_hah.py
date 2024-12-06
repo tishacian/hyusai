@@ -20,15 +20,15 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import sys
 import logging
-from globalvariables import VECTOR_STORE_PATH
-from chunker import cache_chunker_embedding_chain, BM25Retriever
+from src.globalvariables import VECTOR_STORE_PATH
+from src.chunker import cache_chunker_embedding_chain, BM25Retriever
 
 # --
 from torch import autocast
-from globalvariables import IndexType
+from src.globalvariables import IndexType
 
 # -- Model evaluation
-from metrics import Evaluatrix
+from src.metrics import Evaluatrix
 
 # --
 logging.basicConfig(
@@ -37,23 +37,25 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
+
 class LRUCache:
     """Simple LRU Cache implementation for context caching"""
+
     def __init__(self, capacity):
         self.cache = {}
         self.capacity = capacity
         self.order = []
-        
+
     def __contains__(self, key):
         return key in self.cache
-        
+
     def __getitem__(self, key):
         if key not in self.cache:
             return None
         self.order.remove(key)
         self.order.append(key)
         return self.cache[key]
-        
+
     def __setitem__(self, key, value):
         if len(self.cache) >= self.capacity:
             oldest = self.order.pop(0)
@@ -74,7 +76,7 @@ class CustomLLMChain:
         embedding_model_name="sentence-transformers/all-mpnet-base-v2",
         index_type=IndexType.FAISS,
         cache_size=1000,
-        dynamic_k=True
+        dynamic_k=True,
     ):
         """Custom LLMChain
 
@@ -167,17 +169,17 @@ class CustomLLMChain:
 
     async def analyze_query_complexity(self, question):
         """Analyze query complexity to determine optimal retrieval parameters
-        
+
         Returns:
             tuple: (k_value, lambda_param) based on query complexity
         """
         query_embedding = await self.create_embeddings_async([question])
-        has_multiple_questions = len(re.findall(r'\?', question)) > 1
+        has_multiple_questions = len(re.findall(r"\?", question)) > 1
         word_count = len(question.split())
-        
+
         # -- complexity
         if has_multiple_questions or word_count > 20:
-            return 7, 0.6 
+            return 7, 0.6
         elif word_count > 10:
             return 5, 0.5
         else:
@@ -185,23 +187,27 @@ class CustomLLMChain:
 
     async def context_filtering(self, contexts, question):
         """Enhanced context filtering with relevance scoring
-        
+
         Args:
             contexts (list): Retrieved contexts
             question (str): Original question
-            
+
         Returns:
             list: Filtered and reranked contexts
         """
         question_embedding = await self.create_embeddings_async([question])
         context_embeddings = await self.create_embeddings_async(contexts)
-        relevance_scores = np.dot(context_embeddings, question_embedding.T).squeeze()
+        relevance_scores = np.dot(
+            context_embeddings, question_embedding.T
+        ).squeeze()
         diversity_matrix = np.dot(context_embeddings, context_embeddings.T)
-        diversity_scores = 1 - (np.sum(diversity_matrix, axis=1) / len(contexts))
+        diversity_scores = 1 - (
+            np.sum(diversity_matrix, axis=1) / len(contexts)
+        )
         final_scores = 0.7 * relevance_scores + 0.3 * diversity_scores
         top_indices = np.argsort(final_scores)[::-1]
         return [contexts[i] for i in top_indices]
-        
+
     def load_index(self):
         # -- load BM25 retriever first
         vector_store_path = VECTOR_STORE_PATH / self.vector_store_name
@@ -350,7 +356,7 @@ class CustomLLMChain:
         """
         Get the number of available devices (GPUs or CPU cores).
         """
-        if self.device == "cuda:0":
+        if device == "cuda:0":
             return torch.cuda.device_count()
         else:
             return torch.get_num_threads()
@@ -542,12 +548,12 @@ class CustomLLMChain:
 
     async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
         """Enhanced search with dynamic parameters and filtering
-        
+
         Args:
             chunk (str): Text chunk to search
             k (int): Number of contexts to retrieve
             lambda_param (float): Search parameter
-            
+
         Returns:
             list: Filtered and ranked contexts
         """
@@ -600,7 +606,9 @@ class CustomLLMChain:
             ranked_docs = [doc_id for doc_id in ranked_docs[:k]]
 
         # Get contexts
-        contexts = [self.bm25_retriever.documents[doc_id] for doc_id in ranked_docs[:k]]
+        contexts = [
+            self.bm25_retriever.documents[doc_id] for doc_id in ranked_docs[:k]
+        ]
 
         # Enhanced context filtering
         filtered_contexts = await self.context_filtering(contexts, chunk)
@@ -772,10 +780,10 @@ class CustomLLMChain:
 
     async def invoke_async(self, question):
         """Enhanced invoke method with improved context handling
-        
+
         Args:
             question (str): Input question
-            
+
         Returns:
             tuple: (answer, context, metrics)
         """
@@ -784,24 +792,32 @@ class CustomLLMChain:
         initial_contexts = await self.search_similar_texts_async(
             question, k=k, lambda_param=lambda_param
         )
-        
+
         if not initial_contexts:
             return "No relevant context found to answer the question."
-            
+
         # Enhanced context processing
-        filtered_contexts = await self.context_filtering(initial_contexts, question)
+        filtered_contexts = await self.context_filtering(
+            initial_contexts, question
+        )
         combined_context = "\n\n".join(filtered_contexts)
-        
+
         # Generate response with improved context
         result_text = await self.custom_llm_chain(combined_context, question)
         answer = self._format_llm_response(result_text)
-        
+
         # Evaluate with enhanced metrics
         eval_metrics = await Evaluatrix(
-            answer, combined_context, self.tokenizer, self.model,
-            self.embedding_model, question, method="ngram", n_gram=3
+            answer,
+            combined_context,
+            self.tokenizer,
+            self.model,
+            self.embedding_model,
+            question,
+            method="ngram",
+            n_gram=3,
         )
-        
+
         return answer, combined_context, eval_metrics
 
     def ainvoke(self, question):

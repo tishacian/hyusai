@@ -20,15 +20,15 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import sys
 import logging
-from globalvariables import VECTOR_STORE_PATH
-from chunker import cache_chunker_embedding_chain, BM25Retriever
+from src.globalvariables import VECTOR_STORE_PATH
+from src.chunker import cache_chunker_embedding_chain, BM25Retriever
 
 # --
 from torch import autocast
-from globalvariables import IndexType
+from src.globalvariables import IndexType
 
 # -- Model evaluation
-from metrics import Evaluatrix
+from src.metrics import Evaluatrix
 
 # --
 logging.basicConfig(
