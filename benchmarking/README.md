@@ -32,7 +32,7 @@ The arrangment of files in the benchmarking folder
 ├── 📜 extrametrics.py
 ├── 📂 requirements
 │   └── 📄 requirements.txt
-└── resourcemonitor.py
+└── 📜 resourcemonitor.py
 ```
 
 #### Bash installation
