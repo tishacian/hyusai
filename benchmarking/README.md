@@ -22,15 +22,17 @@ git clone —-branch bench/benchmark git@bitbucket.org:neuropolisteam/rag.git
 The arrangment of files in the benchmarking folder
 
 ```
-📜 Benchmarking
+📜 benchmarking
 ├── 📄 README.md
 ├── 📜 benchmarking.py
 ├── 📜 bm_data.py
 ├── 📜 customchain_hah.py
 ├── 📜 customchain_hybrid.py
 ├── 📜 customchain_naive.py
-└── 📂 requirements
-    └── 📄 requirements.txt
+├── 📜 extrametrics.py
+├── 📂 requirements
+│   └── 📄 requirements.txt
+└── resourcemonitor.py
 ```
 
 #### Bash installation
