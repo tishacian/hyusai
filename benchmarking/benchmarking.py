@@ -15,7 +15,7 @@ from src.embedding import EmbeddingVectors
 from src.chunker import TextChunker
 from resourcemonitor import ResourceMonitor
 from extrametrics import ExtraMetrics
-from resourcecost import ResourceCost
+from computationcost import ResourceCost
 
 pipeline = "Naive"
 
