@@ -15,18 +15,18 @@ from src.embedding import EmbeddingVectors
 from src.chunker import TextChunker
 from resourcemonitor import ResourceMonitor
 from extrametrics import ExtraMetrics
+from resourcecost import ResourceCost
 
 pipeline = "Naive"
 
 
 class HAHRAGEvaluator:
-    def __init__(self, country_code: str = "US"):
+    def __init__(self, country_code: str = "FR"):
         """Initialize model and monitoring based on available hardware
 
         Args:
             country_code: ISO country code for CO2 emissions calculation
         """
-        self.country_code = country_code
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -42,8 +42,9 @@ class HAHRAGEvaluator:
         self.compute_metricx = ExtraMetrics()
         self.resource_monitor = ResourceMonitor(
             sampling_interval=0.1,
-            country_code=self.country_code,
         )
+        # -- cost evaluator
+        self.cost_calculator = ResourceCost(sampling_interval=0.1)
 
     def load_datasets(self) -> Dict[str, datasets.Dataset]:
         dataset_dict = {}
@@ -125,7 +126,10 @@ class HAHRAGEvaluator:
                     if isinstance(example["question"], dict)
                     else example["question"]
                 )
-                answer = example["answers"][0]["text"]
+                if isinstance(example["answers"], list) and example["answers"]:
+                    answer = example["answers"][0]["text"]
+                else:
+                    answer = example["answers"][0]["text"]
                 return str(question), str(answer)
 
         except Exception as e:
@@ -171,7 +175,7 @@ class HAHRAGEvaluator:
                     )
                 )
 
-            vectorstore = embedding_vectors.create_and_save_index(chunks)
+            vector_store = embedding_vectors.create_and_save_index(chunks)
 
             chain = CustomLLMChain(
                 self.tokenizer,
@@ -219,8 +223,25 @@ class HAHRAGEvaluator:
                 )
 
         finally:
+            # -- Stop resource monitoring and get summary
             print("\nCollecting resource usage metrics...")
             resource_metrics = self.resource_monitor.stop_monitoring()
+
+            # -- Calculate costs
+            cost_metrics = self.cost_calculator.calculate_costs(
+                resource_metrics
+            )
+            cost_per_query = self.cost_calculator.calculate_cost_per_query(
+                cost_metrics["total_cost"], len(evaluation_data)
+            )
+
+            # Add cost metrics to resource metrics
+            resource_metrics.update(
+                {
+                    "cost_metrics": cost_metrics,
+                    "cost_per_query": cost_per_query,
+                }
+            )
 
         # Save detailed evaluation data
         self._save_detailed_results(
@@ -273,6 +294,8 @@ def main():
         all_metrics = {}
         latencies = {}
         resource_metrics = {}
+        costs_per_method = {}
+        # --
         output_base_dir = "evaluation_results"
         os.makedirs(output_base_dir, exist_ok=True)
         summary_data = []
@@ -287,23 +310,36 @@ def main():
             all_metrics[dataset_name] = metrics
             latencies[dataset_name] = latency
             resource_metrics[dataset_name] = res_metrics
+            costs_per_method[dataset_name] = res_metrics["cost_metrics"]
 
             summary_data.append(
                 {
+                    "dataset": dataset_name,
                     "latency": latency,
                     **metrics,
                     **{f"resource_{k}": v for k, v in res_metrics.items()},
+                    **{
+                        f"cost_{k}": v
+                        for k, v in res_metrics["cost_metrics"].items()
+                    },
                 }
             )
-
+        # --
         summary_df = pd.DataFrame(summary_data)
         summary_path = os.path.join(
             output_base_dir, f"{pipeline}_evaluation_summary.csv"
         )
         summary_df.to_csv(summary_path, index=False)
 
-        print("\nEvaluation completed. Results saved to:")
-        print(f"- Summary CSV: {summary_path}")
+        print("\nCost Summary (in euros):")
+        for dataset, costs in costs_per_method.items():
+            print(f"\n{dataset}:")
+            print(f"  Total cost: €{costs['total_cost']:.4f}")
+            print(
+                f"  Cost per query: €{resource_metrics[dataset]['cost_per_query']:.4f}"
+            )
+
+        print(f"\nResults saved to: {summary_path}")
 
     except Exception as e:
         print(f"Error in main execution: {e}")
