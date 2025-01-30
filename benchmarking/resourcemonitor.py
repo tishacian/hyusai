@@ -120,7 +120,7 @@ class ResourceMonitor:
         while self.is_monitoring:
             try:
                 current_time = time()
-                # Get CPU metrics
+                # -- CPU metrics
                 cpu_percent = psutil.cpu_percent(interval=None)
                 memory = psutil.virtual_memory()
                 cpu_power = self._get_cpu_power()
@@ -134,7 +134,7 @@ class ResourceMonitor:
                     )
                 )
 
-                # Get GPU metrics if available
+                # -- GPU metrics if available
                 gpu_power = 0.0
                 if torch.cuda.is_available():
                     gpu = GPUtil.getGPUs()[0]
@@ -203,7 +203,7 @@ class ResourceMonitor:
             except Exception as e:
                 print(f"Warning: Could not get emissions from tracker: {e}")
 
-        # Calculate metrics
+        # -- Calculate metrics
         metrics_summary = {
             "cpu_percent_avg": (
                 np.mean([m.cpu_percent for m in self.cpu_metrics])
@@ -234,7 +234,7 @@ class ResourceMonitor:
             "emissions_tracked": emissions,
         }
 
-        # -- Add GPu metrics
+        # -- Add GPU metrics if available
         if self.gpu_metrics:
             metrics_summary.update(
                 {
