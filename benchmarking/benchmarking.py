@@ -128,10 +128,7 @@ class HAHRAGEvaluator:
                     if isinstance(example["question"], dict)
                     else example["question"]
                 )
-                if isinstance(example["answers"], list) and example["answers"]:
-                    answer = example["answers"][0]["text"]
-                else:
-                    answer = example["answers"][0]["text"]
+                answer = example["answers"][0]["text"]
                 return str(question), str(answer)
 
         except Exception as e:
