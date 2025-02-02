@@ -1,4 +1,3 @@
-from typing import Dict
 from dataclasses import dataclass
 
 
@@ -22,7 +21,7 @@ class ResourceCost:
         self.sampling_interval = sampling_interval
         self.costs = ComputeCosts()
 
-    def calculate_costs(self, resource_metrics: Dict) -> Dict[str, float]:
+    def calculate_costs(self, resource_metrics: dict) -> dict[str, float]:
         """Calculate costs from resource metrics
 
         Args:
@@ -31,7 +30,9 @@ class ResourceCost:
         Returns:
             Dictionary with calculated costs in euros
         """
-        hours = self.sampling_interval / 3600  # sampling per hour
+        hours = (
+            self.sampling_interval / 3600
+        )  # Convert sampling interval to hours
         cpu_cost = (
             resource_metrics.get("cpu_percent_avg", 0)
             / 100
@@ -47,7 +48,6 @@ class ResourceCost:
                 * hours
             )
 
-        # -  compute costs
         memory_gb = (
             resource_metrics.get("memory_percent_avg", 0)
             / 100
