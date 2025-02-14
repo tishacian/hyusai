@@ -15,7 +15,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
-from reasoningmetrics import ReasoningType
+from globalvariables import ReasoningType
 
 # --
 logging.basicConfig(
