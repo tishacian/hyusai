@@ -30,11 +30,12 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
+
 class RerankerMode(Enum):
     """Defines reranking modes for FlashReranker"""
 
-    PAIRWISE = "pairwise" 
-    POINTWISE = "pointwise" 
+    PAIRWISE = "pairwise"
+    POINTWISE = "pointwise"
     LISTWISE = "listwise"
 
 
