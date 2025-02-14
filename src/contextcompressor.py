@@ -23,8 +23,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-# %% Context Compression Retriever
-
 
 @dataclass
 class ContextualConfig:
