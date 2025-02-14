@@ -30,15 +30,12 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-# %% Flash Reranker
-
-
 class RerankerMode(Enum):
     """Defines reranking modes for FlashReranker"""
 
-    PAIRWISE = "pairwise"  # Compare pairs of documents
-    POINTWISE = "pointwise"  # Score documents individually
-    LISTWISE = "listwise"  # Evaluate entire list at once
+    PAIRWISE = "pairwise" 
+    POINTWISE = "pointwise" 
+    LISTWISE = "listwise"
 
 
 @dataclass
@@ -61,7 +58,7 @@ class FlashReranker:
         try:
             # Try CUDA first
             if torch.cuda.is_available():
-                torch.cuda.empty_cache()  # Clear CUDA cache
+                torch.cuda.empty_cache()
                 self.device = "cuda"
             else:
                 self.device = "cpu"
@@ -126,7 +123,7 @@ class FlashReranker:
         except Exception as e:
             logging.error(f"Error in batch tokenization: {e}")
             return self.tokenizer(
-                [(query, "")],  # Fallback with empty passage
+                [(query, "")],
                 padding=True,
                 truncation=True,
                 max_length=self.config.max_length,
@@ -208,8 +205,6 @@ class FlashReranker:
 
             # Compute scores
             scores = self._batch_process(query, passages, batch_size)
-
-            # Sort and filter
             scored_passages = list(zip(passages, scores))
             scored_passages.sort(key=lambda x: x[1], reverse=True)
 
