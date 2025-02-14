@@ -25,14 +25,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-# %% Ensemble Reranker
-
-
-@dataclass
-class BM25Config:
-    tokenization: str = "whitespace"
-    k1: float = 1.5
-    b: float = 0.75
 
 
 @dataclass
