@@ -12,6 +12,7 @@ import warnings
 import numpy as np
 from enum import Enum
 from typing import List, Tuple
+from globalvariables import ReasoningType, ReasoningPatterns
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
@@ -22,22 +23,12 @@ logging.basicConfig(
 )
 
 
-class ReasoningType(Enum):
-    """Defines different types of reasoning for the LLM"""
-
-    FACTUAL = "factual"
-    ANALYTICAL = "analytical"
-    COMPARATIVE = "comparative"
-    CAUSAL = "causal"
-    HYPOTHETICAL = "hypothetical"
-
-
 class ReasoningMetrics:
     """Enhanced reasoning detection and scoring during search"""
 
     def __init__(self, embedding_model):
         self.embedding_model = embedding_model
-
+        self.reasoning_patterns = ReasoningPatterns
         # TF-IDF weights for reasoning patterns
         self.reasoning_weights = {
             ReasoningType.FACTUAL: 1.4,
@@ -77,56 +68,6 @@ class ReasoningMetrics:
                 ReasoningType.CAUSAL: 1.1,
                 ReasoningType.HYPOTHETICAL: 1.0,
             },
-        }
-
-        # Store reasoning patterns from parent class
-        self.reasoning_patterns = {
-            ReasoningType.FACTUAL: [
-                "what",
-                "who",
-                "where",
-                "when",
-                "which",
-                "list",
-                "describe",
-                "define",
-            ],
-            ReasoningType.ANALYTICAL: [
-                "how",
-                "analyze",
-                "examine",
-                "explain",
-                "evaluate",
-                "assess",
-            ],
-            ReasoningType.COMPARATIVE: [
-                "compare",
-                "contrast",
-                "differ",
-                "similar",
-                "better",
-                "worse",
-                "versus",
-                "vs",
-            ],
-            ReasoningType.CAUSAL: [
-                "why",
-                "because",
-                "cause",
-                "effect",
-                "lead to",
-                "result",
-                "impact",
-            ],
-            ReasoningType.HYPOTHETICAL: [
-                "if",
-                "would",
-                "could",
-                "might",
-                "assume",
-                "suppose",
-                "predict",
-            ],
         }
 
     def compute_cosine_similarity(
