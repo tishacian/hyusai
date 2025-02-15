@@ -40,6 +40,23 @@ class ContextualCompressionRetriever:
         reranker: "FlashReranker",
         config: Optional[ContextualConfig] = None,
     ):
+        """
+        Context Compression Retriever
+
+        Parameters
+        ----------
+        base_retriever : "EnsembleRetriever"
+            base retriever uses Recriprocal Rank Fusion (RRF).
+        reranker : "FlashReranker"
+            Flash reranker.
+        config : Optional[ContextualConfig], optional
+            Context config. The default is None.
+
+        Returns
+        -------
+        None.
+
+        """
         self.base_retriever = base_retriever
         self.reranker = reranker
         self.config = config or ContextualConfig()
@@ -53,6 +70,19 @@ class ContextualCompressionRetriever:
     async def _process_batch(
         self, query: str, passages: List[str]
     ) -> Tuple[List[str], List[float]]:
+        """Batch processing
+
+        Parameters
+        ----------
+        query (str): input query
+        passages : List[str]
+            context.
+
+        Returns
+        -------
+        (Tuple[List[str], List[float]])
+            context/passages.
+        """
         try:
             reranked_passages, scores = self.reranker.rerank(
                 query, passages, return_scores=True
@@ -65,6 +95,21 @@ class ContextualCompressionRetriever:
     async def _compress_results(
         self, passages: List[str], scores: List[float]
     ) -> Tuple[List[str], List[float]]:
+        """Compressing context
+
+        Parameters
+        ----------
+        passages : List[str]
+            context.
+        scores : List[float]
+            relevance scores.
+
+        Returns
+        -------
+        (Tuple[List[str], List[float]])
+            contexts w/ scores.
+
+        """
         if not passages:
             return [], []
 
@@ -74,8 +119,22 @@ class ContextualCompressionRetriever:
     async def retrieve_and_compress(
         self, query: str, k: Optional[int] = None
     ) -> Tuple[List[str], List[float]]:
+        """Retrieve and compress
+
+        Parameters
+        ----------
+        query : str
+            input query.
+        k : Optional[int], optional
+            context size. The default is None.
+
+        Returns
+        -------
+        (Tuple[List[str], List[float]])
+            contexts w/ scores.
+
+        """
         try:
-            # Get initial results from ensemble retriever
             base_passages, base_scores = await self.base_retriever.retrieve(
                 query, k
             )
@@ -83,7 +142,7 @@ class ContextualCompressionRetriever:
             if not base_passages:
                 return [], []
 
-            # Rerank results
+            # -- rerank results
             if self.config.use_threading:
                 loop = asyncio.get_event_loop()
                 reranked_passages, scores = await loop.run_in_executor(
@@ -98,7 +157,7 @@ class ContextualCompressionRetriever:
                     query, base_passages
                 )
 
-            # Compress results
+            # --  compressed contxets
             final_passages, final_scores = await self._compress_results(
                 reranked_passages, scores
             )
@@ -112,6 +171,21 @@ class ContextualCompressionRetriever:
     async def abatch_retrieve_and_compress(
         self, queries: List[str], k: Optional[int] = None
     ) -> List[Tuple[List[str], List[float]]]:
+        """Asynchronous retrieving and compressing
+
+        Parameters
+        ----------
+        queries : List[str]
+            queries.
+        k : Optional[int], optional
+            context size. The default is None.
+
+        Returns
+        -------
+        (List[Tuple[List[str], List[float]]])
+            k-queries and scores.
+
+        """
         try:
             async with asyncio.TaskGroup() as tg:
                 tasks = [
@@ -125,6 +199,19 @@ class ContextualCompressionRetriever:
             return [([], []) for _ in queries]
 
     def run_async(self, coro):
+        """Asynchronous run
+
+        Parameters
+        ----------
+        coro : co-routine
+            co-routine.
+
+        Returns
+        -------
+        coro
+            asynchronous co-routine.
+
+        """
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
@@ -135,9 +222,38 @@ class ContextualCompressionRetriever:
     def retrieve(
         self, query: str, k: Optional[int] = None
     ) -> Tuple[List[str], List[float]]:
+        """Retrieval
+
+        Parameters
+        ----------
+        query (str): query
+        k : Optional[int], optional
+            k-context. The default is None.
+
+        Returns
+        -------
+        (Tuple[List[str], List[float]])
+            contexts.
+
+        """
         return self.run_async(self.retrieve_and_compress(query, k))
 
     def batch_retrieve(
         self, queries: List[str], k: Optional[int] = None
     ) -> List[Tuple[List[str], List[float]]]:
+        """Batch retrieval
+
+        Parameters
+        ----------
+        queries : List[str]
+            k-queries.
+        k : Optional[int], optional
+            context size. The default is None.
+
+        Returns
+        -------
+        (List[Tuple[List[str], List[float]]])
+            k-retrievals.
+
+        """
         return self.run_async(self.abatch_retrieve_and_compress(queries, k))
