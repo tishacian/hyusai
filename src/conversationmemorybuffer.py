@@ -39,16 +39,16 @@ class Message:
 class ConversationMemoryBuffer:
     """Manages conversation history with a fixed-size buffer of recent messages"""
 
-    max_turns: int = 2  # Store last 2 conversation turns
+    max_turns: int = 2  # last 2 conversation
     messages: List[Message] = field(default_factory=list)
 
     def add_message(
         self, role: str, content: str, metadata: Optional[Dict] = None
     ) -> None:
-        """
+        """Manages conversation history with a fixed-size buffer of recent messages
         Add a new message to the conversation history
 
-        Args:
+        Parameters:
             role (str): The role of the message sender ('user' or 'assistant')
             content (str): The content of the message
             metadata (Dict, optional): Additional metadata for the message
@@ -59,10 +59,8 @@ class ConversationMemoryBuffer:
             )
             self.messages.append(message)
 
-            # Maintain buffer size by removing older messages if needed
-            if (
-                len(self.messages) > self.max_turns * 2
-            ):  # *2 because each turn has user + assistant
+            # -- maintain buffer size by removing older messages if needed
+            if len(self.messages) > self.max_turns * 2:
                 self.messages = self.messages[-(self.max_turns * 2) :]
 
             logging.info(
@@ -73,9 +71,9 @@ class ConversationMemoryBuffer:
 
     def get_recent_context(self, num_turns: Optional[int] = None) -> str:
         """
-        Get recent conversation context formatted for the LLM
+        Format recent conversation for LLM
 
-        Args:
+        Parameters:
             num_turns (int, optional): Number of turns to include. Defaults to max_turns
 
         Returns:
@@ -97,7 +95,7 @@ class ConversationMemoryBuffer:
 
     def get_last_exchange(self) -> Tuple[Optional[str], Optional[str]]:
         """
-        Get the most recent user-assistant exchange
+        Most recent user-assistant exchange
 
         Returns:
             Tuple[Optional[str], Optional[str]]: (last user message, last assistant response)
@@ -124,20 +122,20 @@ class ConversationMemoryBuffer:
         self, reasoning_type: "ReasoningType"
     ) -> str:
         """
-        Get conversation context with appropriate reasoning template
+        Context with reasoning template
 
-        Args:
-            reasoning_type (ReasoningType): The type of reasoning to apply
+         Parameters:
+             reasoning_type (ReasoningType): The type of reasoning to apply
 
-        Returns:
-            str: Formatted context with reasoning template
+         Returns:
+             str: Formatted context with reasoning template
         """
         try:
             recent_context = self.get_recent_context()
             if not recent_context:
                 return ""
 
-            # Map reasoning types to context prefixes
+            # -- mapping reasoning types to cotext prefix
             reasoning_prefixes = {
                 "ReasoningType.FACTUAL": "Previous factual discussion:\n",
                 "ReasoningType.ANALYTICAL": "Prior analysis context:\n",
