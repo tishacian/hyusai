@@ -42,10 +42,30 @@ class EnsembleRetriever:
         self,
         bm25_retriever: Any,
         dense_retriever: Any,
-        embedding_model: Any,  # Add embedding_model parameter
-        texts: List[str],  # Add texts parameter
+        embedding_model: Any,
+        texts: List[str],
         config: Optional[EnsembleConfig] = None,
     ):
+        """Ensemble retriever
+
+        Parameters
+        ----------
+        bm25_retriever : Any
+            BM25 retriever.
+        dense_retriever : Any
+            Dense (usually FAISS) retriever.
+        embedding_model : embedding
+            Embedding model.
+        texts : List[str]
+            DESCRIPTION.
+        config : Optional[EnsembleConfig], optional
+            Ensemble reranking config. The default is None.
+
+        Returns
+        -------
+        None.
+
+        """
         self.config = config or EnsembleConfig()
         self.bm25_retriever = bm25_retriever
         self.dense_retriever = dense_retriever
@@ -60,6 +80,19 @@ class EnsembleRetriever:
     async def _get_bm25_scores(
         self, query: str, k: int
     ) -> Tuple[List[str], Dict[str, float]]:
+        """BM25 retriever scores
+
+        Parameters
+        ----------
+        query (str): Query
+        k (int): context size
+
+        Returns
+        -------
+        (Tuple[List[str], Dict[str, float]])
+            context w/ scores.
+
+        """
         try:
             scores = self.bm25_retriever.get_scores(query)
             top_k_indices = np.argsort(scores)[-k:][::-1]
@@ -78,7 +111,19 @@ class EnsembleRetriever:
     async def _get_dense_scores(
         self, query: str, k: int
     ) -> Tuple[List[str], Dict[str, float]]:
-        """Fixed dense retrieval with proper embedding handling"""
+        """Dense retriever score
+
+        Parameters
+        ----------
+        query (str): Query
+        k (int): context size
+
+        Returns
+        -------
+        (Tuple[List[str], Dict[str, float]])
+            context w/ scores.
+
+        """
         try:
             # Create query embedding using the class's embedding model
             with torch.no_grad():
@@ -119,6 +164,22 @@ class EnsembleRetriever:
     def _compute_rrf_scores(
         self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
     ) -> Dict[str, float]:
+        """
+
+
+        Parameters
+        ----------
+        bm25_scores : Dict[str, float]
+            BM25 scores.
+        dense_scores : Dict[str, float]
+            Dense (ex. FAISS) score .
+
+        Returns
+        -------
+        Dict[str, float]
+            RRF scores.
+
+        """
         all_passages = set(bm25_scores.keys()) | set(dense_scores.keys())
         rrf_scores = {}
 
@@ -154,16 +215,27 @@ class EnsembleRetriever:
     async def retrieve(
         self, query: str, k: Optional[int] = None
     ) -> Tuple[List[str], List[float]]:
+        """Flash reranker retrieval
+
+
+        Parameters
+        ----------
+        query (str): Input query
+        k : Optional[int], optional
+            context size. The default is None.
+
+        Returns
+        -------
+        (Tuple[List[str], List[float]])
+            context w/ scores.
+        """
         k = k or self.config.k
 
         try:
-            # Parallel retrieval
             bm25_future = asyncio.create_task(self._get_bm25_scores(query, k))
             dense_future = asyncio.create_task(
                 self._get_dense_scores(query, k)
             )
-
-            # Await results
             (bm25_passages, bm25_scores), (dense_passages, dense_scores) = (
                 await asyncio.gather(bm25_future, dense_future)
             )
@@ -190,6 +262,21 @@ class EnsembleRetriever:
     async def abatch_retrieve(
         self, queries: List[str], k: Optional[int] = None
     ) -> List[Tuple[List[str], List[float]]]:
+        """Asynchrnous batch retrieval
+
+        Parameters
+        ----------
+        queries : List[str]
+            Input query.
+        k : Optional[int], optional
+            context size. The default is None.
+
+        Returns
+        -------
+        (List[Tuple[List[str], List[float]]])
+            context w/ scores.
+
+        """
         async with asyncio.TaskGroup() as tg:
             tasks = [
                 tg.create_task(self.retrieve(query, k)) for query in queries
