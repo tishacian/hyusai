@@ -27,6 +27,13 @@ class ReasoningMetrics:
     """Enhanced reasoning detection and scoring during search"""
 
     def __init__(self, embedding_model):
+        """
+        Parameters
+            embedding_model (model): embedding model
+
+        Returns
+            None.
+        """
         self.embedding_model = embedding_model
         self.reasoning_patterns = ReasoningPatterns
         # TF-IDF weights for reasoning patterns
@@ -73,14 +80,39 @@ class ReasoningMetrics:
     def compute_cosine_similarity(
         self, vec1: np.ndarray, vec2: np.ndarray
     ) -> float:
-        """Compute cosine similarity"""
+        """Compute cosine similarity
+
+        Parameters
+        ----------
+        vec1 : np.ndarray
+            vect1.
+        vec2 : np.ndarray
+            vect2.
+
+        Returns
+        -------
+        float
+            DESCRIPTION.
+        """
         dot_product = np.dot(vec1, vec2)
         norm1 = np.linalg.norm(vec1)
         norm2 = np.linalg.norm(vec2)
         return dot_product / (norm1 * norm2) if norm1 * norm2 != 0 else 0.0
 
     def compute_pattern_entropy(self, text: str, patterns: List[str]) -> float:
-        """Compute entropy of reasoning patterns in text using Shannon entropy"""
+        """Compute entropy of reasoning patterns in text using Shannon entropy
+
+        Parameters
+        ----------
+        text (str): inpute text.
+        patterns : List[str]
+            reasoning pattern.
+
+        Returns
+        -------
+        float
+            entropy.
+        """
         pattern_counts = np.zeros(len(patterns))
         total_patterns = 0
 
@@ -100,7 +132,21 @@ class ReasoningMetrics:
     def compute_semantic_coherence(
         self, text: str, reasoning_type: ReasoningType
     ) -> float:
-        """Compute semantic coherence score using embedding similarity"""
+        """Compute semantic coherence score using embedding similarity
+
+
+        Parameters
+        ----------
+        text (str): Input text.
+        reasoning_type : ReasoningType
+            reasoning type.
+
+        Returns
+        -------
+        float
+            coherence.
+
+        """
         text_embedding = self.embedding_model.encode([text])[0]
         type_embedding = self.embedding_model.encode(
             [str(reasoning_type.value)]
@@ -111,14 +157,22 @@ class ReasoningMetrics:
     def bayesian_reasoning_detection(
         self, question: str
     ) -> Tuple[ReasoningType, float]:
-        """Reasoning type detection using Bayesian inference"""
-        # Prior probabilities
-        priors = {rtype: 1 / len(ReasoningType) for rtype in ReasoningType}
+        """Reasoning type detection w/ Bayesian inference
 
-        # Evidence scores
+        Parameters
+        ----------
+        question (str): Input prompt
+
+        Returns
+        -------
+        Tuple[ReasoningType, float]
+            reasoning type.
+
+        """
+        priors = {rtype: 1 / len(ReasoningType) for rtype in ReasoningType}
         evidence = {}
+        # --
         for rtype in ReasoningType:
-            # Pattern entropy score
             entropy = self.compute_pattern_entropy(
                 question, self.reasoning_patterns[rtype]
             )
@@ -132,14 +186,14 @@ class ReasoningMetrics:
                 if pattern in question.lower()
             ) / len(self.reasoning_patterns[rtype])
 
-            # Combine evidence using weighted geometric mean
+            # -- evidence using geometric mean
             evidence[rtype] = (
                 entropy_score * 0.7
                 + coherence_score * 0.2
                 + pattern_score * 0.1
             ) * self.reasoning_weights[rtype]
 
-        # Compute posterior probabilities
+        # -- compute posterior probabilities
         total_evidence = sum(evidence.values())
         if total_evidence == 0:
             return ReasoningType.ANALYTICAL, 0.5
@@ -148,15 +202,26 @@ class ReasoningMetrics:
             rtype: (evidence[rtype] / total_evidence) * priors[rtype]
             for rtype in ReasoningType
         }
-
-        # Select type with highest posterior probability
         best_type = max(posteriors.items(), key=lambda x: x[1])
         return best_type[0], best_type[1]
 
     def compute_reasoning_score(
         self, question: str, context: str, reasoning_type: ReasoningType
     ) -> float:
-        """Compute reasoning score during search phase"""
+        """Compute reasoning score during search phase
+
+        Parameters
+        ----------
+        question (str): Input question
+        context (str): Context
+        reasoning_type : ReasoningType
+            Reasoning type.
+
+        Returns
+        -------
+        float
+            Reasoning score.
+        """
         # Entropy-based coherence
         entropy_score = self.compute_pattern_entropy(
             context, self.reasoning_patterns[reasoning_type]
