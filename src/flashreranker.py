@@ -32,7 +32,7 @@ logging.basicConfig(
 
 
 class RerankerMode(Enum):
-    """Defines reranking modes for FlashReranker"""
+    """Reranking modes for FlashReranker"""
 
     PAIRWISE = "pairwise"
     POINTWISE = "pointwise"
@@ -52,9 +52,19 @@ class RerankerConfig:
 
 
 class FlashReranker:
-    """Fast and efficient reranking with memory management"""
-
     def __init__(self, config: Optional[RerankerConfig] = None):
+        """Fast and efficient reranking with memory management
+
+        Parameters
+        ----------
+        config : Optional[RerankerConfig], optional
+            Reranking config. The default is None.
+
+        Returns
+        -------
+        None.
+
+        """
         self.config = config or RerankerConfig()
         try:
             # Try CUDA first
@@ -69,15 +79,12 @@ class FlashReranker:
         logging.info(f"Using device: {self.device}")
 
         try:
-            # Initialize model and tokenizer on CPU first
             self.model = AutoModelForSequenceClassification.from_pretrained(
                 "cross-encoder/ms-marco-MiniLM-L-12-v2"
             )
             self.tokenizer = AutoTokenizer.from_pretrained(
                 "cross-encoder/ms-marco-MiniLM-L-12-v2"
             )
-
-            # Move model to device only if CUDA is available and has enough memory
             if self.device == "cuda":
                 try:
                     self.model = self.model.to(self.device)
@@ -97,7 +104,20 @@ class FlashReranker:
     def _batch_tokenize(
         self, query: str, passages: List[str]
     ) -> Dict[str, torch.Tensor]:
-        """Tokenize with memory-efficient batching"""
+        """Tokenize w/ memory-efficient batching
+
+        Parameters
+        ----------
+        query : str
+            query.
+        passages : List[str]
+            context list.
+
+        Returns
+        -------
+        embedding
+            batch embeddings.
+        """
         try:
             pairs = [(query, passage) for passage in passages]
             inputs = self.tokenizer(
@@ -107,8 +127,6 @@ class FlashReranker:
                 max_length=self.config.max_length,
                 return_tensors="pt",
             )
-
-            # Move to device in a memory-efficient way
             if self.device == "cuda":
                 try:
                     inputs = {k: v.to(self.device) for k, v in inputs.items()}
@@ -134,14 +152,25 @@ class FlashReranker:
     def _compute_relevance_scores(
         self, inputs: Dict[str, torch.Tensor]
     ) -> torch.Tensor:
-        """Compute scores with memory management"""
+        """Compute scores
+
+        Parameters
+        ----------
+        inputs : Dict[str, torch.Tensor]
+            input vector.
+
+        Returns
+        -------
+        tensor list
+            relevance scores.
+
+        """
         try:
             with torch.no_grad():
                 if self.device == "cuda":
                     try:
                         outputs = self.model(**inputs)
                     except RuntimeError:
-                        # If CUDA fails, fall back to CPU
                         logging.warning(
                             "CUDA error in scoring, falling back to CPU"
                         )
@@ -165,7 +194,20 @@ class FlashReranker:
     def _batch_process(
         self, query: str, passages: List[str], batch_size: int
     ) -> List[float]:
-        """Process passages in memory-efficient batches"""
+        """Process passages in memory-efficient batches
+
+        Parameters
+        ----------
+        query (str): input query
+        passages : List[str]
+            context list.
+        batch_size (int): batch size
+
+        Returns
+        -------
+        List[float]
+            scores.
+        """
         all_scores = []
         for i in range(0, len(passages), batch_size):
             try:
@@ -195,16 +237,30 @@ class FlashReranker:
     def rerank(
         self, query: str, passages: List[str], return_scores: bool = False
     ) -> Union[List[str], Tuple[List[str], List[float]]]:
-        """Memory-efficient reranking"""
+        """Mem-efficient reranking
+
+        Parameters
+        ----------
+        query (str): Input query
+        passages : List[str]
+            context list.
+        return_scores : bool, optional
+            scores. The default is False.
+
+        Returns
+        -------
+        (Union[List[str], Tuple[List[str], List[float]]])
+            Reranked context w/ scores.
+
+        """
         try:
-            # Reduce batch size if on CPU
             batch_size = (
                 self.config.batch_size
                 if self.device == "cuda"
                 else max(1, self.config.batch_size // 4)
             )
 
-            # Compute scores
+            # -- compute scores
             scores = self._batch_process(query, passages, batch_size)
             scored_passages = list(zip(passages, scores))
             scored_passages.sort(key=lambda x: x[1], reverse=True)
@@ -239,13 +295,20 @@ class FlashReranker:
     ) -> Dict[str, float]:
         """Evaluate reranker performance
 
-        Args:
-            queries: List of queries
-            passages: List of passage lists for each query
-            relevance_labels: Ground truth relevance labels
+        Parameters
+        ----------
+        queries : List[str]
+            List of queries.
+        passages : List[List[str]]
+            List of passage lists for each query.
+        relevance_labels : List[List[int]]
+            Ground truth relevance labels.
 
-        Returns:
-            Dictionary of evaluation metrics
+        Returns
+        -------
+        Dict[str, float]
+            Dictionary of evaluation metrics.
+
         """
         metrics = {
             "mrr": [],  # Mean Reciprocal Rank
@@ -261,7 +324,7 @@ class FlashReranker:
                     query, query_passages, return_scores=True
                 )
 
-                # Compute ranking metrics
+                # compute reranking metrics
                 ranked_labels = [
                     labels[query_passages.index(p)] for p in reranked_passages
                 ]
@@ -301,14 +364,21 @@ class FlashReranker:
     def __call__(
         self, query: str, passages: List[str], return_scores: bool = False
     ) -> Union[List[str], Tuple[List[str], List[float]]]:
-        """Convenience method to rerank passages
+        """Convenience method to rerank context/passages
 
-        Args:
-            query: Search query
-            passages: List of passages to rerank
-            return_scores: Whether to return relevance scores
+        Parameters
+        ----------
+        query : str
+            Search query.
+        passages : List[str]
+            List of passages to rerank.
+        return_scores : bool, optional
+            Whether to return relevance scores. The default is False.
 
-        Returns:
-            Reranked passages and optionally their scores
+        Returns
+        -------
+        (Union[List[str], Tuple[List[str], List[float]]])
+            Reranked passages and optionally their scores.
+
         """
         return self.rerank(query, passages, return_scores)
