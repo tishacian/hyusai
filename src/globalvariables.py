@@ -322,12 +322,6 @@ TEMPLATES = {
 # %% StrEnums
 
 
-class PipelineTypes(StrEnum):
-    DEFAULT = "Default"
-    COT = "COT"
-    AsynCOT = "AsynCot"
-
-
 class Reranker(StrEnum):
     RRF = "RRF"
     FLASHRERANKER = "FlashReranker"
@@ -385,3 +379,8 @@ class OptimalMethod(StrEnum):
     ELBOW = "elbow"
     SILHOUETTE = "silhouette"
     GAP = "gap"
+
+
+class PipelineType(StrEnum):
+    HAH = "HAH RAG"
+    NAIVE = "Naive RAG"
