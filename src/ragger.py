@@ -6,13 +6,15 @@ import sqlite3
 from io import BytesIO
 import json
 import base64
+from time import time
+from typing import Iterator
 from datetime import datetime
 import pandas as pd
 from globalvariables import (
     IMG_PATH,
     REPO_PATH,
     VECTOR_STORE_PATH,
-    PipelineTypes,
+    PipelineType,
     HELP,
     ChunkingMethod,
     IndexType,
@@ -25,8 +27,10 @@ from modeltokenizer import load_model_and_tokenizer
 from PIL import Image
 from embedding import EmbeddingVectors
 from chunker import TextChunker
-from customchain import CustomLLMChain
+from customchain import CustomLLMChain as HAHCustomLLMChain
+from customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from docloader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
+from ragger_css import HEADER_METRICS, BUTTONS, THINKING_SPINNER, PADDINGS
 
 
 # -- device available model
@@ -72,8 +76,6 @@ AI_AVATAR_B64 = image_to_base64(AI_AVATAR)
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
-
-    # -- check if the table exists
     c.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='chats'"
     )
@@ -87,7 +89,8 @@ def init_db():
                 model_name TEXT,
                 chunking_method TEXT,
                 index_type TEXT,
-                vector_store TEXT
+                vector_store TEXT,
+                pipeline_type TEXT
             )
         """
         )
@@ -97,6 +100,7 @@ def init_db():
             ("chunking_method", "TEXT"),
             ("index_type", "TEXT"),
             ("vector_store", "TEXT"),
+            ("pipeline_type", "TEXT"),
         ]
         for column_name, column_type in columns_to_add:
             c.execute(f"PRAGMA table_info(chats)")
@@ -111,195 +115,10 @@ def init_db():
 
 
 conn, c = init_db()
-
 st.set_page_config(page_title="RAGGER", page_icon="🦙", layout="wide")
-
-st.markdown(
-    """
-<style>
-.app-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: #f0f2f6;
-    padding: 10px;
-    border-radius: 10px;
-    margin-bottom: 20px;
-}
-.app-header img {
-    margin-right: 10px;
-    border-radius: 50%;
-    width: 50px;
-    height: 50px;
-}
-.app-header h1 {
-    color: #262730;
-    font-size: 2.5rem;
-    margin: 0;
-}
-.metrics-container {
-    background-color: transparent;
-    padding: 5px;
-    margin-top: 5px;
-    text-align: right;
-}
-.metric {
-    display: inline-block;
-    margin-left: 15px;
-    font-size: 12px;
-}
-.metric-name {
-    color: #888;
-}
-.metric-value {
-    font-weight: bold;
-    margin-left: 3px;
-}
-.red {
-    color: #ff4b4b;
-}
-.green {
-    color: #00c853;
-}
-n: 0 !important;
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-<style>
-.stButton > button {
-    border: none !important;
-    text-align: center !important;
-    font-size: 14px !important;
-    padding: 5px 10px !important;
-    width: 100% !important;
-    background-color: transparent !important;
-    color: white !important;
-    transition: background-color 0.3s ease !important;
-}
-
-.stButton > button:hover {
-    background-color: #f0f0f0 !important;
-    color: #262730 !important;
-}
-
-/* Chat history buttons */
-button[key^="chat_"] {
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    width: 100% !important;
-    margin-bottom: 5px !important;
-    transition: background-color 0.3s ease !important;
-}
-
-button[key^="chat_"]:hover {
-    background-color: #f0f0f0 !important;
-}
-
-/* Delete button */
-button[key^="delete_"] {
-    background-color: transparent !important;
-    color: #ff4b4b !important;
-    padding: 0 !important;
-    font-size: 18px !important;
-    width: auto !important;
-    float: right !important;
-    transition: background-color 0.3s ease !important;
-}
-
-button[key^="delete_"]:hover {
-    background-color: #f0f0f0 !important;
-}
-
-/* Highlight for chat hover */
-button[key^="chat_"]:focus {
-    background-color: #e6f3ff !important;
-}
-
-/* Download styler */
-.stDownloadButton > button {
-    border: none !important;
-    text-align: center !important;
-    font-size: 12px !important;
-    padding: 5px !important;
-    width: 100% !important;
-    margin-bottom: 5px !important;
-    transition: background-color 0.3s ease !important;
-}
-
-.stDownloadButton > button:hover {
-    background-color: #f0f0f0 !important;
-}
-
-/* Auto-hide sidebar */
-[data-testid="stSidebar"] {
-    position: fixed !important;
-    left: -330px;
-    top: -50px;
-    height: 100vh;
-    width: 300px;
-    transition: left 0.3s ease-in-out;
-    z-index: 100; /* Ensure sidebar is above other elements */
-}
-
-/* Sidebar hover effect for expansion */
-[data-testid="stSidebar"]:hover {
-    left: 0 !important;
-}
-
-/* Adjust main content when sidebar is hidden or shown */
-.main .block-container {
-    padding-left: 20px;
-    transition: padding-left 0.3s ease-in-out;
-}
-
-[data-testid="stSidebar"]:hover + .main .block-container {
-    padding-left: 320px;
-}
-</style>
-
-<script>
-// Using localStorage to persist the sidebar state (expanded/collapsed) across page reloads
-document.addEventListener('DOMContentLoaded', function () {
-    const sidebar = document.querySelector('[data-testid="stSidebar"]');
-    const mainContainer = document.querySelector('.main .block-container');
-    
-    // Check if the sidebar state is saved in localStorage
-    const isSidebarExpanded = localStorage.getItem('sidebarExpanded');
-
-    if (isSidebarExpanded === 'true') {
-        sidebar.style.left = '0';
-        mainContainer.style.paddingLeft = '320px';
-    } else {
-        sidebar.style.left = '-240px';
-        mainContainer.style.paddingLeft = '20px';
-    }
-
-    // -- hover event listener to expand the sidebar
-    sidebar.addEventListener('mouseenter', function () {
-        sidebar.style.left = '0';
-        mainContainer.style.paddingLeft = '320px';
-        localStorage.setItem('sidebarExpanded', 'true');  // Save expanded state
-    });
-
-    // -- event listener to collapse the sidebar on mouse leave
-    sidebar.addEventListener('mouseleave', function () {
-        sidebar.style.left = '-240px';
-        mainContainer.style.paddingLeft = '20px';
-        localStorage.setItem('sidebarExpanded', 'false');  // Save collapsed state
-    });
-});
-</script>
-    """,
-    unsafe_allow_html=True,
-)
-
-
+st.markdown(HEADER_METRICS, unsafe_allow_html=True)
+st.markdown(BUTTONS, unsafe_allow_html=True)
+st.markdown(THINKING_SPINNER, unsafe_allow_html=True)
 st.markdown(
     f"""
 <div class="app-header">
@@ -307,6 +126,10 @@ st.markdown(
     <h1>RAGGER</h1>
 </div>
 """,
+    unsafe_allow_html=True,
+)
+st.markdown(
+    PADDINGS,
     unsafe_allow_html=True,
 )
 
@@ -339,7 +162,12 @@ if "chain" not in st.session_state:
 
 # Function to save chat history to database
 def save_chat_to_db(
-    chat_history, model_name, chunking_method, index_type, vector_store
+    chat_history,
+    model_name,
+    chunking_method,
+    index_type,
+    vector_store,
+    pipeline_type,
 ):
     chat_data = []
     for msg in chat_history:
@@ -354,8 +182,8 @@ def save_chat_to_db(
     c.execute(
         """
         INSERT INTO chats 
-        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store) 
-        VALUES (?, ?, ?, ?, ?, ?)
+        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             chat_json,
@@ -364,6 +192,7 @@ def save_chat_to_db(
             chunking_method,
             index_type,
             vector_store,
+            pipeline_type,
         ),
     )
     conn.commit()
@@ -373,7 +202,7 @@ def save_chat_to_db(
 def load_chat_from_db(chat_id):
     c.execute(
         """
-        SELECT chat_data, model_name, chunking_method, index_type, vector_store 
+        SELECT chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type 
         FROM chats WHERE id = ?
     """,
         (chat_id,),
@@ -385,8 +214,15 @@ def load_chat_from_db(chat_id):
             if "avatar" in msg and msg["avatar"]:
                 if not msg["avatar"].startswith("data:image/png;base64,"):
                     msg["avatar"] = f"data:image/png;base64,{msg['avatar']}"
-        return chat_history, result[1], result[2], result[3], result[4]
-    return [], None, None, None, None
+        return (
+            chat_history,
+            result[1],
+            result[2],
+            result[3],
+            result[4],
+            result[5],
+        )
+    return [], None, None, None, None, None
 
 
 # -- delete chat
@@ -405,11 +241,8 @@ def get_all_chats():
         c.execute("SELECT id, timestamp FROM chats ORDER BY timestamp DESC")
         return c.fetchall()
     except sqlite3.OperationalError:
-        # If timestamp column doesn't exist, alter the table to add it
         c.execute("ALTER TABLE chats ADD COLUMN timestamp TEXT")
         conn.commit()
-
-        # Update all existing rows with the current timestamp
         current_time = datetime.now().isoformat()
         c.execute(
             "UPDATE chats SET timestamp = ? WHERE timestamp IS NULL",
@@ -417,7 +250,7 @@ def get_all_chats():
         )
         conn.commit()
 
-        # Fetch the updated results
+        # -- fetch updated results
         c.execute("SELECT id, timestamp FROM chats ORDER BY timestamp DESC")
         return c.fetchall()
 
@@ -429,7 +262,7 @@ def cache_model_and_tokenizer(model_name, abs_path):
 
 
 # -- Pipeline/Embedding...
-PIPELINE_RAG = list(map(str, PipelineTypes))
+PIPELINE_TYPES = list(map(str, PipelineType))
 Models = device_available_models()
 ChunkingMethod = list(map(str, ChunkingMethod))
 IndexType = list(map(str, IndexType))
@@ -519,7 +352,7 @@ with st.expander("Document Embedding"):
                 ),
             )
 
-        row_be = st.columns(2)
+        row_be = st.columns(3)
         with row_be[0]:
             vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
             vector_store_list = [
@@ -550,7 +383,16 @@ with st.expander("Document Embedding"):
                 ),
                 help=HELP["new_vector_store"],
             )
-
+        with row_be[2]:
+            pipeline_type = st.selectbox(
+                "Pipeline",
+                PIPELINE_TYPES,
+                index=PIPELINE_TYPES.index(
+                    st.session_state.get("pipeline_type", PipelineType.HAH)
+                ),
+                help="Select the pipeline implementation to use",
+            )
+        # --
         row_buttons = st.columns(6)
         with row_buttons[0]:
             save_button = st.form_submit_button("Create new vector DB")
@@ -572,20 +414,6 @@ with st.expander("Document Embedding"):
                 st.error(
                     "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
                 )
-
-            # Load model & tokenizer if not loaded
-            if not hasattr(st.session_state, "tokenizer") or not hasattr(
-                st.session_state, "model"
-            ):
-                model, tokenizer = cache_model_and_tokenizer(
-                    model_name, REPO_PATH
-                )
-                if model is None or tokenizer is None:
-                    st.error("Failed to load model and tokenizer")
-                    st.stop()
-                st.session_state.model = model
-                st.session_state.tokenizer = tokenizer
-
             # -- check for uploaded document
             if not uploaded_files:
                 st.error("No document uploaded...")
@@ -610,68 +438,40 @@ with st.expander("Document Embedding"):
                             temp_files.append(temp_file.name)
                     # -- Threaded loading of collected documents
                     documents = ThreadMultiDocLoader(temp_files)
-
-            chunker = TextChunker(
-                st.session_state.tokenizer, st.session_state.model
-            )
+            chunker = TextChunker(tokenizer, model)
             chunks = chunker.chunker(documents, method=chunking_method)
 
             embedding_vector = EmbeddingVectors(
-                st.session_state.tokenizer,
-                st.session_state.model,
+                tokenizer,
+                model,
                 create_new_vs,
                 existing_vector_store,
                 new_vs_name,
                 embedding_model_name="sentence-transformers/all-mpnet-base-v2",
                 embedding_type=index_type,
             )
-
-            vector_store = embedding_vector.create_and_save_index(chunks)
-
-            if vector_store is not None:
-                st.session_state.embedding_index = vector_store
-                st.success(
-                    "Documents processed and embedding index created successfully!"
-                )
-
-                # Update session state
-                st.session_state.model_name = model_name
-                st.session_state.chunking_method = chunking_method
-                st.session_state.index_type = index_type
-                st.session_state.vector_store = (
-                    existing_vector_store
-                    if existing_vector_store != "<New>"
-                    else new_vs_name
-                )
-                st.session_state.new_vs_name = new_vs_name
-
-                st.rerun()
-            else:
-                st.error("Failed to create embedding index")
-
+            st.session_state.embedding_index = (
+                embedding_vector.create_and_save_index(chunks)
+            )
+            st.success("PDF processed and embedding index created!")
+            st.session_state.model_name = model_name
+            st.session_state.chunking_method = chunking_method
+            st.session_state.index_type = index_type
+            st.session_state.vector_store = (
+                existing_vector_store
+                if existing_vector_store != "<New>"
+                else new_vs_name
+            )
+            st.session_state.new_vs_name = new_vs_name
+            st.rerun()
         if custom_chain_button:
-            # Check if tokenizer and model are initialized
-            if (
-                "tokenizer" not in st.session_state
-                or "model" not in st.session_state
-            ):
-                st.session_state.model, st.session_state.tokenizer = (
-                    cache_model_and_tokenizer(model_name, REPO_PATH)
-                )
-            # Update model and tokenizer when model changes
-            if model_name != st.session_state.get("model_name"):
-                st.session_state.model_name = model_name
-                model, tokenizer = cache_model_and_tokenizer(
-                    model_name, REPO_PATH
-                )
-                if model and tokenizer:
-                    st.session_state.model = model
-                    st.session_state.tokenizer = tokenizer
-                    st.success(f"Successfully loaded model: {model_name}")
-                else:
-                    st.error(f"Failed to load model: {model_name}")
+            RaggerChain = (
+                HAHCustomLLMChain
+                if pipeline_type == PipelineType.HAH
+                else NaiveCustomLLMChain
+            )
 
-            chain = CustomLLMChain(
+            chain = RaggerChain(
                 st.session_state.tokenizer,
                 st.session_state.model,
                 model_name,
@@ -679,6 +479,7 @@ with st.expander("Document Embedding"):
                 index_type=index_type,
             )
             st.session_state.chain = chain
+            st.session_state.pipeline_type = pipeline_type
 
 if "model_name" not in st.session_state:
     st.session_state.model_name = Models[0]
@@ -688,6 +489,8 @@ if "index_type" not in st.session_state:
     st.session_state.index_type = IndexType[0]
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = "<New>"
+if "pipeline_type" not in st.session_state:
+    st.session_state.pipeline_type = PipelineType.HAH
 
 # -- New chat
 if st.sidebar.button("New Chat"):
@@ -698,21 +501,14 @@ if st.sidebar.button("New Chat"):
             st.session_state.get("chunking_method", ""),
             st.session_state.get("index_type", ""),
             st.session_state.get("vector_store", ""),
+            st.session_state.get("pipeline_type", ""),
         )
     st.session_state.chat_history = []
     st.session_state.current_chat_id = None
-    # -- erase old chat history
-    if "chain" in st.session_state:
-        st.session_state.chain = CustomLLMChain(
-            st.session_state.tokenizer,
-            st.session_state.model,
-            st.session_state.get("model_name", ""),
-            st.session_state.get("vector_store", ""),
-            index_type=st.session_state.get("index_type", ""),
-        )
     st.rerun()
 
 
+# -- Recently saved chats...
 # -- Recently saved chats...
 st.sidebar.markdown("Recents")
 historical_chats = get_all_chats()
@@ -731,16 +527,27 @@ for chat_id, timestamp in historical_chats:
                 chunking_method,
                 index_type,
                 vector_store,
+                pipeline_type,
             ) = load_chat_from_db(chat_id)
+
+            # Set session state variables
             st.session_state.chat_history = chat_history
             st.session_state.current_chat_id = chat_id
             st.session_state.model_name = model_name
             st.session_state.chunking_method = chunking_method
             st.session_state.index_type = index_type
             st.session_state.vector_store = vector_store
+            st.session_state.pipeline_type = pipeline_type or PipelineType.HAH
 
-            # Reinitialize the chain with the loaded information
-            chain = CustomLLMChain(
+            # Choose the appropriate chain class based on pipeline type
+            RaggerChain = (
+                HAHCustomLLMChain
+                if st.session_state.pipeline_type == PipelineType.HAH
+                else NaiveCustomLLMChain
+            )
+
+            # -- reinit chain
+            chain = RaggerChain(
                 st.session_state.tokenizer,
                 st.session_state.model,
                 model_name,
@@ -748,9 +555,8 @@ for chat_id, timestamp in historical_chats:
                 index_type=index_type,
             )
             st.session_state.chain = chain
-
             st.rerun()
-
+    # --
     with col2:
         if st.button("×", key=f"delete_{chat_id}"):
             delete_chat(chat_id)
@@ -788,29 +594,72 @@ else:
 
 
 col1, col2 = st.columns([3, 1])  # Create two columns
-# -- main
-response_placeholder = st.empty()
-progress_bar = st.progress(0)
+
+
+def stream_text(text: str) -> Iterator[str]:
+    """Stream with fast typing effect while preserving formatting
+
+    Parameters:
+        text (str): Text to stream
+
+    Yields:
+        str: Streamed text with preserved formatting
+    """
+    lines = text.split("\n")
+    full_text = ""
+
+    for i, line in enumerate(lines):
+        if not line:
+            full_text += "\n"
+            yield full_text
+            time.sleep(0.02)
+            continue
+
+        words = line.split(" ")
+        chunk_size = 3
+
+        for j in range(0, len(words), chunk_size):
+            chunk = " ".join(words[j : j + chunk_size])
+            full_text += chunk
+            if j + chunk_size < len(words):
+                full_text += " "
+            yield full_text
+            time.sleep(0.01)
+        # --
+        if i < len(lines) - 1:
+            full_text += "\n"
+            yield full_text
+            time.sleep(0.01)
+
+
+# -- prompting...
 if prompt := st.chat_input("Message RAGGER..."):
     response, context, metrics = None, None, None
-    # Display and store user's question
-    progress_bar.progress(0)
-    response_placeholder.empty()
     st.chat_message("human", avatar=HUMAN_AVATAR).write(prompt)
     st.session_state.chat_history.append(
         {"role": "human", "content": prompt, "avatar": HUMAN_AVATAR_B64}
     )
 
-    progress_bar.progress(10)
-    progress_bar.progress(50)
-    response_placeholder.markdown("Thinking...")
-    response, context, metrics = st.session_state.chain.ainvoke(prompt)
-    progress_bar.progress(80)
-    # Display ragger response
     with st.chat_message("ai", avatar=AI_AVATAR):
-        st.write(response)
+        message_placeholder = st.empty()
+
+        for _ in range(6):
+            message_placeholder.markdown(
+                '<div class="thinking-animation"></div>',
+                unsafe_allow_html=True,
+            )
+            time.sleep(1)
+
+        with st.spinner(""):
+            response, context, metrics = st.session_state.chain.ainvoke(prompt)
+
+        # -- streamer
+        for partial_response in stream_text(response):
+            message_placeholder.markdown(partial_response + "▌")
+        message_placeholder.markdown(response)
         display_metrics(metrics)
 
+    # -- Update chat history
     st.session_state.chat_history.append(
         {
             "role": "ai",
@@ -820,13 +669,12 @@ if prompt := st.chat_input("Message RAGGER..."):
         }
     )
 
-    # Save or update chat history
+    # -- Save or update chat history in database
     if st.session_state.current_chat_id:
-        # Update existing chat
         c.execute(
             """
             UPDATE chats 
-            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ? 
+            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ?, pipeline_type = ?
             WHERE id = ?
             """,
             (
@@ -835,24 +683,22 @@ if prompt := st.chat_input("Message RAGGER..."):
                 st.session_state.get("chunking_method", ""),
                 st.session_state.get("index_type", ""),
                 st.session_state.get("vector_store", ""),
+                st.session_state.get("pipeline_type", ""),
                 st.session_state.current_chat_id,
             ),
         )
     else:
-        # Create new chat
         save_chat_to_db(
             st.session_state.chat_history,
             st.session_state.get("model_name", ""),
             st.session_state.get("chunking_method", ""),
             st.session_state.get("index_type", ""),
             st.session_state.get("vector_store", ""),
+            st.session_state.get("pipeline_type", ""),
         )
         st.session_state.current_chat_id = c.lastrowid
 
     conn.commit()
-    progress_bar.progress(100)
-    progress_bar.empty()
-    response_placeholder.empty()
 
 
 data = []
@@ -868,11 +714,10 @@ df = pd.DataFrame(data)
 
 # Download buttons in sidebar
 st.sidebar.markdown("## Download Chat History")
-
 col1, col2, col3 = st.sidebar.columns(3)
 
 if not df.empty:
-    # CSV download
+    # -- CSV download
     csv = df.to_csv(index=False)
     col1.download_button(
         label="CSV",
@@ -881,7 +726,7 @@ if not df.empty:
         mime="text/csv",
     )
 
-    # Excel download
+    # -- Excel download
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
         df.to_excel(writer, sheet_name="Sheet1", index=False)
@@ -893,7 +738,7 @@ if not df.empty:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-    # JSON download
+    # -- JSON download
     json_str = df.to_json(orient="records")
     col3.download_button(
         label="JSON",
