@@ -346,17 +346,19 @@ class GPUModels(StrEnum):
 
 
 class CPUModels(StrEnum):
-    LAMINIGPT = "MBZUAI/LaMini-GPT-774M"
-    LAMININEO = "MBZUAI/LaMini-Neo-125M"
-    LAMINICEREBRAS = "MBZUAI/LaMini-Cerebras-590M"
-    LAMNINIFLAN = "MBZUAI/LaMini-Flan-T5-783M"
+    TinyLlama = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
+
+
+class CPUTokenizer(StrEnum):
+    TinyLlamaTok = "TheBloke/TinyLlama-1.1B-Chat-v0.3-AWQ"
 
 
 GPU_MODEL_SET = {model for model in GPUModels}
 CPU_MODEL_SET = {model for model in CPUModels}
 
 DEFAULT_GPU_MODEL = GPUModels.LLAMA3
-DEFAULT_CPU_MODEL = CPUModels.LAMINIGPT
+DEFAULT_CPU_MODEL = CPUModels.TinyLlama
+DEFAULT_CPU_TOKENIZER = CPUTokenizer.TinyLlamaTok
 
 
 class ChunkingMethod(StrEnum):
@@ -372,7 +374,6 @@ class IndexType(StrEnum):
     FAISS = "faiss"
     CHROMA = "chroma"
     WEAVIATE = "weaviate"
-    # HNSW = "hnsw" # uses faiss also
 
 
 class OptimalMethod(StrEnum):
