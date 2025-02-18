@@ -607,41 +607,35 @@ class CustomLLMChain:
             except Exception as e:
                 logging.error(f"Error in GPU generation: {e}")
                 return ""
-            try:
-                with torch.inference_mode():
-                    outputs = await asyncio.to_thread(
-                        self.model.generate, [prompt], sampling_params
-                    )
-                    return outputs[0].outputs[0].text.strip()
-            except Exception as e:
-                logging.error(f"GPU generation error: {e}")
-                return ""
 
         else:
-            # CPU Optimizations
-            inputs = input_tokens.to(self.device.type)
-            with torch.inference_mode():
-                try:
-                    outputs = self.model.generate(
-                        inputs["input_ids"],
-                        max_new_tokens=int(max_new_tokens),
-                        temperature=temperature,
-                        do_sample=True,
-                        top_p=top_p,
-                        top_k=top_k,
-                        num_return_sequences=1,
-                        pad_token_id=self.tokenizer.pad_token_id,
-                        eos_token_id=self.tokenizer.eos_token_id,
-                        repetition_penalty=1.1,
-                        no_repeat_ngram_size=3,
-                        early_stopping=True,
+            formatted_prompt = f"""### Instruction: {prompt}"""
+            try:
+                output = await asyncio.to_thread(
+                    self.model.create_completion,
+                    prompt=formatted_prompt,
+                    max_tokens=max_new_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    presence_penalty=1.0,
+                    frequency_penalty=freq_penalty,
+                    stop=["###"],
+                    stream=False,
+                )
+
+                if isinstance(output, dict):
+                    response = (
+                        output.get("choices", [{}])[0].get("text", "").strip()
                     )
-                    return self.tokenizer.decode(
-                        outputs[0], skip_special_tokens=True
-                    )
-                except Exception as e:
-                    logging.error(f"CPU generation error: {e}")
-                    return ""
+                else:
+                    response = output.choices[0].text.strip()
+
+                return response
+
+            except Exception as e:
+                logging.error(f"CPU generation error: {e}")
+                return ""
 
     async def custom_llm_chain(self, context, question):
         """custom_llm_chain with reasoning capabilities
