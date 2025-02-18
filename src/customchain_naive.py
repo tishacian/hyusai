@@ -369,6 +369,31 @@ class CustomLLMChain:
             )
             return "No sufficient context to respond to the question."
 
+    def _calculate_frequency_penalty(self, input_length: int) -> float:
+        """Calculate appropriate frequency penalty based on input length.
+
+        Parameters:
+            input_length (int): Length of input tokens
+
+        Returns:
+            float: Calculated frequency penalty
+        """
+        SHORT_CONTEXT = 512
+        MEDIUM_CONTEXT = 1024
+        LONG_CONTEXT = 2048
+
+        # -- corresponding penalties
+        SHORT_PENALTY = 0.01
+        MEDIUM_PENALTY = 0.05
+        LONG_PENALTY = 0.25
+
+        if input_length <= SHORT_CONTEXT:
+            return SHORT_PENALTY
+        elif input_length <= MEDIUM_CONTEXT:
+            return MEDIUM_PENALTY
+        else:  # ignore LONG_CONTEXT here
+            return LONG_PENALTY
+
     async def generate_text(
         self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=10
     ):
@@ -420,33 +445,35 @@ class CustomLLMChain:
             outputs = self.model.generate([prompt], sampling_params)
             return outputs[0].outputs[0].text.strip()
         else:
-            with (
-                autocast(device_type=self.device.type)
-                if use_mixed_precision
-                else torch.no_grad()
-            ):
-                try:
-                    outputs = self.model.generate(
-                        inputs_on_device,
-                        max_new_tokens=max_new_tokens,
-                        temperature=temperature,
-                        num_return_sequences=1,
-                        do_sample=True,
-                        top_p=top_p,
-                        top_k=top_k,
-                        repetition_penalty=1.0,
-                        pad_token_id=self.tokenizer.pad_token_id,
-                    )
-                    text = self.tokenizer.decode(
-                        outputs[0], skip_special_tokens=True
-                    )
-                except (IndexError, ValueError, RuntimeError, KeyError) as e:
-                    logging.error(
-                        f"🚩 An error occurred during text generation: {str(e)}"
-                    )
-                    text = ""
+            input_length = inputs["input_ids"].shape[1]
+            freq_penalty = self._calculate_frequency_penalty(input_length)
+            formatted_prompt = f"""### Instruction: {prompt}"""
+            try:
+                output = await asyncio.to_thread(
+                    self.model.create_completion,
+                    prompt=formatted_prompt,
+                    max_tokens=max_new_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    presence_penalty=1.0,
+                    frequency_penalty=freq_penalty,
+                    stop=["###"],
+                    stream=False,
+                )
 
-            return text
+                if isinstance(output, dict):
+                    response = (
+                        output.get("choices", [{}])[0].get("text", "").strip()
+                    )
+                else:
+                    response = output.choices[0].text.strip()
+
+                return response
+
+            except Exception as e:
+                logging.error(f"CPU generation error: {e}")
+                return ""
 
     async def custom_llm_chain(self, context, question):
         """Custom LLM chain
