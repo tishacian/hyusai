@@ -6,7 +6,7 @@ import sqlite3
 from io import BytesIO
 import json
 import base64
-from time import time
+import time
 from typing import Iterator
 from datetime import datetime
 import pandas as pd
@@ -128,10 +128,10 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-st.markdown(
-    PADDINGS,
-    unsafe_allow_html=True,
-)
+#st.markdown(
+#    PADDINGS,
+#    unsafe_allow_html=True,
+#)
 
 
 # -- metrics style
