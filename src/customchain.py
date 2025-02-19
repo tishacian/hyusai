@@ -107,9 +107,7 @@ class CustomLLMChain:
         self.device = torch.device(
             "cuda:0"
             if torch.cuda.is_available()
-            else "mps"
-            if torch.backends.mps.is_available()
-            else "cpu"
+            else "mps" if torch.backends.mps.is_available() else "cpu"
         )
 
         if self.model is None or self.tokenizer is None:
@@ -130,7 +128,9 @@ class CustomLLMChain:
                     self.embedding_model_name, device=self.device.type
                 )
             elif self.index_type == IndexType.CHROMA:
-                self.embedding_model_name = "sentence-transformers/all-mpnet-base-v2"
+                self.embedding_model_name = (
+                    "sentence-transformers/all-mpnet-base-v2"
+                )
                 self.embedding_model = SentenceTransformer(
                     self.embedding_model_name, device=self.device.type
                 )
@@ -235,7 +235,9 @@ class CustomLLMChain:
         None.
         """
         try:
-            self.reranker = FlashReranker(RerankerConfig(batch_size=32, threshold=0.5))
+            self.reranker = FlashReranker(
+                RerankerConfig(batch_size=32, threshold=0.5)
+            )
         except Exception as e:
             logging.error(f"Error initializing reranker: {e}")
             raise
@@ -371,7 +373,9 @@ class CustomLLMChain:
                 break
 
             with ThreadPoolExecutor() as executor:
-                mmr_scores = list(executor.map(compute_mmr_score, candidate_indices))
+                mmr_scores = list(
+                    executor.map(compute_mmr_score, candidate_indices)
+                )
 
             # -- Select the document with the highest MMR score
             best_index = candidate_indices[np.argmax(mmr_scores)]
@@ -443,9 +447,12 @@ class CustomLLMChain:
         # -- Transfer chunks in parallel
         with ThreadPoolExecutor(max_workers=num_chunks) as executor:
             futures = [
-                executor.submit(self.device_transfer, chunk, device) for chunk in chunks
+                executor.submit(self.device_transfer, chunk, device)
+                for chunk in chunks
             ]
-            device_chunks = [future.result() for future in as_completed(futures)]
+            device_chunks = [
+                future.result() for future in as_completed(futures)
+            ]
 
         return torch.cat(device_chunks, dim=1)
 
@@ -460,11 +467,15 @@ class CustomLLMChain:
             str: Cleaned text with preserved formatting
         """
         try:
-            text = re.sub(r"\[INST\].*?\[/INST\]", "", text, flags=re.DOTALL).strip()
+            text = re.sub(
+                r"\[INST\].*?\[/INST\]", "", text, flags=re.DOTALL
+            ).strip()
             text = re.sub(
                 r"Analysis Steps:.*?Context:", "", text, flags=re.DOTALL
             ).strip()
-            text = re.sub(r"Context:.*?Question:", "", text, flags=re.DOTALL).strip()
+            text = re.sub(
+                r"Context:.*?Question:", "", text, flags=re.DOTALL
+            ).strip()
 
             # -- remove standard prompt phrases
             phrases_to_remove = [
@@ -479,7 +490,9 @@ class CustomLLMChain:
             return text
 
         except Exception as e:
-            logging.error(f"🚩 An error occurred during text formatting: {str(e)}")
+            logging.error(
+                f"🚩 An error occurred during text formatting: {str(e)}"
+            )
             return "No sufficient context to respond to the question."
 
     def _calculate_frequency_penalty(self, input_length: int) -> float:
@@ -526,7 +539,7 @@ class CustomLLMChain:
             elif self.model_name == Models.GEMMA2:
                 return 4096
         elif self.model_name in CPU_MODEL_SET:
-            return 512
+            return 1024
         else:
             raise ValueError(f"Error: Unknown model name {self.model_name}")
 
@@ -550,7 +563,9 @@ class CustomLLMChain:
         Returns (str): text
         """
         max_new_tokens = (
-            min(2048, self.max_model_len // 4) if max_length is None else max_length
+            min(2048, self.max_model_len // 4)
+            if max_length is None
+            else max_length
         )
         max_input_length = self.max_model_len - max_new_tokens
         input_tokens = self.tokenizer(
@@ -610,7 +625,9 @@ class CustomLLMChain:
                 )
 
                 if isinstance(output, dict):
-                    response = output.get("choices", [{}])[0].get("text", "").strip()
+                    response = (
+                        output.get("choices", [{}])[0].get("text", "").strip()
+                    )
                 else:
                     response = output.choices[0].text.strip()
 
@@ -632,8 +649,8 @@ class CustomLLMChain:
 
         """
         try:
-            reasoning_type, _ = self.reasoning_metrics.bayesian_reasoning_detection(
-                question
+            reasoning_type, _ = (
+                self.reasoning_metrics.bayesian_reasoning_detection(question)
             )
             template = self.templates[reasoning_type]
             prompt_format = template.format(context=context, question=question)
@@ -694,8 +711,8 @@ class CustomLLMChain:
         reasoning_type, confidence = await self.detect_reasoning_type(chunk)
 
         # Get initial passages using contextual retriever
-        contexts, scores = await self.contextual_retriever.retrieve_and_compress(
-            chunk, k
+        contexts, scores = (
+            await self.contextual_retriever.retrieve_and_compress(chunk, k)
         )
 
         if not contexts:
@@ -711,14 +728,18 @@ class CustomLLMChain:
             context_scores.append((ctx, combined_score))
 
         # Rank by combined score
-        ranked_contexts = sorted(context_scores, key=lambda x: x[1], reverse=True)
+        ranked_contexts = sorted(
+            context_scores, key=lambda x: x[1], reverse=True
+        )
         filtered_contexts = [ctx for ctx, _ in ranked_contexts[:k]]
 
         # Store in cache
         self.context_cache[cache_key] = filtered_contexts
         return filtered_contexts
 
-    async def detect_reasoning_type(self, question: str) -> Tuple[ReasoningType, float]:
+    async def detect_reasoning_type(
+        self, question: str
+    ) -> Tuple[ReasoningType, float]:
         """Reasoning detection with confidence score
 
         Parameters
@@ -757,7 +778,9 @@ class CustomLLMChain:
             else:
                 # Handle different index types
                 if self.index_type == IndexType.CHROMA:
-                    embeddings = np.array(self.embedding_model.embed_documents(texts))
+                    embeddings = np.array(
+                        self.embedding_model.embed_documents(texts)
+                    )
                 elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
                     try:
                         embeddings = self.embedding_model.encode(
@@ -766,14 +789,18 @@ class CustomLLMChain:
                             show_progress_bar=False,
                             device=self.device.type,  # Ensure it uses the correct device
                         )
-                        embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
+                        embeddings = (
+                            embeddings.to(dtype=torch.float32).cpu().numpy()
+                        )
                     except IndexError as e:
                         logging.error(
                             f"🚩 Index out of range error: {e}. Check input text length."
                         )
                         return np.array([])
                 else:
-                    logging.error(f"🚩 Unsupported embedding type: {self.index_type}")
+                    logging.error(
+                        f"🚩 Unsupported embedding type: {self.index_type}"
+                    )
                     return np.array([])
 
             return embeddings
@@ -801,7 +828,9 @@ class CustomLLMChain:
             return [result.page_content for result in results]
         elif self.index_type == IndexType.WEAVIATE:
             results = await asyncio.to_thread(
-                self.weaviate_client.query.get(self.class_name, ["page_content"])
+                self.weaviate_client.query.get(
+                    self.class_name, ["page_content"]
+                )
                 .with_near_vector({"vector": embedding.tolist()})
                 .with_limit(k)
                 .do
@@ -899,7 +928,9 @@ class CustomLLMChain:
             bool: True if adding new context stays within limits, False otherwise
         """
         combined = f"{current_context}\n\nContext {len(current_context.split('Context')) + 1}:\n{new_context}"
-        input_tokens = self.tokenizer(combined, return_tensors="pt", truncation=False)
+        input_tokens = self.tokenizer(
+            combined, return_tensors="pt", truncation=False
+        )
         return input_tokens["input_ids"].shape[1] <= (self.max_model_len - 500)
 
     async def invoke_async(self, question: str):
@@ -916,8 +947,10 @@ class CustomLLMChain:
             self.conversation_memory.add_message("user", question)
 
             reasoning_type, _ = await self.detect_reasoning_type(question)
-            conversation_context = self.conversation_memory.get_context_with_reasoning(
-                reasoning_type
+            conversation_context = (
+                self.conversation_memory.get_context_with_reasoning(
+                    reasoning_type
+                )
             )
             k, lambda_param = await self.analyze_query_complexity(
                 question + " " + conversation_context
@@ -933,7 +966,9 @@ class CustomLLMChain:
                 no_context_response = (
                     "No relevant context found to answer the question."
                 )
-                self.conversation_memory.add_message("assistant", no_context_response)
+                self.conversation_memory.add_message(
+                    "assistant", no_context_response
+                )
                 return no_context_response, "", {}
 
             # -- filter context considering conversation history
@@ -949,21 +984,29 @@ class CustomLLMChain:
             relevant_contexts = await self.search_similar_texts(document, k=12)
             combined_context = ""
             if conversation_context:
-                combined_context = f"Previous Conversation:\n{conversation_context}\n\n"
+                combined_context = (
+                    f"Previous Conversation:\n{conversation_context}\n\n"
+                )
             # --
             for i, context in enumerate(relevant_contexts):
                 if not combined_context:
                     combined_context = f"Context 1:\n{context}"
                     continue
 
-                can_add = await self.check_context_length(combined_context, context)
+                can_add = await self.check_context_length(
+                    combined_context, context
+                )
                 if not can_add:
-                    logging.info(f"Stopped at {i} contexts due to length limit")
+                    logging.info(
+                        f"Stopped at {i} contexts due to length limit"
+                    )
                     break
 
                 combined_context += f"\n\nContext {i + 1}:\n{context}"
 
-            result_text = await self.custom_llm_chain(combined_context, question)
+            result_text = await self.custom_llm_chain(
+                combined_context, question
+            )
             answer = self._format_llm_response(result_text)
             self.conversation_memory.add_message("assistant", answer)
             # -- Evaluation metrics gather...
