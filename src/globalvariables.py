@@ -346,11 +346,13 @@ class GPUModels(StrEnum):
 
 
 class CPUModels(StrEnum):
-    TinyLlama = "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
+    TinyLlama = "patrickzj/Llama-3.2-3B-Instruct-Q2_K-GGUF"
 
 
 class CPUTokenizer(StrEnum):
-    TinyLlamaTok = "TheBloke/TinyLlama-1.1B-Chat-v0.3-AWQ"
+    TinyLlamaTok = (
+        "fbaldassarri/meta-llama_Llama-3.2-3B-Instruct-auto_awq-int4-gs128-sym"
+    )
 
 
 GPU_MODEL_SET = {model for model in GPUModels}
