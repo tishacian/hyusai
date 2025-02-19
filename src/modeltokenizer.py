@@ -31,7 +31,7 @@ class LlamaCppServer:
     def __init__(
         self,
         model_path: str,
-        n_ctx: int = 2048,
+        n_ctx: int = 1024,
         n_threads: Optional[int] = None,
         n_gpu_layers: int = 0,
         verbose: bool = True,
@@ -289,7 +289,7 @@ class CachedLLM:
             elif self.model_name == Models.GEMMA2:
                 return 4096
         elif self.model_name in CPU_MODEL_SET:
-            return 2048
+            return 1024
         else:
             raise ValueError(f"Error: Unknown model name {self.model_name}")
 
@@ -417,5 +417,7 @@ def load_model_and_tokenizer(model_name: str, abs_path: str):
 
         return model, tokenizer
     except Exception as e:
-        logging.error(f"Failed to load model or tokenizer for {model_name}: {e}")
+        logging.error(
+            f"Failed to load model or tokenizer for {model_name}: {e}"
+        )
         return None, None
