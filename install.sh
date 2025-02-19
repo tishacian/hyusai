@@ -84,6 +84,7 @@ else
         # Create a filtered requirements file without vLLM if running on macOS or Windows
         grep -v "vllm==" requirements/requirements_cpu.txt > temp_requirements.txt
         pip install -r temp_requirements.txt
+        pip install vllm
         rm temp_requirements.txt
     else
         echo "Attempting to install all requirements including vLLM..."
