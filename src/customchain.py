@@ -24,6 +24,7 @@ from typing import Tuple
 from cache import LRUCache
 from globalvariables import (
     Models,
+    CPUModels,
     VECTOR_STORE_PATH,
     IndexType,
     GPU_MODEL_SET,
@@ -539,6 +540,8 @@ class CustomLLMChain:
             elif self.model_name == Models.GEMMA2:
                 return 4096
         elif self.model_name in CPU_MODEL_SET:
+            if self.model_name == CPUModels.LLAMA32_3B_INSTRUCT:
+                return 2048
             return 1024
         else:
             raise ValueError(f"Error: Unknown model name {self.model_name}")
