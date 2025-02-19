@@ -7,13 +7,13 @@ from langchain.document_loaders import (
     EverNoteLoader,
     PyMuPDFLoader,
     TextLoader,
+    Docx2txtLoader,
     UnstructuredEmailLoader,
     UnstructuredEPubLoader,
     UnstructuredHTMLLoader,
     UnstructuredMarkdownLoader,
     UnstructuredODTLoader,
     UnstructuredPowerPointLoader,
-    UnstructuredWordDocumentLoader,
 )
 
 
@@ -40,8 +40,8 @@ class MyEmlLoader(UnstructuredEmailLoader):
 
 LOADER_MAPPING = {
     ".csv": (CSVLoader, {}),
-    ".doc": (UnstructuredWordDocumentLoader, {}),
-    ".docx": (UnstructuredWordDocumentLoader, {}),
+    ".doc": (Docx2txtLoader, {}),
+    ".docx": (Docx2txtLoader, {}),
     ".enex": (EverNoteLoader, {}),
     ".eml": (MyEmlLoader, {}),
     ".epub": (UnstructuredEPubLoader, {}),
@@ -88,12 +88,16 @@ def loadSingleDocument(file_path: str) -> List[Document]:
     ext = "." + file_path.rsplit(".", 1)[-1]
     if ext in LOADER_MAPPING:
         loader_class, loader_args = LOADER_MAPPING[ext]
-        loader = loader_class(file_path, **loader_args)
-        result = loader.load()
-        page_content = [doc.page_content for doc in result]
-        page_content = "".join(page_content)
-        document = Preprocess(page_content).prep()
-        return document
+        try:
+            loader = loader_class(file_path, **loader_args)
+            result = loader.load()
+            page_content = [doc.page_content for doc in result]
+            page_content = "".join(page_content)
+            document = Preprocess(page_content).prep()
+            return document
+        except Exception as e:
+            print(f"Error loading document {file_path}: {str(e)}")
+            return ""
     raise ValueError(f"Unsupported file extension '{ext}'")
 
 
@@ -114,11 +118,12 @@ def ThreadMultiDocLoader(
     filtered_files = [
         file_path for file_path in file_paths if file_path not in ignored_files
     ]
-    # -- save
+
     results = []
     with ThreadPoolExecutor() as executor:
         future_to_file = {
-            executor.submit(loadSingleDocument, file): file for file in filtered_files
+            executor.submit(loadSingleDocument, file): file
+            for file in filtered_files
         }
         with tqdm(
             total=len(filtered_files), desc="Loading new documents", ncols=80
@@ -127,9 +132,11 @@ def ThreadMultiDocLoader(
                 file = future_to_file[future]
                 try:
                     docs = future.result()
-                    results.extend(docs)
+                    if docs:  # Only extend if docs is not empty
+                        results.extend(docs)
                 except Exception as e:
                     print(f"Error loading document {file}: {e}")
                 pbar.update()
+
     document = Preprocess("".join(results)).prep()
     return document
