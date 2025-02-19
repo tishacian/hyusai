@@ -31,4 +31,7 @@ ENV/
 vector_store/*
 .safetensors
 .json
-.db
+*.db
+
+# Models
+src/models
