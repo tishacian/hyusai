@@ -439,7 +439,7 @@ with st.expander("Document Embedding"):
                     # -- Threaded loading of collected documents
                     documents = ThreadMultiDocLoader(temp_files)
             chunker = TextChunker(
-                st.session_state.tokenizer, st.session_state.tokenizer
+                st.session_state.tokenizer, st.session_state.model
             )
             chunks = chunker.chunker(documents, method=chunking_method)
 
