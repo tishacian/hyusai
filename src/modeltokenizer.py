@@ -11,6 +11,7 @@ from llama_cpp import Llama
 from huggingface_hub import hf_hub_download, list_repo_files
 from globalvariables import (
     Models,
+    CPUModels,
     GPU_MODEL_SET,
     CPU_MODEL_SET,
     DEFAULT_GPU_MODEL,
@@ -31,7 +32,7 @@ class LlamaCppServer:
     def __init__(
         self,
         model_path: str,
-        n_ctx: int = 1024,
+        n_ctx: int = 2048,
         n_threads: Optional[int] = None,
         n_gpu_layers: int = 0,
         verbose: bool = True,
@@ -289,6 +290,8 @@ class CachedLLM:
             elif self.model_name == Models.GEMMA2:
                 return 4096
         elif self.model_name in CPU_MODEL_SET:
+            if self.model_name == CPUModels.LLAMA32_3B_INSTRUCT:
+                return 2048
             return 1024
         else:
             raise ValueError(f"Error: Unknown model name {self.model_name}")
