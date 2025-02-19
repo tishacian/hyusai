@@ -362,8 +362,8 @@ DEFAULT_CPU_TOKENIZER = CPUTokenizer.TinyLlamaTok
 
 
 class ChunkingMethod(StrEnum):
-    FIXED = "fixed"
     RECURSIVE_CHARACTER = "recursive_character"
+    FIXED = "fixed"
     SEMANTIC = "semantic"
     TOKEN_BASED = "token_based"
     HIERARCHICAL = "hierarchical"
