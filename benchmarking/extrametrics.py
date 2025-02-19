@@ -40,8 +40,7 @@ class ExtraMetrics:
             r = np.asfarray(r)[:k]
             if r.size:
                 return np.sum(
-                    np.subtract(np.power(2, r), 1)
-                    / np.log2(np.arange(2, r.size + 2))
+                    np.subtract(np.power(2, r), 1) / np.log2(np.arange(2, r.size + 2))
                 )
             return 0.0
 
@@ -49,9 +48,7 @@ class ExtraMetrics:
         relevance_scores = []
         for doc in retrieved_docs:
             max_score = 0
-            doc_embedding = embeddings_model.encode(
-                doc, show_progress_bar=False
-            )
+            doc_embedding = embeddings_model.encode(doc, show_progress_bar=False)
 
             for rel_doc in relevant_docs:
                 rel_embedding = embeddings_model.encode(
@@ -68,15 +65,11 @@ class ExtraMetrics:
             relevance_scores.append(max_score)
 
         dcg = dcg_at_k(relevance_scores, len(retrieved_docs))
-        idcg = dcg_at_k(
-            sorted(relevance_scores, reverse=True), len(retrieved_docs)
-        )
+        idcg = dcg_at_k(sorted(relevance_scores, reverse=True), len(retrieved_docs))
 
         return dcg / idcg if idcg > 0 else 0.0
 
-    def compute_rouge_scores(
-        self, hypothesis: str, reference: str
-    ) -> Dict[str, float]:
+    def compute_rouge_scores(self, hypothesis: str, reference: str) -> Dict[str, float]:
         """Compute ROUGE scores"""
         if not hypothesis or not reference:
             return {"rouge1": 0.0, "rouge2": 0.0, "rougeL": 0.0}
@@ -122,9 +115,7 @@ class ExtraMetrics:
             metrics["ndcg"] = self.compute_ndcg(
                 retrieved_docs, relevant_docs, embeddings_model, k
             )
-            rouge_scores = self.compute_rouge_scores(
-                generated_answer, ground_truth
-            )
+            rouge_scores = self.compute_rouge_scores(generated_answer, ground_truth)
             metrics.update(rouge_scores)
             return metrics
 

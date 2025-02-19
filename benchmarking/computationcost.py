@@ -30,9 +30,7 @@ class ResourceCost:
         Returns:
             Dictionary with calculated costs in euros
         """
-        hours = (
-            self.sampling_interval / 3600
-        )  # Convert sampling interval to hours
+        hours = self.sampling_interval / 3600  # Convert sampling interval to hours
         cpu_cost = (
             resource_metrics.get("cpu_percent_avg", 0)
             / 100
@@ -66,9 +64,7 @@ class ResourceCost:
             "total_cost": total_cost,
         }
 
-    def calculate_cost_per_query(
-        self, total_cost: float, num_queries: int
-    ) -> float:
+    def calculate_cost_per_query(self, total_cost: float, num_queries: int) -> float:
         """Calculate cost per query
 
         Args:

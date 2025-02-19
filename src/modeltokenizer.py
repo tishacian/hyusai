@@ -3,13 +3,11 @@ import sys
 import glob
 import torch
 import logging
-from typing import Optional, Tuple, Any
+from typing import Optional
 from functools import wraps, lru_cache
-from langchain_community.embeddings import HuggingFaceInstructEmbeddings
-from transformers import AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer
 from vllm import LLM
 from llama_cpp import Llama
-from concurrent.futures import ThreadPoolExecutor
 from huggingface_hub import hf_hub_download, list_repo_files
 from globalvariables import (
     Models,
@@ -419,7 +417,5 @@ def load_model_and_tokenizer(model_name: str, abs_path: str):
 
         return model, tokenizer
     except Exception as e:
-        logging.error(
-            f"Failed to load model or tokenizer for {model_name}: {e}"
-        )
+        logging.error(f"Failed to load model or tokenizer for {model_name}: {e}")
         return None, None

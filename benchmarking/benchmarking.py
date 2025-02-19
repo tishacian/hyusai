@@ -28,9 +28,7 @@ class HAHRAGEvaluator:
             country_code: ISO country code for CO2 emissions calculation
         """
         self.country_code = country_code
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = (
             Models.LLAMA3 if torch.cuda.is_available() else Models.LAMINIGPT
         )
@@ -50,9 +48,7 @@ class HAHRAGEvaluator:
 
     def load_datasets(self) -> Dict[str, datasets.Dataset]:
         dataset_dict = {}
-        nq_dataset = datasets.load_dataset(
-            "natural_questions", split="validation"
-        )
+        nq_dataset = datasets.load_dataset("natural_questions", split="validation")
         if nq_dataset is not None:
             dataset_dict["nq"] = nq_dataset
 
@@ -75,9 +71,7 @@ class HAHRAGEvaluator:
                 ["question", "answer"]
             )
 
-        narrativeqa_dataset = datasets.load_dataset(
-            "narrativeqa", split="validation"
-        )
+        narrativeqa_dataset = datasets.load_dataset("narrativeqa", split="validation")
         if narrativeqa_dataset is not None:
             dataset_dict["narrativeqa"] = narrativeqa_dataset.select_columns(
                 ["question", "answers"]
@@ -97,9 +91,7 @@ class HAHRAGEvaluator:
                 answer = None
 
                 for annotation_idx in range(len(annotations["short_answers"])):
-                    short_answers = annotations["short_answers"][
-                        annotation_idx
-                    ]
+                    short_answers = annotations["short_answers"][annotation_idx]
                     if (
                         short_answers
                         and "text" in short_answers
@@ -114,9 +106,7 @@ class HAHRAGEvaluator:
 
             elif dataset_name == "triviaqa":
                 if isinstance(example["answer"], dict):
-                    return str(example["question"]), str(
-                        example["answer"]["value"]
-                    )
+                    return str(example["question"]), str(example["answer"]["value"])
                 return str(example["question"]), str(example["answer"])
 
             elif dataset_name == "hotpotqa":
@@ -149,9 +139,7 @@ class HAHRAGEvaluator:
             # Process QA pairs
             qa_pairs = []
             for idx in range(min(batch_size, len(dataset))):
-                question, answer = self.extract_qa_pair(
-                    idx, dataset, dataset_name
-                )
+                question, answer = self.extract_qa_pair(idx, dataset, dataset_name)
                 if question and answer:
                     qa_pairs.append((question, answer))
 
@@ -169,9 +157,7 @@ class HAHRAGEvaluator:
             chunks = []
             for text in combined_texts:
                 chunks.extend(
-                    chunker.chunker(
-                        text, method=ChunkingMethod.RECURSIVE_CHARACTER
-                    )
+                    chunker.chunker(text, method=ChunkingMethod.RECURSIVE_CHARACTER)
                 )
 
             vector_store = embedding_vectors.create_and_save_index(chunks)
@@ -227,9 +213,7 @@ class HAHRAGEvaluator:
             resource_metrics = self.resource_monitor.stop_monitoring()
 
             # -- Calculate costs
-            cost_metrics = self.cost_calculator.calculate_costs(
-                resource_metrics
-            )
+            cost_metrics = self.cost_calculator.calculate_costs(resource_metrics)
             cost_per_query = self.cost_calculator.calculate_cost_per_query(
                 cost_metrics["total_cost"], len(evaluation_data)
             )
@@ -250,9 +234,7 @@ class HAHRAGEvaluator:
         )
 
         # --compute average metrics
-        avg_metrics = {
-            k: np.mean(v) for k, v in metrics.items() if k != "latency"
-        }
+        avg_metrics = {k: np.mean(v) for k, v in metrics.items() if k != "latency"}
         avg_latency = np.mean(metrics["latency"])
 
         return avg_metrics, avg_latency, resource_metrics
@@ -300,9 +282,9 @@ def main():
         summary_data = []
         # --
         for dataset_name, dataset in datasets_dict.items():
-            print(f"\n{'*'*50}")
+            print(f"\n{'*' * 50}")
             print(f"Evaluating {dataset_name}...")
-            print(f"{'*'*50}")
+            print(f"{'*' * 50}")
             metrics, latency, res_metrics = evaluator.evaluate_dataset(
                 dataset, dataset_name
             )
@@ -317,10 +299,7 @@ def main():
                     "latency": latency,
                     **metrics,
                     **{f"resource_{k}": v for k, v in res_metrics.items()},
-                    **{
-                        f"cost_{k}": v
-                        for k, v in res_metrics["cost_metrics"].items()
-                    },
+                    **{f"cost_{k}": v for k, v in res_metrics["cost_metrics"].items()},
                 }
             )
         # --

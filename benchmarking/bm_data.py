@@ -8,18 +8,14 @@ from src.globalvariables import Models
 class EvaluatorDataDownload:
     def __init__(self):
         """Initialize model based on available hardware"""
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = (
             Models.LLAMA3 if torch.cuda.is_available() else Models.LAMINIGPT
         )
 
     def load_datasets(self) -> Dict[str, datasets.Dataset]:
         dataset_dict = {}
-        nq_dataset = datasets.load_dataset(
-            "natural_questions", split="validation"
-        )
+        nq_dataset = datasets.load_dataset("natural_questions", split="validation")
         if nq_dataset is not None:
             dataset_dict["nq"] = nq_dataset
             print(f"Loaded NQ dataset with {len(nq_dataset)} examples")
@@ -43,9 +39,7 @@ class EvaluatorDataDownload:
                 ["question", "answer"]
             )
 
-        narrativeqa_dataset = datasets.load_dataset(
-            "narrativeqa", split="validation"
-        )
+        narrativeqa_dataset = datasets.load_dataset("narrativeqa", split="validation")
         if narrativeqa_dataset is not None:
             dataset_dict["narrativeqa"] = narrativeqa_dataset.select_columns(
                 ["question", "answers"]
@@ -65,9 +59,7 @@ class EvaluatorDataDownload:
                 answer = None
 
                 for annotation_idx in range(len(annotations["short_answers"])):
-                    short_answers = annotations["short_answers"][
-                        annotation_idx
-                    ]
+                    short_answers = annotations["short_answers"][annotation_idx]
                     if (
                         short_answers
                         and "text" in short_answers
@@ -82,9 +74,7 @@ class EvaluatorDataDownload:
 
             elif dataset_name == "triviaqa":
                 if isinstance(example["answer"], dict):
-                    return str(example["question"]), str(
-                        example["answer"]["value"]
-                    )
+                    return str(example["question"]), str(example["answer"]["value"])
                 return str(example["question"]), str(example["answer"])
 
             elif dataset_name == "hotpotqa":
@@ -118,9 +108,7 @@ class EvaluatorDataDownload:
 
         # Process examples
         for idx in range(min(batch_size, len(dataset))):
-            input_text, reference = self.extract_qa_pair(
-                idx, dataset, dataset_name
-            )
+            input_text, reference = self.extract_qa_pair(idx, dataset, dataset_name)
             if input_text and reference:
                 qa_pairs.append((input_text, reference))
                 print(

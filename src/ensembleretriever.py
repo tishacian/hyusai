@@ -5,6 +5,7 @@ Created on Fri Feb 14 16:07:22 2025
 
 @author: kennethezukwoke
 """
+
 import sys
 import torch
 import numpy as np
@@ -72,9 +73,7 @@ class EnsembleRetriever:
         self.embedding_model = embedding_model  # Store embedding model
         self.texts = texts  # Store texts
         self.device = torch.device(
-            "cuda"
-            if torch.cuda.is_available() and self.config.use_gpu
-            else "cpu"
+            "cuda" if torch.cuda.is_available() and self.config.use_gpu else "cpu"
         )
 
     async def _get_bm25_scores(
@@ -96,9 +95,7 @@ class EnsembleRetriever:
         try:
             scores = self.bm25_retriever.get_scores(query)
             top_k_indices = np.argsort(scores)[-k:][::-1]
-            passages = [
-                self.bm25_retriever.documents[idx] for idx in top_k_indices
-            ]
+            passages = [self.bm25_retriever.documents[idx] for idx in top_k_indices]
             scores_dict = {
                 passage: float(scores[idx])
                 for passage, idx in zip(passages, top_k_indices)
@@ -139,9 +136,7 @@ class EnsembleRetriever:
             if len(query_embedding.shape) == 2:
                 query_embedding = query_embedding.astype("float32")
             else:
-                query_embedding = query_embedding.reshape(1, -1).astype(
-                    "float32"
-                )
+                query_embedding = query_embedding.reshape(1, -1).astype("float32")
 
             # Perform FAISS search
             D, I = self.dense_retriever.search(query_embedding, k)
@@ -185,22 +180,12 @@ class EnsembleRetriever:
 
         for passage in all_passages:
             bm25_rank = (
-                1
-                / (
-                    self.config.rrf_k
-                    + list(bm25_scores.keys()).index(passage)
-                    + 1
-                )
+                1 / (self.config.rrf_k + list(bm25_scores.keys()).index(passage) + 1)
                 if passage in bm25_scores
                 else 0
             )
             dense_rank = (
-                1
-                / (
-                    self.config.rrf_k
-                    + list(dense_scores.keys()).index(passage)
-                    + 1
-                )
+                1 / (self.config.rrf_k + list(dense_scores.keys()).index(passage) + 1)
                 if passage in dense_scores
                 else 0
             )
@@ -233,12 +218,11 @@ class EnsembleRetriever:
 
         try:
             bm25_future = asyncio.create_task(self._get_bm25_scores(query, k))
-            dense_future = asyncio.create_task(
-                self._get_dense_scores(query, k)
-            )
-            (bm25_passages, bm25_scores), (dense_passages, dense_scores) = (
-                await asyncio.gather(bm25_future, dense_future)
-            )
+            dense_future = asyncio.create_task(self._get_dense_scores(query, k))
+            (
+                (bm25_passages, bm25_scores),
+                (dense_passages, dense_scores),
+            ) = await asyncio.gather(bm25_future, dense_future)
 
             if not bm25_scores and not dense_scores:
                 logging.warning("Both retrievers failed")
@@ -278,7 +262,5 @@ class EnsembleRetriever:
 
         """
         async with asyncio.TaskGroup() as tg:
-            tasks = [
-                tg.create_task(self.retrieve(query, k)) for query in queries
-            ]
+            tasks = [tg.create_task(self.retrieve(query, k)) for query in queries]
         return [task.result() for task in tasks]

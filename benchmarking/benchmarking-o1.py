@@ -1,12 +1,10 @@
 import os
-import re
 import nltk
 import threading
 import GPUtil
 import torch
 import psutil
-import pynvml
-from typing import Dict, List, Tuple, Optional, defaultdict
+from typing import Dict, List, Tuple, Optional
 import datasets
 import numpy as np
 from time import time, sleep
@@ -64,9 +62,7 @@ class EmissionMetrics:
 
 
 class ResourceMonitor:
-    def __init__(
-        self, sampling_interval: float = 0.1, country_code: str = "FR"
-    ):
+    def __init__(self, sampling_interval: float = 0.1, country_code: str = "FR"):
         """Initialize the resource monitor"""
         self.sampling_interval = sampling_interval
         self.country_code = country_code
@@ -177,9 +173,7 @@ class ResourceMonitor:
 
                 # Calculate energy and emissions
                 total_power = cpu_power + gpu_power
-                energy_kwh = (total_power * self.sampling_interval) / (
-                    1000 * 3600
-                )
+                energy_kwh = (total_power * self.sampling_interval) / (1000 * 3600)
                 cumulative_energy += energy_kwh
                 emissions_kg = (energy_kwh * self.carbon_intensity) / 1000
 
@@ -217,9 +211,7 @@ class ResourceMonitor:
         """Stop collecting metrics and return summary"""
         self.is_monitoring = False
         if self._monitor_thread:
-            self._monitor_thread.join(
-                timeout=2.0
-            )  # 2 seconds for thread to finish
+            self._monitor_thread.join(timeout=2.0)  # 2 seconds for thread to finish
 
         emissions = 0.0
         if self.emissions_tracker:
@@ -273,9 +265,7 @@ class ResourceMonitor:
                         m.gpu_memory_used for m in self.gpu_metrics
                     ),
                     "gpu_memory_total": self.gpu_metrics[0].gpu_memory_total,
-                    "gpu_power_avg": np.mean(
-                        [m.power_usage for m in self.gpu_metrics]
-                    ),
+                    "gpu_power_avg": np.mean([m.power_usage for m in self.gpu_metrics]),
                 }
             )
 
@@ -336,9 +326,7 @@ class ResourceCostCalculator:
             "total_cost": total_cost,
         }
 
-    def calculate_cost_per_query(
-        self, total_cost: float, num_queries: int
-    ) -> float:
+    def calculate_cost_per_query(self, total_cost: float, num_queries: int) -> float:
         """Calculate cost per query
 
         Args:
@@ -378,8 +366,7 @@ class ExtraMetrics:
             r = np.asfarray(r)[:k]
             if r.size:
                 return np.sum(
-                    np.subtract(np.power(2, r), 1)
-                    / np.log2(np.arange(2, r.size + 2))
+                    np.subtract(np.power(2, r), 1) / np.log2(np.arange(2, r.size + 2))
                 )
             return 0.0
 
@@ -387,9 +374,7 @@ class ExtraMetrics:
         relevance_scores = []
         for doc in retrieved_docs:
             max_score = 0
-            doc_embedding = embeddings_model.encode(
-                doc, show_progress_bar=False
-            )
+            doc_embedding = embeddings_model.encode(doc, show_progress_bar=False)
 
             for rel_doc in relevant_docs:
                 rel_embedding = embeddings_model.encode(
@@ -406,15 +391,11 @@ class ExtraMetrics:
             relevance_scores.append(max_score)
 
         dcg = dcg_at_k(relevance_scores, len(retrieved_docs))
-        idcg = dcg_at_k(
-            sorted(relevance_scores, reverse=True), len(retrieved_docs)
-        )
+        idcg = dcg_at_k(sorted(relevance_scores, reverse=True), len(retrieved_docs))
 
         return dcg / idcg if idcg > 0 else 0.0
 
-    def compute_rouge_scores(
-        self, hypothesis: str, reference: str
-    ) -> Dict[str, float]:
+    def compute_rouge_scores(self, hypothesis: str, reference: str) -> Dict[str, float]:
         """Compute ROUGE scores"""
         if not hypothesis or not reference:
             return {"rouge1": 0.0, "rouge2": 0.0, "rougeL": 0.0}
@@ -460,9 +441,7 @@ class ExtraMetrics:
             metrics["ndcg"] = self.compute_ndcg(
                 retrieved_docs, relevant_docs, embeddings_model, k
             )
-            rouge_scores = self.compute_rouge_scores(
-                generated_answer, ground_truth
-            )
+            rouge_scores = self.compute_rouge_scores(generated_answer, ground_truth)
             metrics.update(rouge_scores)
             return metrics
 
@@ -484,9 +463,7 @@ class HAHRAGEvaluator:
             country_code: ISO country code for CO2 emissions calculation
         """
         self.country_code = country_code
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = (
             Models.LLAMA3 if torch.cuda.is_available() else Models.LAMINIGPT
         )
@@ -550,10 +527,8 @@ class HAHRAGEvaluator:
                 "commonsense_qa", split="validation"
             )
             if commonsenseqa_dataset is not None:
-                dataset_dict["commonsenseqa"] = (
-                    commonsenseqa_dataset.select_columns(
-                        ["question", "choices", "answerKey"]
-                    )
+                dataset_dict["commonsenseqa"] = commonsenseqa_dataset.select_columns(
+                    ["question", "choices", "answerKey"]
                 )
                 print("Successfully loaded CommonsenseQA dataset")
         except Exception as e:
@@ -597,16 +572,12 @@ class HAHRAGEvaluator:
             elif dataset_name == "squadshifts":
                 question = str(example["question"])
                 answer_text = (
-                    example["answers"]["text"][0]
-                    if example["answers"]["text"]
-                    else ""
+                    example["answers"]["text"][0] if example["answers"]["text"] else ""
                 )
                 context = example.get("context", "")
                 if context:
                     context_preview = (
-                        context[:500] + "..."
-                        if len(context) > 500
-                        else context
+                        context[:500] + "..." if len(context) > 500 else context
                     )
                     answer = f"{answer_text} Context: {context_preview}"
                 else:
@@ -621,10 +592,7 @@ class HAHRAGEvaluator:
                 # Find the correct answer from choices
                 answer_text = ""
                 for choice in choices["text"]:
-                    if (
-                        choices["label"][choices["text"].index(choice)]
-                        == answer_key
-                    ):
+                    if choices["label"][choices["text"].index(choice)] == answer_key:
                         answer_text = choice
                         break
 
@@ -632,9 +600,7 @@ class HAHRAGEvaluator:
                 choice_context = " Choices: " + ", ".join(
                     [
                         f"({label}) {text}"
-                        for label, text in zip(
-                            choices["label"], choices["text"]
-                        )
+                        for label, text in zip(choices["label"], choices["text"])
                     ]
                 )
                 answer = f"{answer_text}{choice_context}"
@@ -670,9 +636,7 @@ class HAHRAGEvaluator:
             # Process QA pairs
             qa_pairs = []
             for idx in range(min(batch_size, len(dataset))):
-                question, answer = self.extract_qa_pair(
-                    idx, dataset, dataset_name
-                )
+                question, answer = self.extract_qa_pair(idx, dataset, dataset_name)
                 if question and answer:
                     qa_pairs.append((question, answer))
 
@@ -690,9 +654,7 @@ class HAHRAGEvaluator:
             chunks = []
             for text in combined_texts:
                 chunks.extend(
-                    chunker.chunker(
-                        text, method=ChunkingMethod.RECURSIVE_CHARACTER
-                    )
+                    chunker.chunker(text, method=ChunkingMethod.RECURSIVE_CHARACTER)
                 )
 
             vector_store = embedding_vectors.create_and_save_index(chunks)
@@ -721,9 +683,7 @@ class HAHRAGEvaluator:
 
                 extra_metrics = self.compute_metricx.evaluate_rag(
                     retrieved_docs=(
-                        context.split("\n")
-                        if isinstance(context, str)
-                        else context
+                        context.split("\n") if isinstance(context, str) else context
                     ),
                     generated_answer=response,
                     relevant_docs=[reference],
@@ -740,9 +700,7 @@ class HAHRAGEvaluator:
                     if k in metrics:
                         metrics[k].append(float(v))
                     else:
-                        metrics[k] = [float(v)] * len(
-                            next(iter(metrics.values()))
-                        )
+                        metrics[k] = [float(v)] * len(next(iter(metrics.values())))
 
                 # Add latency
                 metrics["latency"].append(time() - start_time)
@@ -762,9 +720,7 @@ class HAHRAGEvaluator:
             resource_metrics = self.resource_monitor.stop_monitoring()
 
             # Calculate costs
-            cost_metrics = self.cost_calculator.calculate_costs(
-                resource_metrics
-            )
+            cost_metrics = self.cost_calculator.calculate_costs(resource_metrics)
             cost_per_query = self.cost_calculator.calculate_cost_per_query(
                 cost_metrics["total_cost"], len(evaluation_data)
             )
@@ -791,9 +747,7 @@ class HAHRAGEvaluator:
         )
 
         # Compute average metrics
-        avg_metrics = {
-            k: np.mean(v) for k, v in metrics.items() if k != "latency"
-        }
+        avg_metrics = {k: np.mean(v) for k, v in metrics.items() if k != "latency"}
         avg_latency = np.mean(metrics["latency"])
 
         return avg_metrics, avg_latency, resource_metrics
@@ -841,9 +795,9 @@ def main():
         summary_data = []
         # --
         for dataset_name, dataset in datasets_dict.items():
-            print(f"\n{'*'*50}")
+            print(f"\n{'*' * 50}")
             print(f"Evaluating {dataset_name}...")
-            print(f"{'*'*50}")
+            print(f"{'*' * 50}")
             metrics, latency, res_metrics = evaluator.evaluate_dataset(
                 dataset, dataset_name
             )
@@ -858,10 +812,7 @@ def main():
                     "latency": latency,
                     **metrics,
                     **{f"resource_{k}": v for k, v in res_metrics.items()},
-                    **{
-                        f"cost_{k}": v
-                        for k, v in res_metrics["cost_metrics"].items()
-                    },
+                    **{f"cost_{k}": v for k, v in res_metrics["cost_metrics"].items()},
                 }
             )
 

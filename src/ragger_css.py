@@ -1,4 +1,4 @@
-HEADER_METRICS =     """
+HEADER_METRICS = """
                     <style>
                     .app-header {
                         display: flex;
@@ -48,7 +48,7 @@ HEADER_METRICS =     """
                     }
                     </style>
                     """
-BUTTONS =     """
+BUTTONS = """
                 <style>
                 .stButton > button {
                     border: none !important;
@@ -176,7 +176,7 @@ BUTTONS =     """
                 </script>
                     """
 
-THINKING_SPINNER =     """
+THINKING_SPINNER = """
                         <style>
                         .thinking-animation::after {
                             content: '';
@@ -208,7 +208,7 @@ THINKING_SPINNER =     """
                         """
 
 
-PADDINGS =     """
+PADDINGS = """
             <style>
             /* Force padding on main container */
             .stApp {
@@ -279,5 +279,3 @@ PADDINGS =     """
                 margin-bottom: 20px;
             }
             """
-
-

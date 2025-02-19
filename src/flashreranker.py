@@ -5,6 +5,7 @@ Created on Fri Feb 7 15:48:53 2025
 
 @author: kennethezukwoke
 """
+
 import torch
 import numpy as np
 
@@ -89,9 +90,7 @@ class FlashReranker:
                 try:
                     self.model = self.model.to(self.device)
                 except RuntimeError:
-                    logging.warning(
-                        "CUDA memory insufficient, falling back to CPU"
-                    )
+                    logging.warning("CUDA memory insufficient, falling back to CPU")
                     self.device = "cpu"
                     torch.cuda.empty_cache()
 
@@ -171,9 +170,7 @@ class FlashReranker:
                     try:
                         outputs = self.model(**inputs)
                     except RuntimeError:
-                        logging.warning(
-                            "CUDA error in scoring, falling back to CPU"
-                        )
+                        logging.warning("CUDA error in scoring, falling back to CPU")
                         self.device = "cpu"
                         torch.cuda.empty_cache()
                         inputs = {k: v.cpu() for k, v in inputs.items()}
@@ -266,9 +263,7 @@ class FlashReranker:
             scored_passages.sort(key=lambda x: x[1], reverse=True)
 
             filtered = [
-                (p, s)
-                for p, s in scored_passages
-                if s >= self.config.threshold
+                (p, s) for p, s in scored_passages if s >= self.config.threshold
             ]
             if not filtered:
                 filtered = scored_passages
@@ -316,9 +311,7 @@ class FlashReranker:
             "ndcg@10": [],  # Normalized Discounted Cumulative Gain
         }
 
-        for query, query_passages, labels in zip(
-            queries, passages, relevance_labels
-        ):
+        for query, query_passages, labels in zip(queries, passages, relevance_labels):
             try:
                 reranked_passages, scores = self.rerank(
                     query, query_passages, return_scores=True
@@ -338,9 +331,7 @@ class FlashReranker:
                     metrics["mrr"].append(0.0)
 
                 # P@1
-                metrics["precision@1"].append(
-                    1.0 if ranked_labels[0] > 0 else 0.0
-                )
+                metrics["precision@1"].append(1.0 if ranked_labels[0] > 0 else 0.0)
 
                 # NDCG@10
                 dcg = sum(

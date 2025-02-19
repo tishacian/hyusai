@@ -42,9 +42,7 @@ class EmissionMetrics:
 
 
 class ResourceMonitor:
-    def __init__(
-        self, sampling_interval: float = 0.1, country_code: str = "FR"
-    ):
+    def __init__(self, sampling_interval: float = 0.1, country_code: str = "FR"):
         """Initialize the resource monitor"""
         self.sampling_interval = sampling_interval
         self.country_code = country_code
@@ -152,9 +150,7 @@ class ResourceMonitor:
 
                 # Calculate energy and emissions
                 total_power = cpu_power + gpu_power
-                energy_kwh = (total_power * self.sampling_interval) / (
-                    1000 * 3600
-                )
+                energy_kwh = (total_power * self.sampling_interval) / (1000 * 3600)
                 cumulative_energy += energy_kwh
                 emissions_kg = (energy_kwh * self.carbon_intensity) / 1000
 
@@ -192,9 +188,7 @@ class ResourceMonitor:
         """Stop collecting metrics and return summary"""
         self.is_monitoring = False
         if self._monitor_thread:
-            self._monitor_thread.join(
-                timeout=2.0
-            )  # 2 seconds for thread to finish
+            self._monitor_thread.join(timeout=2.0)  # 2 seconds for thread to finish
 
         emissions = 0.0
         if self.emissions_tracker:
@@ -248,9 +242,7 @@ class ResourceMonitor:
                         m.gpu_memory_used for m in self.gpu_metrics
                     ),
                     "gpu_memory_total": self.gpu_metrics[0].gpu_memory_total,
-                    "gpu_power_avg": np.mean(
-                        [m.power_usage for m in self.gpu_metrics]
-                    ),
+                    "gpu_power_avg": np.mean([m.power_usage for m in self.gpu_metrics]),
                 }
             )
 

@@ -137,7 +137,7 @@ if __name__ == "__main__":
         splitted = [i for i in site.split("/") if i != ""]
         http = splitted[0]
         main_com = splitted[1].split(".")
-        main_com_sep = "".join([i for i in main_com if not i in domain])
+        main_com_sep = "".join([i for i in main_com if i not in domain])
         main_com_inc = ".".join([i for i in main_com if i in domain if i != "www"])
         main_ = (main_com_sep, main_com_inc)
         scrapper_url(site, http, main_, pdf=pdf)
@@ -217,9 +217,7 @@ propres aux activités, installations, ouvrages et travaux prévus par le projet
 D. 594-11  Décret n°2020-830 du 1er juillet 2020 - art. 1      Legif.    Plan    Jp.C.Cass.    Jp.Appel    Jp.Admin.    Juricaf  I.-L'exploitant tient à jour un inventaire des actifs de couverture qui assure la traçabilité de chaque mouvement d'actif et est aisément consultable par l'autorité administrative. II.-L'exploitant transmet à l'autorité une synthèse de cet inventaire selon la périodicité suivante : -une fois tous les douze mois si la base de dispersion est inférieure à 100 millions d'euros ou si les actifs de couverture comprennent principalement des actifs mentionnés au 1° ou au 2° du II de l'article
 D. 594-6 ; -une fois tous les trois mois dans les autres cas. En cas de recours à des instruments financiers à terme, cette transmission comprend également une synthèse du relevé mentionné à l'article R. 336-4 du code des assurances ainsi qu'une indication du nombre d'opérations à terme effectuées durant la période considérée et du montant notionnel cumulé correspondant, en les distinguant par catégorie d'instruments financiers à terme. L'autorité précise à l'exploitant la forme et le contenu de cette transmission. 
 D. 594-12  Décret n°2020-830 du 1er juillet 2020 - art. 1      Legif.    Plan    Jp.C.Cass.    Jp.Appel    Jp.Admin.    Juricaf  I.-Pour l'établissement des documents comptables mentionnés à la section 2 du chapitre III du titre II du livre Ier du code de commerce et aux articles.
-""".replace(
-    "\n", ""
-)
+""".replace("\n", "")
 
 
 # %% Testing code extraction...

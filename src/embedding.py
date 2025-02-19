@@ -68,7 +68,9 @@ class EmbeddingVectors:
         self.device = torch.device(
             "cuda:0"
             if torch.cuda.is_available()
-            else "cpu" if torch.backends.mps.is_available() else "cpu"
+            else "cpu"
+            if torch.backends.mps.is_available()
+            else "cpu"
         )
         # initialize embedding model
         try:
@@ -78,9 +80,7 @@ class EmbeddingVectors:
                     self.embedding_model_name, device=self.device.type
                 )
             elif self.embedding_type == IndexType.CHROMA:
-                self.embedding_model_name = (
-                    "sentence-transformers/all-mpnet-base-v2"
-                )
+                self.embedding_model_name = "sentence-transformers/all-mpnet-base-v2"
                 self.embedding_model = SentenceTransformer(
                     self.embedding_model_name, device=self.device.type
                 )
@@ -113,9 +113,7 @@ class EmbeddingVectors:
         try:
             if self.embedding_type in [IndexType.FAISS, IndexType.CHROMA]:
                 # Using SentenceTransformer for both FAISS and Chroma
-                logging.info(
-                    f"Creating embeddings on device: {self.device.type}"
-                )
+                logging.info(f"Creating embeddings on device: {self.device.type}")
                 embeddings = self.embedding_model.encode(
                     texts,
                     show_progress_bar=False,
@@ -136,10 +134,7 @@ class EmbeddingVectors:
                         max_length=self.tokenizer.model_max_length,
                     ).to(self.device.type)
 
-                    if (
-                        inputs["input_ids"].size(1)
-                        > self.tokenizer.model_max_length
-                    ):
+                    if inputs["input_ids"].size(1) > self.tokenizer.model_max_length:
                         logging.warning(
                             "🚩 Input text exceeds model's maximum length, truncating."
                         )
@@ -148,9 +143,7 @@ class EmbeddingVectors:
                         embeddings = self.model.transformer.wte(
                             inputs["input_ids"]
                         ).mean(dim=1)
-                    embeddings = (
-                        embeddings.to(dtype=torch.float32).cpu().numpy()
-                    )
+                    embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
                     return embeddings
                 except IndexError as e:
                     logging.error(
@@ -158,9 +151,7 @@ class EmbeddingVectors:
                     )
                     return np.array([])
             else:
-                logging.error(
-                    f"🚩 Unsupported embedding type: {self.embedding_type}"
-                )
+                logging.error(f"🚩 Unsupported embedding type: {self.embedding_type}")
                 return np.array([])
 
         except Exception as e:
@@ -183,9 +174,9 @@ class EmbeddingVectors:
                 logging.error("🚩 Empty embeddings array received")
                 return None
 
-            assert isinstance(
-                embeddings, np.ndarray
-            ), f"Embedding is type : {type(embeddings)} not an ndarray"
+            assert isinstance(embeddings, np.ndarray), (
+                f"Embedding is type : {type(embeddings)} not an ndarray"
+            )
 
             if embeddings.shape[0] == 0 or embeddings.shape[1] == 0:
                 logging.error("🚩 Embeddings array has zero dimensions")
@@ -250,8 +241,7 @@ class EmbeddingVectors:
         try:
             if self.create_new_vs:
                 save_path = (
-                    VECTOR_STORE_PATH
-                    / f"{self.embedding_type}_{self.new_vs_name}"
+                    VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
                 )
             else:
                 save_path = (
@@ -273,13 +263,9 @@ class EmbeddingVectors:
                         f"New FAISS index and texts saved successfully to {save_path}"
                     )
                 else:
-                    existing_index = faiss.read_index(
-                        str(save_path / "faiss.index")
-                    )
+                    existing_index = faiss.read_index(str(save_path / "faiss.index"))
                     existing_index.merge_from(index)
-                    faiss.write_index(
-                        existing_index, str(save_path / "faiss.index")
-                    )
+                    faiss.write_index(existing_index, str(save_path / "faiss.index"))
                     with open(save_path / "faiss.pkl", "rb") as f:
                         existing_texts = pickle.load(f)
                     existing_texts.extend(texts)
@@ -307,9 +293,7 @@ class EmbeddingVectors:
                     )
                     existing_vectorstore.add_texts(texts)
                     existing_vectorstore.persist()
-                    logging.info(
-                        f"Chroma index updated with new texts at {save_path}"
-                    )
+                    logging.info(f"Chroma index updated with new texts at {save_path}")
 
             elif self.embedding_type == IndexType.WEAVIATE:
                 if self.create_new_vs:
@@ -341,9 +325,7 @@ class EmbeddingVectors:
                 )
 
         except Exception as e:
-            logging.error(
-                f"An error occurred while saving/merging the index: {str(e)}"
-            )
+            logging.error(f"An error occurred while saving/merging the index: {str(e)}")
             raise
 
     def create_and_save_index(self, texts):

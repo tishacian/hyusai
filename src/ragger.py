@@ -30,7 +30,7 @@ from chunker import TextChunker
 from customchain import CustomLLMChain as HAHCustomLLMChain
 from customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from docloader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
-from ragger_css import HEADER_METRICS, BUTTONS, THINKING_SPINNER, PADDINGS
+from ragger_css import HEADER_METRICS, BUTTONS, THINKING_SPINNER
 
 
 # -- device available model
@@ -44,9 +44,7 @@ def device_available_models():
 # -- device default model
 def device_default_model():
     """Default model based on device."""
-    return (
-        DEFAULT_GPU_MODEL if torch.cuda.is_available() else DEFAULT_CPU_MODEL
-    )
+    return DEFAULT_GPU_MODEL if torch.cuda.is_available() else DEFAULT_CPU_MODEL
 
 
 HUMAN_AVATAR_PATH = os.path.join(IMG_PATH, "aitubo.jpg")
@@ -76,9 +74,7 @@ AI_AVATAR_B64 = image_to_base64(AI_AVATAR)
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
-    c.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='chats'"
-    )
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chats'")
     if c.fetchone() is None:
         c.execute(
             """
@@ -103,12 +99,10 @@ def init_db():
             ("pipeline_type", "TEXT"),
         ]
         for column_name, column_type in columns_to_add:
-            c.execute(f"PRAGMA table_info(chats)")
+            c.execute("PRAGMA table_info(chats)")
             existing_columns = [column[1] for column in c.fetchall()]
             if column_name not in existing_columns:
-                c.execute(
-                    f"ALTER TABLE chats ADD COLUMN {column_name} {column_type}"
-                )
+                c.execute(f"ALTER TABLE chats ADD COLUMN {column_name} {column_type}")
 
     conn.commit()
     return conn, c
@@ -303,9 +297,7 @@ with st.expander("Document Embedding"):
                 "Models",
                 Models,
                 index=(
-                    Models.index(
-                        st.session_state.get("model_name", current_model)
-                    )
+                    Models.index(st.session_state.get("model_name", current_model))
                     if st.session_state.get("model_name") in Models
                     else 0
                 ),
@@ -313,9 +305,7 @@ with st.expander("Document Embedding"):
             # Update model and tokenizer when model changes
             if model_name != st.session_state.get("model_name"):
                 st.session_state.model_name = model_name
-                model, tokenizer = cache_model_and_tokenizer(
-                    model_name, REPO_PATH
-                )
+                model, tokenizer = cache_model_and_tokenizer(model_name, REPO_PATH)
                 if model and tokenizer:
                     st.session_state.model = model
                     st.session_state.tokenizer = tokenizer
@@ -329,12 +319,9 @@ with st.expander("Document Embedding"):
                 ChunkingMethod,
                 index=(
                     ChunkingMethod.index(
-                        st.session_state.get(
-                            "chunking_method", ChunkingMethod[0]
-                        )
+                        st.session_state.get("chunking_method", ChunkingMethod[0])
                     )
-                    if st.session_state.get("chunking_method")
-                    in ChunkingMethod
+                    if st.session_state.get("chunking_method") in ChunkingMethod
                     else 0
                 ),
             )
@@ -344,9 +331,7 @@ with st.expander("Document Embedding"):
                 "Index Type",
                 IndexType,
                 index=(
-                    IndexType.index(
-                        st.session_state.get("index_type", IndexType[0])
-                    )
+                    IndexType.index(st.session_state.get("index_type", IndexType[0]))
                     if st.session_state.get("index_type") in IndexType
                     else 0
                 ),
@@ -356,13 +341,9 @@ with st.expander("Document Embedding"):
         with row_be[0]:
             vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
             vector_store_list = [
-                file
-                for file in vector_store_list
-                if not file.startswith((".", "BM25"))
+                file for file in vector_store_list if not file.startswith((".", "BM25"))
             ]
-            current_vector_store = st.session_state.get(
-                "vector_store", "<New>"
-            )
+            current_vector_store = st.session_state.get("vector_store", "<New>")
             if current_vector_store not in vector_store_list:
                 current_vector_store = "<New>"
 
@@ -378,9 +359,7 @@ with st.expander("Document Embedding"):
         with row_be[1]:
             new_vs_name = st.text_input(
                 "New Vector Store Name",
-                value=st.session_state.get(
-                    "new_vs_name", "New_vector_store_name"
-                ),
+                value=st.session_state.get("new_vs_name", "New_vector_store_name"),
                 help=HELP["new_vector_store"],
             )
         with row_be[2]:
@@ -397,9 +376,7 @@ with st.expander("Document Embedding"):
         with row_buttons[0]:
             save_button = st.form_submit_button("Create new vector DB")
         with row_buttons[1]:
-            custom_chain_button = st.form_submit_button(
-                "Initialize context-chain"
-            )
+            custom_chain_button = st.form_submit_button("Initialize context-chain")
         # --
         if save_button:
             # Check whether to create new vector store --> Checking params
@@ -438,9 +415,7 @@ with st.expander("Document Embedding"):
                             temp_files.append(temp_file.name)
                     # -- Threaded loading of collected documents
                     documents = ThreadMultiDocLoader(temp_files)
-            chunker = TextChunker(
-                st.session_state.tokenizer, st.session_state.model
-            )
+            chunker = TextChunker(st.session_state.tokenizer, st.session_state.model)
             chunks = chunker.chunker(documents, method=chunking_method)
 
             embedding_vector = EmbeddingVectors(
@@ -452,8 +427,8 @@ with st.expander("Document Embedding"):
                 embedding_model_name="sentence-transformers/all-mpnet-base-v2",
                 embedding_type=index_type,
             )
-            st.session_state.embedding_index = (
-                embedding_vector.create_and_save_index(chunks)
+            st.session_state.embedding_index = embedding_vector.create_and_save_index(
+                chunks
             )
             st.success("PDF processed and embedding index created!")
             st.session_state.model_name = model_name

@@ -118,8 +118,7 @@ def ThreadMultiDocLoader(
     results = []
     with ThreadPoolExecutor() as executor:
         future_to_file = {
-            executor.submit(loadSingleDocument, file): file
-            for file in filtered_files
+            executor.submit(loadSingleDocument, file): file for file in filtered_files
         }
         with tqdm(
             total=len(filtered_files), desc="Loading new documents", ncols=80
