@@ -346,11 +346,11 @@ class GPUModels(StrEnum):
 
 
 class CPUModels(StrEnum):
-    TinyLlama = "patrickzj/Llama-3.2-3B-Instruct-Q2_K-GGUF"
+    LLAMA32_3B_INSTRUCT = "patrickzj/Llama-3.2-3B-Instruct-Q2_K-GGUF"
 
 
 class CPUTokenizer(StrEnum):
-    TinyLlamaTok = (
+    LLAMA32_3B_INSTRUCT_TOK = (
         "fbaldassarri/meta-llama_Llama-3.2-3B-Instruct-auto_awq-int4-gs128-sym"
     )
 
@@ -359,8 +359,8 @@ GPU_MODEL_SET = {model for model in GPUModels}
 CPU_MODEL_SET = {model for model in CPUModels}
 
 DEFAULT_GPU_MODEL = GPUModels.LLAMA3
-DEFAULT_CPU_MODEL = CPUModels.TinyLlama
-DEFAULT_CPU_TOKENIZER = CPUTokenizer.TinyLlamaTok
+DEFAULT_CPU_MODEL = CPUModels.LLAMA32_3B_INSTRUCT
+DEFAULT_CPU_TOKENIZER = CPUTokenizer.LLAMA32_3B_INSTRUCT_TOK
 
 
 class ChunkingMethod(StrEnum):
