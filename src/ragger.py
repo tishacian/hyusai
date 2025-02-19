@@ -128,10 +128,10 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-#st.markdown(
+# st.markdown(
 #    PADDINGS,
 #    unsafe_allow_html=True,
-#)
+# )
 
 
 # -- metrics style
@@ -438,12 +438,14 @@ with st.expander("Document Embedding"):
                             temp_files.append(temp_file.name)
                     # -- Threaded loading of collected documents
                     documents = ThreadMultiDocLoader(temp_files)
-            chunker = TextChunker(tokenizer, model)
+            chunker = TextChunker(
+                st.session_state.tokenizer, st.session_state.tokenizer
+            )
             chunks = chunker.chunker(documents, method=chunking_method)
 
             embedding_vector = EmbeddingVectors(
-                tokenizer,
-                model,
+                st.session_state.tokenizer,
+                st.session_state.model,
                 create_new_vs,
                 existing_vector_store,
                 new_vs_name,
