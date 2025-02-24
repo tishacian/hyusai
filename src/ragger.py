@@ -23,6 +23,7 @@ from globalvariables import (
     DEFAULT_GPU_MODEL,
     DEFAULT_CPU_MODEL,
 )
+from metrics import DUMMY_METRICS
 from modeltokenizer import load_model_and_tokenizer
 from PIL import Image
 from embedding import EmbeddingVectors
@@ -44,7 +45,9 @@ def device_available_models():
 # -- device default model
 def device_default_model():
     """Default model based on device."""
-    return DEFAULT_GPU_MODEL if torch.cuda.is_available() else DEFAULT_CPU_MODEL
+    return (
+        DEFAULT_GPU_MODEL if torch.cuda.is_available() else DEFAULT_CPU_MODEL
+    )
 
 
 HUMAN_AVATAR_PATH = os.path.join(IMG_PATH, "aitubo.jpg")
@@ -74,7 +77,9 @@ AI_AVATAR_B64 = image_to_base64(AI_AVATAR)
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chats'")
+    c.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chats'"
+    )
     if c.fetchone() is None:
         c.execute(
             """
@@ -102,7 +107,9 @@ def init_db():
             c.execute("PRAGMA table_info(chats)")
             existing_columns = [column[1] for column in c.fetchall()]
             if column_name not in existing_columns:
-                c.execute(f"ALTER TABLE chats ADD COLUMN {column_name} {column_type}")
+                c.execute(
+                    f"ALTER TABLE chats ADD COLUMN {column_name} {column_type}"
+                )
 
     conn.commit()
     return conn, c
@@ -131,14 +138,17 @@ st.markdown(
 # -- metrics style
 def display_metrics(metrics):
     metrics_html = "<div class='metrics-container'>"
-    for key, value in metrics.items():
-        if key in ["hhem", "Advance_HHEM"]:
-            color = "red" if value > 0.5 else "green"
-        else:
-            color = "green" if value >= 0.5 else "red"
-        metrics_html += f"<span class='metric'><span class='metric-name'>{key}:</span><span class='metric-value {color}'>{value:.2f}</span></span>"
-    metrics_html += "</div>"
-    st.markdown(metrics_html, unsafe_allow_html=True)
+    try:
+        for key, value in metrics.items():
+            if key in ["hhem", "Advance_HHEM"]:
+                color = "red" if value > 0.5 else "green"
+            else:
+                color = "green" if value >= 0.5 else "red"
+            metrics_html += f"<span class='metric'><span class='metric-name'>{key}:</span><span class='metric-value {color}'>{value:.2f}</span></span>"
+        metrics_html += "</div>"
+        st.markdown(metrics_html, unsafe_allow_html=True)
+    except (IndexError, AttributeError, IOError, ValueError, TypeError):
+        pass
 
 
 # Initialize session state variables
@@ -282,68 +292,51 @@ with st.expander("Document Embedding"):
         )
 
         NUMBER_OF_FILES = len(uploaded_files)
+        current_model = st.session_state.get(
+            "model_name", device_available_models()
+        )
+        # Validate current model against available models
+        if current_model not in Models:
+            current_model = device_default_model()
 
-        row_ae = st.columns([2, 1, 1])
-        with row_ae[0]:
-            current_model = st.session_state.get(
-                "model_name", device_available_models()
-            )
+        model_name = current_model
+        # Initialize/Update model and tokenizer when model changes
+        if model_name != st.session_state.get("model_name"):
+            st.session_state.model_name = model_name
+            model, tokenizer = cache_model_and_tokenizer(model_name, REPO_PATH)
+            if model and tokenizer:
+                st.session_state.model = model
+                st.session_state.tokenizer = tokenizer
+                st.success(f"Successfully loaded model: {model_name}")
+            else:
+                st.error(f"Failed to load model: {model_name}")
+        # -- Initialize chunker, index and pipeline
+        chunking_method = ChunkingMethod[0]
+        st.session_state.chunking_method = chunking_method
+        index_type = IndexType[0]
+        st.session_state.index_type = index_type
+        pipeline_type = PIPELINE_TYPES[0]
+        st.session_state.pipeline_type = pipeline_type
 
-            # Validate current model against available models
-            if current_model not in Models:
-                current_model = device_default_model()
-
-            model_name = st.selectbox(
-                "Models",
-                Models,
-                index=(
-                    Models.index(st.session_state.get("model_name", current_model))
-                    if st.session_state.get("model_name") in Models
-                    else 0
-                ),
-            )
-            # Update model and tokenizer when model changes
-            if model_name != st.session_state.get("model_name"):
-                st.session_state.model_name = model_name
-                model, tokenizer = cache_model_and_tokenizer(model_name, REPO_PATH)
-                if model and tokenizer:
-                    st.session_state.model = model
-                    st.session_state.tokenizer = tokenizer
-                    st.success(f"Successfully loaded model: {model_name}")
-                else:
-                    st.error(f"Failed to load model: {model_name}")
-
-        with row_ae[1]:
-            chunking_method = st.selectbox(
-                "Chunking method",
-                ChunkingMethod,
-                index=(
-                    ChunkingMethod.index(
-                        st.session_state.get("chunking_method", ChunkingMethod[0])
-                    )
-                    if st.session_state.get("chunking_method") in ChunkingMethod
-                    else 0
-                ),
-            )
-
-        with row_ae[2]:
-            index_type = st.selectbox(
-                "Index Type",
-                IndexType,
-                index=(
-                    IndexType.index(st.session_state.get("index_type", IndexType[0]))
-                    if st.session_state.get("index_type") in IndexType
-                    else 0
-                ),
-            )
-
-        row_be = st.columns(3)
+        row_be = st.columns(2)
         with row_be[0]:
+            new_vs_name = st.text_input(
+                "New Vector Store Name",
+                value=st.session_state.get(
+                    "new_vs_name", "New_vector_store_name"
+                ),
+                help=HELP["new_vector_store"],
+            )
+        with row_be[1]:
             vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
             vector_store_list = [
-                file for file in vector_store_list if not file.startswith((".", "BM25"))
+                file
+                for file in vector_store_list
+                if not file.startswith((".", "BM25"))
             ]
-            current_vector_store = st.session_state.get("vector_store", "<New>")
+            current_vector_store = st.session_state.get(
+                "vector_store", "<New>"
+            )
             if current_vector_store not in vector_store_list:
                 current_vector_store = "<New>"
 
@@ -355,28 +348,12 @@ with st.expander("Document Embedding"):
                 ),  # This will now be safe
                 help="Which vector store to add the new documents. Choose <New> to create a new vector store.",
             )
-
-        with row_be[1]:
-            new_vs_name = st.text_input(
-                "New Vector Store Name",
-                value=st.session_state.get("new_vs_name", "New_vector_store_name"),
-                help=HELP["new_vector_store"],
-            )
-        with row_be[2]:
-            pipeline_type = st.selectbox(
-                "Pipeline",
-                PIPELINE_TYPES,
-                index=PIPELINE_TYPES.index(
-                    st.session_state.get("pipeline_type", PipelineType.HAH)
-                ),
-                help="Select the pipeline implementation to use",
-            )
         # --
-        row_buttons = st.columns(6)
+        row_buttons = st.columns(2)
         with row_buttons[0]:
             save_button = st.form_submit_button("Create new vector DB")
         with row_buttons[1]:
-            custom_chain_button = st.form_submit_button("Initialize context-chain")
+            custom_chain_button = st.form_submit_button("Initialize RAGGER")
         # --
         if save_button:
             # Check whether to create new vector store --> Checking params
@@ -415,7 +392,9 @@ with st.expander("Document Embedding"):
                             temp_files.append(temp_file.name)
                     # -- Threaded loading of collected documents
                     documents = ThreadMultiDocLoader(temp_files)
-            chunker = TextChunker(st.session_state.tokenizer, st.session_state.model)
+            chunker = TextChunker(
+                st.session_state.tokenizer, st.session_state.model
+            )
             chunks = chunker.chunker(documents, method=chunking_method)
 
             embedding_vector = EmbeddingVectors(
@@ -427,8 +406,8 @@ with st.expander("Document Embedding"):
                 embedding_model_name="sentence-transformers/all-mpnet-base-v2",
                 embedding_type=index_type,
             )
-            st.session_state.embedding_index = embedding_vector.create_and_save_index(
-                chunks
+            st.session_state.embedding_index = (
+                embedding_vector.create_and_save_index(chunks)
             )
             st.success("PDF processed and embedding index created!")
             st.session_state.model_name = model_name
@@ -628,11 +607,31 @@ if prompt := st.chat_input("Message RAGGER..."):
             time.sleep(1)
 
         with st.spinner(""):
-            response, context, metrics = st.session_state.chain.ainvoke(prompt)
+            try:
+                response, context, metrics = st.session_state.chain.ainvoke(
+                    prompt
+                )
+            except (
+                IndexError,
+                AttributeError,
+                IOError,
+                ValueError,
+                TypeError,
+            ):
+                st.error(
+                    "Ensure a vector database is selected to initialize before chatting"
+                )
+                response = "No available context is provided to answer this question. Please ensure to intialize the right vector DB"
+                context = ""
 
         # -- streamer
-        for partial_response in stream_text(response):
-            message_placeholder.markdown(partial_response + "▌")
+        try:
+            for partial_response in stream_text(response):
+                message_placeholder.markdown(partial_response + "▌")
+        except (IndexError, AttributeError, IOError, ValueError, TypeError):
+            st.error(
+                "Something went wrong...Check to see if the vector DB is selected not <New>"
+            )
         message_placeholder.markdown(response)
         display_metrics(metrics)
 
@@ -684,6 +683,8 @@ for i in range(0, len(st.session_state.chat_history), 2):
         question = st.session_state.chat_history[i]["content"]
         answer = st.session_state.chat_history[i + 1]["content"]
         metrics = st.session_state.chat_history[i + 1].get("metrics", {})
+        if metrics is None:
+            metrics = DUMMY_METRICS
         data.append({"Question": question, "Answer": answer, **metrics})
 
 
