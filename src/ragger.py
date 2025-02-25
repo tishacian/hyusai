@@ -278,9 +278,6 @@ ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
 
 with st.expander("Document Embedding"):
     st.title("Document Embedding")
-    st.markdown(
-        "This page is used to upload the documents as the custom knowledge for the chatbot."
-    )
     with st.form("document_input"):
         uploaded_files = st.file_uploader(
             "Knowledge Documents",
@@ -464,7 +461,6 @@ if st.sidebar.button("New Chat"):
     st.rerun()
 
 
-# -- Recently saved chats...
 # -- Recently saved chats...
 st.sidebar.markdown("Recents")
 historical_chats = get_all_chats()
