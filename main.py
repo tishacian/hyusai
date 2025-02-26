@@ -8,6 +8,6 @@ if __name__ == "__main__":
         "run",
         "src/ragger.py",
         "--server.port",
-        "8508",
+        "8509",
     ]
     sys.exit(stcli.main())
