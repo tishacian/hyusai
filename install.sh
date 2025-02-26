@@ -96,5 +96,6 @@ else
         }
     fi
 fi
-
+# -- run installation for "unstructured[all-docs]"
+pip install "unstructured[all-docs]"
 echo "Installation complete."
