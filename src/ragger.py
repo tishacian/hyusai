@@ -334,7 +334,7 @@ ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
 # %% Document embedding
 
 with st.expander(
-    "Document Embedding",
+    "Document Database Setup",
     expanded=st.session_state.get("expand_doc_embedding", False),
 ):
     uploaded_files = st.file_uploader(
@@ -392,9 +392,7 @@ with st.expander(
         with row_be[0]:
             new_vs_name = st.text_input(
                 "New document database",
-                value=st.session_state.get(
-                    "new_vs_name", "New_vector_store_name"
-                ),
+                value=st.session_state.get("new_vs_name", "New database name"),
                 help=HELP["new_vector_store"],
             )
         # --
