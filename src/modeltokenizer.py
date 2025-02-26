@@ -7,7 +7,6 @@ from typing import Optional
 from functools import wraps, lru_cache
 from transformers import AutoTokenizer
 from vllm import LLM
-from llama_cpp import Llama
 from huggingface_hub import hf_hub_download, list_repo_files
 from globalvariables import (
     Models,
@@ -24,6 +23,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
+gpu_available = True if torch.cuda.is_available() else False
+if not gpu_available:
+    from llama_cpp import Llama
 
 
 class LlamaCppServer:
