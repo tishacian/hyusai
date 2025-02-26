@@ -279,3 +279,50 @@ PADDINGS = """
                 margin-bottom: 20px;
             }
             """
+
+FILE_UPLOADER = """
+                    <style>
+                    [data-testid="stFileUploader"] {
+                        width: 100%;
+                    }
+                    
+                    [data-testid="stFileUploader"] section {
+                        padding: 30px;
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        min-height: 170px !important;
+                        border: 1px dashed #4e8cff !important;
+                        border-radius: 10px !important;
+                        background-color: rgba(78, 140, 255, 0.05) !important;
+                    }
+                    
+                    [data-testid="stFileUploader"] section input {
+                        height: 100%;
+                    }
+                    
+                    [data-testid="stFileUploader"] section div[data-testid="stMarkdownContainer"] p {
+                        font-size: 1.2em;
+                        font-weight: bold;
+                    }
+                    
+                    [data-testid="stFileUploader"] section button {
+                        display: none;
+                    }
+                    
+                    / Hide the default text and replace with custom text /
+                    [data-testid="stFileUploader"] section div.css-1v0mbdj.e115fcil1 > p {
+                    font-size: 1.2em;
+                    font-weight: bold;
+                    }
+                    [data-testid="stFileUploader"] section div.css-1v0mbdj.e115fcil1 > p::before {
+                    content: "Drag and drop document collections here";
+                    display: block;
+                    }
+                    [data-testid="stFileUploader"] section div.css-1v0mbdj.e115fcil1 > p span {
+                    display: none;
+                    }
+
+                    </style>
+                    """
