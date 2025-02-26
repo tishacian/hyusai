@@ -402,7 +402,9 @@ with st.expander(
         with row_buttons[0]:
             save_button = st.form_submit_button("Create new document database")
         with row_buttons[1]:
-            custom_chain_button = st.form_submit_button("Initialize RAGGER")
+            custom_chain_button = st.form_submit_button(
+                "Initialize app to start chatting"
+            )
         # --
         if save_button:
             # Check whether to create new vector store --> Checking params
@@ -685,7 +687,7 @@ if prompt := st.chat_input("Message RAGGER..."):
                 st.error(
                     "Ensure a vector database is selected to initialize before chatting"
                 )
-                response = "No available context is provided to answer this question. Please ensure to intialize the right vector DB"
+                response = "No available context is provided to answer this question. Please ensure to initialize the right vector DB"
                 context = ""
 
         # -- streamer
