@@ -28,7 +28,7 @@ logging.basicConfig(
 
 # %%
 
-DUMMY_METRICS = tasks = {
+DUMMY_METRICS = {
     "fluency": 0.0,
     "coherence": 0.0,
     "relevance": 0.0,
