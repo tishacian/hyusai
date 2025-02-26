@@ -31,7 +31,16 @@ from chunker import TextChunker
 from customchain import CustomLLMChain as HAHCustomLLMChain
 from customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from docloader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
-from ragger_css import HEADER_METRICS, BUTTONS, THINKING_SPINNER
+from ragger_css import HEADER_METRICS, BUTTONS, THINKING_SPINNER, FILE_UPLOADER
+import warnings
+
+torch.classes.__path__ = []
+warnings.filterwarnings(
+    "ignore", message=".*builtin type.*has no.*module.*attribute"
+)
+warnings.filterwarnings(
+    "ignore", message=".*Examining the path of torch.classes raised.*"
+)
 
 
 # -- device available model
@@ -120,6 +129,7 @@ st.set_page_config(page_title="RAGGER", page_icon="🦙", layout="wide")
 st.markdown(HEADER_METRICS, unsafe_allow_html=True)
 st.markdown(BUTTONS, unsafe_allow_html=True)
 st.markdown(THINKING_SPINNER, unsafe_allow_html=True)
+st.markdown(FILE_UPLOADER, unsafe_allow_html=True)
 st.markdown(
     f"""
 <div class="app-header">
@@ -151,6 +161,48 @@ def display_metrics(metrics):
         pass
 
 
+# -- Loader tokenizer and model
+@st.cache_resource
+def cache_model_and_tokenizer(model_name, abs_path):
+    return load_model_and_tokenizer(model_name, abs_path)
+
+
+def init_cached_model(
+    model_name: str, repo_path: str, force_update: bool = False
+) -> bool:
+    """
+    Initialize a model and tokenizer or update them if the model has changed.
+
+    Parameters:
+        model_name: Name of the model to load
+        repo_path: Repository path for the model
+        force_update: If True, reload the model even if it's already loaded
+
+    Returns:
+        bool: True if initialization/update was successful, False otherwise
+    """
+    if (
+        "model" not in st.session_state
+        or "tokenizer" not in st.session_state
+        or st.session_state.get("model_name") != model_name
+        or force_update
+    ):
+        model, tokenizer = cache_model_and_tokenizer(model_name, repo_path)
+
+        if model and tokenizer:
+            st.session_state.model = model
+            st.session_state.tokenizer = tokenizer
+            st.session_state.model_name = model_name
+            return True
+        else:
+            st.error(
+                f"Failed to load model: {model_name}"
+            )  # --> only return in case of failure to load model
+            return False
+
+    return True
+
+
 # Initialize session state variables
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -162,6 +214,17 @@ if "display_history" not in st.session_state:
     st.session_state.display_history = False
 if "chain" not in st.session_state:
     st.session_state.chain = None
+if "chunking_method" not in st.session_state:
+    st.session_state.chunking_method = None
+if "index_type" not in st.session_state:
+    st.session_state.index_type = None
+if "pipeline_type" not in st.session_state:
+    st.session_state.pipeline_type = None
+if "model_name" not in st.session_state:
+    st.session_state.model_name = device_default_model()
+    init_cached_model(st.session_state.model_name, REPO_PATH)
+if "expand_doc_embedding" not in st.session_state:
+    st.session_state.expand_doc_embedding = True
 
 
 # Function to save chat history to database
@@ -259,12 +322,6 @@ def get_all_chats():
         return c.fetchall()
 
 
-# -- Loader tokenizer and model
-@st.cache_resource
-def cache_model_and_tokenizer(model_name, abs_path):
-    return load_model_and_tokenizer(model_name, abs_path)
-
-
 # -- Pipeline/Embedding...
 PIPELINE_TYPES = list(map(str, PipelineType))
 Models = device_available_models()
@@ -276,54 +333,40 @@ ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
 
 # %% Document embedding
 
-with st.expander("Document Embedding"):
-    st.title("Document Embedding")
+with st.expander(
+    "Document Embedding",
+    expanded=st.session_state.get("expand_doc_embedding", False),
+):
+    uploaded_files = st.file_uploader(
+        "",
+        accept_multiple_files=True,
+        type=ACCEPTABLE_DOC_TYPES,
+        help="Acceptable document formats includes: "
+        + " ".join(ACCEPTABLE_DOC_TYPES)
+        + " et al.",
+        label_visibility="collapsed",
+    )
+
+    NUMBER_OF_FILES = len(uploaded_files)
+    current_model = st.session_state.get(
+        "model_name", device_available_models()
+    )
+    # Validate current model against available models
+    if current_model not in Models:
+        current_model = device_default_model()
+
+    model_name = current_model  # --> Our dropdown model selector
+    model_changed = model_name != st.session_state.get("model_name")
+    chunking_method = ChunkingMethod[0]
+    st.session_state.chunking_method = chunking_method
+    index_type = IndexType[0]
+    st.session_state.index_type = index_type
+    pipeline_type = PIPELINE_TYPES[0]
+    st.session_state.pipeline_type = pipeline_type
+
     with st.form("document_input"):
-        uploaded_files = st.file_uploader(
-            "Knowledge Documents",
-            accept_multiple_files=True,
-            type=ACCEPTABLE_DOC_TYPES,
-            help="Acceptable document formats includes: "
-            + " ".join(ACCEPTABLE_DOC_TYPES[:5])
-            + " et al.",
-        )
-
-        NUMBER_OF_FILES = len(uploaded_files)
-        current_model = st.session_state.get(
-            "model_name", device_available_models()
-        )
-        # Validate current model against available models
-        if current_model not in Models:
-            current_model = device_default_model()
-
-        model_name = current_model
-        # Initialize/Update model and tokenizer when model changes
-        if model_name != st.session_state.get("model_name"):
-            st.session_state.model_name = model_name
-            model, tokenizer = cache_model_and_tokenizer(model_name, REPO_PATH)
-            if model and tokenizer:
-                st.session_state.model = model
-                st.session_state.tokenizer = tokenizer
-                st.success(f"Successfully loaded model: {model_name}")
-            else:
-                st.error(f"Failed to load model: {model_name}")
-        # -- Initialize chunker, index and pipeline
-        chunking_method = ChunkingMethod[0]
-        st.session_state.chunking_method = chunking_method
-        index_type = IndexType[0]
-        st.session_state.index_type = index_type
-        pipeline_type = PIPELINE_TYPES[0]
-        st.session_state.pipeline_type = pipeline_type
-
         row_be = st.columns(2)
-        with row_be[0]:
-            new_vs_name = st.text_input(
-                "New Vector Store Name",
-                value=st.session_state.get(
-                    "new_vs_name", "New_vector_store_name"
-                ),
-                help=HELP["new_vector_store"],
-            )
+
         with row_be[1]:
             vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
             vector_store_list = [
@@ -338,17 +381,26 @@ with st.expander("Document Embedding"):
                 current_vector_store = "<New>"
 
             existing_vector_store = st.selectbox(
-                "Vector Store to Merge the Knowledge",
+                "Select a document database",
                 vector_store_list,
                 index=vector_store_list.index(
                     current_vector_store
                 ),  # This will now be safe
-                help="Which vector store to add the new documents. Choose <New> to create a new vector store.",
+                help="Which vector database to chat with. Choose <New> to create a new vector store.",
+            )
+
+        with row_be[0]:
+            new_vs_name = st.text_input(
+                "New document database",
+                value=st.session_state.get(
+                    "new_vs_name", "New_vector_store_name"
+                ),
+                help=HELP["new_vector_store"],
             )
         # --
         row_buttons = st.columns(2)
         with row_buttons[0]:
-            save_button = st.form_submit_button("Create new vector DB")
+            save_button = st.form_submit_button("Create new document database")
         with row_buttons[1]:
             custom_chain_button = st.form_submit_button("Initialize RAGGER")
         # --
@@ -367,8 +419,11 @@ with st.expander("Document Embedding"):
                 )
             # -- check for uploaded document
             if not uploaded_files:
-                st.error("No document uploaded...")
+                st.error(
+                    "No document is detected...upload to create a document database"
+                )
             else:
+                documents = None
                 if NUMBER_OF_FILES == 1:
                     # -- load temporary folder first before loading document..
                     _, extension = os.path.splitext(uploaded_files[0].name)
@@ -389,34 +444,46 @@ with st.expander("Document Embedding"):
                             temp_files.append(temp_file.name)
                     # -- Threaded loading of collected documents
                     documents = ThreadMultiDocLoader(temp_files)
-            chunker = TextChunker(
-                st.session_state.tokenizer, st.session_state.model
-            )
-            chunks = chunker.chunker(documents, method=chunking_method)
+                # -->
+                if documents:
+                    if model_changed:
+                        load_new_model = init_cached_model(
+                            model_name, REPO_PATH
+                        )
+                        if not load_new_model:
+                            model_name = st.session_state.model_name
+                    chunker = TextChunker(
+                        st.session_state.tokenizer, st.session_state.model
+                    )
+                    chunks = chunker.chunker(documents, method=chunking_method)
 
-            embedding_vector = EmbeddingVectors(
-                st.session_state.tokenizer,
-                st.session_state.model,
-                create_new_vs,
-                existing_vector_store,
-                new_vs_name,
-                embedding_model_name="sentence-transformers/all-mpnet-base-v2",
-                embedding_type=index_type,
-            )
-            st.session_state.embedding_index = (
-                embedding_vector.create_and_save_index(chunks)
-            )
-            st.success("PDF processed and embedding index created!")
-            st.session_state.model_name = model_name
-            st.session_state.chunking_method = chunking_method
-            st.session_state.index_type = index_type
-            st.session_state.vector_store = (
-                existing_vector_store
-                if existing_vector_store != "<New>"
-                else new_vs_name
-            )
-            st.session_state.new_vs_name = new_vs_name
-            st.rerun()
+                    embedding_vector = EmbeddingVectors(
+                        st.session_state.tokenizer,
+                        st.session_state.model,
+                        create_new_vs,
+                        existing_vector_store,
+                        new_vs_name,
+                        embedding_model_name="sentence-transformers/all-mpnet-base-v2",
+                        embedding_type=index_type,
+                    )
+                    st.session_state.embedding_index = (
+                        embedding_vector.create_and_save_index(chunks)
+                    )
+                    st.success("PDF processed and embedding index created!")
+                    st.session_state.model_name = model_name
+                    st.session_state.chunking_method = chunking_method
+                    st.session_state.index_type = index_type
+                    st.session_state.vector_store = (
+                        existing_vector_store
+                        if existing_vector_store != "<New>"
+                        else new_vs_name
+                    )
+                    st.session_state.new_vs_name = new_vs_name
+                    st.rerun()
+                else:
+                    st.error(
+                        "Failed to process uploaded documents. Please check file formats."
+                    )
         if custom_chain_button:
             RaggerChain = (
                 HAHCustomLLMChain
@@ -433,6 +500,7 @@ with st.expander("Document Embedding"):
             )
             st.session_state.chain = chain
             st.session_state.pipeline_type = pipeline_type
+
 
 if "model_name" not in st.session_state:
     st.session_state.model_name = Models[0]
