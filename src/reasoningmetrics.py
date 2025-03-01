@@ -77,7 +77,9 @@ class ReasoningMetrics:
             },
         }
 
-    def compute_cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
+    def compute_cosine_similarity(
+        self, vec1: np.ndarray, vec2: np.ndarray
+    ) -> float:
         """Compute cosine similarity
 
         Parameters
@@ -146,7 +148,9 @@ class ReasoningMetrics:
 
         """
         text_embedding = self.embedding_model.encode([text])[0]
-        type_embedding = self.embedding_model.encode([str(reasoning_type.value)])[0]
+        type_embedding = self.embedding_model.encode(
+            [str(reasoning_type.value)]
+        )[0]
 
         return self.compute_cosine_similarity(text_embedding, type_embedding)
 
@@ -172,7 +176,9 @@ class ReasoningMetrics:
             entropy = self.compute_pattern_entropy(
                 question, self.reasoning_patterns[rtype]
             )
-            entropy_score = 1.0 if entropy >= self.entropy_thresholds[rtype] else 0.5
+            entropy_score = (
+                1.0 if entropy >= self.entropy_thresholds[rtype] else 0.5
+            )
             coherence_score = self.compute_semantic_coherence(question, rtype)
             pattern_score = sum(
                 1
@@ -182,10 +188,12 @@ class ReasoningMetrics:
 
             # -- evidence using geometric mean
             evidence[rtype] = (
-                entropy_score * 0.7 + coherence_score * 0.2 + pattern_score * 0.1
+                entropy_score * 0.7
+                + coherence_score * 0.2
+                + pattern_score * 0.1
             ) * self.reasoning_weights[rtype]
 
-        # -- compute posterior probabilities
+        # -- compute posterior prob
         total_evidence = sum(evidence.values())
         if total_evidence == 0:
             return ReasoningType.ANALYTICAL, 0.5
@@ -214,19 +222,16 @@ class ReasoningMetrics:
         float
             Reasoning score.
         """
-        # Entropy-based coherence
         entropy_score = self.compute_pattern_entropy(
             context, self.reasoning_patterns[reasoning_type]
         )
-
-        # Semantic similarity
         semantic_score = self.compute_semantic_coherence(
             question + " " + context, reasoning_type
         )
-
-        # Pattern coverage
         patterns = self.reasoning_patterns[reasoning_type]
-        coverage = sum(1 for p in patterns if p in context.lower()) / len(patterns)
+        coverage = sum(1 for p in patterns if p in context.lower()) / len(
+            patterns
+        )
 
         # Type-specific weights
         weights = {
