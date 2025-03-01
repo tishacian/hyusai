@@ -37,7 +37,7 @@ from chunker import cache_chunker_embedding_chain, BM25Retriever
 from ensembleretriever import EnsembleConfig, EnsembleRetriever
 from flashreranker import RerankerConfig, FlashReranker
 from contextcompressor import ContextualConfig, ContextualCompressionRetriever
-
+from embedding import EmbeddingModelLoader
 
 # -- Model evaluation
 from metrics import Evaluatrix
@@ -108,7 +108,7 @@ class CustomLLMChain:
         self.device = torch.device(
             "cuda:0"
             if torch.cuda.is_available()
-            else "mps" if torch.backends.mps.is_available() else "cpu"
+            else "cpu" if torch.backends.mps.is_available() else "cpu"
         )
 
         if self.model is None or self.tokenizer is None:
@@ -123,35 +123,16 @@ class CustomLLMChain:
         self.conversation_memory = ConversationMemoryBuffer(max_turns=2)
         # --initialize embedding model
         try:
-            if self.index_type == IndexType.FAISS:
-                self.embedding_model_name = "all-MiniLM-L6-v2"
-                self.embedding_model = SentenceTransformer(
-                    self.embedding_model_name, device=self.device.type
-                )
-            elif self.index_type == IndexType.CHROMA:
-                self.embedding_model_name = (
-                    "sentence-transformers/all-mpnet-base-v2"
-                )
-                self.embedding_model = SentenceTransformer(
-                    self.embedding_model_name, device=self.device.type
-                )
-            elif self.index_type == IndexType.WEAVIATE:
-                self.embedding_model = weaviate.Client("http://localhost:8080")
-                self.class_name = "Document"
-                if not self.embedding_model.schema.contains(self.class_name):
-                    self.embedding_model.schema.create_class(
-                        {
-                            "class": self.class_name,
-                            "vectorizer": "none",
-                        }
-                    )
-            else:
-                raise ValueError(
-                    "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
-                )
+            self.embedding_model = EmbeddingModelLoader.load_embedding_model(
+                self.index_type, self.embedding_model_name
+            )
+            logging.info(
+                f"Successfully loaded embedding model (cached): {self.embedding_model_name}"
+            )
         except Exception as e:
-            logging.error(f"🚩 Error initializing embedding model: {e}")
+            logging.error(f"🚩 Error loading cached embedding model: {e}")
             raise
+
         # --
         self._initialize_retrievers()
         self._initialize_reranker()
@@ -710,18 +691,14 @@ class CustomLLMChain:
         if cache_key in self.context_cache:
             return self.context_cache[cache_key]
 
-        # Get reasoning type with confidence
         reasoning_type, confidence = await self.detect_reasoning_type(chunk)
-
-        # Get initial passages using contextual retriever
         contexts, scores = (
             await self.contextual_retriever.retrieve_and_compress(chunk, k)
         )
-
         if not contexts:
             return []
 
-        # Compute reasoning scores
+        # -- compute reasoning scores
         context_scores = []
         for ctx in contexts:
             reasoning_score = self.reasoning_metrics.compute_reasoning_score(
@@ -730,13 +707,11 @@ class CustomLLMChain:
             combined_score = 0.7 * reasoning_score + 0.3 * confidence
             context_scores.append((ctx, combined_score))
 
-        # Rank by combined score
+        # -- rank combined context
         ranked_contexts = sorted(
             context_scores, key=lambda x: x[1], reverse=True
         )
         filtered_contexts = [ctx for ctx, _ in ranked_contexts[:k]]
-
-        # Store in cache
         self.context_cache[cache_key] = filtered_contexts
         return filtered_contexts
 
@@ -769,17 +744,15 @@ class CustomLLMChain:
         """
         try:
             if torch.cuda.is_available():
-                # Use pre-loaded sentence transformer model
                 with torch.no_grad():
                     embeddings = self.embedding_model.encode(
-                        texts,  # use [texts] if texts does not work
+                        texts,
                         convert_to_tensor=True,
                         show_progress_bar=False,
                         device=self.device.type,  # Ensure it uses the correct device
                     )
                     embeddings = embeddings.cpu().numpy()
             else:
-                # Handle different index types
                 if self.index_type == IndexType.CHROMA:
                     embeddings = np.array(
                         self.embedding_model.embed_documents(texts)
@@ -790,7 +763,7 @@ class CustomLLMChain:
                             texts,
                             convert_to_tensor=True,
                             show_progress_bar=False,
-                            device=self.device.type,  # Ensure it uses the correct device
+                            device=self.device.type,
                         )
                         embeddings = (
                             embeddings.to(dtype=torch.float32).cpu().numpy()
