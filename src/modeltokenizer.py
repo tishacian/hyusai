@@ -398,7 +398,7 @@ class CachedLLM:
         }
 
 
-@lru_cache(maxsize=512)
+@lru_cache(maxsize=None)
 @model_and_tokenizer_cache
 def load_model_and_tokenizer(model_name: str, abs_path: str):
     """
