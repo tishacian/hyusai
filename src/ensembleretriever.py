@@ -70,10 +70,12 @@ class EnsembleRetriever:
         self.config = config or EnsembleConfig()
         self.bm25_retriever = bm25_retriever
         self.dense_retriever = dense_retriever
-        self.embedding_model = embedding_model  # Store embedding model
-        self.texts = texts  # Store texts
+        self.embedding_model = embedding_model
+        self.texts = texts
         self.device = torch.device(
-            "cuda" if torch.cuda.is_available() and self.config.use_gpu else "cpu"
+            "cuda"
+            if torch.cuda.is_available() and self.config.use_gpu
+            else "cpu"
         )
 
     async def _get_bm25_scores(
@@ -95,7 +97,9 @@ class EnsembleRetriever:
         try:
             scores = self.bm25_retriever.get_scores(query)
             top_k_indices = np.argsort(scores)[-k:][::-1]
-            passages = [self.bm25_retriever.documents[idx] for idx in top_k_indices]
+            passages = [
+                self.bm25_retriever.documents[idx] for idx in top_k_indices
+            ]
             scores_dict = {
                 passage: float(scores[idx])
                 for passage, idx in zip(passages, top_k_indices)
@@ -130,18 +134,17 @@ class EnsembleRetriever:
                     show_progress_bar=False,
                     device=self.device,
                 )
-                # Convert to numpy and ensure proper shape
                 query_embedding = query_embedding.cpu().numpy()
 
             if len(query_embedding.shape) == 2:
                 query_embedding = query_embedding.astype("float32")
             else:
-                query_embedding = query_embedding.reshape(1, -1).astype("float32")
+                query_embedding = query_embedding.reshape(1, -1).astype(
+                    "float32"
+                )
 
-            # Perform FAISS search
+            # -- FAISS Search
             D, I = self.dense_retriever.search(query_embedding, k)
-
-            # Get passages and scores
             passages = [self.texts[idx] for idx in I[0]]
             scores_dict = {
                 passage: float(score) for passage, score in zip(passages, D[0])
@@ -180,12 +183,22 @@ class EnsembleRetriever:
 
         for passage in all_passages:
             bm25_rank = (
-                1 / (self.config.rrf_k + list(bm25_scores.keys()).index(passage) + 1)
+                1
+                / (
+                    self.config.rrf_k
+                    + list(bm25_scores.keys()).index(passage)
+                    + 1
+                )
                 if passage in bm25_scores
                 else 0
             )
             dense_rank = (
-                1 / (self.config.rrf_k + list(dense_scores.keys()).index(passage) + 1)
+                1
+                / (
+                    self.config.rrf_k
+                    + list(dense_scores.keys()).index(passage)
+                    + 1
+                )
                 if passage in dense_scores
                 else 0
             )
@@ -218,7 +231,9 @@ class EnsembleRetriever:
 
         try:
             bm25_future = asyncio.create_task(self._get_bm25_scores(query, k))
-            dense_future = asyncio.create_task(self._get_dense_scores(query, k))
+            dense_future = asyncio.create_task(
+                self._get_dense_scores(query, k)
+            )
             (
                 (bm25_passages, bm25_scores),
                 (dense_passages, dense_scores),
@@ -230,8 +245,6 @@ class EnsembleRetriever:
 
             # Compute RRF scores
             rrf_scores = self._compute_rrf_scores(bm25_scores, dense_scores)
-
-            # Sort by RRF scores
             sorted_results = sorted(
                 rrf_scores.items(), key=lambda x: x[1], reverse=True
             )
@@ -262,5 +275,7 @@ class EnsembleRetriever:
 
         """
         async with asyncio.TaskGroup() as tg:
-            tasks = [tg.create_task(self.retrieve(query, k)) for query in queries]
+            tasks = [
+                tg.create_task(self.retrieve(query, k)) for query in queries
+            ]
         return [task.result() for task in tasks]
