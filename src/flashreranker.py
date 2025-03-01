@@ -5,26 +5,17 @@ Created on Fri Feb 7 15:48:53 2025
 
 @author: kennethezukwoke
 """
-
-import torch
-import numpy as np
-
-# --
-import warnings
-
-warnings.simplefilter(action="ignore", category=FutureWarning)
-
-# --
 import sys
+import torch
 import logging
+import warnings
+import numpy as np
 from enum import Enum
-
-# --
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple, Union
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from crossencembeddingmodel import RerankerModelLoader
 
-# --
+warnings.simplefilter(action="ignore", category=FutureWarning)
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -50,6 +41,7 @@ class RerankerConfig:
     num_threads: int = 4
     threshold: float = 0.5
     device: Optional[str] = None
+    model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 
 
 class FlashReranker:
@@ -68,34 +60,31 @@ class FlashReranker:
         """
         self.config = config or RerankerConfig()
         try:
-            # Try CUDA first
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 self.device = "cuda"
             else:
                 self.device = "cpu"
         except Exception:
+            logging.error("Error detecting device, falling back to CPU")
             self.device = "cpu"
 
-        logging.info(f"Using device: {self.device}")
+        if self.config.device is not None:
+            self.device = self.config.device
 
         try:
-            self.model = AutoModelForSequenceClassification.from_pretrained(
-                "cross-encoder/ms-marco-MiniLM-L-12-v2"
+            self.model, self.tokenizer = (
+                RerankerModelLoader.load_reranker_model(
+                    self.config.model_name, self.device
+                )
             )
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                "cross-encoder/ms-marco-MiniLM-L-12-v2"
+            if self.model is None or self.tokenizer is None:
+                raise ValueError(
+                    f"Failed to load model or tokenizer for {self.config.model_name}"
+                )
+            logging.info(
+                f"Successfully loaded model from RerankerModelLoader: {self.config.model_name}"
             )
-            if self.device == "cuda":
-                try:
-                    self.model = self.model.to(self.device)
-                except RuntimeError:
-                    logging.warning("CUDA memory insufficient, falling back to CPU")
-                    self.device = "cpu"
-                    torch.cuda.empty_cache()
-
-            self.model.eval()
-
         except Exception as e:
             logging.error(f"Error initializing model/tokenizer: {e}")
             raise
@@ -134,10 +123,19 @@ class FlashReranker:
                         "CUDA memory insufficient for batch, processing on CPU"
                     )
                     self.device = "cpu"
+                    device_type = RerankerModelLoader.get_model_device(
+                        self.config.model_name
+                    )
+                    if device_type != "cpu":
+                        RerankerModelLoader.move_model_to_device(
+                            self.config.model_name, "cpu"
+                        )
+                        self.model = RerankerModelLoader._model_cache[
+                            self.config.model_name
+                        ]
                     torch.cuda.empty_cache()
 
             return inputs
-
         except Exception as e:
             logging.error(f"Error in batch tokenization: {e}")
             return self.tokenizer(
@@ -168,16 +166,29 @@ class FlashReranker:
             with torch.no_grad():
                 if self.device == "cuda":
                     try:
-                        outputs = self.model(**inputs)
+                        with torch.inference_mode():
+                            outputs = self.model(**inputs)
                     except RuntimeError:
-                        logging.warning("CUDA error in scoring, falling back to CPU")
+                        logging.warning(
+                            "CUDA error in scoring, falling back to CPU"
+                        )
                         self.device = "cpu"
+                        device_type = RerankerModelLoader.get_model_device(
+                            self.config.model_name
+                        )
+                        if device_type != "cpu":
+                            RerankerModelLoader.move_model_to_device(
+                                self.config.model_name, "cpu"
+                            )
+                            self.model = RerankerModelLoader._model_cache[
+                                self.config.model_name
+                            ]
                         torch.cuda.empty_cache()
                         inputs = {k: v.cpu() for k, v in inputs.items()}
-                        self.model = self.model.cpu()
                         outputs = self.model(**inputs)
                 else:
-                    outputs = self.model(**inputs)
+                    with torch.inference_mode():
+                        outputs = self.model(**inputs)
 
                 scores = torch.sigmoid(outputs.logits)
                 if scores.dim() == 0:
@@ -220,8 +231,6 @@ class FlashReranker:
                         scores = np.array([float(scores)])
 
                 all_scores.extend(scores)
-
-                # Clear memory after each batch
                 if self.device == "cuda":
                     torch.cuda.empty_cache()
 
@@ -256,14 +265,14 @@ class FlashReranker:
                 if self.device == "cuda"
                 else max(1, self.config.batch_size // 4)
             )
-
             # -- compute scores
             scores = self._batch_process(query, passages, batch_size)
             scored_passages = list(zip(passages, scores))
             scored_passages.sort(key=lambda x: x[1], reverse=True)
-
             filtered = [
-                (p, s) for p, s in scored_passages if s >= self.config.threshold
+                (p, s)
+                for p, s in scored_passages
+                if s >= self.config.threshold
             ]
             if not filtered:
                 filtered = scored_passages
@@ -311,7 +320,9 @@ class FlashReranker:
             "ndcg@10": [],  # Normalized Discounted Cumulative Gain
         }
 
-        for query, query_passages, labels in zip(queries, passages, relevance_labels):
+        for query, query_passages, labels in zip(
+            queries, passages, relevance_labels
+        ):
             try:
                 reranked_passages, scores = self.rerank(
                     query, query_passages, return_scores=True
@@ -331,7 +342,9 @@ class FlashReranker:
                     metrics["mrr"].append(0.0)
 
                 # P@1
-                metrics["precision@1"].append(1.0 if ranked_labels[0] > 0 else 0.0)
+                metrics["precision@1"].append(
+                    1.0 if ranked_labels[0] > 0 else 0.0
+                )
 
                 # NDCG@10
                 dcg = sum(
