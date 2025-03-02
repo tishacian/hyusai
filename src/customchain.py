@@ -367,8 +367,7 @@ class CustomLLMChain:
         return [all_texts[i] for i in selected_indices]
 
     def rank_documents(self, scores):
-        """
-        Rank documents based on their fusion scores.
+        """Rank documents based on their fusion scores.
 
         Parameters:
         ----------
@@ -382,9 +381,7 @@ class CustomLLMChain:
         return sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
 
     def available_device_count(self, device):
-        """
-        Get the number of available devices (GPUs or CPU cores).
-        """
+        """Get the number of available devices (GPUs or CPU cores)."""
         if self.device == "cuda:0":
             return torch.cuda.device_count()
         else:
@@ -397,9 +394,8 @@ class CustomLLMChain:
         return chunk.to(device, non_blocking=True)
 
     def parallel_chunk_transfer(self, tensor, device):
-        """
-        Transfer the tensor to the device in chunks using ThreadPoolExecutor,
-        distributing across available devices (GPUs or CPU cores).
+        """Transfer the tensor to the device in chunks using ThreadPoolExecutor,
+            distributing across available devices (GPUs or CPU cores).
 
         Parameters:
             tensor (tensor): The tensor to transfer.
@@ -669,7 +665,7 @@ class CustomLLMChain:
         ]
 
     async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
-        """Search w/ reasoning scores
+        """Search w/ reasoning scores (optimized)
 
         Parameters
         ----------
@@ -684,30 +680,38 @@ class CustomLLMChain:
         -------
         List
             filtered context.
-
         """
-        self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+        if not hasattr(self, "reasoning_metrics"):
+            self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+
         cache_key = f"{chunk[:100]}_{k}"
         if cache_key in self.context_cache:
             return self.context_cache[cache_key]
 
-        reasoning_type, confidence = await self.detect_reasoning_type(chunk)
-        contexts, scores = (
-            await self.contextual_retriever.retrieve_and_compress(chunk, k)
+        reasoning_task = asyncio.create_task(self.detect_reasoning_type(chunk))
+        contexts_task = asyncio.create_task(
+            self.contextual_retriever.retrieve_and_compress(chunk, k)
         )
+        reasoning_result, contexts_result = await asyncio.gather(
+            reasoning_task, contexts_task
+        )
+        reasoning_type, confidence = reasoning_result
+        contexts, scores = contexts_result
         if not contexts:
             return []
 
-        # -- compute reasoning scores
-        context_scores = []
-        for ctx in contexts:
-            reasoning_score = self.reasoning_metrics.compute_reasoning_score(
-                chunk, ctx, reasoning_type
+        async def process_context(ctx):
+            reasoning_score = (
+                await self.reasoning_metrics.compute_reasoning_score_async(
+                    chunk, ctx, reasoning_type
+                )
             )
             combined_score = 0.7 * reasoning_score + 0.3 * confidence
-            context_scores.append((ctx, combined_score))
+            return (ctx, combined_score)
 
-        # -- rank combined context
+        # -- t/p/c
+        context_score_tasks = [process_context(ctx) for ctx in contexts]
+        context_scores = await asyncio.gather(*context_score_tasks)
         ranked_contexts = sorted(
             context_scores, key=lambda x: x[1], reverse=True
         )
@@ -718,7 +722,7 @@ class CustomLLMChain:
     async def detect_reasoning_type(
         self, question: str
     ) -> Tuple[ReasoningType, float]:
-        """Reasoning detection with confidence score
+        """Reasoning detection with confidence score (optimized)
 
         Parameters
         ----------
@@ -728,13 +732,16 @@ class CustomLLMChain:
         -------
         Tuple[ReasoningType, float]: Bayesian reasoning classification with score.
         """
-        self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
-        return self.reasoning_metrics.bayesian_reasoning_detection(question)
+        if not hasattr(self, "reasoning_metrics"):
+            self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+
+        return await self.reasoning_metrics.bayesian_reasoning_detection_async(
+            question
+        )
 
     async def create_embeddings_async(self, texts):
-        """
-        Asynchronous version of create_embeddings.
-        Creates embeddings using pre-loaded SentenceTransformer or tokenizer based on availability.
+        """Asynchronous version of create_embeddings.
+            Creates embeddings using pre-loaded SentenceTransformer or tokenizer based on availability.
 
         Parameters:
             text (str): input text
@@ -817,7 +824,7 @@ class CustomLLMChain:
             ]
 
     async def parallel_search(self, document, k=5):
-        """Parallel search
+        """Optimized parallel search with improved concurrency
 
         Parameters:
             document (str): input document
@@ -827,12 +834,17 @@ class CustomLLMChain:
             str: Merged unique context
         """
         chunks = self.chunk_document(document, k)
-        async with asyncio.TaskGroup() as tg:
-            tasks = [
-                tg.create_task(self.search_similar_texts_async(chunk, k))
-                for chunk in chunks
-            ]
-        results = [task.result() for task in tasks]
+
+        async def safe_search(chunk):
+            try:
+                return await self.search_similar_texts_async(chunk, k)
+            except Exception as e:
+                logging.error(f"Error searching for chunk: {e}")
+                return []
+
+        results = await asyncio.gather(
+            *[safe_search(chunk) for chunk in chunks]
+        )
         return self.merge_results(results, k)
 
     def merge_results(self, results, k):
@@ -893,8 +905,7 @@ class CustomLLMChain:
     async def check_context_length(
         self, current_context: str, new_context: str
     ) -> bool:
-        """
-        Check if adding new context would exceed model's maximum length
+        """Check if adding new context would exceed model's maximum length
 
         Parameters:
             current_context (str): Existing combined context
@@ -910,8 +921,7 @@ class CustomLLMChain:
         return input_tokens["input_ids"].shape[1] <= (self.max_model_len - 500)
 
     async def invoke_async(self, question: str):
-        """
-        Invoke conversation memory buffer w/ reasoning
+        """Invoke conversation memory buffer w/ reasoning (optimized)
 
         Parameters:
             question (str): The current user question
@@ -921,17 +931,26 @@ class CustomLLMChain:
         """
         try:
             self.conversation_memory.add_message("user", question)
-
-            reasoning_type, _ = await self.detect_reasoning_type(question)
+            reasoning_task = self.detect_reasoning_type(question)
             conversation_context = (
                 self.conversation_memory.get_context_with_reasoning(
-                    reasoning_type
+                    ReasoningType.ANALYTICAL
                 )
             )
-            k, lambda_param = await self.analyze_query_complexity(
+            reasoning_type, _ = await reasoning_task
+            if conversation_context:
+                conversation_context = (
+                    self.conversation_memory.get_context_with_reasoning(
+                        reasoning_type
+                    )
+                )
+            query_with_context = (
                 question + " " + conversation_context
                 if conversation_context
                 else question
+            )
+            k, lambda_param = await self.analyze_query_complexity(
+                query_with_context
             )
             logging.info(f"Query parameters - k: {k}, lambda: {lambda_param}")
             initial_contexts = await self.search_similar_texts_async(
@@ -948,14 +967,11 @@ class CustomLLMChain:
                 return no_context_response, "", {}
 
             # -- filter context considering conversation history
-            filtered_contexts = await self.context_filtering(
+            filtering_task = self.context_filtering(
                 initial_contexts,
-                (
-                    question + " " + conversation_context
-                    if conversation_context
-                    else question
-                ),
+                query_with_context,
             )
+            filtered_contexts = await filtering_task
             document = ". ".join(filtered_contexts[:k])
             relevant_contexts = await self.search_similar_texts(document, k=12)
             combined_context = ""
@@ -980,6 +996,7 @@ class CustomLLMChain:
 
                 combined_context += f"\n\nContext {i + 1}:\n{context}"
 
+            # Generate response
             result_text = await self.custom_llm_chain(
                 combined_context, question
             )
@@ -996,6 +1013,7 @@ class CustomLLMChain:
                 method="ngram",
                 n_gram=3,
             )
+
             return answer, combined_context, eval_metrics
 
         except Exception as e:
