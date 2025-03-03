@@ -10,6 +10,7 @@ import sys
 import torch
 import warnings
 import logging
+import asyncio
 from functools import lru_cache, wraps
 from typing import Dict, Any, Optional, Tuple
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -122,9 +123,6 @@ class RerankerModelLoader:
         Tuple[Any, Any]
             The loaded model and tokenizer
         """
-        import asyncio
-
-        # Use run_in_executor to run the synchronous method in a thread pool
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
