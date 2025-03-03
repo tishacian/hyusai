@@ -5,6 +5,7 @@ import pickle
 import warnings
 import logging
 import numpy as np
+from typing import Optional
 from functools import lru_cache
 from globalvariables import (
     VECTOR_STORE_PATH,
@@ -113,7 +114,7 @@ class EmbeddingVectors:
         )
         return instance
 
-    def create_embeddings(self, texts):
+    def create_embeddings(self, texts, batch_size: Optional[int] = None):
         """
         Create_embeddings.
         Creates embeddings using pre-loaded SentenceTransformer or tokenizer based on availability.
@@ -124,6 +125,7 @@ class EmbeddingVectors:
         Returns:
             np.array: The embedding vectors
         """
+        self.batch = 32 if not batch_size else batch_size
         try:
             if not texts or len(texts) == 0:
                 logging.error("🚩 Empty texts array received")
@@ -134,11 +136,10 @@ class EmbeddingVectors:
                     f"Creating embeddings on device: {self.device.type}"
                 )
 
-                batch_size = 32
                 all_embeddings = []
 
-                for i in range(0, len(texts), batch_size):
-                    batch_texts = texts[i : i + batch_size]
+                for i in range(0, len(texts), self.batch_size):
+                    batch_texts = texts[i : i + self.batch_size]
 
                     embeddings = self.embedding_model.encode(
                         batch_texts,
@@ -156,7 +157,7 @@ class EmbeddingVectors:
                 # Combine batches
                 if all_embeddings:
                     combined_embeddings = np.vstack(all_embeddings)
-                    # Verify the embedding dimension
+                    # -- verify the embedding dimension
                     if (
                         combined_embeddings.shape[1]
                         != self.embedding_dimension
@@ -176,11 +177,10 @@ class EmbeddingVectors:
                 # Use tokenizer-based embeddings for Weaviate
                 try:
                     # -- process embedding in batches
-                    batch_size = 32
                     all_embeddings = []
 
-                    for i in range(0, len(texts), batch_size):
-                        batch_texts = texts[i : i + batch_size]
+                    for i in range(0, len(texts), self.batch_size):
+                        batch_texts = texts[i : i + self.batch_size]
 
                         inputs = self.tokenizer(
                             batch_texts,
@@ -210,13 +210,12 @@ class EmbeddingVectors:
                     # Combine batches
                     if all_embeddings:
                         combined_embeddings = np.vstack(all_embeddings)
-                        # Update dimension if needed
                         if (
                             combined_embeddings.shape[1]
                             != self.embedding_dimension
                         ):
                             logging.warning(
-                                f"⚠️ Embedding dimension mismatch! Expected {self.embedding_dimension}, got {combined_embeddings.shape[1]}"
+                                f" Embedding dimension mismatch! Expected {self.embedding_dimension}, got {combined_embeddings.shape[1]}"
                             )
                             self.embedding_dimension = (
                                 combined_embeddings.shape[1]
@@ -280,7 +279,7 @@ class EmbeddingVectors:
                 EmbeddingModelLoader._dimension_cache[cache_key] = dimension
 
             # -- Indexing
-            train = False if self.device.type == "cpu" else True
+            train = self.device.type != "cpu"
             embeddings_copy = embeddings.copy().astype(np.float32)
             faiss.normalize_L2(embeddings_copy)
             index = faiss.IndexFlatL2(dimension)
