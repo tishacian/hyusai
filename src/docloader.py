@@ -2,40 +2,19 @@ from tqdm import tqdm
 from typing import List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain.docstore.document import Document
+from customdocloader import MyEmlLoader
 from langchain.document_loaders import (
     CSVLoader,
     EverNoteLoader,
     PyMuPDFLoader,
     TextLoader,
     Docx2txtLoader,
-    UnstructuredEmailLoader,
     UnstructuredEPubLoader,
     UnstructuredHTMLLoader,
     UnstructuredMarkdownLoader,
     UnstructuredODTLoader,
     UnstructuredPowerPointLoader,
 )
-
-
-# %%
-
-
-class MyEmlLoader(UnstructuredEmailLoader):
-    """Wrapper to fallback to text/plain when default does not work"""
-
-    def load(self) -> List[Document]:
-        try:
-            try:
-                doc = UnstructuredEmailLoader.load(self)
-            except ValueError as e:
-                if "text/html content not found in email" in str(e):
-                    self.unstructured_kwargs["content_source"] = "text/plain"
-                    doc = UnstructuredEmailLoader.load(self)
-                else:
-                    raise
-        except Exception as e:
-            raise type(e)(f"{self.file_path}: {e}") from e
-        return doc
 
 
 LOADER_MAPPING = {
