@@ -1,5 +1,6 @@
 from tqdm import tqdm
 from typing import List
+from preprocessing import Preprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain.docstore.document import Document
 from customdocloader import MyEmlLoader, PDFLoader
@@ -38,14 +39,6 @@ LOADER_MAPPING = {
 class Document:
     def __init__(self, content: str):
         self.page_content = content
-
-
-class Preprocess:
-    def __init__(self, document: str):
-        self.document = document
-
-    def prep(self):
-        return self.document.replace("\n", "").replace("\r", "")
 
 
 def loadSingleDocument(file_path: str) -> List[Document]:
