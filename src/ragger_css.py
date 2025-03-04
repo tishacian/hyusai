@@ -326,3 +326,39 @@ FILE_UPLOADER = """
 
                     </style>
                     """
+
+BACKGROUND = f"""
+                <style>
+                [data-testid="stAppViewContainer"] > .main {{
+                background-image: linear-gradient(to right, rgba(122, 119, 185, 0.4), rgba(159, 107, 172, 0.4), rgba(194, 94, 154, 0.4), rgba(219, 86, 134, 0.4), rgba(232, 82, 111, 0.4), rgba(240, 87, 87, 0.4), rgba(243, 99, 64, 0.4), rgba(237, 120, 48, 0.4));
+                background-size: cover;
+                background-position: center center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                }}
+                [data-testid="stHeader"] {{
+                background: rgba(0,0,0,0);
+                }}
+                [data-testid="stBottomBlockContainer"] {{
+                background-image: linear-gradient(to right, rgba(122, 119, 185, 0.4), rgba(159, 107, 172, 0.4), rgba(194, 94, 154, 0.4), rgba(219, 86, 134, 0.4), rgba(232, 82, 111, 0.4), rgba(240, 87, 87, 0.4), rgba(243, 99, 64, 0.4), rgba(237, 120, 48, 0.4));
+                background-size: cover;
+                background-position: center center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                }}
+                [data-testid="stSidebarUserContent"] {{
+                background-image: linear-gradient(to right, rgba(122, 119, 185, 0.4), rgba(159, 107, 172, 0.4), rgba(194, 94, 154, 0.4), rgba(219, 86, 134, 0.4), rgba(232, 82, 111, 0.4), rgba(240, 87, 87, 0.4), rgba(243, 99, 64, 0.4), rgba(237, 120, 48, 0.4));
+                background-size: cover;
+                background-position: center center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                }}
+                [data-testid="stSidebarContent"] {{
+                background-image: linear-gradient(to right, rgba(122, 119, 185, 0.4), rgba(159, 107, 172, 0.4), rgba(194, 94, 154, 0.4), rgba(219, 86, 134, 0.4), rgba(232, 82, 111, 0.4), rgba(240, 87, 87, 0.4), rgba(243, 99, 64, 0.4), rgba(237, 120, 48, 0.4));
+                background-size: cover;
+                background-position: center center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+                }}
+                </style>
+                """
