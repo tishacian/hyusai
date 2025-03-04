@@ -9,7 +9,6 @@ Created on Sun Mar  2 06:21:51 2025
 import os
 import asyncio
 import platform
-import torch
 import pymupdf
 from PIL import Image
 import time
