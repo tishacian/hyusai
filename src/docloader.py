@@ -2,11 +2,10 @@ from tqdm import tqdm
 from typing import List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain.docstore.document import Document
-from customdocloader import MyEmlLoader
+from customdocloader import MyEmlLoader, PDFLoader
 from langchain.document_loaders import (
     CSVLoader,
     EverNoteLoader,
-    PyMuPDFLoader,
     TextLoader,
     Docx2txtLoader,
     UnstructuredEPubLoader,
@@ -27,13 +26,13 @@ LOADER_MAPPING = {
     ".html": (UnstructuredHTMLLoader, {}),
     ".md": (UnstructuredMarkdownLoader, {}),
     ".odt": (UnstructuredODTLoader, {}),
-    ".pdf": (PyMuPDFLoader, {}),
+    ".pdf": (PDFLoader, {"dpi": 300, "force_ocr": True}),
     ".ppt": (UnstructuredPowerPointLoader, {}),
     ".pptx": (UnstructuredPowerPointLoader, {}),
     ".txt": (TextLoader, {"encoding": "utf8"}),
 }
 
-# %%
+# %% Doc loaders
 
 
 class Document:
