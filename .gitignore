@@ -32,6 +32,7 @@ vector_store/*
 .safetensors
 .json
 *.db
+!vector_store/faiss_JusticIA/
 
 # Models
 src/models
