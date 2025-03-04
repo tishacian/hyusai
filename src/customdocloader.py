@@ -15,6 +15,9 @@ import time
 from typing import List
 from langchain.docstore.document import Document
 from langchain.document_loaders import UnstructuredEmailLoader
+import tracemalloc
+
+tracemalloc.start()
 
 try:
     import pytesseract
@@ -44,37 +47,6 @@ class MyEmlLoader(UnstructuredEmailLoader):
         except Exception as e:
             raise type(e)(f"{self.file_path}: {e}") from e
         return doc
-
-
-def get_tesseract_path():
-    """Detect the system and set Tesseract path."""
-    system = platform.system()
-    if system == "Windows":
-        possible_paths = [
-            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-        ]
-        for path in possible_paths:
-            if os.path.exists(path):
-                return path
-
-    elif system == "Darwin":
-        possible_paths = [
-            "/usr/local/bin/tesseract",
-            "/opt/homebrew/bin/tesseract",
-            "/usr/bin/tesseract",
-        ]
-        for path in possible_paths:
-            if os.path.exists(path):
-                return path
-
-    elif system == "Linux":
-        possible_paths = ["/usr/bin/tesseract", "/usr/local/bin/tesseract"]
-        for path in possible_paths:
-            if os.path.exists(path):
-                return path
-
-    return None
 
 
 class PDFExtractor:
@@ -114,6 +86,25 @@ class PDFExtractor:
 
     def _get_tesseract_path(self):
         """Detect the system and set Tesseract path."""
+        try:
+            import pytesseract
+
+            current_cmd = pytesseract.pytesseract.tesseract_cmd
+            if current_cmd != "tesseract" and os.path.exists(current_cmd):
+                return current_cmd
+
+            if current_cmd == "tesseract":
+                conda_paths = [
+                    "/workspace/.miniconda3/bin/tesseract",
+                    os.path.expanduser("~/miniconda3/bin/tesseract"),
+                    os.path.expanduser("~/.miniconda3/bin/tesseract"),
+                ]
+                for path in conda_paths:
+                    if os.path.exists(path):
+                        return path
+        except (ImportError, AttributeError):
+            pass
+
         system = platform.system()
         if system == "Windows":
             possible_paths = [
@@ -133,7 +124,12 @@ class PDFExtractor:
                 if os.path.exists(path):
                     return path
         elif system == "Linux":
-            possible_paths = ["/usr/bin/tesseract", "/usr/local/bin/tesseract"]
+            possible_paths = [
+                "/usr/bin/tesseract",
+                "/usr/local/bin/tesseract",
+                "/workspace/bin/tesseract",
+                "/workspace/.local/bin/tesseract",
+            ]
             for path in possible_paths:
                 if os.path.exists(path):
                     return path
@@ -327,7 +323,6 @@ def extract_text_from_pdf(
 
     async def _extract():
         max_workers = kwargs.pop("max_workers", None)
-
         extractor = PDFExtractor(max_workers=max_workers)
         return await extractor.extract_text_from_pdf(
             pdf_path,
@@ -338,14 +333,12 @@ def extract_text_from_pdf(
         )
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            raise RuntimeError("Event loop is closed")
-    except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
-    return loop.run_until_complete(_extract())
+        result = loop.run_until_complete(_extract())
+        return result
+    finally:
+        loop.close()
 
 
 class PDFLoader:
