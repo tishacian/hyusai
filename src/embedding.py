@@ -125,7 +125,7 @@ class EmbeddingVectors:
         Returns:
             np.array: The embedding vectors
         """
-        self.batch = 32 if not batch_size else batch_size
+        self.batch_size = 32 if not batch_size else batch_size
         try:
             if not texts or len(texts) == 0:
                 logging.error("🚩 Empty texts array received")
