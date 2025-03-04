@@ -77,6 +77,7 @@ fi
 if command -v nvidia-smi &> /dev/null; then
     echo "CUDA detected. Installing GPU requirements..."
     pip install -r requirements/requirements_gpu.txt
+    conda install -c conda-forge tesseract
 else
     echo "CUDA not detected. Installing CPU requirements..."
     if [[ "$OS_TYPE" == "Darwin" || "$IS_WINDOWS" == true ]]; then
