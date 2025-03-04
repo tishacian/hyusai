@@ -344,17 +344,17 @@ with st.expander(
     "Document Database Setup",
     expanded=st.session_state.get("expand_doc_embedding", False),
 ):
-    uploaded_files = st.file_uploader(
-        "",
-        accept_multiple_files=True,
-        type=ACCEPTABLE_DOC_TYPES,
-        help="Acceptable document formats includes: "
-        + " ".join(ACCEPTABLE_DOC_TYPES)
-        + " et al.",
-        label_visibility="collapsed",
-    )
+    # uploaded_files = st.file_uploader(
+    #     "",
+    #     accept_multiple_files=True,
+    #     type=ACCEPTABLE_DOC_TYPES,
+    #     help="Acceptable document formats includes: "
+    #     + " ".join(ACCEPTABLE_DOC_TYPES)
+    #     + " et al.",
+    #     label_visibility="collapsed",
+    # )
 
-    NUMBER_OF_FILES = len(uploaded_files)
+    # NUMBER_OF_FILES = len(uploaded_files)
     current_model = st.session_state.get(
         "model_name", device_available_models()
     )
@@ -371,142 +371,142 @@ with st.expander(
     pipeline_type = PIPELINE_TYPES[0]
     st.session_state.pipeline_type = pipeline_type
 
-    with st.form("document_input"):
-        row_be = st.columns(2)
+    # with st.form("document_input"):
+    #     row_be = st.columns(2)
 
-        with row_be[1]:
-            vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
-            vector_store_list = [
-                file
-                for file in vector_store_list
-                if not file.startswith((".", "BM25"))
-            ]
-            current_vector_store = st.session_state.get(
-                "vector_store", "<New>"
-            )
-            if current_vector_store not in vector_store_list:
-                current_vector_store = "<New>"
+    #     with row_be[1]:
+    #         vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
+    #         vector_store_list = [
+    #             file
+    #             for file in vector_store_list
+    #             if not file.startswith((".", "BM25"))
+    #         ]
+    #         current_vector_store = st.session_state.get(
+    #             "vector_store", "<New>"
+    #         )
+    #         if current_vector_store not in vector_store_list:
+    #             current_vector_store = "<New>"
 
-            existing_vector_store = st.selectbox(
-                "Select a document database",
-                vector_store_list,
-                index=vector_store_list.index(
-                    current_vector_store
-                ),  # This will now be safe
-                help="Which vector database to chat with. Choose <New> to create a new vector store.",
-            )
+    #         existing_vector_store = st.selectbox(
+    #             "Select a document database",
+    #             vector_store_list,
+    #             index=vector_store_list.index(
+    #                 current_vector_store
+    #             ),  # This will now be safe
+    #             help="Which vector database to chat with. Choose <New> to create a new vector store.",
+    #         )
+    existing_vector_store = "faiss_JusticIA"
+    # with row_be[0]:
+    #     new_vs_name = st.text_input(
+    #         "New document database",
+    #         value=st.session_state.get("new_vs_name", "New database name"),
+    #         help=HELP["new_vector_store"],
+    #     )
+    # # --
+    # row_buttons = st.columns(2)
+    # with row_buttons[0]:
+    #     save_button = st.form_submit_button("Create new document database")
+    # with row_buttons[1]:
+    #     custom_chain_button = st.form_submit_button(
+    #         "Initialize app to start chatting"
+    #     )
+    # --
+    # if save_button:
+    #     # Check whether to create new vector store --> Checking params
+    #     create_new_vs = None
+    #     if existing_vector_store == "<New>" and new_vs_name != "":
+    #         # -- Create new embedding..
+    #         create_new_vs = True
+    #     elif existing_vector_store != "<New>" and new_vs_name != "":
+    #         # -- Use existing embedding..
+    #         create_new_vs = False
+    #     else:
+    #         st.error(
+    #             "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
+    #         )
+    #     # -- check for uploaded document
+    #     if not uploaded_files:
+    #         st.error(
+    #             "No document is detected...upload to create a document database"
+    #         )
+    #     else:
+    #         documents = None
+    #         if NUMBER_OF_FILES == 1:
+    #             # -- load temporary folder first before loading document..
+    #             _, extension = os.path.splitext(uploaded_files[0].name)
+    #             with NamedTemporaryFile(
+    #                 delete=False, suffix=extension
+    #             ) as temp_file:
+    #                 temp_file.write(uploaded_files[0].getbuffer())
+    #                 documents = loadSingleDocument(temp_file.name)
+    #         else:
+    #             # -- Save the location of all the temporary files first..
+    #             temp_files = []
+    #             for uploaded_file in uploaded_files:
+    #                 _, extension = os.path.splitext(uploaded_file.name)
+    #                 with NamedTemporaryFile(
+    #                     delete=False, suffix=extension
+    #                 ) as temp_file:
+    #                     temp_file.write(uploaded_file.getbuffer())
+    #                     temp_files.append(temp_file.name)
+    #             # -- Threaded loading of collected documents
+    #             documents = ThreadMultiDocLoader(temp_files)
+    #         # -->
+    #         if documents:
+    #             if model_changed:
+    #                 load_new_model = init_cached_model(
+    #                     model_name, REPO_PATH
+    #                 )
+    #                 if not load_new_model:
+    #                     model_name = st.session_state.model_name
+    #             chunker = TextChunker(
+    #                 st.session_state.tokenizer, st.session_state.model
+    #             )
+    #             chunks = chunker.chunker(documents, method=chunking_method)
 
-        with row_be[0]:
-            new_vs_name = st.text_input(
-                "New document database",
-                value=st.session_state.get("new_vs_name", "New database name"),
-                help=HELP["new_vector_store"],
-            )
-        # --
-        row_buttons = st.columns(2)
-        with row_buttons[0]:
-            save_button = st.form_submit_button("Create new document database")
-        with row_buttons[1]:
-            custom_chain_button = st.form_submit_button(
-                "Initialize app to start chatting"
-            )
-        # --
-        if save_button:
-            # Check whether to create new vector store --> Checking params
-            create_new_vs = None
-            if existing_vector_store == "<New>" and new_vs_name != "":
-                # -- Create new embedding..
-                create_new_vs = True
-            elif existing_vector_store != "<New>" and new_vs_name != "":
-                # -- Use existing embedding..
-                create_new_vs = False
-            else:
-                st.error(
-                    "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
-                )
-            # -- check for uploaded document
-            if not uploaded_files:
-                st.error(
-                    "No document is detected...upload to create a document database"
-                )
-            else:
-                documents = None
-                if NUMBER_OF_FILES == 1:
-                    # -- load temporary folder first before loading document..
-                    _, extension = os.path.splitext(uploaded_files[0].name)
-                    with NamedTemporaryFile(
-                        delete=False, suffix=extension
-                    ) as temp_file:
-                        temp_file.write(uploaded_files[0].getbuffer())
-                        documents = loadSingleDocument(temp_file.name)
-                else:
-                    # -- Save the location of all the temporary files first..
-                    temp_files = []
-                    for uploaded_file in uploaded_files:
-                        _, extension = os.path.splitext(uploaded_file.name)
-                        with NamedTemporaryFile(
-                            delete=False, suffix=extension
-                        ) as temp_file:
-                            temp_file.write(uploaded_file.getbuffer())
-                            temp_files.append(temp_file.name)
-                    # -- Threaded loading of collected documents
-                    documents = ThreadMultiDocLoader(temp_files)
-                # -->
-                if documents:
-                    if model_changed:
-                        load_new_model = init_cached_model(
-                            model_name, REPO_PATH
-                        )
-                        if not load_new_model:
-                            model_name = st.session_state.model_name
-                    chunker = TextChunker(
-                        st.session_state.tokenizer, st.session_state.model
-                    )
-                    chunks = chunker.chunker(documents, method=chunking_method)
+    #             embedding_vector = EmbeddingVectors(
+    #                 st.session_state.tokenizer,
+    #                 st.session_state.model,
+    #                 create_new_vs,
+    #                 existing_vector_store,
+    #                 new_vs_name,
+    #                 embedding_model_name="sentence-transformers/all-mpnet-base-v2",
+    #                 embedding_type=index_type,
+    #             )
+    #             st.session_state.embedding_index = (
+    #                 embedding_vector.create_and_save_index(chunks)
+    #             )
+    #             st.success("PDF processed and embedding index created!")
+    #             st.session_state.model_name = model_name
+    #             st.session_state.chunking_method = chunking_method
+    #             st.session_state.index_type = index_type
+    #             st.session_state.vector_store = (
+    #                 existing_vector_store
+    #                 if existing_vector_store != "<New>"
+    #                 else new_vs_name
+    #             )
+    #             st.session_state.new_vs_name = new_vs_name
+    #             st.rerun()
+    #         else:
+    #             st.error(
+    #                 "Failed to process uploaded documents. Please check file formats."
+    #             )
+    # if custom_chain_button:
+    RaggerChain = (
+        HAHCustomLLMChain
+        if pipeline_type == PipelineType.HAH
+        else NaiveCustomLLMChain
+    )
 
-                    embedding_vector = EmbeddingVectors(
-                        st.session_state.tokenizer,
-                        st.session_state.model,
-                        create_new_vs,
-                        existing_vector_store,
-                        new_vs_name,
-                        embedding_model_name="sentence-transformers/all-mpnet-base-v2",
-                        embedding_type=index_type,
-                    )
-                    st.session_state.embedding_index = (
-                        embedding_vector.create_and_save_index(chunks)
-                    )
-                    st.success("PDF processed and embedding index created!")
-                    st.session_state.model_name = model_name
-                    st.session_state.chunking_method = chunking_method
-                    st.session_state.index_type = index_type
-                    st.session_state.vector_store = (
-                        existing_vector_store
-                        if existing_vector_store != "<New>"
-                        else new_vs_name
-                    )
-                    st.session_state.new_vs_name = new_vs_name
-                    st.rerun()
-                else:
-                    st.error(
-                        "Failed to process uploaded documents. Please check file formats."
-                    )
-        if custom_chain_button:
-            RaggerChain = (
-                HAHCustomLLMChain
-                if pipeline_type == PipelineType.HAH
-                else NaiveCustomLLMChain
-            )
-
-            chain = RaggerChain(
-                st.session_state.tokenizer,
-                st.session_state.model,
-                model_name,
-                existing_vector_store,
-                index_type=index_type,
-            )
-            st.session_state.chain = chain
-            st.session_state.pipeline_type = pipeline_type
+    chain = RaggerChain(
+        st.session_state.tokenizer,
+        st.session_state.model,
+        model_name,
+        existing_vector_store,
+        index_type=index_type,
+    )
+    st.session_state.chain = chain
+    st.session_state.pipeline_type = pipeline_type
 
 
 if "model_name" not in st.session_state:
