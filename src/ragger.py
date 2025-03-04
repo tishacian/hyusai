@@ -31,7 +31,13 @@ from chunker import TextChunker
 from customchain import CustomLLMChain as HAHCustomLLMChain
 from customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from docloader import LOADER_MAPPING, loadSingleDocument, ThreadMultiDocLoader
-from ragger_css import HEADER_METRICS, BUTTONS, THINKING_SPINNER, FILE_UPLOADER
+from ragger_css import (
+    HEADER_METRICS,
+    BUTTONS,
+    THINKING_SPINNER,
+    FILE_UPLOADER,
+    BACKGROUND,
+)
 import warnings
 
 torch.classes.__path__ = []
@@ -60,7 +66,7 @@ def device_default_model():
 
 
 HUMAN_AVATAR_PATH = os.path.join(IMG_PATH, "aitubo.jpg")
-AI_AVATAR_PATH = os.path.join(IMG_PATH, "datategy_logo.png")
+AI_AVATAR_PATH = os.path.join(IMG_PATH, "justicia.png")
 
 
 def load_avatar(image_path):
@@ -125,16 +131,17 @@ def init_db():
 
 
 conn, c = init_db()
-st.set_page_config(page_title="RAGGER", page_icon="🦙", layout="wide")
+st.set_page_config(page_title="justicia", page_icon="⚖️", layout="wide")
 st.markdown(HEADER_METRICS, unsafe_allow_html=True)
 st.markdown(BUTTONS, unsafe_allow_html=True)
 st.markdown(THINKING_SPINNER, unsafe_allow_html=True)
 st.markdown(FILE_UPLOADER, unsafe_allow_html=True)
+st.markdown(BACKGROUND, unsafe_allow_html=True)
 st.markdown(
     f"""
 <div class="app-header">
     <img src="data:image/png;base64,{AI_AVATAR_B64}" alt="AI Avatar"/>
-    <h1>RAGGER</h1>
+    <h1>justicia</h1>
 </div>
 """,
     unsafe_allow_html=True,
