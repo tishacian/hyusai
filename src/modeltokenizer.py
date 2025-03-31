@@ -1,23 +1,25 @@
+import glob
+import logging
 import os
 import sys
-import psutil
-import glob
-import torch
-import logging
+from functools import lru_cache, wraps
 from typing import Optional
-from functools import wraps, lru_cache
+
+import psutil
+import torch
+from huggingface_hub import hf_hub_download, list_repo_files
 from transformers import AutoTokenizer
 from vllm import LLM
-from huggingface_hub import hf_hub_download, list_repo_files
+
 from globalvariables import (
-    GPU_MODEL_SET,
     CPU_MODEL_SET,
-    DEFAULT_GPU_MODEL,
     DEFAULT_CPU_MODEL,
     DEFAULT_CPU_TOKENIZER,
+    DEFAULT_GPU_MODEL,
+    GPU_MODEL_SET,
     LARGE_MODELS,
 )
-from utils import gpu_arc_type, get_max_model_len
+from utils import get_max_model_len, gpu_arc_type
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -486,7 +488,5 @@ def load_model_and_tokenizer(model_name: str, abs_path: str):
 
         return model, tokenizer
     except Exception as e:
-        logging.error(
-            f"Failed to load model or tokenizer for {model_name}: {e}"
-        )
+        logging.error(f"Failed to load model or tokenizer for {model_name}: {e}")
         return None, None
