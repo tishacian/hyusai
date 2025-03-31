@@ -39,3 +39,8 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
 - `HIDE_RAG_PARAMS_CONFIG` (bool)
     - If True, the section where the user parametrized the RAG steps will be hidden.
     - By default `False`
+- `FORCED_VDB` (str)
+    - Force the RAG to use the provided Vector DataBase as context (the section where the 
+    user parametrize the RAG steps per consequent).
+    If `"None"`, the user will be asked to create/select the desired Vector DataBase.
+    - By default `"None"`

@@ -22,4 +22,11 @@ class StandaloneInterface(BaseSettings):
     """Path of the human user logo in the chat."""
 
     hide_rag_params_config: bool = False
-    """If True, the section where the user parametrized the RAG steps will be hidden."""
+    """If True, the section where the user parametrize the RAG steps will be hidden."""
+
+    forced_vdb: str = "None"
+    """
+    Force the RAG to use the provided Vector DataBase as context (the section where the 
+    user parametrize the RAG steps per consequent).
+    If `"None"`, the user will be asked to create/select the desired Vector DataBase.
+    """
