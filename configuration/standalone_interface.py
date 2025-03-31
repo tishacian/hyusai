@@ -20,3 +20,6 @@ class StandaloneInterface(BaseSettings):
 
     human_chat_logo: str = str(IMG_PATH / "aitubo.jpg")
     """Path of the human user logo in the chat."""
+
+    hide_rag_params_config: bool = False
+    """If True, the section where the user parametrized the RAG steps will be hidden."""

@@ -36,3 +36,6 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
 - `HUMAN_CHAT_LOGO` (str)
     - Path of the human user logo in the chat.
     - By default `image/aitubo.jpg`
+- `HIDE_RAG_PARAMS_CONFIG` (bool)
+    - If True, the section where the user parametrized the RAG steps will be hidden.
+    - By default `False`

@@ -40,6 +40,15 @@ from ragger_css import (
     SELECT_INPUT_STYLE,
 )
 
+# default values
+pipeline_type = PipelineType.HAH
+chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
+index_type = IndexType.FAISS
+if torch.cuda.is_available():
+    model_name = DEFAULT_GPU_MODEL
+else:
+    model_name = DEFAULT_CPU_MODEL
+
 
 # -- device available model
 def device_available_models():
@@ -347,69 +356,69 @@ with st.expander("Document Database Setup"):
         )
 
         NUMBER_OF_FILES = len(uploaded_files)
-
-        row_ae = st.columns([2, 1, 1])
-        with row_ae[0]:
-            current_model = st.session_state.get(
-                "model_name", device_available_models()
-            )
-
-            # Validate current model against available models
-            if current_model not in Models:
-                current_model = device_default_model()
-
-            model_name = st.selectbox(
-                "Models",
-                Models,
-                index=(
-                    Models.index(
-                        st.session_state.get("model_name", current_model)
-                    )
-                    if st.session_state.get("model_name") in Models
-                    else 0
-                ),
-            )
-            # Update model and tokenizer when model changes
-            if model_name != st.session_state.get("model_name"):
-                st.session_state.model_name = model_name
-                model, tokenizer = cache_model_and_tokenizer(
-                    model_name, REPO_PATH
+        if not get_standalone_interface_config().hide_rag_params_config:
+            row_ae = st.columns([2, 1, 1])
+            with row_ae[0]:
+                current_model = st.session_state.get(
+                    "model_name", device_available_models()
                 )
-                if model and tokenizer:
-                    st.session_state.model = model
-                    st.session_state.tokenizer = tokenizer
-                    st.success(f"Successfully loaded model: {model_name}")
-                else:
-                    st.error(f"Failed to load model: {model_name}")
 
-        with row_ae[1]:
-            chunking_method = st.selectbox(
-                "Chunking method",
-                ChunkingMethod,
-                index=(
-                    ChunkingMethod.index(
-                        st.session_state.get(
-                            "chunking_method", ChunkingMethod[0]
+                # Validate current model against available models
+                if current_model not in Models:
+                    current_model = device_default_model()
+
+                model_name = st.selectbox(
+                    "Models",
+                    Models,
+                    index=(
+                        Models.index(
+                            st.session_state.get("model_name", current_model)
                         )
+                        if st.session_state.get("model_name") in Models
+                        else 0
+                    ),
+                )
+                # Update model and tokenizer when model changes
+                if model_name != st.session_state.get("model_name"):
+                    st.session_state.model_name = model_name
+                    model, tokenizer = cache_model_and_tokenizer(
+                        model_name, REPO_PATH
                     )
-                    if st.session_state.get("chunking_method")
-                    in ChunkingMethod
-                    else 0
-                ),
-            )
+                    if model and tokenizer:
+                        st.session_state.model = model
+                        st.session_state.tokenizer = tokenizer
+                        st.success(f"Successfully loaded model: {model_name}")
+                    else:
+                        st.error(f"Failed to load model: {model_name}")
 
-        with row_ae[2]:
-            index_type = st.selectbox(
-                "Index Type",
-                IndexType,
-                index=(
-                    IndexType.index(
-                        st.session_state.get("index_type", IndexType[0])
-                    )
-                    if st.session_state.get("index_type") in IndexType
-                    else 0
-                ),
-            )
+            with row_ae[1]:
+                chunking_method = st.selectbox(
+                    "Chunking method",
+                    ChunkingMethod,
+                    index=(
+                        ChunkingMethod.index(
+                            st.session_state.get(
+                                "chunking_method", ChunkingMethod[0]
+                            )
+                        )
+                        if st.session_state.get("chunking_method")
+                        in ChunkingMethod
+                        else 0
+                    ),
+                )
+
+            with row_ae[2]:
+                index_type = st.selectbox(
+                    "Index Type",
+                    IndexType,
+                    index=(
+                        IndexType.index(
+                            st.session_state.get("index_type", IndexType[0])
+                        )
+                        if st.session_state.get("index_type") in IndexType
+                        else 0
+                    ),
+                )
 
         row_be = st.columns(3)
         with row_be[0]:
@@ -442,15 +451,17 @@ with st.expander("Document Database Setup"):
                 ),
                 help=HELP["new_vector_store"],
             )
-        with row_be[2]:
-            pipeline_type = st.selectbox(
-                "Pipeline",
-                PIPELINE_TYPES,
-                index=PIPELINE_TYPES.index(
-                    st.session_state.get("pipeline_type", PipelineType.HAH)
-                ),
-                help="Select the pipeline implementation to use",
-            )
+
+        if not get_standalone_interface_config().hide_rag_params_config:
+            with row_be[2]:
+                pipeline_type = st.selectbox(
+                    "Pipeline",
+                    PIPELINE_TYPES,
+                    index=PIPELINE_TYPES.index(
+                        st.session_state.get("pipeline_type", PipelineType.HAH)
+                    ),
+                    help="Select the pipeline implementation to use",
+                )
         # --
         row_buttons = st.columns(6)
         with row_buttons[0]:
