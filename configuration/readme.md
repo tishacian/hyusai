@@ -26,16 +26,16 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
         - The string literal, "random". You can set page_icon="random" to set a random emoji from the supported list above. Emoji icons are courtesy of Twemoji and loaded from MaxCDN.
         - An icon from the Material Symbols library (outlined style) in the format ":material/icon_name:" where "icon_name" is the name of the icon in snake case.
     For example, icon=":material/thumb_up:" will display the Thumb Up icon. Find additional icons in the Material Symbols font library.
-    - By default `https://media.glassdoor.com/sql/3258770/datategy-squarelogo-1664441768173.png`
+    - By default `"https://media.glassdoor.com/sql/3258770/datategy-squarelogo-1664441768173.png"`
 - `PAGE_TITLE` (str)
     - The page title..
-    - By default `RAGGER`
+    - By default `"RAGGER"`
 - `AI_CHAT_LOGO` (str)
     - Path of the AI chatbot logo in the chat.
-    - By default `image/datategy_logo.png`
+    - By default `"image/datategy_logo.png"`
 - `HUMAN_CHAT_LOGO` (str)
     - Path of the human user logo in the chat.
-    - By default `image/aitubo.jpg`
+    - By default `"image/aitubo.jpg"`
 - `HIDE_RAG_PARAMS_CONFIG` (bool)
     - If True, the section where the user parametrized the RAG steps will be hidden.
     - By default `False`
@@ -44,3 +44,6 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
     user parametrize the RAG steps per consequent).
     If `"None"`, the user will be asked to create/select the desired Vector DataBase.
     - By default `"None"`
+- `DEFAULT_GPU_MODEL` (str)
+    - Default GPU model.
+    - By default `"neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"`

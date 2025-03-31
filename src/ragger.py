@@ -22,7 +22,6 @@ from embedding import EmbeddingVectors
 from globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
-    DEFAULT_GPU_MODEL,
     GPU_MODEL_SET,
     HELP,
     REPO_PATH,
@@ -39,18 +38,7 @@ from ragger_css import (
     FILE_UPLOADER,
     HEADER_METRICS,
     SELECT_INPUT_STYLE,
-    THINKING_SPINNER,
 )
-
-# default values
-pipeline_type = PipelineType.HAH
-chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
-index_type = IndexType.FAISS
-if torch.cuda.is_available():
-    model_name = DEFAULT_GPU_MODEL
-else:
-    model_name = DEFAULT_CPU_MODEL
-
 
 # -- device available model
 def device_available_models():
@@ -63,8 +51,16 @@ def device_available_models():
 # -- device default model
 def device_default_model():
     """Default model based on device."""
-    return DEFAULT_GPU_MODEL if torch.cuda.is_available() else DEFAULT_CPU_MODEL
+    return (
+        get_standalone_interface_config().default_gpu_model if torch.cuda.is_available() else DEFAULT_CPU_MODEL
+    )
 
+
+# default values
+pipeline_type = PipelineType.HAH
+chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
+index_type = IndexType.FAISS
+model_name = device_default_model()
 
 HUMAN_AVATAR_PATH = get_standalone_interface_config().human_chat_logo
 AI_AVATAR_PATH = get_standalone_interface_config().ai_chat_logo

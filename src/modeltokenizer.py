@@ -10,12 +10,11 @@ import torch
 from huggingface_hub import hf_hub_download, list_repo_files
 from transformers import AutoTokenizer
 from vllm import LLM
-
+from configuration import get_standalone_interface_config
 from globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
     DEFAULT_CPU_TOKENIZER,
-    DEFAULT_GPU_MODEL,
     GPU_MODEL_SET,
     LARGE_MODELS,
 )
@@ -226,14 +225,14 @@ def validate_model_name(selected_model: str) -> str:
             return selected_model
         elif selected_model in CPU_MODEL_SET:
             logging.warning(
-                f"Selected CPU model {selected_model} but GPU is available. Using default GPU model {DEFAULT_GPU_MODEL}"
+                f"Selected CPU model {selected_model} but GPU is available. Using default GPU model {get_standalone_interface_config().default_gpu_model}"
             )
-            return DEFAULT_GPU_MODEL
+            return get_standalone_interface_config().default_gpu_model
         else:
             logging.warning(
-                f"Unknown model {selected_model}. Using default GPU model {DEFAULT_GPU_MODEL}"
+                f"Unknown model {selected_model}. Using default GPU model {get_standalone_interface_config().default_gpu_model}"
             )
-            return DEFAULT_GPU_MODEL
+            return get_standalone_interface_config().default_gpu_model
     else:
         if selected_model in CPU_MODEL_SET:
             return selected_model

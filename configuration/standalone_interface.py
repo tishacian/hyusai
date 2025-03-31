@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from src.globalvariables import IMG_PATH
+from src.globalvariables import IMG_PATH, GPUModels
 
 
 class StandaloneInterface(BaseSettings):
@@ -30,3 +30,6 @@ class StandaloneInterface(BaseSettings):
     user parametrize the RAG steps per consequent).
     If `"None"`, the user will be asked to create/select the desired Vector DataBase.
     """
+
+    default_gpu_model: GPUModels = GPUModels.LLAMA31_8B
+    """Default GPU model."""
