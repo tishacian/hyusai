@@ -41,6 +41,7 @@ from ragger_css import (
     THINKING_SPINNER,
 )
 
+
 # -- device available model
 def device_available_models():
     """List of available models based on device."""
@@ -53,7 +54,9 @@ def device_available_models():
 def device_default_model():
     """Default model based on device."""
     return (
-        get_standalone_interface_config().default_gpu_model if torch.cuda.is_available() else DEFAULT_CPU_MODEL
+        get_standalone_interface_config().default_gpu_model
+        if torch.cuda.is_available()
+        else DEFAULT_CPU_MODEL
     )
 
 
@@ -439,17 +442,15 @@ if get_standalone_interface_config().forced_vdb == "None":
                     value=st.session_state.get("new_vs_name", "New_vector_store_name"),
                     help=HELP["new_vector_store"],
                 )
-
-            if not get_standalone_interface_config().hide_rag_params_config:
-                with row_be[2]:
-                    pipeline_type = st.selectbox(
-                        "Pipeline",
-                        PIPELINE_TYPES,
-                        index=PIPELINE_TYPES.index(
-                            st.session_state.get("pipeline_type", PipelineType.HAH)
-                        ),
-                        help="Select the pipeline implementation to use",
-                    )
+            with row_be[2]:
+                pipeline_type = st.selectbox(
+                    "Pipeline",
+                    PIPELINE_TYPES,
+                    index=PIPELINE_TYPES.index(
+                        st.session_state.get("pipeline_type", PipelineType.HAH)
+                    ),
+                    help="Select the pipeline implementation to use",
+                )
             # --
             row_buttons = st.columns(6)
             with row_buttons[0]:

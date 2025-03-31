@@ -62,3 +62,6 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
 - `DEFAULT_GPU_MODEL` (str)
     - Default GPU model.
     - By default `"neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"`
+- `HIDE_RAG_PARAMS_CONFIG` (bool)
+    - If True, the section where the user parametrized the RAG steps will be hidden.
+    - By default `False`
