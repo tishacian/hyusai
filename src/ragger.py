@@ -10,8 +10,8 @@ import time
 from typing import Iterator
 from datetime import datetime
 import pandas as pd
+from configuration import get_standalone_interface_config
 from globalvariables import (
-    IMG_PATH,
     REPO_PATH,
     VECTOR_STORE_PATH,
     PipelineType,
@@ -57,12 +57,12 @@ def device_default_model():
     )
 
 
-HUMAN_AVATAR_PATH = os.path.join(IMG_PATH, "aitubo.jpg")
-AI_AVATAR_PATH = os.path.join(IMG_PATH, "datategy_logo.png")
+HUMAN_AVATAR_PATH = get_standalone_interface_config().human_chat_logo
+AI_AVATAR_PATH = get_standalone_interface_config().ai_chat_logo
 
 
 def load_avatar(image_path):
-    return Image.open(image_path).resize((32, 32))
+    return Image.open(image_path).resize((128, 128))
 
 
 def image_to_base64(image):
@@ -123,7 +123,11 @@ def init_db():
 
 
 conn, c = init_db()
-st.set_page_config(page_title="RAGGER", page_icon="🦙", layout="wide")
+st.set_page_config(
+    page_title=get_standalone_interface_config().page_title,
+    page_icon=get_standalone_interface_config().page_icon,
+    layout="wide",
+)
 st.markdown(HEADER_METRICS, unsafe_allow_html=True)
 st.markdown(BUTTONS, unsafe_allow_html=True)
 st.markdown(THINKING_SPINNER, unsafe_allow_html=True)
@@ -134,7 +138,7 @@ st.markdown(
     f"""
 <div class="app-header">
     <img src="data:image/png;base64,{AI_AVATAR_B64}" alt="AI Avatar"/>
-    <h1>RAGGER</h1>
+    <h1>{get_standalone_interface_config().header_title}</h1>
 </div>
 """,
     unsafe_allow_html=True,
