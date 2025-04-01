@@ -332,6 +332,8 @@ class CachedLLM:
                             if self.max_model_len < 128 * 1024
                             else self.max_model_len
                         )
+                    else:
+                        max_model_len = self.max_model_len
                 else:
                     if self.gpu_type == "A100":
                         gpu_utilization = 0.90
