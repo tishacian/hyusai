@@ -34,3 +34,10 @@ class StandaloneInterface(BaseSettings):
 
     default_gpu_model: str = "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"
     """Default GPU model."""
+
+    context_length_size: int = -1
+    """Force the value of the context length size to the provided value. 
+    If you encounter issues in the RAG answers like too long answers with
+    repetition, consider tuning this parameter down (8 for example).
+    If `-1`, the context length size will be infered using heuristics.
+    """
