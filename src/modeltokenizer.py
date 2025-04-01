@@ -326,11 +326,12 @@ class CachedLLM:
                         gpu_utilization = 0.75
                         tensor_parallel = torch.cuda.device_count()
 
-                    max_model_len = (
-                        128 * 1024
-                        if self.max_model_len < 128 * 1024
-                        else self.max_model_len
-                    )
+                    if get_standalone_interface_config().context_length_size == -1:
+                        max_model_len = (
+                            128 * 1024
+                            if self.max_model_len < 128 * 1024
+                            else self.max_model_len
+                        )
                 else:
                     if self.gpu_type == "A100":
                         gpu_utilization = 0.90
