@@ -12,6 +12,7 @@ import sys
 import shutil
 import torch
 import logging
+from configuration import get_standalone_interface_config
 from globalvariables import (
     Models,
     GPU_MODEL_SET,
@@ -166,7 +167,9 @@ def get_max_model_len(model_name):
     ValueError
         If the model name is unknown
     """
-    if model_name in GPU_MODEL_SET:
+    if get_standalone_interface_config().context_length_size != -1:
+        return get_standalone_interface_config().context_length_size * 1024
+    elif model_name in GPU_MODEL_SET:
         gpu_type = gpu_arc_type(device)
         if model_name in LARGE_MODELS:
             return 128 * 1024 if gpu_type == "A100" else 128 * 1024

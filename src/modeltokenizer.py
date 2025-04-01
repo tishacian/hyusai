@@ -10,6 +10,7 @@ import torch
 from huggingface_hub import hf_hub_download, list_repo_files
 from transformers import AutoTokenizer
 from vllm import LLM
+
 from configuration import get_standalone_interface_config
 from globalvariables import (
     CPU_MODEL_SET,

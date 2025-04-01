@@ -24,6 +24,7 @@ from typing import Tuple
 
 from cache import LRUCache
 from chunker import BM25Retriever, cache_chunker_embedding_chain
+from configuration import get_standalone_interface_config
 from contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from conversationmemorybuffer import ConversationMemoryBuffer
 from embedding import EmbeddingModelLoader
