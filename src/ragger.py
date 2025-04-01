@@ -559,7 +559,7 @@ else:
     st.session_state.pipeline_type = pipeline_type
 
 if "model_name" not in st.session_state:
-    st.session_state.model_name = Models[0]
+    st.session_state.model_name = device_default_model()
 if "chunking_method" not in st.session_state:
     st.session_state.chunking_name = ChunkingMethod[0]
 if "index_type" not in st.session_state:
