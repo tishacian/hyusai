@@ -33,8 +33,7 @@ RUN pip install --upgrade pip \
         pip install vllm; \
     else \
         echo "Installing CPU requirements..."; \
-        pip install -r requirements/requirements_cpu.txt; \
-        pip install vllm; \
+        pip install -r requirements/shared.txt -r requirements/cpu.txt -r requirements/standalone_interface.txt; \
     fi
 RUN pip install "unstructured[all-docs]"
 
