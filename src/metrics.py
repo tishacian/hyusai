@@ -230,7 +230,7 @@ async def coherence(generated_text, embedding_model):
         for i in range(len(sentences) - 1)
     ]
     coherence_value = sum(coherence_scores) / (len(coherence_scores) + 1e-8)
-    return coherence_value
+    return float(coherence_value)
 
 
 # computes relevance
@@ -476,7 +476,7 @@ async def correctness(generated_text, reference_text, embedding_model):
     # Combine scores (you can adjust the weights as needed)
     correctness_score = 0.5 * semantic_score + 0.5 * key_info_score
 
-    return correctness_score
+    return float(correctness_score)
 
 
 # computes hallucination metric
@@ -580,7 +580,7 @@ async def Advance_HHEM(
         * relevance_score
     ) / (1 + mean_similarity_score * factuality_score + 1e-8)
 
-    return advanced_hhem_score
+    return float(advanced_hhem_score)
 
 
 async def Evaluatrix(
