@@ -29,13 +29,11 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN pip install --upgrade pip \
     && if [ "$DEVICE" = "gpu" ]; then \
         echo "Installing GPU requirements..."; \
-        pip install -r requirements/requirements_gpu.txt; \
-        pip install vllm; \
+        pip install -r requirements/shared.txt -r requirements/gpu.txt -r requirements/standalone_interface.txt; \
     else \
         echo "Installing CPU requirements..."; \
         pip install -r requirements/shared.txt -r requirements/cpu.txt -r requirements/standalone_interface.txt; \
     fi
-RUN pip install "unstructured[all-docs]"
 
 EXPOSE 8509
 

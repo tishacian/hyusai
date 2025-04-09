@@ -76,7 +76,7 @@ fi
 # -- Check for CUDA (assuming nvidia-smi for CUDA detection)
 if command -v nvidia-smi &> /dev/null; then
     echo "CUDA detected. Installing GPU requirements..."
-    pip install -r requirements/requirements_gpu.txt
+    pip install -r requirements/shared.txt -r requirements/gpu.txt -r requirements/standalone_interface.txt
 else
     echo "CUDA not detected. Installing CPU requirements..."
     pip install -r requirements/shared.txt -r requirements/cpu.txt -r requirements/standalone_interface.txt

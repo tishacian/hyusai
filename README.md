@@ -34,10 +34,10 @@ The arrangment of files in the RAGGER folder
 ├── 📜 install.sh
 ├── 📜 main.py
 ├── 📂 requirements
-│   ├── 📄 cpu.txt
 │   ├── 📄 shared.txt
-│   ├── 📄 standalone_interface.txt
-│   └── 📄 requirements_gpu.txt
+│   ├── 📄 gpu.txt
+│   ├── 📄 cpu.txt
+│   └── 📄 standalone_interface.txt
 ├── 📂 src
 │   ├── 📜 __init__.py
 │   ├── 📜 cache.py
