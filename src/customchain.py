@@ -5,6 +5,9 @@ import re
 
 # --
 import warnings
+
+if torch.cuda.is_available():
+    from vllm import SamplingParams
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 
@@ -13,6 +16,7 @@ import numpy as np
 import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
+from sentence_transformers import SentenceTransformer
 from vllm import SamplingParams
 
 warnings.simplefilter(action="ignore", category=FutureWarning)

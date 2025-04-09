@@ -5,11 +5,8 @@ import sys
 from functools import lru_cache, wraps
 from typing import Optional
 
-import psutil
 import torch
-from huggingface_hub import hf_hub_download, list_repo_files
 from transformers import AutoTokenizer
-from vllm import LLM
 
 from configuration import get_backend_config, get_standalone_interface_config
 from globalvariables import (
@@ -29,7 +26,11 @@ logging.basicConfig(
 os.environ["VLLM_ALLOW_LONG_MAX_MODEL_LEN"] = "1"
 gpu_available = True if torch.cuda.is_available() else False
 if not gpu_available:
+    from huggingface_hub import hf_hub_download, list_repo_files
     from llama_cpp import Llama
+else:
+    import psutil
+    from vllm import LLM
 
 
 class LlamaCppServer:

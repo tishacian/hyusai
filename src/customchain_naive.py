@@ -10,7 +10,8 @@ from langchain_community.vectorstores import Chroma
 # --
 import warnings
 import asyncio
-from vllm import SamplingParams
+if torch.cuda.is_available():
+    from vllm import SamplingParams
 from functools import lru_cache
 
 from sentence_transformers import SentenceTransformer

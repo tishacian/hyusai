@@ -1,23 +1,25 @@
-import sys
 import logging
-from tqdm import tqdm
-from typing import List
-from globalvariables import OCRConfig
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from langchain_core.documents import Document
-from customdocloader import MyEmlLoader, OCRPDFLoader
+from typing import List
+
 from langchain_community.document_loaders import (
     CSVLoader,
+    Docx2txtLoader,
     EverNoteLoader,
     PyMuPDFLoader,
     TextLoader,
-    Docx2txtLoader,
     UnstructuredEPubLoader,
     UnstructuredHTMLLoader,
     UnstructuredMarkdownLoader,
     UnstructuredODTLoader,
     UnstructuredPowerPointLoader,
 )
+from langchain_community.documents import Document
+from tqdm import tqdm
+
+from customdocloader import MyEmlLoader, OCRPDFLoader
+from globalvariables import OCRConfig
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -111,9 +113,7 @@ def loadSingleDocument(file_path: str) -> str:
             result = loader.load()
 
             if not result:
-                logging.warning(
-                    f"Warning: No content extracted from {file_path}"
-                )
+                logging.warning(f"Warning: No content extracted from {file_path}")
                 return ""
 
             page_content = [
@@ -123,9 +123,7 @@ def loadSingleDocument(file_path: str) -> str:
             ]
 
             if not page_content:
-                logging.warning(
-                    f"Warning: No valid page content in {file_path}"
-                )
+                logging.warning(f"Warning: No valid page content in {file_path}")
                 return ""
 
             document = " \n".join(page_content)
@@ -159,8 +157,7 @@ def ThreadMultiDocLoader(
     results = []
     with ThreadPoolExecutor() as executor:
         future_to_file = {
-            executor.submit(loadSingleDocument, file): file
-            for file in filtered_files
+            executor.submit(loadSingleDocument, file): file for file in filtered_files
         }
         with tqdm(
             total=len(filtered_files), desc="Loading new documents", ncols=80
