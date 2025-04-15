@@ -20,6 +20,8 @@ from globalvariables import (
     LARGE_MODELS,
 )
 
+os.environ["TESSDATA_PREFIX"] = os.path.expanduser("~/.local/share/tessdata")
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
