@@ -101,4 +101,32 @@ pip install "unstructured[all-docs]"
 pip install tesserocr
 pip install pytesseract
 
-echo "Installation complete."
+# -- installing tesseract language datasets..
+LANGUAGES="eng fra deu spa ita por chi_sim chi_tra jpn kor ara rus"
+USER_TESSDATA="$HOME/.local/share/tessdata"
+mkdir -p "$USER_TESSDATA"
+
+echo "Installing language files to $USER_TESSDATA"
+for lang in $LANGUAGES; do
+    echo "Downloading $lang.traineddata..."
+    if command -v wget &>/dev/null; then
+        wget -q -O "$USER_TESSDATA/$lang.traineddata" "https://github.com/tesseract-ocr/tessdata/raw/main/$lang.traineddata"
+    elif command -v curl &>/dev/null; then
+        curl -s -L -o "$USER_TESSDATA/$lang.traineddata" "https://github.com/tesseract-ocr/tessdata/raw/main/$lang.traineddata"
+    else
+        echo "Neither wget nor curl found. Please install one of them."
+        exit 1
+    fi
+    
+    [ -f "$USER_TESSDATA/$lang.traineddata" ] && echo "✓ $lang" || echo "✗ $lang failed"
+done
+
+export TESSDATA_PREFIX="$USER_TESSDATA"
+RC_FILE="$HOME/.bashrc"
+if [[ -f "$RC_FILE" ]]; then
+    grep -q "TESSDATA_PREFIX" "$RC_FILE" || echo "export TESSDATA_PREFIX=\"$USER_TESSDATA\"" >> "$RC_FILE"
+    echo "Environment variable set in $RC_FILE"
+fi
+
+echo "Installation complete. TESSDATA_PREFIX=$USER_TESSDATA"
+echo "Installation complete..All packages installed"
