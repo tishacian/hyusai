@@ -101,7 +101,7 @@ class PDFExtractor:
         self.dpi_scale = 150 / 72
         self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
         self._ocr_cache = {}
-        self.lang = "eng+fra"
+        self.lang = "eng+fra+deu+spa+ita+por+kor+ara"  # <-- add here based on requirements
 
         if self.use_ocr:
             try:
