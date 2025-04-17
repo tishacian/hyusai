@@ -102,7 +102,7 @@ pip install tesserocr
 pip install pytesseract
 
 # -- installing tesseract language datasets..
-LANGUAGES="eng fra deu spa ita por chi_sim chi_tra jpn kor ara rus"
+LANGUAGES="eng fra deu spa ita por kor ara"
 USER_TESSDATA="$HOME/.local/share/tessdata"
 mkdir -p "$USER_TESSDATA"
 
