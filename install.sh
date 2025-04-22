@@ -98,6 +98,12 @@ else
 fi
 # -- run installation for "unstructured[all-docs]"
 pip install "unstructured[all-docs]"
+
+if [[ "$PACKAGE_MANAGER" == "brew" ]]; then
+    brew install tesseract
+elif [[ "$PACKAGE_MANAGER" == "apt" ]]; then
+    sudo apt install tesseract-ocr
+fi
 pip install tesserocr
 pip install pytesseract
 
