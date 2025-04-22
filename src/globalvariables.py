@@ -2,6 +2,8 @@ import os
 from enum import Enum, StrEnum
 from pathlib import Path
 
+from configuration import get_backend_config
+
 # %% Directory
 
 REPO_PATH = Path(__file__).parent.parent
@@ -412,6 +414,6 @@ class PipelineType(StrEnum):
 
 
 class OCRConfig(Enum):
-    USE_OCR = True
+    USE_OCR = get_backend_config().disable_ocr_for_pdf
     OCR_DPI = 150
-    FORCE_OCR = True
+    FORCE_OCR = get_backend_config().force_ocr_on_all_pdf

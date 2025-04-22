@@ -14,6 +14,21 @@ Note that the default values in this document are those set on python side. They
     - If True, the service will be accessible through a customizable RAG webapp.
     - By default `True`
 
+### Backend
+
+- `CONTEXT_LENGTH_SIZE` (int)
+    - Force the value of the context length size to the provided value. 
+    If you encounter issues in the RAG answers like too long answers with repetition, consider tuning this parameter down (8 for example).
+    If `-1`, the context length size will be infered using heuristics.
+    - By default `-1`
+- `DISABLE_OCR_FOR_PDF` (bool)
+    - If True, OCR won't be available when processing PDF documents.
+    - By default `False`
+- `FORCE_OCR_ON_ALL_PDF` (bool)
+    - If True, OCR will be applied to all PDF documents, even text-based documents, ignoring the digital text content.
+    `disable_ocr_for_pdf` is expected to be `False` when using this variable.
+    - By default `False`
+
 ### Standalone Interface
 
 Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
@@ -47,8 +62,3 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
 - `DEFAULT_GPU_MODEL` (str)
     - Default GPU model.
     - By default `"neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"`
-- `CONTEXT_LENGTH_SIZE` (int)
-    - Force the value of the context length size to the provided value. 
-    If you encounter issues in the RAG answers like too long answers with repetition, consider tuning this parameter down (8 for example).
-    If `-1`, the context length size will be infered using heuristics.
-    - By default `-1`

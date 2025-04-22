@@ -11,7 +11,7 @@ from huggingface_hub import hf_hub_download, list_repo_files
 from transformers import AutoTokenizer
 from vllm import LLM
 
-from configuration import get_standalone_interface_config
+from configuration import get_backend_config, get_standalone_interface_config
 from globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
@@ -326,7 +326,7 @@ class CachedLLM:
                         gpu_utilization = 0.75
                         tensor_parallel = torch.cuda.device_count()
 
-                    if get_standalone_interface_config().context_length_size == -1:
+                    if get_backend_config().context_length_size == -1:
                         max_model_len = (
                             128 * 1024
                             if self.max_model_len < 128 * 1024
