@@ -38,6 +38,7 @@ from ragger_css import (
     FILE_UPLOADER,
     HEADER_METRICS,
     SELECT_INPUT_STYLE,
+    THINKING_SPINNER,
 )
 
 # -- device available model
