@@ -1,0 +1,32 @@
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments and env files
+venv/
+.env/
+
+# Version control
+.git/
+.gitignore
+
+# OS and IDE files
+.DS_Store
+.idea/
+.vscode/
+
+# Logs and temp files
+*.log
+*.swp
+*~
+
+# Generated data and downloaded models
+vector_store/
+chat_history.db
+src/models/
+
+# Unnecessary code
+benchmarking/
+install.sh
