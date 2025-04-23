@@ -9,6 +9,7 @@ torch
 scikit-learn
 nltk
 # document ingestion
+pytesseract             # OCR
 unstructured[all-docs]  # document loaders
 docx2txt
 pymupdf
