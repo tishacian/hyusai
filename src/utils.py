@@ -22,7 +22,16 @@ from globalvariables import (
     LARGE_MODELS,
 )
 
-os.environ["TESSDATA_PREFIX"] = os.path.expanduser("~/.local/share/tessdata")
+user_tessdata = os.path.expanduser("~/.local/share/tessdata")
+if (
+    os.path.isdir(user_tessdata) and 
+    any(f.endswith(".traineddata") for f in os.listdir(user_tessdata))
+):
+    os.environ["TESSDATA_PREFIX"] = user_tessdata
+else:
+    # alternative destination for tessdata
+    os.environ["TESSDATA_PREFIX"] = "/usr/share/tesseract-ocr/5/tessdata/"
+
 
 logging.basicConfig(
     stream=sys.stdout,
