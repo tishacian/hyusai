@@ -15,7 +15,6 @@ from langchain_community.document_loaders import (
     UnstructuredODTLoader,
     UnstructuredPowerPointLoader,
 )
-from langchain_community.documents import Document
 from tqdm import tqdm
 
 from customdocloader import MyEmlLoader, OCRPDFLoader

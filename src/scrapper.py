@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-from global_variables import DATA_PATH
+from globalvariables import DATA_PATH
 
 # %% Download domain names from wiki tables
 
