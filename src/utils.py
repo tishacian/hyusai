@@ -12,6 +12,7 @@ import sys
 import shutil
 import torch
 import logging
+from functools import cache
 from configuration import get_backend_config
 from globalvariables import (
     Models,
@@ -31,7 +32,7 @@ logging.basicConfig(
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-
+@cache
 def configure_tesseract():
     """Configure Tesseract OCR and determine if its available.
 
