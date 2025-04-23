@@ -137,7 +137,7 @@ def loadSingleDocument(file_path: str) -> str:
 
 def ThreadMultiDocLoader(
     file_paths: List[str], ignored_files: List[str] = []
-) -> List[Document]:
+) -> str:
     """Threaded multi-document loader
 
     Parameters
@@ -147,7 +147,7 @@ def ThreadMultiDocLoader(
 
     Returns
     -------
-    List[Document]: Document string.
+    str: Document string.
     """
     filtered_files = [
         file_path for file_path in file_paths if file_path not in ignored_files
@@ -171,5 +171,5 @@ def ThreadMultiDocLoader(
                     logging.error(f"🚩 Error loading document {file}: {e}")
                 pbar.update()
 
-    document = results
+    document = "".join(results)
     return document
