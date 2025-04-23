@@ -6,6 +6,7 @@ __pycache__/
 
 # Virtual environments and env files
 venv/
+.venv/
 .env/
 
 # Version control
