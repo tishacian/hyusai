@@ -442,15 +442,16 @@ if get_standalone_interface_config().forced_vdb == "None":
                     value=st.session_state.get("new_vs_name", "New_vector_store_name"),
                     help=HELP["new_vector_store"],
                 )
-            with row_be[2]:
-                pipeline_type = st.selectbox(
-                    "Pipeline",
-                    PIPELINE_TYPES,
-                    index=PIPELINE_TYPES.index(
-                        st.session_state.get("pipeline_type", PipelineType.HAH)
-                    ),
-                    help="Select the pipeline implementation to use",
-                )
+            if not get_standalone_interface_config().hide_rag_params_config:
+                with row_be[2]:
+                    pipeline_type = st.selectbox(
+                        "Pipeline",
+                        PIPELINE_TYPES,
+                        index=PIPELINE_TYPES.index(
+                            st.session_state.get("pipeline_type", PipelineType.HAH)
+                        ),
+                        help="Select the pipeline implementation to use",
+                    )
             # --
             row_buttons = st.columns(6)
             with row_buttons[0]:
