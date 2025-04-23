@@ -11,10 +11,10 @@ class StandaloneInterface(BaseSettings):
     page_icon: str = "🦙"
     """The page favicon."""
 
-    page_title: str = "RAGGER"
+    page_title: str = "OmniRAG"
     """The page title."""
 
-    header_title: str = "RAGGER"
+    header_title: str = "OmniRAG"
     """The header title."""
 
     ai_chat_logo: str = str((image_path / "datategy_logo.png").resolve())

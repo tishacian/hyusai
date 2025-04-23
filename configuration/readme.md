@@ -43,8 +43,11 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
     For example, icon=":material/thumb_up:" will display the Thumb Up icon. Find additional icons in the Material Symbols font library.
     - By default `"https://media.glassdoor.com/sql/3258770/datategy-squarelogo-1664441768173.png"`
 - `PAGE_TITLE` (str)
-    - The page title..
-    - By default `"RAGGER"`
+    - The page title.
+    - By default `"OmniRAG"`
+- `PAGE_TITLE` (str)
+    - The header title.
+    - By default `"OmniRAG"`
 - `AI_CHAT_LOGO` (str)
     - Path of the AI chatbot logo in the chat.
     - By default `"image/datategy_logo.png"`
