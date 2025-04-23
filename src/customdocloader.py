@@ -245,7 +245,7 @@ class PDFExtractor:
             pages_needing_ocr = None
             if not force_ocr:
                 pages_needing_ocr = []
-                for page_num, page in enumerate(doc, 1):
+                for page_num, page in enumerate(doc):
                     page_idx = page_num + 1
                     try:
                         text = page.get_text("text")
