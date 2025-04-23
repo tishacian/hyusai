@@ -22,6 +22,7 @@ from langchain_community.docstore.document import Document
 from langchain_community.document_loaders import UnstructuredEmailLoader
 from PIL import Image, ImageEnhance
 
+from src.globalvariables import OCRConfig
 from utils import get_tesseract_path
 
 logging.basicConfig(
@@ -102,9 +103,7 @@ class PDFExtractor:
         self.dpi_scale = 150 / 72
         self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
         self._ocr_cache = {}
-        self.lang = (
-            "eng+fra+deu+spa+ita+por+kor+ara"  # <-- add here based on requirements
-        )
+        self.lang = "+".join(OCRConfig.LANGS.value)
 
         if self.use_ocr:
             try:

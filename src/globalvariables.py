@@ -417,3 +417,4 @@ class OCRConfig(Enum):
     USE_OCR = not get_backend_config().disable_ocr_for_pdf
     OCR_DPI = 150
     FORCE_OCR = get_backend_config().force_ocr_on_all_pdf
+    LANGS = os.getenv("LANGS", "eng fra deu spa ita por kor ara").split(" ")
