@@ -13,7 +13,6 @@ import shutil
 import torch
 import logging
 from functools import cache
-from configuration import get_backend_config
 from globalvariables import (
     Models,
     GPU_MODEL_SET,
@@ -116,6 +115,8 @@ def get_tesseract_path():
         "/workspace/bin/tesseract",
         "/workspace/.local/bin/tesseract",
         "/snap/bin/tesseract",
+        os.path.expanduser("~/.local/bin/tesseract"),
+        os.path.expanduser("~/tesseract/bin/tesseract"),
     ]
 
     for path in possible_paths:
@@ -129,12 +130,12 @@ def get_tesseract_path():
 
 def gpu_arc_type(device):
     """
-    Detect GPU type (A100 vs L40S)
+    Detect GPU type (A100, H100, L40S)
 
     Returns
     -------
     str
-        'A100', 'L40S', or 'other'
+        'A100', 'H100', 'L40S', or 'other'
     """
     try:
         if not device == "cuda":
@@ -143,7 +144,9 @@ def gpu_arc_type(device):
         device_props = torch.cuda.get_device_properties(0)
         device_name = device_props.name
 
-        if "A100" in device_name:
+        if "H100" in device_name:
+            return "H100"
+        elif "A100" in device_name:
             return "A100"
         elif "L40S" in device_name:
             return "L40S"
@@ -151,7 +154,7 @@ def gpu_arc_type(device):
             total_memory_gb = device_props.total_memory / (1024**3)
 
             if total_memory_gb >= 80:
-                return "A100"
+                return "H100" if "H100" in device_name else "A100"
             elif total_memory_gb >= 48:
                 return "L40S"
             else:
@@ -161,11 +164,17 @@ def gpu_arc_type(device):
         return "other"
 
 
-def get_max_model_len(model_name):
+def get_max_model_len(model_name, max_model_len: int = None) -> int:
     """Get maximum context length for each model
 
-    Automatically detects GPU type (A100 vs L40S) and adjusts context lengths
+    Automatically detects GPU type (A100, H100, L40S) and adjusts context lengths
     for optimal performance and stability.
+
+    Parameters
+    -----------
+    model_name (str): model name
+    max_model_len (int): maximum model length.
+                        Default is None.
 
     Returns
     -------
@@ -177,28 +186,30 @@ def get_max_model_len(model_name):
     ValueError
         If the model name is unknown
     """
-    if get_backend_config().context_length_size != -1:
-        return get_backend_config().context_length_size * 1024
-    elif model_name in GPU_MODEL_SET:
-        gpu_type = gpu_arc_type(device)
-        if model_name in LARGE_MODELS:
-            return 128 * 1024 if gpu_type == "A100" else 128 * 1024
-        elif model_name in [Models.LLAMA3_8B, Models.LLAMA3_70B]:
-            return 128 * 1024 if gpu_type == "A100" else 128 * 1024
-        elif model_name in [Models.LLAMA2_7B, Models.LLAMA2_13B]:
-            return 4 * 1024 if gpu_type == "A100" else 4 * 1024
-        elif model_name == Models.TINYLLAMA:
-            return 2 * 1024 if gpu_type == "A100" else 2 * 1024
-        elif model_name == Models.GEMMA2:
-            return 32 * 1024 if gpu_type == "A100" else 32 * 1024
-        elif model_name == [
-            Models.MISTRAL_SMALL,
-            Models.MISTRAL_LARGE,
-        ]:
-            return 32 * 1024 if gpu_type == "A100" else 32 * 1024
-    elif model_name in CPU_MODEL_SET:
-        if model_name == CPUModels.LLAMA32_3B_INSTRUCT:
-            return 128 * 1024
-        return 1024
+    if not max_model_len:
+        if model_name in GPU_MODEL_SET:
+            gpu_type = gpu_arc_type(device)
+            if model_name in LARGE_MODELS:
+                return (
+                    128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
+                )
+            elif model_name in [Models.LLAMA3_8B, Models.LLAMA3_70B]:
+                return (
+                    128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
+                )
+            elif model_name in [Models.LLAMA2_7B, Models.LLAMA2_13B]:
+                return 4 * 1024 if gpu_type in ["A100", "H100"] else 4 * 1024
+            elif model_name == Models.TINYLLAMA:
+                return 2 * 1024 if gpu_type in ["A100", "H100"] else 2 * 1024
+            elif model_name == Models.GEMMA2:
+                return 32 * 1024 if gpu_type in ["A100", "H100"] else 32 * 1024
+            elif model_name in [Models.MISTRAL_SMALL, Models.MISTRAL_LARGE]:
+                return 32 * 1024 if gpu_type in ["A100", "H100"] else 32 * 1024
+        elif model_name in CPU_MODEL_SET:
+            if model_name == CPUModels.LLAMA32_3B_INSTRUCT:
+                return 128 * 1024
+            return 1024
+        else:
+            raise ValueError(f"Error: Unknown model name {model_name}")
     else:
-        raise ValueError(f"Error: Unknown model name {model_name}")
+        return max_model_len * 1024
