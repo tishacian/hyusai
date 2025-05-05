@@ -39,7 +39,7 @@ logging.basicConfig(
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-
+    
 @cache
 def configure_tesseract():
     """Configure Tesseract OCR and determine if its available.
