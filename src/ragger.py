@@ -850,4 +850,7 @@ if not df.empty:
 # Add a button to clear chat history
 if st.button("Clear Chat History"):
     st.session_state.chat_history.clear()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
     st.rerun()
