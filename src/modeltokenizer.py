@@ -15,6 +15,7 @@ from globalvariables import (
     DEFAULT_CPU_TOKENIZER,
     GPU_MODEL_SET,
     LARGE_MODELS,
+    MAX_MODEL_LEN,
 )
 from utils import get_max_model_len, gpu_arc_type
 
@@ -286,12 +287,12 @@ class CachedLLM:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model_name = model_name
         self.is_large_model = self.model_name in LARGE_MODELS
-        self.max_model_len = get_max_model_len(self.model_name)
+        self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.gpu_type = gpu_arc_type(self.device)
 
     def _load_gpu_model(self):
         """!IMPORTANT
-        Load model for GPU inference with optimizations for A100 and L40S GPUs
+        Load model for GPU inference with optimizations for A100, H100 and L40S GPUs
 
         On RoPE scaling
         ---------------
@@ -304,8 +305,8 @@ class CachedLLM:
         Types: "linear", "yarn", "dynamic", "ntk", "hybrid", "llama3". "dynamic" and "llama3" are best suited for most applications.
 
         NOTE:
-            For "dynamic": Maximum concurrency for 131072 tokens per request: 2.21x
-            For "llama3": Maximum concurrency for 131072 tokens per request: 2.23x (faster)
+            For "dynamic": Maximum concurrency for 131072 tokens per request: 2.21x on A100;
+            For "llama3": Maximum concurrency for 131072 tokens per request: 2.23x (faster) on A100; >=4x faster for both on H100
         """
         if self.model_name not in self._model_instances:
             logging.info(f"Loading GPU model: {self.model_name}")
@@ -317,7 +318,10 @@ class CachedLLM:
                 swap_space = max(1, int(available_ram_gb))
 
                 if self.is_large_model:
-                    if self.gpu_type == "A100":
+                    if self.gpu_type == "H100":
+                        gpu_utilization = 0.98
+                        tensor_parallel = min(torch.cuda.device_count(), 8)
+                    elif self.gpu_type == "A100":
                         gpu_utilization = 0.95
                         tensor_parallel = min(torch.cuda.device_count(), 8)
                     elif self.gpu_type == "L40S":
@@ -327,16 +331,11 @@ class CachedLLM:
                         gpu_utilization = 0.75
                         tensor_parallel = torch.cuda.device_count()
 
-                    if get_backend_config().context_length_size == -1:
-                        max_model_len = (
-                            128 * 1024
-                            if self.max_model_len < 128 * 1024
-                            else self.max_model_len
-                        )
-                    else:
-                        max_model_len = self.max_model_len
                 else:
-                    if self.gpu_type == "A100":
+                    if self.gpu_type == "H100":
+                        gpu_utilization = 0.95
+                        tensor_parallel = min(torch.cuda.device_count(), 8)
+                    elif self.gpu_type == "A100":
                         gpu_utilization = 0.90
                         tensor_parallel = min(torch.cuda.device_count(), 8)
                     elif self.gpu_type == "L40S":
@@ -346,12 +345,10 @@ class CachedLLM:
                         gpu_utilization = 0.80
                         tensor_parallel = torch.cuda.device_count()
 
-                    max_model_len = self.max_model_len
-
                 kwargs = {
                     "model": self.model_name,
                     "tensor_parallel_size": tensor_parallel,
-                    "max_model_len": max_model_len,
+                    "max_model_len": self.max_model_len,
                     "trust_remote_code": True,
                     "gpu_memory_utilization": gpu_utilization,
                     "enforce_eager": False,
