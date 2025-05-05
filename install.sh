@@ -7,22 +7,32 @@ IS_WSL=false
 
 if [[ "$OS_TYPE" == "Darwin" ]]; then
     echo "OS detected: macOS"
+    PLATFORM="Darwin"
     PACKAGE_MANAGER="brew"
 elif [[ "$OS_TYPE" == "Linux" ]]; then
     if grep -qi microsoft /proc/version; then
         echo "OS detected: Windows Subsystem for Linux (WSL)"
         IS_WSL=true
+        PLATFORM="Linux"
     else
         echo "OS detected: Linux"
+        PLATFORM="Linux"
     fi
     PACKAGE_MANAGER="apt"
 else
     echo "OS detected: Windows (assuming Git Bash or WSL)"
     IS_WINDOWS=true
+    PLATFORM="Windows"
     PACKAGE_MANAGER="choco"
 fi
 
-# install Python 3.11
+# Exit if platform not supported
+if [[ "$PLATFORM" != "Windows" && "$PLATFORM" != "Darwin" && "$PLATFORM" != "Linux" ]]; then
+    echo "Unsupported platform: $PLATFORM"
+    exit 1
+fi
+
+# Install Python 3.11
 install_python() {
     if [[ "$IS_WINDOWS" == true ]]; then
         echo "Checking for Chocolatey..."
@@ -73,32 +83,24 @@ else
     source .venv/bin/activate
 fi
 
+# Install core requirements from requirements.txt
+echo "Installing core requirements..."
+pip install -r requirements/requirements.txt
+
 # -- Check for CUDA (assuming nvidia-smi for CUDA detection)
 if command -v nvidia-smi &> /dev/null; then
-    echo "CUDA detected. Installing GPU requirements..."
-    pip install -r requirements/requirements_gpu.txt
+    echo "CUDA detected. Installing GPU-specific packages..."
+    pip install vllm psutil
 else
-    echo "CUDA not detected. Installing CPU requirements..."
-    if [[ "$OS_TYPE" == "Darwin" || "$IS_WINDOWS" == true ]]; then
-        echo "Running on macOS or Windows. Skipping incompatible packages like vLLM..."
-        # Create a filtered requirements file without vLLM if running on macOS or Windows
-        grep -v "vllm==" requirements/requirements_cpu.txt > temp_requirements.txt
-        pip install -r temp_requirements.txt
-        pip install vllm
-        rm temp_requirements.txt
-    else
-        echo "Attempting to install all requirements including vLLM..."
-        pip install -r requirements/requirements_cpu.txt || {
-            echo "vLLM installation failed. Trying to install without vLLM..."
-            grep -v "vllm==" requirements/requirements_cpu.txt > temp_requirements.txt
-            pip install -r temp_requirements.txt
-            rm temp_requirements.txt
-        }
-    fi
+    echo "CUDA not detected. Installing CPU-specific packages..."
+    pip install llama_cpp_python huggingface-hub
 fi
-# -- run installation for "unstructured[all-docs]"
+
+# Install additional requirements for document processing
+echo "Installing document processing requirements..."
 pip install "unstructured[all-docs]"
 
+# Install Tesseract OCR
 if [[ "$PACKAGE_MANAGER" == "brew" ]]; then
     brew install tesseract
 elif [[ "$PACKAGE_MANAGER" == "apt" ]]; then
@@ -127,9 +129,18 @@ for lang in $LANGUAGES; do
     [ -f "$USER_TESSDATA/$lang.traineddata" ] && echo "✓ $lang" || echo "✗ $lang failed"
 done
 
+# Set environment variables
 export TESSDATA_PREFIX="$USER_TESSDATA"
-RC_FILE="$HOME/.bashrc"
-if [[ -f "$RC_FILE" ]]; then
+
+# Add environment variable to shell profile
+RC_FILE=""
+if [[ "$PLATFORM" == "Darwin" ]]; then
+    RC_FILE="$HOME/.bash_profile"
+elif [[ "$PLATFORM" == "Linux" ]]; then
+    RC_FILE="$HOME/.bashrc"
+fi
+
+if [[ -n "$RC_FILE" && -f "$RC_FILE" ]]; then
     grep -q "TESSDATA_PREFIX" "$RC_FILE" || echo "export TESSDATA_PREFIX=\"$USER_TESSDATA\"" >> "$RC_FILE"
     echo "Environment variable set in $RC_FILE"
 fi
