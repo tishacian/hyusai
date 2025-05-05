@@ -8,7 +8,7 @@ from typing import Optional
 import torch
 from transformers import AutoTokenizer
 
-from configuration import get_backend_config, get_standalone_interface_config
+from configuration import get_standalone_interface_config
 from globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
@@ -489,5 +489,7 @@ def load_model_and_tokenizer(model_name: str, abs_path: str):
 
         return model, tokenizer
     except Exception as e:
-        logging.error(f"Failed to load model or tokenizer for {model_name}: {e}")
+        logging.error(
+            f"Failed to load model or tokenizer for {model_name}: {e}"
+        )
         return None, None
