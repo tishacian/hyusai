@@ -350,7 +350,7 @@ class CachedLLM:
                     "tensor_parallel_size": tensor_parallel,
                     "max_model_len": self.max_model_len,
                     "trust_remote_code": True,
-                    "gpu_memory_utilization": gpu_utilization,
+                    "gpu_memory_utilization": gpu_utilization,  # <-- Too high values may cause "Cache issues", OOM Error. Lowers values are preferred.
                     "enforce_eager": False,
                     "swap_space": swap_space,
                 }
