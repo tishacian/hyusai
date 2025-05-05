@@ -71,6 +71,7 @@ EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"
 
 SINGLE_FILE = 1  # single files
 RANDOM_SEED = 42
+MAX_MODEL_LEN: int = None  # <-- switch maximum model length here. 64 -> Llama3-70; 128 -> Llama3-8b
 
 # %% reasoning types
 
