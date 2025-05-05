@@ -22,9 +22,8 @@ from globalvariables import (
 )
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
-if (
-    os.path.isdir(user_tessdata) and 
-    any(f.endswith(".traineddata") for f in os.listdir(user_tessdata))
+if os.path.isdir(user_tessdata) and any(
+    f.endswith(".traineddata") for f in os.listdir(user_tessdata)
 ):
     os.environ["TESSDATA_PREFIX"] = user_tessdata
 else:
@@ -39,6 +38,7 @@ logging.basicConfig(
 )
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 @cache
 def configure_tesseract():

@@ -112,7 +112,9 @@ def loadSingleDocument(file_path: str) -> str:
             result = loader.load()
 
             if not result:
-                logging.warning(f"Warning: No content extracted from {file_path}")
+                logging.warning(
+                    f"Warning: No content extracted from {file_path}"
+                )
                 return ""
 
             page_content = [
@@ -122,7 +124,9 @@ def loadSingleDocument(file_path: str) -> str:
             ]
 
             if not page_content:
-                logging.warning(f"Warning: No valid page content in {file_path}")
+                logging.warning(
+                    f"Warning: No valid page content in {file_path}"
+                )
                 return ""
 
             document = " \n".join(page_content)
@@ -156,7 +160,8 @@ def ThreadMultiDocLoader(
     results = []
     with ThreadPoolExecutor() as executor:
         future_to_file = {
-            executor.submit(loadSingleDocument, file): file for file in filtered_files
+            executor.submit(loadSingleDocument, file): file
+            for file in filtered_files
         }
         with tqdm(
             total=len(filtered_files), desc="Loading new documents", ncols=80
