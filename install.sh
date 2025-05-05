@@ -76,10 +76,25 @@ fi
 # -- Check for CUDA (assuming nvidia-smi for CUDA detection)
 if command -v nvidia-smi &> /dev/null; then
     echo "CUDA detected. Installing GPU requirements..."
-    pip install -r requirements/shared.txt -r requirements/gpu.txt -r requirements/standalone_interface.txt
+    pip install -r requirements/requirements_gpu.txt
 else
     echo "CUDA not detected. Installing CPU requirements..."
-    pip install -r requirements/shared.txt -r requirements/cpu.txt -r requirements/standalone_interface.txt
+    if [[ "$OS_TYPE" == "Darwin" || "$IS_WINDOWS" == true ]]; then
+        echo "Running on macOS or Windows. Skipping incompatible packages like vLLM..."
+        # Create a filtered requirements file without vLLM if running on macOS or Windows
+        grep -v "vllm==" requirements/requirements_cpu.txt > temp_requirements.txt
+        pip install -r temp_requirements.txt
+        pip install vllm
+        rm temp_requirements.txt
+    else
+        echo "Attempting to install all requirements including vLLM..."
+        pip install -r requirements/requirements_cpu.txt || {
+            echo "vLLM installation failed. Trying to install without vLLM..."
+            grep -v "vllm==" requirements/requirements_cpu.txt > temp_requirements.txt
+            pip install -r temp_requirements.txt
+            rm temp_requirements.txt
+        }
+    fi
 fi
 # -- run installation for "unstructured[all-docs]"
 pip install "unstructured[all-docs]"
