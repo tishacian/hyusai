@@ -36,6 +36,7 @@ from globalvariables import (
     VECTOR_STORE_PATH,
     IndexType,
     ReasoningType,
+    MAX_MODEL_LEN,
 )
 
 # -- Model evaluation
@@ -122,7 +123,7 @@ class CustomLLMChain:
             )
 
         self.index_type = index_type
-        self.max_model_len = get_max_model_len(self.model_name)
+        self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
         self.conversation_memory = ConversationMemoryBuffer(max_turns=2)
         # --initialize embedding model
