@@ -3,7 +3,6 @@ import sys
 import torch
 from streamlit.web import cli as stcli
 import warnings
-from utils import get_username_from_path
 
 
 torch.classes.__path__ = []
@@ -15,7 +14,35 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*deprecated.*")
 
-
+def get_username_from_path():
+    """Extract username from current working directory path."""
+    cwd = os.getcwd()
+    system = platform.system().lower()
+    path_parts = cwd.replace('\\', '/').split('/')
+    # -- handle different platforms
+    jupyter_user = next((part.replace('jupyter-', '') for part in path_parts 
+                        if part.startswith('jupyter-')), None)
+    if jupyter_user:
+        return jupyter_user
+    
+    if system == 'windows':
+        if 'Users' in path_parts:
+            idx = path_parts.index('Users')
+            if idx + 1 < len(path_parts):
+                return path_parts[idx + 1]
+    elif system in ['darwin', 'linux']:
+        user_dirs = ['Users', 'home']
+        for dir_name in user_dirs:
+            if dir_name in path_parts:
+                idx = path_parts.index(dir_name)
+                if idx + 1 < len(path_parts):
+                    return path_parts[idx + 1]
+    
+    try:
+        return os.getlogin()
+    except:
+        return None
+    
 if __name__ == "__main__":
     base_url_path = get_username_from_path()
 
