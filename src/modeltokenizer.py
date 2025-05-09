@@ -319,13 +319,13 @@ class CachedLLM:
 
                 if self.is_large_model:
                     if self.gpu_type == "H100":
-                        gpu_utilization = 0.98
+                        gpu_utilization = 0.80
                         tensor_parallel = min(torch.cuda.device_count(), 8)
                     elif self.gpu_type == "A100":
-                        gpu_utilization = 0.95
+                        gpu_utilization = 0.85
                         tensor_parallel = min(torch.cuda.device_count(), 8)
                     elif self.gpu_type == "L40S":
-                        gpu_utilization = 0.95
+                        gpu_utilization = 0.90
                         tensor_parallel = min(torch.cuda.device_count(), 8)
                     else:
                         gpu_utilization = 0.75
@@ -333,13 +333,13 @@ class CachedLLM:
 
                 else:
                     if self.gpu_type == "H100":
-                        gpu_utilization = 0.95
+                        gpu_utilization = 0.80
                         tensor_parallel = min(torch.cuda.device_count(), 8)
                     elif self.gpu_type == "A100":
-                        gpu_utilization = 0.90
+                        gpu_utilization = 0.85
                         tensor_parallel = min(torch.cuda.device_count(), 8)
                     elif self.gpu_type == "L40S":
-                        gpu_utilization = 0.80
+                        gpu_utilization = 0.90
                         tensor_parallel = min(torch.cuda.device_count(), 4)
                     else:
                         gpu_utilization = 0.80
