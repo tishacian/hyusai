@@ -71,7 +71,9 @@ EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"
 
 SINGLE_FILE = 1  # single files
 RANDOM_SEED = 42
-MAX_MODEL_LEN: int = None  # <-- switch maximum model length here. 64 -> Llama3-70; 128 -> Llama3-8b
+MAX_MODEL_LEN: int = (
+    None  # <-- switch maximum model length here. 64 -> Llama3-70; 128 -> Llama3-8b
+)
 
 # %% reasoning types
 
@@ -298,31 +300,92 @@ TEMPLATES = {
                                                 
                                                 Compare and contrast based on the context: [/INST]""",
     ReasoningType.CAUSAL: """[INST] You are an AI assistant specialized in causal analysis.
-                                            Analysis Steps:
-                                            1. Identify cause-effect relationships
-                                            2. Examine contributing factors
-                                            3. Analyze implications and consequences
-                                            4. Establish causal chains
-                                            
-                                            Context: {context}
-                                            
-                                            Question: {question}
+                                                Analysis Steps:
+                                                1. Identify cause-effect relationships
+                                                2. Examine contributing factors
+                                                3. Analyze implications and consequences
+                                                4. Establish causal chains
+                                                
+                                                Context: {context}
+                                                
+                                                Question: {question}
                                             
                                             Explain the causal relationships based on the context: [/INST]""",
     ReasoningType.HYPOTHETICAL: """[INST] You are an AI assistant specialized in hypothetical reasoning.
-                                            Analysis Steps:
-                                            1. Consider given conditions
-                                            2. Analyze potential scenarios
-                                            3. Evaluate implications
-                                            4. Draw reasoned conclusions
+                                                Analysis Steps:
+                                                1. Consider given conditions
+                                                2. Analyze potential scenarios
+                                                3. Evaluate implications
+                                                4. Draw reasoned conclusions
+                                                
+                                                Context: {context}
+                                                
+                                                Question: {question}
+                                                
+                                                Explore this scenario based on the context: [/INST]""",
+    ReasoningType.UNIFY_I: """[INST] You are an AI assistant specialized in providing comprehensive analysis and accurate information.
+
+                                                Analysis Framework:
+                                                1. **Initial Assessment**
+                                                   - Identify the query type (factual, analytical, comparative, causal, or hypothetical)
+                                                   - Determine core objectives and constraints
+                                                   - Extract key elements from the context
                                             
-                                            Context: {context}
+                                                2. **Information Processing**
+                                                   - Extract relevant facts and data
+                                                   - Verify factual consistency and accuracy
+                                                   - Identify relationships, patterns, and connections
+                                                   - Consider cause-effect relationships where applicable
                                             
-                                            Question: {question}
+                                                3. **Deep Analysis** (Apply relevant steps based on query type)
+                                                   - For factual queries: Focus on precise information extraction
+                                                   - For analytical queries: Break down components, examine processes
+                                                   - For comparative queries: Identify similarities, differences, advantages/disadvantages
+                                                   - For causal queries: Trace cause-effect chains, identify contributing factors
+                                                   - For hypothetical queries: Consider scenarios, evaluate implications
                                             
-                                            Explore this scenario based on the context: [/INST]""",
+                                                4. **Synthesis and Conclusion**
+                                                   - Draw evidence-based conclusions
+                                                   - Provide balanced insights
+                                                   - Address the question comprehensively
+                                                   - Present information clearly and concisely
+                                            
+                                                Context: {context}
+                                            
+                                                Question: {question}
+                                            
+                                                Based on the context provided, analyze the question using the most appropriate reasoning approach and provide a comprehensive response: [/INST]""",
+    ReasoningType.UNIFY_II: """[INST] You are an AI assistant capable of applying multiple reasoning styles to provide structured, accurate, and insightful responses.
+            
+                                                **Reasoning Framework:**
+                                                Depending on the nature of the query, apply one or more of the following reasoning approaches:
+                                                - **Factual**: Extract and verify objective facts from the context.
+                                                - **Analytical**: Break down complex problems into components and synthesize insights.
+                                                - **Comparative**: Identify and evaluate similarities and differences between entities.
+                                                - **Causal**: Explore cause-effect relationships and contributing factors.
+                                                - **Hypothetical**: Analyze scenarios based on conditional or speculative inputs.
+                                            
+                                                **Analysis Steps (Customized Based on Reasoning Type):**
+                                                1. Understand the question and identify the appropriate reasoning style(s).
+                                                2. Extract relevant information from the provided context.
+                                                3. Apply logical processes aligned with the selected reasoning approach(es).
+                                                4. Ensure factual accuracy, coherence, and clarity in the response.
+                                            
+                                                **Context:** {context}
+                                            
+                                                **Question:** {question}
+                                            
+                                                **Instructions:** Provide a well-structured response that applies the most suitable reasoning method(s) based on the context and question. Clearly explain your thought process and conclusions. [/INST]""",
 }
 
+"""Set ```DEFAULT_REASONING``` to None if you prefer using the automated ReasoningMetrics -> i.e
+(ReasoningType.FACTUAL
+ReasoningType.ANALYTICAL
+ReasoningType.COMPARATIVE
+ReasoningType.CAUSAL &
+ReasoningType.HYPOTHETICAL) otherwise, ReasoningType.UNIFY_I or ReasoningType.UNIFY_II
+"""
+DEFAULT_REASONING = ReasoningType.UNIFY_II  # <-- here
 
 # %% StrEnums
 
