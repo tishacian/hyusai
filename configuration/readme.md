@@ -65,8 +65,3 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
 - `DEFAULT_GPU_MODEL` (str)
     - Default GPU model.
     - By default `"neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"`
-- `CONTEXT_LENGTH_SIZE` (int)
-    - Force the value of the context length size to the provided value. 
-    If you encounter issues in the RAG answers like too long answers with repetition, consider tuning this parameter down (8 for example).
-    If `-1`, the context length size will be infered using heuristics.
-    - By default `-1`
