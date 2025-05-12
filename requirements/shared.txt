@@ -1,0 +1,22 @@
+# configuration
+pydantic_settings
+# data manipulation and mathematics
+numpy
+pandas
+scipy
+# deep and machine learning
+torch
+scikit-learn
+nltk
+# document ingestion
+pytesseract             # OCR
+unstructured[all-docs]  # document loaders
+docx2txt
+pymupdf
+sentence-transformers   # embedding model
+rank-bm25               # document indexer for retrival
+transformers            # tokenizer, reranking model
+# vector database
+faiss-cpu               # faiss
+weaviate-client         # weaviate
+langchain-community     # chroma + document loaders
