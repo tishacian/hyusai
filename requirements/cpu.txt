@@ -1,0 +1,2 @@
+llama_cpp_python       # cpu llm model
+huggingface-hub        # downloader for cpu llm model
