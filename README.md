@@ -78,25 +78,6 @@ Launch the webapp on localhost:
 python main.py
 ```
 
-#### Scratch installation
-Install python3.12 using [brew](https://docs.brew.sh/Installation) for MacOS for example:
-```
-brew install python@3.12
-```
-
-Create a virtual environment and install the dependencies:
-
-```
-python3.12 -m venv venv
-source venv/bin/activate
-pip install -r requirements/requirements.txt
-```
-
-Launch the webapp on localhost:
-```
-python main.py
-```
-
 ### Contribution guidelines ###
 
 The following are some guidelines on how new code should be written. Following these rules when submitting new code makes the review easier so new code can be integrated in less time.
