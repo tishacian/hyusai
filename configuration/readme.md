@@ -16,11 +16,6 @@ Note that the default values in this document are those set on python side. They
 
 ### Backend
 
-- `CONTEXT_LENGTH_SIZE` (int)
-    - Force the value of the context length size to the provided value. 
-    If you encounter issues in the RAG answers like too long answers with repetition, consider tuning this parameter down (8 for example).
-    If `-1`, the context length size will be infered using heuristics.
-    - By default `-1`
 - `DISABLE_OCR_FOR_PDF` (bool)
     - If True, OCR won't be available when processing PDF documents.
     - By default `False`
