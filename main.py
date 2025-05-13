@@ -52,7 +52,7 @@ if __name__ == "__main__":
         "run",
         "src/ragger.py",
         "--server.port",
-        "8508",
+        "8509",
         "--server.baseUrlPath",
         base_url_path,
     ]
