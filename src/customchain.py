@@ -22,14 +22,14 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import logging
 import sys
-from typing import Tuple
+from typing import Tuple, Dict, Any
 
 from cache import LRUCache
 from chunker import BM25Retriever, cache_chunker_embedding_chain
 from contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from conversationmemorybuffer import ConversationMemoryBuffer
 from embedding import EmbeddingModelLoader
-from ensembleretriever import EnsembleConfig, EnsembleRetriever
+from ensembleretriever import FusionMethod, EnsembleConfig, EnsembleRetriever
 from flashreranker import FlashReranker, RerankerConfig
 from globalvariables import (
     LARGE_MODELS,
@@ -206,7 +206,6 @@ class CustomLLMChain:
                 dense_retriever=self.dense_retriever,
                 embedding_model=self.embedding_model,  # Pass embedding model
                 texts=self.texts,  # Pass texts
-                config=EnsembleConfig(k=10),
             )
 
         except Exception as e:
@@ -306,6 +305,80 @@ class CustomLLMChain:
         except Exception as e:
             logging.error(f"Error in context filtering: {e}")
             return contexts
+
+    def set_ensemble_fusion_method(self, method: FusionMethod):
+        """Switch ensemble fusion method dynamically
+
+        Parameters
+        ----------
+        method : FusionMethod
+            The fusion method to switch to
+
+        Returns
+        -------
+        None
+        """
+        if hasattr(self, "ensemble_retriever"):
+            self.ensemble_retriever.set_fusion_method(method)
+            logging.info(f"Ensemble fusion method changed to: {method.value}")
+        else:
+            logging.error("Ensemble retriever not initialized")
+
+    def get_ensemble_statistics(self) -> Dict[str, Any]:
+        """Statistics about ensemble performance
+
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary containing ensemble statistics
+        """
+        if not hasattr(self, "ensemble_retriever"):
+            return {}
+
+        stats = {
+            "current_fusion_method": self.ensemble_retriever.config.fusion_method.value,
+            "bm25_weight": self.ensemble_retriever.config.bm25_weight,
+            "dense_weight": self.ensemble_retriever.config.dense_weight,
+            "normalize_scores": self.ensemble_retriever.config.normalize_scores,
+        }
+
+        adaptive_stats = (
+            self.ensemble_retriever.get_adaptive_weights_statistics()
+        )
+        if adaptive_stats:
+            stats.update(adaptive_stats)
+
+        return stats
+
+    def optimize_ensemble_for_query_type(
+        self, query_characteristics: Dict[str, float]
+    ):
+        """Optimize ensemble method based on query characteristics
+
+        Rule-based method selection based on query characteristics
+            - FusionMethod.QUERY_ADAPTIVE   --> technical/factual queries for boosting BM25
+            - FusionMethod.HARMONIC_MEAN    --> harmonic mean for complex semantic queries for balanced retrieval
+            - FusionMethod.COMBMNZ          --> boolean queries for balanced retrieving
+
+        Parameters
+        ----------
+        query_characteristics : Dict[str, float]
+            Dictionary of query characteristics (e.g., from analyze_query_complexity)
+        """
+        if (
+            query_characteristics.get("has_proper_nouns", 0) > 0.5
+            or query_characteristics.get("technical_ratio", 0) > 0.3
+        ):
+            self.set_ensemble_fusion_method(FusionMethod.QUERY_ADAPTIVE)
+        elif (
+            query_characteristics.get("word_count", 0) > 15
+            and query_characteristics.get("has_wh_words", 0) > 0
+        ):
+            self.set_ensemble_fusion_method(FusionMethod.HARMONIC_MEAN)
+        elif query_characteristics.get("has_boolean", 0) > 0:
+            self.set_ensemble_fusion_method(FusionMethod.COMBMNZ)
+        else:
+            self.set_ensemble_fusion_method(FusionMethod.SCORE_ADAPTIVE)
 
     def compute_mmr(
         self,
@@ -1006,9 +1079,15 @@ class CustomLLMChain:
             base_k, lambda_param = await self.analyze_query_complexity(
                 query_with_context
             )
+            query_characteristics = (
+                self.ensemble_retriever._analyze_query_characteristics(
+                    question
+                )
+            )
+            self.optimize_ensemble_for_query_type(query_characteristics)
             k = base_k * 10 if self.is_large_model else base_k  # ~ !IMPORTANT
             logging.info(
-                f"Query parameters - k: {k}, lambda: {lambda_param}, large_model: {self.is_large_model}"
+                f"Query parameters - k: {k}, lambda: {lambda_param}, large_model: {self.is_large_model}, ensemble method: {self.ensemble_retriever.config.fusion_method.value}"
             )
             initial_contexts = await self.search_similar_texts_async(
                 question, k, lambda_param
