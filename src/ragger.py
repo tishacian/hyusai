@@ -93,7 +93,9 @@ AI_AVATAR_B64 = image_to_base64(AI_AVATAR)
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chats'")
+    c.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chats'"
+    )
     if c.fetchone() is None:
         c.execute(
             """
@@ -121,7 +123,9 @@ def init_db():
             c.execute("PRAGMA table_info(chats)")
             existing_columns = [column[1] for column in c.fetchall()]
             if column_name not in existing_columns:
-                c.execute(f"ALTER TABLE chats ADD COLUMN {column_name} {column_type}")
+                c.execute(
+                    f"ALTER TABLE chats ADD COLUMN {column_name} {column_type}"
+                )
 
     conn.commit()
     return conn, c
@@ -343,7 +347,7 @@ if get_standalone_interface_config().forced_vdb == "None":
     with st.expander("Document Database Setup"):
         with st.form("document_input"):
             uploaded_files = st.file_uploader(
-                "",
+                "Upload Documents",
                 accept_multiple_files=True,
                 type=ACCEPTABLE_DOC_TYPES,
                 help="Acceptable document formats includes: "
@@ -368,7 +372,9 @@ if get_standalone_interface_config().forced_vdb == "None":
                         Models,
                         index=(
                             Models.index(
-                                st.session_state.get("model_name", current_model)
+                                st.session_state.get(
+                                    "model_name", current_model
+                                )
                             )
                             if st.session_state.get("model_name") in Models
                             else 0
@@ -383,7 +389,9 @@ if get_standalone_interface_config().forced_vdb == "None":
                         if model and tokenizer:
                             st.session_state.model = model
                             st.session_state.tokenizer = tokenizer
-                            st.success(f"Successfully loaded model: {model_name}")
+                            st.success(
+                                f"Successfully loaded model: {model_name}"
+                            )
                         else:
                             st.error(f"Failed to load model: {model_name}")
 
@@ -397,7 +405,8 @@ if get_standalone_interface_config().forced_vdb == "None":
                                     "chunking_method", ChunkingMethod[0]
                                 )
                             )
-                            if st.session_state.get("chunking_method") in ChunkingMethod
+                            if st.session_state.get("chunking_method")
+                            in ChunkingMethod
                             else 0
                         ),
                     )
@@ -408,7 +417,9 @@ if get_standalone_interface_config().forced_vdb == "None":
                         IndexType,
                         index=(
                             IndexType.index(
-                                st.session_state.get("index_type", IndexType[0])
+                                st.session_state.get(
+                                    "index_type", IndexType[0]
+                                )
                             )
                             if st.session_state.get("index_type") in IndexType
                             else 0
@@ -423,7 +434,9 @@ if get_standalone_interface_config().forced_vdb == "None":
                     for file in vector_store_list
                     if not file.startswith((".", "BM25"))
                 ]
-                current_vector_store = st.session_state.get("vector_store", "<New>")
+                current_vector_store = st.session_state.get(
+                    "vector_store", "<New>"
+                )
                 if current_vector_store not in vector_store_list:
                     current_vector_store = "<New>"
 
@@ -439,7 +452,9 @@ if get_standalone_interface_config().forced_vdb == "None":
             with row_be[1]:
                 new_vs_name = st.text_input(
                     "New Vector Store Name",
-                    value=st.session_state.get("new_vs_name", "New_vector_store_name"),
+                    value=st.session_state.get(
+                        "new_vs_name", "New_vector_store_name"
+                    ),
                     help=HELP["new_vector_store"],
                 )
             if not get_standalone_interface_config().hide_rag_params_config:
@@ -448,7 +463,9 @@ if get_standalone_interface_config().forced_vdb == "None":
                         "Pipeline",
                         PIPELINE_TYPES,
                         index=PIPELINE_TYPES.index(
-                            st.session_state.get("pipeline_type", PipelineType.HAH)
+                            st.session_state.get(
+                                "pipeline_type", PipelineType.HAH
+                            )
                         ),
                         help="Select the pipeline implementation to use",
                     )
@@ -457,7 +474,9 @@ if get_standalone_interface_config().forced_vdb == "None":
             with row_buttons[0]:
                 save_button = st.form_submit_button("Create new vector DB")
             with row_buttons[1]:
-                custom_chain_button = st.form_submit_button("Initialize context-chain")
+                custom_chain_button = st.form_submit_button(
+                    "Initialize context-chain"
+                )
             # --
             if save_button:
                 # Check whether to create new vector store --> Checking params
@@ -548,7 +567,9 @@ if get_standalone_interface_config().forced_vdb == "None":
                 st.session_state.pipeline_type = pipeline_type
 else:
     RaggerChain = (
-        HAHCustomLLMChain if pipeline_type == PipelineType.HAH else NaiveCustomLLMChain
+        HAHCustomLLMChain
+        if pipeline_type == PipelineType.HAH
+        else NaiveCustomLLMChain
     )
 
     chain = RaggerChain(
@@ -731,7 +752,9 @@ if prompt := st.chat_input("Message RAGGER..."):
 
         with st.spinner(""):
             try:
-                response, context, metrics = st.session_state.chain.ainvoke(prompt)
+                response, context, metrics = st.session_state.chain.ainvoke(
+                    prompt
+                )
             except (
                 IndexError,
                 AttributeError,
