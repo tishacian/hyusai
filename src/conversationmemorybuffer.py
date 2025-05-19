@@ -50,7 +50,9 @@ class ConversationMemoryBuffer:
             metadata (Dict, optional): Additional metadata for the message
         """
         try:
-            message = Message(role=role, content=content, metadata=metadata or {})
+            message = Message(
+                role=role, content=content, metadata=metadata or {}
+            )
             self.messages.append(message)
 
             # -- maintain buffer size by removing older messages if needed
@@ -112,7 +114,9 @@ class ConversationMemoryBuffer:
         self.messages.clear()
         logging.info("Conversation buffer cleared")
 
-    def get_context_with_reasoning(self, reasoning_type: "ReasoningType") -> str:
+    def get_context_with_reasoning(
+        self, reasoning_type: "ReasoningType"
+    ) -> str:
         """
         Context with reasoning template
 
@@ -136,7 +140,9 @@ class ConversationMemoryBuffer:
                 "ReasoningType.HYPOTHETICAL": "Previous hypothetical scenarios:\n",
             }
 
-            prefix = reasoning_prefixes.get(str(reasoning_type), "Previous context:\n")
+            prefix = reasoning_prefixes.get(
+                str(reasoning_type), "Previous context:\n"
+            )
             return f"{prefix}{recent_context}"
 
         except Exception as e:
@@ -144,5 +150,10 @@ class ConversationMemoryBuffer:
             return ""
 
     def __len__(self) -> int:
-        """Get the current number of messages in the buffer"""
+        """Get the current number of messages in the buffer
+
+        Return
+        ------
+            None
+        """
         return len(self.messages)
