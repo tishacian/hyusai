@@ -10,9 +10,7 @@ import re
 import sys
 import logging
 import numpy as np
-import asyncio
-from typing import Tuple
-from functools import lru_cache
+from typing import Tuple, Dict, List
 from globalvariables import ReasoningType, ReasoningPatterns
 
 # --
@@ -33,8 +31,7 @@ class ReasoningMetrics:
             None.
         """
         self.embedding_model = embedding_model
-        self.reasoning_patterns = ReasoningPatterns
-        # TF-IDF weights for reasoning patterns
+        self.reasoning_patterns = self._precompile_patterns(ReasoningPatterns)
         self.reasoning_weights = {
             ReasoningType.FACTUAL: 1.4,
             ReasoningType.ANALYTICAL: 1.25,
@@ -75,42 +72,105 @@ class ReasoningMetrics:
             },
         }
 
+        # -- vectorize weights
+        self.type_feature_weights = {
+            ReasoningType.FACTUAL: np.array([0.4, 0.4, 0.2]),
+            ReasoningType.ANALYTICAL: np.array([0.3, 0.4, 0.3]),
+            ReasoningType.COMPARATIVE: np.array([0.2, 0.4, 0.4]),
+            ReasoningType.CAUSAL: np.array([0.3, 0.3, 0.4]),
+            ReasoningType.HYPOTHETICAL: np.array([0.2, 0.5, 0.3]),
+        }
+        # -- shared caches
         self._embedding_cache = {}
-        self._pattern_cache = {}
+        self._pattern_matches_cache = {}
         self._reasoning_type_cache = {}
-        # -- precompute reasoning embedding
-        self._precompute_reasoning_embeddings()
+        self._entropy_cache = {}
+
+        # -- precompute reasoning embeddings
+        self._reasoning_type_embeddings = (
+            self._precompute_reasoning_embeddings()
+        )
+        self.pattern_token_sets = self._create_pattern_token_sets()
+
+    def _precompile_patterns(self, patterns_dict):
+        """Precompile regex patterns
+
+        Parameters
+        ----------
+        patterns_dict : dict
+            pattern dictionary.
+
+        Returns
+        -------
+        compiled_patterns : dict
+            compiled patterns.
+
+        """
+        compiled_patterns = {}
+        for rtype, patterns in patterns_dict.items():
+            compiled_patterns[rtype] = [
+                re.compile(r"\b" + pattern + r"\b", re.IGNORECASE)
+                for pattern in patterns
+            ]
+        return compiled_patterns
 
     def _precompute_reasoning_embeddings(self):
-        """Precompute and cache embeddings for reasoning types"""
-        self._reasoning_type_embeddings = {}
+        """Precompute and cache embeddings for reasoning types
+
+        Returns
+        -------
+        embeddings_dict : embedding_dit
+            Embedding dictionary.
+
+        """
+        embeddings_dict = {}
         reasoning_texts = [str(rtype.value) for rtype in ReasoningType]
 
         try:
             embeddings = self.embedding_model.encode(reasoning_texts)
             for i, rtype in enumerate(ReasoningType):
-                self._reasoning_type_embeddings[rtype] = embeddings[i]
+                embeddings_dict[rtype] = embeddings[i]
+                self._embedding_cache[hash(str(rtype.value))] = embeddings[i]
         except Exception as e:
             logging.error(f"Error precomputing reasoning embeddings: {e}")
 
-    @lru_cache(maxsize=128)
-    def compute_cosine_similarity(self, vec1_key: str, vec2_key: str) -> float:
+        return embeddings_dict
+
+    def _create_pattern_token_sets(self):
+        """Pattern tokens
+
+        Returns
+        -------
+        token_sets : set
+            pattern tokens for each reasoning type for faster initial filtering.
+
+        """
+        token_sets = {}
+        for rtype, patterns in ReasoningPatterns.items():
+            token_set = set()
+            for pattern in patterns:
+                tokens = pattern.lower().split()
+                token_set.update(tokens)
+            token_sets[rtype] = token_set
+        return token_sets
+
+    def compute_cosine_similarity(self, vec1_hash, vec2_hash) -> float:
         """Compute cosine similarity using cached vectors
 
         Parameters
         ----------
-        vec1_key : str
-            Key for vector 1 in cache
-        vec2_key : str
-            Key for vector 2 in cache
+        vec1_hash : int
+            Hash key for the first vector in cache
+        vec2_hash : int
+            Hash key for the second vector in cache
 
         Returns
         -------
         float
             Cosine similarity
         """
-        vec1 = self._embedding_cache.get(vec1_key)
-        vec2 = self._embedding_cache.get(vec2_key)
+        vec1 = self._embedding_cache.get(vec1_hash)
+        vec2 = self._embedding_cache.get(vec2_hash)
 
         if vec1 is None or vec2 is None:
             return 0.0
@@ -120,45 +180,52 @@ class ReasoningMetrics:
         norm2 = np.linalg.norm(vec2)
         return dot_product / (norm1 * norm2) if norm1 * norm2 != 0 else 0.0
 
-    @lru_cache(maxsize=128)
     def compute_pattern_entropy(
-        self, text_hash: str, pattern_type: ReasoningType
+        self, text: str, pattern_type: ReasoningType
     ) -> float:
         """Compute entropy of reasoning patterns in text using Shannon entropy
 
         Parameters
         ----------
-        text_hash (str): hash of input text for caching
+        text : str
+            Input text
         pattern_type : ReasoningType
-            reasoning pattern type
+            Reasoning pattern type
 
         Returns
         -------
         float
-            entropy.
+            Entropy score
         """
-        text = self._pattern_cache.get(text_hash)  # from cache
-        if text is None:
+        cache_key = (hash(text), pattern_type)
+        if cache_key in self._entropy_cache:
+            return self._entropy_cache[cache_key]
+
+        # Get cached pattern matches or find them
+        matches_dict = self._find_pattern_matches(text)
+        matched_patterns = matches_dict.get(pattern_type, [])
+
+        if not matched_patterns:
+            self._entropy_cache[cache_key] = 0.0
             return 0.0
 
-        patterns = self.reasoning_patterns[pattern_type]
-        pattern_counts = np.zeros(len(patterns))
-        total_patterns = 0
+        # Count pattern occurrences
+        pattern_counts = {}
+        for pattern in matched_patterns:
+            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
 
-        for i, pattern in enumerate(patterns):
-            count = len(re.findall(r"\b" + pattern + r"\b", text.lower()))
-            pattern_counts[i] = count
-            total_patterns += count
+        total_patterns = sum(pattern_counts.values())
 
-        if total_patterns == 0:
-            return 0.0
+        # Compute entropy
+        probabilities = (
+            np.array(list(pattern_counts.values())) / total_patterns
+        )
+        entropy = -np.sum(probabilities * np.log2(probabilities))
 
-        probabilities = pattern_counts / total_patterns
-        probabilities = probabilities[probabilities > 0]
+        self._entropy_cache[cache_key] = entropy
+        return entropy
 
-        return -np.sum(probabilities * np.log2(probabilities))
-
-    async def get_text_embedding_async(self, text: str) -> np.ndarray:
+    def get_text_embedding(self, text: str) -> np.ndarray:
         """Get text embedding with caching
 
         Parameters
@@ -176,198 +243,234 @@ class ReasoningMetrics:
             return self._embedding_cache[text_hash]
 
         try:
-            self._pattern_cache[text_hash] = text
-            embedding = await asyncio.to_thread(
-                self.embedding_model.encode, [text]
-            )
-            result = embedding[0]
-            self._embedding_cache[text_hash] = result
-            return result
+            embedding = self.embedding_model.encode([text])[0]
+            self._embedding_cache[text_hash] = embedding
+            return embedding
         except Exception as e:
             logging.error(f"Error getting text embedding: {e}")
             return np.zeros(
                 self.embedding_model.get_sentence_embedding_dimension()
             )
 
-    async def compute_semantic_coherence_async(
+    async def get_text_embedding_async(self, text: str) -> np.ndarray:
+        """Asynchronous version of get_text_embedding for compatibility
+
+        Parameters
+        ----------
+        text : str
+            Input text
+
+        Returns
+        -------
+        np.ndarray
+            Text embedding
+        """
+        return self.get_text_embedding(text)
+
+    def _find_pattern_matches(
+        self, text: str
+    ) -> Dict[ReasoningType, List[str]]:
+        """Find all pattern matches in text for all reasoning types
+
+        Parameters
+        ----------
+        text : str
+            Input text
+
+        Returns
+        -------
+        Dict[ReasoningType, List[str]]
+            Dictionary mapping reasoning types to lists of matched patterns
+        """
+        text_hash = hash(text)
+        if text_hash in self._pattern_matches_cache:
+            return self._pattern_matches_cache[text_hash]
+
+        text_lower = text.lower()
+        matches = {}
+        candidate_types = []
+        text_tokens = set(text_lower.split())
+        for rtype, token_set in self.pattern_token_sets.items():
+            if text_tokens.intersection(token_set):
+                candidate_types.append(rtype)
+
+        # -- regex matching on candidate types
+        for rtype in candidate_types:
+            pattern_matches = []
+            for pattern in self.reasoning_patterns[rtype]:
+                if pattern.search(text_lower):
+                    pattern_matches.append(pattern.pattern[2:-2])
+            matches[rtype] = pattern_matches
+
+        # -- empty lists for types without matches
+        for rtype in ReasoningType:
+            if rtype not in matches:
+                matches[rtype] = []
+
+        self._pattern_matches_cache[text_hash] = matches
+        return matches
+
+    def compute_pattern_entropy(
+        self, text: str, pattern_type: ReasoningType
+    ) -> float:
+        """Compute entropy of reasoning patterns in text using Shannon entropy
+
+        Parameters
+        ----------
+        text : str
+            Input text
+        pattern_type : ReasoningType
+            Reasoning pattern type
+
+        Returns
+        -------
+        float
+            Entropy score
+        """
+        cache_key = (hash(text), pattern_type)
+        if cache_key in self._entropy_cache:
+            return self._entropy_cache[cache_key]
+
+        # -- get cached pattern matches or find them
+        matches_dict = self._find_pattern_matches(text)
+        matched_patterns = matches_dict.get(pattern_type, [])
+
+        if not matched_patterns:
+            self._entropy_cache[cache_key] = 0.0
+            return 0.0
+
+        # -- count pattern occurrences
+        pattern_counts = {}
+        for pattern in matched_patterns:
+            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+
+        total_patterns = sum(pattern_counts.values())
+
+        # -- compute entropy
+        probabilities = (
+            np.array(list(pattern_counts.values())) / total_patterns
+        )
+        entropy = -np.sum(probabilities * np.log2(probabilities))
+
+        self._entropy_cache[cache_key] = entropy
+        return entropy
+
+    def compute_semantic_coherence(
         self, text: str, reasoning_type: ReasoningType
     ) -> float:
         """Compute semantic coherence score using embedding similarity
 
         Parameters
         ----------
-        text (str): Input text.
+        text : str
+            Input text
         reasoning_type : ReasoningType
             reasoning type.
 
         Returns
         -------
         float
-            coherence.
+            Coherence score.
         """
         text_hash = hash(text)
         if text_hash not in self._embedding_cache:
-            await self.get_text_embedding_async(text)
-        # --
-        type_embedding = self._reasoning_type_embeddings.get(reasoning_type)
-        if type_embedding is None:
-            type_text = str(reasoning_type.value)
-            type_embedding = await asyncio.to_thread(
-                self.embedding_model.encode, [type_text]
+            self._embedding_cache[text_hash] = self.get_text_embedding(text)
+
+        # -- compute type embedding
+        type_text = str(reasoning_type.value)
+        type_hash = hash(type_text)
+        if type_hash not in self._embedding_cache:
+            self._embedding_cache[type_hash] = self.embedding_model.encode(
+                [type_text]
+            )[0]
+            self._reasoning_type_embeddings[reasoning_type] = (
+                self._embedding_cache[type_hash]
             )
-            type_embedding = type_embedding[0]
-            self._reasoning_type_embeddings[reasoning_type] = type_embedding
 
-        # Compute similarity
-        return self.compute_cosine_similarity(
-            text_hash, hash(str(reasoning_type.value))
-        )
+        return self.compute_cosine_similarity(text_hash, type_hash)
 
-    async def bayesian_reasoning_detection_async(
-        self, question: str
-    ) -> Tuple[ReasoningType, float]:
-        """Reasoning type detection w/ Bayesian inference
+    def _compute_feature_vector(
+        self, text: str, question: str = None
+    ) -> Dict[ReasoningType, np.ndarray]:
+        """One pass compute feature vectors for all reasoning types
 
         Parameters
         ----------
-        question (str): Input prompt
+        text : str
+            Input text
+        question : str, optional
+            Question text for combined analysis
 
         Returns
         -------
-        Tuple[ReasoningType, float]
-            reasoning type and confidence score
+        Dict[ReasoningType, np.ndarray]
+            Dictionary mapping reasoning types to feature vectors
         """
-        question_hash = hash(question)
-        if question_hash in self._reasoning_type_cache:
-            return self._reasoning_type_cache[question_hash]
+        combined_text = question + " " + text if question else text
+        combined_hash = hash(combined_text)
 
-        self._pattern_cache[question_hash] = question
-        question_embedding = await self.get_text_embedding_async(question)
-        self._embedding_cache[question_hash] = question_embedding
-        priors = {rtype: 1 / len(ReasoningType) for rtype in ReasoningType}
-        evidence = {}
-        tasks = []
-        for rtype in ReasoningType:
-            task = self._compute_evidence_for_type(
-                question, question_hash, rtype
+        # -- compute text embedding
+        if combined_hash not in self._embedding_cache:
+            self._embedding_cache[combined_hash] = self.get_text_embedding(
+                combined_text
             )
-            tasks.append(task)
-        # -- score
-        evidence_results = await asyncio.gather(*tasks)
-        for rtype, score in evidence_results:
-            evidence[rtype] = score
 
-        # Calculate posterior prob
-        total_evidence = sum(evidence.values())
-        if total_evidence == 0:
-            result = (ReasoningType.ANALYTICAL, 0.5)
-            self._reasoning_type_cache[question_hash] = result
-            return result
+        pattern_matches = self._find_pattern_matches(text)
+        # -- compute features for all reasoning types
+        feature_vectors = {}
+        for rtype in ReasoningType:
+            entropy = self.compute_pattern_entropy(text, rtype)
+            entropy_score = (
+                1.0 if entropy >= self.entropy_thresholds[rtype] else 0.5
+            )
 
-        posteriors = {
-            rtype: (evidence[rtype] / total_evidence) * priors[rtype]
-            for rtype in ReasoningType
-        }
-        best_type = max(posteriors.items(), key=lambda x: x[1])
-        result = (best_type[0], best_type[1])
-        self._reasoning_type_cache[question_hash] = result
-        return result
+            type_text = str(rtype.value)
+            type_hash = hash(type_text)
+            coherence_score = self.compute_cosine_similarity(
+                combined_hash, type_hash
+            )
+            matches = pattern_matches.get(rtype, [])
+            total_patterns = len(ReasoningPatterns[rtype])
+            coverage = (
+                len(matches) / total_patterns if total_patterns > 0 else 0
+            )
+            feature_vectors[rtype] = np.array(
+                [entropy_score, coherence_score, coverage]
+            )
 
-    async def _compute_evidence_for_type(
-        self, question: str, question_hash: int, rtype: ReasoningType
-    ):
-        """Compute evidence score for a single reasoning type
+        return feature_vectors
+
+    def bayesian_reasoning_detection(
+        self, question: str
+    ) -> Tuple[ReasoningType, float]:
+        """Bayesian reasoning detection
 
         Parameters
         ----------
         question : str
             Input question
-        question_hash : int
-            Hash of the question for cache lookup
-        rtype : ReasoningType
-            Reasoning type to evaluate
 
         Returns
         -------
         Tuple[ReasoningType, float]
-            Reasoning type and its evidence score
-        """
-        entropy = self.compute_pattern_entropy(question_hash, rtype)
-        entropy_score = (
-            1.0 if entropy >= self.entropy_thresholds[rtype] else 0.5
-        )
-
-        coherence_score = await self.compute_semantic_coherence_async(
-            question, rtype
-        )
-        pattern_score = sum(
-            1
-            for pattern in self.reasoning_patterns[rtype]
-            if pattern in question.lower()
-        ) / len(self.reasoning_patterns[rtype])
-
-        # -- evidence using weighted geometric mean
-        evidence_score = (
-            entropy_score * 0.7 + coherence_score * 0.2 + pattern_score * 0.1
-        ) * self.reasoning_weights[rtype]
-
-        return (rtype, evidence_score)
-
-    def bayesian_reasoning_detection(
-        self, question: str
-    ) -> Tuple[ReasoningType, float]:
-        """Synchronous wrapper for bayesian_reasoning_detection_async
-
-        Parameters
-        ----------
-        question (str): Input prompt
-
-        Returns
-        -------
-        Tuple[ReasoningType, float]
-            reasoning type and confidence
+            reasoning type w/ confidence score
         """
         question_hash = hash(question)
         if question_hash in self._reasoning_type_cache:
             return self._reasoning_type_cache[question_hash]
 
-        priors = {rtype: 1 / len(ReasoningType) for rtype in ReasoningType}
+        # -- compute all features in one pass
+        feature_vectors = self._compute_feature_vector(question)
         evidence = {}
-        self._pattern_cache[question_hash] = question
         for rtype in ReasoningType:
-            entropy = self.compute_pattern_entropy(question_hash, rtype)
-            entropy_score = (
-                1.0 if entropy >= self.entropy_thresholds[rtype] else 0.5
+            weighted_score = np.dot(
+                feature_vectors[rtype], self.type_feature_weights[rtype]
             )
-            text_embedding = self.embedding_model.encode([question])[0]
-            self._embedding_cache[question_hash] = text_embedding
-            if rtype in self._reasoning_type_embeddings:
-                type_embedding = self._reasoning_type_embeddings[rtype]
-            else:
-                type_embedding = self.embedding_model.encode(
-                    [str(rtype.value)]
-                )[0]
-                self._reasoning_type_embeddings[rtype] = type_embedding
-            # -- compute cosine
-            dot_product = np.dot(text_embedding, type_embedding)
-            norm1 = np.linalg.norm(text_embedding)
-            norm2 = np.linalg.norm(type_embedding)
-            coherence_score = (
-                dot_product / (norm1 * norm2) if norm1 * norm2 != 0 else 0.0
-            )
-            pattern_score = sum(
-                1
-                for pattern in self.reasoning_patterns[rtype]
-                if pattern in question.lower()
-            ) / len(self.reasoning_patterns[rtype])
-            # -- evidence using weighted geometric mean
-            evidence[rtype] = (
-                entropy_score * 0.7
-                + coherence_score * 0.2
-                + pattern_score * 0.1
-            ) * self.reasoning_weights[rtype]
+            evidence[rtype] = weighted_score * self.reasoning_weights[rtype]
 
-        # -- compute posterior prob
+        # -- uniform priors
+        priors = {rtype: 1.0 / len(ReasoningType) for rtype in ReasoningType}
+        # -- compute posterior probabilities
         total_evidence = sum(evidence.values())
         if total_evidence == 0:
             result = (ReasoningType.ANALYTICAL, 0.5)
@@ -378,8 +481,9 @@ class ReasoningMetrics:
             rtype: (evidence[rtype] / total_evidence) * priors[rtype]
             for rtype in ReasoningType
         }
-        best_type = max(posteriors.items(), key=lambda x: x[1])
-        result = (best_type[0], best_type[1])
+
+        rzn_type = max(posteriors.items(), key=lambda x: x[1])
+        result = (rzn_type[0], rzn_type[1])
         self._reasoning_type_cache[question_hash] = result
         return result
 
@@ -400,35 +504,48 @@ class ReasoningMetrics:
         float
             Reasoning score.
         """
-        context_hash = hash(context)
-        combined_hash = hash(question + " " + context)
-        if context_hash not in self._pattern_cache:
-            self._pattern_cache[context_hash] = context
+        return self.compute_reasoning_score(question, context, reasoning_type)
 
-        entropy_score = self.compute_pattern_entropy(
-            context_hash, reasoning_type
-        )
-        combined_text = question + " " + context
-        if combined_hash not in self._embedding_cache:
-            await self.get_text_embedding_async(combined_text)
+    async def bayesian_reasoning_detection_async(
+        self, question: str
+    ) -> Tuple[ReasoningType, float]:
+        """Async bayesian_reasoning_detection
 
-        semantic_score = await self.compute_semantic_coherence_async(
-            combined_text, reasoning_type
-        )
-        patterns = self.reasoning_patterns[reasoning_type]
-        coverage = sum(1 for p in patterns if p in context.lower()) / len(
-            patterns
-        )
+        Parameters
+        ----------
+        question (str): Input prompt
 
-        # Type-specific weights
-        weights = {
-            ReasoningType.FACTUAL: [0.4, 0.4, 0.2],
-            ReasoningType.ANALYTICAL: [0.3, 0.4, 0.3],
-            ReasoningType.COMPARATIVE: [0.2, 0.4, 0.4],
-            ReasoningType.CAUSAL: [0.3, 0.3, 0.4],
-            ReasoningType.HYPOTHETICAL: [0.2, 0.5, 0.3],
-        }
-        w = weights[reasoning_type]
-        score = w[0] * entropy_score + w[1] * semantic_score + w[2] * coverage
+        Returns
+        -------
+        Tuple[ReasoningType, float]
+            reasoning type and confidence score
+        """
+        return self.bayesian_reasoning_detection(question)
+
+    def compute_reasoning_score(
+        self, question: str, context: str, reasoning_type: ReasoningType
+    ) -> float:
+        """Compute reasoning score for a given context
+
+        Parameters
+        ----------
+        question : str
+            Input question
+        context : str
+            Context text
+        reasoning_type : ReasoningType
+            Reasoning type
+
+        Returns
+        -------
+        float
+            Reasoning score
+        """
+        feature_vector = self._compute_feature_vector(context, question)[
+            reasoning_type
+        ]
+        score = np.dot(
+            feature_vector, self.type_feature_weights[reasoning_type]
+        )
 
         return score
