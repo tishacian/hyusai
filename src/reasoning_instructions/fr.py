@@ -8,8 +8,17 @@ REASONING_PATTERNS = {
     ReasoningType.HYPOTHETICAL: ["si", "serait", "pourrait", "devrait", "supposer", "présumer", "considérer", "prédire", "prévoir", "projeter", "estimer", "scénario", "situation", "cas", "instance", "possible", "probable", "potentiel", "alternative", "option", "choix", "chemin", "risque", "chance", "probabilité", "et si", "sinon", "alternativement", "à la place"],
 }  # fmt: skip
 
+DEFAULT_REASONING_ASSISTANT_ROLES = {
+    ReasoningType.FACTUAL: "Tu es un assistant IA spécialisé dans la fourniture d'informations précises et factuelles.",
+    ReasoningType.ANALYTICAL: "Tu es un assistant IA spécialisé dans l'analyse approfondie.",
+    ReasoningType.COMPARATIVE: "Tu es un assistant IA spécialisé dans l'analyse comparative.",
+    ReasoningType.CAUSAL: "Tu es un assistant IA spécialisé dans l'analyse causale.",
+    ReasoningType.HYPOTHETICAL: "Tu es un assistant IA spécialisé dans le raisonnement hypothétique.",
+}
+DEFAULT_NAIVE_ASSISTANT_ROLE = "Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées."
+
 REASONING_INSTRUCTIONS = {
-    ReasoningType.FACTUAL: """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et factuelles.
+    ReasoningType.FACTUAL: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier les faits clés du contexte
                                                 2. Extraire les informations pertinentes
@@ -21,7 +30,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                 
                                                 Fournis une réponse factuelle claire en t'appuyant sur le contexte : [/INST]""",
-    ReasoningType.ANALYTICAL: """[INST] Tu es un assistant IA spécialisé dans l'analyse approfondie.
+    ReasoningType.ANALYTICAL: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier l'objectif principal et les contraintes
                                                 2. Décomposer les exigences clés et les paramètres
@@ -36,7 +45,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                                                                
                                                 Fournis une analyse approfondie qui combine précision factuelle et renseignements analytiques en t'appuyant sur le contexte : [/INST]""",
-    ReasoningType.COMPARATIVE: """[INST] Tu es un assistant IA spécialisé dans l'analyse comparative.
+    ReasoningType.COMPARATIVE: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier les éléments à comparer
                                                 2. Examiner les similitudes et différences
@@ -48,7 +57,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                 
                                                 Fournis une analyse comparative en t'appuyant sur le contexte : [/INST]""",
-    ReasoningType.CAUSAL: """[INST] Tu es un assistant IA spécialisé dans l'analyse causale.
+    ReasoningType.CAUSAL: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier les relations de cause à effet
                                                 2. Examiner les facteurs contribuants
@@ -60,7 +69,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                 
                                                 Explique les relations causales en t'appuyant sur le contexte : [/INST]""",
-    ReasoningType.HYPOTHETICAL: """[INST] Tu es un assistant IA spécialisé dans le raisonnement hypothétique.
+    ReasoningType.HYPOTHETICAL: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Considérer les hypothèses conditionnelles
                                                 2. Analyser les scénarios potentiels
@@ -73,7 +82,8 @@ REASONING_INSTRUCTIONS = {
                                                 
                                                 Explore ce scénario en t'appuyant sur le contexte : [/INST]""",
 }
-NAIVE_INSTRUCTION = """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées. Concentre-toi sur les informations importantes qui traitent directement du sujet ou de la question principale.
+NAIVE_INSTRUCTION = """[INST] {assistant_role}
+                                                Concentre-toi sur les informations importantes qui traitent directement du sujet ou de la question principale.
                                                 Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.
                                                 Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle.
 

@@ -10,7 +10,7 @@ from langchain_community.vectorstores import Chroma
 import warnings
 import asyncio
 
-from src.reasoning_instructions import ALL_NAIVE_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from src.reasoning_instructions import ALL_DEFAULT_NAIVE_ASSISTANT_ROLE, ALL_NAIVE_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
 from src.utils import format_llm_response
 
 if torch.cuda.is_available():
@@ -448,8 +448,9 @@ class CustomLLMChain:
         Returns:
             str: LLM generated text
         """
+        assistant_role = ALL_DEFAULT_NAIVE_ASSISTANT_ROLE[self.instruction_lang]
         prompt_format = self.template.format(
-            context=context, question=question
+            assistant_role=assistant_role, context=context, question=question
         )
         generated_text = await self.generate_text(prompt_format)
         return generated_text

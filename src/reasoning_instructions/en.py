@@ -8,8 +8,17 @@ REASONING_PATTERNS = {
     ReasoningType.HYPOTHETICAL: ["if", "would", "could", "might", "assume", "suppose", "presume", "consider", "predict", "forecast", "project", "estimate", "scenario", "situation", "case", "instance", "possible", "probable", "likely", "potential", "alternative", "option", "choice", "path", "risk", "chance", "probability", "likelihood", "what if", "otherwise", "alternatively", "instead"],
 }  # fmt: skip
 
+DEFAULT_REASONING_ASSISTANT_ROLES = {
+    ReasoningType.FACTUAL: "You are an AI assistant specialized in providing precise and factual information.",
+    ReasoningType.ANALYTICAL: "You are an AI assistant specialized in detailed analysis.",
+    ReasoningType.COMPARATIVE: "You are an AI assistant specialized in comparative analysis.",
+    ReasoningType.CAUSAL: "You are an AI assistant specialized in causal analysis.",
+    ReasoningType.HYPOTHETICAL: "You are an AI assistant specialized in hypothetical reasoning.",
+}
+DEFAULT_NAIVE_ASSISTANT_ROLE = "You are an AI assistant specialized in providing precise and detailed information."
+
 REASONING_INSTRUCTIONS = {
-    ReasoningType.FACTUAL: """[INST] You are an AI assistant specialized in providing precise and factual information.
+    ReasoningType.FACTUAL: """[INST] {assistant_role}
                                                 Analysis Steps:
                                                 1. Identify key facts from context
                                                 2. Extract relevant information
@@ -21,7 +30,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question: {question}
                                                 
                                                 Provide a clear factual response based on the context: [/INST]""",
-    ReasoningType.ANALYTICAL: """[INST] You are an AI assistant specialized in detailed analysis.
+    ReasoningType.ANALYTICAL: """[INST] {assistant_role}
                                                 Analysis Steps:
                                                 1. Identify the core goal and constraints
                                                 2. Break down key requirements and parameters
@@ -36,7 +45,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question: {question}
                                                                                                
                                                 Provide a thorough analysis that combines factual accuracy with analytical insights based on the context: [/INST]""",
-    ReasoningType.COMPARATIVE: """[INST] You are an AI assistant specialized in comparative analysis.
+    ReasoningType.COMPARATIVE: """[INST] {assistant_role}
                                                 Analysis Steps:
                                                 1. Identify elements for comparison
                                                 2. Examine similarities and differences
@@ -48,7 +57,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question: {question}
                                                 
                                                 Compare and contrast based on the context: [/INST]""",
-    ReasoningType.CAUSAL: """[INST] You are an AI assistant specialized in causal analysis.
+    ReasoningType.CAUSAL: """[INST] {assistant_role}
                                                 Analysis Steps:
                                                 1. Identify cause-effect relationships
                                                 2. Examine contributing factors
@@ -60,7 +69,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question: {question}
                                                 
                                                 Explain the causal relationships based on the context: [/INST]""",
-    ReasoningType.HYPOTHETICAL: """[INST] You are an AI assistant specialized in hypothetical reasoning.
+    ReasoningType.HYPOTHETICAL: """[INST] {assistant_role}
                                                 Analysis Steps:
                                                 1. Consider given conditions
                                                 2. Analyze potential scenarios
@@ -73,7 +82,8 @@ REASONING_INSTRUCTIONS = {
                                                 
                                                 Explore this scenario based on the context: [/INST]""",
 }
-NAIVE_INSTRUCTION = """[INST] You are an AI assistant specialized in providing precise and detailed information. Focus on important information that directly addresses the main topic or question.
+NAIVE_INSTRUCTION = """[INST] {assistant_role}
+                                                Focus on important information that directly addresses the main topic or question.
                                                 Include relevant details that provide context or support your points.
                                                 Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, objectivity, and emotional resonance.
 
