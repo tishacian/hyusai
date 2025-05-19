@@ -24,8 +24,6 @@ logging.basicConfig(
 
 
 class ReasoningMetrics:
-    """Enhanced reasoning detection and scoring during search"""
-
     def __init__(self, embedding_model):
         """
         Parameters
