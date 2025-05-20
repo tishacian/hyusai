@@ -67,11 +67,13 @@ SUPPLEMENT = [
 ]
 
 # -- Embedding name
-EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"
+EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best;  "sentence-transformers/all-MiniLM-L6-v2" (competitive)
 
 SINGLE_FILE = 1  # single files
 RANDOM_SEED = 42
-MAX_MODEL_LEN: int = None  # <-- switch maximum model length here. 64 -> Llama3-70; 128 -> Llama3-8b
+MAX_MODEL_LEN: int = (
+    None  # <-- switch maximum model length here. 64 -> Llama3-70; 128 -> Llama3-8b
+)
 
 # %% reasoning types
 
