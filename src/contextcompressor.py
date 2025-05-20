@@ -5,15 +5,15 @@ Created on Fri Feb 7 15:48:53 2025
 
 @author: kennethezukwoke
 """
-
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import os
 import sys
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from flashreranker import FlashReranker
 from ensembleretriever import EnsembleRetriever
+from concurrent.futures import ThreadPoolExecutor
 
 # --
 logging.basicConfig(
@@ -26,10 +26,10 @@ logging.basicConfig(
 @dataclass
 class ContextualConfig:
     k: int = 10
-    rerank_batch_size: int = 32
+    rerank_batch_size: int = 64
     compression_ratio: float = 0.7
     use_threading: bool = True
-    max_concurrent_tasks: int = 5
+    max_concurrent_tasks: int = min(64, os.cpu_count() * 4)
 
 
 class ContextualCompressionRetriever:
@@ -59,8 +59,10 @@ class ContextualCompressionRetriever:
         self.base_retriever = base_retriever
         self.reranker = reranker
         self.config = config or ContextualConfig()
-        self._executor = ThreadPoolExecutor(
-            max_workers=self.config.max_concurrent_tasks
+        self._executor = (
+            ThreadPoolExecutor(max_workers=self.config.max_concurrent_tasks)
+            if self.config.use_threading
+            else None
         )
 
     def __del__(self):
