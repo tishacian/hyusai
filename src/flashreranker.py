@@ -5,6 +5,7 @@ Created on Fri Feb 7 15:48:53 2025
 
 @author: kennethezukwoke
 """
+import os
 import sys
 import torch
 import logging
@@ -24,8 +25,6 @@ logging.basicConfig(
 
 
 class RerankerMode(Enum):
-    """Reranking modes for FlashReranker"""
-
     PAIRWISE = "pairwise"
     POINTWISE = "pointwise"
     LISTWISE = "listwise"
@@ -33,14 +32,16 @@ class RerankerMode(Enum):
 
 @dataclass
 class RerankerConfig:
-    """Configuration for FlashReranker"""
-
-    batch_size: int = 32
+    batch_size: int = min(64, os.cpu_count() * 4)
     max_length: int = 512
     mode: RerankerMode = RerankerMode.POINTWISE
-    num_threads: int = 4
+    num_threads: int = 8
     threshold: float = 0.5
-    device: Optional[str] = None
+    device: Optional[str] = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu" if torch.backends.mps.is_available() else "cpu"
+    )
     model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 
 
@@ -59,18 +60,28 @@ class FlashReranker:
 
         """
         self.config = config or RerankerConfig()
-        try:
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                self.device = "cuda"
-            else:
-                self.device = "cpu"
-        except Exception:
-            logging.error("Error detecting device, falling back to CPU")
-            self.device = "cpu"
-
-        if self.config.device is not None:
-            self.device = self.config.device
+        self.device = (
+            self.config.device
+            if self.config.device is not None
+            else (
+                (
+                    "cuda"
+                    if torch.cuda.is_available()
+                    and not any(
+                        torch.cuda.empty_cache() or False for _ in [None]
+                    )
+                    else "cpu"
+                )
+                if not any(
+                    logging.error(
+                        "Error detecting device, falling back to CPU"
+                    )
+                    or False
+                    for _ in [None]
+                )
+                else "cpu"
+            )
+        )
 
         try:
             self.model, self.tokenizer = (
@@ -328,12 +339,12 @@ class FlashReranker:
                     query, query_passages, return_scores=True
                 )
 
-                # compute reranking metrics
+                # -- compute reranking metrics
                 ranked_labels = [
                     labels[query_passages.index(p)] for p in reranked_passages
                 ]
 
-                # MRR
+                # -- MRR
                 for i, label in enumerate(ranked_labels, 1):
                     if label > 0:
                         metrics["mrr"].append(1.0 / i)
@@ -341,12 +352,12 @@ class FlashReranker:
                 else:
                     metrics["mrr"].append(0.0)
 
-                # P@1
+                # -- P@1
                 metrics["precision@1"].append(
                     1.0 if ranked_labels[0] > 0 else 0.0
                 )
 
-                # NDCG@10
+                # -- NDCG@10
                 dcg = sum(
                     (2**label - 1) / np.log2(i + 2)
                     for i, label in enumerate(ranked_labels[:10])
@@ -361,8 +372,7 @@ class FlashReranker:
             except Exception as e:
                 logging.error(f"Error evaluating query: {e}")
                 continue
-
-        # Average metrics
+        # -- avg
         return {metric: np.mean(values) for metric, values in metrics.items()}
 
     def __call__(
