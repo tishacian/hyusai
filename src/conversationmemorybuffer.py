@@ -110,7 +110,14 @@ class ConversationMemoryBuffer:
             return None, None
 
     def clear(self) -> None:
-        """Clear the conversation history"""
+        """
+        clear chat messages
+
+        Returns
+        -------
+            None
+
+        """
         self.messages.clear()
         logging.info("Conversation buffer cleared")
 

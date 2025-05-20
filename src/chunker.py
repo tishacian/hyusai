@@ -134,7 +134,7 @@ class TextChunker:
         self.tokenizer = tokenizer
         self.model = model
         self.device = torch.device(
-            "cuda:0"
+            "cuda"
             if torch.cuda.is_available()
             else "cpu" if torch.backends.mps.is_available() else "cpu"
         )

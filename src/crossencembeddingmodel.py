@@ -23,7 +23,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
 device = torch.device(
-    "cuda:0"
+    "cuda"
     if torch.cuda.is_available()
     else "cpu" if torch.backends.mps.is_available() else "cpu"
 )
@@ -48,7 +48,6 @@ def reranker_model_cache(func):
 class RerankerModelLoader:
     """
     Class to load, initialize and cache reranker models.
-    Uses both lru_cache and custom caching to optimize performance.
     """
 
     _model_cache: Dict[str, Any] = {}

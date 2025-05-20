@@ -63,7 +63,7 @@ class EmbeddingVectors:
         self.existing_vector_store = existing_vector_store
         self.new_vs_name = new_vs_name
         self.device = torch.device(
-            "cuda:0"
+            "cuda"
             if torch.cuda.is_available()
             else "cpu" if torch.backends.mps.is_available() else "cpu"
         )

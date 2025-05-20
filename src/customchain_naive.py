@@ -75,7 +75,7 @@ class CustomLLMChain:
         self.model_name = model_name
         self.vector_store_name = vector_store_name
         self.device = torch.device(
-            "cuda:0"
+            "cuda"
             if torch.cuda.is_available()
             else "mps" if torch.backends.mps.is_available() else "cpu"
         )
@@ -284,7 +284,7 @@ class CustomLLMChain:
         """
         Get the number of available devices (GPUs or CPU cores).
         """
-        if self.device == "cuda:0":
+        if self.device == "cuda":
             return torch.cuda.device_count()
         else:
             return torch.get_num_threads()
@@ -302,7 +302,7 @@ class CustomLLMChain:
 
         Parameters:
             - tensor: The tensor to transfer.
-            - device: The target device (e.g., "cuda:0" or "cpu").
+            - device: The target device (e.g., "cuda" or "cpu").
 
         Returns:
             - The tensor on the target device, reassembled from the chunks.
@@ -428,7 +428,7 @@ class CustomLLMChain:
         Sometimes, the model returns empty strings 
         """
         # -- choose whether to use mixed precision based on the device
-        use_mixed_precision = True if self.device.type == "cuda:0" else False
+        use_mixed_precision = True if self.device.type == "cuda" else False
         if torch.cuda.is_available():
             sampling_params = SamplingParams(
                 temperature=temperature,
