@@ -6,14 +6,14 @@ This module provides serializers for converting document metadata to various for
 
 import json
 from datetime import datetime
-from typing import Any, Dict, Union
+from typing import Any
 
 from docmeta.core.types import MetadataType
 
 
 class DateTimeEncoder(json.JSONEncoder):
     """JSON encoder that handles datetime objects."""
-    
+
     def default(self, obj: Any) -> Any:
         if isinstance(obj, datetime):
             return obj.isoformat()
@@ -23,26 +23,27 @@ class DateTimeEncoder(json.JSONEncoder):
 def to_json(metadata: MetadataType, indent: int = None) -> str:
     """
     Convert metadata to JSON.
-    
+
     Args:
         metadata: Metadata to convert
         indent: Number of spaces to indent (None for no indentation)
-        
+
     Returns:
         str: JSON string
     """
+    # Use DateTimeEncoder to handle datetime objects
     return json.dumps(metadata, cls=DateTimeEncoder, indent=indent, ensure_ascii=False)
 
 
-def to_dict(metadata: MetadataType) -> Dict[str, Any]:
+def format_metadata(metadata: MetadataType) -> dict[str, Any]:
     """
-    Convert metadata to a dictionary.
-    
+    Prepares a metadata dictionary for serialization by ensuring all values are JSON-serializable.
+
     Args:
-        metadata: Metadata to convert
-        
+        metadata: Metadata to prepare for serialization
+
     Returns:
-        Dict[str, Any]: Dictionary representation of metadata
+        dict[str, Any]: Dictionary with JSON-serializable values
     """
     # Convert datetime objects to ISO format strings
     result = {}
@@ -57,11 +58,12 @@ def to_dict(metadata: MetadataType) -> Dict[str, Any]:
 def save_json(metadata: MetadataType, path: str, indent: int = 2) -> None:
     """
     Save metadata to a JSON file.
-    
+
     Args:
         metadata: Metadata to save
         path: Path to the output file
         indent: Number of spaces to indent (None for no indentation)
     """
+    # Use DateTimeEncoder to handle datetime objects
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, cls=DateTimeEncoder, indent=indent, ensure_ascii=False)
