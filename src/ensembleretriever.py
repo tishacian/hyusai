@@ -739,6 +739,7 @@ class EnsembleRetriever:
         elif method == FusionMethod.COMBMNZ:
             return self._compute_combmnz(bm25_scores, dense_scores)
         else:
+            # -- absolute default
             return self._compute_score_adaptive_weights(
                 bm25_scores, dense_scores
             )

@@ -9,6 +9,7 @@ from functools import lru_cache
 from globalvariables import (
     VECTOR_STORE_PATH,
     IndexType,
+    EMBEDDING_NAME,
 )
 from embeddingloader import EmbeddingModelLoader
 from langchain_community.vectorstores import Chroma
@@ -31,7 +32,7 @@ class EmbeddingVectors:
         create_new_vs,
         existing_vector_store,
         new_vs_name,
-        embedding_model_name="sentence-transformers/all-mpnet-base-v2",
+        embedding_model_name=EMBEDDING_NAME,
         embedding_type="faiss",
     ):
         """
@@ -88,7 +89,7 @@ class EmbeddingVectors:
         create_new_vs,
         existing_vector_store,
         new_vs_name,
-        embedding_model_name="sentence-transformers/all-mpnet-base-v2",
+        embedding_model_name=EMBEDDING_NAME,
         embedding_type="faiss",
     ):
         """

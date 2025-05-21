@@ -26,6 +26,7 @@ import logging
 from globalvariables import (
     VECTOR_STORE_PATH,
     IndexType,
+    EMBEDDING_NAME,
 )
 from chunker import cache_chunker_embedding_chain, BM25Retriever
 
@@ -49,7 +50,7 @@ class CustomLLMChain:
         model,
         model_name,
         vector_store_name,
-        embedding_model_name="sentence-transformers/all-mpnet-base-v2",
+        embedding_model_name=EMBEDDING_NAME,
         index_type=IndexType.FAISS,
     ):
         """Custom LLMChain
@@ -91,14 +92,12 @@ class CustomLLMChain:
         # --initialize embedding model
         try:
             if self.index_type == IndexType.FAISS:
-                self.embedding_model_name = "all-MiniLM-L6-v2"
+                self.embedding_model_name = EMBEDDING_NAME
                 self.embedding_model = SentenceTransformer(
                     self.embedding_model_name, device=self.device.type
                 )
             elif self.index_type == IndexType.CHROMA:
-                self.embedding_model_name = (
-                    "sentence-transformers/all-mpnet-base-v2"
-                )
+                self.embedding_model_name = EMBEDDING_NAME
                 self.embedding_model = SentenceTransformer(
                     self.embedding_model_name, device=self.device.type
                 )

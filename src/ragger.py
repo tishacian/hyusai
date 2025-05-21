@@ -29,6 +29,7 @@ from globalvariables import (
     ChunkingMethod,
     IndexType,
     PipelineType,
+    EMBEDDING_NAME,
 )
 from metrics import DUMMY_METRICS
 from modeltokenizer import load_model_and_tokenizer
@@ -532,7 +533,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                     create_new_vs,
                     existing_vector_store,
                     new_vs_name,
-                    embedding_model_name="sentence-transformers/all-mpnet-base-v2",
+                    embedding_model_name=EMBEDDING_NAME,
                     embedding_type=index_type,
                 )
                 st.session_state.embedding_index = (

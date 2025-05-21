@@ -13,7 +13,7 @@ import weaviate
 from functools import lru_cache, wraps
 from typing import Dict, Any
 from sentence_transformers import SentenceTransformer
-from globalvariables import IndexType
+from globalvariables import IndexType, EMBEDDING_NAME
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -230,7 +230,7 @@ class EmbeddingModelLoader:
         Any
             The default embedding model for the specified type
         """
-        embedding_model_name = "sentence-transformers/all-mpnet-base-v2"
+        embedding_model_name = EMBEDDING_NAME
         if embedding_type in [IndexType.FAISS, IndexType.CHROMA]:
             return EmbeddingModelLoader.load_embedding_model(
                 embedding_type, embedding_model_name
@@ -244,8 +244,14 @@ class EmbeddingModelLoader:
 
     @staticmethod
     def clear_cache() -> None:
-        """Clear the model cache to free memory."""
+        """Clear the model cache to free memory.
+
+        Returns
+        -------
+        None
+            clear cache.
+
+        """
         EmbeddingModelLoader._model_cache.clear()
         EmbeddingModelLoader._dimension_cache.clear()
-        # Also clear the lru_cache
         EmbeddingModelLoader.load_embedding_model.cache_clear()
