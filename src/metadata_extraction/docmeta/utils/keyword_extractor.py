@@ -1,7 +1,7 @@
 """
 Utility for keyword extraction.
 """
-from typing import List, Optional
+
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 import nltk
@@ -20,7 +20,7 @@ def clean_text_for_tfidf(text: str) -> str:
     text = text.strip()
     return text
 
-def get_stopwords(language: str = 'french') -> List[str]:
+def get_stopwords(language: str = 'french') -> list[str]:
     """
     Get stopwords for the specified language.
 
@@ -41,7 +41,7 @@ def get_stopwords(language: str = 'french') -> List[str]:
         print(f"Stopwords for language '{language}' not available. Using empty stopwords list.")
         return []
 
-def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'french') -> Optional[List[str]]:
+def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'french') -> list[str] | None:
     """
     Extract keywords from text using TF-IDF.
 

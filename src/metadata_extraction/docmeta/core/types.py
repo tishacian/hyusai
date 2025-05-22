@@ -5,11 +5,11 @@ This module contains TypedDict classes for different document types.
 """
 
 from datetime import datetime
-from typing import TypedDict, Dict, Any, Optional, List, Union, Callable
+from typing import TypedDict, Any, Callable
 
 
-class DocMetaData(TypedDict):
-    """Base metadata common to all document types."""
+class FileMetaData(TypedDict):
+    """Base metadata common to all file types."""
     file_path: str
     file_name: str
     file_extension: str
@@ -19,49 +19,51 @@ class DocMetaData(TypedDict):
     creation_time: datetime
     last_modified_time: datetime
     last_accessed_time: datetime
-    extracted_keywords: Optional[List[str]]
 
 
-class PDFMetaData(DocMetaData):
+class PDFMetaData(FileMetaData):
     """Metadata specific to PDF files."""
-    author: Optional[str]
-    creator: Optional[str]
-    producer: Optional[str]
-    subject: Optional[str]
-    title: Optional[str]
+    author: str | None
+    creator: str | None
+    producer: str | None
+    subject: str | None
+    title: str | None
     num_pages: int
-    keywords: Optional[List[str]]
+    embedded_keywords: list[str] | None  # Keywords sourced directly from the PDF document's embedded metadata
+    extracted_keywords: list[str] | None  # Keywords programmatically generated from analyzing the document's text content (e.g., TF-IDF)
     encrypted: bool
-    page_size: Optional[Dict[str, float]]  # e.g., {"width": 612.0, "height": 792.0}
-    token_count: Optional[Dict[str, int]]  # e.g., {"cl100k_base": 1234, "p50k_base": 2345}
+    page_width: float | None
+    page_height: float | None
+    token_count: int | None  # Default encoding is cl100k_base (used by ChatGPT, GPT-4)
 
 
-class ImageMetaData(DocMetaData):
+class ImageMetaData(FileMetaData):
     """Metadata specific to image files."""
     width: int
     height: int
-    color_mode: Optional[str]  # e.g., "RGB", "CMYK", "Grayscale"
-    bit_depth: Optional[int]
-    dpi: Optional[Dict[str, int]]  # e.g., {"x": 72, "y": 72}
-    exif_data: Optional[Dict[str, Any]]
+    color_mode: str | None  # e.g., "RGB", "CMYK", "Grayscale"
+    bit_depth: int | None
+    dpi_x: int | None
+    dpi_y: int | None
+    exif_data: dict[str, Any] | None
 
 
-class DocumentMetaData(DocMetaData):
+class DocumentMetaData(FileMetaData):
     """Metadata specific to document files (docx, odt, etc.)."""
-    author: Optional[str]
-    title: Optional[str]
-    subject: Optional[str]
-    keywords: Optional[List[str]]
-    created: Optional[datetime]
-    modified: Optional[datetime]
-    last_modified_by: Optional[str]
-    num_pages: Optional[int]
-    word_count: Optional[int]
-    character_count: Optional[int]
-    paragraph_count: Optional[int]
-    line_count: Optional[int]
+    author: str | None
+    title: str | None
+    subject: str | None
+    embedded_keywords: list[str] | None  # Keywords sourced directly from the document's embedded metadata
+    extracted_keywords: list[str] | None  # Keywords programmatically generated from analyzing the document's text content (e.g., TF-IDF)
+    modified: datetime | None
+    last_modified_by: str | None
+    num_pages: int | None  # Optional as some formats like .txt don't have native page concept
+    word_count: int
+    character_count: int
+    paragraph_count: int
+    line_count: int
 
 
 # Type for metadata extractors
-MetadataType = Union[DocMetaData, PDFMetaData, ImageMetaData, DocumentMetaData]
+MetadataType = FileMetaData | PDFMetaData | ImageMetaData | DocumentMetaData
 MetadataExtractor = Callable[[str], MetadataType]

@@ -5,18 +5,20 @@ This package contains the core functionality for extracting metadata from files.
 """
 
 # Import for convenience
-from docmeta.core.api import (
-    extract_metadata,
-    DocMetaData,
+from docmeta.core.factory import extract_metadata
+from docmeta.core.types import (
+    FileMetaData,
     PDFMetaData,
     ImageMetaData,
     DocumentMetaData,
+    MetadataType,
 )
 
 __all__ = [
     "extract_metadata",
-    "DocMetaData",
+    "FileMetaData",
     "PDFMetaData",
     "ImageMetaData",
     "DocumentMetaData",
+    "MetadataType",
 ]

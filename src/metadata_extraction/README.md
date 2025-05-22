@@ -29,7 +29,7 @@ pip install -r requirments.txt
 ### Python API
 
 ```python
-from docmeta.core.api import extract_metadata
+from docmeta.core import extract_metadata
 
 # Basic metadata extraction
 metadata = extract_metadata("path/to/file.pdf")

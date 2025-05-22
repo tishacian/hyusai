@@ -7,17 +7,16 @@ based on file type.
 
 import os
 import mimetypes
-from typing import Dict, Optional
 
 from docmeta.core.types import MetadataExtractor, MetadataType
 from docmeta.core.common import get_file_common_metadata
 
 
 # Registry of extractors by file extension
-EXTENSION_EXTRACTORS: Dict[str, MetadataExtractor] = {}
+EXTENSION_EXTRACTORS: dict[str, MetadataExtractor] = {}
 
 # Registry of extractors by MIME type
-MIME_TYPE_EXTRACTORS: Dict[str, MetadataExtractor] = {}
+MIME_TYPE_EXTRACTORS: dict[str, MetadataExtractor] = {}
 
 
 def register_extractor(extensions: list[str], mime_types: list[str], extractor: MetadataExtractor) -> None:

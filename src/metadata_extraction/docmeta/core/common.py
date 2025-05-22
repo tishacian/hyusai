@@ -9,26 +9,26 @@ import os
 import stat
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
-from docmeta.core.types import DocMetaData
+from docmeta.core.types import FileMetaData
 
 
-def get_file_common_metadata(path: str) -> DocMetaData:
+def get_file_common_metadata(path: str) -> FileMetaData:
     """
     Extract common metadata from a file.
-    
+
     Args:
         path: Path to the file
-        
+
     Returns:
-        DocMetaData: Common metadata for the file
+        FileMetaData: Common metadata for the file
     """
     stats = os.stat(path)
     pathlib_path = Path(path)
-    
+
     # Initialize with required fields
-    metadata: Dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "file_path": str(pathlib_path.resolve()),
         "file_name": pathlib_path.name,
         "file_extension": pathlib_path.suffix.lower(),
@@ -38,14 +38,14 @@ def get_file_common_metadata(path: str) -> DocMetaData:
         "last_modified_time": datetime.fromtimestamp(stats.st_mtime),
         "last_accessed_time": datetime.fromtimestamp(stats.st_atime),
     }
-    
+
     # Handle creation time which is platform-dependent
     if hasattr(stats, "st_birthtime"):
         creation_time_in_s = stats.st_birthtime
     else:
         # st_birthtime is not available on Linux platform, st_ctime should be used instead
         creation_time_in_s = stats.st_ctime
-    
+
     metadata["creation_time"] = datetime.fromtimestamp(creation_time_in_s)
-    
+
     return metadata

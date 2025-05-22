@@ -7,52 +7,41 @@ Includes token counting using tiktoken for LLM context estimation.
 
 import os
 import re
-from typing import Dict, Any, Optional, List, cast
+from typing import Any, cast
 
 # Import required libraries (assumed to be pre-installed in the container)
-import PyPDF2
 from PyPDF2 import PdfReader
 import fitz  # PyMuPDF
 import tiktoken
 
-# List of available encodings for token counting
-AVAILABLE_ENCODINGS = [
-    "cl100k_base",  # ChatGPT, GPT-4
-]
+# Default encoding for token counting
+DEFAULT_ENCODING = "cl100k_base"  # ChatGPT, GPT-4
 
 from docmeta.core.common import get_file_common_metadata
 from docmeta.core.types import PDFMetaData
 from docmeta.utils.keyword_extractor import extract_keywords_tfidf
 
 
-def count_tokens(text: str) -> Dict[str, int]:
+def count_tokens(text: str, base: str = DEFAULT_ENCODING) -> int:
     """
-    Count tokens in text using different tiktoken encodings.
+    Count tokens in text using the specified tiktoken encoding.
 
     Args:
         text: Text to count tokens in
+        base: Encoding to use (default: cl100k_base, used by ChatGPT and GPT-4)
 
     Returns:
-        Dict[str, int]: Dictionary mapping encoding names to token counts
+        int: Token count
     """
     if not text:
-        return {}
-
-    token_counts = {}
+        return 0
 
     # Clean the text - remove excessive whitespace
     text = re.sub(r'\s+', ' ', text).strip()
 
-    # Count tokens using different encodings
-    for encoding_name in AVAILABLE_ENCODINGS:
-        try:
-            encoding = tiktoken.get_encoding(encoding_name)
-            token_count = len(encoding.encode(text))
-            token_counts[encoding_name] = token_count
-        except Exception as e:
-            print(f"Error counting tokens with {encoding_name}: {e}")
-
-    return token_counts
+    # Count tokens using the specified encoding
+    encoding = tiktoken.get_encoding(base)
+    return len(encoding.encode(text))
 
 
 def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_keywords_flag: bool = False) -> PDFMetaData:
@@ -74,7 +63,7 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
     common_metadata = get_file_common_metadata(path)
 
     # Initialize PDF-specific metadata with default values
-    pdf_metadata: Dict[str, Any] = {
+    pdf_metadata: dict[str, Any] = {
         **common_metadata,
         "author": None,
         "creator": None,
@@ -82,15 +71,16 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
         "subject": None,
         "title": None,
         "num_pages": 0,
-        "keywords": None,
+        "embedded_keywords": None,
         "encrypted": False,
-        "page_size": None,
+        "page_width": None,
+        "page_height": None,
         "token_count": None,
         "extracted_keywords": None,
     }
 
     # Extracted text will be stored here to be used by token counter and keyword extractor
-    full_text_content: Optional[str] = None
+    full_text_content: str | None = None
 
     # First, try to extract metadata using PyPDF2
     try:
@@ -107,9 +97,8 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
             if reader.pages and len(reader.pages) > 0:
                 page = reader.pages[0]
                 if hasattr(page, 'mediabox'):
-                    width = float(page.mediabox.width)
-                    height = float(page.mediabox.height)
-                    pdf_metadata["page_size"] = {"width": width, "height": height}
+                    pdf_metadata["page_width"] = float(page.mediabox.width)
+                    pdf_metadata["page_height"] = float(page.mediabox.height)
 
             # Extract document info if available
             if reader.metadata:
@@ -136,11 +125,11 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
                     keywords = info.keywords
                     if isinstance(keywords, str):
                         if ',' in keywords:
-                            pdf_metadata["keywords"] = [k.strip() for k in keywords.split(',')]
+                            pdf_metadata["embedded_keywords"] = [k.strip() for k in keywords.split(',')]
                         elif ';' in keywords:
-                            pdf_metadata["keywords"] = [k.strip() for k in keywords.split(';')]
+                            pdf_metadata["embedded_keywords"] = [k.strip() for k in keywords.split(';')]
                         else:
-                            pdf_metadata["keywords"] = [keywords.strip()]
+                            pdf_metadata["embedded_keywords"] = [keywords.strip()]
 
                 # Try dictionary access as well (for older PyPDF2 versions)
                 try:
@@ -150,11 +139,11 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
                         ('/Producer', 'producer'),
                         ('/Subject', 'subject'),
                         ('/Title', 'title'),
-                        ('/Keywords', 'keywords')
+                        ('/Keywords', 'embedded_keywords')
                     ]:
                         if key in info and info[key] and not pdf_metadata.get(attr):
                             value = info[key]
-                            if attr == 'keywords' and isinstance(value, str):
+                            if attr == 'embedded_keywords' and isinstance(value, str):
                                 if ',' in value:
                                     pdf_metadata[attr] = [k.strip() for k in value.split(',')]
                                 elif ';' in value:
@@ -180,7 +169,8 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
         if doc.page_count > 0:
             page = doc[0]
             rect = page.rect
-            pdf_metadata["page_size"] = {"width": rect.width, "height": rect.height}
+            pdf_metadata["page_width"] = rect.width
+            pdf_metadata["page_height"] = rect.height
 
         # Get metadata
         metadata = doc.metadata
@@ -205,11 +195,11 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
             keywords = metadata.get('keywords', '')
             if isinstance(keywords, str):
                 if ',' in keywords:
-                    pdf_metadata["keywords"] = [k.strip() for k in keywords.split(',')]
+                    pdf_metadata["embedded_keywords"] = [k.strip() for k in keywords.split(',')]
                 elif ';' in keywords:
-                    pdf_metadata["keywords"] = [k.strip() for k in keywords.split(';')]
+                    pdf_metadata["embedded_keywords"] = [k.strip() for k in keywords.split(';')]
                 else:
-                    pdf_metadata["keywords"] = [keywords.strip()]
+                    pdf_metadata["embedded_keywords"] = [keywords.strip()]
 
         # Extract text and count tokens if requested
         if count_tokens_flag or extract_keywords_flag:
@@ -219,7 +209,7 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
                 for page_num in range(doc.page_count):
                     page = doc[page_num]
                     page_text = page.get_text()
-                    extracted_text_pymupdf += page_text + "\n\n" 
+                    extracted_text_pymupdf += page_text + "\n\n"
                 full_text_content = extracted_text_pymupdf.strip()
 
             except Exception as e:
@@ -245,10 +235,7 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
 
     # Count tokens if requested and text is available
     if count_tokens_flag and full_text_content:
-        try:
-            pdf_metadata["token_count"] = count_tokens(full_text_content)
-        except Exception as e:
-            print(f"Error counting tokens: {e}")
+        pdf_metadata["token_count"] = count_tokens(full_text_content)
 
     # Extract keywords if requested and text is available
     if extract_keywords_flag and full_text_content:

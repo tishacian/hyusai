@@ -9,9 +9,9 @@ extraction for supported file types like PDFs, images, and documents.
 __version__ = "0.1.0"
 
 # Import main functionality for easy access
-from docmeta.core.api import extract_metadata
-from docmeta.core.types import (
-    DocMetaData,
+from docmeta.core import (
+    extract_metadata,
+    FileMetaData,
     PDFMetaData,
     ImageMetaData,
     DocumentMetaData,
@@ -19,7 +19,7 @@ from docmeta.core.types import (
 
 __all__ = [
     "extract_metadata",
-    "DocMetaData",
+    "FileMetaData",
     "PDFMetaData",
     "ImageMetaData",
     "DocumentMetaData",
