@@ -2,6 +2,7 @@ import asyncio
 import os
 import pickle
 import re
+import time
 
 # --
 import warnings
@@ -38,12 +39,13 @@ from globalvariables import (
     IndexType,
     ReasoningType,
     MAX_MODEL_LEN,
+    EMBEDDING_NAME,
 )
 
 # -- Model evaluation
 from metrics import Evaluatrix
 from reasoningmetrics import ReasoningMetrics
-from utils import get_max_model_len
+from utils import get_max_model_len, measure_time, measure_time_sync
 
 # --
 logging.basicConfig(
@@ -54,8 +56,6 @@ logging.basicConfig(
 
 
 # %% Custom LLMChain
-
-
 @lru_cache(maxsize=None)
 @cache_chunker_embedding_chain
 class CustomLLMChain:
@@ -65,13 +65,12 @@ class CustomLLMChain:
         model,
         model_name,
         vector_store_name,
-        embedding_model_name="sentence-transformers/all-mpnet-base-v2",
+        embedding_model_name=EMBEDDING_NAME,
         index_type=IndexType.FAISS,
         cache_size=1000,
         dynamic_k=True,
     ):
         """Custom LLMChain
-
 
         Parameters
         ----------
@@ -102,6 +101,7 @@ class CustomLLMChain:
         None.
 
         """
+        start_time = time.time()
         self.tokenizer = tokenizer
         self.model = model
         self.model_name = model_name
@@ -110,7 +110,7 @@ class CustomLLMChain:
         self.dynamic_k = dynamic_k
         self.is_large_model = self.model_name in LARGE_MODELS
         self.device = torch.device(
-            "cuda:0"
+            "cuda"
             if torch.cuda.is_available()
             else "cpu" if torch.backends.mps.is_available() else "cpu"
         )
@@ -127,11 +127,13 @@ class CustomLLMChain:
         self.conversation_memory = ConversationMemoryBuffer(max_turns=2)
         # --initialize embedding model
         try:
+            load_embedding_start = time.time()
             self.embedding_model = EmbeddingModelLoader.load_embedding_model(
                 self.index_type, self.embedding_model_name
             )
+            load_embedding_time = time.time() - load_embedding_start
             logging.info(
-                f"Successfully loaded embedding model (cached): {self.embedding_model_name}"
+                f"Successfully loaded embedding model (cached): {self.embedding_model_name} in {load_embedding_time:.4f} seconds"
             )
         except Exception as e:
             logging.error(f"🚩 Error loading cached embedding model: {e}")
@@ -145,6 +147,12 @@ class CustomLLMChain:
         # -- CoT template
         self.templates = TEMPLATES
 
+        init_time = time.time() - start_time
+        logging.info(
+            f"CustomLLMChain initialization completed in {init_time:.4f} seconds"
+        )
+
+    @measure_time_sync
     def _initialize_retrievers(self):
         """Initialize retriever
 
@@ -206,12 +214,14 @@ class CustomLLMChain:
                 dense_retriever=self.dense_retriever,
                 embedding_model=self.embedding_model,  # Pass embedding model
                 texts=self.texts,  # Pass texts
+                config=EnsembleConfig(),
             )
 
         except Exception as e:
             logging.error(f"Error initializing retrievers: {e}")
             raise
 
+    @measure_time_sync
     def _initialize_reranker(self):
         """Initialize FlashReranker
 
@@ -220,13 +230,12 @@ class CustomLLMChain:
         None.
         """
         try:
-            self.reranker = FlashReranker(
-                RerankerConfig(batch_size=32, threshold=0.5)
-            )
+            self.reranker = FlashReranker(RerankerConfig())
         except Exception as e:
             logging.error(f"Error initializing reranker: {e}")
             raise
 
+    @measure_time_sync
     def _initialize_contextual_retriever(self):
         """Initialize ContextualCompressionRetriever
 
@@ -245,6 +254,7 @@ class CustomLLMChain:
             logging.error(f"Error initializing contextual retriever: {e}")
             raise
 
+    @measure_time
     async def analyze_query_complexity(self, question):
         """Analyze query complexity to determine optimal retrieval parameters
 
@@ -262,6 +272,7 @@ class CustomLLMChain:
         else:
             return 3, 0.4
 
+    @measure_time
     async def context_filtering(self, contexts, question):
         """Enhanced context filtering with relevance scoring
 
@@ -306,6 +317,7 @@ class CustomLLMChain:
             logging.error(f"Error in context filtering: {e}")
             return contexts
 
+    @measure_time_sync
     def set_ensemble_fusion_method(self, method: FusionMethod):
         """Switch ensemble fusion method dynamically
 
@@ -350,6 +362,7 @@ class CustomLLMChain:
 
         return stats
 
+    @measure_time_sync
     def optimize_ensemble_for_query_type(
         self, query_characteristics: Dict[str, float]
     ):
@@ -380,6 +393,7 @@ class CustomLLMChain:
         else:
             self.set_ensemble_fusion_method(FusionMethod.SCORE_ADAPTIVE)
 
+    @measure_time_sync
     def compute_mmr(
         self,
         all_texts,
@@ -443,6 +457,7 @@ class CustomLLMChain:
 
         return [all_texts[i] for i in selected_indices]
 
+    @measure_time_sync
     def rank_documents(self, scores):
         """Rank documents based on their fusion scores.
 
@@ -459,7 +474,7 @@ class CustomLLMChain:
 
     def available_device_count(self, device):
         """Get the number of available devices (GPUs or CPU cores)."""
-        if self.device == "cuda:0":
+        if self.device == "cuda":
             return torch.cuda.device_count()
         else:
             return torch.get_num_threads()
@@ -470,13 +485,14 @@ class CustomLLMChain:
         """
         return chunk.to(device, non_blocking=True)
 
+    @measure_time_sync
     def parallel_chunk_transfer(self, tensor, device):
         """Transfer the tensor to the device in chunks using ThreadPoolExecutor,
             distributing across available devices (GPUs or CPU cores).
 
         Parameters:
             tensor (tensor): The tensor to transfer.
-            device (str): The target device (e.g., "cuda:0" or "cpu").
+            device (str): The target device (e.g., "cuda" or "cpu").
 
         Returns:
             The tensor on the target device, reassembled from the chunks.
@@ -611,6 +627,7 @@ class CustomLLMChain:
         else:
             return 2 * 1024
 
+    @measure_time
     async def generate_text(
         self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=50
     ):
@@ -703,6 +720,7 @@ class CustomLLMChain:
                 logging.error(f"CPU generation error: {e}")
                 return ""
 
+    @measure_time
     async def custom_llm_chain(self, context, question):
         """custom_llm_chain with reasoning capabilities
 
@@ -715,12 +733,25 @@ class CustomLLMChain:
 
         """
         try:
+            reasoning_detect_start = time.time()
+            if not hasattr(self, "reasoning_metrics"):
+                self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+
             reasoning_type, _ = (
                 self.reasoning_metrics.bayesian_reasoning_detection(question)
             )
+            reasoning_time = time.time() - reasoning_detect_start
+            logging.info(
+                f"Reasoning detection took {reasoning_time:.4f} seconds"
+            )
             template = self.templates[reasoning_type]
             prompt_format = template.format(context=context, question=question)
+
+            generate_start = time.time()
             generated_text = await self.generate_text(prompt_format)
+            generate_time = time.time() - generate_start
+            logging.info(f"Text generation took {generate_time:.4f} seconds")
+
             return generated_text
 
         except Exception as e:
@@ -729,6 +760,7 @@ class CustomLLMChain:
             prompt_format = template.format(context=context, question=question)
             return await self.generate_text(prompt_format)
 
+    @measure_time_sync
     def chunk_document(self, document, num_chunks=3):
         """Split the document into sub-chunks.
 
@@ -750,6 +782,7 @@ class CustomLLMChain:
             for i in range(0, len(words), chunk_size)
         ]
 
+    @measure_time
     async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
         """Search w/ reasoning scores (optimized)
 
@@ -774,6 +807,7 @@ class CustomLLMChain:
         if cache_key in self.context_cache:
             return self.context_cache[cache_key]
 
+        reasoning_start = time.time()
         reasoning_task = asyncio.create_task(self.detect_reasoning_type(chunk))
         contexts_task = asyncio.create_task(
             self.contextual_retriever.retrieve_and_compress(chunk, k)
@@ -783,8 +817,15 @@ class CustomLLMChain:
         )
         reasoning_type, confidence = reasoning_result
         contexts, scores = contexts_result
+        reasoning_time = time.time() - reasoning_start
+        logging.info(
+            f"Reasoning and contexts retrieval took {reasoning_time:.4f} seconds"
+        )
+
         if not contexts:
             return []
+
+        score_start = time.time()
 
         async def process_context(ctx):
             reasoning_score = (
@@ -802,9 +843,15 @@ class CustomLLMChain:
             context_scores, key=lambda x: x[1], reverse=True
         )
         filtered_contexts = [ctx for ctx, _ in ranked_contexts[:k]]
+        score_time = time.time() - score_start
+        logging.info(
+            f"Context scoring and ranking took {score_time:.4f} seconds"
+        )
+
         self.context_cache[cache_key] = filtered_contexts
         return filtered_contexts
 
+    @measure_time
     async def detect_reasoning_type(
         self, question: str
     ) -> Tuple[ReasoningType, float]:
@@ -825,6 +872,7 @@ class CustomLLMChain:
             question
         )
 
+    @measure_time
     async def create_embeddings_async(self, texts):
         """Asynchronous version of create_embeddings.
             Creates embeddings using pre-loaded SentenceTransformer or tokenizer based on availability.
@@ -878,6 +926,7 @@ class CustomLLMChain:
             logging.error(f"🚩 Error creating embeddings: {e}")
             return np.array([])
 
+    @measure_time
     async def vector_search_async(self, embedding, k):
         """Asynchronous vector search for Chroma and Weaviate.
 
@@ -909,6 +958,7 @@ class CustomLLMChain:
                 for result in results["data"]["Get"][self.class_name]
             ]
 
+    @measure_time
     async def parallel_search(self, document, k=5):
         """Optimized parallel search with improved concurrency
 
@@ -933,6 +983,7 @@ class CustomLLMChain:
         )
         return self.merge_results(results, k)
 
+    @measure_time_sync
     def merge_results(self, results, k):
         """Merge top-k results from parallel searches.
 
@@ -957,6 +1008,7 @@ class CustomLLMChain:
 
         return merged[:k]  # return top-k unique elements
 
+    @measure_time
     async def search_similar_texts(self, question, k=5):
         """Parallelized version of search_similar_texts.
 
@@ -988,6 +1040,7 @@ class CustomLLMChain:
             future = executor.submit(wrapper)
             return future.result()
 
+    @measure_time
     async def check_context_length(
         self, current_context: str, new_context: str
     ) -> bool:
@@ -1039,6 +1092,7 @@ class CustomLLMChain:
             )
             return token_count <= (self.max_model_len - safety_buffer)
 
+    @measure_time
     async def invoke_async(self, question: str):
         """Invoke conversation memory buffer w/ reasoning (optimized for large context models)
 
@@ -1056,8 +1110,16 @@ class CustomLLMChain:
 
         NOTE: In the case of bad response. Simply find an optimal k/retrieval trade-off.
         """
+        overall_start = time.time()
+
         try:
+            memory_start = time.time()
             self.conversation_memory.add_message("user", question)
+            memory_time = time.time() - memory_start
+            logging.info(f"Memory update took {memory_time:.4f} seconds")
+
+            # Run reasoning detection
+            reasoning_start = time.time()
             reasoning_task = self.detect_reasoning_type(question)
             conversation_context = (
                 self.conversation_memory.get_context_with_reasoning(
@@ -1071,11 +1133,18 @@ class CustomLLMChain:
                         reasoning_type
                     )
                 )
+            reasoning_time = time.time() - reasoning_start
+            logging.info(
+                f"Reasoning detection and context preparation took {reasoning_time:.4f} seconds"
+            )
             query_with_context = (
                 question + " " + conversation_context
                 if conversation_context
                 else question
             )
+
+            # Analyze query complexity and optimize retrieval
+            complexity_start = time.time()
             base_k, lambda_param = await self.analyze_query_complexity(
                 query_with_context
             )
@@ -1085,13 +1154,21 @@ class CustomLLMChain:
                 )
             )
             self.optimize_ensemble_for_query_type(query_characteristics)
+            complexity_time = time.time() - complexity_start
+            logging.info(f"Query analysis took {complexity_time:.4f} seconds")
+
             k = base_k * 10 if self.is_large_model else base_k  # ~ !IMPORTANT
             logging.info(
                 f"Query parameters - k: {k}, lambda: {lambda_param}, large_model: {self.is_large_model}, ensemble method: {self.ensemble_retriever.config.fusion_method.value}"
             )
+
+            # First search pass
+            search1_start = time.time()
             initial_contexts = await self.search_similar_texts_async(
                 question, k, lambda_param
             )
+            search1_time = time.time() - search1_start
+            logging.info(f"Initial search took {search1_time:.4f} seconds")
 
             if not initial_contexts:
                 no_context_response = (
@@ -1102,18 +1179,27 @@ class CustomLLMChain:
                 )
                 return no_context_response, "", {}
 
-            # -- filter context considering conversation history
-            filtering_task = self.context_filtering(
+            # Filter context considering conversation history
+            filter_start = time.time()
+            filtered_contexts = await self.context_filtering(
                 initial_contexts,
                 query_with_context,
             )
-            filtered_contexts = await filtering_task
+            filter_time = time.time() - filter_start
+            logging.info(f"Context filtering took {filter_time:.4f} seconds")
+
+            # Second search pass
+            search2_start = time.time()
             document = ". ".join(filtered_contexts[:k])
             retrieval_k = 15 if self.is_large_model else 12  # ~ !IMPORTANT
             relevant_contexts = await self.search_similar_texts(
                 document, k=retrieval_k
             )
+            search2_time = time.time() - search2_start
+            logging.info(f"Secondary search took {search2_time:.4f} seconds")
 
+            # Build context
+            context_build_start = time.time()
             combined_context = ""
             if conversation_context:
                 combined_context = (
@@ -1150,15 +1236,25 @@ class CustomLLMChain:
                 logging.info(
                     f"Large model context: {contexts_added}/{max_contexts} contexts added"
                 )
+            context_build_time = time.time() - context_build_start
+            logging.info(
+                f"Context building took {context_build_time:.4f} seconds"
+            )
 
             # Generate response
+            generation_start = time.time()
             result_text = await self.custom_llm_chain(
                 combined_context, question
             )
             answer = self._format_llm_response(result_text)
             self.conversation_memory.add_message("assistant", answer)
+            generation_time = time.time() - generation_start
+            logging.info(
+                f"Response generation and formatting took {generation_time:.4f} seconds"
+            )
 
-            # -- Evaluation metrics gather...
+            # Evaluation metrics
+            eval_start = time.time()
             eval_metrics = await Evaluatrix(
                 answer,
                 combined_context,
@@ -1168,6 +1264,14 @@ class CustomLLMChain:
                 question,
                 method="ngram",
                 n_gram=3,
+            )
+            eval_time = time.time() - eval_start
+            logging.info(f"Metrics evaluation took {eval_time:.4f} seconds")
+
+            # Log overall performance
+            overall_time = time.time() - overall_start
+            logging.info(
+                f"Total invoke_async execution took {overall_time:.4f} seconds"
             )
 
             return answer, combined_context, eval_metrics
@@ -1181,6 +1285,7 @@ class CustomLLMChain:
             )
             return error_msg, "", {}
 
+    @measure_time_sync
     def ainvoke(self, question):
         """asynchronous invoke
 
