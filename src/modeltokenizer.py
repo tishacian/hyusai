@@ -347,12 +347,17 @@ class CachedLLM:
 
                 kwargs = {
                     "model": self.model_name,
+                    "quantization": (
+                        "awq" if "awq" in self.model_name else "gptq"
+                    ),
                     "tensor_parallel_size": tensor_parallel,
                     "max_model_len": self.max_model_len,
                     "trust_remote_code": True,
                     "gpu_memory_utilization": gpu_utilization,  # <-- Too high values may cause "Cache issues", OOM Error. Lowers values are preferred.
                     "enforce_eager": False,
                     "swap_space": swap_space,
+                    "block_size": 128,
+                    "disable_custom_all_reduce": True,
                 }
 
                 # --> Optimal KV caching
