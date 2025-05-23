@@ -6,7 +6,7 @@ This module provides functionality to extract metadata from document files (docx
 
 import os
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
 # Try to import docx library for Word documents
 try:
@@ -23,8 +23,7 @@ try:
 except ImportError:
     ODF_AVAILABLE = False
 
-from docmeta.core.common import get_file_common_metadata
-from docmeta.core.types import DocumentMetaData
+from docmeta.core.types import DocumentMetaData, create_document_metadata
 
 
 def extract_docx_metadata(path: str) -> dict[str, Any]:
@@ -184,28 +183,11 @@ def extract_document_metadata(path: str) -> DocumentMetaData:
     if not os.path.exists(path):
         raise FileNotFoundError(f"File not found: {path}")
 
-    # Get common metadata
-    common_metadata = get_file_common_metadata(path)
-
-    # Initialize document-specific metadata with default values
-    doc_metadata: dict[str, Any] = {
-        **common_metadata,
-        "author": None,
-        "title": None,
-        "subject": None,
-        "embedded_keywords": None,
-        "extracted_keywords": None,
-        "modified": None,
-        "last_modified_by": None,
-        "num_pages": None,  # None for formats that don't have a native page concept
-        "word_count": 0,
-        "character_count": 0,
-        "paragraph_count": 0,
-        "line_count": 0,
-    }
+    # Initialize metadata with common file properties and defaults
+    doc_metadata = create_document_metadata(path)
 
     # Extract metadata based on file extension
-    file_extension = common_metadata["file_extension"].lower()
+    file_extension = doc_metadata["file_extension"].lower()
 
     if file_extension == '.docx':
         docx_metadata = extract_docx_metadata(path)
@@ -236,4 +218,4 @@ def extract_document_metadata(path: str) -> DocumentMetaData:
         except Exception as e:
             print(f"Error extracting text file metadata: {e}")
 
-    return cast(DocumentMetaData, doc_metadata)
+    return doc_metadata

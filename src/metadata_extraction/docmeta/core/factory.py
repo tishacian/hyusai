@@ -8,8 +8,7 @@ based on file type.
 import os
 import mimetypes
 
-from docmeta.core.types import MetadataExtractor, MetadataType
-from docmeta.core.common import get_file_common_metadata
+from docmeta.core.types import MetadataExtractor, MetadataType, get_file_common_metadata
 
 
 # Registry of extractors by file extension

@@ -5,7 +5,6 @@ This module provides functionality to extract metadata from image files.
 """
 
 import os
-from typing import Any, cast
 
 try:
     from PIL import Image, ExifTags
@@ -13,8 +12,7 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-from docmeta.core.common import get_file_common_metadata
-from docmeta.core.types import ImageMetaData
+from docmeta.core.types import ImageMetaData, create_image_metadata
 
 
 def extract_image_metadata(path: str) -> ImageMetaData:
@@ -30,20 +28,8 @@ def extract_image_metadata(path: str) -> ImageMetaData:
     if not os.path.exists(path):
         raise FileNotFoundError(f"File not found: {path}")
 
-    # Get common metadata
-    common_metadata = get_file_common_metadata(path)
-
-    # Initialize image-specific metadata with default values
-    image_metadata: dict[str, Any] = {
-        **common_metadata,
-        "width": 0,
-        "height": 0,
-        "color_mode": None,
-        "bit_depth": 0,
-        "dpi_x": None,
-        "dpi_y": None,
-        "exif_data": None,
-    }
+    # Initialize metadata with common file properties and defaults
+    image_metadata = create_image_metadata(path)
 
     # Try to extract image-specific metadata using PIL
     if PIL_AVAILABLE:
@@ -86,4 +72,4 @@ def extract_image_metadata(path: str) -> ImageMetaData:
         except Exception as e:
             print(f"Error extracting image metadata: {e}")
 
-    return cast(ImageMetaData, image_metadata)
+    return image_metadata

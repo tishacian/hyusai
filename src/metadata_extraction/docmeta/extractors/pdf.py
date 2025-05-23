@@ -7,16 +7,12 @@ Includes token counting using tiktoken for LLM context estimation.
 
 import logging
 import os
-from typing import cast
 
 # Import required libraries
 from PyPDF2 import PdfReader
 import fitz  # PyMuPDF
 
-
-
-from docmeta.core.common import get_file_common_metadata
-from docmeta.core.types import PDFMetaData
+from docmeta.core.types import PDFMetaData, create_pdf_metadata
 from docmeta.utils import extract_keywords_tfidf
 from docmeta.utils import count_tokens
 
@@ -43,36 +39,6 @@ def _parse_keywords(keywords_str: str) -> list[str]:
         return [k.strip() for k in keywords_str.split(';')]
     else:
         return [keywords_str.strip()]
-
-
-def _initialize_pdf_metadata(path: str) -> PDFMetaData:
-    """
-    Initialize PDF metadata with common file properties and default values.
-
-    Args:
-        path: Path to the PDF file
-
-    Returns:
-        PDFMetaData: Initialized metadata dictionary
-    """
-    # Get common metadata (file size, creation time, etc.)
-    common_metadata = get_file_common_metadata(path)
-    
-    # Initialize PDF-specific metadata with default values
-    return common_metadata | {
-        "author": None,
-        "creator": None,
-        "producer": None,
-        "subject": None,
-        "title": None,
-        "num_pages": 0,
-        "embedded_keywords": None,
-        "encrypted": False,
-        "page_width": None,
-        "page_height": None,
-        "token_count": None,
-        "extracted_keywords": None,
-    }
 
 
 def _extract_text_chunks_pymupdf(doc: fitz.Document):
@@ -121,7 +87,7 @@ def _extract_with_pymupdf(path: str) -> tuple[PDFMetaData, list[str] | None]:
         tuple[PDFMetaData, list[str] | None]: Metadata and text chunks (if any)
     """
     # Initialize metadata with common file properties and defaults
-    pdf_metadata = _initialize_pdf_metadata(path)
+    pdf_metadata = create_pdf_metadata(path)
 
     with fitz.open(path) as doc:
         # Extract metadata
@@ -164,7 +130,7 @@ def _extract_with_pypdf2_fallback(path: str) -> tuple[PDFMetaData, list[str] | N
         tuple[PDFMetaData, list[str] | None]: Metadata and text chunks (if any)
     """
     # Initialize metadata with common file properties and defaults
-    pdf_metadata = _initialize_pdf_metadata(path)
+    pdf_metadata = create_pdf_metadata(path)
 
     with open(path, 'rb') as file:
         reader = PdfReader(file)
@@ -235,4 +201,4 @@ def extract_pdf_metadata(path: str, count_tokens_flag: bool = False, extract_key
             full_text = "\n\n".join(text_chunks)
             pdf_metadata["extracted_keywords"] = extract_keywords_tfidf(full_text)
 
-    return cast(PDFMetaData, pdf_metadata)
+    return pdf_metadata

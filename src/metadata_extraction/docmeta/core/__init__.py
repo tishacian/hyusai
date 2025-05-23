@@ -12,6 +12,9 @@ from docmeta.core.types import (
     ImageMetaData,
     DocumentMetaData,
     MetadataType,
+    create_pdf_metadata,
+    create_image_metadata,
+    create_document_metadata,
 )
 
 __all__ = [
@@ -21,4 +24,7 @@ __all__ = [
     "ImageMetaData",
     "DocumentMetaData",
     "MetadataType",
+    "create_pdf_metadata",
+    "create_image_metadata",
+    "create_document_metadata",
 ]
