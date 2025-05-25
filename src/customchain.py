@@ -631,7 +631,7 @@ class CustomLLMChain:
     async def generate_text(
         self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=50
     ):
-        """Optimized text generation focusing on prefill efficiency with dynamic token allocation
+        """Text generation focusing on prefill efficiency with dynamic token allocation
 
         Parameters
         ----------
@@ -784,7 +784,7 @@ class CustomLLMChain:
 
     @measure_time
     async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
-        """Search w/ reasoning scores (optimized)
+        """Search w/ reasoning scores
 
         Parameters
         ----------
@@ -855,7 +855,7 @@ class CustomLLMChain:
     async def detect_reasoning_type(
         self, question: str
     ) -> Tuple[ReasoningType, float]:
-        """Reasoning detection with confidence score (optimized)
+        """Reasoning detection with confidence score
 
         Parameters
         ----------
@@ -960,7 +960,7 @@ class CustomLLMChain:
 
     @measure_time
     async def parallel_search(self, document, k=5):
-        """Optimized parallel search with improved concurrency
+        """Parallel search with improved concurrency
 
         Parameters:
             document (str): input document
@@ -1094,7 +1094,7 @@ class CustomLLMChain:
 
     @measure_time
     async def invoke_async(self, question: str):
-        """Invoke conversation memory buffer w/ reasoning (optimized for large context models)
+        """Invoke conversation memory buffer w/ reasoning (adapted for large context models)
 
         Parameters:
             question (str): The current user question
