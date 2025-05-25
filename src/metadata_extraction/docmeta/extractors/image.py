@@ -29,29 +29,31 @@ def extract_image_metadata(path: str) -> ImageMetaData:
 
     # Extract image-specific metadata using PIL
     with Image.open(path) as img:
-        # Get image dimensions
-        image_metadata["width"], image_metadata["height"] = img.size
+        # Get image dimensions (required fields)
+        width, height = img.size
+        image_metadata["width"] = width
+        image_metadata["height"] = height
 
-        # Get color mode
-        image_metadata["color_mode"] = img.mode
+        # Get color mode (optional field)
+        image_metadata["color_mode"] = getattr(img, 'mode', None)
 
-        # Get bit depth
-        if hasattr(img, 'bits'):
-            image_metadata["bit_depth"] = img.bits
+        # Get bit depth (optional field)
+        image_metadata["bit_depth"] = getattr(img, 'bits', None)
 
-        # Get DPI
-        if hasattr(img, 'info') and 'dpi' in img.info:
-            dpi = img.info['dpi']
-            image_metadata["dpi_x"] = dpi[0]
-            image_metadata["dpi_y"] = dpi[1]
+        # Get DPI (optional fields)
+        dpi_info = getattr(img, 'info', {}).get('dpi', None)
+        if dpi_info and len(dpi_info) >= 2:
+            image_metadata["dpi_x"] = int(dpi_info[0]) if dpi_info[0] is not None else None
+            image_metadata["dpi_y"] = int(dpi_info[1]) if dpi_info[1] is not None else None
 
-        # Extract EXIF data if available
+        # Extract EXIF data if available (optional field)
         exif_data = {}
-        if hasattr(img, '_getexif') and img._getexif():
-            exif = img._getexif()
+        exif_method = getattr(img, '_getexif', None)
+        if exif_method:
+            exif = exif_method()
             if exif:
                 for tag_id, value in exif.items():
-                    tag = ExifTags.TAGS.get(tag_id, tag_id)
+                    tag = ExifTags.TAGS.get(tag_id, str(tag_id))
                     # Convert bytes to string if possible
                     if isinstance(value, bytes):
                         try:
@@ -60,7 +62,7 @@ def extract_image_metadata(path: str) -> ImageMetaData:
                             value = str(value)
                     exif_data[tag] = value
 
-        if exif_data:
-            image_metadata["exif_data"] = exif_data
+        # Only set exif_data if we found any data
+        image_metadata["exif_data"] = exif_data if exif_data else None
 
     return image_metadata
