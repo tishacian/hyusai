@@ -41,7 +41,39 @@ logging.basicConfig(
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    
+
+# %% time monitoring
+
+
+def measure_time(func):
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = await func(*args, **kwargs)
+        end_time = time.time()
+        elapsed = end_time - start_time
+        logging.info(f"Function {func.__name__} took {elapsed:.4f} seconds")
+        return result
+
+    return wrapper
+
+
+def measure_time_sync(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        elapsed = end_time - start_time
+        logging.info(f"Function {func.__name__} took {elapsed:.4f} seconds")
+        return result
+
+    return wrapper
+
+
+# %%  tesseract utils
+
+
 @cache
 def configure_tesseract():
     """Configure Tesseract OCR and determine if its available.
@@ -130,6 +162,9 @@ def get_tesseract_path():
     return None
 
 
+# %% model utils
+
+
 def gpu_arc_type(device):
     """
     Detect GPU type (A100, H100, L40S)
@@ -215,31 +250,3 @@ def get_max_model_len(model_name, max_model_len: int = None) -> int:
             raise ValueError(f"Error: Unknown model name {model_name}")
     else:
         return max_model_len * 1024
-
-#%% time monitoring
-
-
-def measure_time(func):
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = await func(*args, **kwargs)
-        end_time = time.time()
-        elapsed = end_time - start_time
-        logging.info(f"Function {func.__name__} took {elapsed:.4f} seconds")
-        return result
-
-    return wrapper
-
-
-def measure_time_sync(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        elapsed = end_time - start_time
-        logging.info(f"Function {func.__name__} took {elapsed:.4f} seconds")
-        return result
-
-    return wrapper
