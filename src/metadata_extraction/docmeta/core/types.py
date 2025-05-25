@@ -52,24 +52,91 @@ class ImageMetaData(FileMetaData):
     exif_data: dict[str, Any] | None
 
 
-class DocumentMetaData(FileMetaData):
-    """Metadata specific to document files (docx, odt, etc.)."""
+class OfficeMetaData(FileMetaData):
+    """Metadata specific to Microsoft Office files."""
     author: str | None
     title: str | None
     subject: str | None
-    embedded_keywords: list[str] | None  # Keywords sourced directly from the document's embedded metadata
-    extracted_keywords: list[str] | None  # Keywords programmatically generated from analyzing the document's text content (e.g., TF-IDF)
+    embedded_keywords: list[str] | None
+    extracted_keywords: list[str] | None
+    created: datetime | None
     modified: datetime | None
     last_modified_by: str | None
-    num_pages: int | None  # Optional as some formats like .txt don't have native page concept
+    num_pages: int | None  # Pages for Word, slides for PowerPoint, sheets for Excel
+    num_slides: int | None  # PowerPoint specific
+    num_sheets: int | None  # Excel specific
     word_count: int
     character_count: int
     paragraph_count: int
+    application: str | None  # e.g., "Microsoft Word", "Microsoft Excel"
+    app_version: str | None
+    token_count: int | None  # Token count using default encoding
+
+
+class OpenDocumentMetaData(FileMetaData):
+    """Metadata specific to OpenDocument files."""
+    author: str | None
+    title: str | None
+    subject: str | None
+    embedded_keywords: list[str] | None
+    extracted_keywords: list[str] | None
+    created: datetime | None
+    modified: datetime | None
+    last_modified_by: str | None
+    num_pages: int | None
+    word_count: int
+    character_count: int
+    paragraph_count: int
+    generator: str | None  # Application that created the document
+    language: str | None
+    token_count: int | None  # Token count using default encoding
+
+
+class TextMetaData(FileMetaData):
+    """Metadata specific to plain text and markdown files."""
+    encoding: str | None
+    word_count: int
+    character_count: int
     line_count: int
+    paragraph_count: int
+    extracted_keywords: list[str] | None
+    language: str | None  # Detected language
+    has_front_matter: bool  # For markdown files with YAML front matter
+    token_count: int | None  # Token count using default encoding
+
+
+class MarkupMetaData(FileMetaData):
+    """Metadata specific to markup files (HTML, XML)."""
+    title: str | None
+    encoding: str | None
+    doctype: str | None
+    meta_description: str | None
+    meta_keywords: list[str] | None
+    extracted_keywords: list[str] | None
+    language: str | None
+    element_count: int
+    link_count: int | None  # HTML specific
+    image_count: int | None  # HTML specific
+    token_count: int | None  # Token count using default encoding
+
+
+class StructuredDataMetaData(FileMetaData):
+    """Metadata specific to structured data files (CSV, JSON)."""
+    encoding: str | None
+    schema_type: str | None  # e.g., "CSV", "JSON", "YAML"
+    record_count: int | None  # Rows for CSV, objects for JSON
+    column_count: int | None  # CSV specific
+    columns: list[str] | None  # CSV column names
+    data_types: dict[str, str] | None  # Column data types
+    has_header: bool | None  # CSV specific
+    extracted_keywords: list[str] | None
+    token_count: int | None  # Token count using default encoding
 
 
 # Type for metadata extractors
-MetadataType = FileMetaData | PDFMetaData | ImageMetaData | DocumentMetaData
+MetadataType = (FileMetaData | PDFMetaData | ImageMetaData |
+                OfficeMetaData | OpenDocumentMetaData | TextMetaData |
+                MarkupMetaData | StructuredDataMetaData)
 MetadataExtractor = Callable[[str], MetadataType]
 
 
@@ -123,7 +190,7 @@ def create_pdf_metadata(path: str) -> PDFMetaData:
     """
     # Get common metadata (file size, creation time, etc.)
     common_metadata = get_file_common_metadata(path)
-    
+
     # Initialize PDF-specific metadata with default values
     return common_metadata | {
         "author": None,
@@ -153,7 +220,7 @@ def create_image_metadata(path: str) -> ImageMetaData:
     """
     # Get common metadata (file size, creation time, etc.)
     common_metadata = get_file_common_metadata(path)
-    
+
     # Initialize image-specific metadata with default values
     return common_metadata | {
         "width": 0,
@@ -166,31 +233,155 @@ def create_image_metadata(path: str) -> ImageMetaData:
     }
 
 
-def create_document_metadata(path: str) -> DocumentMetaData:
+
+
+
+def create_office_metadata(path: str) -> OfficeMetaData:
     """
-    Create DocumentMetaData with common file properties and default values.
+    Create OfficeMetaData with common file properties and default values.
 
     Args:
-        path: Path to the document file
+        path: Path to the Office file
 
     Returns:
-        DocumentMetaData: Initialized metadata dictionary
+        OfficeMetaData: Initialized metadata dictionary
     """
     # Get common metadata (file size, creation time, etc.)
     common_metadata = get_file_common_metadata(path)
-    
-    # Initialize document-specific metadata with default values
+
+    # Initialize Office-specific metadata with default values
     return common_metadata | {
         "author": None,
         "title": None,
         "subject": None,
         "embedded_keywords": None,
         "extracted_keywords": None,
+        "created": None,
         "modified": None,
         "last_modified_by": None,
-        "num_pages": None,  # Optional as some formats like .txt don't have native page concept
+        "num_pages": None,
+        "num_slides": None,
+        "num_sheets": None,
         "word_count": 0,
         "character_count": 0,
         "paragraph_count": 0,
+        "application": None,
+        "app_version": None,
+        "token_count": None,
+    }
+
+
+def create_opendocument_metadata(path: str) -> OpenDocumentMetaData:
+    """
+    Create OpenDocumentMetaData with common file properties and default values.
+
+    Args:
+        path: Path to the OpenDocument file
+
+    Returns:
+        OpenDocumentMetaData: Initialized metadata dictionary
+    """
+    # Get common metadata (file size, creation time, etc.)
+    common_metadata = get_file_common_metadata(path)
+
+    # Initialize OpenDocument-specific metadata with default values
+    return common_metadata | {
+        "author": None,
+        "title": None,
+        "subject": None,
+        "embedded_keywords": None,
+        "extracted_keywords": None,
+        "created": None,
+        "modified": None,
+        "last_modified_by": None,
+        "num_pages": None,
+        "word_count": 0,
+        "character_count": 0,
+        "paragraph_count": 0,
+        "generator": None,
+        "language": None,
+        "token_count": None,
+    }
+
+
+def create_text_metadata(path: str) -> TextMetaData:
+    """
+    Create TextMetaData with common file properties and default values.
+
+    Args:
+        path: Path to the text file
+
+    Returns:
+        TextMetaData: Initialized metadata dictionary
+    """
+    # Get common metadata (file size, creation time, etc.)
+    common_metadata = get_file_common_metadata(path)
+
+    # Initialize text-specific metadata with default values
+    return common_metadata | {
+        "encoding": None,
+        "word_count": 0,
+        "character_count": 0,
         "line_count": 0,
+        "paragraph_count": 0,
+        "extracted_keywords": None,
+        "language": None,
+        "has_front_matter": False,
+        "token_count": None,
+    }
+
+
+def create_markup_metadata(path: str) -> MarkupMetaData:
+    """
+    Create MarkupMetaData with common file properties and default values.
+
+    Args:
+        path: Path to the markup file
+
+    Returns:
+        MarkupMetaData: Initialized metadata dictionary
+    """
+    # Get common metadata (file size, creation time, etc.)
+    common_metadata = get_file_common_metadata(path)
+
+    # Initialize markup-specific metadata with default values
+    return common_metadata | {
+        "title": None,
+        "encoding": None,
+        "doctype": None,
+        "meta_description": None,
+        "meta_keywords": None,
+        "extracted_keywords": None,
+        "language": None,
+        "element_count": 0,
+        "link_count": None,
+        "image_count": None,
+        "token_count": None,
+    }
+
+
+def create_structured_data_metadata(path: str) -> StructuredDataMetaData:
+    """
+    Create StructuredDataMetaData with common file properties and default values.
+
+    Args:
+        path: Path to the structured data file
+
+    Returns:
+        StructuredDataMetaData: Initialized metadata dictionary
+    """
+    # Get common metadata (file size, creation time, etc.)
+    common_metadata = get_file_common_metadata(path)
+
+    # Initialize data-specific metadata with default values
+    return common_metadata | {
+        "encoding": None,
+        "schema_type": None,
+        "record_count": None,
+        "column_count": None,
+        "columns": None,
+        "data_types": None,
+        "has_header": None,
+        "extracted_keywords": None,
+        "token_count": None,
     }

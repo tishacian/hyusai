@@ -14,13 +14,24 @@ from docmeta.core import (
     FileMetaData,
     PDFMetaData,
     ImageMetaData,
-    DocumentMetaData,
+    OfficeMetaData,
+    OpenDocumentMetaData,
+    TextMetaData,
+    MarkupMetaData,
+    StructuredDataMetaData,
 )
+
+# Import extractors to trigger registration
+import docmeta.extractors
 
 __all__ = [
     "extract_metadata",
     "FileMetaData",
     "PDFMetaData",
     "ImageMetaData",
-    "DocumentMetaData",
+    "OfficeMetaData",
+    "OpenDocumentMetaData",
+    "TextMetaData",
+    "MarkupMetaData",
+    "StructuredDataMetaData",
 ]

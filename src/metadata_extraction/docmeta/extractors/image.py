@@ -6,11 +6,7 @@ This module provides functionality to extract metadata from image files.
 
 import os
 
-try:
-    from PIL import Image, ExifTags
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
+from PIL import Image, ExifTags
 
 from docmeta.core.types import ImageMetaData, create_image_metadata
 
@@ -31,45 +27,40 @@ def extract_image_metadata(path: str) -> ImageMetaData:
     # Initialize metadata with common file properties and defaults
     image_metadata = create_image_metadata(path)
 
-    # Try to extract image-specific metadata using PIL
-    if PIL_AVAILABLE:
-        try:
-            with Image.open(path) as img:
-                # Get image dimensions
-                image_metadata["width"], image_metadata["height"] = img.size
+    # Extract image-specific metadata using PIL
+    with Image.open(path) as img:
+        # Get image dimensions
+        image_metadata["width"], image_metadata["height"] = img.size
 
-                # Get color mode
-                image_metadata["color_mode"] = img.mode
+        # Get color mode
+        image_metadata["color_mode"] = img.mode
 
-                # Get bit depth
-                if hasattr(img, 'bits'):
-                    image_metadata["bit_depth"] = img.bits
+        # Get bit depth
+        if hasattr(img, 'bits'):
+            image_metadata["bit_depth"] = img.bits
 
-                # Get DPI
-                if hasattr(img, 'info') and 'dpi' in img.info:
-                    dpi = img.info['dpi']
-                    image_metadata["dpi_x"] = dpi[0]
-                    image_metadata["dpi_y"] = dpi[1]
+        # Get DPI
+        if hasattr(img, 'info') and 'dpi' in img.info:
+            dpi = img.info['dpi']
+            image_metadata["dpi_x"] = dpi[0]
+            image_metadata["dpi_y"] = dpi[1]
 
-                # Extract EXIF data if available
-                exif_data = {}
-                if hasattr(img, '_getexif') and img._getexif():
-                    exif = img._getexif()
-                    if exif:
-                        for tag_id, value in exif.items():
-                            tag = ExifTags.TAGS.get(tag_id, tag_id)
-                            # Convert bytes to string if possible
-                            if isinstance(value, bytes):
-                                try:
-                                    value = value.decode('utf-8')
-                                except UnicodeDecodeError:
-                                    value = str(value)
-                            exif_data[tag] = value
+        # Extract EXIF data if available
+        exif_data = {}
+        if hasattr(img, '_getexif') and img._getexif():
+            exif = img._getexif()
+            if exif:
+                for tag_id, value in exif.items():
+                    tag = ExifTags.TAGS.get(tag_id, tag_id)
+                    # Convert bytes to string if possible
+                    if isinstance(value, bytes):
+                        try:
+                            value = value.decode('utf-8')
+                        except UnicodeDecodeError:
+                            value = str(value)
+                    exif_data[tag] = value
 
-                if exif_data:
-                    image_metadata["exif_data"] = exif_data
-
-        except Exception as e:
-            print(f"Error extracting image metadata: {e}")
+        if exif_data:
+            image_metadata["exif_data"] = exif_data
 
     return image_metadata
