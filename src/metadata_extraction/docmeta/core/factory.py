@@ -62,14 +62,14 @@ def get_extractor(path: str) -> MetadataExtractor | None:
     return extractor
 
 
-def extract_metadata(path: str, count_tokens_flag: bool = False, extract_keywords_flag: bool = False) -> MetadataType:
+def extract_metadata(path: str, count_tokens_flag: bool = False, extract_keywords_language: str | None = None) -> MetadataType:
     """
     Extract metadata from a file.
 
     Args:
         path: Path to the file
         count_tokens_flag: Whether to count tokens in text-based files (default: False)
-        extract_keywords_flag: Whether to extract keywords from text-based files (default: False)
+        extract_keywords_language: Language for keyword extraction (None to skip, e.g., "french", "english")
 
     Returns:
         MetadataType: Metadata for the file
@@ -89,10 +89,10 @@ def extract_metadata(path: str, count_tokens_flag: bool = False, extract_keyword
     if text_content and text_content.strip():
         if count_tokens_flag:
             merged_metadata["token_count"] = count_tokens(text_content)
-        
-        if extract_keywords_flag:
-            extracted_keywords = extract_keywords_tfidf(text_content)
+
+        if extract_keywords_language:
+            extracted_keywords = extract_keywords_tfidf(text_content, language=extract_keywords_language)
             if extracted_keywords:
                 merged_metadata["extracted_keywords"] = extracted_keywords
 
-    return merged_metadata 
+    return merged_metadata

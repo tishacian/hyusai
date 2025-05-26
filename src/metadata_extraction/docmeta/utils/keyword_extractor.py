@@ -16,13 +16,13 @@ def clean_text_for_tfidf(text: str) -> str:
     text = text.strip()
     return text
 
-def get_stopwords(language: str = 'english') -> list[str]:
+def get_stopwords(language: str = 'french') -> list[str]:
     """
     Get stopwords.
     Assumes NLTK data (stopwords) is already downloaded.
 
     Args:
-        language: Language code (default: 'english')
+        language: Language code (default: 'french')
 
     Returns:
         List of stopwords for the specified language
@@ -33,14 +33,14 @@ def get_stopwords(language: str = 'english') -> list[str]:
         print(f"Stopwords for language '{language}' not found or NLTK data path incorrect. Please ensure NLTK stopwords are downloaded. Using empty stopwords list.")
         return []
 
-def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'english') -> list[str] | None:
+def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'french') -> list[str] | None:
     """
     Extract keywords from text.
 
     Args:
         text: The input text.
         max_keywords: The maximum number of keywords to return.
-        language: Language of the text for stopwords (default: 'english')
+        language: Language of the text for stopwords (default: 'french')
 
     Returns:
         A list of keywords, or None if text is empty.
