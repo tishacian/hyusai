@@ -754,9 +754,11 @@ class CustomLLMChain:
                         for j, (ctx, score) in enumerate(
                             zip(contexts, scores)
                         ):
+                            query_expansion_wt = 0.9 if is_expanded else 1.0
                             retrieval_ctx = RetrievalContext(
                                 text=ctx,
-                                score=score * (0.9 if is_expanded else 1.0),
+                                score=score
+                                * query_expansion_wt,  # score is 1 - 0.1 if query expansion is used else 1
                                 relevance_score=score
                                 * (0.9 if is_expanded else 1.0),
                                 metadata={
@@ -1045,13 +1047,15 @@ class CustomLLMChain:
             )
 
         safety_buffer = (
-            int(self.max_model_len * 0.05) if self.is_large_model else 500
+            int(self.max_model_len * 0.05)
+            if self.is_large_model
+            else 500  # using a buffer size of 5%
         )
         max_token_limit = self.max_model_len - safety_buffer
-
+        lambda_i = 0.01
         if contexts and not isinstance(contexts[0], RetrievalContext):
             retrieval_contexts = [
-                RetrievalContext(text=ctx, score=1.0 - (i * 0.01))
+                RetrievalContext(text=ctx, score=1.0 - (i * lambda_i))
                 for i, ctx in enumerate(contexts)
             ]
         else:
