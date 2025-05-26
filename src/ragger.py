@@ -601,7 +601,7 @@ if "index_type" not in st.session_state:
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = "<New>"
 if "pipeline_type" not in st.session_state:
-    st.session_state.pipeline_type = PipelineType.HAH
+    st.session_state.pipeline_type = PipelineType.HAHCOMPOSITE
 
 # -- New chat
 if st.sidebar.button("New Chat"):
