@@ -7,8 +7,12 @@ based on file type.
 
 import os
 import mimetypes
+from typing import Any
 
-from docmeta.core.types import MetadataExtractor, MetadataType, get_file_common_metadata
+from docmeta.core.types import MetadataExtractor, MetadataType, get_file_common_metadata, FileMetaData
+from docmeta.utils.text_processing import validate_file_exists
+from docmeta.utils.token_counter import count_tokens
+from docmeta.utils.keyword_extractor import extract_keywords_tfidf
 
 
 # Registry of extractors by file extension
@@ -27,16 +31,14 @@ def register_extractor(extensions: list[str], mime_types: list[str], extractor: 
         mime_types: List of MIME types (e.g., ['application/pdf'])
         extractor: Function to extract metadata
     """
-    # Register for extensions
     for ext in extensions:
         EXTENSION_EXTRACTORS[ext.lower()] = extractor
 
-    # Register for MIME types
     for mime_type in mime_types:
         MIME_TYPE_EXTRACTORS[mime_type.lower()] = extractor
 
 
-def get_extractor(path: str) -> MetadataExtractor:
+def get_extractor(path: str) -> MetadataExtractor | None:
     """
     Get the appropriate metadata extractor for a file.
 
@@ -44,55 +46,53 @@ def get_extractor(path: str) -> MetadataExtractor:
         path: Path to the file
 
     Returns:
-        MetadataExtractor: Function to extract metadata from the file
+        MetadataExtractor: Function to extract metadata from the file or None if no specific extractor is found
     """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"File not found: {path}")
-
-    # Get file extension
+    # File existence is validated by the caller (extract_metadata)
     _, extension = os.path.splitext(path)
     extension = extension.lower()
 
-    # Try to get extractor by extension
     extractor = EXTENSION_EXTRACTORS.get(extension)
 
-    # If no extractor found by extension, try by MIME type
     if extractor is None:
         mime_type, _ = mimetypes.guess_type(path)
         if mime_type:
             extractor = MIME_TYPE_EXTRACTORS.get(mime_type.lower())
 
-    # If still no extractor found, use common metadata extractor
-    if extractor is None:
-        extractor = get_file_common_metadata
-
     return extractor
 
 
-def extract_metadata(path: str, count_tokens: bool = False, extract_keywords: bool = False) -> MetadataType:
+def extract_metadata(path: str, count_tokens_flag: bool = False, extract_keywords_flag: bool = False) -> MetadataType:
     """
     Extract metadata from a file.
 
     Args:
         path: Path to the file
-        count_tokens: Whether to count tokens in text-based files (default: False)
-        extract_keywords: Whether to extract keywords from text-based files (default: False)
+        count_tokens_flag: Whether to count tokens in text-based files (default: False)
+        extract_keywords_flag: Whether to extract keywords from text-based files (default: False)
 
     Returns:
         MetadataType: Metadata for the file
     """
-    extractor = get_extractor(path)
+    validate_file_exists(path)
+    common_metadata: FileMetaData = get_file_common_metadata(path)
+    specific_metadata_dict: dict[str, Any] = {}
+    text_content: str | None = None
 
-    # Prepare arguments for the extractor based on its capabilities
-    extractor_args = {}
-    if hasattr(extractor, '__code__'): # Check if it's a function we can inspect
-        varnames = extractor.__code__.co_varnames
-        if 'count_tokens_flag' in varnames:
-            extractor_args['count_tokens_flag'] = count_tokens
-        if 'extract_keywords_flag' in varnames:
-            extractor_args['extract_keywords_flag'] = extract_keywords
+    extractor_func = get_extractor(path)
 
-    if extractor_args:
-        return extractor(path, **extractor_args)
-    else:
-        return extractor(path)
+    if extractor_func:
+        specific_metadata_dict, text_content = extractor_func(path)
+
+    merged_metadata: dict[str, Any] = {**specific_metadata_dict, **common_metadata}
+
+    if text_content and text_content.strip():
+        if count_tokens_flag:
+            merged_metadata["token_count"] = count_tokens(text_content)
+        
+        if extract_keywords_flag:
+            extracted_keywords = extract_keywords_tfidf(text_content)
+            if extracted_keywords:
+                merged_metadata["extracted_keywords"] = extracted_keywords
+
+    return merged_metadata 
