@@ -574,7 +574,7 @@ if get_standalone_interface_config().forced_vdb == "None":
 else:
     RaggerChain = (
         CHAHCustomLLMChain
-        if pipeline_type == PipelineType.HAH_PMSR
+        if pipeline_type == PipelineType.HAHCOMPOSITE
         else (
             HAHCustomLLMChain
             if pipeline_type == PipelineType.HAH
@@ -652,7 +652,7 @@ for chat_id, timestamp in historical_chats:
             # -- select appropriate chain class based on pipeline type
             RaggerChain = (
                 CHAHCustomLLMChain
-                if st.session_state.pipeline_type == PipelineType.HAH_PMSR
+                if st.session_state.pipeline_type == PipelineType.HAHCOMPOSITE
                 else (
                     HAHCustomLLMChain
                     if st.session_state.pipeline_type == PipelineType.HAH
