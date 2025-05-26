@@ -16,6 +16,7 @@ from PIL import Image
 from chunker import TextChunker
 from configuration import get_standalone_interface_config
 from customchain import CustomLLMChain as HAHCustomLLMChain
+from customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
 from customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
 from embedding import EmbeddingVectors
@@ -62,7 +63,7 @@ def device_default_model():
 
 
 # default values
-pipeline_type = PipelineType.HAH
+pipeline_type = PipelineType.HAHCOMPOSITE
 chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
 index_type = IndexType.FAISS
 model_name = device_default_model()
@@ -465,7 +466,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                         PIPELINE_TYPES,
                         index=PIPELINE_TYPES.index(
                             st.session_state.get(
-                                "pipeline_type", PipelineType.HAH
+                                "pipeline_type", PipelineType.HAHCOMPOSITE
                             )
                         ),
                         help="Select the pipeline implementation to use",
@@ -552,9 +553,13 @@ if get_standalone_interface_config().forced_vdb == "None":
                 st.rerun()
             if custom_chain_button:
                 RaggerChain = (
-                    HAHCustomLLMChain
-                    if pipeline_type == PipelineType.HAH
-                    else NaiveCustomLLMChain
+                    CHAHCustomLLMChain
+                    if pipeline_type == PipelineType.HAHCOMPOSITE
+                    else (
+                        HAHCustomLLMChain
+                        if pipeline_type == PipelineType.HAH
+                        else NaiveCustomLLMChain
+                    )
                 )
 
                 chain = RaggerChain(
@@ -568,9 +573,13 @@ if get_standalone_interface_config().forced_vdb == "None":
                 st.session_state.pipeline_type = pipeline_type
 else:
     RaggerChain = (
-        HAHCustomLLMChain
-        if pipeline_type == PipelineType.HAH
-        else NaiveCustomLLMChain
+        CHAHCustomLLMChain
+        if pipeline_type == PipelineType.HAH_PMSR
+        else (
+            HAHCustomLLMChain
+            if pipeline_type == PipelineType.HAH
+            else NaiveCustomLLMChain
+        )
     )
 
     chain = RaggerChain(
@@ -640,11 +649,15 @@ for chat_id, timestamp in historical_chats:
             st.session_state.vector_store = vector_store
             st.session_state.pipeline_type = pipeline_type or PipelineType.HAH
 
-            # Choose the appropriate chain class based on pipeline type
+            # -- select appropriate chain class based on pipeline type
             RaggerChain = (
-                HAHCustomLLMChain
-                if st.session_state.pipeline_type == PipelineType.HAH
-                else NaiveCustomLLMChain
+                CHAHCustomLLMChain
+                if st.session_state.pipeline_type == PipelineType.HAH_PMSR
+                else (
+                    HAHCustomLLMChain
+                    if st.session_state.pipeline_type == PipelineType.HAH
+                    else NaiveCustomLLMChain
+                )
             )
 
             # -- reinit chain
