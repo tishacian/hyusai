@@ -412,6 +412,7 @@ class OptimalMethod(StrEnum):
 
 
 class PipelineType(StrEnum):
+    HAHCOMPOSITE = "C-HAH RAG"
     HAH = "HAH RAG"
     NAIVE = "Naive RAG"
 
