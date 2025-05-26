@@ -6,150 +6,94 @@ Supports DOCX, XLSX, and PPTX formats with comprehensive metadata extraction.
 """
 
 import logging
-import os
-from datetime import datetime
+from typing import Any
 
 # Import required libraries for Office document processing
 import docx
 from openpyxl import load_workbook
 from pptx import Presentation
 
-from docmeta.core.types import OfficeMetaData, create_office_metadata
-from docmeta.utils.token_counter import count_tokens
+from docmeta.core.types import create_office_metadata # create_office_metadata returns dict[str, Any]
+from docmeta.utils.text_processing import (
+    get_file_extension,
+    extract_common_metadata_fields,
+    extract_and_parse_keywords,
+    count_text_statistics
+)
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
 
-def _parse_keywords(keywords_str: str) -> list[str]:
+def _extract_with_docx(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Parse keywords string into a list of keywords.
-
-    Args:
-        keywords_str: String containing keywords
-
-    Returns:
-        list[str]: List of keywords
-    """
-    if not keywords_str:
-        return []
-
-    if ',' in keywords_str:
-        return [k.strip() for k in keywords_str.split(',')]
-    elif ';' in keywords_str:
-        return [k.strip() for k in keywords_str.split(';')]
-    else:
-        return [keywords_str.strip()]
-
-
-def _extract_with_docx(path: str) -> OfficeMetaData:
-    """
-    Extract metadata from a DOCX file using python-docx.
+    Extract metadata and text from a DOCX file.
 
     Args:
         path: Path to the DOCX file
 
     Returns:
-        OfficeMetaData: Metadata for the DOCX file
+        tuple[dict[str, Any], str | None]: Specific DOCX metadata and text content.
     """
-    # Initialize metadata with common file properties and defaults
-    office_metadata = create_office_metadata(path)
+    metadata = create_office_metadata()
 
     doc = docx.Document(path)
     core_properties = doc.core_properties
 
-    # Extract document metadata
-    office_metadata["author"] = getattr(core_properties, 'author', None)
-    office_metadata["title"] = getattr(core_properties, 'title', None)
-    office_metadata["subject"] = getattr(core_properties, 'subject', None)
-    office_metadata["last_modified_by"] = getattr(core_properties, 'last_modified_by', None)
+    field_mapping = {
+        'author': 'author',
+        'title': 'title',
+        'subject': 'subject',
+        'last_modified_by': 'last_modified_by'
+    }
+    extract_common_metadata_fields(core_properties, metadata, field_mapping)
+    extract_and_parse_keywords(core_properties, metadata, 'keywords')
 
-    # Handle creation and modification times
-    if hasattr(core_properties, 'created') and core_properties.created:
-        office_metadata["created"] = core_properties.created
-    if hasattr(core_properties, 'modified') and core_properties.modified:
-        office_metadata["modified"] = core_properties.modified
+    metadata["application"] = "Microsoft Word"
+    metadata["paragraph_count"] = len(doc.paragraphs)
 
-    # Handle keywords
-    keywords = getattr(core_properties, 'keywords', None)
-    if keywords and isinstance(keywords, str):
-        office_metadata["embedded_keywords"] = _parse_keywords(keywords)
+    text_elements = [para.text for para in doc.paragraphs]
+    stats = count_text_statistics(text_elements)
+    metadata["word_count"] = stats['word_count']
+    metadata["character_count"] = stats['char_count']
 
-    # Set application info
-    office_metadata["application"] = "Microsoft Word"
+    if stats['word_count'] > 0:
+        metadata["num_pages"] = max(1, stats['word_count'] // 500)
 
-    # Count paragraphs, words, etc.
-    office_metadata["paragraph_count"] = len(doc.paragraphs)
-
-    word_count = 0
-    char_count = 0
-    all_text = []
-    for para in doc.paragraphs:
-        text = para.text
-        words = text.split()
-        word_count += len(words)
-        char_count += len(text)
-        if text.strip():  # Only add non-empty text for token counting
-            all_text.append(text)
-
-    office_metadata["word_count"] = word_count
-    office_metadata["character_count"] = char_count
-
-    # Count tokens
-    if all_text:
-        full_text = '\n'.join(all_text)
-        office_metadata["token_count"] = count_tokens(full_text)
-
-    # Count pages (approximate)
-    # A rough estimate: ~500 words per page for standard documents
-    if word_count > 0:
-        office_metadata["num_pages"] = max(1, word_count // 500)
-
-    return office_metadata
+    text_content = '\n'.join(stats['all_text']) if stats['all_text'] else None
+    return metadata, text_content
 
 
-def _extract_with_xlsx(path: str) -> OfficeMetaData:
+def _extract_with_xlsx(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from an XLSX file using openpyxl.
+    Extract metadata and text from an XLSX file.
 
     Args:
         path: Path to the XLSX file
 
     Returns:
-        OfficeMetaData: Metadata for the XLSX file
+        tuple[dict[str, Any], str | None]: Specific XLSX metadata and text content.
     """
-    # Initialize metadata with common file properties and defaults
-    office_metadata = create_office_metadata(path)
+    metadata = create_office_metadata()
 
     workbook = load_workbook(path, read_only=True)
     properties = workbook.properties
 
-    # Extract document metadata
-    office_metadata["author"] = getattr(properties, 'creator', None)
-    office_metadata["title"] = getattr(properties, 'title', None)
-    office_metadata["subject"] = getattr(properties, 'subject', None)
-    office_metadata["last_modified_by"] = getattr(properties, 'lastModifiedBy', None)
+    field_mapping = {
+        'author': 'creator',
+        'title': 'title',
+        'subject': 'subject',
+        'last_modified_by': 'lastModifiedBy'
+    }
+    extract_common_metadata_fields(properties, metadata, field_mapping)
+    extract_and_parse_keywords(properties, metadata, 'keywords')
 
-    # Handle creation and modification times
-    if hasattr(properties, 'created') and properties.created:
-        office_metadata["created"] = properties.created
-    if hasattr(properties, 'modified') and properties.modified:
-        office_metadata["modified"] = properties.modified
+    metadata["application"] = "Microsoft Excel"
+    metadata["num_sheets"] = len(workbook.worksheets)
 
-    # Handle keywords
-    keywords = getattr(properties, 'keywords', None)
-    if keywords and isinstance(keywords, str):
-        office_metadata["embedded_keywords"] = _parse_keywords(keywords)
-
-    # Set application info
-    office_metadata["application"] = "Microsoft Excel"
-
-    # Count sheets and estimate content
-    office_metadata["num_sheets"] = len(workbook.worksheets)
-
-    # Count cells with data across all sheets
     total_cells = 0
-    all_text = []
+    all_text_elements = []
+    char_count = 0
     for sheet in workbook.worksheets:
         for row in sheet.iter_rows():
             for cell in row:
@@ -157,103 +101,73 @@ def _extract_with_xlsx(path: str) -> OfficeMetaData:
                     total_cells += 1
                     cell_text = str(cell.value)
                     if isinstance(cell.value, str):
-                        office_metadata["character_count"] += len(cell_text)
-                        if cell_text.strip():  # Only add non-empty text for token counting
-                            all_text.append(cell_text)
+                        char_count += len(cell_text)
+                        if cell_text.strip():
+                            all_text_elements.append(cell_text)
+    
+    metadata["character_count"] = char_count
+    metadata["word_count"] = total_cells  # Using cell count as word equivalent
 
-    office_metadata["word_count"] = total_cells  # Use cell count as word equivalent
-
-    # Count tokens
-    if all_text:
-        full_text = '\n'.join(all_text)
-        office_metadata["token_count"] = count_tokens(full_text)
-
+    text_content = '\n'.join(all_text_elements) if all_text_elements else None
     workbook.close()
-    return office_metadata
+    return metadata, text_content
 
 
-def _extract_with_pptx(path: str) -> OfficeMetaData:
+def _extract_with_pptx(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a PPTX file using python-pptx.
+    Extract metadata and text from a PPTX file.
 
     Args:
         path: Path to the PPTX file
 
     Returns:
-        OfficeMetaData: Metadata for the PPTX file
+        tuple[dict[str, Any], str | None]: Specific PPTX metadata and text content.
     """
-    # Initialize metadata with common file properties and defaults
-    office_metadata = create_office_metadata(path)
+    metadata = create_office_metadata()
 
     presentation = Presentation(path)
     core_properties = presentation.core_properties
 
-    # Extract document metadata
-    office_metadata["author"] = getattr(core_properties, 'author', None)
-    office_metadata["title"] = getattr(core_properties, 'title', None)
-    office_metadata["subject"] = getattr(core_properties, 'subject', None)
-    office_metadata["last_modified_by"] = getattr(core_properties, 'last_modified_by', None)
+    field_mapping = {
+        'author': 'author',
+        'title': 'title',
+        'subject': 'subject',
+        'last_modified_by': 'last_modified_by'
+    }
+    extract_common_metadata_fields(core_properties, metadata, field_mapping)
+    extract_and_parse_keywords(core_properties, metadata, 'keywords')
 
-    # Handle creation and modification times
-    if hasattr(core_properties, 'created') and core_properties.created:
-        office_metadata["created"] = core_properties.created
-    if hasattr(core_properties, 'modified') and core_properties.modified:
-        office_metadata["modified"] = core_properties.modified
+    metadata["application"] = "Microsoft PowerPoint"
+    metadata["num_slides"] = len(presentation.slides)
+    metadata["num_pages"] = len(presentation.slides)
 
-    # Handle keywords
-    keywords = getattr(core_properties, 'keywords', None)
-    if keywords and isinstance(keywords, str):
-        office_metadata["embedded_keywords"] = _parse_keywords(keywords)
-
-    # Set application info
-    office_metadata["application"] = "Microsoft PowerPoint"
-
-    # Count slides and content
-    office_metadata["num_slides"] = len(presentation.slides)
-    office_metadata["num_pages"] = len(presentation.slides)  # Slides are equivalent to pages
-
-    word_count = 0
-    char_count = 0
-    all_text = []
+    text_elements = []
     for slide in presentation.slides:
         for shape in slide.shapes:
             if hasattr(shape, "text") and shape.text:
-                text = shape.text
-                words = text.split()
-                word_count += len(words)
-                char_count += len(text)
-                if text.strip():  # Only add non-empty text for token counting
-                    all_text.append(text)
+                text_elements.append(shape.text)
 
-    office_metadata["word_count"] = word_count
-    office_metadata["character_count"] = char_count
+    stats = count_text_statistics(text_elements)
+    metadata["word_count"] = stats['word_count']
+    metadata["character_count"] = stats['char_count']
 
-    # Count tokens
-    if all_text:
-        full_text = '\n'.join(all_text)
-        office_metadata["token_count"] = count_tokens(full_text)
-
-    return office_metadata
+    text_content = '\n'.join(stats['all_text']) if stats['all_text'] else None
+    return metadata, text_content
 
 
-def extract_office_metadata(path: str) -> OfficeMetaData:
+def extract_office_metadata(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a Microsoft Office file.
+    Extract metadata and text from a Microsoft Office file.
 
     Args:
         path: Path to the Office file
 
     Returns:
-        OfficeMetaData: Metadata for the Office file
+        tuple[dict[str, Any], str | None]: Specific Office metadata and text content.
     """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"File not found: {path}")
+    # File existence validation is handled by the factory
+    extension = get_file_extension(path)
 
-    # Get file extension to determine extraction method
-    _, extension = os.path.splitext(path)
-    extension = extension.lower()
-
-    # Extract metadata based on file type
     if extension == '.docx':
         return _extract_with_docx(path)
     elif extension == '.xlsx':
@@ -261,5 +175,6 @@ def extract_office_metadata(path: str) -> OfficeMetaData:
     elif extension == '.pptx':
         return _extract_with_pptx(path)
     else:
-        # For unsupported Office types, return basic metadata
-        return create_office_metadata(path)
+        # Should not happen if called via registered extensions
+        logger.warning(f"Unsupported Office file type for explicit extraction: {path}")
+        return create_office_metadata(), None

@@ -1,9 +1,3 @@
-"""
-Metadata Extractors Package
-
-This package contains extractors for different file types.
-"""
-
 # Import all extractors
 from docmeta.extractors.pdf import extract_pdf_metadata
 from docmeta.extractors.image import extract_image_metadata
@@ -12,7 +6,6 @@ from docmeta.extractors.opendocument import extract_opendocument_metadata
 from docmeta.extractors.text import extract_text_metadata
 from docmeta.extractors.markup import extract_markup_metadata
 from docmeta.extractors.structured_data import extract_structured_data_metadata
-from docmeta.extractors.generic import extract_generic_metadata
 
 # Register extractors with the factory
 from docmeta.core.factory import register_extractor
@@ -102,5 +95,4 @@ __all__ = [
     'extract_text_metadata',
     'extract_markup_metadata',
     'extract_structured_data_metadata',
-    'extract_generic_metadata',
 ]

@@ -5,397 +5,219 @@ This module provides functionality to extract metadata from structured data file
 Supports CSV, JSON, YAML, and other structured data formats with comprehensive analysis.
 """
 
+import configparser
 import csv
 import json
 import logging
-import os
+from typing import Any
 
+import tomli
+import yaml
 
-from docmeta.core.types import StructuredDataMetaData, create_structured_data_metadata
-from docmeta.utils.token_counter import count_tokens
+from docmeta.core.types import create_structured_data_metadata # returns dict[str, Any]
+from docmeta.utils.text_processing import (
+    analyze_list_structure,
+    analyze_dict_structure,
+    get_file_extension,
+    initialize_metadata_with_encoding, # Returns (metadata_dict, encoding)
+    infer_json_data_types,
+    detect_csv_header
+)
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
 
-def _detect_encoding(path: str) -> str:
-    """
-    Detect file encoding using common encodings.
-
-    Args:
-        path: Path to the data file
-
-    Returns:
-        str: Detected encoding
-    """
-    # Try common encodings
-    encodings = ['utf-8', 'utf-16', 'latin-1', 'cp1252']
-
-    for encoding in encodings:
-        try:
-            with open(path, 'r', encoding=encoding) as f:
-                f.read(1024)  # Read a small chunk to test
-                return encoding
-        except UnicodeDecodeError:
-            continue
-
-    return 'utf-8'  # Default fallback
-
-
 def _detect_csv_delimiter(sample_line: str) -> str:
     """
-    Detect CSV delimiter from sample line.
-
-    Args:
-        sample_line: First line of CSV file
-
-    Returns:
-        str: Detected delimiter
+    Detect CSV delimiter.
     """
-    # Common delimiters to test
     delimiters = [',', ';', '\t', '|']
-
-    # Count occurrences of each delimiter
-    delimiter_counts = {}
-    for delimiter in delimiters:
-        delimiter_counts[delimiter] = sample_line.count(delimiter)
-
-    # Return delimiter with highest count
-    if delimiter_counts:
-        return max(delimiter_counts, key=delimiter_counts.get)
-
-    return ','  # Default to comma
+    delimiter_counts = {d: sample_line.count(d) for d in delimiters}
+    return max(delimiter_counts, key=delimiter_counts.get) if delimiter_counts else ','
 
 
-def _infer_data_types(values: list[str]) -> dict[str, str]:
+def _infer_csv_column_data_types(values: list[str]) -> str:
     """
-    Infer data types from sample values.
-
-    Args:
-        values: List of string values
-
-    Returns:
-        dict[str, str]: Data type inference results
+    Infer data types from CSV column values.
     """
     type_counts = {'int': 0, 'float': 0, 'bool': 0, 'str': 0}
-
-    for value in values[:100]:  # Sample first 100 values
+    for value in values[:100]: # Sample first 100 values
         value = value.strip()
-        if not value:
-            continue
-
-        # Try to infer type
-        if value.lower() in ['true', 'false', 'yes', 'no', '1', '0']:
-            type_counts['bool'] += 1
-        else:
-            try:
-                int(value)
-                type_counts['int'] += 1
-                continue
-            except ValueError:
-                pass
-
-            try:
-                float(value)
-                type_counts['float'] += 1
-                continue
-            except ValueError:
-                pass
-
-            type_counts['str'] += 1
-
-    # Return most common type
-    if type_counts:
-        return max(type_counts, key=type_counts.get)
-    return 'str'
+        if not value: continue
+        if value.lower() in ['true', 'false', 'yes', 'no', '1', '0']: type_counts['bool'] += 1
+        elif value.isdigit() or (value.startswith('-') and value[1:].isdigit()): type_counts['int'] += 1
+        elif '.' in value and value.replace('.', '', 1).replace('-', '', 1).isdigit(): type_counts['float'] += 1
+        else: type_counts['str'] += 1
+    return max(type_counts, key=type_counts.get) if type_counts else 'str'
 
 
-def _extract_with_csv(path: str) -> StructuredDataMetaData:
+def _extract_with_csv(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a CSV file.
-
-    Args:
-        path: Path to the CSV file
-
-    Returns:
-        StructuredDataMetaData: Metadata for the CSV file
+    Extract metadata and raw text content from a CSV file.
     """
-    # Initialize metadata with common file properties and defaults
-    csv_metadata = create_structured_data_metadata(path)
-
-    # Detect encoding
-    encoding = _detect_encoding(path)
-    csv_metadata["encoding"] = encoding
-    csv_metadata["schema_type"] = "CSV"
-
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        # Read first line to detect delimiter
-        first_line = f.readline()
-        delimiter = _detect_csv_delimiter(first_line)
-
-        # Reset file pointer
-        f.seek(0)
-
-        # Create CSV reader
-        reader = csv.reader(f, delimiter=delimiter)
-
-        rows = list(reader)
+    metadata, encoding = initialize_metadata_with_encoding(path, create_structured_data_metadata, "CSV")
+    raw_content: str | None = None
+    try:
+        with open(path, 'r', encoding=encoding, errors='replace') as f:
+            raw_content = f.read()
+            # For CSV analysis, re-read after getting raw_content or use StringIO
+            f.seek(0)
+            first_line = f.readline()
+            if not first_line: # Empty file
+                return metadata, raw_content
+            delimiter = _detect_csv_delimiter(first_line)
+            f.seek(0)
+            reader = csv.reader(f, delimiter=delimiter)
+            rows = list(reader)
+        
         if not rows:
-            return csv_metadata
+            return metadata, raw_content
 
-        # Determine if first row is header
         first_row = rows[0]
-        has_header = True  # Assume header by default
+        has_header = detect_csv_header(first_row)
+        metadata["has_header"] = has_header
 
-        # Simple heuristic: if first row contains non-numeric values, likely header
-        try:
-            for cell in first_row:
-                float(cell)
-            has_header = False  # All numeric, probably not header
-        except ValueError:
-            has_header = True  # Contains non-numeric, likely header
-
-        csv_metadata["has_header"] = has_header
-
-        # Set column information
         if has_header:
-            csv_metadata["columns"] = first_row
+            metadata["columns"] = first_row
             data_rows = rows[1:]
         else:
-            csv_metadata["columns"] = [f"Column_{i+1}" for i in range(len(first_row))]
+            metadata["columns"] = [f"Column_{i+1}" for i in range(len(first_row))]
             data_rows = rows
+        
+        metadata["column_count"] = len(metadata["columns"])
+        metadata["record_count"] = len(data_rows)
 
-        csv_metadata["column_count"] = len(first_row)
-        csv_metadata["record_count"] = len(data_rows)
-
-        # Infer data types for each column
-        if data_rows and csv_metadata["columns"]:
+        if data_rows and metadata["columns"]:
             data_types = {}
-            for i, column_name in enumerate(csv_metadata["columns"]):
-                if i < len(first_row):
-                    column_values = [row[i] if i < len(row) else '' for row in data_rows]
-                    data_types[column_name] = _infer_data_types(column_values)
-            csv_metadata["data_types"] = data_types
-
-    # Count tokens from raw file content
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        content = f.read()
-        if content.strip():
-            csv_metadata["token_count"] = count_tokens(content)
-
-    return csv_metadata
+            for i, column_name in enumerate(metadata["columns"]):
+                # Ensure index i is within bounds for all data_rows
+                column_values = [row[i] if i < len(row) else '' for row in data_rows]
+                data_types[column_name] = _infer_csv_column_data_types(column_values)
+            metadata["data_types"] = data_types
+            
+    except Exception as e:
+        logger.error(f"Error extracting CSV metadata from {path}: {e}")
+        # raw_content might be partially read or None, return what we have
+    return metadata, raw_content
 
 
-def _extract_with_json(path: str) -> StructuredDataMetaData:
+def _extract_with_json(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a JSON file.
-
-    Args:
-        path: Path to the JSON file
-
-    Returns:
-        StructuredDataMetaData: Metadata for the JSON file
+    Extract metadata and raw text content from a JSON file.
     """
-    # Initialize metadata with common file properties and defaults
-    json_metadata = create_structured_data_metadata(path)
+    metadata, encoding = initialize_metadata_with_encoding(path, create_structured_data_metadata, "JSON")
+    raw_content: str | None = None
+    try:
+        with open(path, 'r', encoding=encoding, errors='replace') as f:
+            raw_content = f.read()
+        data = json.loads(raw_content)
 
-    # Detect encoding
-    encoding = _detect_encoding(path)
-    json_metadata["encoding"] = encoding
-    json_metadata["schema_type"] = "JSON"
-
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        content = f.read()
-
-        # Parse JSON
-        data = json.loads(content)
-
-        # Analyze structure
         if isinstance(data, list):
-            json_metadata["record_count"] = len(data)
-
-            # If list of objects, analyze first object for schema
+            structure_info = analyze_list_structure(data)
+            metadata.update(structure_info)
             if data and isinstance(data[0], dict):
-                first_object = data[0]
-                json_metadata["columns"] = list(first_object.keys())
-                json_metadata["column_count"] = len(first_object.keys())
-
-                # Infer data types
-                data_types = {}
-                for key in first_object.keys():
-                    value = first_object[key]
-                    if isinstance(value, bool):
-                        data_types[key] = 'bool'
-                    elif isinstance(value, int):
-                        data_types[key] = 'int'
-                    elif isinstance(value, float):
-                        data_types[key] = 'float'
-                    elif isinstance(value, str):
-                        data_types[key] = 'str'
-                    elif isinstance(value, (list, dict)):
-                        data_types[key] = 'object'
-                    else:
-                        data_types[key] = 'unknown'
-
-                json_metadata["data_types"] = data_types
-
+                metadata["data_types"] = infer_json_data_types(data[0])
         elif isinstance(data, dict):
-            json_metadata["record_count"] = 1
-            json_metadata["columns"] = list(data.keys())
-            json_metadata["column_count"] = len(data.keys())
-
-        # Count tokens from raw content
-        if content.strip():
-            json_metadata["token_count"] = count_tokens(content)
-
-    return json_metadata
+            structure_info = analyze_dict_structure(data)
+            metadata.update(structure_info)
+            metadata["data_types"] = infer_json_data_types(data) # Infer for top-level dict
+            
+    except Exception as e:
+        logger.error(f"Error extracting JSON metadata from {path}: {e}")
+    return metadata, raw_content
 
 
-def _extract_with_yaml(path: str) -> StructuredDataMetaData:
+def _extract_with_yaml(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a YAML file.
-
-    Args:
-        path: Path to the YAML file
-
-    Returns:
-        StructuredDataMetaData: Metadata for the YAML file
+    Extract metadata and raw text content from a YAML file.
     """
-    # Initialize metadata with common file properties and defaults
-    yaml_metadata = create_structured_data_metadata(path)
-
-    # Detect encoding
-    encoding = _detect_encoding(path)
-    yaml_metadata["encoding"] = encoding
-    yaml_metadata["schema_type"] = "YAML"
-
-    import yaml
-
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        content = f.read()
-        data = yaml.safe_load(content)
-
-        # Analyze structure similar to JSON
+    metadata, encoding = initialize_metadata_with_encoding(path, create_structured_data_metadata, "YAML")
+    raw_content: str | None = None
+    try:
+        with open(path, 'r', encoding=encoding, errors='replace') as f:
+            raw_content = f.read()
+        data = yaml.safe_load(raw_content)
         if isinstance(data, list):
-            yaml_metadata["record_count"] = len(data)
-
-            if data and isinstance(data[0], dict):
-                first_object = data[0]
-                yaml_metadata["columns"] = list(first_object.keys())
-                yaml_metadata["column_count"] = len(first_object.keys())
-
+            structure_info = analyze_list_structure(data)
+            metadata.update(structure_info)
+            # data_types could be inferred similarly to JSON if needed
         elif isinstance(data, dict):
-            yaml_metadata["record_count"] = 1
-            yaml_metadata["columns"] = list(data.keys())
-            yaml_metadata["column_count"] = len(data.keys())
-
-        # Count tokens from raw content
-        if content.strip():
-            yaml_metadata["token_count"] = count_tokens(content)
-
-    return yaml_metadata
+            structure_info = analyze_dict_structure(data)
+            metadata.update(structure_info)
+            # data_types could be inferred similarly to JSON if needed
+    except Exception as e:
+        logger.error(f"Error extracting YAML metadata from {path}: {e}")
+    return metadata, raw_content
 
 
-def _extract_with_toml(path: str) -> StructuredDataMetaData:
+def _extract_with_toml(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a TOML file.
-
-    Args:
-        path: Path to the TOML file
-
-    Returns:
-        StructuredDataMetaData: Metadata for the TOML file
+    Extract metadata and raw text content from a TOML file.
     """
-    # Initialize metadata with common file properties and defaults
-    toml_metadata = create_structured_data_metadata(path)
+    metadata, _ = initialize_metadata_with_encoding(path, create_structured_data_metadata, "TOML") # encoding not used by tomli.load with 'rb'
+    raw_content: str | None = None
+    try:
+        with open(path, 'rb') as f: # tomli.load expects a binary file
+            data = tomli.load(f)
+        # Read again in text mode for raw_content, using detected encoding for consistency
+        _, encoding = initialize_metadata_with_encoding(path, lambda p: {}, None) # Just to get encoding
+        with open(path, 'r', encoding=encoding, errors='replace') as f_text:
+            raw_content = f_text.read()
 
-    # Detect encoding
-    encoding = _detect_encoding(path)
-    toml_metadata["encoding"] = encoding
-    toml_metadata["schema_type"] = "TOML"
-
-    import tomli
-
-    with open(path, 'rb') as f:
-        data = tomli.load(f)
-
-        # Analyze structure
         if isinstance(data, dict):
-            toml_metadata["record_count"] = 1
-            toml_metadata["columns"] = list(data.keys())
-            toml_metadata["column_count"] = len(data.keys())
+            structure_info = analyze_dict_structure(data)
+            metadata.update(structure_info)
+    except Exception as e:
+        logger.error(f"Error extracting TOML metadata from {path}: {e}")
+        if not raw_content: # If text read failed too
+            try: # Attempt to get raw content even if TOML parsing failed
+                _, encoding = initialize_metadata_with_encoding(path, lambda p: {}, None)
+                with open(path, 'r', encoding=encoding, errors='replace') as f_text:
+                    raw_content = f_text.read()
+            except: pass
+    return metadata, raw_content
 
-    # Count tokens from raw content
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        content = f.read()
-        if content.strip():
-            toml_metadata["token_count"] = count_tokens(content)
 
-    return toml_metadata
-
-
-def _extract_with_ini(path: str) -> StructuredDataMetaData:
+def _extract_with_ini(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from an INI file.
-
-    Args:
-        path: Path to the INI file
-
-    Returns:
-        StructuredDataMetaData: Metadata for the INI file
+    Extract metadata and raw text content from an INI file.
     """
-    # Initialize metadata with common file properties and defaults
-    ini_metadata = create_structured_data_metadata(path)
+    metadata, encoding = initialize_metadata_with_encoding(path, create_structured_data_metadata, "INI")
+    raw_content: str | None = None
+    try:
+        with open(path, 'r', encoding=encoding, errors='replace') as f:
+            raw_content = f.read()
+        
+        config = configparser.ConfigParser()
+        # Use read_string instead of read(path) to avoid re-opening after getting raw_content
+        config.read_string(raw_content)
 
-    # Detect encoding
-    encoding = _detect_encoding(path)
-    ini_metadata["encoding"] = encoding
-    ini_metadata["schema_type"] = "INI"
-
-    import configparser
-
-    config = configparser.ConfigParser()
-    config.read(path, encoding=encoding)
-
-    # Count sections and keys
-    sections = config.sections()
-    ini_metadata["record_count"] = len(sections)
-
-    # Collect all unique keys across sections
-    all_keys = set()
-    for section in sections:
-        all_keys.update(config[section].keys())
-
-    ini_metadata["columns"] = list(all_keys)
-    ini_metadata["column_count"] = len(all_keys)
-
-    # Count tokens from raw content
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        content = f.read()
-        if content.strip():
-            ini_metadata["token_count"] = count_tokens(content)
-
-    return ini_metadata
+        sections = config.sections()
+        metadata["record_count"] = len(sections)
+        all_keys = set()
+        for section in sections:
+            all_keys.update(config[section].keys())
+        metadata["columns"] = list(all_keys)
+        metadata["column_count"] = len(all_keys)
+    except Exception as e:
+        logger.error(f"Error extracting INI metadata from {path}: {e}")
+    return metadata, raw_content
 
 
-def extract_structured_data_metadata(path: str) -> StructuredDataMetaData:
+def extract_structured_data_metadata(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a structured data file.
+    Extract metadata and raw text content from a structured data file.
 
     Args:
         path: Path to the structured data file
 
     Returns:
-        StructuredDataMetaData: Metadata for the structured data file
+        tuple[dict[str, Any], str | None]: Specific metadata and raw text content.
     """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"File not found: {path}")
+    # File existence validation is handled by the factory
+    extension = get_file_extension(path)
 
-    # Get file extension to determine extraction method
-    _, extension = os.path.splitext(path)
-    extension = extension.lower()
-
-    # Extract metadata based on file type
     if extension == '.csv':
         return _extract_with_csv(path)
     elif extension == '.json':
@@ -407,5 +229,5 @@ def extract_structured_data_metadata(path: str) -> StructuredDataMetaData:
     elif extension == '.ini':
         return _extract_with_ini(path)
     else:
-        # For unsupported data types, return basic metadata
-        return create_structured_data_metadata(path)
+        logger.warning(f"Unsupported structured data file type: {path}, returning default metadata.")
+        return create_structured_data_metadata(), None

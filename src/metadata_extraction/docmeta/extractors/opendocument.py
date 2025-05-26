@@ -6,285 +6,200 @@ Supports ODT, ODS, and ODP formats with comprehensive metadata extraction.
 """
 
 import logging
-import os
-from datetime import datetime
+from typing import Any
 
 # Import required libraries for OpenDocument processing
 from odf import opendocument
 from odf.opendocument import Meta
+from odf.text import P, H, Span # Used in _extract_text_content
 
-from docmeta.core.types import OpenDocumentMetaData, create_opendocument_metadata
-from docmeta.utils.token_counter import count_tokens
+from docmeta.core.types import create_opendocument_metadata # returns dict[str, Any]
+from docmeta.utils.text_processing import (
+    get_file_extension,
+    extract_common_metadata_fields,
+    extract_and_parse_keywords,
+    extract_statistics_from_meta
+)
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
 
-def _parse_keywords(keywords_str: str) -> list[str]:
+def _extract_text_content(doc) -> str | None:
     """
-    Parse keywords string into a list of keywords.
-
-    Args:
-        keywords_str: String containing keywords
-
-    Returns:
-        list[str]: List of keywords
-    """
-    if not keywords_str:
-        return []
-
-    if ',' in keywords_str:
-        return [k.strip() for k in keywords_str.split(',')]
-    elif ';' in keywords_str:
-        return [k.strip() for k in keywords_str.split(';')]
-    else:
-        return [keywords_str.strip()]
-
-
-def _extract_text_content(doc) -> str:
-    """
-    Extract all text content from an OpenDocument.
+    Extract text content from an OpenDocument.
 
     Args:
         doc: OpenDocument object
 
     Returns:
-        str: Extracted text content
+        str: Extracted text content, or None if empty
     """
-    from odf.text import P, H, Span
-
     text_elements = []
 
-    # Extract paragraphs and headings
-    for element in doc.getElementsByType(P):
-        if hasattr(element, 'data') and element.data:
-            text_elements.append(element.data)
-
-    for element in doc.getElementsByType(H):
-        if hasattr(element, 'data') and element.data:
-            text_elements.append(element.data)
-
-    for element in doc.getElementsByType(Span):
-        if hasattr(element, 'data') and element.data:
-            text_elements.append(element.data)
-
-    return '\n'.join(text_elements)
+    for element_type in [P, H, Span]:
+        for element in doc.getElementsByType(element_type):
+            # Efficiently build text content using a generator expression
+            text_content = "".join(node.data for node in element.childNodes if node.nodeType == node.TEXT_NODE)
+            if text_content.strip():
+                text_elements.append(text_content.strip())
+    
+    return '\n'.join(text_elements) if text_elements else None
 
 
-def _extract_with_odt(path: str) -> OpenDocumentMetaData:
+def _extract_with_odt(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from an ODT file using odfpy.
+    Extract metadata and text from an ODT file.
 
     Args:
         path: Path to the ODT file
 
     Returns:
-        OpenDocumentMetaData: Metadata for the ODT file
+        tuple[dict[str, Any], str | None]: Specific ODT metadata and text content.
     """
-    # Initialize metadata with common file properties and defaults
-    odt_metadata = create_opendocument_metadata(path)
-
+    metadata = create_opendocument_metadata()
     doc = opendocument.load(path)
-    meta = doc.getElementsByType(Meta)[0]
+    meta_elements = doc.getElementsByType(Meta)
+    
+    if not meta_elements:
+        logger.warning(f"No Meta element found in ODT: {path}")
+        text_content_early = _extract_text_content(doc) # Try to get text even if meta is missing
+        return metadata, text_content_early
 
-    # Extract document metadata
+    meta = meta_elements[0]
+
     if hasattr(meta, 'getAttribute'):
-        odt_metadata["author"] = meta.getAttribute('creator')
-        odt_metadata["title"] = meta.getAttribute('title')
-        odt_metadata["subject"] = meta.getAttribute('subject')
-        odt_metadata["generator"] = meta.getAttribute('generator')
-        odt_metadata["language"] = meta.getAttribute('language')
+        field_mapping = {
+            'author': 'creator',
+            'title': 'title',
+            'subject': 'subject',
+            'generator': 'generator',
+            'language': 'language'
+        }
+        extract_common_metadata_fields(meta, metadata, field_mapping)
+        extract_and_parse_keywords(meta, metadata, 'keyword')
 
-        # Handle keywords
-        keywords = meta.getAttribute('keyword')
-        if keywords and isinstance(keywords, str):
-            odt_metadata["embedded_keywords"] = _parse_keywords(keywords)
-
-        # Handle creation and modification times
-        creation_date = meta.getAttribute('creation-date')
-        if creation_date:
-            odt_metadata["created"] = datetime.fromisoformat(creation_date)
-
-        modified_date = meta.getAttribute('date')
-        if modified_date:
-            odt_metadata["modified"] = datetime.fromisoformat(modified_date)
-
-    # Extract statistics if available
     if hasattr(meta, 'statistics'):
         stats = meta.statistics
-        if hasattr(stats, 'getAttribute'):
-            page_count = stats.getAttribute('page-count')
-            if page_count:
-                odt_metadata["num_pages"] = int(page_count)
+        field_mapping = {
+            'num_pages': 'page-count',
+            'word_count': 'word-count',
+            'character_count': 'character-count',
+            'paragraph_count': 'paragraph-count'
+        }
+        stats_data = extract_statistics_from_meta(stats, field_mapping)
+        metadata.update(stats_data)
 
-            word_count = stats.getAttribute('word-count')
-            if word_count:
-                odt_metadata["word_count"] = int(word_count)
-
-            char_count = stats.getAttribute('character-count')
-            if char_count:
-                odt_metadata["character_count"] = int(char_count)
-
-            para_count = stats.getAttribute('paragraph-count')
-            if para_count:
-                odt_metadata["paragraph_count"] = int(para_count)
-
-    # Extract text content for token counting
     text_content = _extract_text_content(doc)
-    if text_content.strip():
-        odt_metadata["token_count"] = count_tokens(text_content)
-
-    return odt_metadata
+    return metadata, text_content
 
 
-def _extract_with_ods(path: str) -> OpenDocumentMetaData:
+def _extract_with_ods(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from an ODS file using odfpy.
+    Extract metadata and text from an ODS file.
 
     Args:
         path: Path to the ODS file
 
     Returns:
-        OpenDocumentMetaData: Metadata for the ODS file
+        tuple[dict[str, Any], str | None]: Specific ODS metadata and text content.
     """
-    # Initialize metadata with common file properties and defaults
-    ods_metadata = create_opendocument_metadata(path)
-
+    metadata = create_opendocument_metadata()
     doc = opendocument.load(path)
-    meta = doc.getElementsByType(Meta)[0]
+    meta_elements = doc.getElementsByType(Meta)
 
-    # Extract document metadata
+    if not meta_elements:
+        logger.warning(f"No Meta element found in ODS: {path}")
+        text_content_early = _extract_text_content(doc)
+        return metadata, text_content_early
+
+    meta = meta_elements[0]
+
     if hasattr(meta, 'getAttribute'):
-        ods_metadata["author"] = meta.getAttribute('creator')
-        ods_metadata["title"] = meta.getAttribute('title')
-        ods_metadata["subject"] = meta.getAttribute('subject')
-        ods_metadata["generator"] = meta.getAttribute('generator')
-        ods_metadata["language"] = meta.getAttribute('language')
+        field_mapping = {
+            'author': 'creator',
+            'title': 'title',
+            'subject': 'subject',
+            'generator': 'generator',
+            'language': 'language'
+        }
+        extract_common_metadata_fields(meta, metadata, field_mapping)
+        extract_and_parse_keywords(meta, metadata, 'keyword')
 
-        # Handle keywords
-        keywords = meta.getAttribute('keyword')
-        if keywords and isinstance(keywords, str):
-            ods_metadata["embedded_keywords"] = _parse_keywords(keywords)
-
-        # Handle creation and modification times
-        creation_date = meta.getAttribute('creation-date')
-        if creation_date:
-            ods_metadata["created"] = datetime.fromisoformat(creation_date)
-
-        modified_date = meta.getAttribute('date')
-        if modified_date:
-            ods_metadata["modified"] = datetime.fromisoformat(modified_date)
-
-    # Extract statistics if available
     if hasattr(meta, 'statistics'):
         stats = meta.statistics
-        if hasattr(stats, 'getAttribute'):
-            # For spreadsheets, use table count as page equivalent
-            table_count = stats.getAttribute('table-count')
-            if table_count:
-                ods_metadata["num_pages"] = int(table_count)
+        field_mapping = {
+            'num_pages': 'table-count',
+            'word_count': 'cell-count',
+            'character_count': 'character-count'
+        }
+        stats_data = extract_statistics_from_meta(stats, field_mapping)
+        metadata.update(stats_data)
 
-            cell_count = stats.getAttribute('cell-count')
-            if cell_count:
-                ods_metadata["word_count"] = int(cell_count)  # Use cell count as word equivalent
-
-            char_count = stats.getAttribute('character-count')
-            if char_count:
-                ods_metadata["character_count"] = int(char_count)
-
-    # Extract text content for token counting
     text_content = _extract_text_content(doc)
-    if text_content.strip():
-        ods_metadata["token_count"] = count_tokens(text_content)
-
-    return ods_metadata
+    return metadata, text_content
 
 
-def _extract_with_odp(path: str) -> OpenDocumentMetaData:
+def _extract_with_odp(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from an ODP file using odfpy.
+    Extract metadata and text from an ODP file.
 
     Args:
         path: Path to the ODP file
 
     Returns:
-        OpenDocumentMetaData: Metadata for the ODP file
+        tuple[dict[str, Any], str | None]: Specific ODP metadata and text content.
     """
-    # Initialize metadata with common file properties and defaults
-    odp_metadata = create_opendocument_metadata(path)
-
+    metadata = create_opendocument_metadata()
     doc = opendocument.load(path)
-    meta = doc.getElementsByType(Meta)[0]
+    meta_elements = doc.getElementsByType(Meta)
 
-    # Extract document metadata
+    if not meta_elements:
+        logger.warning(f"No Meta element found in ODP: {path}")
+        text_content_early = _extract_text_content(doc)
+        return metadata, text_content_early
+        
+    meta = meta_elements[0]
+
     if hasattr(meta, 'getAttribute'):
-        odp_metadata["author"] = meta.getAttribute('creator')
-        odp_metadata["title"] = meta.getAttribute('title')
-        odp_metadata["subject"] = meta.getAttribute('subject')
-        odp_metadata["generator"] = meta.getAttribute('generator')
-        odp_metadata["language"] = meta.getAttribute('language')
+        field_mapping = {
+            'author': 'creator',
+            'title': 'title',
+            'subject': 'subject',
+            'generator': 'generator',
+            'language': 'language'
+        }
+        extract_common_metadata_fields(meta, metadata, field_mapping)
+        extract_and_parse_keywords(meta, metadata, 'keyword')
 
-        # Handle keywords
-        keywords = meta.getAttribute('keyword')
-        if keywords and isinstance(keywords, str):
-            odp_metadata["embedded_keywords"] = _parse_keywords(keywords)
-
-        # Handle creation and modification times
-        creation_date = meta.getAttribute('creation-date')
-        if creation_date:
-            odp_metadata["created"] = datetime.fromisoformat(creation_date)
-
-        modified_date = meta.getAttribute('date')
-        if modified_date:
-            odp_metadata["modified"] = datetime.fromisoformat(modified_date)
-
-    # Extract statistics if available
     if hasattr(meta, 'statistics'):
         stats = meta.statistics
-        if hasattr(stats, 'getAttribute'):
-            # For presentations, use page count as slide count
-            page_count = stats.getAttribute('page-count')
-            if page_count:
-                odp_metadata["num_pages"] = int(page_count)
+        field_mapping = {
+            'num_pages': 'page-count',
+            'word_count': 'word-count',
+            'character_count': 'character-count',
+            'paragraph_count': 'paragraph-count'
+        }
+        stats_data = extract_statistics_from_meta(stats, field_mapping)
+        metadata.update(stats_data)
 
-            word_count = stats.getAttribute('word-count')
-            if word_count:
-                odp_metadata["word_count"] = int(word_count)
-
-            char_count = stats.getAttribute('character-count')
-            if char_count:
-                odp_metadata["character_count"] = int(char_count)
-
-            para_count = stats.getAttribute('paragraph-count')
-            if para_count:
-                odp_metadata["paragraph_count"] = int(para_count)
-
-    # Extract text content for token counting
     text_content = _extract_text_content(doc)
-    if text_content.strip():
-        odp_metadata["token_count"] = count_tokens(text_content)
-
-    return odp_metadata
+    return metadata, text_content
 
 
-def extract_opendocument_metadata(path: str) -> OpenDocumentMetaData:
+def extract_opendocument_metadata(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from an OpenDocument file.
+    Extract metadata and text from an OpenDocument file.
 
     Args:
         path: Path to the OpenDocument file
 
     Returns:
-        OpenDocumentMetaData: Metadata for the OpenDocument file
+        tuple[dict[str, Any], str | None]: Specific OpenDocument metadata and text content.
     """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"File not found: {path}")
+    # File existence validation is handled by the factory
+    extension = get_file_extension(path)
 
-    # Get file extension to determine extraction method
-    _, extension = os.path.splitext(path)
-    extension = extension.lower()
-
-    # Extract metadata based on file type
     if extension == '.odt':
         return _extract_with_odt(path)
     elif extension == '.ods':
@@ -292,5 +207,6 @@ def extract_opendocument_metadata(path: str) -> OpenDocumentMetaData:
     elif extension == '.odp':
         return _extract_with_odp(path)
     else:
-        # For unsupported OpenDocument types, return basic metadata
-        return create_opendocument_metadata(path)
+        # Should not happen if called via registered extensions
+        logger.warning(f"Unsupported OpenDocument file type for explicit extraction: {path}")
+        return create_opendocument_metadata(), None

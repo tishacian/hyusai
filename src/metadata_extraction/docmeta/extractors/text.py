@@ -6,73 +6,57 @@ Supports TXT, MD, RST, and LOG formats with comprehensive text analysis.
 """
 
 import logging
-import os
 import re
 from typing import Any
 
-from docmeta.core.types import TextMetaData, create_text_metadata
-from docmeta.utils.token_counter import count_tokens
+import yaml
+
+from docmeta.core.types import create_text_metadata
+from docmeta.utils.text_processing import (
+    get_file_extension,
+    detect_encoding
+)
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
 
-def _detect_encoding(path: str) -> str:
+def _extract_yaml_front_matter(content: str) -> tuple[bool, dict[str, Any] | None, str]:
     """
-    Detect file encoding using chardet or fallback methods.
-
-    Args:
-        path: Path to the text file
-
-    Returns:
-        str: Detected encoding
-    """
-    # Try common encodings
-    encodings = ['utf-8', 'utf-16', 'latin-1', 'cp1252']
-
-    for encoding in encodings:
-        try:
-            with open(path, 'r', encoding=encoding) as f:
-                f.read(1024)  # Read a small chunk to test
-                return encoding
-        except UnicodeDecodeError:
-            continue
-
-    return 'utf-8'  # Default fallback
-
-
-def _extract_yaml_front_matter(content: str) -> tuple[bool, dict[str, Any] | None]:
-    """
-    Extract YAML front matter from markdown content.
+    Extract YAML front matter and return content without front matter.
 
     Args:
         content: File content
 
     Returns:
-        tuple[bool, dict[str, Any] | None]: (has_front_matter, front_matter_data)
+        tuple[bool, dict[str, Any] | None, str]: (has_front_matter, front_matter_data, content_without_front_matter)
     """
-    # Check for YAML front matter (--- at start and end)
     yaml_pattern = r'^---\s*\n(.*?)\n---\s*\n'
     match = re.match(yaml_pattern, content, re.DOTALL)
+    content_without_front_matter = content
 
     if match:
         try:
-            import yaml
-            front_matter = yaml.safe_load(match.group(1))
-            return True, front_matter
-        except ImportError:
-            # YAML library not available, just detect presence
-            return True, None
-        except Exception:
-            # Invalid YAML
-            return True, None
+            front_matter_str = match.group(1)
+            front_matter = yaml.safe_load(front_matter_str)
+            # Remove front matter from content for accurate text counting
+            content_without_front_matter = re.sub(yaml_pattern, '', content, flags=re.DOTALL, count=1)
+            return True, front_matter, content_without_front_matter
+        except yaml.YAMLError as e:
+            logger.warning(f"Invalid YAML front matter detected but could not parse: {e}")
+            # Still consider it as having front matter, but data is None
+            content_without_front_matter = re.sub(yaml_pattern, '', content, flags=re.DOTALL, count=1)
+            return True, None, content_without_front_matter
+        except Exception as e:
+            logger.error(f"Error processing YAML front matter: {e}")
+            return True, None, content # Fallback to original content if regex sub fails unexpectedly
 
-    return False, None
+    return False, None, content_without_front_matter
 
 
 def _count_text_elements(content: str) -> dict[str, int]:
     """
-    Count various text elements in content.
+    Count various text elements.
 
     Args:
         content: Text content
@@ -80,19 +64,12 @@ def _count_text_elements(content: str) -> dict[str, int]:
     Returns:
         dict[str, int]: Counts of different elements
     """
-    # Count lines
     lines = content.splitlines()
     line_count = len(lines)
-
-    # Count paragraphs (separated by blank lines)
     paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
     paragraph_count = len(paragraphs)
-
-    # Count words
     words = content.split()
     word_count = len(words)
-
-    # Count characters
     character_count = len(content)
 
     return {
@@ -103,164 +80,93 @@ def _count_text_elements(content: str) -> dict[str, int]:
     }
 
 
-def _extract_with_txt(path: str) -> TextMetaData:
+def _base_text_extraction(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a plain text file.
-
-    Args:
-        path: Path to the TXT file
-
-    Returns:
-        TextMetaData: Metadata for the TXT file
+    Base logic for reading text file content and encoding.
     """
-    # Initialize metadata with common file properties and defaults
-    text_metadata = create_text_metadata(path)
+    metadata = create_text_metadata()
+    encoding = detect_encoding(path)
+    metadata["encoding"] = encoding
+    
+    processed_content_for_analysis = None
+    raw_text_content_for_factory = None # This will be returned for token counting / keywords
 
-    # Detect encoding
-    encoding = _detect_encoding(path)
-    text_metadata["encoding"] = encoding
+    try:
+        with open(path, 'r', encoding=encoding, errors='replace') as f:
+            raw_text_content_for_factory = f.read()
+        
+        # For text element counts, operate on the raw content
+        processed_content_for_analysis = raw_text_content_for_factory
 
-    # Read and analyze content
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        content = f.read()
-
-    # Count text elements
-    counts = _count_text_elements(content)
-    text_metadata.update(counts)
-
-    # Count tokens
-    if content.strip():
-        text_metadata["token_count"] = count_tokens(content)
-
-    return text_metadata
+    except Exception as e:
+        logger.error(f"Error reading text file {path}: {e}")
+        return metadata, None # Return defaults and None content on error
+    
+    return metadata, processed_content_for_analysis, raw_text_content_for_factory
 
 
-def _extract_with_markdown(path: str) -> TextMetaData:
+def _extract_with_txt(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a Markdown file.
-
-    Args:
-        path: Path to the MD file
-
-    Returns:
-        TextMetaData: Metadata for the MD file
+    Extract metadata and text from a plain text file.
     """
-    # Initialize metadata with common file properties and defaults
-    text_metadata = create_text_metadata(path)
-
-    # Detect encoding
-    encoding = _detect_encoding(path)
-    text_metadata["encoding"] = encoding
-
-    # Read and analyze content
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        content = f.read()
-
-    # Check for YAML front matter
-    has_front_matter, front_matter = _extract_yaml_front_matter(content)
-    text_metadata["has_front_matter"] = has_front_matter
-
-    # Remove front matter for text counting
-    if has_front_matter:
-        # Remove front matter from content for accurate text counting
-        yaml_pattern = r'^---\s*\n.*?\n---\s*\n'
-        content_without_front_matter = re.sub(yaml_pattern, '', content, flags=re.DOTALL)
-    else:
-        content_without_front_matter = content
-
-    # Count text elements
-    counts = _count_text_elements(content_without_front_matter)
-    text_metadata.update(counts)
-
-    # Count tokens (use content without front matter)
-    if content_without_front_matter.strip():
-        text_metadata["token_count"] = count_tokens(content_without_front_matter)
-
-    return text_metadata
+    metadata, content_for_analysis, raw_text_for_factory = _base_text_extraction(path)
+    if content_for_analysis is not None:
+        counts = _count_text_elements(content_for_analysis)
+        metadata.update(counts)
+    return metadata, raw_text_for_factory
 
 
-def _extract_with_rst(path: str) -> TextMetaData:
+def _extract_with_markdown(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a reStructuredText file.
-
-    Args:
-        path: Path to the RST file
-
-    Returns:
-        TextMetaData: Metadata for the RST file
+    Extract metadata and text from a Markdown file.
     """
-    # Initialize metadata with common file properties and defaults
-    text_metadata = create_text_metadata(path)
-
-    # Detect encoding
-    encoding = _detect_encoding(path)
-    text_metadata["encoding"] = encoding
-
-    # Read and analyze content
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        content = f.read()
-
-    # Count text elements
-    counts = _count_text_elements(content)
-    text_metadata.update(counts)
-
-    # Count tokens
-    if content.strip():
-        text_metadata["token_count"] = count_tokens(content)
-
-    return text_metadata
+    metadata, content_for_analysis, raw_text_for_factory = _base_text_extraction(path)
+    if content_for_analysis is not None:
+        has_front_matter, _front_matter_data, content_after_fm = _extract_yaml_front_matter(content_for_analysis)
+        metadata["has_front_matter"] = has_front_matter
+        # Counts should be based on content *without* front matter
+        counts = _count_text_elements(content_after_fm)
+        metadata.update(counts)
+    # Return raw text for factory, so it can decide on token/keyword from full content or post-FM
+    # For now, returning raw_text_for_factory. This could be content_after_fm if preferred.
+    return metadata, raw_text_for_factory 
 
 
-def _extract_with_log(path: str) -> TextMetaData:
+def _extract_with_rst(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a log file.
-
-    Args:
-        path: Path to the LOG file
-
-    Returns:
-        TextMetaData: Metadata for the LOG file
+    Extract metadata and text from a reStructuredText file.
     """
-    # Initialize metadata with common file properties and defaults
-    text_metadata = create_text_metadata(path)
-
-    # Detect encoding
-    encoding = _detect_encoding(path)
-    text_metadata["encoding"] = encoding
-
-    # Read and analyze content
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
-        content = f.read()
-
-    # Count text elements
-    counts = _count_text_elements(content)
-    text_metadata.update(counts)
-
-    # Count tokens
-    if content.strip():
-        text_metadata["token_count"] = count_tokens(content)
-
-    return text_metadata
+    metadata, content_for_analysis, raw_text_for_factory = _base_text_extraction(path)
+    if content_for_analysis is not None:
+        counts = _count_text_elements(content_for_analysis)
+        metadata.update(counts)
+    return metadata, raw_text_for_factory
 
 
-def extract_text_metadata(path: str) -> TextMetaData:
+def _extract_with_log(path: str) -> tuple[dict[str, Any], str | None]:
     """
-    Extract metadata from a text file.
+    Extract metadata and text from a log file.
+    """
+    metadata, content_for_analysis, raw_text_for_factory = _base_text_extraction(path)
+    if content_for_analysis is not None:
+        counts = _count_text_elements(content_for_analysis)
+        metadata.update(counts)
+    return metadata, raw_text_for_factory
+
+
+def extract_text_metadata(path: str) -> tuple[dict[str, Any], str | None]:
+    """
+    Extract metadata and text from a text file.
 
     Args:
         path: Path to the text file
 
     Returns:
-        TextMetaData: Metadata for the text file
+        tuple[dict[str, Any], str | None]: Specific text metadata and raw text content.
     """
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"File not found: {path}")
+    # File existence validation is handled by the factory
+    extension = get_file_extension(path)
 
-    # Get file extension to determine extraction method
-    _, extension = os.path.splitext(path)
-    extension = extension.lower()
-
-    # Extract metadata based on file type
     if extension == '.txt':
         return _extract_with_txt(path)
     elif extension == '.md':
@@ -270,5 +176,6 @@ def extract_text_metadata(path: str) -> TextMetaData:
     elif extension == '.log':
         return _extract_with_log(path)
     else:
-        # For unsupported text types, use generic text extraction
+        # Fallback for other unknown text-like types, treat as plain text
+        logger.warning(f"Unsupported text file type for explicit extraction: {path}, using TXT extractor.")
         return _extract_with_txt(path)
