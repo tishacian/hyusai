@@ -1,9 +1,3 @@
-"""
-Serializers for document metadata.
-
-This module provides serializers for converting document metadata to various formats.
-"""
-
 import json
 from datetime import datetime
 from typing import Any
@@ -37,7 +31,7 @@ def to_json(metadata: MetadataType, indent: int = None) -> str:
 
 def format_metadata(metadata: MetadataType) -> dict[str, Any]:
     """
-    Prepares a metadata dictionary for serialization by ensuring all values are JSON-serializable.
+    Prepare a metadata dictionary for serialization.
 
     Args:
         metadata: Metadata to prepare for serialization

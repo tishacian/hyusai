@@ -1,7 +1,3 @@
-"""
-Utility for keyword extraction.
-"""
-
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 import nltk
@@ -20,35 +16,31 @@ def clean_text_for_tfidf(text: str) -> str:
     text = text.strip()
     return text
 
-def get_stopwords(language: str = 'french') -> list[str]:
+def get_stopwords(language: str = 'english') -> list[str]:
     """
-    Get stopwords for the specified language.
+    Get stopwords.
+    Assumes NLTK data (stopwords) is already downloaded.
 
     Args:
-        language: Language code (default: 'french')
+        language: Language code (default: 'english')
 
     Returns:
         List of stopwords for the specified language
     """
-    # Ensure stopwords are downloaded
-    if not nltk.data.find(f'corpora/stopwords', raise_on_error=False):
-        nltk.download('stopwords', quiet=True)
-
-    # Get stopwords for the specified language
-    if language in stopwords.fileids():
+    try:
         return list(stopwords.words(language))
-    else:
-        print(f"Stopwords for language '{language}' not available. Using empty stopwords list.")
+    except (LookupError, OSError): # OSError for NLTK data path issues, LookupError for missing language
+        print(f"Stopwords for language '{language}' not found or NLTK data path incorrect. Please ensure NLTK stopwords are downloaded. Using empty stopwords list.")
         return []
 
-def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'french') -> list[str] | None:
+def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'english') -> list[str] | None:
     """
-    Extract keywords from text using TF-IDF.
+    Extract keywords from text.
 
     Args:
         text: The input text.
         max_keywords: The maximum number of keywords to return.
-        language: Language of the text for stopwords (default: 'french')
+        language: Language of the text for stopwords (default: 'english')
 
     Returns:
         A list of keywords, or None if text is empty.
