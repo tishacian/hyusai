@@ -320,11 +320,10 @@ def load_stopwords(data_dir: str = "data"):
     Set[str]
         Combined stopwords set (empty set if all methods fail)
     """
-    cache_file = Path(data_dir) / "multilingual_stopwords.pkl"
+    saved_file = Path(data_dir) / "multilingual_stopwords.pkl"
 
-    # Try to load from cache first
-    if cache_file.exists():
-        with open(cache_file, "rb") as f:
+    if saved_file.exists():
+        with open(saved_file, "rb") as f:
             stopwords_set = pickle.load(f)
         return stopwords_set
 
