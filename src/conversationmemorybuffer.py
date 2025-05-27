@@ -161,6 +161,6 @@ class ConversationMemoryBuffer:
 
         Return
         ------
-            None
+            int
         """
         return len(self.messages)
