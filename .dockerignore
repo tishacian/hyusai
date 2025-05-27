@@ -31,3 +31,6 @@ src/models/
 # Unnecessary code
 benchmarking/
 install.sh
+
+# Data
+data/multilingual_stopwords.pkl

@@ -35,3 +35,6 @@ vector_store/*
 
 # Models
 src/models
+
+# Data
+data/multilingual_stopwords.pkl
