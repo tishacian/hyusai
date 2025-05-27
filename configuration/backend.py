@@ -1,5 +1,3 @@
-from typing import Literal
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +12,3 @@ class Backend(BaseSettings):
     ignoring the digital text content.
     `disable_ocr_for_pdf` is expected to be `False` when using this variable.
     """
-
-    reasoning_language: Literal["en", "fr"] = "en"
-    """Language of the reasoning instructions for the LLM."""
