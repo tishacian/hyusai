@@ -10,7 +10,6 @@ import re
 import sys
 import logging
 import numpy as np
-from typing import Tuple, Dict, List
 from globalvariables import ReasoningType, ReasoningPatterns
 
 # --
@@ -267,9 +266,7 @@ class ReasoningMetrics:
         """
         return self.get_text_embedding(text)
 
-    def _find_pattern_matches(
-        self, text: str
-    ) -> Dict[ReasoningType, List[str]]:
+    def _find_pattern_matches(self, text: str):
         """Find all pattern matches in text for all reasoning types
 
         Parameters
@@ -389,9 +386,7 @@ class ReasoningMetrics:
 
         return self.compute_cosine_similarity(text_hash, type_hash)
 
-    def _compute_feature_vector(
-        self, text: str, question: str = None
-    ) -> Dict[ReasoningType, np.ndarray]:
+    def _compute_feature_vector(self, text: str, question: str = None):
         """One pass compute feature vectors for all reasoning types
 
         Parameters
@@ -440,9 +435,7 @@ class ReasoningMetrics:
 
         return feature_vectors
 
-    def bayesian_reasoning_detection(
-        self, question: str
-    ) -> Tuple[ReasoningType, float]:
+    def bayesian_reasoning_detection(self, question: str):
         """Bayesian reasoning detection
 
         Parameters
@@ -506,9 +499,7 @@ class ReasoningMetrics:
         """
         return self.compute_reasoning_score(question, context, reasoning_type)
 
-    async def bayesian_reasoning_detection_async(
-        self, question: str
-    ) -> Tuple[ReasoningType, float]:
+    async def bayesian_reasoning_detection_async(self, question: str):
         """Async bayesian_reasoning_detection
 
         Parameters
