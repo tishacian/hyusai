@@ -23,8 +23,6 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import logging
 import sys
-from typing import Tuple, Dict, Any
-
 from cache import LRUCache
 from chunker import BM25Retriever, cache_chunker_embedding_chain
 from contextcompressor import ContextualCompressionRetriever, ContextualConfig
@@ -338,7 +336,7 @@ class CustomLLMChain:
         else:
             logging.error("Ensemble retriever not initialized")
 
-    def get_ensemble_statistics(self) -> Dict[str, Any]:
+    def get_ensemble_statistics(self):
         """Statistics about ensemble performance
 
         Returns
@@ -365,9 +363,7 @@ class CustomLLMChain:
         return stats
 
     @measure_time_sync
-    def optimize_ensemble_for_query_type(
-        self, query_characteristics: Dict[str, float]
-    ):
+    def optimize_ensemble_for_query_type(self, query_characteristics):
         """Optimize ensemble method based on query characteristics
 
         Rule-based method selection based on query characteristics
@@ -854,9 +850,7 @@ class CustomLLMChain:
         return filtered_contexts
 
     @measure_time
-    async def detect_reasoning_type(
-        self, question: str
-    ) -> Tuple[ReasoningType, float]:
+    async def detect_reasoning_type(self, question: str):
         """Reasoning detection with confidence score
 
         Parameters
