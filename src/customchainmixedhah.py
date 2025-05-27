@@ -218,7 +218,6 @@ class CustomLLMChain:
             logging.error(f"Error initializing retrievers: {e}")
             raise
 
-    @measure_time_sync
     def _initialize_reranker(self):
         """Initialize FlashReranker component"""
         try:
@@ -227,7 +226,6 @@ class CustomLLMChain:
             logging.error(f"Error initializing reranker: {e}")
             raise
 
-    @measure_time_sync
     def _initialize_contextual_retriever(self):
         """Initialize ContextualCompressionRetriever component"""
         try:
@@ -240,7 +238,6 @@ class CustomLLMChain:
             logging.error(f"Error initializing contextual retriever: {e}")
             raise
 
-    @measure_time_sync
     def get_retrieval_capability(self):
         """Detect available retrieval methods in the BM25Retriever
 
@@ -262,7 +259,6 @@ class CustomLLMChain:
                 return method
         return None
 
-    @measure_time
     async def bm25_retrieve(self, query, k=5):
         """Retrieve from BM25 using the same approach as EnsembleRetriever
 
@@ -307,7 +303,6 @@ class CustomLLMChain:
                 logging.error(f"Fallback BM25 retrieval also failed: {e2}")
                 return []
 
-    @measure_time
     async def analyze_query(self, question: str) -> QueryAnalysis:
         """Comprehensive query analysis to determine optimal retrieval parameters
 
@@ -360,7 +355,6 @@ class CustomLLMChain:
 
         return analysis
 
-    @measure_time
     async def expand_query(self, question: str, use_expansion: bool = False):
         """Expand query with related terms to improve retrieval
 
@@ -397,7 +391,6 @@ class CustomLLMChain:
 
         return expanded_queries[:3]
 
-    @measure_time
     async def context_filtering(self, contexts, question):
         """Enhanced context filtering with relevance scoring and diversity analysis
 
@@ -462,7 +455,6 @@ class CustomLLMChain:
             logging.error(f"Error in context filtering: {e}")
             return contexts
 
-    @measure_time_sync
     def set_ensemble_fusion_method(self, method: FusionMethod):
         """Switch ensemble fusion method dynamically
 
@@ -477,7 +469,6 @@ class CustomLLMChain:
         else:
             logging.error("Ensemble retriever not initialized")
 
-    @measure_time
     async def detect_reasoning_type(self, question: str):
         """Reasoning detection with confidence score
 
@@ -540,7 +531,6 @@ class CustomLLMChain:
             logging.error(f"Error in reasoning detection: {e}")
             return (ReasoningType.ANALYTICAL, 0.6)
 
-    @measure_time_sync
     def chunk_document(self, document, num_chunks=3):
         """Split the document into sub-chunks for parallel processing
 
@@ -563,7 +553,6 @@ class CustomLLMChain:
             for i in range(0, len(words), chunk_size)
         ]
 
-    @measure_time
     async def create_embeddings_async(self, texts):
         """Asynchronous version of create_embeddings with caching and batching
 
@@ -910,7 +899,6 @@ class CustomLLMChain:
         )
         return self.merge_results(results, k)
 
-    @measure_time_sync
     def merge_results(self, results, k):
         """Merge top-k results from parallel searches with deduplication
 
