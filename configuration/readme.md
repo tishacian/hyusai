@@ -13,6 +13,13 @@ Note that the default values in this document are those set on python side. They
 - `IS_STANDALONE` (bool)
     - If True, the service will be accessible through a customizable RAG webapp.
     - By default `True`
+- `LANGUAGE` (str)
+    - Language of the app. Supported languages are : `en`, `fr`. 
+    This affects:
+        - the reasoning templates
+        - the LLM response cleaning
+        - the front interface. 
+    - By default `en`
 
 ### Backend
 
@@ -23,9 +30,6 @@ Note that the default values in this document are those set on python side. They
     - If True, OCR will be applied to all PDF documents, even text-based documents, ignoring the digital text content.
     `disable_ocr_for_pdf` is expected to be `False` when using this variable.
     - By default `False`
-- `REASONING_LANGUAGE` (str)
-    - Language of the reasoning instructions for the LLM. Supported languages are : `en`, `fr`. 
-    - By default `en`
 
 ### Standalone Interface
 
