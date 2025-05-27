@@ -6,7 +6,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 import warnings
-from typing import Tuple, List
 
 import faiss
 import numpy as np
@@ -38,11 +37,17 @@ from globalvariables import (
     ReasoningType,
     MAX_MODEL_LEN,
     EMBEDDING_NAME,
+    DATA_PATH,
 )
 
 from metrics import Evaluatrix
 from reasoningmetrics import ReasoningMetrics
-from utils import get_max_model_len, measure_time, measure_time_sync
+from utils import (
+    get_max_model_len,
+    measure_time,
+    measure_time_sync,
+    load_stopwords,
+)
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -110,6 +115,7 @@ class CustomLLMChain:
             )
 
         self.index_type = index_type
+        self.stopwords = load_stopwords(DATA_PATH)
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
 
@@ -337,9 +343,8 @@ class CustomLLMChain:
         )
 
         question_embedding = await self.create_embeddings_async([question])
-        if question_embedding.size > 0:
-            if len(question_embedding.shape) == 1:
-                question_embedding = question_embedding.reshape(1, -1)
+        if question_embedding.size > 0 and len(question_embedding.shape) == 1:
+            question_embedding = question_embedding.reshape(1, -1)
 
         analysis = QueryAnalysis(
             complexity=complexity,
@@ -356,9 +361,7 @@ class CustomLLMChain:
         return analysis
 
     @measure_time
-    async def expand_query(
-        self, question: str, use_expansion: bool = False
-    ) -> List[str]:
+    async def expand_query(self, question: str, use_expansion: bool = False):
         """Expand query with related terms to improve retrieval
 
         Parameters
@@ -377,38 +380,9 @@ class CustomLLMChain:
             return [question]
 
         words = question.lower().split()
-        stopwords = {
-            "the",
-            "a",
-            "an",
-            "and",
-            "or",
-            "but",
-            "if",
-            "because",
-            "as",
-            "what",
-            "which",
-            "this",
-            "that",
-            "these",
-            "those",
-            "then",
-            "just",
-            "so",
-            "than",
-            "such",
-            "both",
-            "through",
-            "about",
-            "for",
-            "is",
-            "of",
-            "while",
-            "during",
-            "to",
-        }
-        key_terms = [w for w in words if w not in stopwords and len(w) > 3]
+        key_terms = [
+            w for w in words if w not in self.stopwords and len(w) > 3
+        ]  # filter
 
         expanded_queries = [question]
 
@@ -504,9 +478,7 @@ class CustomLLMChain:
             logging.error("Ensemble retriever not initialized")
 
     @measure_time
-    async def detect_reasoning_type(
-        self, question: str
-    ) -> Tuple[ReasoningType, float]:
+    async def detect_reasoning_type(self, question: str):
         """Reasoning detection with confidence score
 
         Parameters
@@ -691,7 +663,7 @@ class CustomLLMChain:
         lambda_param: float = 0.5,
         use_query_expansion: bool = False,
         use_bm25_retriever: bool = False,
-    ) -> List[RetrievalContext]:
+    ):
         """Mixed retrieval strategies in parallel
 
         Parameters
