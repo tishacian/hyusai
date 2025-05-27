@@ -23,6 +23,8 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import logging
 import sys
+from configuration import get_general_config
+from src.reasonning_instructions import ALL_REASONING_INSTRUCTIONS
 from cache import LRUCache
 from chunker import BM25Retriever, cache_chunker_embedding_chain
 from contextcompressor import ContextualCompressionRetriever, ContextualConfig
@@ -32,7 +34,6 @@ from ensembleretriever import FusionMethod, EnsembleConfig, EnsembleRetriever
 from flashreranker import FlashReranker, RerankerConfig
 from globalvariables import (
     LARGE_MODELS,
-    TEMPLATES,
     VECTOR_STORE_PATH,
     IndexType,
     ReasoningType,
@@ -145,7 +146,7 @@ class CustomLLMChain:
         self._initialize_contextual_retriever()
 
         # -- CoT template
-        self.templates = TEMPLATES
+        self.templates = ALL_REASONING_INSTRUCTIONS[get_general_config().language]
 
         init_time = time.time() - start_time
         logging.info(
