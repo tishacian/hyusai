@@ -8,7 +8,6 @@ Created on Fri Feb 14 17:42:17 2025
 import sys
 import time
 import logging
-from collections import OrderedDict
 
 # --
 logging.basicConfig(
@@ -57,7 +56,7 @@ class TimedCache:
         """
         self.capacity = capacity
         self.default_expiry = expiry_seconds
-        self._cache = OrderedDict()
+        self._cache = {}
         self._expiry_times = {}
 
     def __contains__(self, key):
