@@ -13,7 +13,9 @@ import shutil
 import torch
 import logging
 import time
+import pickle
 import functools
+from pathlib import Path
 from functools import cache
 from globalvariables import (
     Models,
@@ -38,6 +40,13 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
+
+try:
+    from nltk.corpus import stopwords
+
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -250,3 +259,79 @@ def get_max_model_len(model_name, max_model_len: int = None) -> int:
             raise ValueError(f"Error: Unknown model name {model_name}")
     else:
         return max_model_len * 1024
+
+
+# %% stopwords
+
+
+def create_stopwords_mlin(data_dir: str = "data"):
+    """Create multilingual stopwords
+
+    Parameters
+    ----------
+    data_dir : str, optional
+        Directory to store cache file, by default "data"
+
+    Returns
+    -------
+    Optional[Set[str]]
+        Combined stopwords set, or None if failed
+    """
+    data_path = Path(data_dir)
+    data_path.mkdir(exist_ok=True)
+    save_file = data_path / "multilingual_stopwords.pkl"
+    languages = ["english", "french", "german", "italian", "russian"]
+
+    if not NLTK_AVAILABLE:
+        logging.error("NLTK not available - cannot create stopwords")
+        return None
+
+    try:
+        combined_stopwords = set()
+        for lang in languages:
+            lang_stopwords = set(stopwords.words(lang))
+            combined_stopwords.update(lang_stopwords)
+
+        if not combined_stopwords:
+            logging.error("No stopwords could be loaded from any language")
+            return None
+
+        with open(save_file, "wb") as f:
+            pickle.dump(
+                combined_stopwords, f, protocol=pickle.HIGHEST_PROTOCOL
+            )
+
+        return combined_stopwords
+    except Exception as e:
+        logging.error(f"Error creating multilingual stopwords: {e}")
+        return None
+
+
+def load_stopwords(data_dir: str = "data"):
+    """Load stopwords, create if not exists
+
+    Parameters
+    ----------
+    data_dir : str, optional
+        Directory containing cache file, by default "data"
+
+    Returns
+    -------
+    Set[str]
+        Combined stopwords set (empty set if all methods fail)
+    """
+    cache_file = Path(data_dir) / "multilingual_stopwords.pkl"
+
+    # Try to load from cache first
+    if cache_file.exists():
+        with open(cache_file, "rb") as f:
+            stopwords_set = pickle.load(f)
+        return stopwords_set
+
+    stopwords_set = create_stopwords_mlin(data_dir)
+
+    if stopwords_set is None:
+        logging.error("Failed to create stopwords - returning empty set")
+        return set()
+
+    return stopwords_set
