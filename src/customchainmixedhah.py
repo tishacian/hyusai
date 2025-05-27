@@ -105,7 +105,7 @@ class CustomLLMChain:
         self.device = torch.device(
             "cuda"
             if torch.cuda.is_available()
-            else "mps" if torch.backends.mps.is_available() else "cpu"
+            else "cpu" if torch.backends.mps.is_available() else "cpu"
         )
         self.max_input_ratio = 0.8 if self.is_large_model else 0.75
 
