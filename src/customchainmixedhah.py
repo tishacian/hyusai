@@ -369,6 +369,10 @@ class CustomLLMChain:
         -------
         List[str]
             List of expanded queries
+
+        !IMPORTANT: After tested a range of values for the maximum number of expandable queries,
+                    we found that 3 is optimal and sufficient for query understanding.
+                    Adding more will only increase latency and added noise which defeats the purpose of this pipeline.
         """
         if not use_expansion:
             return [question]
