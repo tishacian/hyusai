@@ -79,14 +79,14 @@ def _extract_with_pymupdf(path: str) -> tuple[dict[str, Any], str | None]:
             metadata["page_width"] = rect.width
             metadata["page_height"] = rect.height
 
-        metadata = doc.metadata
-        metadata["author"] = metadata.get('author')
-        metadata["creator"] = metadata.get('creator')
-        metadata["producer"] = metadata.get('producer')
-        metadata["subject"] = metadata.get('subject')
-        metadata["title"] = metadata.get('title')
+        doc_meta = doc.metadata
+        metadata["author"] = doc_meta.get('author')
+        metadata["creator"] = doc_meta.get('creator')
+        metadata["producer"] = doc_meta.get('producer')
+        metadata["subject"] = doc_meta.get('subject')
+        metadata["title"] = doc_meta.get('title')
 
-        keywords = metadata.get('keywords')
+        keywords = doc_meta.get('keywords')
         if keywords and isinstance(keywords, str):
             metadata["embedded_keywords"] = parse_keywords(keywords)
 
@@ -120,14 +120,14 @@ def _extract_with_pypdf2_fallback(path: str) -> tuple[dict[str, Any], str | None
                 metadata["page_height"] = float(page.mediabox.height)
 
         if reader.metadata:
-            metadata = reader.metadata
-            metadata["author"] = metadata.get('author')
-            metadata["creator"] = metadata.get('creator')
-            metadata["producer"] = metadata.get('producer')
-            metadata["subject"] = metadata.get('subject')
-            metadata["title"] = metadata.get('title')
+            reader_meta = reader.metadata
+            metadata["author"] = reader_meta.get('/Author')
+            metadata["creator"] = reader_meta.get('/Creator')
+            metadata["producer"] = reader_meta.get('/Producer')
+            metadata["subject"] = reader_meta.get('/Subject')
+            metadata["title"] = reader_meta.get('/Title')
             
-            keywords = metadata.get('keywords')
+            keywords = reader_meta.get('/Keywords')
             if keywords and isinstance(keywords, str):
                 metadata["embedded_keywords"] = parse_keywords(keywords)
 
@@ -148,9 +148,9 @@ def extract_pdf_metadata(path: str) -> tuple[dict[str, Any], str | None]:
         tuple[dict[str, Any], str | None]: Specific PDF metadata and text content.
     """
     try:
-        specific_metadata, text_content = _extract_with_pymupdf(path)
+        metadata, text_content = _extract_with_pymupdf(path)
     except (fitz.FileDataError, fitz.FileNotFoundError, fitz.EmptyFileError, Exception) as e: # Broaden for other fitz issues
         logger.warning(f"PyMuPDF failed for {path}, falling back to PyPDF2: {e}")
-        specific_metadata, text_content = _extract_with_pypdf2_fallback(path)
+        metadata, text_content = _extract_with_pypdf2_fallback(path)
     
-    return specific_metadata, text_content
+    return metadata, text_content

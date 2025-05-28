@@ -29,29 +29,26 @@ def _extract_yaml_front_matter(content: str) -> tuple[bool, dict[str, Any] | Non
         content: File content
 
     Returns:
-        tuple[bool, dict[str, Any] | None, str]: (has_front_matter, front_matter_data, content_without_front_matter)
+        tuple[bool, dict[str, Any] | None, str]: (has_front_matter, front_matter_data, clean_content)
     """
     yaml_pattern = r'^---\s*\n(.*?)\n---\s*\n'
     match = re.match(yaml_pattern, content, re.DOTALL)
-    content_without_front_matter = content
+    clean_content = content
 
     if match:
         try:
-            front_matter_str = match.group(1)
-            front_matter = yaml.safe_load(front_matter_str)
+            fm_str = match.group(1)
+            front_matter = yaml.safe_load(fm_str)
             # Remove front matter from content for accurate text counting
-            content_without_front_matter = re.sub(yaml_pattern, '', content, flags=re.DOTALL, count=1)
-            return True, front_matter, content_without_front_matter
+            clean_content = re.sub(yaml_pattern, '', content, flags=re.DOTALL, count=1)
+            return True, front_matter, clean_content
         except yaml.YAMLError as e:
             logger.warning(f"Invalid YAML front matter detected but could not parse: {e}")
             # Still consider it as having front matter, but data is None
-            content_without_front_matter = re.sub(yaml_pattern, '', content, flags=re.DOTALL, count=1)
-            return True, None, content_without_front_matter
-        except Exception as e:
-            logger.error(f"Error processing YAML front matter: {e}")
-            return True, None, content # Fallback to original content if regex sub fails unexpectedly
+            clean_content = re.sub(yaml_pattern, '', content, flags=re.DOTALL, count=1)
+            return True, None, clean_content
 
-    return False, None, content_without_front_matter
+    return False, None, clean_content
 
 
 def _count_text_elements(content: str) -> dict[str, int]:
@@ -88,70 +85,61 @@ def _base_text_extraction(path: str) -> tuple[dict[str, Any], str | None]:
     encoding = detect_encoding(path)
     metadata["encoding"] = encoding
     
-    processed_content_for_analysis = None
-    raw_text_content_for_factory = None # This will be returned for token counting / keywords
+    content = None
 
-    try:
-        with open(path, 'r', encoding=encoding, errors='replace') as f:
-            raw_text_content_for_factory = f.read()
-        
-        # For text element counts, operate on the raw content
-        processed_content_for_analysis = raw_text_content_for_factory
-
-    except Exception as e:
-        logger.error(f"Error reading text file {path}: {e}")
-        return metadata, None # Return defaults and None content on error
+    with open(path, 'r', encoding=encoding, errors='replace') as f:
+        content = f.read()
     
-    return metadata, processed_content_for_analysis, raw_text_content_for_factory
+    return metadata, content, content
 
 
 def _extract_with_txt(path: str) -> tuple[dict[str, Any], str | None]:
     """
     Extract metadata and text from a plain text file.
     """
-    metadata, content_for_analysis, raw_text_for_factory = _base_text_extraction(path)
-    if content_for_analysis is not None:
-        counts = _count_text_elements(content_for_analysis)
+    metadata, content, text = _base_text_extraction(path)
+    if content is not None:
+        counts = _count_text_elements(content)
         metadata.update(counts)
-    return metadata, raw_text_for_factory
+    return metadata, text
 
 
 def _extract_with_markdown(path: str) -> tuple[dict[str, Any], str | None]:
     """
     Extract metadata and text from a Markdown file.
     """
-    metadata, content_for_analysis, raw_text_for_factory = _base_text_extraction(path)
-    if content_for_analysis is not None:
-        has_front_matter, _front_matter_data, content_after_fm = _extract_yaml_front_matter(content_for_analysis)
+    metadata, content, text = _base_text_extraction(path)
+    if content is not None:
+        has_front_matter, _front_matter, content = _extract_yaml_front_matter(content)
         metadata["has_front_matter"] = has_front_matter
         # Counts should be based on content *without* front matter
-        counts = _count_text_elements(content_after_fm)
+        counts = _count_text_elements(content)
         metadata.update(counts)
     # Return raw text for factory, so it can decide on token/keyword from full content or post-FM
-    # For now, returning raw_text_for_factory. This could be content_after_fm if preferred.
-    return metadata, raw_text_for_factory 
+    # For now, returning text. This could be content if preferred.
+    return metadata, text 
 
 
 def _extract_with_rst(path: str) -> tuple[dict[str, Any], str | None]:
     """
     Extract metadata and text from a reStructuredText file.
     """
-    metadata, content_for_analysis, raw_text_for_factory = _base_text_extraction(path)
-    if content_for_analysis is not None:
-        counts = _count_text_elements(content_for_analysis)
+    metadata, content, text = _base_text_extraction(path)
+    if content is not None:
+        counts = _count_text_elements(content)
         metadata.update(counts)
-    return metadata, raw_text_for_factory
+    return metadata, text
 
 
 def _extract_with_log(path: str) -> tuple[dict[str, Any], str | None]:
     """
     Extract metadata and text from a log file.
     """
-    metadata, content_for_analysis, raw_text_for_factory = _base_text_extraction(path)
-    if content_for_analysis is not None:
-        counts = _count_text_elements(content_for_analysis)
+    metadata, content, text = _base_text_extraction(path)
+    if content is not None:
+        counts = _count_text_elements(content)
         metadata.update(counts)
-    return metadata, raw_text_for_factory
+    return metadata, text
 
 
 def extract_text_metadata(path: str) -> tuple[dict[str, Any], str | None]:

@@ -17,7 +17,7 @@ from docmeta.core.types import create_office_metadata # create_office_metadata r
 from docmeta.utils.text_processing import (
     get_file_extension,
     extract_common_metadata_fields,
-    extract_and_parse_keywords,
+    extract_keywords,
     count_text_statistics
 )
 
@@ -47,7 +47,7 @@ def _extract_with_docx(path: str) -> tuple[dict[str, Any], str | None]:
         'last_modified_by': 'last_modified_by'
     }
     extract_common_metadata_fields(core_properties, metadata, field_mapping)
-    extract_and_parse_keywords(core_properties, metadata, 'keywords')
+    extract_keywords(core_properties, metadata, 'keywords')
 
     metadata["application"] = "Microsoft Word"
     metadata["paragraph_count"] = len(doc.paragraphs)
@@ -86,13 +86,13 @@ def _extract_with_xlsx(path: str) -> tuple[dict[str, Any], str | None]:
         'last_modified_by': 'lastModifiedBy'
     }
     extract_common_metadata_fields(properties, metadata, field_mapping)
-    extract_and_parse_keywords(properties, metadata, 'keywords')
+    extract_keywords(properties, metadata, 'keywords')
 
     metadata["application"] = "Microsoft Excel"
     metadata["num_sheets"] = len(workbook.worksheets)
 
     total_cells = 0
-    all_text_elements = []
+    text_elements = []
     char_count = 0
     for sheet in workbook.worksheets:
         for row in sheet.iter_rows():
@@ -103,12 +103,12 @@ def _extract_with_xlsx(path: str) -> tuple[dict[str, Any], str | None]:
                     if isinstance(cell.value, str):
                         char_count += len(cell_text)
                         if cell_text.strip():
-                            all_text_elements.append(cell_text)
+                            text_elements.append(cell_text)
     
     metadata["character_count"] = char_count
     metadata["word_count"] = total_cells  # Using cell count as word equivalent
 
-    text_content = '\n'.join(all_text_elements) if all_text_elements else None
+    text_content = '\n'.join(text_elements) if text_elements else None
     workbook.close()
     return metadata, text_content
 
@@ -135,7 +135,7 @@ def _extract_with_pptx(path: str) -> tuple[dict[str, Any], str | None]:
         'last_modified_by': 'last_modified_by'
     }
     extract_common_metadata_fields(core_properties, metadata, field_mapping)
-    extract_and_parse_keywords(core_properties, metadata, 'keywords')
+    extract_keywords(core_properties, metadata, 'keywords')
 
     metadata["application"] = "Microsoft PowerPoint"
     metadata["num_slides"] = len(presentation.slides)

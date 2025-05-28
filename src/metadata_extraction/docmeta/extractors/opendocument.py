@@ -17,8 +17,8 @@ from docmeta.core.types import create_opendocument_metadata # returns dict[str, 
 from docmeta.utils.text_processing import (
     get_file_extension,
     extract_common_metadata_fields,
-    extract_and_parse_keywords,
-    extract_statistics_from_meta
+    extract_keywords,
+    extract_statistics
 )
 
 # Configure logger
@@ -59,39 +59,39 @@ def _extract_with_odt(path: str) -> tuple[dict[str, Any], str | None]:
     """
     metadata = create_opendocument_metadata()
     doc = opendocument.load(path)
-    meta_elements = doc.getElementsByType(Meta)
-    
-    if not meta_elements:
-        logger.warning(f"No Meta element found in ODT: {path}")
-        text_content_early = _extract_text_content(doc) # Try to get text even if meta is missing
-        return metadata, text_content_early
+    try:
+        meta = doc.meta
+        if meta is None:
+            logger.warning(f"No meta element found in ODT file: {path}")
+            text_content = _extract_text_content(doc) # Try to get text even if meta is missing
+            return metadata, text_content
 
-    meta = meta_elements[0]
-
-    if hasattr(meta, 'getAttribute'):
+        # Extract common metadata fields
         field_mapping = {
-            'author': 'creator',
+            'author': 'initial-creator',
             'title': 'title',
             'subject': 'subject',
-            'generator': 'generator',
-            'language': 'language'
+            'last_modified_by': 'creator'
         }
         extract_common_metadata_fields(meta, metadata, field_mapping)
-        extract_and_parse_keywords(meta, metadata, 'keyword')
+        extract_keywords(meta, metadata, 'keyword')
 
-    if hasattr(meta, 'statistics'):
-        stats = meta.statistics
-        field_mapping = {
+        # Extract statistics
+        stats_mapping = {
             'num_pages': 'page-count',
             'word_count': 'word-count',
             'character_count': 'character-count',
             'paragraph_count': 'paragraph-count'
         }
-        stats_data = extract_statistics_from_meta(stats, field_mapping)
-        metadata.update(stats_data)
+        stats = extract_statistics(meta, stats_mapping)
+        metadata.update(stats)
 
-    text_content = _extract_text_content(doc)
-    return metadata, text_content
+        text_content = _extract_text_content(doc)
+        return metadata, text_content
+
+    except Exception as e:
+        logger.error(f"Error extracting ODT metadata from {path}: {e}")
+        return metadata, None
 
 
 def _extract_with_ods(path: str) -> tuple[dict[str, Any], str | None]:
@@ -110,8 +110,8 @@ def _extract_with_ods(path: str) -> tuple[dict[str, Any], str | None]:
 
     if not meta_elements:
         logger.warning(f"No Meta element found in ODS: {path}")
-        text_content_early = _extract_text_content(doc)
-        return metadata, text_content_early
+        text_content = _extract_text_content(doc)
+        return metadata, text_content
 
     meta = meta_elements[0]
 
@@ -124,7 +124,7 @@ def _extract_with_ods(path: str) -> tuple[dict[str, Any], str | None]:
             'language': 'language'
         }
         extract_common_metadata_fields(meta, metadata, field_mapping)
-        extract_and_parse_keywords(meta, metadata, 'keyword')
+        extract_keywords(meta, metadata, 'keyword')
 
     if hasattr(meta, 'statistics'):
         stats = meta.statistics
@@ -133,8 +133,8 @@ def _extract_with_ods(path: str) -> tuple[dict[str, Any], str | None]:
             'word_count': 'cell-count',
             'character_count': 'character-count'
         }
-        stats_data = extract_statistics_from_meta(stats, field_mapping)
-        metadata.update(stats_data)
+        statistics = extract_statistics(stats, field_mapping)
+        metadata.update(statistics)
 
     text_content = _extract_text_content(doc)
     return metadata, text_content
@@ -156,8 +156,8 @@ def _extract_with_odp(path: str) -> tuple[dict[str, Any], str | None]:
 
     if not meta_elements:
         logger.warning(f"No Meta element found in ODP: {path}")
-        text_content_early = _extract_text_content(doc)
-        return metadata, text_content_early
+        text_content = _extract_text_content(doc)
+        return metadata, text_content
         
     meta = meta_elements[0]
 
@@ -170,7 +170,7 @@ def _extract_with_odp(path: str) -> tuple[dict[str, Any], str | None]:
             'language': 'language'
         }
         extract_common_metadata_fields(meta, metadata, field_mapping)
-        extract_and_parse_keywords(meta, metadata, 'keyword')
+        extract_keywords(meta, metadata, 'keyword')
 
     if hasattr(meta, 'statistics'):
         stats = meta.statistics
@@ -180,8 +180,8 @@ def _extract_with_odp(path: str) -> tuple[dict[str, Any], str | None]:
             'character_count': 'character-count',
             'paragraph_count': 'paragraph-count'
         }
-        stats_data = extract_statistics_from_meta(stats, field_mapping)
-        metadata.update(stats_data)
+        statistics = extract_statistics(stats, field_mapping)
+        metadata.update(statistics)
 
     text_content = _extract_text_content(doc)
     return metadata, text_content

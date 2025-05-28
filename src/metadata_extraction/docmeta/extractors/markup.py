@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 def _detect_markup_encoding(content_bytes: bytes) -> str:
     """
-    Detect encoding.
+    Detect encoding.¸
 
     Args:
         content_bytes: Raw file content
@@ -29,11 +29,11 @@ def _detect_markup_encoding(content_bytes: bytes) -> str:
     Returns:
         str: Detected encoding
     """
-    content_str = content_bytes.decode('utf-8', errors='ignore')[:1024]
-    xml_encoding = re.search(r'encoding=["\']([^"\']+)["\']', content_str, re.IGNORECASE)
+    text = content_bytes.decode('utf-8', errors='ignore')[:1024]
+    xml_encoding = re.search(r'encoding=["\']([^"\']+)["\']', text, re.IGNORECASE)
     if xml_encoding:
         return xml_encoding.group(1)
-    charset_match = re.search(r'charset=["\']?([^"\'>\s]+)', content_str, re.IGNORECASE)
+    charset_match = re.search(r'charset=["\']?([^"\'>\s]+)', text, re.IGNORECASE)
     if charset_match:
         return charset_match.group(1)
     return 'utf-8'
@@ -45,37 +45,36 @@ def _extract_with_html(path: str) -> tuple[dict[str, Any], str | None]:
     """
     metadata = create_markup_metadata()
     text_content = None
-    try:
-        with open(path, 'rb') as f:
-            content_bytes = f.read()
-        encoding = _detect_markup_encoding(content_bytes)
-        metadata["encoding"] = encoding
-        soup = BeautifulSoup(content_bytes, 'html.parser', from_encoding=encoding)
+    
+    with open(path, 'rb') as f:
+        content = f.read()
+    encoding = _detect_markup_encoding(content)
+    metadata["encoding"] = encoding
+    soup = BeautifulSoup(content, 'html.parser', from_encoding=encoding)
 
-        title_tag = soup.find('title')
-        if title_tag:
-            metadata["title"] = title_tag.get_text().strip()
-        meta_desc = soup.find('meta', attrs={'name': 'description'})
-        if meta_desc and meta_desc.get('content'):
-            metadata["meta_description"] = meta_desc['content']
-        meta_keywords_tag = soup.find('meta', attrs={'name': 'keywords'})
-        if meta_keywords_tag and meta_keywords_tag.get('content'):
-            keywords_str = meta_keywords_tag['content']
-            if keywords_str:
-                metadata["meta_keywords"] = [k.strip() for k in keywords_str.split(',')]
-        html_tag = soup.find('html')
-        if html_tag and html_tag.get('lang'):
-            metadata["language"] = html_tag['lang']
-        if soup.contents and hasattr(soup.contents[0], 'string'):
-            doctype_str = str(soup.contents[0]).strip()
-            if doctype_str.startswith('<!DOCTYPE'):
-                metadata["doctype"] = doctype_str
-        metadata["element_count"] = len(soup.find_all(True))
-        metadata["link_count"] = len(soup.find_all('a', href=True))
-        metadata["image_count"] = len(soup.find_all('img', src=True))
-        text_content = soup.get_text()
-    except Exception as e:
-        logger.error(f"Error extracting HTML metadata from {path}: {e}")
+    title_tag = soup.find('title')
+    if title_tag:
+        metadata["title"] = title_tag.get_text().strip()
+    meta_desc = soup.find('meta', attrs={'name': 'description'})
+    if meta_desc and meta_desc.get('content'):
+        metadata["meta_description"] = meta_desc['content']
+    meta_keywords_tag = soup.find('meta', attrs={'name': 'keywords'})
+    if meta_keywords_tag and meta_keywords_tag.get('content'):
+        keywords_str = meta_keywords_tag['content']
+        if keywords_str:
+            metadata["meta_keywords"] = [k.strip() for k in keywords_str.split(',')]
+    html_tag = soup.find('html')
+    if html_tag and html_tag.get('lang'):
+        metadata["language"] = html_tag['lang']
+    if soup.contents and hasattr(soup.contents[0], 'string'):
+        doctype_str = str(soup.contents[0]).strip()
+        if doctype_str.startswith('<!DOCTYPE'):
+            metadata["doctype"] = doctype_str
+    metadata["element_count"] = len(soup.find_all(True))
+    metadata["link_count"] = len(soup.find_all('a', href=True))
+    metadata["image_count"] = len(soup.find_all('img', src=True))
+    text_content = soup.get_text()
+    
     return metadata, text_content
 
 
@@ -85,20 +84,19 @@ def _extract_with_xml(path: str) -> tuple[dict[str, Any], str | None]:
     """
     metadata = create_markup_metadata()
     text_content = None
-    try:
-        with open(path, 'rb') as f:
-            content_bytes = f.read()
-        encoding = _detect_markup_encoding(content_bytes)
-        metadata["encoding"] = encoding
-        root = ET.fromstring(content_bytes)
-        metadata["title"] = root.tag
-        metadata["element_count"] = len(list(root.iter()))
-        lang = root.get('{http://www.w3.org/XML/1998/namespace}lang')
-        if lang:
-            metadata["language"] = lang
-        text_content = ET.tostring(root, encoding='unicode', method='text')
-    except Exception as e:
-        logger.error(f"Error extracting XML metadata from {path}: {e}")
+    
+    with open(path, 'rb') as f:
+        content = f.read()
+    encoding = _detect_markup_encoding(content)
+    metadata["encoding"] = encoding
+    root = ET.fromstring(content)
+    metadata["title"] = root.tag
+    metadata["element_count"] = len(list(root.iter()))
+    lang = root.get('{http://www.w3.org/XML/1998/namespace}lang')
+    if lang:
+        metadata["language"] = lang
+    text_content = ET.tostring(root, encoding='unicode', method='text')
+    
     return metadata, text_content
 
 
