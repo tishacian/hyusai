@@ -11,15 +11,14 @@ from typing import Any
 # Import required libraries for OpenDocument processing
 from odf import opendocument
 from odf.opendocument import Meta
-from odf.text import P, H, Span # Used in _extract_text_content
+from odf.text import H, P, Span  # Used in _extract_text_content
 
-from docmeta.core.types import create_opendocument_metadata # returns dict[str, Any]
-from docmeta.utils.text_processing import (
-    get_file_extension,
-    extract_common_metadata_fields,
-    extract_keywords,
-    extract_statistics
-)
+from docmeta.core.types import \
+    create_opendocument_metadata  # returns dict[str, Any]
+from docmeta.utils.text_processing import (extract_common_metadata_fields,
+                                           extract_keywords,
+                                           extract_statistics,
+                                           get_file_extension)
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -40,11 +39,15 @@ def _extract_text_content(doc) -> str | None:
     for element_type in [P, H, Span]:
         for element in doc.getElementsByType(element_type):
             # Efficiently build text content using a generator expression
-            text_content = "".join(node.data for node in element.childNodes if node.nodeType == node.TEXT_NODE)
+            text_content = "".join(
+                node.data
+                for node in element.childNodes
+                if node.nodeType == node.TEXT_NODE
+            )
             if text_content.strip():
                 text_elements.append(text_content.strip())
-    
-    return '\n'.join(text_elements) if text_elements else None
+
+    return "\n".join(text_elements) if text_elements else None
 
 
 def _extract_with_odt(path: str) -> tuple[dict[str, Any], str | None]:
@@ -63,25 +66,27 @@ def _extract_with_odt(path: str) -> tuple[dict[str, Any], str | None]:
         meta = doc.meta
         if meta is None:
             logger.warning(f"No meta element found in ODT file: {path}")
-            text_content = _extract_text_content(doc) # Try to get text even if meta is missing
+            text_content = _extract_text_content(
+                doc
+            )  # Try to get text even if meta is missing
             return metadata, text_content
 
         # Extract common metadata fields
         field_mapping = {
-            'author': 'initial-creator',
-            'title': 'title',
-            'subject': 'subject',
-            'last_modified_by': 'creator'
+            "author": "initial-creator",
+            "title": "title",
+            "subject": "subject",
+            "last_modified_by": "creator",
         }
         extract_common_metadata_fields(meta, metadata, field_mapping)
-        extract_keywords(meta, metadata, 'keyword')
+        extract_keywords(meta, metadata, "keyword")
 
         # Extract statistics
         stats_mapping = {
-            'num_pages': 'page-count',
-            'word_count': 'word-count',
-            'character_count': 'character-count',
-            'paragraph_count': 'paragraph-count'
+            "num_pages": "page-count",
+            "word_count": "word-count",
+            "character_count": "character-count",
+            "paragraph_count": "paragraph-count",
         }
         stats = extract_statistics(meta, stats_mapping)
         metadata.update(stats)
@@ -115,23 +120,23 @@ def _extract_with_ods(path: str) -> tuple[dict[str, Any], str | None]:
 
     meta = meta_elements[0]
 
-    if hasattr(meta, 'getAttribute'):
+    if hasattr(meta, "getAttribute"):
         field_mapping = {
-            'author': 'creator',
-            'title': 'title',
-            'subject': 'subject',
-            'generator': 'generator',
-            'language': 'language'
+            "author": "creator",
+            "title": "title",
+            "subject": "subject",
+            "generator": "generator",
+            "language": "language",
         }
         extract_common_metadata_fields(meta, metadata, field_mapping)
-        extract_keywords(meta, metadata, 'keyword')
+        extract_keywords(meta, metadata, "keyword")
 
-    if hasattr(meta, 'statistics'):
+    if hasattr(meta, "statistics"):
         stats = meta.statistics
         field_mapping = {
-            'num_pages': 'table-count',
-            'word_count': 'cell-count',
-            'character_count': 'character-count'
+            "num_pages": "table-count",
+            "word_count": "cell-count",
+            "character_count": "character-count",
         }
         statistics = extract_statistics(stats, field_mapping)
         metadata.update(statistics)
@@ -158,27 +163,27 @@ def _extract_with_odp(path: str) -> tuple[dict[str, Any], str | None]:
         logger.warning(f"No Meta element found in ODP: {path}")
         text_content = _extract_text_content(doc)
         return metadata, text_content
-        
+
     meta = meta_elements[0]
 
-    if hasattr(meta, 'getAttribute'):
+    if hasattr(meta, "getAttribute"):
         field_mapping = {
-            'author': 'creator',
-            'title': 'title',
-            'subject': 'subject',
-            'generator': 'generator',
-            'language': 'language'
+            "author": "creator",
+            "title": "title",
+            "subject": "subject",
+            "generator": "generator",
+            "language": "language",
         }
         extract_common_metadata_fields(meta, metadata, field_mapping)
-        extract_keywords(meta, metadata, 'keyword')
+        extract_keywords(meta, metadata, "keyword")
 
-    if hasattr(meta, 'statistics'):
+    if hasattr(meta, "statistics"):
         stats = meta.statistics
         field_mapping = {
-            'num_pages': 'page-count',
-            'word_count': 'word-count',
-            'character_count': 'character-count',
-            'paragraph_count': 'paragraph-count'
+            "num_pages": "page-count",
+            "word_count": "word-count",
+            "character_count": "character-count",
+            "paragraph_count": "paragraph-count",
         }
         statistics = extract_statistics(stats, field_mapping)
         metadata.update(statistics)
@@ -200,13 +205,15 @@ def extract_opendocument_metadata(path: str) -> tuple[dict[str, Any], str | None
     # File existence validation is handled by the factory
     extension = get_file_extension(path)
 
-    if extension == '.odt':
+    if extension == ".odt":
         return _extract_with_odt(path)
-    elif extension == '.ods':
+    elif extension == ".ods":
         return _extract_with_ods(path)
-    elif extension == '.odp':
+    elif extension == ".odp":
         return _extract_with_odp(path)
     else:
         # Should not happen if called via registered extensions
-        logger.warning(f"Unsupported OpenDocument file type for explicit extraction: {path}")
+        logger.warning(
+            f"Unsupported OpenDocument file type for explicit extraction: {path}"
+        )
         return create_opendocument_metadata(), None

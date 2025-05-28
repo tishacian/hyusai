@@ -13,13 +13,12 @@ import docx
 from openpyxl import load_workbook
 from pptx import Presentation
 
-from docmeta.core.types import create_office_metadata # create_office_metadata returns dict[str, Any]
-from docmeta.utils.text_processing import (
-    get_file_extension,
-    extract_common_metadata_fields,
-    extract_keywords,
-    count_text_statistics
-)
+from docmeta.core.types import \
+    create_office_metadata  # create_office_metadata returns dict[str, Any]
+from docmeta.utils.text_processing import (count_text_statistics,
+                                           extract_common_metadata_fields,
+                                           extract_keywords,
+                                           get_file_extension)
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -41,26 +40,26 @@ def _extract_with_docx(path: str) -> tuple[dict[str, Any], str | None]:
     core_properties = doc.core_properties
 
     field_mapping = {
-        'author': 'author',
-        'title': 'title',
-        'subject': 'subject',
-        'last_modified_by': 'last_modified_by'
+        "author": "author",
+        "title": "title",
+        "subject": "subject",
+        "last_modified_by": "last_modified_by",
     }
     extract_common_metadata_fields(core_properties, metadata, field_mapping)
-    extract_keywords(core_properties, metadata, 'keywords')
+    extract_keywords(core_properties, metadata, "keywords")
 
     metadata["application"] = "Microsoft Word"
     metadata["paragraph_count"] = len(doc.paragraphs)
 
     text_elements = [para.text for para in doc.paragraphs]
     stats = count_text_statistics(text_elements)
-    metadata["word_count"] = stats['word_count']
-    metadata["character_count"] = stats['char_count']
+    metadata["word_count"] = stats["word_count"]
+    metadata["character_count"] = stats["char_count"]
 
-    if stats['word_count'] > 0:
-        metadata["num_pages"] = max(1, stats['word_count'] // 500)
+    if stats["word_count"] > 0:
+        metadata["num_pages"] = max(1, stats["word_count"] // 500)
 
-    text_content = '\n'.join(stats['all_text']) if stats['all_text'] else None
+    text_content = "\n".join(stats["all_text"]) if stats["all_text"] else None
     return metadata, text_content
 
 
@@ -80,13 +79,13 @@ def _extract_with_xlsx(path: str) -> tuple[dict[str, Any], str | None]:
     properties = workbook.properties
 
     field_mapping = {
-        'author': 'creator',
-        'title': 'title',
-        'subject': 'subject',
-        'last_modified_by': 'lastModifiedBy'
+        "author": "creator",
+        "title": "title",
+        "subject": "subject",
+        "last_modified_by": "lastModifiedBy",
     }
     extract_common_metadata_fields(properties, metadata, field_mapping)
-    extract_keywords(properties, metadata, 'keywords')
+    extract_keywords(properties, metadata, "keywords")
 
     metadata["application"] = "Microsoft Excel"
     metadata["num_sheets"] = len(workbook.worksheets)
@@ -104,11 +103,11 @@ def _extract_with_xlsx(path: str) -> tuple[dict[str, Any], str | None]:
                         char_count += len(cell_text)
                         if cell_text.strip():
                             text_elements.append(cell_text)
-    
+
     metadata["character_count"] = char_count
     metadata["word_count"] = total_cells  # Using cell count as word equivalent
 
-    text_content = '\n'.join(text_elements) if text_elements else None
+    text_content = "\n".join(text_elements) if text_elements else None
     workbook.close()
     return metadata, text_content
 
@@ -129,13 +128,13 @@ def _extract_with_pptx(path: str) -> tuple[dict[str, Any], str | None]:
     core_properties = presentation.core_properties
 
     field_mapping = {
-        'author': 'author',
-        'title': 'title',
-        'subject': 'subject',
-        'last_modified_by': 'last_modified_by'
+        "author": "author",
+        "title": "title",
+        "subject": "subject",
+        "last_modified_by": "last_modified_by",
     }
     extract_common_metadata_fields(core_properties, metadata, field_mapping)
-    extract_keywords(core_properties, metadata, 'keywords')
+    extract_keywords(core_properties, metadata, "keywords")
 
     metadata["application"] = "Microsoft PowerPoint"
     metadata["num_slides"] = len(presentation.slides)
@@ -148,10 +147,10 @@ def _extract_with_pptx(path: str) -> tuple[dict[str, Any], str | None]:
                 text_elements.append(shape.text)
 
     stats = count_text_statistics(text_elements)
-    metadata["word_count"] = stats['word_count']
-    metadata["character_count"] = stats['char_count']
+    metadata["word_count"] = stats["word_count"]
+    metadata["character_count"] = stats["char_count"]
 
-    text_content = '\n'.join(stats['all_text']) if stats['all_text'] else None
+    text_content = "\n".join(stats["all_text"]) if stats["all_text"] else None
     return metadata, text_content
 
 
@@ -168,11 +167,11 @@ def extract_office_metadata(path: str) -> tuple[dict[str, Any], str | None]:
     # File existence validation is handled by the factory
     extension = get_file_extension(path)
 
-    if extension == '.docx':
+    if extension == ".docx":
         return _extract_with_docx(path)
-    elif extension == '.xlsx':
+    elif extension == ".xlsx":
         return _extract_with_xlsx(path)
-    elif extension == '.pptx':
+    elif extension == ".pptx":
         return _extract_with_pptx(path)
     else:
         # Should not happen if called via registered extensions

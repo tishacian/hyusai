@@ -3,11 +3,12 @@ import os
 import stat
 from datetime import datetime
 from pathlib import Path
-from typing import TypedDict, Any, Callable
+from typing import Any, Callable, TypedDict
 
 
 class FileMetaData(TypedDict):
     """Base metadata common to all file types."""
+
     file_path: str
     file_name: str
     file_extension: str
@@ -21,14 +22,19 @@ class FileMetaData(TypedDict):
 
 class PDFMetaData(FileMetaData):
     """Metadata specific to PDF files."""
+
     author: str | None
     creator: str | None
     producer: str | None
     subject: str | None
     title: str | None
     num_pages: int
-    embedded_keywords: list[str] | None  # Keywords sourced directly from the PDF document's embedded metadata
-    extracted_keywords: list[str] | None  # Keywords programmatically generated from analyzing the document's text content (e.g., TF-IDF)
+    embedded_keywords: (
+        list[str] | None
+    )  # Keywords sourced directly from the PDF document's embedded metadata
+    extracted_keywords: (
+        list[str] | None
+    )  # Keywords programmatically generated from analyzing the document's text content (e.g., TF-IDF)
     encrypted: bool
     page_width: float | None
     page_height: float | None
@@ -37,6 +43,7 @@ class PDFMetaData(FileMetaData):
 
 class ImageMetaData(FileMetaData):
     """Metadata specific to image files."""
+
     width: int
     height: int
     color_mode: str | None  # e.g., "RGB", "CMYK", "Grayscale"
@@ -48,6 +55,7 @@ class ImageMetaData(FileMetaData):
 
 class OfficeMetaData(FileMetaData):
     """Metadata specific to Microsoft Office files."""
+
     author: str | None
     title: str | None
     subject: str | None
@@ -67,6 +75,7 @@ class OfficeMetaData(FileMetaData):
 
 class OpenDocumentMetaData(FileMetaData):
     """Metadata specific to OpenDocument files."""
+
     author: str | None
     title: str | None
     subject: str | None
@@ -84,6 +93,7 @@ class OpenDocumentMetaData(FileMetaData):
 
 class TextMetaData(FileMetaData):
     """Metadata specific to plain text and markdown files."""
+
     encoding: str | None
     word_count: int
     character_count: int
@@ -97,6 +107,7 @@ class TextMetaData(FileMetaData):
 
 class MarkupMetaData(FileMetaData):
     """Metadata specific to markup files (HTML, XML)."""
+
     title: str | None
     encoding: str | None
     doctype: str | None
@@ -112,6 +123,7 @@ class MarkupMetaData(FileMetaData):
 
 class StructuredDataMetaData(FileMetaData):
     """Metadata specific to structured data files (CSV, JSON)."""
+
     encoding: str | None
     schema_type: str | None  # e.g., "CSV", "JSON", "YAML"
     record_count: int | None  # Rows for CSV, objects for JSON
@@ -124,9 +136,16 @@ class StructuredDataMetaData(FileMetaData):
 
 
 # Type for metadata extractors
-MetadataType = (FileMetaData | PDFMetaData | ImageMetaData |
-                OfficeMetaData | OpenDocumentMetaData | TextMetaData |
-                MarkupMetaData | StructuredDataMetaData)
+MetadataType = (
+    FileMetaData
+    | PDFMetaData
+    | ImageMetaData
+    | OfficeMetaData
+    | OpenDocumentMetaData
+    | TextMetaData
+    | MarkupMetaData
+    | StructuredDataMetaData
+)
 MetadataExtractor = Callable[[str], tuple[dict[str, Any], str | None]]
 
 

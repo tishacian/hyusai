@@ -5,15 +5,15 @@ This module provides a factory for selecting the appropriate metadata extractor
 based on file type.
 """
 
-import os
 import mimetypes
+import os
 from typing import Any, cast
 
-from docmeta.core.types import MetadataExtractor, MetadataType, get_file_common_metadata, FileMetaData
+from docmeta.core.types import (FileMetaData, MetadataExtractor, MetadataType,
+                                get_file_common_metadata)
+from docmeta.utils.keyword_extractor import extract_keywords_tfidf
 from docmeta.utils.text_processing import validate_file_exists
 from docmeta.utils.token_counter import count_tokens
-from docmeta.utils.keyword_extractor import extract_keywords_tfidf
-
 
 # Registry of extractors by file extension
 EXTENSION_EXTRACTORS: dict[str, MetadataExtractor] = {}
@@ -22,7 +22,9 @@ EXTENSION_EXTRACTORS: dict[str, MetadataExtractor] = {}
 MIME_TYPE_EXTRACTORS: dict[str, MetadataExtractor] = {}
 
 
-def register_extractor(extensions: list[str], mime_types: list[str], extractor: MetadataExtractor) -> None:
+def register_extractor(
+    extensions: list[str], mime_types: list[str], extractor: MetadataExtractor
+) -> None:
     """
     Register an extractor for specific file extensions and MIME types.
 
@@ -62,7 +64,11 @@ def get_extractor(path: str) -> MetadataExtractor | None:
     return extractor
 
 
-def extract_metadata(path: str, count_tokens_flag: bool = False, extract_keywords_language: str | None = None) -> MetadataType:
+def extract_metadata(
+    path: str,
+    count_tokens_flag: bool = False,
+    extract_keywords_language: str | None = None,
+) -> MetadataType:
     """
     Extract metadata from a file.
 
@@ -91,8 +97,10 @@ def extract_metadata(path: str, count_tokens_flag: bool = False, extract_keyword
             result["token_count"] = count_tokens(text_content)
 
         if extract_keywords_language:
-            keywords = extract_keywords_tfidf(text_content, language=extract_keywords_language)
+            keywords = extract_keywords_tfidf(
+                text_content, language=extract_keywords_language
+            )
             if keywords:
                 result["extracted_keywords"] = keywords
 
-    return cast(MetadataType, result) 
+    return cast(MetadataType, result)

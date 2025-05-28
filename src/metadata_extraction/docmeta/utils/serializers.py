@@ -59,5 +59,5 @@ def save_json(metadata: MetadataType, path: str, indent: int = 2) -> None:
         indent: Number of spaces to indent (None for no indentation)
     """
     # Use DateTimeEncoder to handle datetime objects
-    with open(path, 'w', encoding='utf-8') as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, cls=DateTimeEncoder, indent=indent, ensure_ascii=False)

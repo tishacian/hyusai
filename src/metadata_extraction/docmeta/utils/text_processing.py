@@ -1,4 +1,5 @@
 import os
+
 import chardet
 
 
@@ -26,10 +27,10 @@ def detect_encoding(path: str) -> str:
     Returns:
         str: Detected encoding
     """
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         raw_data = f.read(10000)  # Read first 10KB for detection
         result = chardet.detect(raw_data)
-        return result['encoding'] or 'utf-8'
+        return result["encoding"] or "utf-8"
 
 
 def analyze_list_structure(data: list) -> dict:
@@ -42,11 +43,7 @@ def analyze_list_structure(data: list) -> dict:
     Returns:
         Dictionary with structure information
     """
-    result = {
-        "record_count": len(data),
-        "columns": None,
-        "column_count": 0
-    }
+    result = {"record_count": len(data), "columns": None, "column_count": 0}
 
     # If list of objects, analyze first object for schema
     if data and isinstance(data[0], dict):
@@ -70,7 +67,7 @@ def analyze_dict_structure(data: dict) -> dict:
     return {
         "record_count": 1,
         "columns": list(data.keys()),
-        "column_count": len(data.keys())
+        "column_count": len(data.keys()),
     }
 
 
@@ -88,7 +85,9 @@ def get_file_extension(path: str) -> str:
     return extension.lower()
 
 
-def extract_common_metadata_fields(properties_obj, metadata_dict: dict, field_mapping: dict) -> None:
+def extract_common_metadata_fields(
+    properties_obj, metadata_dict: dict, field_mapping: dict
+) -> None:
     """
     Extract common metadata fields.
 
@@ -104,10 +103,10 @@ def extract_common_metadata_fields(properties_obj, metadata_dict: dict, field_ma
     for metadata_field, property_name in field_mapping.items():
         if hasattr(properties_obj, property_name):
             metadata_dict[metadata_field] = getattr(properties_obj, property_name, None)
-        elif hasattr(properties_obj, 'get'):
+        elif hasattr(properties_obj, "get"):
             # For dict-like objects
             metadata_dict[metadata_field] = properties_obj.get(property_name)
-        elif hasattr(properties_obj, 'getAttribute'):
+        elif hasattr(properties_obj, "getAttribute"):
             # For OpenDocument meta objects
             metadata_dict[metadata_field] = properties_obj.getAttribute(property_name)
 
@@ -125,10 +124,10 @@ def extract_keywords(properties_obj, metadata_dict: dict, keyword_field: str) ->
 
     if hasattr(properties_obj, keyword_field):
         keywords = getattr(properties_obj, keyword_field, None)
-    elif hasattr(properties_obj, 'get'):
+    elif hasattr(properties_obj, "get"):
         # For dict-like objects
         keywords = properties_obj.get(keyword_field)
-    elif hasattr(properties_obj, 'getAttribute'):
+    elif hasattr(properties_obj, "getAttribute"):
         # For OpenDocument meta objects
         keywords = properties_obj.getAttribute(keyword_field)
 
@@ -182,17 +181,17 @@ def infer_json_data_types(data_obj: dict) -> dict:
     for key in data_obj.keys():
         value = data_obj[key]
         if isinstance(value, bool):
-            data_types[key] = 'bool'
+            data_types[key] = "bool"
         elif isinstance(value, int):
-            data_types[key] = 'int'
+            data_types[key] = "int"
         elif isinstance(value, float):
-            data_types[key] = 'float'
+            data_types[key] = "float"
         elif isinstance(value, str):
-            data_types[key] = 'str'
+            data_types[key] = "str"
         elif isinstance(value, (list, dict)):
-            data_types[key] = 'object'
+            data_types[key] = "object"
         else:
-            data_types[key] = 'unknown'
+            data_types[key] = "unknown"
     return data_types
 
 
@@ -210,7 +209,7 @@ def detect_csv_header(first_row: list[str]) -> bool:
     """
     for cell in first_row:
         # If any cell is not numeric, assume it's a header
-        if not (cell.strip().replace('.', '').replace('-', '').isdigit()):
+        if not (cell.strip().replace(".", "").replace("-", "").isdigit()):
             return True
     return False
 
@@ -236,11 +235,7 @@ def count_text_statistics(text_elements: list[str]) -> dict:
             char_count += len(text)
             all_text.append(text)
 
-    return {
-        'word_count': word_count,
-        'char_count': char_count,
-        'all_text': all_text
-    }
+    return {"word_count": word_count, "char_count": char_count, "all_text": all_text}
 
 
 def extract_statistics(stats_obj, field_mapping: dict) -> dict:
@@ -257,7 +252,7 @@ def extract_statistics(stats_obj, field_mapping: dict) -> dict:
     """
     result = {}
 
-    if hasattr(stats_obj, 'getAttribute'):
+    if hasattr(stats_obj, "getAttribute"):
         for output_field, attr_name in field_mapping.items():
             value = stats_obj.getAttribute(attr_name)
             if value:
@@ -284,9 +279,9 @@ def parse_keywords(keywords_str: str) -> list[str]:
     if not keywords_str:
         return []
 
-    if ',' in keywords_str:
-        return [k.strip() for k in keywords_str.split(',')]
-    elif ';' in keywords_str:
-        return [k.strip() for k in keywords_str.split(';')]
+    if "," in keywords_str:
+        return [k.strip() for k in keywords_str.split(",")]
+    elif ";" in keywords_str:
+        return [k.strip() for k in keywords_str.split(";")]
     else:
         return [keywords_str.strip()]

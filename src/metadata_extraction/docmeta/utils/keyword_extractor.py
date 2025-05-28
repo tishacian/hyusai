@@ -1,8 +1,9 @@
-import re
 import logging
-from sklearn.feature_extraction.text import TfidfVectorizer
+import re
+
 import nltk
 from nltk.corpus import stopwords
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -13,14 +14,15 @@ def clean_text(text: str) -> str:
     if not text:
         return ""
     text = text.lower()
-    text = re.sub(r'\d+', '', text)  # Remove numbers
-    text = re.sub(r'\s+', ' ', text) # Normalize whitespace
+    text = re.sub(r"\d+", "", text)  # Remove numbers
+    text = re.sub(r"\s+", " ", text)  # Normalize whitespace
     # Remove punctuation but keep intra-word hyphens/apostrophes for phrases
-    text = re.sub(r'(?<!\w)[^\w\s\'\-]+(?<!\w)|(?<=\w)[^\w\s\'\-]+(?=\w)', '', text)
+    text = re.sub(r"(?<!\w)[^\w\s\'\-]+(?<!\w)|(?<=\w)[^\w\s\'\-]+(?=\w)", "", text)
     text = text.strip()
     return text
 
-def get_stopwords(language: str = 'french') -> list[str]:
+
+def get_stopwords(language: str = "french") -> list[str]:
     """
     Get stopwords.
     Assumes NLTK data (stopwords) is already downloaded.
@@ -33,11 +35,19 @@ def get_stopwords(language: str = 'french') -> list[str]:
     """
     try:
         return list(stopwords.words(language))
-    except (LookupError, OSError): # OSError for NLTK data path issues, LookupError for missing language
-        logger.warning(f"Stopwords for language '{language}' not found or NLTK data path incorrect. Please ensure NLTK stopwords are downloaded. Using empty stopwords list.")
+    except (
+        LookupError,
+        OSError,
+    ):  # OSError for NLTK data path issues, LookupError for missing language
+        logger.warning(
+            f"Stopwords for language '{language}' not found or NLTK data path incorrect. Please ensure NLTK stopwords are downloaded. Using empty stopwords list."
+        )
         return []
 
-def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'french') -> list[str] | None:
+
+def extract_keywords_tfidf(
+    text: str, max_keywords: int = 10, language: str = "french"
+) -> list[str] | None:
     """
     Extract keywords from text.
 
@@ -62,7 +72,7 @@ def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'f
     vectorizer = TfidfVectorizer(
         stop_words=stop_words,
         max_features=max_keywords,
-        ngram_range=(1, 2) # Consider unigrams and bigrams
+        ngram_range=(1, 2),  # Consider unigrams and bigrams
     )
 
     vectorizer.fit_transform([cleaned_text])

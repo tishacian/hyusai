@@ -12,10 +12,7 @@ from typing import Any
 import yaml
 
 from docmeta.core.types import create_text_metadata
-from docmeta.utils.text_processing import (
-    get_file_extension,
-    detect_encoding
-)
+from docmeta.utils.text_processing import detect_encoding, get_file_extension
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -31,7 +28,7 @@ def _extract_yaml_front_matter(content: str) -> tuple[bool, dict[str, Any] | Non
     Returns:
         tuple[bool, dict[str, Any] | None, str]: (has_front_matter, front_matter_data, clean_content)
     """
-    yaml_pattern = r'^---\s*\n(.*?)\n---\s*\n'
+    yaml_pattern = r"^---\s*\n(.*?)\n---\s*\n"
     match = re.match(yaml_pattern, content, re.DOTALL)
     clean_content = content
 
@@ -40,12 +37,14 @@ def _extract_yaml_front_matter(content: str) -> tuple[bool, dict[str, Any] | Non
             fm_str = match.group(1)
             front_matter = yaml.safe_load(fm_str)
             # Remove front matter from content for accurate text counting
-            clean_content = re.sub(yaml_pattern, '', content, flags=re.DOTALL, count=1)
+            clean_content = re.sub(yaml_pattern, "", content, flags=re.DOTALL, count=1)
             return True, front_matter, clean_content
         except yaml.YAMLError as e:
-            logger.warning(f"Invalid YAML front matter detected but could not parse: {e}")
+            logger.warning(
+                f"Invalid YAML front matter detected but could not parse: {e}"
+            )
             # Still consider it as having front matter, but data is None
-            clean_content = re.sub(yaml_pattern, '', content, flags=re.DOTALL, count=1)
+            clean_content = re.sub(yaml_pattern, "", content, flags=re.DOTALL, count=1)
             return True, None, clean_content
 
     return False, None, clean_content
@@ -63,17 +62,17 @@ def _count_text_elements(content: str) -> dict[str, int]:
     """
     lines = content.splitlines()
     line_count = len(lines)
-    paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+    paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
     paragraph_count = len(paragraphs)
     words = content.split()
     word_count = len(words)
     character_count = len(content)
 
     return {
-        'line_count': line_count,
-        'paragraph_count': paragraph_count,
-        'word_count': word_count,
-        'character_count': character_count
+        "line_count": line_count,
+        "paragraph_count": paragraph_count,
+        "word_count": word_count,
+        "character_count": character_count,
     }
 
 
@@ -84,12 +83,12 @@ def _base_text_extraction(path: str) -> tuple[dict[str, Any], str | None]:
     metadata = create_text_metadata()
     encoding = detect_encoding(path)
     metadata["encoding"] = encoding
-    
+
     content = None
 
-    with open(path, 'r', encoding=encoding, errors='replace') as f:
+    with open(path, "r", encoding=encoding, errors="replace") as f:
         content = f.read()
-    
+
     return metadata, content, content
 
 
@@ -117,7 +116,7 @@ def _extract_with_markdown(path: str) -> tuple[dict[str, Any], str | None]:
         metadata.update(counts)
     # Return raw text for factory, so it can decide on token/keyword from full content or post-FM
     # For now, returning text. This could be content if preferred.
-    return metadata, text 
+    return metadata, text
 
 
 def _extract_with_rst(path: str) -> tuple[dict[str, Any], str | None]:
@@ -155,15 +154,17 @@ def extract_text_metadata(path: str) -> tuple[dict[str, Any], str | None]:
     # File existence validation is handled by the factory
     extension = get_file_extension(path)
 
-    if extension == '.txt':
+    if extension == ".txt":
         return _extract_with_txt(path)
-    elif extension == '.md':
+    elif extension == ".md":
         return _extract_with_markdown(path)
-    elif extension == '.rst':
+    elif extension == ".rst":
         return _extract_with_rst(path)
-    elif extension == '.log':
+    elif extension == ".log":
         return _extract_with_log(path)
     else:
         # Fallback for other unknown text-like types, treat as plain text
-        logger.warning(f"Unsupported text file type for explicit extraction: {path}, using TXT extractor.")
+        logger.warning(
+            f"Unsupported text file type for explicit extraction: {path}, using TXT extractor."
+        )
         return _extract_with_txt(path)

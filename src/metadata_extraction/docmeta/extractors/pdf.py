@@ -8,12 +8,14 @@ Includes token counting using tiktoken for LLM context estimation.
 import logging
 from typing import Any
 
+import fitz  # PyMuPDF
 # Import required libraries
 from PyPDF2 import PdfReader
-import fitz  # PyMuPDF
 
-from docmeta.core.types import create_pdf_metadata # create_pdf_metadata returns dict[str, Any]
-from docmeta.utils.text_processing import parse_keywords # Keep for embedded keywords
+from docmeta.core.types import \
+    create_pdf_metadata  # create_pdf_metadata returns dict[str, Any]
+from docmeta.utils.text_processing import \
+    parse_keywords  # Keep for embedded keywords
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -80,13 +82,13 @@ def _extract_with_pymupdf(path: str) -> tuple[dict[str, Any], str | None]:
             metadata["page_height"] = rect.height
 
         doc_meta = doc.metadata
-        metadata["author"] = doc_meta.get('author')
-        metadata["creator"] = doc_meta.get('creator')
-        metadata["producer"] = doc_meta.get('producer')
-        metadata["subject"] = doc_meta.get('subject')
-        metadata["title"] = doc_meta.get('title')
+        metadata["author"] = doc_meta.get("author")
+        metadata["creator"] = doc_meta.get("creator")
+        metadata["producer"] = doc_meta.get("producer")
+        metadata["subject"] = doc_meta.get("subject")
+        metadata["title"] = doc_meta.get("title")
 
-        keywords = doc_meta.get('keywords')
+        keywords = doc_meta.get("keywords")
         if keywords and isinstance(keywords, str):
             metadata["embedded_keywords"] = parse_keywords(keywords)
 
@@ -107,7 +109,7 @@ def _extract_with_pypdf2_fallback(path: str) -> tuple[dict[str, Any], str | None
     """
     metadata = create_pdf_metadata()
 
-    with open(path, 'rb') as file:
+    with open(path, "rb") as file:
         reader = PdfReader(file)
 
         metadata["num_pages"] = len(reader.pages)
@@ -115,19 +117,19 @@ def _extract_with_pypdf2_fallback(path: str) -> tuple[dict[str, Any], str | None
 
         if reader.pages:
             page = reader.pages[0]
-            if hasattr(page, 'mediabox'):
+            if hasattr(page, "mediabox"):
                 metadata["page_width"] = float(page.mediabox.width)
                 metadata["page_height"] = float(page.mediabox.height)
 
         if reader.metadata:
             reader_meta = reader.metadata
-            metadata["author"] = reader_meta.get('/Author')
-            metadata["creator"] = reader_meta.get('/Creator')
-            metadata["producer"] = reader_meta.get('/Producer')
-            metadata["subject"] = reader_meta.get('/Subject')
-            metadata["title"] = reader_meta.get('/Title')
-            
-            keywords = reader_meta.get('/Keywords')
+            metadata["author"] = reader_meta.get("/Author")
+            metadata["creator"] = reader_meta.get("/Creator")
+            metadata["producer"] = reader_meta.get("/Producer")
+            metadata["subject"] = reader_meta.get("/Subject")
+            metadata["title"] = reader_meta.get("/Title")
+
+            keywords = reader_meta.get("/Keywords")
             if keywords and isinstance(keywords, str):
                 metadata["embedded_keywords"] = parse_keywords(keywords)
 
@@ -149,8 +151,13 @@ def extract_pdf_metadata(path: str) -> tuple[dict[str, Any], str | None]:
     """
     try:
         metadata, text_content = _extract_with_pymupdf(path)
-    except (fitz.FileDataError, fitz.FileNotFoundError, fitz.EmptyFileError, Exception) as e: # Broaden for other fitz issues
+    except (
+        fitz.FileDataError,
+        fitz.FileNotFoundError,
+        fitz.EmptyFileError,
+        Exception,
+    ) as e:  # Broaden for other fitz issues
         logger.warning(f"PyMuPDF failed for {path}, falling back to PyPDF2: {e}")
         metadata, text_content = _extract_with_pypdf2_fallback(path)
-    
+
     return metadata, text_content
