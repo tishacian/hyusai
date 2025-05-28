@@ -4,7 +4,7 @@ from docmeta.utils.token_counter import count_tokens
 # Keyword extraction utilities
 from docmeta.utils.keyword_extractor import (
     extract_keywords_tfidf,
-    clean_text_for_tfidf,
+    clean_text,
     get_stopwords,
 )
 
@@ -25,12 +25,12 @@ from docmeta.utils.text_processing import (
     analyze_dict_structure,
     get_file_extension,
     extract_common_metadata_fields,
-    extract_and_parse_keywords,
-    initialize_metadata_with_encoding,
+    extract_keywords,
+    initialize_metadata,
     infer_json_data_types,
     detect_csv_header,
     count_text_statistics,
-    extract_statistics_from_meta
+    extract_statistics
 )
 
 __all__ = [
@@ -39,7 +39,7 @@ __all__ = [
 
     # Keyword extraction
     "extract_keywords_tfidf",
-    "clean_text_for_tfidf",
+    "clean_text",
     "get_stopwords",
 
     # Text processing
@@ -50,12 +50,12 @@ __all__ = [
     "analyze_dict_structure",
     "get_file_extension",
     "extract_common_metadata_fields",
-    "extract_and_parse_keywords",
-    "initialize_metadata_with_encoding",
+    "extract_keywords",
+    "initialize_metadata",
     "infer_json_data_types",
     "detect_csv_header",
     "count_text_statistics",
-    "extract_statistics_from_meta",
+    "extract_statistics",
 
     # Serialization
     "DateTimeEncoder",

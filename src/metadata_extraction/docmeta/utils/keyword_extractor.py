@@ -1,10 +1,14 @@
 import re
+import logging
 from sklearn.feature_extraction.text import TfidfVectorizer
 import nltk
 from nltk.corpus import stopwords
 
+# Configure logger
+logger = logging.getLogger(__name__)
 
-def clean_text_for_tfidf(text: str) -> str:
+
+def clean_text(text: str) -> str:
     """Basic text cleaning for TF-IDF."""
     if not text:
         return ""
@@ -30,7 +34,7 @@ def get_stopwords(language: str = 'french') -> list[str]:
     try:
         return list(stopwords.words(language))
     except (LookupError, OSError): # OSError for NLTK data path issues, LookupError for missing language
-        print(f"Stopwords for language '{language}' not found or NLTK data path incorrect. Please ensure NLTK stopwords are downloaded. Using empty stopwords list.")
+        logger.warning(f"Stopwords for language '{language}' not found or NLTK data path incorrect. Please ensure NLTK stopwords are downloaded. Using empty stopwords list.")
         return []
 
 def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'french') -> list[str] | None:
@@ -48,7 +52,7 @@ def extract_keywords_tfidf(text: str, max_keywords: int = 10, language: str = 'f
     if not text or not text.strip():
         return None
 
-    cleaned_text = clean_text_for_tfidf(text)
+    cleaned_text = clean_text(text)
     if not cleaned_text:
         return None
 

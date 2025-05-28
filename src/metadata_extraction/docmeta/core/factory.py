@@ -7,7 +7,7 @@ based on file type.
 
 import os
 import mimetypes
-from typing import Any
+from typing import Any, cast
 
 from docmeta.core.types import MetadataExtractor, MetadataType, get_file_common_metadata, FileMetaData
 from docmeta.utils.text_processing import validate_file_exists
@@ -76,23 +76,23 @@ def extract_metadata(path: str, count_tokens_flag: bool = False, extract_keyword
     """
     validate_file_exists(path)
     common_metadata: FileMetaData = get_file_common_metadata(path)
-    specific_metadata_dict: dict[str, Any] = {}
+    metadata: dict[str, Any] = {}
     text_content: str | None = None
 
     extractor_func = get_extractor(path)
 
     if extractor_func:
-        specific_metadata_dict, text_content = extractor_func(path)
+        metadata, text_content = extractor_func(path)
 
-    merged_metadata: dict[str, Any] = {**specific_metadata_dict, **common_metadata}
+    result: dict[str, Any] = {**metadata, **common_metadata}
 
     if text_content and text_content.strip():
         if count_tokens_flag:
-            merged_metadata["token_count"] = count_tokens(text_content)
+            result["token_count"] = count_tokens(text_content)
 
         if extract_keywords_language:
-            extracted_keywords = extract_keywords_tfidf(text_content, language=extract_keywords_language)
-            if extracted_keywords:
-                merged_metadata["extracted_keywords"] = extracted_keywords
+            keywords = extract_keywords_tfidf(text_content, language=extract_keywords_language)
+            if keywords:
+                result["extracted_keywords"] = keywords
 
-    return merged_metadata
+    return cast(MetadataType, result) 

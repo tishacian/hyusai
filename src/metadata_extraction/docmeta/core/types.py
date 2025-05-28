@@ -164,7 +164,7 @@ def get_file_common_metadata(path: str) -> FileMetaData:
 
     metadata["creation_time"] = datetime.fromtimestamp(creation_time_in_s)
 
-    return metadata # type: ignore
+    return metadata
 
 
 # Factory functions for creating metadata with default values

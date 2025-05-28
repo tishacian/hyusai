@@ -50,9 +50,9 @@ def analyze_list_structure(data: list) -> dict:
 
     # If list of objects, analyze first object for schema
     if data and isinstance(data[0], dict):
-        first_object = data[0]
-        result["columns"] = list(first_object.keys())
-        result["column_count"] = len(first_object.keys())
+        obj = data[0]
+        result["columns"] = list(obj.keys())
+        result["column_count"] = len(obj.keys())
 
     return result
 
@@ -112,7 +112,7 @@ def extract_common_metadata_fields(properties_obj, metadata_dict: dict, field_ma
             metadata_dict[metadata_field] = properties_obj.getAttribute(property_name)
 
 
-def extract_and_parse_keywords(properties_obj, metadata_dict: dict, keyword_field: str) -> None:
+def extract_keywords(properties_obj, metadata_dict: dict, keyword_field: str) -> None:
     """
     Extract and parse keywords.
 
@@ -136,7 +136,7 @@ def extract_and_parse_keywords(properties_obj, metadata_dict: dict, keyword_fiel
         metadata_dict["embedded_keywords"] = parse_keywords(keywords)
 
 
-def initialize_metadata_with_encoding(path: str, create_metadata_func, schema_type: str = None):
+def initialize_metadata(path: str, create_metadata_func, schema_type: str = None):
     """
     Initialize metadata with common file properties and encoding.
 
@@ -243,7 +243,7 @@ def count_text_statistics(text_elements: list[str]) -> dict:
     }
 
 
-def extract_statistics_from_meta(stats_obj, field_mapping: dict) -> dict:
+def extract_statistics(stats_obj, field_mapping: dict) -> dict:
     """
     Extract statistics from a metadata statistics object.
 
