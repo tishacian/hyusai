@@ -16,13 +16,6 @@ A flexible microservice for extracting metadata from various document types, des
 - Command-line interface for batch processing and integration
 - JSON serialization for easy integration with other systems
 
-## Installation
-
-```bash
-# Install from the current directory
-pip install -r requirments.txt
-
-```
 
 ## Usage
 
@@ -35,32 +28,39 @@ from docmeta.core import extract_metadata
 metadata = extract_metadata("path/to/file.pdf")
 
 # Extract metadata with token counting for LLMs
-metadata = extract_metadata("path/to/file.pdf", count_tokens=True)
+metadata = extract_metadata("path/to/file.pdf", count_tokens_flag=True)
 
-# Extract metadata with keywords using TF-IDF
-metadata = extract_metadata("path/to/file.pdf", extract_keywords=True)
+# Extract metadata with keywords using TF-IDF (specify language)
+metadata = extract_metadata("path/to/file.pdf", extract_keywords_language="french")
 
 # Extract with both token counting and keywords
-metadata = extract_metadata("path/to/file.pdf", count_tokens=True, extract_keywords=True)
+metadata = extract_metadata("path/to/file.pdf", count_tokens_flag=True, extract_keywords_language="english")
 ```
 
 ### Command-line Interface
 
 ```bash
 # Extract metadata from all PDFs in a directory
-python run_pdf_extraction.py --data-dir my_documents --output-dir metadata_output
+python manually_test_pdf.py --data-dir my_documents --output-dir metadata_output
 
 # Count tokens in PDFs (useful for RAG systems)
-python run_pdf_extraction.py --count-tokens
+python manually_test_pdf.py --count-tokens
 
-# Extract keywords using TF-IDF
-python run_pdf_extraction.py --extract-keywords
+# Extract keywords using TF-IDF (specify language, e.g., english, french)
+python manually_test_pdf.py --extract-keywords [language]
 
 # Use both token counting and keyword extraction
-python run_pdf_extraction.py --count-tokens --extract-keywords
+python manually_test_pdf.py --count-tokens --extract-keywords [language]
 ```
 
 ## Supported File Types
+- PDF (`.pdf`)
+- Images (`.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.tiff`, `.webp`)
+- Microsoft Office (`.docx`, `.xlsx`, `.pptx`)
+- OpenDocument (`.odt`, `.ods`, `.odp`)
+- Text files (`.txt`, `.md`, `.rst`, `.log`)
+- Markup files (`.html`, `.htm`, `.xml`, `.xhtml`)
+- Structured Data files (`.csv`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`)
 
 ### Common Metadata (All File Types)
 
@@ -74,21 +74,14 @@ python run_pdf_extraction.py --count-tokens --extract-keywords
 - Last modified time
 - Last accessed time
 - Extracted keywords (when requested)
-
-### PDF Metadata
-
-- Author
-- Creator
-- Producer
 - Subject
 - Title
 - Number of pages
 - Keywords (embedded in PDF)
 - Extracted keywords (TF-IDF, when requested)
-- Token count (for LLM context estimation)
+- Token count (for LLM context estimation, when requested)
 - Encryption status
-- Page size
-- Processing time (when timing is enabled)
+- Page size (width and height)
 
 ### Image Metadata
 
@@ -96,24 +89,79 @@ python run_pdf_extraction.py --count-tokens --extract-keywords
 - Height
 - Color mode
 - Bit depth
-- DPI
+- DPI (horizontal and vertical)
 - EXIF data
 
-### Document Metadata
+### Microsoft Office Document Metadata (.docx, .xlsx, .pptx)
 
 - Author
 - Title
 - Subject
-- Keywords
-- Created date
-- Modified date
+- Embedded keywords
+- Last modified by
+- Number of pages (for .docx, .pptx) or Sheets (for .xlsx)
+- Number of slides (for .pptx)
+- Word count
+- Character count
+- Paragraph count (primarily for .docx)
+- Application (e.g., "Microsoft Word", "Microsoft Excel")
+- Application version
+- Extracted keywords (TF-IDF, when requested)
+- Token count (for LLM context estimation, when requested)
+
+### OpenDocument Metadata (.odt, .ods, .odp)
+
+- Author
+- Title
+- Subject
+- Embedded keywords
 - Last modified by
 - Number of pages
 - Word count
 - Character count
 - Paragraph count
-- Line count
+- Generator (Application that created the document)
+- Language
 - Extracted keywords (TF-IDF, when requested)
+- Token count (for LLM context estimation, when requested)
+
+### Text File Metadata (.txt, .md, .rst, .log)
+
+- Encoding
+- Word count
+- Character count
+- Line count
+- Paragraph count
+- Language (Detected, if available)
+- Has front matter (for .md files with YAML front matter)
+- Extracted keywords (TF-IDF, when requested)
+- Token count (for LLM context estimation, when requested)
+
+### Markup File Metadata (.html, .htm, .xml, .xhtml)
+
+- Title (e.g., from `<title>` tag or root XML tag)
+- Encoding
+- Doctype (for HTML)
+- Meta description (for HTML)
+- Meta keywords (for HTML)
+- Language (e.g., from `lang` attribute)
+- Element count
+- Link count (HTML specific)
+- Image count (HTML specific)
+- Extracted keywords (TF-IDF, when requested)
+- Token count (for LLM context estimation, when requested)
+
+### Structured Data File Metadata (.csv, .json, .yaml, .toml, .ini)
+
+- Encoding
+- Schema type (e.g., "CSV", "JSON", "YAML", "TOML", "INI")
+- Record count (e.g., rows for CSV, top-level items for JSON list, sections for INI)
+- Column count (e.g., CSV specific, or number of keys in top-level JSON object)
+- Columns (e.g., CSV column names, or keys in top-level JSON object)
+- Data types (Inferred column/field data types)
+- Has header (CSV specific)
+- Extracted keywords (TF-IDF, when requested, if text content is meaningful for keyword extraction)
+- Token count (for LLM context estimation, when requested, if text content is meaningful)
 
 ## Architecture
 
@@ -126,11 +174,15 @@ The package uses a factory pattern for extensibility:
 
 ## Dependencies
 
-- **Core**: typing-extensions
-- **PDF Processing**: PyPDF2, PyMuPDF, tiktoken (for token counting)
-- **Image Processing**: Pillow
-- **Document Processing**: python-docx, odfpy
-- **Keyword Extraction**: scikit-learn (for TF-IDF)
+- **Core**: `typing-extensions`
+- **PDF Processing**: `PyPDF2`, `PyMuPDF` (fitz), `tiktoken`
+- **Image Processing**: `Pillow`
+- **Microsoft Office Document Processing**: `python-docx`, `openpyxl`, `python-pptx`
+- **OpenDocument Processing**: `odfpy`
+- **Markup Processing**: `beautifulsoup4`
+- **Structured Data Processing**: `PyYAML`, `tomli`
+- **Keyword Extraction**: `scikit-learn`, `nltk`
+- **Text Processing Utilities**: `chardet`
 
 ## Future Enhancements
 
