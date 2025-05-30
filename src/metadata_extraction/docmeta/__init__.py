@@ -8,21 +8,12 @@ extraction for supported file types like PDFs, images, and documents.
 
 __version__ = "0.1.0"
 
-# Import main functionality for easy access
-from docmeta.core import (
-    extract_metadata,
-    FileMetaData,
-    PDFMetaData,
-    ImageMetaData,
-    OfficeMetaData,
-    OpenDocumentMetaData,
-    TextMetaData,
-    MarkupMetaData,
-    StructuredDataMetaData,
-)
-
 # Import extractors to trigger registration
 import docmeta.extractors
+from docmeta.core import (FileMetaData, ImageMetaData, MarkupMetaData,
+                          OfficeMetaData, OpenDocumentMetaData, PDFMetaData,
+                          StructuredDataMetaData, TextMetaData,
+                          extract_metadata)
 
 __all__ = [
     "extract_metadata",
