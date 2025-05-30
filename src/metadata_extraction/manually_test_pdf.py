@@ -63,14 +63,6 @@ def extract_and_save_metadata(
         save_json(metadata, output_file)
         print(f"Extracted metadata from {file_name} and saved to {output_file}")
 
-    # Summarize keyword extraction
-    files_with_keywords = sum(
-        1 for m in all_metadata.values() if m.get("extracted_keywords")
-    )
-    if files_with_keywords > 0:
-        print(
-            f"\nKeywords extracted for: {files_with_keywords} file(s) using language: {extract_keywords_language}"
-        )
 
     return all_metadata
 
