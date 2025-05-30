@@ -38,3 +38,7 @@ src/models
 
 # Data
 data/multilingual_stopwords.pkl
+.trash
+pdfs/
+*.mdc
+*.zip
