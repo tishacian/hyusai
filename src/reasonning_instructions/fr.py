@@ -73,3 +73,11 @@ REASONING_INSTRUCTIONS = {
                                                 
                                                 Explore ce scénario en t'appuyant sur le contexte : [/INST]""",
 }
+
+ANALYSIS_STEPS_TO_REMOVE = r"Étapes d'analyse\s*:.*?Contexte\s*:"
+CONTEXT_QUESTION_TO_REMOVE = r"Contexte\s*:.*?Question\s*:"
+PROMPT_PHRASES_TO_REMOVE = [
+    r"Fournis .*? en t'appuyant sur le contexte :",
+    r"Explique .*? en t'appuyant sur le contexte :",
+    r"Explore .*? en t'appuyant sur le contexte :",
+]

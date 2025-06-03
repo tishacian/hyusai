@@ -44,7 +44,7 @@ from globalvariables import (
 # -- Model evaluation
 from metrics import Evaluatrix
 from reasoningmetrics import ReasoningMetrics
-from utils import get_max_model_len, measure_time, measure_time_sync
+from utils import format_llm_response, get_max_model_len, measure_time, measure_time_sync
 
 # --
 logging.basicConfig(
@@ -525,45 +525,6 @@ class CustomLLMChain:
             ]
 
         return torch.cat(device_chunks, dim=1)
-
-    def _format_llm_response(self, text):
-        """Format LLM response while preserving tables and structured data.
-            Only removes template artifacts and prompt phrases.
-
-        Parameters:
-            text (str): Raw response from the LLM
-
-        Returns:
-            str: Cleaned text with preserved formatting
-        """
-        try:
-            text = re.sub(
-                r"\[INST\].*?\[/INST\]", "", text, flags=re.DOTALL
-            ).strip()
-            text = re.sub(
-                r"Analysis Steps:.*?Context:", "", text, flags=re.DOTALL
-            ).strip()
-            text = re.sub(
-                r"Context:.*?Question:", "", text, flags=re.DOTALL
-            ).strip()
-
-            # -- remove standard prompt phrases
-            phrases_to_remove = [
-                r"Provide .*? based on the context:",
-                r"Explain .*? based on the context:",
-                r"Explore .*? based on the context:",
-                r"Compare .*? based on the context:",
-            ]
-            for phrase in phrases_to_remove:
-                text = re.sub(phrase, "", text, flags=re.IGNORECASE).strip()
-
-            return text
-
-        except Exception as e:
-            logging.error(
-                f"🚩 An error occurred during text formatting: {str(e)}"
-            )
-            return "No sufficient context to respond to the question."
 
     def _calculate_frequency_penalty(self, input_length: int) -> float:
         """Calculate appropriate frequency penalty based on input length.
@@ -1243,7 +1204,7 @@ class CustomLLMChain:
             result_text = await self.custom_llm_chain(
                 combined_context, question
             )
-            answer = self._format_llm_response(result_text)
+            answer = format_llm_response(result_text)
             self.conversation_memory.add_message("assistant", answer)
             generation_time = time.time() - generation_start
             logging.info(

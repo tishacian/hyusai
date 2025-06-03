@@ -11,6 +11,8 @@ from langchain_community.vectorstores import Chroma
 import warnings
 import asyncio
 
+from src.utils import format_llm_response
+
 if torch.cuda.is_available():
     from vllm import SamplingParams
 from functools import lru_cache
@@ -335,39 +337,6 @@ class CustomLLMChain:
             ]
 
         return torch.cat(device_chunks, dim=1)
-
-    def _format_llm_response(self, text):
-        """format LLM response
-
-        Parameters:
-            text (str): input string
-
-        Returns:
-            str: formatted text
-        """
-        try:
-            text = re.sub(
-                r"\[INST\].*?\[/INST\]", "", text, flags=re.DOTALL
-            ).strip()
-            text = re.sub(
-                r"Your task is to answer the following question based on the given context:",
-                "",
-                text,
-                flags=re.DOTALL,
-            ).strip()
-            text = re.sub(
-                r"^(Question:|Answer:)\s*", "", text, flags=re.MULTILINE
-            ).strip()
-            text = re.split(r"\n\s*(?:Question:|Answer:)", text)[0].strip()
-            text = re.sub(
-                r"objectivity, and emotional resonance\.", "", text
-            ).strip()
-            return text
-        except Exception as e:
-            logging.error(
-                f"🚩 An error occurred during text formatting: {str(e)}"
-            )
-            return "No sufficient context to respond to the question."
 
     def _calculate_frequency_penalty(self, input_length: int) -> float:
         """Calculate appropriate frequency penalty based on input length.
@@ -701,7 +670,7 @@ class CustomLLMChain:
         )
         combined_context = "\n\n".join(relevant_contexts)
         result_text = await self.custom_llm_chain(combined_context, question)
-        answer = self._format_llm_response(result_text)
+        answer = format_llm_response(result_text)
         eval_metrics = await Evaluatrix(
             answer,
             combined_context,
