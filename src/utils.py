@@ -26,7 +26,7 @@ from src.globalvariables import (
     CPU_MODEL_SET,
     LARGE_MODELS,
 )
-from src.reasonning_instructions import ALL_DOTALL_PROMPT_PHRASES_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG
+from src.reasoning_instructions import ALL_DOTALL_PROMPT_PHRASES_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
 if os.path.isdir(user_tessdata) and any(

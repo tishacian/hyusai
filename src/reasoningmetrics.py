@@ -11,7 +11,7 @@ import sys
 import logging
 import numpy as np
 from src.globalvariables import ReasoningType
-from src.reasonning_instructions import ALL_REASONING_PATTERNS
+from src.reasoning_instructions import ALL_REASONING_PATTERNS
 
 # --
 logging.basicConfig(
