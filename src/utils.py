@@ -26,7 +26,7 @@ from src.globalvariables import (
     CPU_MODEL_SET,
     LARGE_MODELS,
 )
-from src.reasonning_instructions import ALL_ANALYSIS_STEPS_TO_REMOVE, ALL_CONTEXT_QUESTION_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG
+from src.reasonning_instructions import ALL_DOTALL_PROMPT_PHRASES_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
 if os.path.isdir(user_tessdata) and any(
@@ -357,16 +357,15 @@ def format_llm_response(response: str, language: Literal["en", "fr"] = DEFAULT_I
         Cleaned response with preserved formatting
     """
     instruction_block = r"\[INST\].*?\[/INST\]"
-    analysis_steps = ALL_ANALYSIS_STEPS_TO_REMOVE[language]
-    context_question = ALL_CONTEXT_QUESTION_TO_REMOVE[language]
+    dotall_prompt_phrases = ALL_DOTALL_PROMPT_PHRASES_TO_REMOVE[language]
     prompt_phrases = ALL_PROMPT_PHRASES_TO_REMOVE[language]
     try:
         response = re.sub(instruction_block, "", response, flags=re.DOTALL).strip()
-        response = re.sub(analysis_steps, "", response, flags=re.DOTALL).strip()
-        response = re.sub(context_question, "", response, flags=re.DOTALL).strip()
         # remove standard prompt phrases
+        for phrase in dotall_prompt_phrases:
+            response = re.sub(phrase, "", response, flags=re.IGNORECASE | re.DOTALL).strip()
         for phrase in prompt_phrases:
-            response = re.sub(phrase, "", response, flags=re.IGNORECASE).strip()
+            response = re.sub(phrase, "", response, flags=re.MULTILINE).strip()
         return response
     except Exception as e:
         logging.error(f"🚩 An error occurred during response formatting: {str(e)}")

@@ -31,9 +31,9 @@ REASONING_INSTRUCTIONS = {
                                                 6. Synthétiser des renseignements pertinents à la situation de l'utilisateur
                                                 7. Tirer des conclusions basées sur des preuves vérifiées
                                                                                                
-                                                Context: {context}
+                                                Contexte : {context}
                                                                                                
-                                                Question: {question}
+                                                Question : {question}
                                                                                                
                                                 Fournis une analyse approfondie qui combine précision factuelle et renseignements analytiques en t'appuyant sur le contexte : [/INST]""",
     ReasoningType.COMPARATIVE: """[INST] Tu es un assistant IA spécialisé dans l'analyse comparative.
@@ -43,9 +43,9 @@ REASONING_INSTRUCTIONS = {
                                                 3. Évaluer les forces/faiblesses comparativement
                                                 4. Tirer des conclusions nuancées
                                                 
-                                                Context: {context}
+                                                Contexte : {context}
                                                 
-                                                Question: {question}
+                                                Question : {question}
                                                 
                                                 Fournis une analyse comparative en t'appuyant sur le contexte : [/INST]""",
     ReasoningType.CAUSAL: """[INST] Tu es un assistant IA spécialisé dans l'analyse causale.
@@ -84,14 +84,18 @@ NAIVE_INSTRUCTION = """[INST] Tu es un assistant IA spécialisé dans la fournit
                                                 
                                                 Réponse : [/INST]"""
 
-ANALYSIS_STEPS_TO_REMOVE = r"Étapes d'analyse\s*:.*?Contexte\s*:"
-CONTEXT_QUESTION_TO_REMOVE = r"Contexte\s*:.*?Question\s*:"
+DOTALL_PROMPT_PHRASES_TO_REMOVE = [
+    r"Étapes d'analyse\s*:((.|\n)*?)(?=Contexte?\s*\d*\s*:)",
+    r"Contexte?\s*\d*\s*:((.|\n)*?)(?=Question\s*:)",
+]
 PROMPT_PHRASES_TO_REMOVE = [
-    r"Fournis .*? en t'appuyant sur le contexte :",
-    r"Explique .*? en t'appuyant sur le contexte :",
-    r"Explore .*? en t'appuyant sur le contexte :",
+    r"Tu es un assistant IA spécialisé dans .*",
     r"Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.",
     r"Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle qui leur sont propres.",
     r"Ta tâche consiste à répondre à la question suivante en te basant sur le contexte donné.",
-    r"Réponse : ",
+    r"Question\s*:.*",
+    r"Fournis .*? en t'appuyant sur le contexte :",
+    r"Explique .*? en t'appuyant sur le contexte :",
+    r"Explore .*? en t'appuyant sur le contexte :",
+    r"Réponse\s*:\s*",
 ]
