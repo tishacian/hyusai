@@ -10,7 +10,6 @@ import re
 import sys
 import logging
 import numpy as np
-from configuration import get_backend_config
 from globalvariables import ReasoningType
 from src.reasonning_instructions import ALL_REASONING_PATTERNS
 
@@ -23,16 +22,17 @@ logging.basicConfig(
 
 
 class ReasoningMetrics:
-    def __init__(self, embedding_model):
+    def __init__(self, embedding_model, instruction_lang):
         """
         Parameters
             embedding_model (model): embedding model
+            instruction_lang (Literal["en", "fr"]): language of the LLM instruction
 
         Returns
             None.
         """
         self.embedding_model = embedding_model
-        self.raw_reasoning_patterns = ALL_REASONING_PATTERNS[get_backend_config().language]
+        self.raw_reasoning_patterns = ALL_REASONING_PATTERNS[instruction_lang]
         self.reasoning_patterns = self._precompile_patterns(self.raw_reasoning_patterns)
         self.reasoning_weights = {
             ReasoningType.FACTUAL: 1.4,
@@ -428,7 +428,7 @@ class ReasoningMetrics:
                 combined_hash, type_hash
             )
             matches = pattern_matches.get(rtype, [])
-            total_patterns = len(ReasoningPatterns[rtype])
+            total_patterns = len(self.raw_reasoning_patterns[rtype])
             coverage = (
                 len(matches) / total_patterns if total_patterns > 0 else 0
             )

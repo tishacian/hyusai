@@ -1,5 +1,4 @@
 import torch
-import re
 import os
 import faiss
 import pickle
@@ -11,6 +10,7 @@ from langchain_community.vectorstores import Chroma
 import warnings
 import asyncio
 
+from src.reasonning_instructions import ALL_NAIVE_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
 from src.utils import format_llm_response
 
 if torch.cuda.is_available():
@@ -54,6 +54,7 @@ class CustomLLMChain:
         vector_store_name,
         embedding_model_name=EMBEDDING_NAME,
         index_type=IndexType.FAISS,
+        instruction_lang=DEFAULT_INSTRUCTION_LANG,
     ):
         """Custom LLMChain
 
@@ -63,6 +64,8 @@ class CustomLLMChain:
             model (model) : llm model
             embedding_model_name (str), optional : embedding model name. The default is "sentence-transformers/all-mpnet-base-v2".
             index_type (str), optional : index type. The default is "faiss".
+            instruction_lang : Literal["en", "fr"], optional
+                Language of the LLM instruction, by default DEFAULT_INSTRUCTION_LANG
 
         Raises
         ------
@@ -90,6 +93,7 @@ class CustomLLMChain:
             )
 
         self.index_type = index_type
+        self.instruction_lang = instruction_lang
         self.embedding_model_name = embedding_model_name
         # --initialize embedding model
         try:
@@ -125,17 +129,7 @@ class CustomLLMChain:
         self.load_index()
 
         # -- CoT Template
-        self.template = """[INST] You are an AI assistant specialized in providing precise and detailed information. Focus on important information that directly addresses the main topic or question.
-                            Include relevant details that provide context or support your points.
-                            Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, 
-                            objectivity, and emotional resonance.
-                            
-                            Your task is to answer the following question based on the given context:
-                            {context}
-                            
-                            Question: {question}
-                            
-                            Answer: [/INST]"""
+        self.template = ALL_NAIVE_INSTRUCTIONS[self.instruction_lang]
 
     def load_index(self):
         # -- load BM25 retriever first
@@ -670,7 +664,7 @@ class CustomLLMChain:
         )
         combined_context = "\n\n".join(relevant_contexts)
         result_text = await self.custom_llm_chain(combined_context, question)
-        answer = format_llm_response(result_text)
+        answer = format_llm_response(result_text, self.instruction_lang)
         eval_metrics = await Evaluatrix(
             answer,
             combined_context,

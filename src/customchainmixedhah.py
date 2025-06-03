@@ -21,8 +21,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 import logging
 import sys
 
-from configuration import get_general_config
-from src.reasonning_instructions import ALL_REASONING_INSTRUCTIONS
+from src.reasonning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
 from cache import TieredCache
 from chunker import BM25Retriever, cache_chunker_embedding_chain
 from contextcompressor import ContextualCompressionRetriever, ContextualConfig
@@ -74,6 +73,7 @@ class CustomLLMChain:
         index_type=IndexType.FAISS,
         cache_size=1000,
         dynamic_k=True,
+        instruction_lang=DEFAULT_INSTRUCTION_LANG,
     ):
         """Initialize CustomLLMChain with advanced retrieval capabilities
 
@@ -95,6 +95,8 @@ class CustomLLMChain:
             Size of cache, by default 1000
         dynamic_k : bool, optional
             Whether to use dynamic k computation, by default True
+        instruction_lang : Literal["en", "fr"], optional
+            Language of the LLM instruction, by default DEFAULT_INSTRUCTION_LANG
         """
         start_time = time.time()
 
@@ -117,6 +119,7 @@ class CustomLLMChain:
             )
 
         self.index_type = index_type
+        self.instruction_lang = instruction_lang
         self.stopwords = load_stopwords(DATA_PATH)
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
@@ -144,13 +147,15 @@ class CustomLLMChain:
             logging.error(f"Error loading embedding model: {e}")
             raise
 
-        self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+        self.reasoning_metrics = ReasoningMetrics(
+            self.embedding_model, self.instruction_lang
+        )
 
         self._initialize_retrievers()
         self._initialize_reranker()
         self._initialize_contextual_retriever()
 
-        self.templates = ALL_REASONING_INSTRUCTIONS[get_general_config().language]
+        self.templates = ALL_REASONING_INSTRUCTIONS[self.instruction_lang]
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count())
 
         self.perf_stats = {
@@ -1335,7 +1340,9 @@ class CustomLLMChain:
         try:
             reasoning_detect_start = time.time()
             if not hasattr(self, "reasoning_metrics"):
-                self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+                self.reasoning_metrics = ReasoningMetrics(
+                    self.embedding_model, self.instruction_lang
+                )
 
             reasoning_type, confidence = await self.detect_reasoning_type(
                 question
@@ -1514,7 +1521,7 @@ class CustomLLMChain:
             result_text = await self.custom_llm_chain(
                 combined_context, question
             )
-            answer = format_llm_response(result_text)
+            answer = format_llm_response(result_text, self.instruction_lang)
 
             await asyncio.to_thread(
                 self.conversation_memory.add_message, "assistant", answer

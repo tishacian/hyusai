@@ -42,6 +42,7 @@ from ragger_css import (
     SELECT_INPUT_STYLE,
     THINKING_SPINNER,
 )
+from src.reasonning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTION_LANGS
 
 
 # -- device available model
@@ -67,6 +68,7 @@ pipeline_type = PipelineType.HAHCOMPOSITE
 chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
 index_type = IndexType.FAISS
 model_name = device_default_model()
+instruction_lang = DEFAULT_INSTRUCTION_LANG
 
 HUMAN_AVATAR_PATH = get_standalone_interface_config().human_chat_logo
 AI_AVATAR_PATH = get_standalone_interface_config().ai_chat_logo
@@ -110,6 +112,7 @@ def init_db():
                 index_type TEXT,
                 vector_store TEXT,
                 pipeline_type TEXT
+                instruction_lang TEXT,
             )
         """
         )
@@ -120,6 +123,7 @@ def init_db():
             ("index_type", "TEXT"),
             ("vector_store", "TEXT"),
             ("pipeline_type", "TEXT"),
+            ("instruction_lang", "TEXT")
         ]
         for column_name, column_type in columns_to_add:
             c.execute("PRAGMA table_info(chats)")
@@ -238,6 +242,8 @@ if "model_name" not in st.session_state:
     init_cached_model(st.session_state.model_name, REPO_PATH)
 if "expand_doc_embedding" not in st.session_state:
     st.session_state.expand_doc_embedding = True
+if "instruction_lang" not in st.session_state:
+    st.session_state.instruction_lang = None
 
 
 # Function to save chat history to database
@@ -248,6 +254,7 @@ def save_chat_to_db(
     index_type,
     vector_store,
     pipeline_type,
+    instruction_lang,
 ):
     chat_data = []
     for msg in chat_history:
@@ -262,8 +269,8 @@ def save_chat_to_db(
     c.execute(
         """
         INSERT INTO chats 
-        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             chat_json,
@@ -273,6 +280,7 @@ def save_chat_to_db(
             index_type,
             vector_store,
             pipeline_type,
+            instruction_lang,
         ),
     )
     conn.commit()
@@ -282,7 +290,7 @@ def save_chat_to_db(
 def load_chat_from_db(chat_id):
     c.execute(
         """
-        SELECT chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type 
+        SELECT chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang 
         FROM chats WHERE id = ?
     """,
         (chat_id,),
@@ -301,8 +309,9 @@ def load_chat_from_db(chat_id):
             result[3],
             result[4],
             result[5],
+            result[6],
         )
-    return [], None, None, None, None, None
+    return [], None, None, None, None, None, None
 
 
 # -- delete chat
@@ -428,7 +437,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                         ),
                     )
 
-            row_be = st.columns(3)
+            row_be = st.columns(4)
             with row_be[0]:
                 vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
                 vector_store_list = [
@@ -470,6 +479,12 @@ if get_standalone_interface_config().forced_vdb == "None":
                             )
                         ),
                         help="Select the pipeline implementation to use",
+                    )
+                with row_be[3]:
+                    instruction_lang = st.selectbox(
+                        "LLM instruction language",
+                        INSTRUCTION_LANGS,
+                        help="Select the language of the LLM reasoning instructions.",
                     )
             # --
             row_buttons = st.columns(6)
@@ -568,9 +583,11 @@ if get_standalone_interface_config().forced_vdb == "None":
                     model_name,
                     existing_vector_store,
                     index_type=index_type,
+                    instruction_lang=instruction_lang,
                 )
                 st.session_state.chain = chain
                 st.session_state.pipeline_type = pipeline_type
+                st.session_state.instruction_lang = instruction_lang
 else:
     RaggerChain = (
         CHAHCustomLLMChain
@@ -588,9 +605,11 @@ else:
         model_name,
         get_standalone_interface_config().forced_vdb,
         index_type=index_type,
+        instruction_lang=instruction_lang,
     )
     st.session_state.chain = chain
     st.session_state.pipeline_type = pipeline_type
+    st.session_state.instruction_lang = instruction_lang
 
 if "model_name" not in st.session_state:
     st.session_state.model_name = device_default_model()
@@ -602,6 +621,8 @@ if "vector_store" not in st.session_state:
     st.session_state.vector_store = "<New>"
 if "pipeline_type" not in st.session_state:
     st.session_state.pipeline_type = PipelineType.HAHCOMPOSITE
+if "instruction_lang" not in st.session_state:
+    st.session_state.instruction_lang = DEFAULT_INSTRUCTION_LANG
 
 # -- New chat
 if st.sidebar.button("New Chat"):
@@ -613,6 +634,7 @@ if st.sidebar.button("New Chat"):
             st.session_state.get("index_type", ""),
             st.session_state.get("vector_store", ""),
             st.session_state.get("pipeline_type", ""),
+            st.session_state.get("instruction_lang", ""),
         )
     st.session_state.chat_history = []
     st.session_state.current_chat_id = None
@@ -638,6 +660,7 @@ for chat_id, timestamp in historical_chats:
                 index_type,
                 vector_store,
                 pipeline_type,
+                instruction_lang,
             ) = load_chat_from_db(chat_id)
 
             # Set session state variables
@@ -648,6 +671,7 @@ for chat_id, timestamp in historical_chats:
             st.session_state.index_type = index_type
             st.session_state.vector_store = vector_store
             st.session_state.pipeline_type = pipeline_type or PipelineType.HAH
+            st.session_state.instruction_lang = instruction_lang
 
             # -- select appropriate chain class based on pipeline type
             RaggerChain = (
@@ -667,6 +691,7 @@ for chat_id, timestamp in historical_chats:
                 model_name,
                 vector_store,
                 index_type=index_type,
+                instruction_lang=instruction_lang,
             )
             st.session_state.chain = chain
             st.rerun()
@@ -808,7 +833,7 @@ if prompt := st.chat_input("Message RAGGER..."):
         c.execute(
             """
             UPDATE chats 
-            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ?, pipeline_type = ?
+            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ?, pipeline_type = ?, instruction_lang = ?
             WHERE id = ?
             """,
             (
@@ -818,6 +843,7 @@ if prompt := st.chat_input("Message RAGGER..."):
                 st.session_state.get("index_type", ""),
                 st.session_state.get("vector_store", ""),
                 st.session_state.get("pipeline_type", ""),
+                st.session_state.get("instruction_lang", ""),
                 st.session_state.current_chat_id,
             ),
         )
@@ -829,6 +855,7 @@ if prompt := st.chat_input("Message RAGGER..."):
             st.session_state.get("index_type", ""),
             st.session_state.get("vector_store", ""),
             st.session_state.get("pipeline_type", ""),
+            st.session_state.get("instruction_lang", ""),
         )
         st.session_state.current_chat_id = c.lastrowid
 
