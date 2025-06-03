@@ -166,11 +166,24 @@ st.markdown(
 
 # -- metrics style
 def display_metrics(metrics):
+    """Colorization of the evaluation metrics.
+
+    Parameters
+    ----------
+    metrics : dict
+        metrics dictionary.
+
+    Returns
+    -------
+    None.
+    """
     metrics_html = "<div class='metrics-container'>"
     try:
         for key, value in metrics.items():
             if key in ["hhem", "Advance_HHEM"]:
                 color = "red" if value > 0.5 else "green"
+            elif "latency" in key.lower():
+                color = "white"
             else:
                 color = "green" if value >= 0.5 else "red"
             metrics_html += f"<span class='metric'><span class='metric-name'>{key}:</span><span class='metric-value {color}'>{value:.2f}</span></span>"
@@ -791,9 +804,11 @@ if prompt := st.chat_input("Message RAGGER..."):
 
         with st.spinner(""):
             try:
+                start_time = time.time()
                 response, context, metrics = st.session_state.chain.ainvoke(
                     prompt
                 )
+                metrics["latency"] = time.time() - start_time
             except (
                 IndexError,
                 AttributeError,
