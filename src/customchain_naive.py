@@ -10,7 +10,7 @@ from langchain_community.vectorstores import Chroma
 import warnings
 import asyncio
 
-from src.reasonning_instructions import ALL_NAIVE_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
+from src.reasoning_instructions import ALL_NAIVE_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
 from src.utils import format_llm_response
 
 if torch.cuda.is_available():

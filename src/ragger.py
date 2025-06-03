@@ -42,7 +42,7 @@ from src.ragger_css import (
     SELECT_INPUT_STYLE,
     THINKING_SPINNER,
 )
-from src.reasonning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTION_LANGS
+from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTION_LANGS
 
 
 # -- device available model

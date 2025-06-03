@@ -21,7 +21,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 import logging
 import sys
 
-from src.reasonning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
+from src.reasoning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
 from src.cache import TieredCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
