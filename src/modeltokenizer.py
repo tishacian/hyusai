@@ -9,7 +9,7 @@ import torch
 from transformers import AutoTokenizer
 
 from configuration import get_standalone_interface_config
-from globalvariables import (
+from src.globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
     DEFAULT_CPU_TOKENIZER,
@@ -17,7 +17,7 @@ from globalvariables import (
     LARGE_MODELS,
     MAX_MODEL_LEN,
 )
-from utils import get_max_model_len, gpu_arc_type
+from src.utils import get_max_model_len, gpu_arc_type
 
 logging.basicConfig(
     stream=sys.stdout,

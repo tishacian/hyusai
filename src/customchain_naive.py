@@ -25,15 +25,15 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import sys
 import logging
-from globalvariables import (
+from src.globalvariables import (
     VECTOR_STORE_PATH,
     IndexType,
     EMBEDDING_NAME,
 )
-from chunker import cache_chunker_embedding_chain, BM25Retriever
+from src.chunker import cache_chunker_embedding_chain, BM25Retriever
 
 # -- Model evaluation
-from metrics import Evaluatrix
+from src.metrics import Evaluatrix
 
 # --
 logging.basicConfig(

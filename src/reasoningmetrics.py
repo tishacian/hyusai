@@ -10,7 +10,7 @@ import re
 import sys
 import logging
 import numpy as np
-from globalvariables import ReasoningType
+from src.globalvariables import ReasoningType
 from src.reasonning_instructions import ALL_REASONING_PATTERNS
 
 # --
