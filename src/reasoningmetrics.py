@@ -10,7 +10,9 @@ import re
 import sys
 import logging
 import numpy as np
-from globalvariables import ReasoningType, ReasoningPatterns
+from configuration import get_backend_config
+from globalvariables import ReasoningType
+from src.reasonning_instructions import ALL_REASONING_PATTERNS
 
 # --
 logging.basicConfig(
@@ -30,7 +32,8 @@ class ReasoningMetrics:
             None.
         """
         self.embedding_model = embedding_model
-        self.reasoning_patterns = self._precompile_patterns(ReasoningPatterns)
+        self.raw_reasoning_patterns = ALL_REASONING_PATTERNS[get_backend_config().language]
+        self.reasoning_patterns = self._precompile_patterns(self.raw_reasoning_patterns)
         self.reasoning_weights = {
             ReasoningType.FACTUAL: 1.4,
             ReasoningType.ANALYTICAL: 1.25,
@@ -145,7 +148,7 @@ class ReasoningMetrics:
 
         """
         token_sets = {}
-        for rtype, patterns in ReasoningPatterns.items():
+        for rtype, patterns in self.raw_reasoning_patterns.items():
             token_set = set()
             for pattern in patterns:
                 tokens = pattern.lower().split()
