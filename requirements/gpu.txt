@@ -1,2 +1,2 @@
-vllm==0.8       # gpu llm model wrapper
+vllm=~0.8.3     # gpu llm model wrapper
 psutil          # gpu memory util
