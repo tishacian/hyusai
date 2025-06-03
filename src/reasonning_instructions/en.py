@@ -73,3 +73,12 @@ REASONING_INSTRUCTIONS = {
                                                 
                                                 Explore this scenario based on the context: [/INST]""",
 }
+
+ANALYSIS_STEPS_TO_REMOVE = r"Analysis Steps:.*?Context:"
+CONTEXT_QUESTION_TO_REMOVE = r"Context:.*?Question:"
+PROMPT_PHRASES_TO_REMOVE = [
+    r"Provide .*? based on the context:",
+    r"Compare .*? based on the context:",
+    r"Explain .*? based on the context:",
+    r"Explore .*? based on the context:",
+]
