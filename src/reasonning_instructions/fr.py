@@ -60,7 +60,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                 
                                                 Explique les relations causales en t'appuyant sur le contexte : [/INST]""",
-    ReasoningType.HYPOTHETICAL: """[INST] Vous êtes un assistant IA spécialisé dans le raisonnement hypothétique.
+    ReasoningType.HYPOTHETICAL: """[INST] Tu es un assistant IA spécialisé dans le raisonnement hypothétique.
                                                 Étapes d'analyse :
                                                 1. Considérer les hypothèses conditionnelles
                                                 2. Analyser les scénarios potentiels
@@ -73,6 +73,16 @@ REASONING_INSTRUCTIONS = {
                                                 
                                                 Explore ce scénario en t'appuyant sur le contexte : [/INST]""",
 }
+NAIVE_INSTRUCTION = """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées. Concentre-toi sur les informations importantes qui traitent directement du sujet ou de la question principale.
+                                                Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.
+                                                Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle qui leur sont propres.
+                                                Ta tâche consiste à répondre à la question suivante en te basant sur le contexte donné.
+                                                
+                                                Contexte : {context}
+                                                
+                                                Question : {question}
+                                                
+                                                Réponse : [/INST]"""
 
 ANALYSIS_STEPS_TO_REMOVE = r"Étapes d'analyse\s*:.*?Contexte\s*:"
 CONTEXT_QUESTION_TO_REMOVE = r"Contexte\s*:.*?Question\s*:"
@@ -80,4 +90,8 @@ PROMPT_PHRASES_TO_REMOVE = [
     r"Fournis .*? en t'appuyant sur le contexte :",
     r"Explique .*? en t'appuyant sur le contexte :",
     r"Explore .*? en t'appuyant sur le contexte :",
+    r"Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.",
+    r"Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle qui leur sont propres.",
+    r"Ta tâche consiste à répondre à la question suivante en te basant sur le contexte donné.",
+    r"Réponse : ",
 ]

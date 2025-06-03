@@ -23,8 +23,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import logging
 import sys
-from configuration import get_general_config
-from src.reasonning_instructions import ALL_REASONING_INSTRUCTIONS
+from src.reasonning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
 from cache import LRUCache
 from chunker import BM25Retriever, cache_chunker_embedding_chain
 from contextcompressor import ContextualCompressionRetriever, ContextualConfig
@@ -70,6 +69,7 @@ class CustomLLMChain:
         index_type=IndexType.FAISS,
         cache_size=1000,
         dynamic_k=True,
+        instruction_lang=DEFAULT_INSTRUCTION_LANG,
     ):
         """Custom LLMChain
 
@@ -91,6 +91,8 @@ class CustomLLMChain:
             Size of token to cache. The default is 1000.
         dynamic_k : bool, optional
             k-computation type. The default is True.
+        instruction_lang : Literal["en", "fr"], optional
+            Language of the LLM instruction, by default DEFAULT_INSTRUCTION_LANG
 
         Raises
         ------
@@ -123,6 +125,7 @@ class CustomLLMChain:
             )
 
         self.index_type = index_type
+        self.instruction_lang = instruction_lang
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
         self.conversation_memory = ConversationMemoryBuffer(max_turns=2)
@@ -146,7 +149,7 @@ class CustomLLMChain:
         self._initialize_contextual_retriever()
 
         # -- CoT template
-        self.templates = ALL_REASONING_INSTRUCTIONS[get_general_config().language]
+        self.templates = ALL_REASONING_INSTRUCTIONS[self.instruction_lang]
 
         init_time = time.time() - start_time
         logging.info(
@@ -695,7 +698,9 @@ class CustomLLMChain:
         try:
             reasoning_detect_start = time.time()
             if not hasattr(self, "reasoning_metrics"):
-                self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+                self.reasoning_metrics = ReasoningMetrics(
+                    self.embedding_model, self.instruction_lang
+                )
 
             reasoning_type, _ = (
                 self.reasoning_metrics.bayesian_reasoning_detection(question)
@@ -761,7 +766,9 @@ class CustomLLMChain:
             filtered context.
         """
         if not hasattr(self, "reasoning_metrics"):
-            self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+            self.reasoning_metrics = ReasoningMetrics(
+                self.embedding_model, self.instruction_lang
+            )
 
         cache_key = f"{chunk[:100]}_{k}"
         if cache_key in self.context_cache:
@@ -824,7 +831,9 @@ class CustomLLMChain:
         Tuple[ReasoningType, float]: Bayesian reasoning classification with score.
         """
         if not hasattr(self, "reasoning_metrics"):
-            self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+            self.reasoning_metrics = ReasoningMetrics(
+                self.embedding_model, self.instruction_lang
+            )
 
         return await self.reasoning_metrics.bayesian_reasoning_detection_async(
             question
@@ -1204,7 +1213,7 @@ class CustomLLMChain:
             result_text = await self.custom_llm_chain(
                 combined_context, question
             )
-            answer = format_llm_response(result_text)
+            answer = format_llm_response(result_text, self.instruction_lang)
             self.conversation_memory.add_message("assistant", answer)
             generation_time = time.time() - generation_start
             logging.info(

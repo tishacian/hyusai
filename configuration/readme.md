@@ -23,7 +23,8 @@ Note that the default values in this document are those set on python side. They
     - If True, OCR will be applied to all PDF documents, even text-based documents, ignoring the digital text content.
     `disable_ocr_for_pdf` is expected to be `False` when using this variable.
     - By default `False`
-- `LANGUAGE` (str)
+- `LANGUAGE` (str) 
+    - /!\ currently deprecated, use streamlit dropdown instead
     - Language of the LLM instructions. Supported languages are : `en`, `fr`. 
     This affects:
         - the reasoning templates

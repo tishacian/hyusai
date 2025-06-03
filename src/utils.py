@@ -11,6 +11,7 @@ import subprocess
 import importlib.util
 import sys
 import shutil
+from typing import Literal
 import torch
 import logging
 import time
@@ -18,7 +19,6 @@ import pickle
 import functools
 from pathlib import Path
 from functools import cache
-from configuration import get_backend_config
 from globalvariables import (
     Models,
     GPU_MODEL_SET,
@@ -26,7 +26,7 @@ from globalvariables import (
     CPU_MODEL_SET,
     LARGE_MODELS,
 )
-from src.reasonning_instructions import ALL_ANALYSIS_STEPS_TO_REMOVE, ALL_CONTEXT_QUESTION_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE
+from src.reasonning_instructions import ALL_ANALYSIS_STEPS_TO_REMOVE, ALL_CONTEXT_QUESTION_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
 if os.path.isdir(user_tessdata) and any(
@@ -339,21 +339,27 @@ def load_stopwords(data_dir: str = "data"):
     return stopwords_set
 
 
-def format_llm_response(response: str) -> str:
+def format_llm_response(response: str, language: Literal["en", "fr"] = DEFAULT_INSTRUCTION_LANG) -> str:
     """Format LLM response while preserving tables and structured data.
-        Only removes template artifacts and prompt phrases.
+    Only removes template artifacts and prompt phrases.
 
-    Parameters:
-        response (str): Raw response from the LLM
+    Parameters
+    ----------
+    response : str
+        Raw response from the LLM
+    language : Literal["en", "fr"], optional
+        Language of the reasoning instructions to remove,
+        by default DEFAULT_INSTRUCTION_LANG
 
-    Returns:
-        str: Cleaned response with preserved formatting
+    Returns
+    -------
+    str
+        Cleaned response with preserved formatting
     """
-    lang = get_backend_config().language
     instruction_block = r"\[INST\].*?\[/INST\]"
-    analysis_steps = ALL_ANALYSIS_STEPS_TO_REMOVE[lang]
-    context_question = ALL_CONTEXT_QUESTION_TO_REMOVE[lang]
-    prompt_phrases = ALL_PROMPT_PHRASES_TO_REMOVE[lang]
+    analysis_steps = ALL_ANALYSIS_STEPS_TO_REMOVE[language]
+    context_question = ALL_CONTEXT_QUESTION_TO_REMOVE[language]
+    prompt_phrases = ALL_PROMPT_PHRASES_TO_REMOVE[language]
     try:
         response = re.sub(instruction_block, "", response, flags=re.DOTALL).strip()
         response = re.sub(analysis_steps, "", response, flags=re.DOTALL).strip()
