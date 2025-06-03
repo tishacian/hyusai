@@ -1,23 +1,23 @@
 # configuration
-pydantic_settings
+pydantic_settings=~2.9
 # data manipulation and mathematics
-numpy
-pandas
-scipy
+numpy=~2.2
+pandas=~2.2
+scipy=~1.15
 # deep and machine learning
-torch
-scikit-learn
-nltk
+torch=~2.7
+scikit-learn=~1.6
+nltk=~3.9
 # document ingestion
-pytesseract             # OCR
-tesserocr
-unstructured[all-docs]  # document loaders
-docx2txt
-pymupdf
-sentence-transformers   # embedding model
-rank-bm25               # document indexer for retrival
-transformers            # tokenizer, reranking model
+pytesseract=~0.3             # OCR
+tesserocr=~2.8
+unstructured[all-docs]=~0.17 # document loaders
+docx2txt=~0.9
+pymupdf=~1.25
+sentence-transformers=~4.1   # embedding model
+rank-bm25=~0.2               # document indexer for retrival
+transformers=~4.51           # tokenizer, reranking model
 # vector database
-faiss-cpu               # faiss
-weaviate-client         # weaviate
-langchain-community     # chroma + document loaders
+faiss-cpu=~1.10              # faiss
+weaviate-client=~4.14        # weaviate
+langchain-community=~0.3.22  # chroma + document loaders
