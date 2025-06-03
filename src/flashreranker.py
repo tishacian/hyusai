@@ -14,7 +14,7 @@ import numpy as np
 from enum import Enum
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple, Union
-from crossencembeddingmodel import RerankerModelLoader
+from src.crossencembeddingmodel import RerankerModelLoader
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 logging.basicConfig(

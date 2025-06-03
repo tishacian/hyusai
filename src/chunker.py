@@ -28,7 +28,7 @@ from sklearn.metrics import silhouette_score
 
 
 # --
-from globalvariables import (
+from src.globalvariables import (
     ChunkingMethod,
     OptimalMethod,
     RANDOM_SEED,

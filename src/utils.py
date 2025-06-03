@@ -19,7 +19,7 @@ import pickle
 import functools
 from pathlib import Path
 from functools import cache
-from globalvariables import (
+from src.globalvariables import (
     Models,
     GPU_MODEL_SET,
     CPUModels,

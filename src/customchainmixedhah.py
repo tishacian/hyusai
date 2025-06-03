@@ -22,15 +22,15 @@ import logging
 import sys
 
 from src.reasonning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
-from cache import TieredCache
-from chunker import BM25Retriever, cache_chunker_embedding_chain
-from contextcompressor import ContextualCompressionRetriever, ContextualConfig
-from conversationmemorybuffer import ConversationMemoryBuffer
-from embedding import EmbeddingModelLoader
-from retrievalplan import RetrievalContext, QueryAnalysis, RetrievalPlan
-from ensembleretriever import FusionMethod, EnsembleConfig, EnsembleRetriever
-from flashreranker import FlashReranker, RerankerConfig
-from globalvariables import (
+from src.cache import TieredCache
+from src.chunker import BM25Retriever, cache_chunker_embedding_chain
+from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
+from src.conversationmemorybuffer import ConversationMemoryBuffer
+from src.embedding import EmbeddingModelLoader
+from src.retrievalplan import RetrievalContext, QueryAnalysis, RetrievalPlan
+from src.ensembleretriever import FusionMethod, EnsembleConfig, EnsembleRetriever
+from src.flashreranker import FlashReranker, RerankerConfig
+from src.globalvariables import (
     LARGE_MODELS,
     VECTOR_STORE_PATH,
     IndexType,
@@ -40,9 +40,9 @@ from globalvariables import (
     DATA_PATH,
 )
 
-from metrics import Evaluatrix
-from reasoningmetrics import ReasoningMetrics
-from utils import (
+from src.metrics import Evaluatrix
+from src.reasoningmetrics import ReasoningMetrics
+from src.utils import (
     format_llm_response,
     get_max_model_len,
     measure_time,

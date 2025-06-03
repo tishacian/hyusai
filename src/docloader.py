@@ -17,15 +17,15 @@ from langchain_community.document_loaders import (
 )
 from tqdm import tqdm
 
-from customdocloader import MyEmlLoader, OCRPDFLoader
-from globalvariables import OCRConfig
+from src.customdocloader import MyEmlLoader, OCRPDFLoader
+from src.globalvariables import OCRConfig
 
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-from utils import configure_tesseract
+from src.utils import configure_tesseract
 
 tesseract_path, tesseract_available = configure_tesseract()
 

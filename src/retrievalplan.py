@@ -8,8 +8,8 @@ Created on Sun May 25 19:12:35 2025
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
-from globalvariables import ReasoningType
-from ensembleretriever import FusionMethod
+from src.globalvariables import ReasoningType
+from src.ensembleretriever import FusionMethod
 
 
 @dataclass

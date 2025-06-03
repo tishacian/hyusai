@@ -23,14 +23,14 @@ from langchain_community.document_loaders import UnstructuredEmailLoader
 from PIL import Image, ImageEnhance
 
 from src.globalvariables import OCRConfig
-from utils import get_tesseract_path
+from src.utils import get_tesseract_path
 
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-from utils import configure_tesseract
+from src.utils import configure_tesseract
 
 tesseract_path, TESSERACT_AVAILABLE = configure_tesseract()
 

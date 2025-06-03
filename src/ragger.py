@@ -13,14 +13,14 @@ import streamlit as st
 import torch
 from PIL import Image
 
-from chunker import TextChunker
+from src.chunker import TextChunker
 from configuration import get_standalone_interface_config
-from customchain import CustomLLMChain as HAHCustomLLMChain
-from customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
-from customchain_naive import CustomLLMChain as NaiveCustomLLMChain
-from docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
-from embedding import EmbeddingVectors
-from globalvariables import (
+from src.customchain import CustomLLMChain as HAHCustomLLMChain
+from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
+from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
+from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
+from src.embedding import EmbeddingVectors
+from src.globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
     GPU_MODEL_SET,
@@ -32,9 +32,9 @@ from globalvariables import (
     PipelineType,
     EMBEDDING_NAME,
 )
-from metrics import DUMMY_METRICS
-from modeltokenizer import load_model_and_tokenizer
-from ragger_css import (
+from src.metrics import DUMMY_METRICS
+from src.modeltokenizer import load_model_and_tokenizer
+from src.ragger_css import (
     BACKGROUND,
     BUTTONS,
     FILE_UPLOADER,
