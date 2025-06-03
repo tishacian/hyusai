@@ -84,15 +84,19 @@ NAIVE_INSTRUCTION = """[INST] You are an AI assistant specialized in providing p
                                                 
                                                 Answer: [/INST]"""
 
-ANALYSIS_STEPS_TO_REMOVE = r"Analysis Steps:.*?Context:"
-CONTEXT_QUESTION_TO_REMOVE = r"Context:.*?Question:"
+DOTALL_PROMPT_PHRASES_TO_REMOVE = [
+    r"Analysis Steps\s*:((.|\n)*?)(?=Context\s*\d*\s*:)",
+    r"Context\s*\d*\s*:((.|\n)*?)(?=Question\s*:)",
+]
 PROMPT_PHRASES_TO_REMOVE = [
+    r"You are an AI assistant specialized in .*",
+    r"Include relevant details that provide context or support your points.",
+    r"Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, objectivity, and emotional resonance.",
+    r"Your task is to answer the following question based on the given context.",
+    r"Question\s*:.*",
     r"Provide .*? based on the context:",
     r"Compare .*? based on the context:",
     r"Explain .*? based on the context:",
     r"Explore .*? based on the context:",
-    r"Include relevant details that provide context or support your points.",
-    r"Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, objectivity, and emotional resonance.",
-    r"Your task is to answer the following question based on the given context.",
-    r"Answer:",
+    r"Answer\s*:\s*",
 ]
