@@ -148,6 +148,7 @@ MetadataType = (
     | StructuredDataMetaData
 )
 MetadataExtractor = Callable[[str], tuple[dict[str, Any], str | None]]
+"""Type for metadata extractor functions. Takes file path, returns (metadata dict, text content)."""
 
 
 
