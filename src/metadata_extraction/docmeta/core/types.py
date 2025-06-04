@@ -23,19 +23,20 @@ class FileMetaData(TypedDict):
 class PDFMetaData(FileMetaData):
     """Metadata specific to PDF files."""
 
+    num_pages: int
+    encrypted: bool
+    
     author: str | None
     creator: str | None
     producer: str | None
     subject: str | None
     title: str | None
-    num_pages: int
     embedded_keywords: (
         list[str] | None
     )  # Keywords sourced directly from the PDF document's embedded metadata
     extracted_keywords: (
         list[str] | None
     )  # Keywords programmatically generated from analyzing the document's text content (e.g., TF-IDF)
-    encrypted: bool
     page_width: float | None
     page_height: float | None
     token_count: int | None
@@ -56,6 +57,10 @@ class ImageMetaData(FileMetaData):
 class OfficeMetaData(FileMetaData):
     """Metadata specific to Microsoft Office files."""
 
+    word_count: int
+    character_count: int
+    paragraph_count: int
+    
     author: str | None
     title: str | None
     subject: str | None
@@ -65,9 +70,6 @@ class OfficeMetaData(FileMetaData):
     num_pages: int | None  # Pages for Word, slides for PowerPoint, sheets for Excel
     num_slides: int | None  # PowerPoint specific
     num_sheets: int | None  # Excel specific
-    word_count: int
-    character_count: int
-    paragraph_count: int
     application: str | None  # e.g., "Microsoft Word", "Microsoft Excel"
     app_version: str | None
     token_count: int | None
@@ -76,6 +78,10 @@ class OfficeMetaData(FileMetaData):
 class OpenDocumentMetaData(FileMetaData):
     """Metadata specific to OpenDocument files."""
 
+    word_count: int
+    character_count: int
+    paragraph_count: int
+    
     author: str | None
     title: str | None
     subject: str | None
@@ -83,9 +89,6 @@ class OpenDocumentMetaData(FileMetaData):
     extracted_keywords: list[str] | None
     last_modified_by: str | None
     num_pages: int | None
-    word_count: int
-    character_count: int
-    paragraph_count: int
     generator: str | None  # Application that created the document
     language: str | None
     token_count: int | None
@@ -94,20 +97,23 @@ class OpenDocumentMetaData(FileMetaData):
 class TextMetaData(FileMetaData):
     """Metadata specific to plain text and markdown files."""
 
-    encoding: str | None
     word_count: int
     character_count: int
     line_count: int
     paragraph_count: int
+    has_front_matter: bool  # For markdown files with YAML front matter
+    
+    encoding: str | None
     extracted_keywords: list[str] | None
     language: str | None  # Detected language
-    has_front_matter: bool  # For markdown files with YAML front matter
     token_count: int | None
 
 
 class MarkupMetaData(FileMetaData):
     """Metadata specific to markup files (HTML, XML)."""
 
+    element_count: int
+    
     title: str | None
     encoding: str | None
     doctype: str | None
@@ -115,7 +121,6 @@ class MarkupMetaData(FileMetaData):
     meta_keywords: list[str] | None
     extracted_keywords: list[str] | None
     language: str | None
-    element_count: int
     link_count: int | None  # HTML specific
     image_count: int | None  # HTML specific
     token_count: int | None
