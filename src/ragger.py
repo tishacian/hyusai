@@ -111,8 +111,8 @@ def init_db():
                 chunking_method TEXT,
                 index_type TEXT,
                 vector_store TEXT,
-                pipeline_type TEXT
-                instruction_lang TEXT,
+                pipeline_type TEXT,
+                instruction_lang TEXT
             )
         """
         )
