@@ -5,7 +5,7 @@ import platform
 import socket
 from streamlit.web import cli as stcli
 import warnings
-from globalvariables import Ports
+from src.globalvariables import Ports
 
 torch.classes.__path__ = []
 os.environ["CUDA_VISIBLE_DEVICES"] = (
