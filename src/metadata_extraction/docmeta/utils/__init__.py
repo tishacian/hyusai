@@ -1,4 +1,5 @@
-# Token counting utilities
+# File metadata utilities
+from docmeta.utils.file_metadata import get_file_common_metadata
 # Keyword extraction utilities
 from docmeta.utils.keyword_extractor import (clean_text,
                                              extract_keywords_tfidf,
@@ -18,15 +19,21 @@ from docmeta.utils.text_processing import (analyze_dict_structure,
                                            infer_json_data_types,
                                            initialize_metadata, parse_keywords,
                                            validate_file_exists)
+# Token counting utilities
 from docmeta.utils.token_counter import count_tokens
 
 __all__ = [
-    # Token counting
-    "count_tokens",
+    # File metadata
+    "get_file_common_metadata",
     # Keyword extraction
     "extract_keywords_tfidf",
     "clean_text",
     "get_stopwords",
+    # Serialization
+    "DateTimeEncoder",
+    "to_json",
+    "format_metadata",
+    "save_json",
     # Text processing
     "parse_keywords",
     "detect_encoding",
@@ -41,9 +48,6 @@ __all__ = [
     "detect_csv_header",
     "count_text_statistics",
     "extract_statistics",
-    # Serialization
-    "DateTimeEncoder",
-    "to_json",
-    "format_metadata",
-    "save_json",
+    # Token counting
+    "count_tokens",
 ]
