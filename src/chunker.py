@@ -567,42 +567,26 @@ class TextChunker:
 
     def chunker(self, text, method="recursive_character", **kwargs):
         """
-        Chunking call. Default is using recursive character splitting.
-        Returns list of dictionaries containing text and metadata.
+        Chunking call. Default is using ```recursive character splitting```
         """
-        # Process text into raw chunks based on method
         if method == ChunkingMethod.FIXED:
-            raw_chunks = self.fixed_chunking(text, **kwargs)
+            self.chunks = self.fixed_chunking(text, **kwargs)
         elif method == ChunkingMethod.RECURSIVE_CHARACTER:
-            raw_chunks = self.recursive_character_chunking(text, **kwargs)
+            self.chunks = self.recursive_character_chunking(text, **kwargs)
         elif method == ChunkingMethod.SEMANTIC:
-            raw_chunks = self.semantic_chunking(text, **kwargs)
+            self.chunks = self.semantic_chunking(text, **kwargs)
         elif method == ChunkingMethod.TOKEN_BASED:
-            raw_chunks = self.token_based_chunking(text, **kwargs)
+            self.chunks = self.token_based_chunking(text, **kwargs)
         elif method == ChunkingMethod.HIERARCHICAL:
-            raw_chunks = self.hierarchical_chunking(text, **kwargs)
+            self.chunks = self.hierarchical_chunking(text, **kwargs)
         elif method == ChunkingMethod.MODEL_BASED:
-            raw_chunks = self.model_based_chunking(text, **kwargs)
+            self.chunks = self.model_based_chunking(text, **kwargs)
         elif method == ChunkingMethod.SENTENCE_BOUNDARY:
-            raw_chunks = self.sentence_boundary_detection(text, **kwargs)
+            self.chunks = self.sentence_boundary_detection(text, **kwargs)
         else:
-            raw_chunks = None
-
+            self.chunks = None
         if not method:
             raise ValueError(f"🚩 Unknown chunking method: {method}")
 
-        # Attach metadata to each chunk
-        self.chunks = []
-        for i, chunk in enumerate(raw_chunks):
-            chunk_with_metadata = {
-                "text": chunk,
-                "metadata": {
-                    "chunk_index": i,
-                    "chunking_method": str(method),
-                    # Additional document metadata can be added here
-                    "document_metadata": kwargs.get("document_metadata", {})
-                }
-            }
-            self.chunks.append(chunk_with_metadata)
-
+        # --
         return self.chunks
