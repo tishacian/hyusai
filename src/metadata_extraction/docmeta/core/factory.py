@@ -7,7 +7,7 @@ based on file type.
 
 import mimetypes
 import os
-from typing import Any, cast
+from typing import Any
 
 from docmeta.core.types import (FileMetaData, MetadataExtractor, MetadataType,
                                 get_file_common_metadata)
@@ -90,7 +90,7 @@ def extract_metadata(
     if extractor_func:
         metadata, text_content = extractor_func(path)
 
-    result: dict[str, Any] = {**metadata, **common_metadata}
+    result: MetadataType = {**metadata, **common_metadata}
 
     if text_content and text_content.strip():
         if count_tokens_flag:
@@ -103,4 +103,4 @@ def extract_metadata(
             if keywords:
                 result["extracted_keywords"] = keywords
 
-    return cast(MetadataType, result)
+    return result
