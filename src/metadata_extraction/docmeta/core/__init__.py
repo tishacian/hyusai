@@ -1,15 +1,16 @@
 # Import for convenience
 from docmeta.core.factory import extract_metadata
+from docmeta.core.defaults import (create_image_metadata,
+                                   create_markup_metadata,
+                                   create_office_metadata,
+                                   create_opendocument_metadata,
+                                   create_pdf_metadata,
+                                   create_structured_data_metadata,
+                                   create_text_metadata)
 from docmeta.core.types import (FileMetaData, ImageMetaData, MarkupMetaData,
                                 MetadataType, OfficeMetaData,
                                 OpenDocumentMetaData, PDFMetaData,
-                                StructuredDataMetaData, TextMetaData,
-                                create_image_metadata, create_markup_metadata,
-                                create_office_metadata,
-                                create_opendocument_metadata,
-                                create_pdf_metadata,
-                                create_structured_data_metadata,
-                                create_text_metadata)
+                                StructuredDataMetaData, TextMetaData)
 
 __all__ = [
     "extract_metadata",

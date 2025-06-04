@@ -8,7 +8,7 @@ from typing import Any
 
 from PIL import ExifTags, Image
 
-from docmeta.core.types import \
+from docmeta.core.defaults import \
     create_image_metadata  # create_image_metadata returns dict[str, Any]
 
 

@@ -12,7 +12,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from docmeta.core.types import create_markup_metadata  # returns dict[str, Any]
+from docmeta.core.defaults import create_markup_metadata  # returns dict[str, Any]
 from docmeta.utils.text_processing import get_file_extension
 
 # Configure logger

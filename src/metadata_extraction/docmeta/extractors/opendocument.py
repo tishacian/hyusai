@@ -13,7 +13,7 @@ from odf import opendocument
 from odf.opendocument import Meta
 from odf.text import H, P, Span  # Used in _extract_text_content
 
-from docmeta.core.types import \
+from docmeta.core.defaults import \
     create_opendocument_metadata  # returns dict[str, Any]
 from docmeta.utils.text_processing import (extract_common_metadata_fields,
                                            extract_keywords,

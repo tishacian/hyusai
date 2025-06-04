@@ -14,7 +14,7 @@ from typing import Any
 import tomli
 import yaml
 
-from docmeta.core.types import \
+from docmeta.core.defaults import \
     create_structured_data_metadata  # returns dict[str, Any]
 from docmeta.utils.text_processing import \
     initialize_metadata  # Returns (metadata_dict, encoding)
