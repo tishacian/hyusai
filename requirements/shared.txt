@@ -1,8 +1,5 @@
 # configuration
 pydantic_settings
-PyYAML>=5.4.0           # YAML, structured data
-tomli>=1.2.0            # TOML, structured data
-typing-extensions>=4.0.0  # common, type hinting
 
 # data manipulation and mathematics
 numpy
@@ -32,6 +29,8 @@ beautifulsoup4>=4.9.0   # HTML & XML parsing
 lxml>=4.6.0             # XML & HTML processing (fast)
 chardet>=4.0.0          # character encoding detection
 tiktoken>=0.3.0         # token counting (for LLMs)
+PyYAML>=5.4.0           # YAML, structured data
+tomli>=1.2.0            # TOML, structured data
 
 # embedding and ranking
 sentence-transformers~=4.1     # embedding model
