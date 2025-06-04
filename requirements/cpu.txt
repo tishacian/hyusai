@@ -1,2 +1,2 @@
 llama_cpp_python~=0.3.8  # cpu llm model
-huggingface-hub~=0.30    # downloader for cpu llm model
+huggingface-hub          # downloader for cpu llm model
