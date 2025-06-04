@@ -84,7 +84,7 @@ NAIVE_INSTRUCTION = """[INST] Tu es un assistant IA spécialisé dans la fournit
                                                 
                                                 Réponse : [/INST]"""
 
-DOTALL_PROMPT_PHRASES_TO_REMOVE = [
+PROMPT_SECTIONS_TO_REMOVE = [
     r"Étapes d'analyse\s*:((.|\n)*?)(?=Contexte?\s*\d*\s*:)",
     r"Contexte?\s*\d*\s*:((.|\n)*?)(?=Question\s*:)",
 ]

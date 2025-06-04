@@ -84,9 +84,9 @@ NAIVE_INSTRUCTION = """[INST] You are an AI assistant specialized in providing p
                                                 
                                                 Answer: [/INST]"""
 
-DOTALL_PROMPT_PHRASES_TO_REMOVE = [
-    r"Analysis Steps\s*:((.|\n)*?)(?=Context\s*\d*\s*:)",
-    r"Context\s*\d*\s*:((.|\n)*?)(?=Question\s*:)",
+PROMPT_SECTIONS_TO_REMOVE = [
+    r"Analysis Steps\s*:(.*?)(?=Context\s*\d*\s*:)",
+    r"Context\s*\d*\s*:(.*?)(?=Question\s*:)",
 ]
 PROMPT_PHRASES_TO_REMOVE = [
     r"You are an AI assistant specialized in .*",
