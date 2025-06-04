@@ -73,95 +73,100 @@ python manually_test_pdf.py --count-tokens --extract-keywords [language]
 - Creation time
 - Last modified time
 - Last accessed time
-- Extracted keywords (when requested)
-- Subject
-- Title
+
+### PDF Metadata
+
 - Number of pages
-- Keywords (embedded in PDF)
-- Extracted keywords (TF-IDF, when requested)
-- Token count (for LLM context estimation, when requested)
 - Encryption status
-- Page size (width and height)
+- Author (optional)
+- Creator (optional)
+- Producer (optional)
+- Subject (optional)
+- Title (optional)
+- Keywords (embedded in PDF, optional)
+- Page size - width and height (optional)
+- Extracted keywords (TF-IDF, when requested, optional)
+- Token count (for LLM context estimation, when requested, optional)
 
 ### Image Metadata
 
 - Width
 - Height
-- Color mode
-- Bit depth
-- DPI (horizontal and vertical)
-- EXIF data
+- Color mode (optional)
+- Bit depth (optional)
+- DPI - horizontal and vertical (optional)
+- EXIF data (optional)
 
 ### Microsoft Office Document Metadata (.docx, .xlsx, .pptx)
 
-- Author
-- Title
-- Subject
-- Embedded keywords
-- Last modified by
-- Number of pages (for .docx, .pptx) or Sheets (for .xlsx)
-- Number of slides (for .pptx)
-- Word count
-- Character count
-- Paragraph count (primarily for .docx)
-- Application (e.g., "Microsoft Word", "Microsoft Excel")
-- Application version
-- Extracted keywords (TF-IDF, when requested)
-- Token count (for LLM context estimation, when requested)
-
-### OpenDocument Metadata (.odt, .ods, .odp)
-
-- Author
-- Title
-- Subject
-- Embedded keywords
-- Last modified by
-- Number of pages
 - Word count
 - Character count
 - Paragraph count
-- Generator (Application that created the document)
-- Language
-- Extracted keywords (TF-IDF, when requested)
-- Token count (for LLM context estimation, when requested)
+- Author (optional)
+- Title (optional)
+- Subject (optional)
+- Embedded keywords (optional)
+- Last modified by (optional)
+- Number of pages (for .docx, .pptx) or sheets (for .xlsx) (optional)
+- Number of slides (for .pptx) (optional)
+- Application (e.g., "Microsoft Word", "Microsoft Excel") (optional)
+- Application version (optional)
+- Extracted keywords (TF-IDF, when requested, optional)
+- Token count (for LLM context estimation, when requested, optional)
+
+### OpenDocument Metadata (.odt, .ods, .odp)
+
+- Word count
+- Character count
+- Paragraph count
+- Author (optional)
+- Title (optional)
+- Subject (optional)
+- Embedded keywords (optional)
+- Last modified by (optional)
+- Number of pages (optional)
+- Generator - application that created the document (optional)
+- Language (optional)
+- Extracted keywords (TF-IDF, when requested, optional)
+- Token count (for LLM context estimation, when requested, optional)
 
 ### Text File Metadata (.txt, .md, .rst, .log)
 
-- Encoding
 - Word count
 - Character count
 - Line count
 - Paragraph count
-- Language (Detected, if available)
 - Has front matter (for .md files with YAML front matter)
-- Extracted keywords (TF-IDF, when requested)
-- Token count (for LLM context estimation, when requested)
+- Encoding (optional)
+- Language (detected, optional)
+- Extracted keywords (TF-IDF, when requested, optional)
+- Token count (for LLM context estimation, when requested, optional)
 
 ### Markup File Metadata (.html, .htm, .xml, .xhtml)
 
-- Title (e.g., from `<title>` tag or root XML tag)
-- Encoding
-- Doctype (for HTML)
-- Meta description (for HTML)
-- Meta keywords (for HTML)
-- Language (e.g., from `lang` attribute)
 - Element count
-- Link count (HTML specific)
-- Image count (HTML specific)
-- Extracted keywords (TF-IDF, when requested)
-- Token count (for LLM context estimation, when requested)
+- Title (e.g., from `<title>` tag or root XML tag) (optional)
+- Encoding (optional)
+- Doctype (for HTML) (optional)
+- Meta description (for HTML) (optional)
+- Meta keywords (for HTML) (optional)
+- Language (e.g., from `lang` attribute) (optional)
+- Link count (HTML specific) (optional)
+- Image count (HTML specific) (optional)
+- Extracted keywords (TF-IDF, when requested, optional)
+- Token count (for LLM context estimation, when requested, optional)
 
 ### Structured Data File Metadata (.csv, .json, .yaml, .toml, .ini)
 
-- Encoding
-- Schema type (e.g., "CSV", "JSON", "YAML", "TOML", "INI")
-- Record count (e.g., rows for CSV, top-level items for JSON list, sections for INI)
-- Column count (e.g., CSV specific, or number of keys in top-level JSON object)
-- Columns (e.g., CSV column names, or keys in top-level JSON object)
-- Data types (Inferred column/field data types)
-- Has header (CSV specific)
-- Extracted keywords (TF-IDF, when requested, if text content is meaningful for keyword extraction)
-- Token count (for LLM context estimation, when requested, if text content is meaningful)
+- Encoding (optional)
+- Schema type (e.g., "CSV", "JSON", "YAML", "TOML", "INI") (optional)
+- Record count (e.g., rows for CSV, top-level items for JSON list, sections for INI) (optional)
+- Column count (e.g., CSV specific, or number of keys in top-level JSON object) (optional)
+- Columns (e.g., CSV column names, or keys in top-level JSON object) (optional)
+- Data types (inferred column/field data types) (optional)
+- Has header (CSV specific) (optional)
+- Extracted keywords (TF-IDF, when requested, if text content is meaningful) (optional)
+- Token count (for LLM context estimation, when requested, if text content is meaningful) (optional)
 
 ## Architecture
 
