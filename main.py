@@ -57,7 +57,9 @@ def get_username_from_path():
         return None
 
 
-def available_port(start_port=Ports.START_PORT.value, end_port=Ports.END_PORT.value):
+def available_port(
+    start_port=Ports.START_PORT.value, end_port=Ports.END_PORT.value
+):
     """Find an available port and return None if not available
 
     Parameters
