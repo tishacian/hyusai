@@ -14,10 +14,10 @@ tesserocr
 unstructured[all-docs]         # document loaders
 docx2txt
 pymupdf
-sentence-transformers          # embedding model
-rank-bm25                      # document indexer for retrival
+sentence-transformers~=4.1     # embedding model
+rank-bm25~=0.2.1               # document indexer for retrival
 transformers                   # tokenizer, reranking model
 # vector database
-faiss-cpu                      # faiss
+faiss-cpu~=1.10                # faiss
 weaviate-client                # weaviate
 langchain-community            # chroma + document loaders
