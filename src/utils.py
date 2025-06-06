@@ -26,7 +26,7 @@ from src.globalvariables import (
     CPU_MODEL_SET,
     LARGE_MODELS,
 )
-from src.reasoning_instructions import ALL_PROMPT_SECTIONS_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG
+from src.reasoning_instructions import ALL_PROMPT_SECTIONS_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG, InstructionLangs
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
 if os.path.isdir(user_tessdata) and any(
@@ -339,7 +339,7 @@ def load_stopwords(data_dir: str = "data"):
     return stopwords_set
 
 
-def format_llm_response(response: str, language: Literal["en", "fr"] = DEFAULT_INSTRUCTION_LANG) -> str:
+def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
     """Format LLM response while preserving tables and structured data.
     Only removes template artifacts and prompt phrases.
 
@@ -347,7 +347,7 @@ def format_llm_response(response: str, language: Literal["en", "fr"] = DEFAULT_I
     ----------
     response : str
         Raw response from the LLM
-    language : Literal["en", "fr"], optional
+    language : InstructionLangs, optional
         Language of the reasoning instructions to remove,
         by default DEFAULT_INSTRUCTION_LANG
 

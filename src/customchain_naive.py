@@ -10,7 +10,7 @@ from langchain_community.vectorstores import Chroma
 import warnings
 import asyncio
 
-from src.reasoning_instructions import ALL_NAIVE_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
+from src.reasoning_instructions import ALL_NAIVE_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
 from src.utils import format_llm_response
 
 if torch.cuda.is_available():
@@ -54,7 +54,7 @@ class CustomLLMChain:
         vector_store_name,
         embedding_model_name=EMBEDDING_NAME,
         index_type=IndexType.FAISS,
-        instruction_lang=DEFAULT_INSTRUCTION_LANG,
+        instruction_lang: InstructionLangs = DEFAULT_INSTRUCTION_LANG,
     ):
         """Custom LLMChain
 
@@ -64,7 +64,7 @@ class CustomLLMChain:
             model (model) : llm model
             embedding_model_name (str), optional : embedding model name. The default is "sentence-transformers/all-mpnet-base-v2".
             index_type (str), optional : index type. The default is "faiss".
-            instruction_lang : Literal["en", "fr"], optional
+            instruction_lang : InstructionLangs, optional
                 Language of the LLM instruction, by default DEFAULT_INSTRUCTION_LANG
 
         Raises

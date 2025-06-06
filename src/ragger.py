@@ -42,7 +42,7 @@ from src.ragger_css import (
     SELECT_INPUT_STYLE,
     THINKING_SPINNER,
 )
-from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTION_LANGS
+from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTIONS_LANGS_LIST, InstructionLangs
 
 
 # -- device available model
@@ -483,7 +483,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                 with row_be[3]:
                     instruction_lang = st.selectbox(
                         "LLM instruction language",
-                        INSTRUCTION_LANGS,
+                        INSTRUCTIONS_LANGS_LIST,
                         help="Select the language of the LLM reasoning instructions.",
                     )
             # --

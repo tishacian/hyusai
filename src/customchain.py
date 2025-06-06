@@ -23,7 +23,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import logging
 import sys
-from src.reasoning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG
+from src.reasoning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
 from src.cache import LRUCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
@@ -69,7 +69,7 @@ class CustomLLMChain:
         index_type=IndexType.FAISS,
         cache_size=1000,
         dynamic_k=True,
-        instruction_lang=DEFAULT_INSTRUCTION_LANG,
+        instruction_lang: InstructionLangs = DEFAULT_INSTRUCTION_LANG,
     ):
         """Custom LLMChain
 
@@ -91,7 +91,7 @@ class CustomLLMChain:
             Size of token to cache. The default is 1000.
         dynamic_k : bool, optional
             k-computation type. The default is True.
-        instruction_lang : Literal["en", "fr"], optional
+        instruction_lang : InstructionLangs, optional
             Language of the LLM instruction, by default DEFAULT_INSTRUCTION_LANG
 
         Raises
