@@ -75,10 +75,10 @@ REASONING_INSTRUCTIONS = {
 }
 NAIVE_INSTRUCTION = """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées. Concentre-toi sur les informations importantes qui traitent directement du sujet ou de la question principale.
                                                 Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.
-                                                Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle qui leur sont propres.
-                                                Ta tâche consiste à répondre à la question suivante en te basant sur le contexte donné.
-                                                
-                                                Contexte : {context}
+                                                Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle.
+
+                                                Ta tâche consiste à répondre à la question suivante en te basant sur le contexte donné :
+                                                {context}
                                                 
                                                 Question : {question}
                                                 

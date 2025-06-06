@@ -76,9 +76,9 @@ REASONING_INSTRUCTIONS = {
 NAIVE_INSTRUCTION = """[INST] You are an AI assistant specialized in providing precise and detailed information. Focus on important information that directly addresses the main topic or question.
                                                 Include relevant details that provide context or support your points.
                                                 Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, objectivity, and emotional resonance.
-                                                Your task is to answer the following question based on the given context.
                                                 
-                                                Context: {context}
+                                                Your task is to answer the following question based on the given context:
+                                                {context}
                                                 
                                                 Question: {question}
                                                 
