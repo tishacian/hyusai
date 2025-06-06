@@ -1,5 +1,3 @@
-from typing import Literal
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,11 +11,4 @@ class Backend(BaseSettings):
     """If True, OCR will be applied to all PDF documents, even text-based documents, 
     ignoring the digital text content.
     `disable_ocr_for_pdf` is expected to be `False` when using this variable.
-    """
-
-    language: Literal["en", "fr"] = "en"
-    """Language of the LLM instructions.
-    This affects:
-    - the reasoning templates
-    - the LLM response cleaning
     """
