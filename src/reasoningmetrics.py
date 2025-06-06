@@ -11,7 +11,7 @@ import sys
 import logging
 import numpy as np
 from src.globalvariables import ReasoningType
-from src.reasoning_instructions import ALL_REASONING_PATTERNS
+from src.reasoning_instructions import ALL_REASONING_PATTERNS, InstructionLangs
 
 # --
 logging.basicConfig(
@@ -22,11 +22,11 @@ logging.basicConfig(
 
 
 class ReasoningMetrics:
-    def __init__(self, embedding_model, instruction_lang):
+    def __init__(self, embedding_model, instruction_lang: InstructionLangs):
         """
         Parameters
             embedding_model (model): embedding model
-            instruction_lang (Literal["en", "fr"]): language of the LLM instruction
+            instruction_lang (InstructionLangs): language of the LLM instruction
 
         Returns
             None.
