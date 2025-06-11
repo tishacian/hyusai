@@ -687,3 +687,8 @@ class CustomLLMChain:
             tuple: result of invoke_async
         """
         return self.run_async_in_thread(self.invoke_async(question))
+
+    @staticmethod
+    def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+        # for retrocompatibility
+        return format_llm_response(response, language)
