@@ -71,22 +71,18 @@ def available_port(
 
     Returns
     -------
-    int
-        available port.
-
+    int or None
+        Available port number, or None if no port is available within the range.
     """
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("", start_port))
-            return start_port
-    except OSError:
-        for port in range(start_port + 1, end_port + 1):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.bind(("", port))
-                    return port
-            except OSError:
-                continue
+    for port in range(start_port, end_port + 1):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(("", port))
+                return port
+        except OSError:
+            continue
+
     return None
 
 
