@@ -13,7 +13,7 @@ import re
 #
 # These heuristics come from the NP-419 mitigation plan (see bug-np-419.md).
 
-TRIVIAL_LEN: int = 30
+TRIVIAL_LEN: int = 100
 
 TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "hello",
@@ -76,6 +76,22 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "until next time",
     "ttyl",
     "brb",
+    "is",
+    "it",
+    "you",
+    "your",
+    "you're",
+    "you've",
+    "you'll",
+    "you'd",
+    "in",
+    "at",
+    "to",
+    "of",
+    "and",
+    "or",
+    "but",
+    "if",
     "be right back",
     "one sec",
     "hold on",
@@ -113,22 +129,6 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "uh huh",
     "right on",
     "sounds good",
-    "cool",
-    "awesome",
-    "great",
-    "perfect",
-    "excellent",
-    "fantastic",
-    "wonderful",
-    "amazing",
-    "brilliant",
-    "nice",
-    "sweet",
-    "rad",
-    "sick",
-    "dope",
-    "lit",
-    "fire",
     "okay",
     "ok",
     "alright",
@@ -141,9 +141,6 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "understood",
     "makes sense",
     "right",
-    "correct",
-    "exactly",
-    "precisely",
     "bingo",
     "that's it",
     "you got it",
@@ -177,12 +174,6 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "crisp",
     "sharp",
     "on fleek",
-    "legit",
-    "real",
-    "true",
-    "facts",
-    "word",
-    "preach",
     "tell me about it",
     "you said it",
     "couldnt agree more",
@@ -200,26 +191,11 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "no question",
     "hands down",
     "by far",
-    "easily",
-    "clearly",
-    "obviously",
-    "certainly",
-    "surely",
-    "undoubtedly",
-    "unquestionably",
-    "indubitably",
-    "beyond doubt",
-    "without question",
-    "no doubt about it",
     "thats for sure",
     "you bet",
     "you betcha",
-    "indeed",
     "quite so",
-    "rather",
     "quite",
-    "fairly",
-    "pretty",
     "somewhat",
     "kind of",
     "sort of",
@@ -232,38 +208,7 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "almost",
     "close to",
     "just about",
-    "practically",
-    "virtually",
-    "essentially",
-    "basically",
-    "fundamentally",
-    "primarily",
-    "mainly",
-    "mostly",
-    "largely",
-    "generally",
-    "typically",
-    "usually",
-    "normally",
-    "ordinarily",
-    "good",
     "not bad at all",
-    "couldnt agree more",
-    "100%",
-    "thats for sure",
-    "commonly",
-    "frequently",
-    "often",
-    "regularly",
-    "consistently",
-    "constantly",
-    "continually",
-    "always",
-    "forever",
-    "eternally",
-    "indefinitely",
-    "permanently",
-    "endlessly",
     "never",
     "not ever",
     "at no time",
@@ -289,7 +234,6 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "negative",
     "nada",
     "zilch",
-    "zero",
     "nothing",
     "none",
     "neither",
@@ -350,8 +294,6 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "tell me something i dont know",
     "no kidding",
     "you dont say",
-    "really",
-    "seriously",
     "are you serious",
     "are you kidding me",
     "youve got to be kidding",
@@ -372,7 +314,125 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "im done",
     "im out",
     "i gotta go",
+    "anyone",
+    "someone",
+    "somebody",
+    "i",
+    'a',
+    'b',
+    'c',
+    'd',
+    'e',
+    'f',
+    'g',
+    'h',
+    'j',
+    'k',
+    'l',
+    'm',
+    'n',
+    'o',
+    'p',
+    'q',
+    'r',
+    's',
+    't',
+    'u',
+    'v',
+    'w',
+    'x',
+    'y',
+    'z',
+    "I'm",
+    "I've",
+    "I'll",
+    "I'd",
+    "re",
+    "im",
+    "ive",
+    "ill",
+    "id",
+    "youre",
+    "youve",
     "gotta run",
+    "thank you very much",
+    "hey there how are you doing today",
+    "hello there good sir hope everything is okay",
+    "thank you very much that was very helpful",
+    "don",
+    "dont",
+    "didnt",
+    "couldn",
+    "couldnt",
+    "shouldnt",
+    "wont",
+    "for",
+    "from",
+    "as",
+    "by",
+    "that",
+    "this",
+    "these",
+    "those",
+    "them",
+    "their",
+    "theirs",
+    "not",
+    "no",
+    "got",
+    "be",
+    "me",
+    "out",
+    "outta",
+    "outta here",
+    "outta there",
+    "our",
+    "ours",
+    "yours",
+    "anybody",
+    "anybody there",
+    "anybody there?",
+    "my",
+    "anywhere",
+    "somewhere",
+    "everywhere",
+    "have",
+    "has",
+    "had",
+    "off",
+    "with",
+    "we",
+    "we're",
+    "we've",
+    "we'll",
+    "we'd",
+    "went",
+    "without",
+    "on",
+    "need",
+    "should",
+    "would",
+    "could",
+    "might",
+    "may",
+    "can",
+    "must",
+    "mustn't",
+    "mustn",
+    "mustnt",
+    "ought",
+    "oughtn't",
+    "oughtnt",
+    "gotta",
+    "gotta go",
+    "anything",
+    "something",
+    "ve",
+    "was",
+    "were",
+    "sometime",
+    "sometimes",
+    "time to go",
 }
 
 
@@ -381,15 +441,16 @@ RE_BOUNDARY = {
     kw: re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE) for kw in TRIVIAL_ENGLISH_VOCABULARY
 }
 
+PUNCT_TABLE = str.maketrans({ch: " " for ch in string.punctuation})
+
 def _normalize(text: str) -> str:
-    """Lower-case and strip punctuation for keyword matching."""
-    lowered = text.lower().strip()
-    # Remove leading/trailing punctuation (commas, dots, etc.) to reduce noise
-    return lowered.strip(string.punctuation + "\t\n\r ")
+    """Lower-case, remove all punctuation, and collapse whitespace."""
+    text = text.lower().translate(PUNCT_TABLE)
+    # Collapse multiple spaces into one and strip leading/trailing whitespace
+    return " ".join(text.split())
 
 
 def is_trivial(message: str) -> bool:
-    """Return True if *message* should bypass retrieval according to heuristics."""
 
     if not message:
         return True  # Empty input is definitely trivial
@@ -399,6 +460,9 @@ def is_trivial(message: str) -> bool:
     # Length gate first
     if len(norm) > TRIVIAL_LEN:
         return False
+    
+    if len(norm.split()) < 2:
+        return True
 
     # Full-phrase match (covers multi-word greetings like "thank you")
     if norm in TRIVIAL_ENGLISH_VOCABULARY:
@@ -411,9 +475,8 @@ def is_trivial(message: str) -> bool:
     # Remove greeting tokens and see what's left
     words = norm.split()
     leftover = [w for w in words if w not in TRIVIAL_ENGLISH_VOCABULARY]
-
-    # If there's a question mark or at least 2 non-greeting words, it's likely a real query
-    if "?" in norm or len(leftover) >= 2:
+    # If at least 2 non-greeting words, it's likely a real query
+    if len(leftover) >= 2:
         return False
 
     return True
@@ -423,6 +486,8 @@ def is_trivial(message: str) -> bool:
 # Self-contained basic tests (run: `python src/router.py` to validate locally)
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    # print(is_trivial("you're welcome"))
+    # exit()
     csv_path = pathlib.Path(__file__).parent / "test_questions_router_2.csv"
 
     tests = []
