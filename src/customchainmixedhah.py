@@ -1369,7 +1369,7 @@ class CustomLLMChain:
             generate_time = time.time() - generate_start
             logging.info(f"Text generation took {generate_time:.4f} seconds")
 
-            if not generated_text or len(generated_text.split()) < 10:
+            if (not generated_text or len(generated_text.split()) < 10) and not is_trivial:
                 logging.warning(
                     "Primary generation failed or produced short response. Using fallback."
                 )
