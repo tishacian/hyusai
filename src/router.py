@@ -1,6 +1,4 @@
-import os
 import string
-from typing import Set
 import pathlib, csv
 import re
 from globalvariables import TRIVIAL_ENGLISH_VOCABULARY, TRIVIAL_LEN

@@ -145,6 +145,7 @@ class ConversationMemoryBuffer:
                 "ReasoningType.COMPARATIVE": "Previous comparison points:\n",
                 "ReasoningType.CAUSAL": "Earlier cause-effect discussion:\n",
                 "ReasoningType.HYPOTHETICAL": "Previous hypothetical scenarios:\n",
+                "ReasoningType.TRIVIAL": "Previous conversation history:\n",
             }
 
             prefix = reasoning_prefixes.get(

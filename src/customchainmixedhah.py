@@ -50,6 +50,9 @@ from src.utils import (
     load_stopwords,
 )
 
+# Import trivial-input detection from router
+from router import is_trivial as is_trivial_question
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -1322,7 +1325,7 @@ class CustomLLMChain:
                 return "I apologize, but I encountered an error generating a response."
 
     @measure_time
-    async def custom_llm_chain(self, context, question):
+    async def custom_llm_chain(self, context, question, is_trivial: bool = False):
         """Custom LLM chain with reasoning capabilities and fallback mechanisms
 
         Parameters
@@ -1331,6 +1334,8 @@ class CustomLLMChain:
             Final assembled context
         question : str
             Input question/query
+        is_trivial : bool, optional
+            Whether the question is trivial, by default False
 
         Returns
         -------
@@ -1338,21 +1343,25 @@ class CustomLLMChain:
             Generated final text response
         """
         try:
-            reasoning_detect_start = time.time()
-            if not hasattr(self, "reasoning_metrics"):
-                self.reasoning_metrics = ReasoningMetrics(
-                    self.embedding_model, self.instruction_lang
+            if is_trivial:
+                template = self.templates[ReasoningType.TRIVIAL]
+            else:
+                reasoning_detect_start = time.time()
+                if not hasattr(self, "reasoning_metrics"):
+                    self.reasoning_metrics = ReasoningMetrics(
+                        self.embedding_model, self.instruction_lang
+                    )
+
+                reasoning_type, confidence = await self.detect_reasoning_type(
+                    question
+                )
+                reasoning_time = time.time() - reasoning_detect_start
+                logging.info(
+                    f"Reasoning detection took {reasoning_time:.4f} seconds"
                 )
 
-            reasoning_type, confidence = await self.detect_reasoning_type(
-                question
-            )
-            reasoning_time = time.time() - reasoning_detect_start
-            logging.info(
-                f"Reasoning detection took {reasoning_time:.4f} seconds"
-            )
+                template = self.templates[reasoning_type]
 
-            template = self.templates[reasoning_type]
             prompt_format = template.format(context=context, question=question)
 
             generate_start = time.time()
@@ -1404,6 +1413,44 @@ class CustomLLMChain:
         overall_start = time.time()
 
         try:
+            # Trivial question bypass using router.is_trivial
+            # -------------------------------------------------------------
+            if is_trivial_question(question):
+                # Maintain conversation memory even for trivial queries
+                await asyncio.to_thread(
+                    self.conversation_memory.add_message, "user", question
+                )
+
+                # Retrieve recent conversation context (lightweight)
+                conversation_context = await asyncio.to_thread(
+                    self.conversation_memory.get_context_with_reasoning,
+                    ReasoningType.TRIVIAL,
+                )
+
+                combined_context = conversation_context or ""
+
+                generation_start = time.time()
+                result_text = await self.custom_llm_chain(
+                    combined_context, question, is_trivial=True
+                )
+                answer = self._format_llm_response(result_text)
+
+                await asyncio.to_thread(
+                    self.conversation_memory.add_message, "assistant", answer
+                )
+
+                generation_time = time.time() - generation_start
+                logging.info(
+                    f"[Trivial-Bypass] Response generation took {generation_time:.4f} seconds"
+                )
+
+                overall_time = time.time() - overall_start
+                logging.info(
+                    f"[Trivial-Bypass] Total invoke_async execution took {overall_time:.4f} seconds"
+                )
+
+                return answer, combined_context, {}
+
             memory_task = asyncio.create_task(
                 asyncio.to_thread(
                     self.conversation_memory.add_message, "user", question
@@ -1519,7 +1566,7 @@ class CustomLLMChain:
 
             generation_start = time.time()
             result_text = await self.custom_llm_chain(
-                combined_context, question
+                combined_context, question, is_trivial=False
             )
             answer = self._format_llm_response(result_text, self.instruction_lang)
 
