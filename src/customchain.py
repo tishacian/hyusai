@@ -52,6 +52,8 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
+# Import trivial-input detector
+from router import is_trivial as is_trivial_question
 
 # %% Custom LLMChain
 
@@ -684,32 +686,36 @@ class CustomLLMChain:
                 return ""
 
     @measure_time
-    async def custom_llm_chain(self, context, question):
+    async def custom_llm_chain(self, context, question, is_trivial: bool = False):
         """custom_llm_chain with reasoning capabilities
 
         Parameters
         ----------
         context (str): final context.
         question (str): input question/query.
+        is_trivial (bool): flag indicating if the question is trivial
 
         Returns (str): generated final text.
 
         """
         try:
-            reasoning_detect_start = time.time()
-            if not hasattr(self, "reasoning_metrics"):
-                self.reasoning_metrics = ReasoningMetrics(
-                    self.embedding_model, self.instruction_lang
-                )
+            if is_trivial:
+                template = self.templates[ReasoningType.TRIVIAL]
+            else:
+                reasoning_detect_start = time.time()
+                if not hasattr(self, "reasoning_metrics"):
+                    self.reasoning_metrics = ReasoningMetrics(
+                        self.embedding_model, self.instruction_lang
+                    )
 
-            reasoning_type, _ = (
-                self.reasoning_metrics.bayesian_reasoning_detection(question)
-            )
-            reasoning_time = time.time() - reasoning_detect_start
-            logging.info(
-                f"Reasoning detection took {reasoning_time:.4f} seconds"
-            )
-            template = self.templates[reasoning_type]
+                reasoning_type, _ = (
+                    self.reasoning_metrics.bayesian_reasoning_detection(question)
+                )
+                reasoning_time = time.time() - reasoning_detect_start
+                logging.info(
+                    f"Reasoning detection took {reasoning_time:.4f} seconds"
+                )
+                template = self.templates[reasoning_type]
             prompt_format = template.format(context=context, question=question)
 
             generate_start = time.time()
@@ -1080,6 +1086,33 @@ class CustomLLMChain:
         overall_start = time.time()
 
         try:
+            # -------------------------------------------------------------
+            # Trivial question bypass – skips expensive retrieval & reasoning
+            # -------------------------------------------------------------
+            if is_trivial_question(question):
+                # Persist user message in memory
+                self.conversation_memory.add_message("user", question)
+
+                # Lightweight conversation context (if any)
+                conversation_context = self.conversation_memory.get_context_with_reasoning(
+                    ReasoningType.TRIVIAL
+                )
+
+                combined_context = conversation_context or ""
+
+                result_text = await self.custom_llm_chain(
+                    combined_context,
+                    question,
+                    is_trivial=True,
+                )
+                answer = self._format_llm_response(result_text)
+
+                self.conversation_memory.add_message("assistant", answer)
+
+                return answer, combined_context, {}
+
+            # -- non-trivial path continues as before --
+
             memory_start = time.time()
             self.conversation_memory.add_message("user", question)
             memory_time = time.time() - memory_start
@@ -1211,7 +1244,7 @@ class CustomLLMChain:
             # Generate response
             generation_start = time.time()
             result_text = await self.custom_llm_chain(
-                combined_context, question
+                combined_context, question, is_trivial=False
             )
             answer = self._format_llm_response(result_text, self.instruction_lang)
             self.conversation_memory.add_message("assistant", answer)
