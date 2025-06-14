@@ -1,6 +1,6 @@
 include:
   - project: "devops/templates/gitlab-ci"
-    ref: 0.26.0
+    ref: 0.27.3
     file: "/templates/.python.yml"
     inputs:
       python-image-version: 3.11-bookworm
