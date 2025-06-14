@@ -136,14 +136,5 @@ echo "Try to detect nvidia-smi"
 	echo "CUDA not detected. Installing CPU requirements..."
 	pip install -r requirements/requirements_cpu.txt
 }
-{
-	echo "Try vLLM installation"
-	set +e
-	pip install -r requirements_vllm.txt
-	set -e
-	echo "vLLM installation succeded"
-} || {
-	echo "vLLM installation failed"
-}
 
-pip install -r requirements_common.txt
+pip install -r requirements/shared.txt requirements/standalone_interface.txt
