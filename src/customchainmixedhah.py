@@ -1,26 +1,19 @@
 import asyncio
+import logging
 import os
 import pickle
 import re
+import sys
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
-import warnings
 
 import faiss
 import numpy as np
 import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
-
-if torch.cuda.is_available():
-    from vllm import SamplingParams
-
-warnings.simplefilter(action="ignore", category=FutureWarning)
-
-import logging
-import sys
-
 from src.reasoning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
 from src.cache import TieredCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
@@ -39,7 +32,13 @@ from src.globalvariables import (
     EMBEDDING_NAME,
     DATA_PATH,
 )
-
+from src.utils import (
+    get_max_model_len,
+    measure_time,
+    measure_time_sync,
+    load_stopwords,
+)
+#%%
 from src.metrics import Evaluatrix
 from src.reasoningmetrics import ReasoningMetrics
 from src.utils import (
@@ -50,6 +49,11 @@ from src.utils import (
     load_stopwords,
 )
 
+if torch.cuda.is_available():
+    from vllm import SamplingParams
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -58,7 +62,6 @@ logging.basicConfig(
 
 
 # %% HAH simplified Custom LLMChain --> parallel multi-strategy (joint) retrieval
-
 
 @lru_cache(maxsize=None)
 @cache_chunker_embedding_chain
@@ -115,7 +118,8 @@ class CustomLLMChain:
 
         if self.model is None or self.tokenizer is None:
             raise ValueError(
-                f"Failed to load model or tokenizer. Model: {self.model}, Tokenizer: {self.tokenizer}"
+                "Failed to load model or tokenizer. "
+                f"Model: {self.model}, Tokenizer: {self.tokenizer}"
             )
 
         self.index_type = index_type
@@ -141,7 +145,8 @@ class CustomLLMChain:
             )
             load_embedding_time = time.time() - load_embedding_start
             logging.info(
-                f"Successfully loaded embedding model: {self.embedding_model_name} in {load_embedding_time:.4f} seconds"
+                "Successfully loaded embedding model: "
+                f"{self.embedding_model_name} in {load_embedding_time:.4f} seconds"
             )
         except Exception as e:
             logging.error(f"Error loading embedding model: {e}")
@@ -167,7 +172,8 @@ class CustomLLMChain:
 
         init_time = time.time() - start_time
         logging.info(
-            f"Enhanced CustomLLMChain initialization completed in {init_time:.4f} seconds"
+            "CustomLLMChain initialization completed in "
+            f"{init_time:.4f} seconds"
         )
 
     @measure_time_sync
@@ -1621,3 +1627,25 @@ class CustomLLMChain:
         """
         return format_llm_response(response, language)
     
+    def clear_caches(self):
+        """Clear all caches and conversation memory
+        
+        Returns
+        -------
+        None
+        """
+        self.conversation_memory.clear()
+        self.tiered_cache.clear()
+        self.context_cache.clear()
+        
+        # -- clear LRU cache for the entire class
+        if hasattr(self.__class__.__init__, 'cache_clear'):
+            self.__class__.__init__.cache_clear()
+        
+        # -- reset performance stats
+        self.perf_stats = {
+            "total_calls": 0,
+            "avg_response_time": 0.0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+        }
