@@ -1,11 +1,13 @@
 import asyncio
+import logging
 import os
 import pickle
 import re
+import sys
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
-import warnings
 
 import faiss
 import numpy as np
@@ -13,21 +15,19 @@ import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
 
-if torch.cuda.is_available():
-    from vllm import SamplingParams
-
-warnings.simplefilter(action="ignore", category=FutureWarning)
-
-import logging
-import sys
-
 from cache import TieredCache
 from chunker import BM25Retriever, cache_chunker_embedding_chain
-from contextcompressor import ContextualCompressionRetriever, ContextualConfig
+from contextcompressor import (
+    ContextualCompressionRetriever,
+    ContextualConfig,
+)
 from conversationmemorybuffer import ConversationMemoryBuffer
 from embedding import EmbeddingModelLoader
-from retrievalplan import RetrievalContext, QueryAnalysis, RetrievalPlan
-from ensembleretriever import FusionMethod, EnsembleConfig, EnsembleRetriever
+from ensembleretriever import (
+    FusionMethod,
+    EnsembleConfig,
+    EnsembleRetriever,
+)
 from flashreranker import FlashReranker, RerankerConfig
 from globalvariables import (
     LARGE_MODELS,
@@ -39,15 +39,24 @@ from globalvariables import (
     EMBEDDING_NAME,
     DATA_PATH,
 )
-
 from metrics import Evaluatrix
 from reasoningmetrics import ReasoningMetrics
+from retrievalplan import (
+    RetrievalContext,
+    QueryAnalysis,
+    RetrievalPlan,
+)
 from utils import (
     get_max_model_len,
     measure_time,
     measure_time_sync,
     load_stopwords,
 )
+
+if torch.cuda.is_available():
+    from vllm import SamplingParams
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -111,7 +120,8 @@ class CustomLLMChain:
 
         if self.model is None or self.tokenizer is None:
             raise ValueError(
-                f"Failed to load model or tokenizer. Model: {self.model}, Tokenizer: {self.tokenizer}"
+                "Failed to load model or tokenizer. "
+                f"Model: {self.model}, Tokenizer: {self.tokenizer}"
             )
 
         self.index_type = index_type
@@ -136,7 +146,8 @@ class CustomLLMChain:
             )
             load_embedding_time = time.time() - load_embedding_start
             logging.info(
-                f"Successfully loaded embedding model: {self.embedding_model_name} in {load_embedding_time:.4f} seconds"
+                "Successfully loaded embedding model: "
+                f"{self.embedding_model_name} in {load_embedding_time:.4f} seconds"
             )
         except Exception as e:
             logging.error(f"Error loading embedding model: {e}")
@@ -160,7 +171,8 @@ class CustomLLMChain:
 
         init_time = time.time() - start_time
         logging.info(
-            f"Enhanced CustomLLMChain initialization completed in {init_time:.4f} seconds"
+            "CustomLLMChain initialization completed in "
+            f"{init_time:.4f} seconds"
         )
 
     @measure_time_sync
@@ -1375,7 +1387,9 @@ class CustomLLMChain:
         try:
             reasoning_detect_start = time.time()
             if not hasattr(self, "reasoning_metrics"):
-                self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+                self.reasoning_metrics = ReasoningMetrics(
+                    self.embedding_model
+                )
 
             reasoning_type, confidence = await self.detect_reasoning_type(
                 question
@@ -1633,3 +1647,26 @@ class CustomLLMChain:
             Result of invoke_async containing answer, context, and metrics
         """
         return self.run_async_in_thread(self.invoke_async(question))
+
+    def clear_caches(self):
+        """Clear all caches and conversation memory
+        
+        Returns
+        -------
+        None
+        """
+        self.conversation_memory.clear()
+        self.tiered_cache.clear()
+        self.context_cache.clear()
+        
+        # -- clear LRU cache for the entire class
+        if hasattr(self.__class__.__init__, 'cache_clear'):
+            self.__class__.__init__.cache_clear()
+        
+        # -- reset performance stats
+        self.perf_stats = {
+            "total_calls": 0,
+            "avg_response_time": 0.0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+        }
