@@ -13,14 +13,14 @@ import streamlit as st
 import torch
 from PIL import Image
 
-from src.chunker import TextChunker
+from chunker import TextChunker
 from configuration import get_standalone_interface_config
-from src.customchain import CustomLLMChain as HAHCustomLLMChain
-from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
-from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
-from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
-from src.embedding import EmbeddingVectors
-from src.globalvariables import (
+from customchain import CustomLLMChain as HAHCustomLLMChain
+from customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
+from customchain_naive import CustomLLMChain as NaiveCustomLLMChain
+from docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
+from embedding import EmbeddingVectors
+from globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
     GPU_MODEL_SET,
@@ -32,9 +32,9 @@ from src.globalvariables import (
     PipelineType,
     EMBEDDING_NAME,
 )
-from src.metrics import DUMMY_METRICS
-from src.modeltokenizer import load_model_and_tokenizer
-from src.ragger_css import (
+from metrics import DUMMY_METRICS
+from modeltokenizer import load_model_and_tokenizer
+from ragger_css import (
     BACKGROUND,
     BUTTONS,
     FILE_UPLOADER,
@@ -42,7 +42,6 @@ from src.ragger_css import (
     SELECT_INPUT_STYLE,
     THINKING_SPINNER,
 )
-from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTIONS_LANGS_LIST, InstructionLangs
 
 
 # -- device available model
@@ -68,7 +67,6 @@ pipeline_type = PipelineType.HAHCOMPOSITE
 chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
 index_type = IndexType.FAISS
 model_name = device_default_model()
-instruction_lang = DEFAULT_INSTRUCTION_LANG
 
 HUMAN_AVATAR_PATH = get_standalone_interface_config().human_chat_logo
 AI_AVATAR_PATH = get_standalone_interface_config().ai_chat_logo
@@ -111,8 +109,7 @@ def init_db():
                 chunking_method TEXT,
                 index_type TEXT,
                 vector_store TEXT,
-                pipeline_type TEXT,
-                instruction_lang TEXT
+                pipeline_type TEXT
             )
         """
         )
@@ -123,7 +120,6 @@ def init_db():
             ("index_type", "TEXT"),
             ("vector_store", "TEXT"),
             ("pipeline_type", "TEXT"),
-            ("instruction_lang", "TEXT")
         ]
         for column_name, column_type in columns_to_add:
             c.execute("PRAGMA table_info(chats)")
@@ -158,10 +154,6 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-# st.markdown(
-#    PADDINGS,
-#    unsafe_allow_html=True,
-# )
 
 
 # -- metrics style
@@ -184,9 +176,16 @@ def display_metrics(metrics):
                 color = "red" if value > 0.5 else "green"
             elif "latency" in key.lower():
                 color = "white"
+                value_str = f"{value:.2f}s"
             else:
                 color = "green" if value >= 0.5 else "red"
-            metrics_html += f"<span class='metric'><span class='metric-name'>{key}:</span><span class='metric-value {color}'>{value:.2f}</span></span>"
+                value_str = f"{value:.2f}"
+            metrics_html += (
+                f"<span class='metric'>"
+                f"<span class='metric-name'>{key}:</span>"
+                f"<span class='metric-value {color}'>{value_str}</span>"
+                f"</span>"
+            )
         metrics_html += "</div>"
         st.markdown(metrics_html, unsafe_allow_html=True)
     except (IndexError, AttributeError, IOError, ValueError, TypeError):
@@ -255,8 +254,6 @@ if "model_name" not in st.session_state:
     init_cached_model(st.session_state.model_name, REPO_PATH)
 if "expand_doc_embedding" not in st.session_state:
     st.session_state.expand_doc_embedding = True
-if "instruction_lang" not in st.session_state:
-    st.session_state.instruction_lang = None
 
 
 # Function to save chat history to database
@@ -267,33 +264,62 @@ def save_chat_to_db(
     index_type,
     vector_store,
     pipeline_type,
-    instruction_lang,
 ):
-    chat_data = []
+    """Save chat history to database
+    
+    Parameters
+    ----------
+    chat_history : list
+        Chat history to save
+    model_name : str
+        Model name
+    chunking_method : str
+        Chunking method
+    index_type : str
+        Index type
+    vector_store : str
+        Vector store
+    pipeline_type : str
+        Pipeline type
+
+    Returns
+    -------
+    None
+    """
+    # Ensure chat_history is a list
+    if not isinstance(chat_history, list):
+        chat_history = [chat_history]
+    
+    # -- process messages in correct format
+    processed_messages = []
     for msg in chat_history:
-        msg_copy = msg.copy()
-        if "avatar" in msg_copy and isinstance(msg_copy["avatar"], str):
-            msg_copy["avatar"] = msg_copy["avatar"].split(",")[-1]
-        chat_data.append(msg_copy)
-
-    chat_json = json.dumps(chat_data)
-    current_time = datetime.now().isoformat()
-
+        if isinstance(msg, str):
+            processed_messages.append({
+                "role": (
+                    "user" if len(processed_messages) % 2 == 0 else "assistant"
+                ),
+                "content": msg
+            })
+        elif isinstance(msg, dict):
+            processed_messages.append(msg.copy())
+        else:
+            continue
+    
+    # -- save to database
     c.execute(
         """
         INSERT INTO chats 
-        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            chat_json,
-            current_time,
+            json.dumps(processed_messages),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             model_name,
             chunking_method,
             index_type,
             vector_store,
             pipeline_type,
-            instruction_lang,
         ),
     )
     conn.commit()
@@ -301,28 +327,36 @@ def save_chat_to_db(
 
 # -- update the load_chat_from_db function
 def load_chat_from_db(chat_id):
+    """Load chat from database
+    
+    Parameters
+    ----------
+    chat_id : int
+        Chat ID
+        
+    Returns
+    -------
+    chat_data : list
+        Chat data
+    """
     c.execute(
         """
-        SELECT chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang 
+        SELECT chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type 
         FROM chats WHERE id = ?
     """,
         (chat_id,),
     )
     result = c.fetchone()
     if result:
-        chat_history = json.loads(result[0])
-        for msg in chat_history:
-            if "avatar" in msg and msg["avatar"]:
-                if not msg["avatar"].startswith("data:image/png;base64,"):
-                    msg["avatar"] = f"data:image/png;base64,{msg['avatar']}"
+        # Parse JSON string back to list
+        chat_data = json.loads(result[0]) if result[0] else []
         return (
-            chat_history,
+            chat_data,
             result[1],
             result[2],
             result[3],
             result[4],
             result[5],
-            result[6],
         )
     return [], None, None, None, None, None, None
 
@@ -337,7 +371,7 @@ def delete_chat(chat_id):
     st.rerun()
 
 
-# --get all chat history
+# -- get all chat history
 def get_all_chats():
     try:
         c.execute("SELECT id, timestamp FROM chats ORDER BY timestamp DESC")
@@ -450,7 +484,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                         ),
                     )
 
-            row_be = st.columns(4)
+            row_be = st.columns(3)
             with row_be[0]:
                 vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
                 vector_store_list = [
@@ -470,7 +504,10 @@ if get_standalone_interface_config().forced_vdb == "None":
                     index=vector_store_list.index(
                         current_vector_store
                     ),  # This will now be safe
-                    help="Which vector store to add the new documents. Choose <New> to create a new vector store.",
+                    help=(
+                        "Which vector store to add the new documents. "
+                        "Choose <New> to create a new vector store."
+                    ),
                 )
 
             with row_be[1]:
@@ -493,12 +530,6 @@ if get_standalone_interface_config().forced_vdb == "None":
                         ),
                         help="Select the pipeline implementation to use",
                     )
-                with row_be[3]:
-                    instruction_lang = st.selectbox(
-                        "LLM instruction language",
-                        INSTRUCTIONS_LANGS_LIST,
-                        help="Select the language of the LLM reasoning instructions.",
-                    )
             # --
             row_buttons = st.columns(6)
             with row_buttons[0]:
@@ -519,15 +550,18 @@ if get_standalone_interface_config().forced_vdb == "None":
                     create_new_vs = False
                 else:
                     st.error(
-                        "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
+                        "Check the 'Vector Store to Merge the Knowledge' "
+                        "and 'New Vector Store Name' fields"
                     )
                 # -- check for uploaded document
                 if not uploaded_files:
                     st.error("No document uploaded...")
                 else:
                     if NUMBER_OF_FILES == 1:
-                        # -- load temporary folder first before loading document..
-                        _, extension = os.path.splitext(uploaded_files[0].name)
+                        # -- load temporary folder first before loading document
+                        _, extension = os.path.splitext(
+                            uploaded_files[0].name
+                        )
                         with NamedTemporaryFile(
                             delete=False, suffix=extension
                         ) as temp_file:
@@ -552,7 +586,8 @@ if get_standalone_interface_config().forced_vdb == "None":
 
                 if not chunks or len(chunks) == 0:
                     st.error(
-                        "Document chunking produced no results. The document may be empty or unprocessable."
+                        "Document chunking produced no results. "
+                        "The document may be empty or unprocessable."
                     )
                     st.stop()
 
@@ -596,11 +631,9 @@ if get_standalone_interface_config().forced_vdb == "None":
                     model_name,
                     existing_vector_store,
                     index_type=index_type,
-                    instruction_lang=instruction_lang,
                 )
                 st.session_state.chain = chain
                 st.session_state.pipeline_type = pipeline_type
-                st.session_state.instruction_lang = instruction_lang
 else:
     RaggerChain = (
         CHAHCustomLLMChain
@@ -618,11 +651,9 @@ else:
         model_name,
         get_standalone_interface_config().forced_vdb,
         index_type=index_type,
-        instruction_lang=instruction_lang,
     )
     st.session_state.chain = chain
     st.session_state.pipeline_type = pipeline_type
-    st.session_state.instruction_lang = instruction_lang
 
 if "model_name" not in st.session_state:
     st.session_state.model_name = device_default_model()
@@ -634,11 +665,14 @@ if "vector_store" not in st.session_state:
     st.session_state.vector_store = "<New>"
 if "pipeline_type" not in st.session_state:
     st.session_state.pipeline_type = PipelineType.HAHCOMPOSITE
-if "instruction_lang" not in st.session_state:
-    st.session_state.instruction_lang = DEFAULT_INSTRUCTION_LANG
 
 # -- New chat
 if st.sidebar.button("New Chat"):
+    # -- clear all caches
+    if st.session_state.chain and hasattr(st.session_state.chain, 'clear_caches'):
+        st.session_state.chain.clear_caches()
+    
+    # -- set chat history + current chat id
     if st.session_state.chat_history:
         save_chat_to_db(
             st.session_state.chat_history,
@@ -651,73 +685,151 @@ if st.sidebar.button("New Chat"):
         )
     st.session_state.chat_history = []
     st.session_state.current_chat_id = None
+    
+    # -- reinit chain
+    RaggerChain = (
+        CHAHCustomLLMChain
+        if st.session_state.pipeline_type == PipelineType.HAHCOMPOSITE
+        else (
+            HAHCustomLLMChain
+            if st.session_state.pipeline_type == PipelineType.HAH
+            else NaiveCustomLLMChain
+        )
+    )
+    
+    chain = RaggerChain(
+        st.session_state.tokenizer,
+        st.session_state.model,
+        st.session_state.model_name,
+        st.session_state.vector_store,
+        index_type=st.session_state.index_type,
+    )
+    st.session_state.chain = chain
+    
     st.rerun()
 
 
 # -- Recently saved chats...
 st.sidebar.markdown("Recents")
-historical_chats = get_all_chats()
-for chat_id, timestamp in historical_chats:
-    chat_label = f"Chat {chat_id}"
-    if timestamp:
-        chat_label += f" - {timestamp}"
 
+# -- sort chart by timestamp
+c.execute("""
+    SELECT id, chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type 
+    FROM chats 
+    ORDER BY timestamp DESC
+""")
+chats = c.fetchall()
+
+for chat in chats:
+    chat_id, chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type = chat
+    chat_data = json.loads(chat_data) if chat_data else []
+    if (
+        not chat_data or len(chat_data) == 0 or 
+        not any(msg.get("content") for msg in chat_data)
+    ):
+        continue
+    
+    try:
+        chat_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+    except ValueError:
+        try:
+            chat_time = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            chat_time = datetime.now()
+    
+    formatted_time = chat_time.strftime("%Y-%m-%d %H:%M")
+    chat_label = f"Chat {chat_id} - {formatted_time}"
+    
     col1, col2 = st.sidebar.columns([15, 1])
-
+    
     with col1:
         if st.button(chat_label, key=f"chat_{chat_id}"):
-            (
-                chat_history,
-                model_name,
-                chunking_method,
-                index_type,
-                vector_store,
-                pipeline_type,
-                instruction_lang,
-            ) = load_chat_from_db(chat_id)
-
-            # Set session state variables
-            st.session_state.chat_history = chat_history
-            st.session_state.current_chat_id = chat_id
-            st.session_state.model_name = model_name
-            st.session_state.chunking_method = chunking_method
-            st.session_state.index_type = index_type
-            st.session_state.vector_store = vector_store
-            st.session_state.pipeline_type = pipeline_type or PipelineType.HAH
-            st.session_state.instruction_lang = instruction_lang
-
-            # -- select appropriate chain class based on pipeline type
-            RaggerChain = (
-                CHAHCustomLLMChain
-                if st.session_state.pipeline_type == PipelineType.HAHCOMPOSITE
-                else (
-                    HAHCustomLLMChain
-                    if st.session_state.pipeline_type == PipelineType.HAH
-                    else NaiveCustomLLMChain
-                )
-            )
-
-            # -- reinit chain
-            chain = RaggerChain(
-                st.session_state.tokenizer,
-                st.session_state.model,
-                model_name,
-                vector_store,
-                index_type=index_type,
-                instruction_lang=instruction_lang,
-            )
-            st.session_state.chain = chain
-            st.rerun()
-    # --
+            if chat_id != st.session_state.current_chat_id:
+                if st.session_state.chain and hasattr(st.session_state.chain, 'clear_caches'):
+                    try:
+                        st.session_state.chain.clear_caches()
+                    except AttributeError:
+                        pass
+                st.session_state.chat_history = []
+                
+                chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type = load_chat_from_db(chat_id)
+                if chat_data:
+                    st.session_state.chat_history = chat_data
+                    st.session_state.current_chat_id = chat_id
+                    st.session_state.model_name = model_name
+                    st.session_state.chunking_method = chunking_method
+                    st.session_state.index_type = index_type
+                    st.session_state.vector_store = vector_store
+                    st.session_state.pipeline_type = (
+                        pipeline_type or PipelineType.HAH
+                    )
+                    st.session_state.instruction_lang = instruction_lang
+                    
+                    # -- init a fresh chain for the loaded chat
+                    RaggerChain = (
+                        CHAHCustomLLMChain
+                        if st.session_state.pipeline_type == PipelineType.HAHCOMPOSITE
+                        else (
+                            HAHCustomLLMChain
+                            if st.session_state.pipeline_type == PipelineType.HAH
+                            else CustomLLMChain
+                        )
+                    )
+                    # -- init chain --> session_state.chain
+                    st.session_state.chain = RaggerChain(
+                        tokenizer=st.session_state.tokenizer,
+                        model=st.session_state.model,
+                        model_name=st.session_state.model_name,
+                        vector_store_name=st.session_state.vector_store,
+                        index_type=st.session_state.index_type,
+                    )
+                    st.rerun()
+    
     with col2:
         if st.button("×", key=f"delete_{chat_id}"):
             delete_chat(chat_id)
+            if chat_id == st.session_state.current_chat_id:
+                st.session_state.chat_history = []
+                st.session_state.current_chat_id = None
             st.rerun()
 
-# -- Clear all chat history + from DB..
+# -- Save chat to database only when there's actual content
+if st.session_state.chat_history and any(msg.get("content") for msg in st.session_state.chat_history):
+    if not st.session_state.current_chat_id:
+        save_chat_to_db(
+            json.dumps(st.session_state.chat_history),
+            st.session_state.get("model_name", ""),
+            st.session_state.get("chunking_method", ""),
+            st.session_state.get("index_type", ""),
+            st.session_state.get("vector_store", ""),
+            st.session_state.get("pipeline_type", ""),
+        )
+        st.session_state.current_chat_id = c.lastrowid
+    else:
+        c.execute(
+            """
+            UPDATE chats 
+            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ?, pipeline_type = ?
+            WHERE id = ?
+            """,
+            (
+                json.dumps(st.session_state.chat_history),
+                st.session_state.get("model_name", ""),
+                st.session_state.get("chunking_method", ""),
+                st.session_state.get("index_type", ""),
+                st.session_state.get("vector_store", ""),
+                st.session_state.get("pipeline_type", ""),
+                st.session_state.current_chat_id,
+            ),
+        )
+        conn.commit()
+
+# -- clear all chat history + from DB..
 if st.sidebar.button("Clear All Chat History"):
     c.execute("DELETE FROM chats")
     conn.commit()
+    if st.session_state.chain and hasattr(st.session_state.chain, 'clear_caches'):
+        st.session_state.chain.clear_caches()
     st.session_state.chat_history.clear()
     st.session_state.current_chat_id = None
     st.rerun()
@@ -745,7 +857,7 @@ else:
     st.info("No chat history. Start a new conversation!")
 
 
-col1, col2 = st.columns([3, 1])  # Create two columns
+col1, col2 = st.columns([3, 1])
 
 
 def stream_text(text: str) -> Iterator[str]:
@@ -771,7 +883,7 @@ def stream_text(text: str) -> Iterator[str]:
         chunk_size = 3
 
         for j in range(0, len(words), chunk_size):
-            chunk = " ".join(words[j : j + chunk_size])
+            chunk = " ".join(words[j:j + chunk_size])
             full_text += chunk
             if j + chunk_size < len(words):
                 full_text += " "
@@ -786,6 +898,7 @@ def stream_text(text: str) -> Iterator[str]:
 
 # -- prompting...
 if prompt := st.chat_input("Message RAGGER..."):
+    st.session_state.metrics = {}
     response, context, metrics = None, None, None
     st.chat_message("human", avatar=HUMAN_AVATAR).write(prompt)
     st.session_state.chat_history.append(
@@ -800,7 +913,6 @@ if prompt := st.chat_input("Message RAGGER..."):
                 '<div class="thinking-animation"></div>',
                 unsafe_allow_html=True,
             )
-            time.sleep(1)
 
         with st.spinner(""):
             try:
@@ -819,7 +931,10 @@ if prompt := st.chat_input("Message RAGGER..."):
                 st.error(
                     "Ensure a vector database is selected to initialize before chatting"
                 )
-                response = "No available context is provided to answer this question. Please ensure to initialize the right vector DB"
+                response = (
+                    "No available context is provided to answer this question. "
+                    "Please ensure to initialize the right vector DB"
+                )
                 context = ""
 
         # -- streamer
@@ -832,7 +947,9 @@ if prompt := st.chat_input("Message RAGGER..."):
             )
         message_placeholder.markdown(response)
         display_metrics(metrics)
-
+    # -- clear cuda cache
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
     # -- Update chat history
     st.session_state.chat_history.append(
         {
@@ -848,7 +965,7 @@ if prompt := st.chat_input("Message RAGGER..."):
         c.execute(
             """
             UPDATE chats 
-            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ?, pipeline_type = ?, instruction_lang = ?
+            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ?, pipeline_type = ?
             WHERE id = ?
             """,
             (
@@ -858,19 +975,17 @@ if prompt := st.chat_input("Message RAGGER..."):
                 st.session_state.get("index_type", ""),
                 st.session_state.get("vector_store", ""),
                 st.session_state.get("pipeline_type", ""),
-                st.session_state.get("instruction_lang", ""),
                 st.session_state.current_chat_id,
             ),
         )
     else:
         save_chat_to_db(
-            st.session_state.chat_history,
+            json.dumps(st.session_state.chat_history),
             st.session_state.get("model_name", ""),
             st.session_state.get("chunking_method", ""),
             st.session_state.get("index_type", ""),
             st.session_state.get("vector_store", ""),
             st.session_state.get("pipeline_type", ""),
-            st.session_state.get("instruction_lang", ""),
         )
         st.session_state.current_chat_id = c.lastrowid
 
@@ -925,9 +1040,10 @@ if not df.empty:
         mime="application/json",
     )
 
-
-# Add a button to clear chat history
+# -- clear chat history
 if st.button("Clear Chat History"):
+    if st.session_state.chain and hasattr(st.session_state.chain, 'clear_caches'):
+        st.session_state.chain.clear_caches()
     st.session_state.chat_history.clear()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
