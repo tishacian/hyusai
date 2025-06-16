@@ -425,5 +425,5 @@ class OCRConfig(Enum):
 
 
 class Ports(Enum):
-    START_PORT = 8509
-    END_PORT = 8520
+    START_PORT = 8501
+    END_PORT = 8509
