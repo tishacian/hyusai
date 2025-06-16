@@ -11,8 +11,8 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
-from flashreranker import FlashReranker
-from ensembleretriever import EnsembleRetriever
+from src.flashreranker import FlashReranker
+from src.ensembleretriever import EnsembleRetriever
 from concurrent.futures import ThreadPoolExecutor
 
 # --

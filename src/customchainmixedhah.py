@@ -21,17 +21,17 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 import logging
 import sys
 
-from cache import TieredCache
-from chunker import BM25Retriever, cache_chunker_embedding_chain
-from contextcompressor import ContextualCompressionRetriever, ContextualConfig
-from conversationmemorybuffer import ConversationMemoryBuffer
-from embedding import EmbeddingModelLoader
-from retrievalplan import RetrievalContext, QueryAnalysis, RetrievalPlan
-from ensembleretriever import FusionMethod, EnsembleConfig, EnsembleRetriever
-from flashreranker import FlashReranker, RerankerConfig
-from globalvariables import (
+from src.reasoning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from src.cache import TieredCache
+from src.chunker import BM25Retriever, cache_chunker_embedding_chain
+from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
+from src.conversationmemorybuffer import ConversationMemoryBuffer
+from src.embedding import EmbeddingModelLoader
+from src.retrievalplan import RetrievalContext, QueryAnalysis, RetrievalPlan
+from src.ensembleretriever import FusionMethod, EnsembleConfig, EnsembleRetriever
+from src.flashreranker import FlashReranker, RerankerConfig
+from src.globalvariables import (
     LARGE_MODELS,
-    TEMPLATES,
     VECTOR_STORE_PATH,
     IndexType,
     ReasoningType,
@@ -40,9 +40,10 @@ from globalvariables import (
     DATA_PATH,
 )
 
-from metrics import Evaluatrix
-from reasoningmetrics import ReasoningMetrics
-from utils import (
+from src.metrics import Evaluatrix
+from src.reasoningmetrics import ReasoningMetrics
+from src.utils import (
+    format_llm_response,
     get_max_model_len,
     measure_time,
     measure_time_sync,
@@ -72,6 +73,7 @@ class CustomLLMChain:
         index_type=IndexType.FAISS,
         cache_size=1000,
         dynamic_k=True,
+        instruction_lang: InstructionLangs = DEFAULT_INSTRUCTION_LANG,
     ):
         """Initialize CustomLLMChain with advanced retrieval capabilities
 
@@ -93,6 +95,8 @@ class CustomLLMChain:
             Size of cache, by default 1000
         dynamic_k : bool, optional
             Whether to use dynamic k computation, by default True
+        instruction_lang : InstructionLangs, optional
+            Language of the LLM instruction, by default DEFAULT_INSTRUCTION_LANG
         """
         start_time = time.time()
 
@@ -115,6 +119,7 @@ class CustomLLMChain:
             )
 
         self.index_type = index_type
+        self.instruction_lang = instruction_lang
         self.stopwords = load_stopwords(DATA_PATH)
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
@@ -142,13 +147,15 @@ class CustomLLMChain:
             logging.error(f"Error loading embedding model: {e}")
             raise
 
-        self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+        self.reasoning_metrics = ReasoningMetrics(
+            self.embedding_model, self.instruction_lang
+        )
 
         self._initialize_retrievers()
         self._initialize_reranker()
         self._initialize_contextual_retriever()
 
-        self.templates = TEMPLATES
+        self.templates = ALL_REASONING_INSTRUCTIONS[self.instruction_lang]
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count())
 
         self.perf_stats = {
@@ -1182,48 +1189,6 @@ class CustomLLMChain:
         else:
             return 2 * 1024
 
-    def _format_llm_response(self, text):
-        """Format LLM response while preserving tables and structured data.
-            Only removes template artifacts and prompt phrases.
-
-        Parameters
-        ----------
-        text : str
-            Raw response from the LLM
-
-        Returns
-        -------
-        str
-            Cleaned text with preserved formatting
-        """
-        try:
-            text = re.sub(
-                r"\[INST\].*?\[/INST\]", "", text, flags=re.DOTALL
-            ).strip()
-            text = re.sub(
-                r"Analysis Steps:.*?Context:", "", text, flags=re.DOTALL
-            ).strip()
-            text = re.sub(
-                r"Context:.*?Question:", "", text, flags=re.DOTALL
-            ).strip()
-
-            phrases_to_remove = [
-                r"Provide .*? based on the context:",
-                r"Explain .*? based on the context:",
-                r"Explore .*? based on the context:",
-                r"Compare .*? based on the context:",
-            ]
-            for phrase in phrases_to_remove:
-                text = re.sub(phrase, "", text, flags=re.IGNORECASE).strip()
-
-            return text
-
-        except Exception as e:
-            logging.error(
-                f"An error occurred during text formatting: {str(e)}"
-            )
-            return "No sufficient context to respond to the question."
-
     @measure_time
     async def generate_text(
         self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=50
@@ -1375,7 +1340,9 @@ class CustomLLMChain:
         try:
             reasoning_detect_start = time.time()
             if not hasattr(self, "reasoning_metrics"):
-                self.reasoning_metrics = ReasoningMetrics(self.embedding_model)
+                self.reasoning_metrics = ReasoningMetrics(
+                    self.embedding_model, self.instruction_lang
+                )
 
             reasoning_type, confidence = await self.detect_reasoning_type(
                 question
@@ -1554,7 +1521,7 @@ class CustomLLMChain:
             result_text = await self.custom_llm_chain(
                 combined_context, question
             )
-            answer = self._format_llm_response(result_text)
+            answer = self._format_llm_response(result_text, self.instruction_lang)
 
             await asyncio.to_thread(
                 self.conversation_memory.add_message, "assistant", answer
@@ -1633,3 +1600,24 @@ class CustomLLMChain:
             Result of invoke_async containing answer, context, and metrics
         """
         return self.run_async_in_thread(self.invoke_async(question))
+
+    @staticmethod
+    def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+        """Format LLM response while preserving tables and structured data.
+        Only removes template artifacts and prompt phrases.
+
+        Parameters
+        ----------
+        response : str
+            Raw response from the LLM
+        language : InstructionLangs, optional
+            Language of the reasoning instructions to remove,
+            by default DEFAULT_INSTRUCTION_LANG
+
+        Returns
+        -------
+        str
+            Cleaned response with preserved formatting
+        """
+        return format_llm_response(response, language)
+    

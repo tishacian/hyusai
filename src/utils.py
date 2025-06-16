@@ -6,10 +6,12 @@ Created on Wed Mar 26 15:32:40 2025
 @author: kennethezukwoke
 """
 import os
+import re
 import subprocess
 import importlib.util
 import sys
 import shutil
+from typing import Literal
 import torch
 import logging
 import time
@@ -17,13 +19,14 @@ import pickle
 import functools
 from pathlib import Path
 from functools import cache
-from globalvariables import (
+from src.globalvariables import (
     Models,
     GPU_MODEL_SET,
     CPUModels,
     CPU_MODEL_SET,
     LARGE_MODELS,
 )
+from src.reasoning_instructions import ALL_PROMPT_SECTIONS_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG, InstructionLangs
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
 if os.path.isdir(user_tessdata) and any(
@@ -334,3 +337,36 @@ def load_stopwords(data_dir: str = "data"):
         return set()
 
     return stopwords_set
+
+
+def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+    """Format LLM response while preserving tables and structured data.
+    Only removes template artifacts and prompt phrases.
+
+    Parameters
+    ----------
+    response : str
+        Raw response from the LLM
+    language : InstructionLangs, optional
+        Language of the reasoning instructions to remove,
+        by default DEFAULT_INSTRUCTION_LANG
+
+    Returns
+    -------
+    str
+        Cleaned response with preserved formatting
+    """
+    instruction_block = r"\[INST\].*?\[/INST\]"
+    prompt_sections = ALL_PROMPT_SECTIONS_TO_REMOVE[language]
+    prompt_phrases = ALL_PROMPT_PHRASES_TO_REMOVE[language]
+    try:
+        response = re.sub(instruction_block, "", response, flags=re.DOTALL).strip()
+        # remove standard prompt sections/phrases
+        for section in prompt_sections:
+            response = re.sub(section, "", response, flags=re.IGNORECASE | re.DOTALL).strip()
+        for phrase in prompt_phrases:
+            response = re.sub(phrase, "", response, flags=re.MULTILINE).strip()
+        return response
+    except Exception as e:
+        logging.error(f"🚩 An error occurred during response formatting: {str(e)}")
+        return "No sufficient context to respond to the question."

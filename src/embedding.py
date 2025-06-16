@@ -6,14 +6,14 @@ import logging
 import numpy as np
 from typing import Optional
 from functools import lru_cache
-from globalvariables import (
+from src.globalvariables import (
     VECTOR_STORE_PATH,
     IndexType,
     EMBEDDING_NAME,
 )
-from embeddingloader import EmbeddingModelLoader
+from src.embeddingloader import EmbeddingModelLoader
 from langchain_community.vectorstores import Chroma
-from chunker import cache_chunker_embedding_chain, BM25Retriever
+from src.chunker import cache_chunker_embedding_chain, BM25Retriever
 
 logging.basicConfig(
     stream=sys.stdout,

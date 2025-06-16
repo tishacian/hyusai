@@ -1,5 +1,4 @@
 import torch
-import re
 import os
 import faiss
 import pickle
@@ -10,6 +9,9 @@ from langchain_community.vectorstores import Chroma
 # --
 import warnings
 import asyncio
+
+from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from src.utils import format_llm_response
 if torch.cuda.is_available():
     from vllm import SamplingParams
 from functools import lru_cache
@@ -328,33 +330,6 @@ class CustomLLMChain:
             device_chunks = [future.result() for future in as_completed(futures)]
 
         return torch.cat(device_chunks, dim=1)
-
-    def _format_llm_response(self, text):
-        """format LLM response
-
-        Parameters:
-            text (str): input string
-
-        Returns:
-            str: formatted text
-        """
-        try:
-            text = re.sub(r"\[INST\].*?\[/INST\]", "", text, flags=re.DOTALL).strip()
-            text = re.sub(
-                r"Your task is to answer the following question based on the given context:",
-                "",
-                text,
-                flags=re.DOTALL,
-            ).strip()
-            text = re.sub(
-                r"^(Question:|Answer:)\s*", "", text, flags=re.MULTILINE
-            ).strip()
-            text = re.split(r"\n\s*(?:Question:|Answer:)", text)[0].strip()
-            text = re.sub(r"objectivity, and emotional resonance\.", "", text).strip()
-            return text
-        except Exception as e:
-            logging.error(f"🚩 An error occurred during text formatting: {str(e)}")
-            return "No sufficient context to respond to the question."
 
     async def generate_text(
         self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=10
@@ -688,3 +663,23 @@ class CustomLLMChain:
             tuple: result of invoke_async
         """
         return self.run_async_in_thread(self.invoke_async(question))
+
+    @staticmethod
+    def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+        """Format LLM response while preserving tables and structured data.
+        Only removes template artifacts and prompt phrases.
+
+        Parameters
+        ----------
+        response : str
+            Raw response from the LLM
+        language : InstructionLangs, optional
+            Language of the reasoning instructions to remove,
+            by default DEFAULT_INSTRUCTION_LANG
+
+        Returns
+        -------
+        str
+            Cleaned response with preserved formatting
+        """
+        return format_llm_response(response, language)

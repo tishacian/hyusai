@@ -13,7 +13,7 @@ import weaviate
 from functools import lru_cache, wraps
 from typing import Dict, Any
 from sentence_transformers import SentenceTransformer
-from globalvariables import IndexType, EMBEDDING_NAME
+from src.globalvariables import IndexType, EMBEDDING_NAME
 
 logging.basicConfig(
     stream=sys.stdout,

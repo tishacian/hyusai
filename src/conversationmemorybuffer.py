@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
-from globalvariables import ReasoningType
+from src.globalvariables import ReasoningType
 
 # --
 logging.basicConfig(
