@@ -1213,7 +1213,7 @@ class CustomLLMChain:
             result_text = await self.custom_llm_chain(
                 combined_context, question
             )
-            answer = format_llm_response(result_text, self.instruction_lang)
+            answer = self._format_llm_response(result_text, self.instruction_lang)
             self.conversation_memory.add_message("assistant", answer)
             generation_time = time.time() - generation_start
             logging.info(
@@ -1266,5 +1266,20 @@ class CustomLLMChain:
 
     @staticmethod
     def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
-        # for retrocompatibility
+        """Format LLM response while preserving tables and structured data.
+        Only removes template artifacts and prompt phrases.
+
+        Parameters
+        ----------
+        response : str
+            Raw response from the LLM
+        language : InstructionLangs, optional
+            Language of the reasoning instructions to remove,
+            by default DEFAULT_INSTRUCTION_LANG
+
+        Returns
+        -------
+        str
+            Cleaned response with preserved formatting
+        """
         return format_llm_response(response, language)

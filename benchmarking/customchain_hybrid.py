@@ -640,7 +640,7 @@ class CustomLLMChain:
         relevant_contexts = await self.search_similar_texts_async(question, k=5)
         combined_context = "\n\n".join(relevant_contexts)
         result_text = await self.custom_llm_chain(combined_context, question)
-        answer = format_llm_response(result_text)
+        answer = self._format_llm_response(result_text)
         eval_metrics = await Evaluatrix(
             answer,
             combined_context,
@@ -666,5 +666,20 @@ class CustomLLMChain:
 
     @staticmethod
     def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
-        # for retrocompatibility
+        """Format LLM response while preserving tables and structured data.
+        Only removes template artifacts and prompt phrases.
+
+        Parameters
+        ----------
+        response : str
+            Raw response from the LLM
+        language : InstructionLangs, optional
+            Language of the reasoning instructions to remove,
+            by default DEFAULT_INSTRUCTION_LANG
+
+        Returns
+        -------
+        str
+            Cleaned response with preserved formatting
+        """
         return format_llm_response(response, language)
