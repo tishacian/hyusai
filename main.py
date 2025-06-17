@@ -58,7 +58,7 @@ def get_username_from_path():
 
 
 def available_port(
-    start_port=Ports.START_PORT.value, end_port=Ports.END_PORT.value
+    start_port=8501, end_port=8509
 ):
     """Find an available port and return None if not available
 
