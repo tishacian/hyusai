@@ -323,6 +323,18 @@ def save_chat_to_db(
 
 # -- update the load_chat_from_db function
 def load_chat_from_db(chat_id):
+    """Load chat from database
+    
+    Parameters
+    ----------
+    chat_id : int
+        Chat ID
+        
+    Returns
+    -------
+    chat_data : list
+        Chat data
+    """
     c.execute(
         """
         SELECT chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type 
@@ -909,6 +921,7 @@ if prompt := st.chat_input("Message RAGGER..."):
                 "Something went wrong...Check to see if the vector DB is selected not <New>"
             )
         message_placeholder.markdown(response)
+        display_metrics(metrics)
     # -- clear cuda cache
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
