@@ -12,7 +12,7 @@ from nltk.corpus import stopwords
 from collections import defaultdict
 from sentence_transformers import util
 from sklearn.metrics.pairwise import cosine_similarity
-from hughes import HughesHallucination, HughesConfig
+from src.hughes import HughesHallucination, HughesConfig
 
 # --
 nltk.download("punkt")
@@ -155,7 +155,7 @@ async def fluency_llm(generated_text, tokenizer, model):
         lock (Thread): Thread
 
     Returns
-    None: fluency score using llm
+        fluency score using llm. higher values are preferred.
     """
     ppl = await perplexity(generated_text, tokenizer, model)
     min_ppl = 10
@@ -176,7 +176,7 @@ async def fluency_ngram(generated_text, reference_text, n_gram=3):
         n_gram (int): size of n-gram
 
     Returns:
-        float: Fluency score using n-gram
+        float: Fluency score using n-gram. higher values are preferred.
     """
     model = _ngram_model(reference_text, n_gram)
     fluency_score = calculate_fluency(generated_text, model, n_gram)
@@ -221,7 +221,7 @@ async def fluency(
     Returns:
     --------
     float
-        Fluency score, higher is better
+        Fluency score, higher is better. higher values are preferred.
     """
     if method == "ngram":
         return await fluency_ngram(generated_text, reference_text, n_gram)
@@ -245,7 +245,7 @@ async def coherence(generated_text, embedding_model):
     Returns:
     --------
     float
-        Coherence score
+        Coherence score. higher values are preferred.
     """
     sentences = generated_text.split(".")
     embeddings = embedding_model.encode(
@@ -274,7 +274,7 @@ async def relevance(question, generated_text, embedding_model):
         lock (Thread): Thread
 
     Returns
-    None: relevance similarity
+        float: relevance similarity. higher values are preferred.
     """
     question_embedding = embedding_model.encode(
         question, convert_to_tensor=True, show_progress_bar=False
@@ -393,7 +393,7 @@ async def faithfulness(generated_text, reference_text):
     Returns:
     --------
     float
-        A faithfulness score between 0 and 1
+        A faithfulness score between 0 and 1. higher values are preferred.
     """
 
     def preprocess(text):
@@ -447,7 +447,7 @@ async def harmfulness(generated_text, harmful_words=None):
     Returns:
     --------
     float
-        A harmfulness score between 0 and 1
+        A harmfulness score between 0 and 1. lower values are preferred.
     """
     if harmful_words is None:
         harmful_words = [
@@ -490,7 +490,7 @@ async def correctness(generated_text, reference_text, embedding_model):
     Returns:
     --------
     float
-        A correctness score between 0 and 1
+        A correctness score between 0 and 1. higher values are preferred.
     """
 
     async def extract_key_info(text):
@@ -558,29 +558,7 @@ async def HHEM(generated_text, source_texts, embedding_model):
     reference_text = source_texts[0] if source_texts else ""
     # -- compute hughes hallucination index
     result = pipeline.compute_score(generated_text, reference_text)
-    component_scores = {
-        "claim_extraction": result["claim_extraction"],
-        "contradiction_detection": result["contradiction_detection"],
-        "claim_verification": result["claim_verification"],
-        "semantic_drift": result["semantic_drift"],
-        "factual_consistency": result["factual_consistency"],
-    }
-
-    # -- weighted average scores
-    weights = {
-        "claim_extraction": 0.3,
-        "contradiction_detection": 0.2,
-        "claim_verification": 0.2,
-        "semantic_drift": 0.15,
-        "factual_consistency": 0.15,
-    }
-
-    final_score = sum(
-        weights[component] * score
-        for component, score in component_scores.items()
-    )
-
-    return float(final_score)
+    return float(result["hallucination_index"])
 
 
 # computes the advanced hallucination metric
@@ -603,7 +581,7 @@ async def Advance_HHEM(
     Returns:
     --------
     float
-        The advance hallucination score between 0 and 1
+        The advance hallucination score between 0 and 1. lower values are preferred.
     """
     config = HughesConfig()
     pipeline = HughesHallucination(config, embedding_model)
@@ -616,21 +594,13 @@ async def Advance_HHEM(
     )
 
     component_scores = {
-        "claim_extraction": result["claim_extraction"],
-        "contradiction_detection": result["contradiction_detection"],
-        "claim_verification": result["claim_verification"],
-        "semantic_drift": result["semantic_drift"],
-        "factual_consistency": result["factual_consistency"],
+        "hallucination": result["hallucination_index"],
         "coherence": coherence_score,
         "relevance": relevance_score,
     }
 
     weights = {
-        "claim_extraction": 0.2,
-        "contradiction_detection": 0.15,
-        "claim_verification": 0.15,
-        "semantic_drift": 0.1,
-        "factual_consistency": 0.1,
+        "hallucination": 0.7,
         "coherence": 0.15,
         "relevance": 0.15,
     }
@@ -654,6 +624,32 @@ async def Evaluatrix(
     method,
     n_gram,
 ) -> dict:
+    """Evaluates the metrics for the generated text.
+
+    Parameters:
+    -----------
+    generated_text : str
+        The text generated by the model
+    source_texts : list of str
+        List of source documents to compare against
+    tokenizer : Tokenizer
+        Tokenizer model
+    model : Model
+        Model
+    embedding_model : SentenceTransformer
+        Embedding model
+    question : str
+        The question posed to the model
+    method : str
+        The method to use for fluency calculation ('ngram' or 'llm')
+    n_gram : int
+        The n-gram size to use if method is 'ngram'
+
+    Returns:
+    --------
+    dict
+        A dictionary containing the metrics and their scores
+    """
     result = {}
 
     # --
