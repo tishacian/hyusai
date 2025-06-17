@@ -423,7 +423,3 @@ class OCRConfig(Enum):
     FORCE_OCR = get_backend_config().force_ocr_on_all_pdf
     LANGS = os.getenv("LANGS", "eng fra deu spa ita por kor ara").split(" ")
 
-
-class Ports(Enum):
-    START_PORT = 8501
-    END_PORT = 8509
