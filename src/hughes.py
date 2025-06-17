@@ -1,5 +1,4 @@
 import torch
-from typing import List, Dict, Tuple
 from dataclasses import dataclass
 from sentence_transformers import SentenceTransformer
 from functools import lru_cache
@@ -23,14 +22,14 @@ class HughesConfig:
         Batch size for parallel processing
     device : str
         Device to run computations on ('cuda' or 'cpu')
-    weights : Dict[str, float]
+    weights : dict[str, float]
         Weights for different components in score calculation
     """
 
     cache_size: int = 1000
     batch_size: int = 32
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    weights: Dict[str, float] = None
+    weights: dict[str, float] = None
 
     def __post_init__(self):
         # -- default weights
@@ -295,7 +294,7 @@ class HughesHallucination:
 
     def compute_score(
         self, generated_text: str, reference_text: str
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Compute hallucination score using parallel component execution.
 
         Parameters:
@@ -307,7 +306,7 @@ class HughesHallucination:
 
         Returns:
         --------
-        Dict[str, float]
+        dict[str, float]
             Dictionary containing component scores and final
             hallucination index
         """
@@ -364,18 +363,18 @@ class HughesHallucination:
         return {**component_scores, "hallucination_index": hallucination_index}
 
     async def batch_compute(
-        self, text_pairs: List[Tuple[str, str]]
-    ) -> List[Dict]:
+        self, text_pairs: list[tuple[str, str]]
+    ) -> list[dict]:
         """Compute scores for multiple text pairs in parallel.
 
         Parameters:
         -----------
-        text_pairs : List[Tuple[str, str]]
+        text_pairs : list[tuple[str, str]]
             List of (generated_text, reference_text) pairs
 
         Returns:
         --------
-        List[Dict]
+        list[dict]
             List of score dictionaries for each text pair
         """
         tasks = [self.compute_score(gen, ref) for gen, ref in text_pairs]
