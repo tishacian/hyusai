@@ -385,3 +385,4 @@ class HughesHallucination:
         Cleanup resources by shutting down the thread pool.
         """
         self.executor.shutdown()
+
