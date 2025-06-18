@@ -179,12 +179,15 @@ def display_metrics(metrics):
             elif "latency" in key.lower():
                 color = "white"
                 value_str = f"{value:.2f}s"
+                value_str = f"{value:.2f}s"
             else:
                 color = "green" if value >= 0.5 else "red"
+                value_str = f"{value:.2f}"
                 value_str = f"{value:.2f}"
             metrics_html += (
                 f"<span class='metric'>"
                 f"<span class='metric-name'>{key}:</span>"
+                f"<span class='metric-value {color}'>{value_str}</span>"
                 f"<span class='metric-value {color}'>{value_str}</span>"
                 f"</span>"
             )
@@ -302,6 +305,9 @@ def save_chat_to_db(
                 "role": (
                     "user" if len(processed_messages) % 2 == 0 else "assistant"
                 ),
+                "role": (
+                    "user" if len(processed_messages) % 2 == 0 else "assistant"
+                ),
                 "content": msg
             })
         elif isinstance(msg, dict):
@@ -352,6 +358,8 @@ def load_chat_from_db(chat_id):
     )
     result = c.fetchone()
     if result:
+        # Parse JSON string back to list
+        chat_data = json.loads(result[0]) if result[0] else []
         # Parse JSON string back to list
         chat_data = json.loads(result[0]) if result[0] else []
         return (
@@ -593,6 +601,8 @@ if get_standalone_interface_config().forced_vdb == "None":
                     st.error(
                         "Document chunking produced no results. "
                         "The document may be empty or unprocessable."
+                        "Document chunking produced no results. "
+                        "The document may be empty or unprocessable."
                     )
                     st.stop()
 
@@ -765,6 +775,9 @@ for chat in chats:
                     st.session_state.chunking_method = chunking_method
                     st.session_state.index_type = index_type
                     st.session_state.vector_store = vector_store
+                    st.session_state.pipeline_type = (
+                        pipeline_type or PipelineType.HAH
+                    )
                     st.session_state.pipeline_type = (
                         pipeline_type or PipelineType.HAH
                     )
@@ -952,6 +965,7 @@ if prompt := st.chat_input("Message RAGGER..."):
             )
         message_placeholder.markdown(response)
         display_metrics(metrics)
+        
     # -- clear cuda cache
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
@@ -970,7 +984,7 @@ if prompt := st.chat_input("Message RAGGER..."):
         c.execute(
             """
             UPDATE chats 
-            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ?, pipeline_type = ?
+            SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ?, pipeline_type = ?, instruction_lang = ?
             WHERE id = ?
             """,
             (
@@ -980,6 +994,7 @@ if prompt := st.chat_input("Message RAGGER..."):
                 st.session_state.get("index_type", ""),
                 st.session_state.get("vector_store", ""),
                 st.session_state.get("pipeline_type", ""),
+                st.session_state.get("instruction_lang", ""),
                 st.session_state.current_chat_id,
             ),
         )
@@ -991,6 +1006,7 @@ if prompt := st.chat_input("Message RAGGER..."):
             st.session_state.get("index_type", ""),
             st.session_state.get("vector_store", ""),
             st.session_state.get("pipeline_type", ""),
+            st.session_state.get("instruction_lang", ""),
         )
         st.session_state.current_chat_id = c.lastrowid
 
@@ -1868,7 +1884,7 @@ def stream_text(text: str) -> Iterator[str]:
         chunk_size = 3
 
         for j in range(0, len(words), chunk_size):
-            chunk = " ".join(words[j : j + chunk_size])
+            chunk = " ".join(words[j:j + chunk_size])
             full_text += chunk
             if j + chunk_size < len(words):
                 full_text += " "
@@ -1916,7 +1932,10 @@ if prompt := st.chat_input("Message RAGGER..."):
                 st.error(
                     "Ensure a vector database is selected to initialize before chatting"
                 )
-                response = "No available context is provided to answer this question. Please ensure to initialize the right vector DB"
+                response = (
+                    "No available context is provided to answer this question. "
+                    "Please ensure to initialize the right vector DB"
+                )
                 context = ""
 
         # -- streamer
