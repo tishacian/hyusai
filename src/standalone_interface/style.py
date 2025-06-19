@@ -1,3 +1,21 @@
+import streamlit as st
+
+
+def center_buttons():
+    st.markdown(
+        """
+        <style>
+        div.stButton > button:first-child {
+            width: 100%;
+            display: block;
+            margin: 0 auto;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 HEADER_METRICS = """
                     <style>
                     .app-header {

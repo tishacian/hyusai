@@ -11,7 +11,6 @@ import subprocess
 import importlib.util
 import sys
 import shutil
-from typing import Literal
 import torch
 import logging
 import time
@@ -27,6 +26,7 @@ from src.globalvariables import (
     LARGE_MODELS,
 )
 from src.reasoning_instructions import ALL_PROMPT_SECTIONS_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from datetime import datetime
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
 if os.path.isdir(user_tessdata) and any(
@@ -370,3 +370,25 @@ def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INST
     except Exception as e:
         logging.error(f"🚩 An error occurred during response formatting: {str(e)}")
         return "No sufficient context to respond to the question."
+
+
+def humanize_datetime(dt: datetime) -> str:
+    """
+    Converts a datetime object to a human-readable string.
+
+    Example:
+        2025-06-17T15:42:00Z -> "June 17, 2025 at 15:42 UTC"
+
+    Parameters
+    ----------
+    dt : datetime
+        The datetime object to format.
+
+    Returns
+    -------
+    str
+        A human-readable string representation.
+    """
+    if not dt:
+        return "N/A"
+    return dt.strftime("%B %d, %Y at %H:%M UTC")

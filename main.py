@@ -107,7 +107,7 @@ if __name__ == "__main__":
     sys.argv = [
         "streamlit",
         "run",
-        "src/ragger.py",
+        "src/standalone_interface/home.py",
         "--server.port",
         str(port),
         "--server.baseUrlPath",
