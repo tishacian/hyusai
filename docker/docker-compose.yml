@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: omnirag-db
+    ports:
+      - "5432:5432"
+    env_file:
+      - ../.env
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "$POSTGRES_USER"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  db_data:
