@@ -1,6 +1,7 @@
 from functools import cache
 
 from .backend import BackendConfig
+from .database import DatabaseConfig
 from .general import GeneralConfig
 from .standalone_interface import StandaloneInterfaceConfig
 
@@ -13,6 +14,11 @@ def get_general_config():
 @cache
 def get_backend_config():
     return BackendConfig()
+
+
+@cache
+def get_database_config():
+    return DatabaseConfig()
 
 
 @cache
