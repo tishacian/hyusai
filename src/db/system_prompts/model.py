@@ -45,7 +45,6 @@ class SystemPrompts(Base):
         cls, language: str, system_prompt_type: str, *, session: Session | None = None
     ) -> "SystemPrompts | None":
         """Retrieve a SystemPrompts record by language and system_prompt_type."""
-        return "naive"
         stmt = sqlalchemy.select(cls).where(
             (cls.language == language) & (cls.system_prompt_type == system_prompt_type)
         )
