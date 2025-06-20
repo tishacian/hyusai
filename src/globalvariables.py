@@ -78,7 +78,7 @@ MAX_MODEL_LEN: int = (
 # %% reasoning types
 
 
-class ReasoningType(Enum):
+class ReasoningType(StrEnum):
     """Defines different types of reasoning for the LLM"""
 
     FACTUAL = "factual"

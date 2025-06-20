@@ -11,17 +11,18 @@ import streamlit as st
 import torch
 from PIL import Image
 
-from src.chunker import TextChunker
 from configuration import get_standalone_interface_config
+from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
-from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
+from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
 from src.database.chats.chats import ChatsDB
 from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
 from src.embedding import EmbeddingVectors
 from src.globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
+    EMBEDDING_NAME,
     GPU_MODEL_SET,
     HELP,
     REPO_PATH,
@@ -29,7 +30,6 @@ from src.globalvariables import (
     ChunkingMethod,
     IndexType,
     PipelineType,
-    EMBEDDING_NAME,
 )
 from src.metrics import DUMMY_METRICS
 from src.modeltokenizer import load_model_and_tokenizer
@@ -41,7 +41,7 @@ from src.standalone_interface.style import (
     SELECT_INPUT_STYLE,
     THINKING_SPINNER,
 )
-from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTIONS_LANGS_LIST
+from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SYSTEM_PROMPT_LANGS_LIST
 
 
 # -- device available model
@@ -68,7 +68,7 @@ def home_page():
     chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
     index_type = IndexType.FAISS
     model_name = device_default_model()
-    instruction_lang = DEFAULT_INSTRUCTION_LANG
+    instruction_lang = DEFAULT_SYSTEM_PROMPT_LANG
 
     HUMAN_AVATAR_PATH = get_standalone_interface_config().human_chat_logo
     AI_AVATAR_PATH = get_standalone_interface_config().ai_chat_logo
@@ -118,8 +118,10 @@ def home_page():
         try:
             for key, value in metrics.items():
                 latency_keys = ["latency", "time", "duration", "response_time"]
-                is_latency_metric = any(latency_key in key.lower() for latency_key in latency_keys)
-                
+                is_latency_metric = any(
+                    latency_key in key.lower() for latency_key in latency_keys
+                )
+
                 if is_latency_metric:
                     color = "white"
                     formatted_value = f"{value:.2f}s"
@@ -129,7 +131,7 @@ def home_page():
                     else:
                         color = "green" if value >= 0.5 else "red"
                     formatted_value = f"{value:.2f}"
-                
+
                 metrics_html += (
                     f"<span class='metric'>"
                     f"<span class='metric-name'>{key}:</span>"
@@ -334,7 +336,7 @@ def home_page():
                     with row_be[3]:
                         instruction_lang = st.selectbox(
                             "LLM instruction language",
-                            INSTRUCTIONS_LANGS_LIST,
+                            SYSTEM_PROMPT_LANGS_LIST,
                             help="Select the language of the LLM reasoning instructions.",
                         )
                 # --
@@ -473,7 +475,7 @@ def home_page():
     if "pipeline_type" not in st.session_state:
         st.session_state.pipeline_type = PipelineType.HAHCOMPOSITE
     if "instruction_lang" not in st.session_state:
-        st.session_state.instruction_lang = DEFAULT_INSTRUCTION_LANG
+        st.session_state.instruction_lang = DEFAULT_SYSTEM_PROMPT_LANG
 
     # -- New chat
     if st.sidebar.button("New Chat"):
@@ -641,9 +643,7 @@ def home_page():
             with st.spinner(""):
                 try:
                     start_time = time.time()
-                    response, context, metrics = st.session_state.chain.ainvoke(
-                        prompt
-                    )
+                    response, context, metrics = st.session_state.chain.ainvoke(prompt)
                     end_time = time.time()
                     metrics["latency"] = end_time - start_time
                 except (

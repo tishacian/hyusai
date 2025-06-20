@@ -10,7 +10,7 @@ from langchain_community.vectorstores import Chroma
 import warnings
 import asyncio
 
-from src.reasoning_instructions import ALL_DEFAULT_NAIVE_ASSISTANT_ROLE, ALL_NAIVE_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from src.system_prompts import ALL_SYSTEM_PROMPT_TEMPLATES, DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs, SystemPromptTypes, ALL_DEFAULT_SYSTEM_PROMPT_ROLES
 from src.utils import format_llm_response
 
 if torch.cuda.is_available():
@@ -54,7 +54,7 @@ class CustomLLMChain:
         vector_store_name,
         embedding_model_name=EMBEDDING_NAME,
         index_type=IndexType.FAISS,
-        instruction_lang: InstructionLangs = DEFAULT_INSTRUCTION_LANG,
+        instruction_lang: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG,
     ):
         """Custom LLMChain
 
@@ -64,8 +64,8 @@ class CustomLLMChain:
             model (model) : llm model
             embedding_model_name (str), optional : embedding model name. The default is "sentence-transformers/all-mpnet-base-v2".
             index_type (str), optional : index type. The default is "faiss".
-            instruction_lang : InstructionLangs, optional
-                Language of the LLM instruction, by default DEFAULT_INSTRUCTION_LANG
+            instruction_lang : SystemPromptLangs, optional
+                Language of the LLM instruction, by default DEFAULT_SYSTEM_PROMPT_LANG
 
         Raises
         ------
@@ -129,7 +129,7 @@ class CustomLLMChain:
         self.load_index()
 
         # -- CoT Template
-        self.template = ALL_NAIVE_INSTRUCTIONS[self.instruction_lang]
+        self.template = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang][SystemPromptTypes.NAIVE]
 
     def load_index(self):
         # -- load BM25 retriever first
@@ -448,7 +448,7 @@ class CustomLLMChain:
         Returns:
             str: LLM generated text
         """
-        assistant_role = ALL_DEFAULT_NAIVE_ASSISTANT_ROLE[self.instruction_lang]
+        assistant_role = ALL_DEFAULT_SYSTEM_PROMPT_ROLES[self.instruction_lang][SystemPromptTypes.NAIVE]
         prompt_format = self.template.format(
             assistant_role=assistant_role, context=context, question=question
         )
@@ -690,7 +690,7 @@ class CustomLLMChain:
         return self.run_async_in_thread(self.invoke_async(question))
 
     @staticmethod
-    def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+    def _format_llm_response(response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
 
@@ -698,9 +698,9 @@ class CustomLLMChain:
         ----------
         response : str
             Raw response from the LLM
-        language : InstructionLangs, optional
+        language : SystemPromptLangs, optional
             Language of the reasoning instructions to remove,
-            by default DEFAULT_INSTRUCTION_LANG
+            by default DEFAULT_SYSTEM_PROMPT_LANG
 
         Returns
         -------

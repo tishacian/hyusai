@@ -1,4 +1,5 @@
 from src.globalvariables import ReasoningType
+from src.system_prompts.types import SystemPromptTypes
 
 REASONING_PATTERNS = {
     ReasoningType.FACTUAL: ["quoi", "qu'est-ce que", "qui", "où", "quand", "quel", "quelle", "liste", "lister", "décrire", "définir", "identifier", "spécifier", "vérifier", "confirmer", "montrer", "démontrer", "appartient à", "consiste en", "contient", "comprend", "combien", "combien de", "à quelle fréquence", "combien de temps", "propriétés de", "caractéristiques", "fonctionnalités", "attributs", "catégoriser", "classer", "grouper", "type de"],
@@ -8,17 +9,17 @@ REASONING_PATTERNS = {
     ReasoningType.HYPOTHETICAL: ["si", "serait", "pourrait", "devrait", "supposer", "présumer", "considérer", "prédire", "prévoir", "projeter", "estimer", "scénario", "situation", "cas", "instance", "possible", "probable", "potentiel", "alternative", "option", "choix", "chemin", "risque", "chance", "probabilité", "et si", "sinon", "alternativement", "à la place"],
 }  # fmt: skip
 
-DEFAULT_REASONING_ASSISTANT_ROLES = {
-    ReasoningType.FACTUAL: "Tu es un assistant IA spécialisé dans la fourniture d'informations précises et factuelles.",
-    ReasoningType.ANALYTICAL: "Tu es un assistant IA spécialisé dans l'analyse approfondie.",
-    ReasoningType.COMPARATIVE: "Tu es un assistant IA spécialisé dans l'analyse comparative.",
-    ReasoningType.CAUSAL: "Tu es un assistant IA spécialisé dans l'analyse causale.",
-    ReasoningType.HYPOTHETICAL: "Tu es un assistant IA spécialisé dans le raisonnement hypothétique.",
+DEFAULT_SYSTEM_PROMPT_ROLES = {
+    SystemPromptTypes.FACTUAL: "Tu es un assistant IA spécialisé dans la fourniture d'informations précises et factuelles.",
+    SystemPromptTypes.ANALYTICAL: "Tu es un assistant IA spécialisé dans l'analyse approfondie.",
+    SystemPromptTypes.COMPARATIVE: "Tu es un assistant IA spécialisé dans l'analyse comparative.",
+    SystemPromptTypes.CAUSAL: "Tu es un assistant IA spécialisé dans l'analyse causale.",
+    SystemPromptTypes.HYPOTHETICAL: "Tu es un assistant IA spécialisé dans le raisonnement hypothétique.",
+    SystemPromptTypes.NAIVE: "Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées.",
 }
-DEFAULT_NAIVE_ASSISTANT_ROLE = "Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées."
 
-REASONING_INSTRUCTIONS = {
-    ReasoningType.FACTUAL: """[INST] {assistant_role}
+SYSTEM_PROMPT_TEMPLATES = {
+    SystemPromptTypes.FACTUAL: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier les faits clés du contexte
                                                 2. Extraire les informations pertinentes
@@ -30,7 +31,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                 
                                                 Fournis une réponse factuelle claire en t'appuyant sur le contexte : [/INST]""",
-    ReasoningType.ANALYTICAL: """[INST] {assistant_role}
+    SystemPromptTypes.ANALYTICAL: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier l'objectif principal et les contraintes
                                                 2. Décomposer les exigences clés et les paramètres
@@ -45,7 +46,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                                                                
                                                 Fournis une analyse approfondie qui combine précision factuelle et renseignements analytiques en t'appuyant sur le contexte : [/INST]""",
-    ReasoningType.COMPARATIVE: """[INST] {assistant_role}
+    SystemPromptTypes.COMPARATIVE: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier les éléments à comparer
                                                 2. Examiner les similitudes et différences
@@ -57,7 +58,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                 
                                                 Fournis une analyse comparative en t'appuyant sur le contexte : [/INST]""",
-    ReasoningType.CAUSAL: """[INST] {assistant_role}
+    SystemPromptTypes.CAUSAL: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier les relations de cause à effet
                                                 2. Examiner les facteurs contribuants
@@ -69,7 +70,7 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                 
                                                 Explique les relations causales en t'appuyant sur le contexte : [/INST]""",
-    ReasoningType.HYPOTHETICAL: """[INST] {assistant_role}
+    SystemPromptTypes.HYPOTHETICAL: """[INST] {assistant_role}
                                                 Étapes d'analyse :
                                                 1. Considérer les hypothèses conditionnelles
                                                 2. Analyser les scénarios potentiels
@@ -81,18 +82,18 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                 
                                                 Explore ce scénario en t'appuyant sur le contexte : [/INST]""",
-}
-NAIVE_INSTRUCTION = """[INST] {assistant_role}
+    SystemPromptTypes.NAIVE: """[INST] {assistant_role}
                                                 Concentre-toi sur les informations importantes qui traitent directement du sujet ou de la question principale.
                                                 Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.
                                                 Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle.
 
                                                 Ta tâche consiste à répondre à la question suivante en te basant sur le contexte donné :
                                                 {context}
-
-Question : {question}
-
-                                                Réponse : [/INST]"""
+                                                
+                                                Question : {question}
+                                                
+                                                Réponse : [/INST]""",
+}
 
 # Template trivial pour les messages de salutation/courtoisie simples
 TRIVIAL_TEMPLATE = """[INST] Tu es un assistant conversationnel amical. Si il y a une conversation précédente ci-dessous, garde-la à l'esprit. Sinon, réponds simplement au message court de l'utilisateur de manière naturelle (salutation, remerciements, adieu, etc.). Ne fournis PAS d'informations supplémentaires au-delà de ce qui est approprié pour le message de l'utilisateur.

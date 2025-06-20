@@ -21,6 +21,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 import logging
 import sys
 
+from src.system_prompts import ALL_SYSTEM_PROMPT_TEMPLATES, DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs, TRIVIAL_TEMPLATES, ALL_DEFAULT_SYSTEM_PROMPT_ROLES
 from src.cache import TieredCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
@@ -39,13 +40,6 @@ from src.globalvariables import (
     ReasoningType,
 )
 from src.metrics import Evaluatrix
-from src.reasoning_instructions import (
-    ALL_DEFAULT_REASONING_ASSISTANT_ROLES,
-    ALL_REASONING_INSTRUCTIONS,
-    DEFAULT_INSTRUCTION_LANG,
-    TRIVIAL_TEMPLATES,
-    InstructionLangs,
-)
 from src.reasoningmetrics import ReasoningMetrics
 from src.retrievalplan import QueryAnalysis, RetrievalContext, RetrievalPlan
 
@@ -82,7 +76,7 @@ class CustomLLMChain:
         index_type=IndexType.FAISS,
         cache_size=1000,
         dynamic_k=True,
-        instruction_lang: InstructionLangs = DEFAULT_INSTRUCTION_LANG,
+        instruction_lang: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG,
     ):
         """Initialize CustomLLMChain with advanced retrieval capabilities
 
@@ -104,8 +98,8 @@ class CustomLLMChain:
             Size of cache, by default 1000
         dynamic_k : bool, optional
             Whether to use dynamic k computation, by default True
-        instruction_lang : InstructionLangs, optional
-            Language of the LLM instruction, by default DEFAULT_INSTRUCTION_LANG
+        instruction_lang : SystemPromptLangs, optional
+            Language of the LLM instruction, by default DEFAULT_SYSTEM_PROMPT_LANG
         """
         start_time = time.time()
 
@@ -164,7 +158,7 @@ class CustomLLMChain:
         self._initialize_reranker()
         self._initialize_contextual_retriever()
 
-        self.templates = ALL_REASONING_INSTRUCTIONS[self.instruction_lang]
+        self.templates = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang]
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count())
 
         self.perf_stats = {
@@ -1316,7 +1310,7 @@ class CustomLLMChain:
                 logging.info(f"Reasoning detection took {reasoning_time:.4f} seconds")
 
                 template = self.templates[reasoning_type]
-            assistant_role = ALL_DEFAULT_REASONING_ASSISTANT_ROLES[
+            assistant_role = ALL_DEFAULT_SYSTEM_PROMPT_ROLES[
                 self.instruction_lang
             ][reasoning_type]
             prompt_format = template.format(
@@ -1342,7 +1336,7 @@ class CustomLLMChain:
             try:
                 fallback_reasoning_type = ReasoningType.ANALYTICAL
                 template = self.templates[fallback_reasoning_type]
-                assistant_role = ALL_DEFAULT_REASONING_ASSISTANT_ROLES[
+                assistant_role = ALL_DEFAULT_SYSTEM_PROMPT_ROLES[
                     self.instruction_lang
                 ][fallback_reasoning_type]
                 prompt_format = template.format(
@@ -1595,7 +1589,7 @@ class CustomLLMChain:
 
     @staticmethod
     def _format_llm_response(
-        response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG
+        response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG
     ) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
@@ -1604,9 +1598,9 @@ class CustomLLMChain:
         ----------
         response : str
             Raw response from the LLM
-        language : InstructionLangs, optional
+        language : SystemPromptLangs, optional
             Language of the reasoning instructions to remove,
-            by default DEFAULT_INSTRUCTION_LANG
+            by default DEFAULT_SYSTEM_PROMPT_LANG
 
         Returns
         -------

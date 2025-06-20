@@ -10,7 +10,7 @@ from langchain_community.vectorstores import Chroma
 import warnings
 import asyncio
 
-from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs
 from src.utils import format_llm_response
 if torch.cuda.is_available():
     from vllm import SamplingParams
@@ -665,7 +665,7 @@ class CustomLLMChain:
         return self.run_async_in_thread(self.invoke_async(question))
 
     @staticmethod
-    def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+    def _format_llm_response(response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
 
@@ -673,9 +673,9 @@ class CustomLLMChain:
         ----------
         response : str
             Raw response from the LLM
-        language : InstructionLangs, optional
+        language : SystemPromptLangs, optional
             Language of the reasoning instructions to remove,
-            by default DEFAULT_INSTRUCTION_LANG
+            by default DEFAULT_SYSTEM_PROMPT_LANG
 
         Returns
         -------

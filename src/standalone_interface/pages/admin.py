@@ -1,7 +1,7 @@
 import streamlit as st
 
 from configuration import get_standalone_interface_config
-from src.db.system_prompts import SystemPrompts
+from src.db.system_prompts.model import SystemPrompts
 from src.standalone_interface.style import center_buttons
 from src.utils import humanize_datetime
 
@@ -42,10 +42,10 @@ def update_section() -> str:
     with col_reasoning:
         reasoning_type = st.selectbox(
             "Select a reasoning type",
-            options=SystemPrompts.get_reasoning_types(language),
+            options=SystemPrompts.get_system_prompt_types(language),
         )
 
-    system_prompt = SystemPrompts.get_by_language_and_reasoning_type(
+    system_prompt = SystemPrompts.get_by_language_and_system_prompt_type(
         language, reasoning_type
     )
     new_llm_role_definition = st.text_area(

@@ -25,7 +25,7 @@ from src.globalvariables import (
     CPU_MODEL_SET,
     LARGE_MODELS,
 )
-from src.reasoning_instructions import ALL_PROMPT_SECTIONS_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from src.system_prompts import ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE, ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE, DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs
 from datetime import datetime
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
@@ -339,7 +339,7 @@ def load_stopwords(data_dir: str = "data"):
     return stopwords_set
 
 
-def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+def format_llm_response(response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG) -> str:
     """Format LLM response while preserving tables and structured data.
     Only removes template artifacts and prompt phrases.
 
@@ -347,9 +347,9 @@ def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INST
     ----------
     response : str
         Raw response from the LLM
-    language : InstructionLangs, optional
+    language : SystemPromptLangs, optional
         Language of the reasoning instructions to remove,
-        by default DEFAULT_INSTRUCTION_LANG
+        by default DEFAULT_SYSTEM_PROMPT_LANG
 
     Returns
     -------
@@ -357,8 +357,8 @@ def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INST
         Cleaned response with preserved formatting
     """
     instruction_block = r"\[INST\].*?\[/INST\]"
-    prompt_sections = ALL_PROMPT_SECTIONS_TO_REMOVE[language]
-    prompt_phrases = ALL_PROMPT_PHRASES_TO_REMOVE[language]
+    prompt_sections = ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE[language]
+    prompt_phrases = ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE[language]
     try:
         response = re.sub(instruction_block, "", response, flags=re.DOTALL).strip()
         # remove standard prompt sections/phrases
