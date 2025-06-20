@@ -13,7 +13,7 @@ class DatabaseConfig(BaseSettings):
     name: str = "omnirag_database"
     username: str = "username"
     password: SecretStr = SecretStr("password")
-    dialect: Literal["postgresql", "mysql", "sqlite"] = "postgresql"
+    dialect: Literal["postgresql", "mysql", "sqlite"] = "sqlite"
     application_name: None | str = None
     """
     Shown in the postgres `pg_stat_activity` table. It is useful to identify from
