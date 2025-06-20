@@ -168,7 +168,8 @@ class CustomLLMChain:
 
         # -- CoT template
         self.templates = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang]
-        self.roles = SystemPrompts.get_all(filter_by_language=self.instruction_lang)
+        system_prompts = SystemPrompts.get_all(filter_by_language=self.instruction_lang)
+        self.roles = {prompt.system_prompt_type: prompt.llm_role_definition for prompt in system_prompts}
 
         init_time = time.time() - start_time
         logging.info(
