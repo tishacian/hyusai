@@ -168,6 +168,7 @@ class CustomLLMChain:
 
         # -- CoT template
         self.templates = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang]
+        self.roles = SystemPrompts.get_all(filter_by_language=self.instruction_lang)
 
         init_time = time.time() - start_time
         logging.info(
@@ -735,9 +736,7 @@ class CustomLLMChain:
             logging.error(f"Error in custom_llm_chain: {str(e)}")
             fallback_reasoning_type = ReasoningType.ANALYTICAL
             template = self.templates[fallback_reasoning_type]
-            assistant_role = SystemPrompts.get_by_language_and_system_prompt_type(
-                self.instruction_lang, fallback_reasoning_type
-            )
+            assistant_role = self.roles[fallback_reasoning_type]
             prompt_format = template.format(
                 assistant_role=assistant_role, context=context, question=question
             )

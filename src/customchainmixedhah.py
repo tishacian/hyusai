@@ -166,6 +166,7 @@ class CustomLLMChain:
         self._initialize_contextual_retriever()
 
         self.templates = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang]
+        self.roles = SystemPrompts.get_all(filter_by_language=self.instruction_lang)
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count())
 
         self.perf_stats = {
@@ -1317,9 +1318,7 @@ class CustomLLMChain:
                 logging.info(f"Reasoning detection took {reasoning_time:.4f} seconds")
 
             template = self.templates[reasoning_type]
-            assistant_role = SystemPrompts.get_by_language_and_system_prompt_type(
-                self.instruction_lang, reasoning_type
-            )
+            assistant_role = self.roles[reasoning_type]
             prompt_format = template.format(
                 assistant_role=assistant_role, context=context, question=question
             )
@@ -1343,9 +1342,7 @@ class CustomLLMChain:
             try:
                 fallback_reasoning_type = ReasoningType.ANALYTICAL
                 template = self.templates[fallback_reasoning_type]
-                assistant_role = SystemPrompts.get_by_language_and_system_prompt_type(
-                    self.instruction_lang, fallback_reasoning_type
-                )
+                assistant_role = self.roles[fallback_reasoning_type]
                 prompt_format = template.format(
                     assistant_role=assistant_role, context=context, question=question
                 )

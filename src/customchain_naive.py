@@ -11,8 +11,8 @@ import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
 
+from src.db.system_prompts.model import SystemPrompts
 from src.system_prompts import (
-    ALL_DEFAULT_SYSTEM_PROMPT_ROLES,
     ALL_SYSTEM_PROMPT_TEMPLATES,
     DEFAULT_SYSTEM_PROMPT_LANG,
     SystemPromptLangs,
@@ -142,6 +142,7 @@ class CustomLLMChain:
         self.template = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang][
             SystemPromptTypes.NAIVE
         ]
+        self.roles = SystemPrompts.get_all(filter_by_language=self.instruction_lang)
 
     def load_index(self):
         # -- load BM25 retriever first
@@ -449,9 +450,7 @@ class CustomLLMChain:
         Returns:
             str: LLM generated text
         """
-        assistant_role = SystemPrompts.get_by_language_and_system_prompt_type(
-            self.instruction_lang, SystemPromptTypes.NAIVE
-        )
+        assistant_role = self.roles[SystemPromptTypes.NAIVE]
         prompt_format = self.template.format(
             assistant_role=assistant_role, context=context, question=question
         )
