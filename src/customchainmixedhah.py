@@ -21,11 +21,11 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 import logging
 import sys
 
-from src.system_prompts import ALL_SYSTEM_PROMPT_TEMPLATES, DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs, TRIVIAL_TEMPLATES, ALL_DEFAULT_SYSTEM_PROMPT_ROLES
 from src.cache import TieredCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
+from src.db.system_prompts.model import SystemPrompts
 from src.embedding import EmbeddingModelLoader
 from src.ensembleretriever import EnsembleConfig, EnsembleRetriever, FusionMethod
 from src.flashreranker import FlashReranker, RerankerConfig
@@ -42,6 +42,13 @@ from src.globalvariables import (
 from src.metrics import Evaluatrix
 from src.reasoningmetrics import ReasoningMetrics
 from src.retrievalplan import QueryAnalysis, RetrievalContext, RetrievalPlan
+from src.system_prompts import (
+    ALL_DEFAULT_SYSTEM_PROMPT_ROLES,
+    ALL_SYSTEM_PROMPT_TEMPLATES,
+    DEFAULT_SYSTEM_PROMPT_LANG,
+    TRIVIAL_TEMPLATES,
+    SystemPromptLangs,
+)
 
 # Import trivial detection
 from src.trivial_check import is_trivial_question
@@ -1309,10 +1316,10 @@ class CustomLLMChain:
                 reasoning_time = time.time() - reasoning_detect_start
                 logging.info(f"Reasoning detection took {reasoning_time:.4f} seconds")
 
-                template = self.templates[reasoning_type]
-            assistant_role = ALL_DEFAULT_SYSTEM_PROMPT_ROLES[
-                self.instruction_lang
-            ][reasoning_type]
+            template = self.templates[reasoning_type]
+            assistant_role = SystemPrompts.get_by_language_and_system_prompt_type(
+                self.instruction_lang, reasoning_type
+            )
             prompt_format = template.format(
                 assistant_role=assistant_role, context=context, question=question
             )
@@ -1336,9 +1343,9 @@ class CustomLLMChain:
             try:
                 fallback_reasoning_type = ReasoningType.ANALYTICAL
                 template = self.templates[fallback_reasoning_type]
-                assistant_role = ALL_DEFAULT_SYSTEM_PROMPT_ROLES[
-                    self.instruction_lang
-                ][fallback_reasoning_type]
+                assistant_role = SystemPrompts.get_by_language_and_system_prompt_type(
+                    self.instruction_lang, fallback_reasoning_type
+                )
                 prompt_format = template.format(
                     assistant_role=assistant_role, context=context, question=question
                 )
