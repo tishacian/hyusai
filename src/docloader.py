@@ -1,7 +1,7 @@
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
+from typing import List, Union, Tuple
 
 from langchain_community.document_loaders import (
     CSVLoader,
@@ -19,6 +19,8 @@ from tqdm import tqdm
 
 from src.customdocloader import MyEmlLoader, OCRPDFLoader
 from src.globalvariables import OCRConfig
+
+from metadata_extraction.docmeta.core.factory import extract_metadata
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -89,20 +91,18 @@ class Document:
         self.page_content = content
 
 
-def loadSingleDocument(file_path: str) -> str:
-    """Loading single document
+def loadSingleDocument(file_path: str, return_metadata: bool = True):
+    """Loading single document with metadata extraction
 
     Parameters
     ----------
     file_path (str): Temporary file path
-
-    Raises
-    ------
-    ValueError
+    return_metadata (bool): If True returns (text, metadata) tuple else returns just text.
 
     Returns
     -------
-    str: Document string
+    Union[str, Tuple[str, dict]]
+        Extracted document text (and metadata when requested)
     """
     ext = "." + file_path.rsplit(".", 1)[-1]
     if ext in LOADER_MAPPING:
@@ -115,7 +115,7 @@ def loadSingleDocument(file_path: str) -> str:
                 logging.warning(
                     f"Warning: No content extracted from {file_path}"
                 )
-                return ""
+                return ("", {}) if return_metadata else ""
 
             page_content = [
                 doc.page_content
@@ -127,40 +127,43 @@ def loadSingleDocument(file_path: str) -> str:
                 logging.warning(
                     f"Warning: No valid page content in {file_path}"
                 )
-                return ""
+                return ("", {}) if return_metadata else ""
 
             document = " \n".join(page_content)
-            logging.info(f"Document extracted: {document}")
-            return document
 
+            # ----- metadata extraction -----
+            if return_metadata:
+                try:
+                    metadata = extract_metadata(file_path)
+                except Exception as meta_err:  # pragma: no cover
+                    logging.error(f"Metadata extraction failed for {file_path}: {meta_err}")
+                    metadata = {}
+
+            return (document, metadata) if return_metadata else document
         except Exception as e:
             logging.error(f"🚩 Error loading document {file_path}: {str(e)}")
-            return ""
+            return ("", {}) if return_metadata else ""
     raise ValueError(f"Unsupported file extension '{ext}'")
 
 
-def ThreadMultiDocLoader(
-    file_paths: List[str], ignored_files: List[str] = []
-) -> str:
-    """Threaded multi-document loader
-
-    Parameters
-    ----------
-    file_paths : List[str], List containing file path
-    ignored_files : List[str], optional. DESCRIPTION. The default is [].
+def ThreadMultiDocLoader(file_paths: List[str], ignored_files: List[str] = [], return_metadata: bool = True):
+    """Threaded multi-document loader that aggregates texts and metadata.
 
     Returns
     -------
-    str: Document string.
+    Union[str, Tuple[str, List[dict]]]
+        Concatenated document text (and list of metadata dicts when requested)
     """
     filtered_files = [
         file_path for file_path in file_paths if file_path not in ignored_files
     ]
 
-    results = []
+    texts: List[str] = []
+    metadatas: List[dict] = []
+
     with ThreadPoolExecutor() as executor:
         future_to_file = {
-            executor.submit(loadSingleDocument, file): file
+            executor.submit(loadSingleDocument, file, return_metadata): file
             for file in filtered_files
         }
         with tqdm(
@@ -169,12 +172,19 @@ def ThreadMultiDocLoader(
             for future in as_completed(future_to_file):
                 file = future_to_file[future]
                 try:
-                    docs = future.result()
-                    if docs:  # Only extend if docs is not empty
-                        results.extend(docs)
+                    result = future.result()
+                    if return_metadata:
+                        doc_text, meta = result
+                        if doc_text:
+                            texts.append(doc_text)
+                            metadatas.append(meta)
+                    else:
+                        doc_text = result
+                        if doc_text:
+                            texts.append(doc_text)
                 except Exception as e:
                     logging.error(f"🚩 Error loading document {file}: {e}")
                 pbar.update()
 
-    document = "".join(results)
-    return document
+    document = "".join(texts)
+    return (document, metadatas) if return_metadata else document
