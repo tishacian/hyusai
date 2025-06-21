@@ -740,7 +740,7 @@ class CustomLLMChain:
             return await self.generate_text(prompt_format)
 
     @measure_time_sync
-    def chunk_document(self, document, num_chunks=3):
+    def chunk_document(self, document, num_chunks=3, metadata: dict | None = None):
         """Split the document into sub-chunks.
 
         Parameters
@@ -748,6 +748,8 @@ class CustomLLMChain:
         document (str): input document
         num_chunks : int, optional
             chunk size. The default is 3.
+        metadata : dict, optional
+            Additional metadata to attach to each chunk
 
         Returns
         -------
@@ -756,10 +758,18 @@ class CustomLLMChain:
         """
         words = document.split()
         chunk_size = max(1, len(words) // num_chunks)
-        return [
+        chunks = [
             " ".join(words[i : i + chunk_size])
             for i in range(0, len(words), chunk_size)
         ]
+
+        if metadata is not None:
+            return [
+                (chunk, {**metadata, "chunk_id": idx})
+                for idx, chunk in enumerate(chunks)
+            ]
+
+        return chunks
 
     @measure_time
     async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
