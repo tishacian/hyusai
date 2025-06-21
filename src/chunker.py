@@ -565,9 +565,18 @@ class TextChunker:
 
         return chunks
 
-    def chunker(self, text, method="recursive_character", **kwargs):
-        """
-        Chunking call. Default is using ```recursive character splitting```
+    def chunker(self, text, method="recursive_character", metadata: dict | None = None, **kwargs):
+        """Chunk text and optionally attach document-level metadata.
+
+        Parameters
+        ----------
+        text : str
+            Input text to chunk.
+        method : str, optional
+            Chunking strategy (defaults to recursive_character).
+        metadata : dict | None, optional
+            If provided, each returned chunk is a tuple ``(chunk_text, meta_dict)`` where
+            ``meta_dict`` merges the original *metadata* with a running ``chunk_id``.
         """
         if method == ChunkingMethod.FIXED:
             self.chunks = self.fixed_chunking(text, **kwargs)
@@ -588,5 +597,11 @@ class TextChunker:
         if not method:
             raise ValueError(f"🚩 Unknown chunking method: {method}")
 
-        # --
+        # -- attach metadata per chunk when requested
+        if metadata is not None:
+            return [
+                (chunk, {**metadata, "chunk_id": idx})
+                for idx, chunk in enumerate(self.chunks)
+            ]
+
         return self.chunks
