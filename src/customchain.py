@@ -197,7 +197,10 @@ class CustomLLMChain:
             self.bm25_retriever = BM25Retriever.load_bm25(
                 vector_store_path / "bm25_retriever.pkl"
             )
-            self.texts = []
+
+            # -- texts and metadatas loaded from disk (if available)
+            self.texts: list[str] = []
+            self.metadatas: list[dict] = []
             # --
             if self.index_type == IndexType.FAISS:
                 if os.path.exists(
@@ -206,8 +209,31 @@ class CustomLLMChain:
                     self.dense_retriever = faiss.read_index(
                         str(vector_store_path / "faiss.index")
                     )
-                    with open(str(vector_store_path / "faiss.pkl"), "rb") as f:
+                    # Load texts
+                    with open(
+                        str(vector_store_path / "faiss.pkl"), "rb"
+                    ) as f:
                         self.texts = pickle.load(f)
+
+                    # Attempt to load corresponding metadata list
+                    meta_path = vector_store_path / "faiss_meta.pkl"
+                    if meta_path.exists():
+                        with open(meta_path, "rb") as f:
+                            self.metadatas = pickle.load(f)
+                        # If mismatch, realign lengths (fallback to empty dict)
+                        if len(self.metadatas) != len(self.texts):
+                            logging.warning(
+                                "Metadata count mismatch with texts; filling gaps with empty dicts."
+                            )
+                            if len(self.metadatas) < len(self.texts):
+                                self.metadatas.extend(
+                                    [{}] * (len(self.texts) - len(self.metadatas))
+                                )
+                            else:
+                                self.metadatas = self.metadatas[: len(self.texts)]
+                    else:
+                        # No metadata file; create empty dicts
+                        self.metadatas = [{} for _ in self.texts]
                     logging.info("FAISS index and texts loaded successfully.")
                 else:
                     raise FileNotFoundError(
@@ -238,6 +264,7 @@ class CustomLLMChain:
                 dense_retriever=self.dense_retriever,
                 embedding_model=self.embedding_model,  # Pass embedding model
                 texts=self.texts,  # Pass texts
+                metadatas=self.metadatas,  # Pass metadata list
                 config=EnsembleConfig(),
             )
 

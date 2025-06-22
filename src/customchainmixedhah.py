@@ -190,7 +190,9 @@ class CustomLLMChain:
             self.bm25_retriever = BM25Retriever.load_bm25(
                 vector_store_path / "bm25_retriever.pkl"
             )
-            self.texts = []
+
+            self.texts: list[str] = []
+            self.metadatas: list[dict] = []
 
             if self.index_type == IndexType.FAISS:
                 if os.path.exists(
@@ -201,6 +203,18 @@ class CustomLLMChain:
                     )
                     with open(str(vector_store_path / "faiss.pkl"), "rb") as f:
                         self.texts = pickle.load(f)
+
+                    meta_path = vector_store_path / "faiss_meta.pkl"
+                    if meta_path.exists():
+                        with open(meta_path, "rb") as f:
+                            self.metadatas = pickle.load(f)
+                        if len(self.metadatas) != len(self.texts):
+                            if len(self.metadatas) < len(self.texts):
+                                self.metadatas.extend([{} for _ in range(len(self.texts) - len(self.metadatas))])
+                            else:
+                                self.metadatas = self.metadatas[: len(self.texts)]
+                    else:
+                        self.metadatas = [{} for _ in self.texts]
                     logging.info("FAISS index and texts loaded successfully.")
                 else:
                     raise FileNotFoundError(
@@ -230,6 +244,7 @@ class CustomLLMChain:
                 dense_retriever=self.dense_retriever,
                 embedding_model=self.embedding_model,
                 texts=self.texts,
+                metadatas=self.metadatas,
                 config=EnsembleConfig(),
             )
 

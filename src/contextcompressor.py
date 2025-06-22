@@ -136,7 +136,7 @@ class ContextualCompressionRetriever:
 
         """
         try:
-            base_passages, base_scores = await self.base_retriever.retrieve(
+            base_passages, base_scores, _ = await self.base_retriever.retrieve(
                 query, k
             )
 

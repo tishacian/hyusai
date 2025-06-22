@@ -57,6 +57,7 @@ class EnsembleRetriever:
         dense_retriever: Any,
         embedding_model: Any,
         texts: List[str],
+        metadatas: Optional[List[dict]] = None,
         config: Optional[EnsembleConfig] = None,
     ):
         """Ensemble retriever
@@ -71,6 +72,8 @@ class EnsembleRetriever:
             Embedding model.
         texts : List[str]
             Text corpus for retrieving passages.
+        metadatas : Optional[List[dict]], optional
+            Metadata for each passage. The default is None.
         config : Optional[EnsembleConfig], optional
             Ensemble reranking config. The default is None.
 
@@ -83,6 +86,7 @@ class EnsembleRetriever:
         self.dense_retriever = dense_retriever
         self.embedding_model = embedding_model
         self.texts = texts
+        self.metadatas = metadatas or [{} for _ in texts]
         self.device = torch.device(
             "cuda"
             if torch.cuda.is_available() and self.config.use_gpu
@@ -104,7 +108,7 @@ class EnsembleRetriever:
 
     async def _get_bm25_scores(
         self, query: str, k: int
-    ) -> Tuple[List[str], Dict[str, float], List[int]]:
+    ) -> Tuple[List[str], Dict[str, float], List[dict]]:
         """BM25 retriever scores with ranking
 
         Parameters
@@ -114,7 +118,7 @@ class EnsembleRetriever:
 
         Returns
         -------
-        (Tuple[List[str], Dict[str, float], List[int]])
+        (Tuple[List[str], Dict[str, float], List[dict]])
             Retrieved passages, their scores, and original ranks.
         """
         try:
@@ -127,15 +131,15 @@ class EnsembleRetriever:
                 passage: float(scores[idx])
                 for passage, idx in zip(passages, top_k_indices)
             }
-            ranks = list(range(1, len(passages) + 1))
-            return passages, scores_dict, ranks
+            meta_list = [self.metadatas[idx] if idx < len(self.metadatas) else {} for idx in top_k_indices]
+            return passages, scores_dict, meta_list
         except Exception as e:
             logging.error(f"BM25 retrieval error: {e}")
             return [], {}, []
 
     async def _get_dense_scores(
         self, query: str, k: int
-    ) -> Tuple[List[str], Dict[str, float], List[int]]:
+    ) -> Tuple[List[str], Dict[str, float], List[dict]]:
         """Dense retriever scores with ranking
 
         Parameters
@@ -145,37 +149,60 @@ class EnsembleRetriever:
 
         Returns
         -------
-        (Tuple[List[str], Dict[str, float], List[int]])
+        (Tuple[List[str], Dict[str, float], List[dict]])
             Retrieved passages, their scores, and original ranks.
         """
         try:
-            with torch.no_grad():
-                query_embedding = self.embedding_model.encode(
-                    [query],
-                    convert_to_tensor=True,
-                    show_progress_bar=False,
-                    device=self.device,
+            # Path 1: FAISS index (has .search method)
+            if hasattr(self.dense_retriever, "search"):
+                with torch.no_grad():
+                    query_embedding = self.embedding_model.encode(
+                        [query],
+                        convert_to_tensor=True,
+                        show_progress_bar=False,
+                        device=self.device,
+                    )
+                    query_embedding = query_embedding.cpu().numpy()
+
+                if len(query_embedding.shape) == 2:
+                    query_embedding = query_embedding.astype("float32")
+                else:
+                    query_embedding = query_embedding.reshape(1, -1).astype(
+                        "float32"
+                    )
+
+                # FAISS Search
+                D, I = self.dense_retriever.search(query_embedding, k)
+                passages = [self.texts[idx] for idx in I[0]]
+                similarities = 1.0 / (1.0 + D[0])  # distance→similarity
+                scores_dict = {
+                    passage: float(score)
+                    for passage, score in zip(passages, similarities)
+                }
+                meta_list = [
+                    self.metadatas[idx] if idx < len(self.metadatas) else {}
+                    for idx in I[0]
+                ]
+                return passages, scores_dict, meta_list
+
+            # Path 2: Chroma (LangChain VectorStore) – use similarity_search_with_score
+            if hasattr(self.dense_retriever, "similarity_search_with_score"):
+                results = await asyncio.to_thread(
+                    self.dense_retriever.similarity_search_with_score,
+                    query,
+                    k,
                 )
-                query_embedding = query_embedding.cpu().numpy()
+                passages = [doc.page_content for doc, _ in results]
+                scores_dict = {
+                    doc.page_content: float(score) for doc, score in results
+                }
+                meta_list = [doc.metadata for doc, _ in results]
+                return passages, scores_dict, meta_list
 
-            if len(query_embedding.shape) == 2:
-                query_embedding = query_embedding.astype("float32")
-            else:
-                query_embedding = query_embedding.reshape(1, -1).astype(
-                    "float32"
-                )
-
-            # FAISS Search
-            D, I = self.dense_retriever.search(query_embedding, k)
-            passages = [self.texts[idx] for idx in I[0]]
-            similarities = 1.0 / (1.0 + D[0])  # Convert distance to similarity
-            scores_dict = {
-                passage: float(score)
-                for passage, score in zip(passages, similarities)
-            }
-            ranks = list(range(1, len(passages) + 1))
-
-            return passages, scores_dict, ranks
+            logging.warning(
+                "Dense retriever object lacks known retrieval interfaces; returning empty result."
+            )
+            return [], {}, []
 
         except Exception as e:
             logging.error(f"Dense retrieval error: {e}")
@@ -746,7 +773,7 @@ class EnsembleRetriever:
 
     async def retrieve(
         self, query: str, k: Optional[int] = None
-    ) -> Tuple[List[str], List[float]]:
+    ) -> Tuple[List[str], List[float], List[dict]]:
         """Retrieve passages using the selected fusion method
 
         Parameters
@@ -757,7 +784,7 @@ class EnsembleRetriever:
 
         Returns
         -------
-        (Tuple[List[str], List[float]])
+        (Tuple[List[str], List[float], List[dict]])
             Retrieved passages and their combined scores.
         """
         k = k or self.config.k
@@ -771,14 +798,14 @@ class EnsembleRetriever:
                 self._get_dense_scores(query, candidate_k)
             )
 
-            (bm25_passages, bm25_scores, bm25_ranks), (
+            (bm25_passages, bm25_scores, bm25_meta_list), (
                 dense_passages,
                 dense_scores,
-                dense_ranks,
+                dense_meta_list,
             ) = await asyncio.gather(bm25_future, dense_future)
             if not bm25_scores and not dense_scores:
                 logging.warning("Both retrievers failed")
-                return [], []
+                return [], [], []
 
             if not bm25_scores:
                 logging.warning(
@@ -788,7 +815,8 @@ class EnsembleRetriever:
                     dense_scores.items(), key=lambda x: x[1], reverse=True
                 )
                 passages, scores = zip(*sorted_results[:k])
-                return list(passages), list(scores)
+                metas = dense_meta_list[: len(passages)]
+                return list(passages), list(scores), metas
 
             if not dense_scores:
                 logging.warning(
@@ -798,7 +826,8 @@ class EnsembleRetriever:
                     bm25_scores.items(), key=lambda x: x[1], reverse=True
                 )
                 passages, scores = zip(*sorted_results[:k])
-                return list(passages), list(scores)
+                metas = bm25_meta_list[: len(passages)]
+                return list(passages), list(scores), metas
 
             # -- fuse scores
             combined_scores = self._fuse_scores(
@@ -808,15 +837,28 @@ class EnsembleRetriever:
                 combined_scores.items(), key=lambda x: x[1], reverse=True
             )
             passages, scores = zip(*sorted_results[:k])
-            return list(passages), list(scores)
+            metas = []
+            meta_lookup = {text: meta for text, meta in zip(self.texts, self.metadatas)}
+            for p in passages:
+                if p in meta_lookup:
+                    metas.append(meta_lookup[p])
+                elif p in bm25_passages:
+                    idx = bm25_passages.index(p)
+                    metas.append(bm25_meta_list[idx])
+                elif p in dense_passages:
+                    idx = dense_passages.index(p)
+                    metas.append(dense_meta_list[idx])
+                else:
+                    metas.append({})
+            return list(passages), list(scores), metas
 
         except Exception as e:
             logging.error(f"Ensemble retrieval error: {e}")
-            return [], []
+            return [], [], []
 
     async def abatch_retrieve(
         self, queries: List[str], k: Optional[int] = None
-    ) -> List[Tuple[List[str], List[float]]]:
+    ) -> List[Tuple[List[str], List[float], List[dict]]]:
         """Asyn batch retrieval
 
         Parameters
@@ -828,8 +870,8 @@ class EnsembleRetriever:
 
         Returns
         -------
-        (List[Tuple[List[str], List[float]]])
-            List of (passages, scores) tuples for each query.
+        (List[Tuple[List[str], List[float], List[dict]]])
+            List of (passages, scores, metadata) tuples for each query.
         """
         async with asyncio.TaskGroup() as tg:
             tasks = [
