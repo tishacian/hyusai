@@ -57,7 +57,7 @@ from src.utils import (
     get_max_model_len,
     measure_time,
     measure_time_sync,
-)
+), filter_by_metadata
 
 # --
 logging.basicConfig(
@@ -799,7 +799,7 @@ class CustomLLMChain:
         return chunks
 
     @measure_time
-    async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
+    async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5, meta_filter: dict | None = None):
         """Search w/ reasoning scores
 
         Parameters
@@ -842,6 +842,10 @@ class CustomLLMChain:
 
         if not contexts:
             return []
+
+        # apply metadata filter if provided and contexts include metadata
+        if meta_filter:
+            contexts = filter_by_metadata(contexts, meta_filter)
 
         score_start = time.time()
 

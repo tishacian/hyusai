@@ -56,6 +56,7 @@ from src.utils import (
     load_stopwords,
     measure_time,
     measure_time_sync,
+    filter_by_metadata,
 )
 
 logging.basicConfig(
@@ -856,7 +857,7 @@ class CustomLLMChain:
             return unique_contexts[:k]
 
     @measure_time
-    async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
+    async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5, meta_filter: dict | None = None):
         """Search with reasoning scores
 
         Parameters
@@ -867,6 +868,8 @@ class CustomLLMChain:
             Context size to return, by default 5
         lambda_param : float, optional
             Context confidence score, by default 0.5
+        meta_filter : dict or None, optional
+            Metadata filter for context filtering, by default None
 
         Returns
         -------
@@ -883,6 +886,12 @@ class CustomLLMChain:
             lambda_param=lambda_param,
             use_query_expansion=lambda_param > 0.6,
         )
+
+        if not contexts:
+            return []
+
+        if meta_filter:
+            contexts = filter_by_metadata(contexts, meta_filter)
 
         result = [ctx.text for ctx in contexts]
         self.context_cache[cache_key] = result

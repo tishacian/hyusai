@@ -377,6 +377,53 @@ def format_llm_response(
         return "No sufficient context to respond to the question."
 
 
+def filter_by_metadata(items, meta_filter=None):
+    """Filter a collection of items by metadata.
+
+    Aimed to be generic so it works with:
+        • list of (text, metadata) tuples
+        • list of RetrievalContext objects (has .metadata)
+        • list of dictionaries (already metadata)
+        • plain strings (no metadata – always kept)
+
+    meta_filter is a mapping {key: value or iterable_of_values}
+    The function applies logical *AND* across keys:
+        - If filter value is a collection (set / list / tuple), keep item if
+          meta[key] is *in* that collection.
+        - Otherwise, keep when meta[key] == value.
+    If a key is missing in the item metadata the item is discarded.
+    If meta_filter is falsy, the original list is returned unmodified.
+    """
+    if not meta_filter:
+        return list(items)
+
+    def _match(meta: dict) -> bool:
+        for key, condition in meta_filter.items():
+            if isinstance(condition, (list, set, tuple)):
+                if meta.get(key) not in condition:
+                    return False
+            else:
+                if meta.get(key) != condition:
+                    return False
+        return True
+
+    filtered = []
+    for it in items:
+        # Extract metadata depending on representation
+        meta = {}
+        if isinstance(it, tuple) and len(it) == 2 and isinstance(it[1], dict):
+            meta = it[1]
+        elif hasattr(it, "metadata") and isinstance(it.metadata, dict):
+            meta = it.metadata
+        elif isinstance(it, dict):
+            meta = it
+        # else: leave meta empty
+
+        if _match(meta):
+            filtered.append(it)
+    return filtered
+
+
 def humanize_datetime(dt: datetime) -> str:
     """
     Converts a datetime object to a human-readable string.

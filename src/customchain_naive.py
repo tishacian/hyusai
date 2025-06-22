@@ -499,7 +499,7 @@ class CustomLLMChain:
 
         return chunks
 
-    async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5):
+    async def search_similar_texts_async(self, chunk, k=5, lambda_param=0.5, meta_filter: dict | None = None):
         """Asynchronous version of search_similar_texts for a single chunk.
 
         Args:
@@ -515,12 +515,22 @@ class CustomLLMChain:
                 chunk_embedding = await self.create_embeddings_async([chunk])
                 faiss.normalize_L2(chunk_embedding)
                 _, faiss_indices = self.index.search(chunk_embedding, k)
-                return [self.texts[idx] for idx in faiss_indices[0]]
-
+                contexts = [self.texts[idx] for idx in faiss_indices[0]]
             elif self.index_type in [IndexType.CHROMA, IndexType.WEAVIATE]:
                 chunk_embedding = await self.create_embeddings_async([chunk])
                 results = await self.vector_search_async(chunk_embedding, k)
-                return results
+                contexts = results
+            else:
+                raise ValueError(
+                    "Unsupported index type. Choose 'faiss', 'chroma', or 'weaviate'."
+                )
+
+            # apply metadata filtering if requested
+            if meta_filter:
+                from utils import filter_by_metadata
+                contexts = filter_by_metadata(contexts, meta_filter)
+
+            return contexts
         except Exception as e:
             logging.error(f"🚩 Error in vector search: {str(e)}")
             return []
