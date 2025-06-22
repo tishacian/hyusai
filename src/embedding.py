@@ -14,6 +14,7 @@ from src.globalvariables import (
 from src.embeddingloader import EmbeddingModelLoader
 from langchain_community.vectorstores import Chroma
 from src.chunker import cache_chunker_embedding_chain, BM25Retriever
+from langchain_community.embeddings import SentenceTransformerEmbeddings
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -112,6 +113,15 @@ class EmbeddingVectors:
             )
         )
         return instance
+
+    def _split_chunks(self, chunks):
+        """Utility: split a list of chunks that might be (text, meta) tuples."""
+        if not chunks:
+            return [], []
+        if isinstance(chunks[0], tuple) and len(chunks[0]) == 2:
+            texts, metas = zip(*chunks)
+            return list(texts), list(metas)
+        return chunks, []
 
     def create_embeddings(self, texts, batch_size: Optional[int] = None):
         """
@@ -333,7 +343,7 @@ class EmbeddingVectors:
             logging.error(f"🚩 Error creating FAISS index: {e}")
             return None
 
-    def save_index(self, index, texts):
+    def save_index(self, index, texts, metadatas=None):
         """
         Save index -- vector database
         If create_new_vs is True, create a new vector store.
@@ -342,6 +352,7 @@ class EmbeddingVectors:
         Parameters:
                 index (Index/vector store): Index or vector store
                 texts: input texts
+                metadatas: list of metadatas corresponding to texts
 
         Returns
             None
@@ -368,6 +379,10 @@ class EmbeddingVectors:
             with open(save_path / "dimension_info.pkl", "wb") as f:
                 pickle.dump(dimension_info, f)
 
+            # ensure metadatas aligns with texts length
+            if metadatas is None:
+                metadatas = [{} for _ in texts]
+
             # -- initialize and save BM25 retriever
             try:
                 bm25_retriever = BM25Retriever(texts)
@@ -384,6 +399,8 @@ class EmbeddingVectors:
                     faiss.write_index(index, str(save_path / "faiss.index"))
                     with open(save_path / "faiss.pkl", "wb") as f:
                         pickle.dump(texts, f)
+                    with open(save_path / "faiss_meta.pkl", "wb") as f:
+                        pickle.dump(metadatas, f)
                     logging.info(
                         f"New FAISS index and texts saved successfully to {save_path}"
                     )
@@ -440,6 +457,8 @@ class EmbeddingVectors:
                             )
                             with open(save_path / "faiss.pkl", "rb") as f:
                                 existing_texts = pickle.load(f)
+                            with open(save_path / "faiss_meta.pkl", "rb") as f:
+                                existing_metas = pickle.load(f)
 
                             existing_embeddings = self.create_embeddings(
                                 existing_texts
@@ -462,6 +481,8 @@ class EmbeddingVectors:
                             )
                             with open(save_path / "faiss.pkl", "wb") as f:
                                 pickle.dump(combined_texts, f)
+                            with open(save_path / "faiss_meta.pkl", "wb") as f:
+                                pickle.dump(existing_metas + metadatas, f)
                             logging.info(
                                 f"Created new combined FAISS index and saved to {save_path}"
                             )
@@ -473,9 +494,13 @@ class EmbeddingVectors:
                         )
                         with open(save_path / "faiss.pkl", "rb") as f:
                             existing_texts = pickle.load(f)
+                        with open(save_path / "faiss_meta.pkl", "rb") as f:
+                            existing_metas = pickle.load(f)
                         existing_texts.extend(texts)
                         with open(save_path / "faiss.pkl", "wb") as f:
                             pickle.dump(existing_texts, f)
+                        with open(save_path / "faiss_meta.pkl", "wb") as f:
+                            pickle.dump(existing_metas + metadatas, f)
                         logging.info(
                             f"FAISS index merged and texts updated successfully at {save_path}"
                         )
@@ -489,6 +514,8 @@ class EmbeddingVectors:
                         )
                         with open(save_path / "faiss.pkl", "wb") as f:
                             pickle.dump(texts, f)
+                        with open(save_path / "faiss_meta.pkl", "wb") as f:
+                            pickle.dump(metadatas, f)
                         logging.info(
                             f"New FAISS index created and saved to {save_path}"
                         )
@@ -496,21 +523,32 @@ class EmbeddingVectors:
             elif self.embedding_type == IndexType.CHROMA:
                 try:
                     if self.create_new_vs:
+                        # -- wrap SentenceTransformer with LangChain embedding interface
+                        #   SentenceTransformerEmbeddings expects the *name* of a HF model, not the model instance.
+                        #   We therefore pass the configured model name and let LangChain handle the loading.
+                        embedding_fn = SentenceTransformerEmbeddings(model_name=self.embedding_model_name)
+
+                        # Explicitly set the Chroma collection name to align with `new_vs_name` so that
+                        # downstream callers (e.g. tests) can reliably fetch the collection.
                         vectorstore = Chroma.from_texts(
                             texts,
-                            embedding=self.embedding_model,
+                            embedding=embedding_fn,
                             persist_directory=str(save_path),
+                            metadatas=metadatas,
+                            collection_name=self.new_vs_name,
                         )
                         vectorstore.persist()
                         logging.info(
                             f"New Chroma index and texts saved successfully to {save_path}"
                         )
                     else:
+                        # Opening an existing Chroma collection requires the same explicit collection name.
                         existing_vectorstore = Chroma(
-                            embedding_function=self.embedding_model,
+                            embedding_function=SentenceTransformerEmbeddings(model_name=self.embedding_model_name),
                             persist_directory=str(save_path),
+                            collection_name=self.existing_vector_store or self.new_vs_name,
                         )
-                        existing_vectorstore.add_texts(texts)
+                        existing_vectorstore.add_texts(texts, metadatas=metadatas)
                         existing_vectorstore.persist()
                         logging.info(
                             f"Chroma index updated with new texts at {save_path}"
@@ -556,18 +594,21 @@ class EmbeddingVectors:
             )
             raise
 
-    def create_and_save_index(self, texts):
+    def create_and_save_index(self, chunks):
         """
         Create and save the index -- vector DB with improved validation and error handling
 
         Parameters:
-            texts (str): input texts
+            chunks: list of text chunks
 
         Return
             None
         """
         try:
-            if not texts or len(texts) == 0:
+            # split chunks into texts & metadatas
+            texts, metadatas = self._split_chunks(chunks)
+
+            if not texts:
                 logging.error("🚩 Empty texts array received")
                 return
 
@@ -579,15 +620,13 @@ class EmbeddingVectors:
             if self.embedding_type == IndexType.FAISS:
                 index = self.create_faiss_index(self.embeddings)
                 if index is not None:
-                    self.save_index(index, texts)
+                    self.save_index(index, texts, metadatas)
                 else:
                     logging.error("🚩 Failed to create FAISS index")
             elif self.embedding_type == IndexType.CHROMA:
-                self.save_index(
-                    None, texts
-                )  # -- Index is saved during vectorstore creation in Chroma
+                self.save_index(None, texts, metadatas)
             elif self.embedding_type == IndexType.WEAVIATE:
-                self.save_index(None, texts)
+                self.save_index(None, texts, metadatas)
             else:
                 raise ValueError(
                     "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
