@@ -424,6 +424,55 @@ def filter_by_metadata(items, meta_filter=None):
     return filtered
 
 
+def collect_metadata_stats(metadatas):
+    """Aggregate unique metadata values for facet filtering.
+
+    Parameters
+    ----------
+    metadatas : list[dict]
+        List of metadata dictionaries (one per text chunk).
+
+    Returns
+    -------
+    dict[str, list]
+        Mapping of metadata key to **sorted** list of unique values (as strings).  
+        Includes the *base* keys defined in ``FileMetaData`` plus any extra keys
+        discovered in the input list.
+    """
+    from collections import defaultdict
+    from metadata_extraction.docmeta.core.types import FileMetaData
+
+    # Collect required/base keys from FileMetaData TypedDict
+    base_keys = set(FileMetaData.__annotations__.keys())
+
+    # Prepare accumulator
+    acc: defaultdict[str, set] = defaultdict(set)
+
+    # Ensure all base keys represented in accumulator (even if no values yet)
+    for k in base_keys:
+        acc[k]  # touch key to create entry
+
+    # Iterate over provided metadata dictionaries
+    for meta in metadatas or []:
+        if not isinstance(meta, dict):
+            continue
+        for key, value in meta.items():
+            if value is None:
+                continue
+            # Normalise to a set of hashable representations
+            if isinstance(value, (list, set, tuple)):
+                for v in value:
+                    acc[key].add(str(v))
+            else:
+                try:
+                    acc[key].add(str(value))
+                except Exception:
+                    acc[key].add(repr(value))
+
+    # Convert sets to sorted lists for deterministic ordering
+    return {k: sorted(values) for k, values in acc.items()}
+
+
 def humanize_datetime(dt: datetime) -> str:
     """
     Converts a datetime object to a human-readable string.

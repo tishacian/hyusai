@@ -454,7 +454,16 @@ if get_standalone_interface_config().forced_vdb == "None":
                         ),
                     )
 
-            row_be = st.columns(4)
+            
+            
+            enable_meta_filter = st.checkbox(
+                "Enable metadata filters",
+                key="enable_meta_filter",
+                value=st.session_state.get("enable_meta_filter", True),
+                help="When enabled, the indexer will inventory unique metadata values so they can be used as filters during retrieval.",
+            )
+
+            row_be = st.columns(3)
             with row_be[0]:
                 vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
                 vector_store_list = [
@@ -504,13 +513,72 @@ if get_standalone_interface_config().forced_vdb == "None":
                         help="Select the language of the LLM reasoning instructions.",
                     )
             # --
-            row_buttons = st.columns(6)
+            row_buttons = st.columns([1, 1, 2, 1, 1])
             with row_buttons[0]:
                 save_button = st.form_submit_button("Create new vector DB")
             with row_buttons[1]:
                 custom_chain_button = st.form_submit_button(
                     "Initialize context-chain"
                 )
+            
+            with row_buttons[2]:
+                # --- Phase 7: Expose metadata facets in Retrieval UI
+                if st.session_state.get("enable_meta_filter"):
+                    import pickle
+                    from pathlib import Path
+
+                    # Determine which vector store is in effect (either existing selection or new one just created)
+                    vs_name = (
+                        existing_vector_store if existing_vector_store != "<New>" else new_vs_name
+                    )
+                    if vs_name:
+                        # The directory names already include the index type prefix (e.g. "faiss_<name>")
+                        meta_path = VECTOR_STORE_PATH / vs_name / "meta_stats.pkl"
+                        if Path(meta_path).exists():
+                            with open(meta_path, "rb") as f:
+                                meta_stats = pickle.load(f) or {}
+
+                            # Retrieve any previously selected filter values to keep UI state
+                            previous_filter = st.session_state.get("meta_filter", {})
+                            current_filter: dict[str, list] = {}
+
+                            st.markdown("**Filter by metadata**")
+                            # Debug/verbosity: show size of each value list
+
+                            for key, values in meta_stats.items():
+                                # Skip empty value lists
+                                if not values:
+                                    continue
+                                default_sel = previous_filter.get(key, [])
+                                selections = st.multiselect(
+                                    key,
+                                    options=values,
+                                    default=default_sel,
+                                    key=f"meta_sel_{key}",
+                                )
+                                if selections:
+                                    current_filter[key] = selections
+                            # Persist the (possibly changed) selections locally; will be committed when user clicks
+                            st.session_state._pending_meta_filter = current_filter
+                        else:
+                            st.info("No metadata facets available for the selected vector DB.")
+                    elif vs_name:
+                        # facet file missing
+                        st.info("meta_stats.pkl not found – ensure indexing ran with 'Enable metadata filters' enabled.")
+                # end Phase 7 UI
+            # ---------------------- Apply metadata filter button ----------------------
+            with row_buttons[3]:
+                apply_meta_button = st.form_submit_button("Apply metadata filter")
+
+            # Commit the filter when the button is pressed (or if no button shown but _pending_meta_filter is set)
+            if apply_meta_button:
+                # Move pending selections into active filter
+                pending = st.session_state.pop("_pending_meta_filter", None)
+                if pending is not None:
+                    st.session_state.meta_filter = pending
+                # Log selected filter to console and show in UI for debugging
+                print("[MetaFilter] Selected filter:", st.session_state.get("meta_filter"))
+                st.toast("Metadata filter applied ✅", icon="✅")
             # --
             if save_button:
                 # Check whether to create new vector store --> Checking params
@@ -536,7 +604,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                             delete=False, suffix=extension
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
-                            documents, _ = loadSingleDocument(temp_file.name)
+                            documents, meta = loadSingleDocument(temp_file.name)
                     else:
                         # -- Save the location of all the temporary files first..
                         temp_files = []
@@ -552,7 +620,11 @@ if get_standalone_interface_config().forced_vdb == "None":
                 chunker = TextChunker(
                     st.session_state.tokenizer, st.session_state.model
                 )
-                chunks = chunker.chunker(documents, method=chunking_method)
+                # Pass metadata when available (single-file case)
+                if NUMBER_OF_FILES == 1:
+                    chunks = chunker.chunker(documents, method=chunking_method, metadata=meta)
+                else:
+                    chunks = chunker.chunker(documents, method=chunking_method)
 
                 if not chunks or len(chunks) == 0:
                     st.error(
@@ -812,7 +884,7 @@ if prompt := st.chat_input("Message RAGGER..."):
             try:
                 start_time = time.time()
                 response, context, metrics = st.session_state.chain.ainvoke(
-                    prompt
+                    prompt, meta_filter=st.session_state.get("meta_filter")
                 )
                 end_time = time.time()
                 metrics["latency"] = end_time - start_time

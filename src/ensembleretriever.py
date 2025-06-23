@@ -153,8 +153,8 @@ class EnsembleRetriever:
             Retrieved passages, their scores, and original ranks.
         """
         try:
-            # Path 1: FAISS index (has .search method)
             if hasattr(self.dense_retriever, "search"):
+                # # Path 1: FAISS index (has .search method)
                 with torch.no_grad():
                     query_embedding = self.embedding_model.encode(
                         [query],

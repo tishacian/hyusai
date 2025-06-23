@@ -15,6 +15,7 @@ from src.embeddingloader import EmbeddingModelLoader
 from langchain_community.vectorstores import Chroma
 from src.chunker import cache_chunker_embedding_chain, BM25Retriever
 from langchain_community.embeddings import SentenceTransformerEmbeddings
+from utils import collect_metadata_stats
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -343,7 +344,7 @@ class EmbeddingVectors:
             logging.error(f"🚩 Error creating FAISS index: {e}")
             return None
 
-    def save_index(self, index, texts, metadatas=None):
+    def save_index(self, index, texts, metadatas=None, meta_stats=None):
         """
         Save index -- vector database
         If create_new_vs is True, create a new vector store.
@@ -353,6 +354,7 @@ class EmbeddingVectors:
                 index (Index/vector store): Index or vector store
                 texts: input texts
                 metadatas: list of metadatas corresponding to texts
+                meta_stats: metadata statistics for facet inventory
 
         Returns
             None
@@ -382,6 +384,14 @@ class EmbeddingVectors:
             # ensure metadatas aligns with texts length
             if metadatas is None:
                 metadatas = [{} for _ in texts]
+
+            # Persist metadata statistics (facet inventory) if supplied
+            if meta_stats is not None:
+                try:
+                    with open(save_path / "meta_stats.pkl", "wb") as f:
+                        pickle.dump(meta_stats, f)
+                except Exception as e:
+                    logging.error(f"🚩 Error saving meta_stats: {e}")
 
             # -- initialize and save BM25 retriever
             try:
@@ -617,16 +627,33 @@ class EmbeddingVectors:
                 logging.error("🚩 Failed to create embeddings")
                 return
 
+            # Determine whether metadata filtering is enabled (default: True)
+            enable_meta_filter = True
+            try:
+                import streamlit as st  # Local import to avoid hard dep during unit tests
+
+                enable_meta_filter = st.session_state.get(
+                    "enable_meta_filter", True
+                )
+            except Exception:
+                # Not running within Streamlit – assume default behaviour (enabled)
+                enable_meta_filter = True
+
+            # Collect facet inventory only when enabled
+            meta_stats = None
+            if enable_meta_filter:
+                meta_stats = collect_metadata_stats(metadatas)
+
             if self.embedding_type == IndexType.FAISS:
                 index = self.create_faiss_index(self.embeddings)
                 if index is not None:
-                    self.save_index(index, texts, metadatas)
+                    self.save_index(index, texts, metadatas, meta_stats)
                 else:
                     logging.error("🚩 Failed to create FAISS index")
             elif self.embedding_type == IndexType.CHROMA:
-                self.save_index(None, texts, metadatas)
+                self.save_index(None, texts, metadatas, meta_stats)
             elif self.embedding_type == IndexType.WEAVIATE:
-                self.save_index(None, texts, metadatas)
+                self.save_index(None, texts, metadatas, meta_stats)
             else:
                 raise ValueError(
                     "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."

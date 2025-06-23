@@ -854,6 +854,19 @@ class CustomLLMChain:
 
             unique_contexts = list(seen_texts.values())
             unique_contexts.sort(key=lambda x: x.score, reverse=True)
+
+            # -------------------------------------------------------------
+            # Attach original chunk metadata (if available) to contexts
+            # -------------------------------------------------------------
+            if hasattr(self, "metadatas") and self.metadatas and self.texts:
+                meta_lookup = {t: m for t, m in zip(self.texts, self.metadatas)}
+                for ctx in unique_contexts:
+                    if ctx.text in meta_lookup:
+                        base_meta_raw = meta_lookup[ctx.text] or {}
+                        base_meta = {k: (str(v) if not isinstance(v, str) else v) for k, v in base_meta_raw.items()}
+                        merged = {**base_meta, **getattr(ctx, "metadata", {})}
+                        ctx.metadata = merged
+
             return unique_contexts[:k]
 
     @measure_time
@@ -1438,13 +1451,15 @@ class CustomLLMChain:
                 )
 
     @measure_time
-    async def invoke_async(self, question: str):
+    async def invoke_async(self, question: str, meta_filter: dict | None = None):
         """Invoke conversation memory buffer with hyper-parallel retrieval and adaptive context assembly
 
         Parameters
         ----------
         question : str
             The current user question
+        meta_filter : dict or None, optional
+            Metadata filter for context filtering, by default None
 
         Returns
         -------
@@ -1586,6 +1601,24 @@ class CustomLLMChain:
             retrieval_time = time.time() - retrieval_start
             logging.info(f"Total retrieval took {retrieval_time:.4f} seconds")
 
+
+            if meta_filter:
+                try:
+                    # Convert RetrievalContext objects into (text, metadata) pairs expected by filter utility
+                    ctx_pairs = [
+                        (ctx.text, getattr(ctx, "metadata", {})) for ctx in all_contexts
+                    ]
+
+                    filtered_pairs = filter_by_metadata(ctx_pairs, meta_filter)
+
+                    # Replace all_contexts with filtered ones, preserving existing RetrievalContext objects
+                    text_to_ctx = {ctx.text: ctx for ctx in all_contexts}
+                    all_contexts = [text_to_ctx[text] for text, _ in filtered_pairs if text in text_to_ctx]
+                    if not all_contexts:
+                        all_contexts = [text_to_ctx[text] for text in text_to_ctx.keys()]
+                except Exception as e:
+                    logging.error(f"Error during metadata filtering: {e}")
+
             context_build_start = time.time()
             combined_context = await self.assemble_context(
                 all_contexts, conversation_context, query_analysis
@@ -1660,20 +1693,22 @@ class CustomLLMChain:
             return error_msg, "", {}
 
     @measure_time_sync
-    def ainvoke(self, question):
+    def ainvoke(self, question, meta_filter: dict | None = None):
         """Synchronous wrapper for invoke_async
 
         Parameters
         ----------
         question : str
             Input question to process
+        meta_filter : dict or None, optional
+            Metadata filter for context filtering, by default None
 
         Returns
         -------
         tuple
             Result of invoke_async containing answer, context, and metrics
         """
-        return self.run_async_in_thread(self.invoke_async(question))
+        return self.run_async_in_thread(self.invoke_async(question, meta_filter))
 
     @staticmethod
     def _format_llm_response(
