@@ -463,7 +463,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                 help="When enabled, the indexer will inventory unique metadata values so they can be used as filters during retrieval.",
             )
 
-            row_be = st.columns(3)
+            row_be = st.columns(4)
             with row_be[0]:
                 vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
                 vector_store_list = [
@@ -513,7 +513,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                         help="Select the language of the LLM reasoning instructions.",
                     )
             # --
-            row_buttons = st.columns([1, 1, 2, 1, 1])
+            row_buttons = st.columns([1, 1, 1, 1])
             with row_buttons[0]:
                 save_button = st.form_submit_button("Create new vector DB")
             with row_buttons[1]:
