@@ -1,5 +1,6 @@
-from .utils import Base, get_engine
+from .chats import Chats  # required for tables creation
 from .system_prompts import SystemPrompts
+from .utils import Base, get_engine
 
 
 def init_db():

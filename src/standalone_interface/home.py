@@ -16,7 +16,7 @@ from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
-from src.database.chats.chats import ChatsDB
+from src.db.chats import Chats
 from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
 from src.embedding import EmbeddingVectors
 from src.globalvariables import (
@@ -42,6 +42,7 @@ from src.standalone_interface.style import (
     THINKING_SPINNER,
 )
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SYSTEM_PROMPT_LANGS_LIST
+from src.utils import humanize_datetime
 
 
 # -- device available model
@@ -89,7 +90,6 @@ def home_page():
     HUMAN_AVATAR_B64 = image_to_base64(HUMAN_AVATAR)
     AI_AVATAR_B64 = image_to_base64(AI_AVATAR)
 
-    chat_db = ChatsDB()
     st.set_page_config(
         page_title=get_standalone_interface_config().page_title,
         page_icon=get_standalone_interface_config().page_icon,
@@ -480,7 +480,7 @@ def home_page():
     # -- New chat
     if st.sidebar.button("New Chat"):
         if st.session_state.chat_history:
-            chat_db.post_chat(
+            Chats.post_chat(
                 st.session_state.chat_history,
                 st.session_state.get("model_name", ""),
                 st.session_state.get("chunking_method", ""),
@@ -495,11 +495,11 @@ def home_page():
 
     # -- Recently saved chats...
     st.sidebar.markdown("Recents")
-    historical_chats = chat_db.get_all_chats()
+    historical_chats = Chats.get_all_chats()
     for chat_id, timestamp in historical_chats:
         chat_label = f"Chat {chat_id}"
         if timestamp:
-            chat_label += f" - {timestamp}"
+            chat_label += f" - {humanize_datetime(timestamp)}"
 
         col1, col2 = st.sidebar.columns([15, 1])
 
@@ -513,7 +513,7 @@ def home_page():
                     vector_store,
                     pipeline_type,
                     instruction_lang,
-                ) = chat_db.get_chat(chat_id)
+                ) = Chats.get_chat(chat_id)
 
                 # Set session state variables
                 st.session_state.chat_history = chat_history
@@ -550,7 +550,7 @@ def home_page():
         # --
         with col2:
             if st.button("×", key=f"delete_{chat_id}"):
-                chat_db.delete_chat(chat_id)
+                Chats.delete_chat(chat_id)
                 if st.session_state.current_chat_id == chat_id:
                     st.session_state.current_chat_id = None
                     st.session_state.chat_history = []
@@ -558,7 +558,7 @@ def home_page():
 
     # -- Clear all chat history + from DB..
     if st.sidebar.button("Clear All Chat History"):
-        chat_db.delete_all_chats()
+        Chats.delete_all_chats()
         st.session_state.chat_history.clear()
         st.session_state.current_chat_id = None
         st.rerun()
@@ -682,7 +682,7 @@ def home_page():
 
         # -- Save or update chat history in database
         if st.session_state.current_chat_id:
-            chat_db.update_chat(
+            Chats.update_chat(
                 st.session_state.current_chat_id,
                 json.dumps(st.session_state.chat_history),
                 st.session_state.get("model_name", ""),
@@ -693,7 +693,7 @@ def home_page():
                 st.session_state.get("instruction_lang", ""),
             )
         else:
-            chat_id = chat_db.post_chat(
+            chat_id = Chats.post_chat(
                 st.session_state.chat_history,
                 st.session_state.get("model_name", ""),
                 st.session_state.get("chunking_method", ""),
