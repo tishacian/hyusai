@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Sat Mar  1 14:21:12 2025
 
 @author: kennethezukwoke
 """
+
 import sys
 import torch
 import logging
@@ -25,7 +25,9 @@ logging.basicConfig(
 device = torch.device(
     "cuda"
     if torch.cuda.is_available()
-    else "cpu" if torch.backends.mps.is_available() else "cpu"
+    else "cpu"
+    if torch.backends.mps.is_available()
+    else "cpu"
 )
 
 
@@ -82,10 +84,7 @@ class EmbeddingModelLoader:
             logging.info(f"Using cached model for {cache_key}")
             return EmbeddingModelLoader._model_cache[cache_key]
 
-        if (
-            embedding_type == IndexType.FAISS
-            or embedding_type == IndexType.CHROMA
-        ):
+        if embedding_type == IndexType.FAISS or embedding_type == IndexType.CHROMA:
             model = SentenceTransformer(model_name, device=device.type)
             sample_embedding = model.encode(
                 "sample text for dimension detection",
@@ -140,9 +139,7 @@ class EmbeddingModelLoader:
             return EmbeddingModelLoader._dimension_cache[cache_key]
 
         # -- reload to get dimension
-        model = EmbeddingModelLoader.load_embedding_model(
-            embedding_type, model_name
-        )
+        model = EmbeddingModelLoader.load_embedding_model(embedding_type, model_name)
 
         if embedding_type in [IndexType.FAISS, IndexType.CHROMA]:
             sample_embedding = model.encode(
@@ -158,9 +155,7 @@ class EmbeddingModelLoader:
             return 384
 
     @staticmethod
-    async def load_embedding_model_async(
-        embedding_type: str, model_name: str
-    ) -> Any:
+    async def load_embedding_model_async(embedding_type: str, model_name: str) -> Any:
         """
         Asynchronously load an embedding model.
 
@@ -236,9 +231,7 @@ class EmbeddingModelLoader:
                 embedding_type, embedding_model_name
             )
         elif embedding_type == IndexType.WEAVIATE:
-            return EmbeddingModelLoader.load_embedding_model(
-                embedding_type, "default"
-            )
+            return EmbeddingModelLoader.load_embedding_model(embedding_type, "default")
         else:
             raise ValueError("🚩 Unsupported embedding type")
 

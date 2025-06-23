@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Fri Feb 7 15:48:53 2025
 
 @author: kennethezukwoke
 """
+
 import os
 import sys
 import asyncio
@@ -136,9 +136,7 @@ class ContextualCompressionRetriever:
 
         """
         try:
-            base_passages, base_scores = await self.base_retriever.retrieve(
-                query, k
-            )
+            base_passages, base_scores = await self.base_retriever.retrieve(query, k)
 
             if not base_passages:
                 return [], []

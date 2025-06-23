@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Fri Feb 14 16:45:10 2025
@@ -50,9 +49,7 @@ class ConversationMemoryBuffer:
             metadata (Dict, optional): Additional metadata for the message
         """
         try:
-            message = Message(
-                role=role, content=content, metadata=metadata or {}
-            )
+            message = Message(role=role, content=content, metadata=metadata or {})
             self.messages.append(message)
 
             # -- maintain buffer size by removing older messages if needed
@@ -121,9 +118,7 @@ class ConversationMemoryBuffer:
         self.messages.clear()
         logging.info("Conversation buffer cleared")
 
-    def get_context_with_reasoning(
-        self, reasoning_type: "ReasoningType"
-    ) -> str:
+    def get_context_with_reasoning(self, reasoning_type: "ReasoningType") -> str:
         """
         Context with reasoning template
 
@@ -147,9 +142,7 @@ class ConversationMemoryBuffer:
                 "ReasoningType.HYPOTHETICAL": "Previous hypothetical scenarios:\n",
             }
 
-            prefix = reasoning_prefixes.get(
-                str(reasoning_type), "Previous context:\n"
-            )
+            prefix = reasoning_prefixes.get(str(reasoning_type), "Previous context:\n")
             return f"{prefix}{recent_context}"
 
         except Exception as e:

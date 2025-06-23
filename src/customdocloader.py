@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Sun Mar  2 06:21:51 2025
@@ -23,14 +22,13 @@ from langchain_community.document_loaders import UnstructuredEmailLoader
 from PIL import Image, ImageEnhance
 
 from src.globalvariables import OCRConfig
-from src.utils import get_tesseract_path
+from src.utils import configure_tesseract, get_tesseract_path
 
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-from src.utils import configure_tesseract
 
 tesseract_path, TESSERACT_AVAILABLE = configure_tesseract()
 
@@ -58,9 +56,7 @@ class MyEmlLoader(UnstructuredEmailLoader):
 class PDFExtractor:
     """Extract text from PDF files with ultra-fast performance"""
 
-    def __init__(
-        self, tesseract_path=None, max_workers=None, resource_percentage=None
-    ):
+    def __init__(self, tesseract_path=None, max_workers=None, resource_percentage=None):
         """Initialize the extractor with optimal settings
 
         Parameters
@@ -269,9 +265,7 @@ class PDFExtractor:
                         batch = []
                         for page_num in batch_nums:
                             page = doc[page_num]
-                            matrix = pymupdf.Matrix(
-                                self.dpi_scale, self.dpi_scale
-                            )
+                            matrix = pymupdf.Matrix(self.dpi_scale, self.dpi_scale)
                             pix = page.get_pixmap(matrix=matrix, alpha=False)
                             img = Image.frombytes(
                                 "RGB", [pix.width, pix.height], pix.samples
@@ -291,9 +285,7 @@ class PDFExtractor:
                 doc.close()
         return result
 
-    async def extract_text_from_pdf(
-        self, pdf_path, output_format="text", **kwargs
-    ):
+    async def extract_text_from_pdf(self, pdf_path, output_format="text", **kwargs):
         """Extract text with specified format"""
         pages_dict = await self.extract_from_pdf(pdf_path, **kwargs)
 
@@ -390,9 +382,7 @@ class OCRPDFLoader:
             )
 
             if not text or not text.strip():
-                logging.warning(
-                    f"Warning: No text extracted from {self.file_path}"
-                )
+                logging.warning(f"Warning: No text extracted from {self.file_path}")
                 return [
                     Document(
                         page_content="No text could be extracted from this document.",
@@ -403,11 +393,7 @@ class OCRPDFLoader:
                     )
                 ]
 
-            return [
-                Document(
-                    page_content=text, metadata={"source": self.file_path}
-                )
-            ]
+            return [Document(page_content=text, metadata={"source": self.file_path})]
         except Exception as e:
             logging.error(
                 f"🚩 Error extracting text from PDF {self.file_path}: {str(e)}"

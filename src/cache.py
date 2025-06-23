@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Fri Feb 14 17:42:17 2025
 
 @author: kennethezukwoke
 """
+
 import sys
 import time
 import logging
@@ -157,9 +157,7 @@ class TimedCache:
         self._cache[key] = value
 
         actual_expiry = (
-            expiry_seconds
-            if expiry_seconds is not None
-            else self.default_expiry
+            expiry_seconds if expiry_seconds is not None else self.default_expiry
         )
         self._expiry_times[key] = time.time() + actual_expiry
 
@@ -168,9 +166,7 @@ class TimedCache:
     def _prune(self):
         current_time = time.time()
         expired_keys = [
-            key
-            for key, expiry in self._expiry_times.items()
-            if current_time > expiry
+            key for key, expiry in self._expiry_times.items() if current_time > expiry
         ]
 
         for key in expired_keys:

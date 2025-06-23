@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Fri Feb 14 16:58:25 2025
@@ -6,10 +5,12 @@ Created on Fri Feb 14 16:58:25 2025
 @author: kennethezukwoke
 """
 
+import logging
 import re
 import sys
-import logging
+
 import numpy as np
+
 from src.globalvariables import ReasoningType
 from src.reasoning_instructions import ALL_REASONING_PATTERNS, InstructionLangs
 
@@ -89,9 +90,7 @@ class ReasoningMetrics:
         self._entropy_cache = {}
 
         # -- precompute reasoning embeddings
-        self._reasoning_type_embeddings = (
-            self._precompute_reasoning_embeddings()
-        )
+        self._reasoning_type_embeddings = self._precompute_reasoning_embeddings()
         self.pattern_token_sets = self._create_pattern_token_sets()
 
     def _precompile_patterns(self, patterns_dict):
@@ -182,9 +181,7 @@ class ReasoningMetrics:
         norm2 = np.linalg.norm(vec2)
         return dot_product / (norm1 * norm2) if norm1 * norm2 != 0 else 0.0
 
-    def compute_pattern_entropy(
-        self, text: str, pattern_type: ReasoningType
-    ) -> float:
+    def compute_pattern_entropy(self, text: str, pattern_type: ReasoningType) -> float:
         """Compute entropy of reasoning patterns in text using Shannon entropy
 
         Parameters
@@ -219,9 +216,7 @@ class ReasoningMetrics:
         total_patterns = sum(pattern_counts.values())
 
         # Compute entropy
-        probabilities = (
-            np.array(list(pattern_counts.values())) / total_patterns
-        )
+        probabilities = np.array(list(pattern_counts.values())) / total_patterns
         entropy = -np.sum(probabilities * np.log2(probabilities))
 
         self._entropy_cache[cache_key] = entropy
@@ -250,9 +245,7 @@ class ReasoningMetrics:
             return embedding
         except Exception as e:
             logging.error(f"Error getting text embedding: {e}")
-            return np.zeros(
-                self.embedding_model.get_sentence_embedding_dimension()
-            )
+            return np.zeros(self.embedding_model.get_sentence_embedding_dimension())
 
     async def get_text_embedding_async(self, text: str) -> np.ndarray:
         """Asynchronous version of get_text_embedding for compatibility
@@ -310,51 +303,6 @@ class ReasoningMetrics:
         self._pattern_matches_cache[text_hash] = matches
         return matches
 
-    def compute_pattern_entropy(
-        self, text: str, pattern_type: ReasoningType
-    ) -> float:
-        """Compute entropy of reasoning patterns in text using Shannon entropy
-
-        Parameters
-        ----------
-        text : str
-            Input text
-        pattern_type : ReasoningType
-            Reasoning pattern type
-
-        Returns
-        -------
-        float
-            Entropy score
-        """
-        cache_key = (hash(text), pattern_type)
-        if cache_key in self._entropy_cache:
-            return self._entropy_cache[cache_key]
-
-        # -- get cached pattern matches or find them
-        matches_dict = self._find_pattern_matches(text)
-        matched_patterns = matches_dict.get(pattern_type, [])
-
-        if not matched_patterns:
-            self._entropy_cache[cache_key] = 0.0
-            return 0.0
-
-        # -- count pattern occurrences
-        pattern_counts = {}
-        for pattern in matched_patterns:
-            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
-
-        total_patterns = sum(pattern_counts.values())
-
-        # -- compute entropy
-        probabilities = (
-            np.array(list(pattern_counts.values())) / total_patterns
-        )
-        entropy = -np.sum(probabilities * np.log2(probabilities))
-
-        self._entropy_cache[cache_key] = entropy
-        return entropy
-
     def compute_semantic_coherence(
         self, text: str, reasoning_type: ReasoningType
     ) -> float:
@@ -380,12 +328,12 @@ class ReasoningMetrics:
         type_text = str(reasoning_type.value)
         type_hash = hash(type_text)
         if type_hash not in self._embedding_cache:
-            self._embedding_cache[type_hash] = self.embedding_model.encode(
-                [type_text]
-            )[0]
-            self._reasoning_type_embeddings[reasoning_type] = (
-                self._embedding_cache[type_hash]
-            )
+            self._embedding_cache[type_hash] = self.embedding_model.encode([type_text])[
+                0
+            ]
+            self._reasoning_type_embeddings[reasoning_type] = self._embedding_cache[
+                type_hash
+            ]
 
         return self.compute_cosine_similarity(text_hash, type_hash)
 
@@ -418,20 +366,14 @@ class ReasoningMetrics:
         feature_vectors = {}
         for rtype in ReasoningType:
             entropy = self.compute_pattern_entropy(text, rtype)
-            entropy_score = (
-                1.0 if entropy >= self.entropy_thresholds[rtype] else 0.5
-            )
+            entropy_score = 1.0 if entropy >= self.entropy_thresholds[rtype] else 0.5
 
             type_text = str(rtype.value)
             type_hash = hash(type_text)
-            coherence_score = self.compute_cosine_similarity(
-                combined_hash, type_hash
-            )
+            coherence_score = self.compute_cosine_similarity(combined_hash, type_hash)
             matches = pattern_matches.get(rtype, [])
             total_patterns = len(self.raw_reasoning_patterns[rtype])
-            coverage = (
-                len(matches) / total_patterns if total_patterns > 0 else 0
-            )
+            coverage = len(matches) / total_patterns if total_patterns > 0 else 0
             feature_vectors[rtype] = np.array(
                 [entropy_score, coherence_score, coverage]
             )
@@ -535,11 +477,7 @@ class ReasoningMetrics:
         float
             Reasoning score
         """
-        feature_vector = self._compute_feature_vector(context, question)[
-            reasoning_type
-        ]
-        score = np.dot(
-            feature_vector, self.type_feature_weights[reasoning_type]
-        )
+        feature_vector = self._compute_feature_vector(context, question)[reasoning_type]
+        score = np.dot(feature_vector, self.type_feature_weights[reasoning_type])
 
         return score
