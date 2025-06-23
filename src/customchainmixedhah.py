@@ -1274,21 +1274,6 @@ class CustomLLMChain:
                 presence_penalty=0.1,
                 repetition_penalty=1.15 if not is_large_model else 1.05,
             )
-            print('---------prompt----------')
-            print('-------------------')
-            print(prompt)
-            print('-------------------')
-            print('---------LLM parameters----------')
-            print(f"max_tokens: {max_new_tokens}")
-            print(f"temperature: {temperature}")
-            print(f"top_p: {top_p}")
-            print(f"top_k: {top_k}")
-            print(f"presence_penalty: 0.1")
-            print(f"frequency_penalty: {freq_penalty}")
-            print(f"repetition_penalty: {1.15 if not is_large_model else 1.05}")
-            print(f"stop: {sampling_params.stop}")
-            print('-------------------')
-            print('-------------------')
             try:
                 with torch.inference_mode():
                     outputs = await asyncio.to_thread(
@@ -1297,12 +1282,6 @@ class CustomLLMChain:
                         sampling_params,
                     )
                     generated_text = outputs[0].outputs[0].text.strip()
-                    print('---------GPU response----------')
-                    print('-------------------')
-                    print(generated_text)
-                    print('-------------------')
-                    print('-------------------')
-                    print()  # Add newline after output
                     return generated_text
             except Exception as e:
                 logging.error(f"Error in GPU generation: {e}")
@@ -1332,25 +1311,8 @@ class CustomLLMChain:
                     return "I apologize, but I encountered an error processing your request."
         else:
             formatted_prompt = f"""### Instruction: {prompt}"""
-            print('---------prompt----------')
-            print('-------------------')
-            print(formatted_prompt)
-            print('-------------------')
-            print('---------LLM parameters----------')
-            print(f"max_tokens: {max_new_tokens}")
-            print(f"temperature: {temperature}")
-            print(f"top_p: {top_p}")
-            print(f"top_k: {top_k}")
-            print(f"presence_penalty: 0.1")
-            print(f"frequency_penalty: {freq_penalty}")
-            print(f"stop: ['###']")
-            print(f"stream: True")
-            print('-------------------')
-            print('-------------------')
             try:
-                # Stream the output for debug purposes
-                response_text = ""
-                stream = await asyncio.to_thread(
+                generated_text = await asyncio.to_thread(
                     self.model.create_completion,
                     prompt=formatted_prompt,
                     max_tokens=max_new_tokens,
@@ -1360,24 +1322,10 @@ class CustomLLMChain:
                     presence_penalty=0.1,
                     frequency_penalty=freq_penalty,
                     stop=["###"],
-                    stream=True,
+                    stream=False,
                 )
-                print('---------stream response----------')
-                print('-------------------')
 
-                for chunk in stream:
-                    if isinstance(chunk, dict):
-                        token = chunk.get("choices", [{}])[0].get("text", "")
-                    else:
-                        token = chunk.choices[0].text
-                    
-                    if token:
-                        print(token, end="", flush=True)
-                        response_text += token
-                print('-------------------')
-                print('-------------------')
-                print()  # Add newline after streaming is complete
-                return response_text.strip()
+                return generated_text.strip()
             except Exception as e:
                 logging.error(f"CPU generation error: {e}")
                 return "I apologize, but I encountered an error generating a response."
