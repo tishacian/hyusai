@@ -385,10 +385,10 @@ def home_page():
                                     temp_files.append(temp_file.name)
                             # -- Threaded loading of collected documents
                             documents = ThreadMultiDocLoader(temp_files)
-                    chunker = TextChunker(
+                    text_chunker = TextChunker(
                         st.session_state.tokenizer, st.session_state.model
                     )
-                    chunks = chunker.chunker(documents, method=chunking_method)
+                    chunks = text_chunker.chunker(documents, method=chunking_method)
 
                     if not chunks or len(chunks) == 0:
                         st.error(
