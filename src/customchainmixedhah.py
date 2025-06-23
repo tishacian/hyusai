@@ -25,7 +25,7 @@ from src.cache import TieredCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
-from src.db.system_prompts.model import SystemPrompts
+from src.db.system_prompts import SystemPrompts
 from src.embedding import EmbeddingModelLoader
 from src.ensembleretriever import EnsembleConfig, EnsembleRetriever, FusionMethod
 from src.flashreranker import FlashReranker, RerankerConfig
@@ -167,7 +167,10 @@ class CustomLLMChain:
 
         self.templates = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang]
         system_prompts = SystemPrompts.get_all(filter_by_language=self.instruction_lang)
-        self.roles = {prompt.system_prompt_type: prompt.llm_role_definition for prompt in system_prompts}
+        self.roles = {
+            prompt.system_prompt_type: prompt.llm_role_definition
+            for prompt in system_prompts
+        }
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count())
 
         self.perf_stats = {

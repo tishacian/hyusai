@@ -1,6 +1,5 @@
-
-from src.db.utils import Base, get_engine
-from src.db.system_prompts.model import SystemPrompts
+from .utils import Base, get_engine
+from .system_prompts import SystemPrompts
 
 
 def init_db():

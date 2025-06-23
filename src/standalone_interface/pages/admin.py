@@ -1,7 +1,7 @@
 import streamlit as st
 
 from configuration import get_standalone_interface_config
-from src.db.system_prompts.model import SystemPrompts
+from src.db.system_prompts import SystemPrompts
 from src.standalone_interface.style import center_buttons
 from src.utils import humanize_datetime
 
