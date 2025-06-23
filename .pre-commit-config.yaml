@@ -5,8 +5,8 @@ repos:
       - id: check-added-large-files
       - id: check-case-conflict
       - id: check-shebang-scripts-are-executable
-      # - id: check-executables-have-shebangs # not applicable to this repo
-      # - id: detect-aws-credentials
+        # - id: check-executables-have-shebangs # not applicable to this repo
+        # - id: detect-aws-credentials
       - id: destroyed-symlinks
       - id: mixed-line-ending
       - id: trailing-whitespace
@@ -27,6 +27,11 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+  - repo: https://github.com/pycqa/isort
+    rev: 6.0.1
+    hooks:
+      - id: isort
+        language_version: python3
   - repo: meta
     hooks:
       - id: check-hooks-apply

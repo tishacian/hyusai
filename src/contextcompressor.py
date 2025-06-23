@@ -5,15 +5,16 @@ Created on Fri Feb 7 15:48:53 2025
 @author: kennethezukwoke
 """
 
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
-from src.flashreranker import FlashReranker
+
 from src.ensembleretriever import EnsembleRetriever
-from concurrent.futures import ThreadPoolExecutor
+from src.flashreranker import FlashReranker
 
 # --
 logging.basicConfig(

@@ -5,9 +5,9 @@ Created on Fri Feb 14 17:42:17 2025
 @author: kennethezukwoke
 """
 
+import logging
 import sys
 import time
-import logging
 
 # --
 logging.basicConfig(

@@ -1,38 +1,26 @@
-import torch
-import re
+import logging
 import math
-import nltk
 import pickle
+import re
 import warnings
-import numpy as np
+from functools import lru_cache, wraps
 from typing import List
-from nltk.tokenize import sent_tokenize
 
-# --
+import nltk
+import numpy as np
+import torch
+from nltk.tokenize import sent_tokenize
+from rank_bm25 import BM25Okapi
+from scipy.spatial.distance import cdist
+from sklearn.cluster import KMeans
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import silhouette_score
+
+from src.globalvariables import RANDOM_SEED, ChunkingMethod, OptimalMethod
+
 nltk.download("punkt")
 nltk.download("punkt_tab")
 warnings.simplefilter(action="ignore", category=FutureWarning)
-
-# -- utils for Semantic chunking
-from sklearn.cluster import KMeans
-from sklearn.feature_extraction.text import TfidfVectorizer
-
-# --
-import logging
-from rank_bm25 import BM25Okapi
-from functools import wraps, lru_cache  # caching mechanism
-
-# - KMeans dependencies
-from scipy.spatial.distance import cdist
-from sklearn.metrics import silhouette_score
-
-
-# --
-from src.globalvariables import (
-    ChunkingMethod,
-    OptimalMethod,
-    RANDOM_SEED,
-)
 
 
 def cache_chunker_embedding_chain(func):
@@ -136,7 +124,9 @@ class TextChunker:
         self.device = torch.device(
             "cuda"
             if torch.cuda.is_available()
-            else "cpu" if torch.backends.mps.is_available() else "cpu"
+            else "cpu"
+            if torch.backends.mps.is_available()
+            else "cpu"
         )
 
     def estimate_chunk_size(
@@ -153,15 +143,11 @@ class TextChunker:
         estimated_chunks = math.ceil(text_length / effective_chunk_size)
 
         adjustment_factor = 1.1
-        adjusted_estimated_chunks = math.ceil(
-            estimated_chunks * adjustment_factor
-        )
+        adjusted_estimated_chunks = math.ceil(estimated_chunks * adjustment_factor)
 
         return adjusted_estimated_chunks
 
-    def apply_overlap(
-        self, chunks: List[str], chunk_overlap: int
-    ) -> List[str]:
+    def apply_overlap(self, chunks: List[str], chunk_overlap: int) -> List[str]:
         """
         Apply chunk overlap to the list of chunks.
 
@@ -265,9 +251,7 @@ class TextChunker:
                 ref_disp = np.log(
                     sum(
                         np.min(
-                            cdist(
-                                random_ref, km.cluster_centers_, "euclidean"
-                            ),
+                            cdist(random_ref, km.cluster_centers_, "euclidean"),
                             axis=1,
                         )
                     )
@@ -321,8 +305,7 @@ class TextChunker:
             else max(chunk_size, self.tokenizer.max_len_single_sentence)
         )
         return [
-            text[i : i + self.chunk_size]
-            for i in range(0, len(text), self.chunk_size)
+            text[i : i + self.chunk_size] for i in range(0, len(text), self.chunk_size)
         ]
 
     def sentence_boundary_detection(self, text):
@@ -350,9 +333,7 @@ class TextChunker:
                 ">>> nltk.download('punkt')"
             )
         except Exception as e:
-            raise RuntimeError(
-                f"🚩 Error during sentence tokenization: {str(e)}"
-            )
+            raise RuntimeError(f"🚩 Error during sentence tokenization: {str(e)}")
 
     def recursive_character_chunking(
         self, text, chunk_size=None, overlap=None
@@ -369,9 +350,7 @@ class TextChunker:
         - List[str]: A list of text chunks.
         """
         self.overlap = (
-            int(self.tokenizer.model_max_length // 10.1)
-            if not overlap
-            else overlap
+            int(self.tokenizer.model_max_length // 10.1) if not overlap else overlap
         )
         self.chunk_size = (
             self.estimate_chunk_size(
@@ -409,9 +388,7 @@ class TextChunker:
 
         return chunks
 
-    def semantic_chunking(
-        self, text, method="silhouette", max_k=10
-    ) -> List[str]:
+    def semantic_chunking(self, text, method="silhouette", max_k=10) -> List[str]:
         """
         Dynamic chunking
         -------------
@@ -425,9 +402,7 @@ class TextChunker:
 
         # Find the optimal number of clusters
         num_clusters = (
-            6
-            if not method
-            else self.find_optimal_k(X, method=method, max_k=max_k)
+            6 if not method else self.find_optimal_k(X, method=method, max_k=max_k)
         )
 
         # Cluster sentences using k-Means
@@ -446,9 +421,7 @@ class TextChunker:
         chunks = [" ".join(cluster) for cluster in clustered_sentences]
         return chunks
 
-    def token_based_chunking(
-        self, text: str, max_tokens: int = 512
-    ) -> List[str]:
+    def token_based_chunking(self, text: str, max_tokens: int = 512) -> List[str]:
         """
         LLM Chunking
         -------------
@@ -472,9 +445,7 @@ class TextChunker:
         for i in range(0, token_count, max_tokens):
             chunk_tokens = tokens[:, i : i + max_tokens]
             chunks.append(
-                self.tokenizer.decode(
-                    chunk_tokens[0], skip_special_tokens=True
-                )
+                self.tokenizer.decode(chunk_tokens[0], skip_special_tokens=True)
             )
 
         return chunks
@@ -500,10 +471,7 @@ class TextChunker:
                 sentences = sent_tokenize(paragraph)
                 current_chunk = ""
                 for sentence in sentences:
-                    if (
-                        len(current_chunk) + len(sentence)
-                        <= sentence_chunk_size
-                    ):
+                    if len(current_chunk) + len(sentence) <= sentence_chunk_size:
                         current_chunk += sentence + " "
                     else:
                         chunks.append(current_chunk.strip())
@@ -515,9 +483,7 @@ class TextChunker:
 
         return chunks
 
-    def model_based_chunking(
-        self, text, max_tokens=512, threshold=1e-4
-    ) -> List[str]:
+    def model_based_chunking(self, text, max_tokens=512, threshold=1e-4) -> List[str]:
         """
         Use a machine learning model to determine chunk boundaries.
 
@@ -552,9 +518,7 @@ class TextChunker:
                 # -- chunking
                 if chunk_end_signal > threshold:
                     chunks.append(
-                        self.tokenizer.decode(
-                            current_chunk, skip_special_tokens=True
-                        )
+                        self.tokenizer.decode(current_chunk, skip_special_tokens=True)
                     )
                     current_chunk = []
 
