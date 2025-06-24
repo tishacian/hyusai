@@ -18,7 +18,11 @@ from configuration import get_standalone_interface_config
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
-from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
+from src.docloader import (
+    LOADER_MAPPING,
+    ThreadMultiDocLoader,
+    loadSingleDocument,
+)
 from src.embedding import EmbeddingVectors
 from src.globalvariables import (
     CPU_MODEL_SET,
@@ -42,7 +46,11 @@ from src.ragger_css import (
     SELECT_INPUT_STYLE,
     THINKING_SPINNER,
 )
-from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTIONS_LANGS_LIST, InstructionLangs
+from src.reasoning_instructions import (
+    DEFAULT_INSTRUCTION_LANG,
+    INSTRUCTIONS_LANGS_LIST,
+    InstructionLangs,
+)
 
 
 # -- device available model
@@ -72,7 +80,6 @@ instruction_lang = DEFAULT_INSTRUCTION_LANG
 
 HUMAN_AVATAR_PATH = get_standalone_interface_config().human_chat_logo
 AI_AVATAR_PATH = get_standalone_interface_config().ai_chat_logo
-
 
 
 def load_avatar(image_path):
@@ -124,7 +131,7 @@ def init_db():
             ("index_type", "TEXT"),
             ("vector_store", "TEXT"),
             ("pipeline_type", "TEXT"),
-            ("instruction_lang", "TEXT")
+            ("instruction_lang", "TEXT"),
         ]
         for column_name, column_type in columns_to_add:
             c.execute("PRAGMA table_info(chats)")
@@ -159,41 +166,22 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+# st.markdown(
+#    PADDINGS,
+#    unsafe_allow_html=True,
+# )
 
 
 # -- metrics style
 def display_metrics(metrics):
-    """Colorization of the evaluation metrics.
-
-    Parameters
-    ----------
-    metrics : dict
-        metrics dictionary.
-
-    Returns
-    -------
-    None.
-    """
     metrics_html = "<div class='metrics-container'>"
     try:
         for key, value in metrics.items():
             if key in ["hhem", "Advance_HHEM"]:
                 color = "red" if value > 0.5 else "green"
-            elif "latency" in key.lower():
-                color = "white"
-                value_str = f"{value:.2f}s"
-                value_str = f"{value:.2f}s"
             else:
                 color = "green" if value >= 0.5 else "red"
-                value_str = f"{value:.2f}"
-                value_str = f"{value:.2f}"
-            metrics_html += (
-                f"<span class='metric'>"
-                f"<span class='metric-name'>{key}:</span>"
-                f"<span class='metric-value {color}'>{value_str}</span>"
-                f"<span class='metric-value {color}'>{value_str}</span>"
-                f"</span>"
-            )
+            metrics_html += f"<span class='metric'><span class='metric-name'>{key}:</span><span class='metric-value {color}'>{value:.2f}</span></span>"
         metrics_html += "</div>"
         st.markdown(metrics_html, unsafe_allow_html=True)
     except (IndexError, AttributeError, IOError, ValueError, TypeError):
@@ -265,6 +253,7 @@ if "expand_doc_embedding" not in st.session_state:
 if "instruction_lang" not in st.session_state:
     st.session_state.instruction_lang = None
 
+
 # Function to save chat history to database
 def save_chat_to_db(
     chat_history,
@@ -275,64 +264,31 @@ def save_chat_to_db(
     pipeline_type,
     instruction_lang,
 ):
-    """Save chat history to database
-    
-    Parameters
-    ----------
-    chat_history : list
-        Chat history to save
-    model_name : str
-        Model name
-    chunking_method : str
-        Chunking method
-    index_type : str
-        Index type
-    vector_store : str
-        Vector store
-    pipeline_type : str
-        Pipeline type
-
-    Returns
-    -------
-    None
-    """
-    # Ensure chat_history is a list
-    if not isinstance(chat_history, list):
-        chat_history = [chat_history]
-    
-    # -- process messages in correct format
-    processed_messages = []
+    chat_data = []
     for msg in chat_history:
-        if isinstance(msg, str):
-            processed_messages.append({
-                "role": (
-                    "user" if len(processed_messages) % 2 == 0 else "assistant"
-                ),
-                "role": (
-                    "user" if len(processed_messages) % 2 == 0 else "assistant"
-                ),
-                "content": msg
-            })
-        elif isinstance(msg, dict):
-            processed_messages.append(msg.copy())
-        else:
-            continue
-    
-    # -- save to database
+        msg_copy = msg.copy()
+        if "avatar" in msg_copy and isinstance(msg_copy["avatar"], str):
+            msg_copy["avatar"] = msg_copy["avatar"].split(",")[-1]
+        chat_data.append(msg_copy)
+
+    chat_json = json.dumps(chat_data)
+    current_time = datetime.now().isoformat()
+
     c.execute(
         """
         INSERT INTO chats 
-        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            json.dumps(processed_messages),
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            chat_json,
+            current_time,
             model_name,
             chunking_method,
             index_type,
             vector_store,
             pipeline_type,
+            instruction_lang,
         ),
     )
     conn.commit()
@@ -340,18 +296,6 @@ def save_chat_to_db(
 
 # -- update the load_chat_from_db function
 def load_chat_from_db(chat_id):
-    """Load chat from database
-    
-    Parameters
-    ----------
-    chat_id : int
-        Chat ID
-        
-    Returns
-    -------
-    chat_data : list
-        Chat data
-    """
     c.execute(
         """
         SELECT chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang 
@@ -373,6 +317,7 @@ def load_chat_from_db(chat_id):
             result[3],
             result[4],
             result[5],
+            result[6],
         )
     return [], None, None, None, None, None, None
 
@@ -387,7 +332,7 @@ def delete_chat(chat_id):
     st.rerun()
 
 
-# -- get all chat history
+# --get all chat history
 def get_all_chats():
     try:
         c.execute("SELECT id, timestamp FROM chats ORDER BY timestamp DESC")
@@ -500,7 +445,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                         ),
                     )
 
-            row_be = st.columns(3)
+            row_be = st.columns(4)
             with row_be[0]:
                 vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
                 vector_store_list = [
@@ -520,10 +465,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                     index=vector_store_list.index(
                         current_vector_store
                     ),  # This will now be safe
-                    help=(
-                        "Which vector store to add the new documents. "
-                        "Choose <New> to create a new vector store."
-                    ),
+                    help="Which vector store to add the new documents. Choose <New> to create a new vector store.",
                 )
 
             with row_be[1]:
@@ -572,18 +514,15 @@ if get_standalone_interface_config().forced_vdb == "None":
                     create_new_vs = False
                 else:
                     st.error(
-                        "Check the 'Vector Store to Merge the Knowledge' "
-                        "and 'New Vector Store Name' fields"
+                        "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
                     )
                 # -- check for uploaded document
                 if not uploaded_files:
                     st.error("No document uploaded...")
                 else:
                     if NUMBER_OF_FILES == 1:
-                        # -- load temporary folder first before loading document
-                        _, extension = os.path.splitext(
-                            uploaded_files[0].name
-                        )
+                        # -- load temporary folder first before loading document..
+                        _, extension = os.path.splitext(uploaded_files[0].name)
                         with NamedTemporaryFile(
                             delete=False, suffix=extension
                         ) as temp_file:
@@ -707,27 +646,6 @@ if st.sidebar.button("New Chat"):
         )
     st.session_state.chat_history = []
     st.session_state.current_chat_id = None
-    
-    # -- reinit chain
-    RaggerChain = (
-        CHAHCustomLLMChain
-        if st.session_state.pipeline_type == PipelineType.HAHCOMPOSITE
-        else (
-            HAHCustomLLMChain
-            if st.session_state.pipeline_type == PipelineType.HAH
-            else NaiveCustomLLMChain
-        )
-    )
-    
-    chain = RaggerChain(
-        st.session_state.tokenizer,
-        st.session_state.model,
-        st.session_state.model_name,
-        st.session_state.vector_store,
-        index_type=st.session_state.index_type,
-    )
-    st.session_state.chain = chain
-    
     st.rerun()
 
 
@@ -848,7 +766,7 @@ def stream_text(text: str) -> Iterator[str]:
         chunk_size = 3
 
         for j in range(0, len(words), chunk_size):
-            chunk = " ".join(words[j:j + chunk_size])
+            chunk = " ".join(words[j : j + chunk_size])
             full_text += chunk
             if j + chunk_size < len(words):
                 full_text += " "
@@ -863,7 +781,6 @@ def stream_text(text: str) -> Iterator[str]:
 
 # -- prompting...
 if prompt := st.chat_input("Message RAGGER..."):
-    st.session_state.metrics = {}
     response, context, metrics = None, None, None
     st.chat_message("human", avatar=HUMAN_AVATAR).write(prompt)
     st.session_state.chat_history.append(
@@ -878,14 +795,13 @@ if prompt := st.chat_input("Message RAGGER..."):
                 '<div class="thinking-animation"></div>',
                 unsafe_allow_html=True,
             )
+            time.sleep(1)
 
         with st.spinner(""):
             try:
-                start_time = time.time()
                 response, context, metrics = st.session_state.chain.ainvoke(
                     prompt
                 )
-                metrics["latency"] = time.time() - start_time
             except (
                 IndexError,
                 AttributeError,
@@ -896,10 +812,7 @@ if prompt := st.chat_input("Message RAGGER..."):
                 st.error(
                     "Ensure a vector database is selected to initialize before chatting"
                 )
-                response = (
-                    "No available context is provided to answer this question. "
-                    "Please ensure to initialize the right vector DB"
-                )
+                response = "No available context is provided to answer this question. Please ensure to initialize the right vector DB"
                 context = ""
 
         # -- streamer
@@ -912,10 +825,7 @@ if prompt := st.chat_input("Message RAGGER..."):
             )
         message_placeholder.markdown(response)
         display_metrics(metrics)
-        
-    # -- clear cuda cache
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
+
     # -- Update chat history
     st.session_state.chat_history.append(
         {
@@ -947,7 +857,7 @@ if prompt := st.chat_input("Message RAGGER..."):
         )
     else:
         save_chat_to_db(
-            json.dumps(st.session_state.chat_history),
+            st.session_state.chat_history,
             st.session_state.get("model_name", ""),
             st.session_state.get("chunking_method", ""),
             st.session_state.get("index_type", ""),
@@ -1008,13 +918,11 @@ if not df.empty:
         mime="application/json",
     )
 
-# -- clear chat history
+
+# Add a button to clear chat history
 if st.button("Clear Chat History"):
-    if st.session_state.chain and hasattr(st.session_state.chain, 'clear_caches'):
-        st.session_state.chain.clear_caches()
     st.session_state.chat_history.clear()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
     st.rerun()
-
