@@ -15,11 +15,11 @@ REASONING_INSTRUCTIONS = {
                                                 2. Extraire les informations pertinentes
                                                 3. Vérifier la cohérence factuelle
                                                 4. Présenter les informations clairement et de manière concise
-                                                
+
                                                 Contexte : {context}
-                                                
+
                                                 Question : {question}
-                                                
+
                                                 Fournis une réponse factuelle claire en t'appuyant sur le contexte : [/INST]""",
     ReasoningType.ANALYTICAL: """[INST] Tu es un assistant IA spécialisé dans l'analyse approfondie.
                                                 Étapes d'analyse :
@@ -30,11 +30,11 @@ REASONING_INSTRUCTIONS = {
                                                 5. Examiner les relations entre les faits et le contexte fourni
                                                 6. Synthétiser des renseignements pertinents à la situation de l'utilisateur
                                                 7. Tirer des conclusions basées sur des preuves vérifiées
-                                                                                               
+
                                                 Contexte : {context}
-                                                                                               
+
                                                 Question : {question}
-                                                                                               
+
                                                 Fournis une analyse approfondie qui combine précision factuelle et renseignements analytiques en t'appuyant sur le contexte : [/INST]""",
     ReasoningType.COMPARATIVE: """[INST] Tu es un assistant IA spécialisé dans l'analyse comparative.
                                                 Étapes d'analyse :
@@ -42,11 +42,11 @@ REASONING_INSTRUCTIONS = {
                                                 2. Examiner les similitudes et différences
                                                 3. Évaluer les forces/faiblesses comparativement
                                                 4. Tirer des conclusions nuancées
-                                                
+
                                                 Contexte : {context}
-                                                
+
                                                 Question : {question}
-                                                
+
                                                 Fournis une analyse comparative en t'appuyant sur le contexte : [/INST]""",
     ReasoningType.CAUSAL: """[INST] Tu es un assistant IA spécialisé dans l'analyse causale.
                                                 Étapes d'analyse :
@@ -54,11 +54,11 @@ REASONING_INSTRUCTIONS = {
                                                 2. Examiner les facteurs contribuants
                                                 3. Analyser les implications et conséquences
                                                 4. Établir les chaînes de causalité
-                                                
+
                                                 Contexte : {context}
-                                                
+
                                                 Question : {question}
-                                                
+
                                                 Explique les relations causales en t'appuyant sur le contexte : [/INST]""",
     ReasoningType.HYPOTHETICAL: """[INST] Tu es un assistant IA spécialisé dans le raisonnement hypothétique.
                                                 Étapes d'analyse :
@@ -66,11 +66,11 @@ REASONING_INSTRUCTIONS = {
                                                 2. Analyser les scénarios potentiels
                                                 3. Évaluer les implications
                                                 4. Tirer des conclusions logiquement déduites
-                                                
+
                                                 Contexte : {context}
-                                                
+
                                                 Question : {question}
-                                                
+
                                                 Explore ce scénario en t'appuyant sur le contexte : [/INST]""",
 }
 NAIVE_INSTRUCTION = """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées. Concentre-toi sur les informations importantes qui traitent directement du sujet ou de la question principale.
@@ -79,9 +79,9 @@ NAIVE_INSTRUCTION = """[INST] Tu es un assistant IA spécialisé dans la fournit
 
                                                 Ta tâche consiste à répondre à la question suivante en te basant sur le contexte donné :
                                                 {context}
-                                                
+
                                                 Question : {question}
-                                                
+
                                                 Réponse : [/INST]"""
 
 PROMPT_SECTIONS_TO_REMOVE = [

@@ -105,7 +105,7 @@ def get_all_links(url, http, main_com):
 
 
 def scrapper_url(url, http, main_com, pdf=False):
-    all_links = set([url])
+    all_links = {url}
     visited_links = set()
     while all_links:
         link = all_links.pop()
@@ -237,7 +237,7 @@ parts = re.split(
 parts = [part.strip() for part in parts if part.strip()]
 
 articles = []
-for i, j in enumerate((parts)):
+for i, j in enumerate(parts):
     if j.startswith("L. ") or j.startswith("R. ") or j.startswith("D. "):
         if len(parts[i + 1]) < 20:
             if len(articles) > 1:
@@ -284,7 +284,7 @@ def extractEnvCodes(text, save_dir, save=False):
     parts = re.split(pattern, text)
     parts = [part.strip() for part in parts if part.strip()]
     articles = []
-    for i, j in enumerate((parts)):
+    for i, j in enumerate(parts):
         if j.startswith("L. ") or j.startswith("R. ") or j.startswith("D. "):
             # -- check unavoidable abnormal splitting here..given the pattern
             if len(parts[i + 1]) < 20:

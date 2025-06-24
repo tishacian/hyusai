@@ -113,7 +113,7 @@ async def perplexity(generated_text, tokenizer, model):
             outputs = model(input_ids, labels=input_ids)
             loss = outputs.loss
             perplexity = torch.exp(loss)
-    except (ValueError, IndexError, IOError, KeyError, RuntimeError) as e:
+    except (ValueError, IndexError, OSError, KeyError, RuntimeError) as e:
         logging.error(
             f"🚩 A perplexity computation error occurred during computation: {str(e)}"
         )

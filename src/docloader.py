@@ -1,7 +1,6 @@
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
 
 from langchain_community.document_loaders import (
     CSVLoader,
@@ -135,7 +134,7 @@ def loadSingleDocument(file_path: str) -> str:
     raise ValueError(f"Unsupported file extension '{ext}'")
 
 
-def ThreadMultiDocLoader(file_paths: List[str], ignored_files: List[str] = []) -> str:
+def ThreadMultiDocLoader(file_paths: list[str], ignored_files: list[str] = []) -> str:
     """Threaded multi-document loader
 
     Parameters

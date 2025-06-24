@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb 7 15:48:53 2025
 
@@ -11,7 +10,6 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 from src.ensembleretriever import EnsembleRetriever
 from src.flashreranker import FlashReranker
@@ -37,7 +35,7 @@ class ContextualCompressionRetriever:
         self,
         base_retriever: "EnsembleRetriever",
         reranker: "FlashReranker",
-        config: Optional[ContextualConfig] = None,
+        config: ContextualConfig | None = None,
     ):
         """
         Context Compression Retriever
@@ -69,8 +67,8 @@ class ContextualCompressionRetriever:
         self._executor.shutdown(wait=False)
 
     async def _process_batch(
-        self, query: str, passages: List[str]
-    ) -> Tuple[List[str], List[float]]:
+        self, query: str, passages: list[str]
+    ) -> tuple[list[str], list[float]]:
         """Batch processing
 
         Parameters
@@ -94,8 +92,8 @@ class ContextualCompressionRetriever:
             return passages, [0.0] * len(passages)
 
     async def _compress_results(
-        self, passages: List[str], scores: List[float]
-    ) -> Tuple[List[str], List[float]]:
+        self, passages: list[str], scores: list[float]
+    ) -> tuple[list[str], list[float]]:
         """Compressing context
 
         Parameters
@@ -118,8 +116,8 @@ class ContextualCompressionRetriever:
         return passages[:k], scores[:k]
 
     async def retrieve_and_compress(
-        self, query: str, k: Optional[int] = None
-    ) -> Tuple[List[str], List[float]]:
+        self, query: str, k: int | None = None
+    ) -> tuple[list[str], list[float]]:
         """Retrieve and compress
 
         Parameters
@@ -168,8 +166,8 @@ class ContextualCompressionRetriever:
             return [], []
 
     async def abatch_retrieve_and_compress(
-        self, queries: List[str], k: Optional[int] = None
-    ) -> List[Tuple[List[str], List[float]]]:
+        self, queries: list[str], k: int | None = None
+    ) -> list[tuple[list[str], list[float]]]:
         """Asynchronous retrieving and compressing
 
         Parameters
@@ -219,8 +217,8 @@ class ContextualCompressionRetriever:
             loop.close()
 
     def retrieve(
-        self, query: str, k: Optional[int] = None
-    ) -> Tuple[List[str], List[float]]:
+        self, query: str, k: int | None = None
+    ) -> tuple[list[str], list[float]]:
         """Retrieval
 
         Parameters
@@ -238,8 +236,8 @@ class ContextualCompressionRetriever:
         return self.run_async(self.retrieve_and_compress(query, k))
 
     def batch_retrieve(
-        self, queries: List[str], k: Optional[int] = None
-    ) -> List[Tuple[List[str], List[float]]]:
+        self, queries: list[str], k: int | None = None
+    ) -> list[tuple[list[str], list[float]]]:
         """Batch retrieval
 
         Parameters

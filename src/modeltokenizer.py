@@ -3,7 +3,6 @@ import logging
 import os
 import sys
 from functools import lru_cache, wraps
-from typing import Optional
 
 import torch
 from transformers import AutoTokenizer
@@ -41,7 +40,7 @@ class LlamaCppServer:
         self,
         model_path: str,
         n_ctx: int = 2048,
-        n_threads: Optional[int] = None,
+        n_threads: int | None = None,
         n_gpu_layers: int = 0,
         verbose: bool = True,
     ):

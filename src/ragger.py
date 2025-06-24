@@ -3,10 +3,10 @@ import json
 import os
 import sqlite3
 import time
+from collections.abc import Iterator
 from datetime import datetime
 from io import BytesIO
 from tempfile import NamedTemporaryFile
-from typing import Iterator
 
 import pandas as pd
 import streamlit as st
@@ -175,7 +175,7 @@ def display_metrics(metrics):
             metrics_html += f"<span class='metric'><span class='metric-name'>{key}:</span><span class='metric-value {color}'>{value:.2f}</span></span>"
         metrics_html += "</div>"
         st.markdown(metrics_html, unsafe_allow_html=True)
-    except (IndexError, AttributeError, IOError, ValueError, TypeError):
+    except (IndexError, AttributeError, OSError, ValueError, TypeError):
         pass
 
 
@@ -778,13 +778,7 @@ if prompt := st.chat_input("Message RAGGER..."):
         with st.spinner(""):
             try:
                 response, context, metrics = st.session_state.chain.ainvoke(prompt)
-            except (
-                IndexError,
-                AttributeError,
-                IOError,
-                ValueError,
-                TypeError,
-            ):
+            except (IndexError, AttributeError, OSError, ValueError, TypeError):
                 st.error(
                     "Ensure a vector database is selected to initialize before chatting"
                 )
@@ -795,7 +789,7 @@ if prompt := st.chat_input("Message RAGGER..."):
         try:
             for partial_response in stream_text(response):
                 message_placeholder.markdown(partial_response + "▌")
-        except (IndexError, AttributeError, IOError, ValueError, TypeError):
+        except (IndexError, AttributeError, OSError, ValueError, TypeError):
             st.error(
                 "Something went wrong...Check to see if the vector DB is selected not <New>"
             )

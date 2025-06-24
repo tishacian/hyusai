@@ -85,7 +85,7 @@ def _base_text_extraction(path: str) -> tuple[dict[str, Any], str | None]:
 
     content = None
 
-    with open(path, "r", encoding=encoding, errors="replace") as f:
+    with open(path, encoding=encoding, errors="replace") as f:
         content = f.read()
 
     return metadata, content, content

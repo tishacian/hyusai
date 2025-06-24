@@ -1,5 +1,4 @@
 import os
-from typing import Dict, List, Optional, Tuple
 
 import datasets
 import torch
@@ -15,7 +14,7 @@ class EvaluatorDataDownload:
             Models.LLAMA3 if torch.cuda.is_available() else Models.LAMINIGPT
         )
 
-    def load_datasets(self) -> Dict[str, datasets.Dataset]:
+    def load_datasets(self) -> dict[str, datasets.Dataset]:
         dataset_dict = {}
         nq_dataset = datasets.load_dataset("natural_questions", split="validation")
         if nq_dataset is not None:
@@ -51,7 +50,7 @@ class EvaluatorDataDownload:
 
     def extract_qa_pair(
         self, example_idx: int, dataset: datasets.Dataset, dataset_name: str
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None]:
         try:
             example = dataset[example_idx]
 
@@ -100,7 +99,7 @@ class EvaluatorDataDownload:
 
     def evaluate_dataset(
         self, dataset: datasets.Dataset, dataset_name: str
-    ) -> List[Tuple[Dict[str, float], float]]:
+    ) -> list[tuple[dict[str, float], float]]:
         """Evaluate HAH-RAG on a single dataset"""
         batch_size = 100
         qa_pairs = []

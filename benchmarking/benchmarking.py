@@ -1,6 +1,6 @@
 import os
 from time import time
-from typing import Dict, List, Optional, Tuple, defaultdict
+from typing import defaultdict
 
 import datasets
 import numpy as np
@@ -46,7 +46,7 @@ class HAHRAGEvaluator:
         # -- cost evaluator
         self.cost_calculator = ResourceCost(sampling_interval=0.1)
 
-    def load_datasets(self) -> Dict[str, datasets.Dataset]:
+    def load_datasets(self) -> dict[str, datasets.Dataset]:
         dataset_dict = {}
         nq_dataset = datasets.load_dataset("natural_questions", split="validation")
         if nq_dataset is not None:
@@ -81,7 +81,7 @@ class HAHRAGEvaluator:
 
     def extract_qa_pair(
         self, example_idx: int, dataset: datasets.Dataset, dataset_name: str
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None]:
         try:
             example = dataset[example_idx]
 
@@ -130,7 +130,7 @@ class HAHRAGEvaluator:
 
     def evaluate_dataset(
         self, dataset: datasets.Dataset, dataset_name: str
-    ) -> Tuple[Dict[str, float], float, Dict[str, float]]:
+    ) -> tuple[dict[str, float], float, dict[str, float]]:
         batch_size = 100
         evaluation_data = []
         self.resource_monitor.start_monitoring()
@@ -241,8 +241,8 @@ class HAHRAGEvaluator:
 
     def _save_detailed_results(
         self,
-        metrics: Dict[str, List],
-        resource_metrics: Dict[str, float],
+        metrics: dict[str, list],
+        resource_metrics: dict[str, float],
         dataset_name: str,
     ):
         """Save detailed evaluation results to files

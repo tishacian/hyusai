@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb 14 16:07:22 2025
 
@@ -12,7 +11,7 @@ import sys
 import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import torch
@@ -57,8 +56,8 @@ class EnsembleRetriever:
         bm25_retriever: Any,
         dense_retriever: Any,
         embedding_model: Any,
-        texts: List[str],
-        config: Optional[EnsembleConfig] = None,
+        texts: list[str],
+        config: EnsembleConfig | None = None,
     ):
         """Ensemble retriever
 
@@ -103,7 +102,7 @@ class EnsembleRetriever:
 
     async def _get_bm25_scores(
         self, query: str, k: int
-    ) -> Tuple[List[str], Dict[str, float], List[int]]:
+    ) -> tuple[list[str], dict[str, float], list[int]]:
         """BM25 retriever scores with ranking
 
         Parameters
@@ -132,7 +131,7 @@ class EnsembleRetriever:
 
     async def _get_dense_scores(
         self, query: str, k: int
-    ) -> Tuple[List[str], Dict[str, float], List[int]]:
+    ) -> tuple[list[str], dict[str, float], list[int]]:
         """Dense retriever scores with ranking
 
         Parameters
@@ -175,7 +174,7 @@ class EnsembleRetriever:
             logging.error(f"Dense retrieval error: {e}")
             return [], {}, []
 
-    def _analyze_query_characteristics(self, query: str) -> Dict[str, float]:
+    def _analyze_query_characteristics(self, query: str) -> dict[str, float]:
         """Analyze query characteristics for adaptive weighting
 
         Parameters
@@ -222,7 +221,7 @@ class EnsembleRetriever:
         self.query_characteristics_cache[query] = characteristics
         return characteristics
 
-    def _normalize_scores(self, scores: Dict[str, float]) -> Dict[str, float]:
+    def _normalize_scores(self, scores: dict[str, float]) -> dict[str, float]:
         """Normalize scores to [0, 1] range using min-max normalization
 
         Parameters
@@ -251,8 +250,8 @@ class EnsembleRetriever:
         return normalized_scores
 
     def _compute_rrf_scores(
-        self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, bm25_scores: dict[str, float], dense_scores: dict[str, float]
+    ) -> dict[str, float]:
         """Compute Reciprocal Rank Fusion scores
 
         Parameters
@@ -288,8 +287,8 @@ class EnsembleRetriever:
         return rrf_scores
 
     def _compute_weighted_linear(
-        self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, bm25_scores: dict[str, float], dense_scores: dict[str, float]
+    ) -> dict[str, float]:
         """Compute weighted linear combination
 
         Parameters
@@ -324,9 +323,9 @@ class EnsembleRetriever:
     def _compute_query_adaptive_weights(
         self,
         query: str,
-        bm25_scores: Dict[str, float],
-        dense_scores: Dict[str, float],
-    ) -> Dict[str, float]:
+        bm25_scores: dict[str, float],
+        dense_scores: dict[str, float],
+    ) -> dict[str, float]:
         """Compute scores using query-adaptive weights
 
         Parameters
@@ -377,8 +376,8 @@ class EnsembleRetriever:
         return combined_scores
 
     def _compute_score_adaptive_weights(
-        self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, bm25_scores: dict[str, float], dense_scores: dict[str, float]
+    ) -> dict[str, float]:
         """Compute scores using score-based adaptive weights
 
         Parameters
@@ -437,8 +436,8 @@ class EnsembleRetriever:
         return combined_scores
 
     def _compute_harmonic_mean(
-        self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, bm25_scores: dict[str, float], dense_scores: dict[str, float]
+    ) -> dict[str, float]:
         """Compute harmonic mean of scores
 
         Parameters
@@ -473,8 +472,8 @@ class EnsembleRetriever:
         return combined_scores
 
     def _compute_geometric_mean(
-        self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, bm25_scores: dict[str, float], dense_scores: dict[str, float]
+    ) -> dict[str, float]:
         """Compute geometric mean of scores
 
         Parameters
@@ -505,8 +504,8 @@ class EnsembleRetriever:
         return combined_scores
 
     def _compute_min_max_fusion(
-        self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, bm25_scores: dict[str, float], dense_scores: dict[str, float]
+    ) -> dict[str, float]:
         """Compute min-max fusion (take max of normalized scores)
 
         Parameters
@@ -535,8 +534,8 @@ class EnsembleRetriever:
         return combined_scores
 
     def _compute_rank_fusion(
-        self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, bm25_scores: dict[str, float], dense_scores: dict[str, float]
+    ) -> dict[str, float]:
         """Compute rank-based fusion
 
         Parameters
@@ -575,8 +574,8 @@ class EnsembleRetriever:
         return combined_scores
 
     def _compute_combsum(
-        self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, bm25_scores: dict[str, float], dense_scores: dict[str, float]
+    ) -> dict[str, float]:
         """Compute CombSUM (normalized sum)
 
         Parameters
@@ -606,8 +605,8 @@ class EnsembleRetriever:
         return combined_scores
 
     def _compute_combmnz(
-        self, bm25_scores: Dict[str, float], dense_scores: Dict[str, float]
-    ) -> Dict[str, float]:
+        self, bm25_scores: dict[str, float], dense_scores: dict[str, float]
+    ) -> dict[str, float]:
         """Compute CombMNZ
 
 
@@ -643,9 +642,9 @@ class EnsembleRetriever:
     def _fuse_scores(
         self,
         query: str,
-        bm25_scores: Dict[str, float],
-        dense_scores: Dict[str, float],
-    ) -> Dict[str, float]:
+        bm25_scores: dict[str, float],
+        dense_scores: dict[str, float],
+    ) -> dict[str, float]:
         """Fuse scores using the selected method
 
         Parameters
@@ -692,8 +691,8 @@ class EnsembleRetriever:
             return self._compute_score_adaptive_weights(bm25_scores, dense_scores)
 
     async def retrieve(
-        self, query: str, k: Optional[int] = None
-    ) -> Tuple[List[str], List[float]]:
+        self, query: str, k: int | None = None
+    ) -> tuple[list[str], list[float]]:
         """Retrieve passages using the selected fusion method
 
         Parameters
@@ -757,8 +756,8 @@ class EnsembleRetriever:
             return [], []
 
     async def abatch_retrieve(
-        self, queries: List[str], k: Optional[int] = None
-    ) -> List[Tuple[List[str], List[float]]]:
+        self, queries: list[str], k: int | None = None
+    ) -> list[tuple[list[str], list[float]]]:
         """Asyn batch retrieval
 
         Parameters
@@ -788,7 +787,7 @@ class EnsembleRetriever:
         self.config.fusion_method = method
         logging.info(f"Fusion method changed to: {method.value}")
 
-    def get_adaptive_weights_statistics(self) -> Dict[str, float]:
+    def get_adaptive_weights_statistics(self) -> dict[str, float]:
         """Statistics about adaptive weight decisions
 
         Returns

@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, TypedDict
+from typing import Any, TypedDict
 
 
 class FileMetaData(TypedDict):
@@ -21,7 +22,7 @@ class PDFMetaData(FileMetaData):
 
     num_pages: int
     encrypted: bool
-    
+
     author: str | None
     creator: str | None
     producer: str | None
@@ -56,7 +57,7 @@ class OfficeMetaData(FileMetaData):
     word_count: int
     character_count: int
     paragraph_count: int
-    
+
     author: str | None
     title: str | None
     subject: str | None
@@ -77,7 +78,7 @@ class OpenDocumentMetaData(FileMetaData):
     word_count: int
     character_count: int
     paragraph_count: int
-    
+
     author: str | None
     title: str | None
     subject: str | None
@@ -98,7 +99,7 @@ class TextMetaData(FileMetaData):
     line_count: int
     paragraph_count: int
     has_front_matter: bool  # For markdown files with YAML front matter
-    
+
     encoding: str | None
     extracted_keywords: list[str] | None
     language: str | None  # Detected language
@@ -109,7 +110,7 @@ class MarkupMetaData(FileMetaData):
     """Metadata specific to markup files (HTML, XML)."""
 
     element_count: int
-    
+
     title: str | None
     encoding: str | None
     doctype: str | None
@@ -149,9 +150,3 @@ MetadataType = (
 )
 MetadataExtractor = Callable[[str], tuple[dict[str, Any], str | None]]
 """Type for metadata extractor functions. Takes file path, returns (metadata dict, text content)."""
-
-
-
-
-
-

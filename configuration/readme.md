@@ -30,7 +30,7 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
 
 - `PAGE_ICON` (str)
     - The page favicon.
-    In addition to the types supported by st.image (like URLs), the following strings are valid: 
+    In addition to the types supported by st.image (like URLs), the following strings are valid:
         - A single-character emoji. For example, you can set page_icon="🦈".
         - An emoji short code. For example, you can set page_icon=":shark:". For a list of all supported codes, see https://share.streamlit.io/streamlit/emoji-shortcodes.
         - The string literal, "random". You can set page_icon="random" to set a random emoji from the supported list above. Emoji icons are courtesy of Twemoji and loaded from MaxCDN.
@@ -53,7 +53,7 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
     - If True, the section where the user parametrized the RAG steps will be hidden.
     - By default `False`
 - `FORCED_VDB` (str)
-    - Force the RAG to use the provided Vector DataBase as context (the section where the 
+    - Force the RAG to use the provided Vector DataBase as context (the section where the
     user parametrize the RAG steps per consequent).
     If `"None"`, the user will be asked to create/select the desired Vector DataBase.
     - By default `"None"`

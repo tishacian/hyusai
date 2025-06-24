@@ -1,11 +1,8 @@
-# -*- coding: utf-8 -*-
 """
 Created on Fri Dec  6 01:47:23 2024
 
 @author: kennethezukwoke
 """
-
-from typing import Dict, List
 
 import nltk
 import numpy as np
@@ -24,8 +21,8 @@ class ExtraMetrics:
 
     def compute_ndcg(
         self,
-        retrieved_docs: List[str],
-        relevant_docs: List[str],
+        retrieved_docs: list[str],
+        relevant_docs: list[str],
         embeddings_model,
         k: int = None,
     ) -> float:
@@ -69,7 +66,7 @@ class ExtraMetrics:
 
         return dcg / idcg if idcg > 0 else 0.0
 
-    def compute_rouge_scores(self, hypothesis: str, reference: str) -> Dict[str, float]:
+    def compute_rouge_scores(self, hypothesis: str, reference: str) -> dict[str, float]:
         """Compute ROUGE scores"""
         if not hypothesis or not reference:
             return {"rouge1": 0.0, "rouge2": 0.0, "rougeL": 0.0}
@@ -102,13 +99,13 @@ class ExtraMetrics:
 
     def evaluate_rag(
         self,
-        retrieved_docs: List[str],
+        retrieved_docs: list[str],
         generated_answer: str,
-        relevant_docs: List[str],
+        relevant_docs: list[str],
         ground_truth: str,
         embeddings_model,
         k: int = 12,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Comprehensive RAG evaluation with all metrics"""
         try:
             metrics = {}

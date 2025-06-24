@@ -2,7 +2,6 @@ import logging
 import pickle
 import sys
 from functools import lru_cache
-from typing import Optional
 
 import faiss
 import numpy as np
@@ -115,7 +114,7 @@ class EmbeddingVectors:
         )
         return instance
 
-    def create_embeddings(self, texts, batch_size: Optional[int] = None):
+    def create_embeddings(self, texts, batch_size: int | None = None):
         """
         Create_embeddings.
         Creates embeddings using pre-loaded SentenceTransformer or tokenizer based on availability.

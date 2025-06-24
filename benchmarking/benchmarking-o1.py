@@ -2,7 +2,6 @@ import os
 import threading
 from dataclasses import dataclass
 from time import sleep, time
-from typing import Dict, List, Optional, Tuple
 
 import datasets
 import GPUtil
@@ -66,10 +65,10 @@ class ResourceMonitor:
         self.sampling_interval = sampling_interval
         self.country_code = country_code
         self.is_monitoring = False
-        self.gpu_metrics: List[GPUMetrics] = []
-        self.cpu_metrics: List[CPUMetrics] = []
-        self.emission_metrics: List[EmissionMetrics] = []
-        self._monitor_thread: Optional[threading.Thread] = None
+        self.gpu_metrics: list[GPUMetrics] = []
+        self.cpu_metrics: list[CPUMetrics] = []
+        self.emission_metrics: list[EmissionMetrics] = []
+        self._monitor_thread: threading.Thread | None = None
         self.cpu = psutil.cpu_times_percent()
         self.cpu_power_start = self._get_cpu_power()
 
@@ -206,7 +205,7 @@ class ResourceMonitor:
         self._monitor_thread.daemon = True
         self._monitor_thread.start()
 
-    def stop_monitoring(self) -> Dict[str, float]:
+    def stop_monitoring(self) -> dict[str, float]:
         """Stop collecting metrics and return summary"""
         self.is_monitoring = False
         if self._monitor_thread:
@@ -281,7 +280,7 @@ class ResourceCostCalculator:
         self.sampling_interval = sampling_interval
         self.costs = ComputeCosts()
 
-    def calculate_costs(self, resource_metrics: Dict) -> Dict[str, float]:
+    def calculate_costs(self, resource_metrics: dict) -> dict[str, float]:
         """Calculate costs from resource metrics
 
         Args:
@@ -349,8 +348,8 @@ class ExtraMetrics:
 
     def compute_ndcg(
         self,
-        retrieved_docs: List[str],
-        relevant_docs: List[str],
+        retrieved_docs: list[str],
+        relevant_docs: list[str],
         embeddings_model,
         k: int = None,
     ) -> float:
@@ -394,7 +393,7 @@ class ExtraMetrics:
 
         return dcg / idcg if idcg > 0 else 0.0
 
-    def compute_rouge_scores(self, hypothesis: str, reference: str) -> Dict[str, float]:
+    def compute_rouge_scores(self, hypothesis: str, reference: str) -> dict[str, float]:
         """Compute ROUGE scores"""
         if not hypothesis or not reference:
             return {"rouge1": 0.0, "rouge2": 0.0, "rougeL": 0.0}
@@ -427,13 +426,13 @@ class ExtraMetrics:
 
     def evaluate_rag(
         self,
-        retrieved_docs: List[str],
+        retrieved_docs: list[str],
         generated_answer: str,
-        relevant_docs: List[str],
+        relevant_docs: list[str],
         ground_truth: str,
         embeddings_model,
         k: int = 12,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Comprehensive RAG evaluation with all metrics"""
         try:
             metrics = {}
@@ -480,7 +479,7 @@ class HAHRAGEvaluator:
         # -- cost evaluator
         self.cost_calculator = ResourceCostCalculator(sampling_interval=0.1)
 
-    def load_datasets(self) -> Dict[str, datasets.Dataset]:
+    def load_datasets(self) -> dict[str, datasets.Dataset]:
         """Load question answering datasets for evaluation.
 
         Returns:
@@ -543,7 +542,7 @@ class HAHRAGEvaluator:
 
     def extract_qa_pair(
         self, example_idx: int, dataset: datasets.Dataset, dataset_name: str
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None]:
         """Extract question-answer pairs from different dataset formats.
 
         Args:
@@ -614,7 +613,7 @@ class HAHRAGEvaluator:
 
     def evaluate_dataset(
         self, dataset: datasets.Dataset, dataset_name: str
-    ) -> Tuple[Dict[str, float], float, Dict[str, float]]:
+    ) -> tuple[dict[str, float], float, dict[str, float]]:
         batch_size = 100
         evaluation_data = []
         self.resource_monitor.start_monitoring()
@@ -753,8 +752,8 @@ class HAHRAGEvaluator:
 
     def _save_detailed_results(
         self,
-        metrics: Dict[str, List],
-        resource_metrics: Dict[str, float],
+        metrics: dict[str, list],
+        resource_metrics: dict[str, float],
         dataset_name: str,
     ):
         """Save detailed evaluation results to files

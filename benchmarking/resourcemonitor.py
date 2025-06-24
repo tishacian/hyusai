@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Fri Dec  6 01:40:22 2024
 
@@ -8,7 +7,6 @@ Created on Fri Dec  6 01:40:22 2024
 import threading
 from dataclasses import dataclass
 from time import sleep, time
-from typing import Dict, List, Optional
 
 import GPUtil
 import numpy as np
@@ -47,10 +45,10 @@ class ResourceMonitor:
         self.sampling_interval = sampling_interval
         self.country_code = country_code
         self.is_monitoring = False
-        self.gpu_metrics: List[GPUMetrics] = []
-        self.cpu_metrics: List[CPUMetrics] = []
-        self.emission_metrics: List[EmissionMetrics] = []
-        self._monitor_thread: Optional[threading.Thread] = None
+        self.gpu_metrics: list[GPUMetrics] = []
+        self.cpu_metrics: list[CPUMetrics] = []
+        self.emission_metrics: list[EmissionMetrics] = []
+        self._monitor_thread: threading.Thread | None = None
         self.cpu = psutil.cpu_times_percent()
         self.cpu_power_start = self._get_cpu_power()
 
@@ -184,7 +182,7 @@ class ResourceMonitor:
         self._monitor_thread.daemon = True
         self._monitor_thread.start()
 
-    def stop_monitoring(self) -> Dict[str, float]:
+    def stop_monitoring(self) -> dict[str, float]:
         """Stop collecting metrics and return summary"""
         self.is_monitoring = False
         if self._monitor_thread:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb 14 16:45:10 2025
 
@@ -9,7 +8,6 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
 
 from src.globalvariables import ReasoningType
 
@@ -27,7 +25,7 @@ class Message:
     role: str  # 'user' or 'assistant'
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
-    metadata: Dict = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -35,10 +33,10 @@ class ConversationMemoryBuffer:
     """Manages conversation history with a fixed-size buffer of recent messages"""
 
     max_turns: int = 2  # last 2 conversation
-    messages: List[Message] = field(default_factory=list)
+    messages: list[Message] = field(default_factory=list)
 
     def add_message(
-        self, role: str, content: str, metadata: Optional[Dict] = None
+        self, role: str, content: str, metadata: dict | None = None
     ) -> None:
         """Manages conversation history with a fixed-size buffer of recent messages
         Add a new message to the conversation history
@@ -62,7 +60,7 @@ class ConversationMemoryBuffer:
         except Exception as e:
             logging.error(f"Error adding message to buffer: {e}")
 
-    def get_recent_context(self, num_turns: Optional[int] = None) -> str:
+    def get_recent_context(self, num_turns: int | None = None) -> str:
         """
         Format recent conversation for LLM
 
@@ -86,7 +84,7 @@ class ConversationMemoryBuffer:
             logging.error(f"Error getting conversation context: {e}")
             return ""
 
-    def get_last_exchange(self) -> Tuple[Optional[str], Optional[str]]:
+    def get_last_exchange(self) -> tuple[str | None, str | None]:
         """
         Most recent user-assistant exchange
 

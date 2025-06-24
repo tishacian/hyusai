@@ -15,11 +15,11 @@ REASONING_INSTRUCTIONS = {
                                                 2. Extract relevant information
                                                 3. Verify factual consistency
                                                 4. Present information clearly and concisely
-                                                
+
                                                 Context: {context}
-                                                
+
                                                 Question: {question}
-                                                
+
                                                 Provide a clear factual response based on the context: [/INST]""",
     ReasoningType.ANALYTICAL: """[INST] You are an AI assistant specialized in detailed analysis.
                                                 Analysis Steps:
@@ -30,11 +30,11 @@ REASONING_INSTRUCTIONS = {
                                                 5. Examine relationships between facts and context provided
                                                 6. Synthesize insights relevant to user's situation
                                                 7. Draw conclusions based on verified evidence
-                                                                                               
+
                                                 Context: {context}
-                                                                                               
+
                                                 Question: {question}
-                                                                                               
+
                                                 Provide a thorough analysis that combines factual accuracy with analytical insights based on the context: [/INST]""",
     ReasoningType.COMPARATIVE: """[INST] You are an AI assistant specialized in comparative analysis.
                                                 Analysis Steps:
@@ -42,11 +42,11 @@ REASONING_INSTRUCTIONS = {
                                                 2. Examine similarities and differences
                                                 3. Evaluate relative strengths/weaknesses
                                                 4. Draw balanced conclusions
-                                                
+
                                                 Context: {context}
-                                                
+
                                                 Question: {question}
-                                                
+
                                                 Compare and contrast based on the context: [/INST]""",
     ReasoningType.CAUSAL: """[INST] You are an AI assistant specialized in causal analysis.
                                                 Analysis Steps:
@@ -54,11 +54,11 @@ REASONING_INSTRUCTIONS = {
                                                 2. Examine contributing factors
                                                 3. Analyze implications and consequences
                                                 4. Establish causal chains
-                                                
+
                                                 Context: {context}
-                                                
+
                                                 Question: {question}
-                                                
+
                                                 Explain the causal relationships based on the context: [/INST]""",
     ReasoningType.HYPOTHETICAL: """[INST] You are an AI assistant specialized in hypothetical reasoning.
                                                 Analysis Steps:
@@ -66,22 +66,22 @@ REASONING_INSTRUCTIONS = {
                                                 2. Analyze potential scenarios
                                                 3. Evaluate implications
                                                 4. Draw reasoned conclusions
-                                                
+
                                                 Context: {context}
-                                                
+
                                                 Question: {question}
-                                                
+
                                                 Explore this scenario based on the context: [/INST]""",
 }
 NAIVE_INSTRUCTION = """[INST] You are an AI assistant specialized in providing precise and detailed information. Focus on important information that directly addresses the main topic or question.
                                                 Include relevant details that provide context or support your points.
                                                 Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, objectivity, and emotional resonance.
-                                                
+
                                                 Your task is to answer the following question based on the given context:
                                                 {context}
-                                                
+
                                                 Question: {question}
-                                                
+
                                                 Answer: [/INST]"""
 
 PROMPT_SECTIONS_TO_REMOVE = [

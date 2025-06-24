@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Sat Mar  1 14:20:06 2025
 
@@ -10,7 +9,7 @@ import logging
 import sys
 import warnings
 from functools import lru_cache, wraps
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -53,15 +52,15 @@ class RerankerModelLoader:
     Class to load, initialize and cache reranker models.
     """
 
-    _model_cache: Dict[str, Any] = {}
-    _tokenizer_cache: Dict[str, Any] = {}
+    _model_cache: dict[str, Any] = {}
+    _tokenizer_cache: dict[str, Any] = {}
 
     @staticmethod
     @lru_cache(maxsize=None)
     @reranker_model_cache
     def load_reranker_model(
-        model_name: str, device: Optional[str] = None
-    ) -> Tuple[Any, Any]:
+        model_name: str, device: str | None = None
+    ) -> tuple[Any, Any]:
         """
         Load and cache a reranker model and tokenizer based on the model name.
 
@@ -102,8 +101,8 @@ class RerankerModelLoader:
 
     @staticmethod
     async def load_model_async(
-        model_name: str, device: Optional[str] = None
-    ) -> Tuple[Any, Any]:
+        model_name: str, device: str | None = None
+    ) -> tuple[Any, Any]:
         """
         Asynchronously load a reranker model.
 

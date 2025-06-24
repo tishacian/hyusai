@@ -69,7 +69,7 @@ def _extract_with_csv(path: str) -> tuple[dict[str, Any], str | None]:
     )
     content: str | None = None
 
-    with open(path, "r", encoding=encoding, errors="replace") as f:
+    with open(path, encoding=encoding, errors="replace") as f:
         content = f.read()
         # For CSV analysis, re-read after getting content or use StringIO
         f.seek(0)
@@ -118,7 +118,7 @@ def _extract_with_json(path: str) -> tuple[dict[str, Any], str | None]:
     )
     content: str | None = None
 
-    with open(path, "r", encoding=encoding, errors="replace") as f:
+    with open(path, encoding=encoding, errors="replace") as f:
         content = f.read()
 
     data = json.loads(content)
@@ -145,7 +145,7 @@ def _extract_with_yaml(path: str) -> tuple[dict[str, Any], str | None]:
     )
     content: str | None = None
 
-    with open(path, "r", encoding=encoding, errors="replace") as f:
+    with open(path, encoding=encoding, errors="replace") as f:
         content = f.read()
     data = yaml.safe_load(content)
     if isinstance(data, list):
@@ -173,7 +173,7 @@ def _extract_with_toml(path: str) -> tuple[dict[str, Any], str | None]:
         data = tomli.load(f)
     # Read again in text mode for content, using detected encoding for consistency
     _, encoding = initialize_metadata(path, lambda p: {}, None)  # Just to get encoding
-    with open(path, "r", encoding=encoding, errors="replace") as f_text:
+    with open(path, encoding=encoding, errors="replace") as f_text:
         content = f_text.read()
 
     if isinstance(data, dict):
@@ -192,7 +192,7 @@ def _extract_with_ini(path: str) -> tuple[dict[str, Any], str | None]:
     )
     content: str | None = None
 
-    with open(path, "r", encoding=encoding, errors="replace") as f:
+    with open(path, encoding=encoding, errors="replace") as f:
         content = f.read()
 
     config = configparser.ConfigParser()
