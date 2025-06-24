@@ -7,7 +7,7 @@ from datetime import datetime
 from io import BytesIO
 from tempfile import NamedTemporaryFile
 from typing import Iterator
-
+import time
 import pandas as pd
 import streamlit as st
 import torch
@@ -172,16 +172,17 @@ def display_metrics(metrics):
     metrics_html = "<div class='metrics-container'>"
     try:
         for key, value in metrics.items():
-            if key in ["hhem", "Advance_HHEM"]:
-                color = "red" if value > 0.5 else "green"
-            else:
-                color = "green" if value >= 0.5 else "red"
-            
-            # -- Add unit "s" for latency-related metrics
             latency_keys = ["latency", "time", "duration", "response_time"]
-            if any(latency_key in key.lower() for latency_key in latency_keys):
+            is_latency_metric = any(latency_key in key.lower() for latency_key in latency_keys)
+            
+            if is_latency_metric:
+                color = "white"
                 formatted_value = f"{value:.2f}s"
             else:
+                if key in ["hhem", "Advance_HHEM"]:
+                    color = "red" if value > 0.5 else "green"
+                else:
+                    color = "green" if value >= 0.5 else "red"
                 formatted_value = f"{value:.2f}"
             
             metrics_html += (
@@ -593,26 +594,14 @@ if get_standalone_interface_config().forced_vdb == "None":
                     )
                 )
 
-                # Check if the chain class accepts instruction_lang parameter
-                import inspect
-                sig = inspect.signature(RaggerChain.__init__)
-                if 'instruction_lang' in sig.parameters:
-                    chain = RaggerChain(
-                        st.session_state.tokenizer,
-                        st.session_state.model,
-                        model_name,
-                        existing_vector_store,
-                        index_type=index_type,
-                        instruction_lang=instruction_lang,
-                    )
-                else:
-                    chain = RaggerChain(
-                        st.session_state.tokenizer,
-                        st.session_state.model,
-                        model_name,
-                        existing_vector_store,
-                        index_type=index_type,
-                    )
+                chain = RaggerChain(
+                    st.session_state.tokenizer,
+                    st.session_state.model,
+                    model_name,
+                    existing_vector_store,
+                    index_type=index_type,
+                    instruction_lang=instruction_lang,
+                )
                 st.session_state.chain = chain
                 st.session_state.pipeline_type = pipeline_type
                 st.session_state.instruction_lang = instruction_lang
@@ -627,26 +616,14 @@ else:
         )
     )
 
-    # Check if the chain class accepts instruction_lang parameter
-    import inspect
-    sig = inspect.signature(RaggerChain.__init__)
-    if 'instruction_lang' in sig.parameters:
-        chain = RaggerChain(
-            st.session_state.tokenizer,
-            st.session_state.model,
-            model_name,
-            get_standalone_interface_config().forced_vdb,
-            index_type=index_type,
-            instruction_lang=instruction_lang,
-        )
-    else:
-        chain = RaggerChain(
-            st.session_state.tokenizer,
-            st.session_state.model,
-            model_name,
-            get_standalone_interface_config().forced_vdb,
-            index_type=index_type,
-        )
+    chain = RaggerChain(
+        st.session_state.tokenizer,
+        st.session_state.model,
+        model_name,
+        get_standalone_interface_config().forced_vdb,
+        index_type=index_type,
+        instruction_lang=instruction_lang,
+    )
     st.session_state.chain = chain
     st.session_state.pipeline_type = pipeline_type
     st.session_state.instruction_lang = instruction_lang
@@ -725,26 +702,14 @@ for chat_id, timestamp in historical_chats:
             )
 
             # -- reinit chain
-            # Check if the chain class accepts instruction_lang parameter
-            import inspect
-            sig = inspect.signature(RaggerChain.__init__)
-            if 'instruction_lang' in sig.parameters:
-                chain = RaggerChain(
-                    st.session_state.tokenizer,
-                    st.session_state.model,
-                    model_name,
-                    vector_store,
-                    index_type=index_type,
-                    instruction_lang=instruction_lang,
-                )
-            else:
-                chain = RaggerChain(
-                    st.session_state.tokenizer,
-                    st.session_state.model,
-                    model_name,
-                    vector_store,
-                    index_type=index_type,
-                )
+            chain = RaggerChain(
+                st.session_state.tokenizer,
+                st.session_state.model,
+                model_name,
+                vector_store,
+                index_type=index_type,
+                instruction_lang=instruction_lang,
+            )
             st.session_state.chain = chain
             st.rerun()
     # --
@@ -843,9 +808,12 @@ if prompt := st.chat_input("Message RAGGER..."):
 
         with st.spinner(""):
             try:
+                start_time = time.time()
                 response, context, metrics = st.session_state.chain.ainvoke(
                     prompt
                 )
+                end_time = time.time()
+                metrics["latency"] = end_time - start_time
             except (
                 IndexError,
                 AttributeError,
