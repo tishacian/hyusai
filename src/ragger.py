@@ -166,11 +166,6 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-# st.markdown(
-#    PADDINGS,
-#    unsafe_allow_html=True,
-# )
-
 
 # -- metrics style
 def display_metrics(metrics):
@@ -181,7 +176,20 @@ def display_metrics(metrics):
                 color = "red" if value > 0.5 else "green"
             else:
                 color = "green" if value >= 0.5 else "red"
-            metrics_html += f"<span class='metric'><span class='metric-name'>{key}:</span><span class='metric-value {color}'>{value:.2f}</span></span>"
+            
+            # -- Add unit "s" for latency-related metrics
+            latency_keys = ["latency", "time", "duration", "response_time"]
+            if any(latency_key in key.lower() for latency_key in latency_keys):
+                formatted_value = f"{value:.2f}s"
+            else:
+                formatted_value = f"{value:.2f}"
+            
+            metrics_html += (
+                f"<span class='metric'>"
+                f"<span class='metric-name'>{key}:</span>"
+                f"<span class='metric-value {color}'>{formatted_value}</span>"
+                f"</span>"
+            )
         metrics_html += "</div>"
         st.markdown(metrics_html, unsafe_allow_html=True)
     except (IndexError, AttributeError, IOError, ValueError, TypeError):
@@ -585,14 +593,26 @@ if get_standalone_interface_config().forced_vdb == "None":
                     )
                 )
 
-                chain = RaggerChain(
-                    st.session_state.tokenizer,
-                    st.session_state.model,
-                    model_name,
-                    existing_vector_store,
-                    index_type=index_type,
-                    instruction_lang=instruction_lang,
-                )
+                # Check if the chain class accepts instruction_lang parameter
+                import inspect
+                sig = inspect.signature(RaggerChain.__init__)
+                if 'instruction_lang' in sig.parameters:
+                    chain = RaggerChain(
+                        st.session_state.tokenizer,
+                        st.session_state.model,
+                        model_name,
+                        existing_vector_store,
+                        index_type=index_type,
+                        instruction_lang=instruction_lang,
+                    )
+                else:
+                    chain = RaggerChain(
+                        st.session_state.tokenizer,
+                        st.session_state.model,
+                        model_name,
+                        existing_vector_store,
+                        index_type=index_type,
+                    )
                 st.session_state.chain = chain
                 st.session_state.pipeline_type = pipeline_type
                 st.session_state.instruction_lang = instruction_lang
@@ -607,14 +627,26 @@ else:
         )
     )
 
-    chain = RaggerChain(
-        st.session_state.tokenizer,
-        st.session_state.model,
-        model_name,
-        get_standalone_interface_config().forced_vdb,
-        index_type=index_type,
-        instruction_lang=instruction_lang,
-    )
+    # Check if the chain class accepts instruction_lang parameter
+    import inspect
+    sig = inspect.signature(RaggerChain.__init__)
+    if 'instruction_lang' in sig.parameters:
+        chain = RaggerChain(
+            st.session_state.tokenizer,
+            st.session_state.model,
+            model_name,
+            get_standalone_interface_config().forced_vdb,
+            index_type=index_type,
+            instruction_lang=instruction_lang,
+        )
+    else:
+        chain = RaggerChain(
+            st.session_state.tokenizer,
+            st.session_state.model,
+            model_name,
+            get_standalone_interface_config().forced_vdb,
+            index_type=index_type,
+        )
     st.session_state.chain = chain
     st.session_state.pipeline_type = pipeline_type
     st.session_state.instruction_lang = instruction_lang
@@ -693,14 +725,26 @@ for chat_id, timestamp in historical_chats:
             )
 
             # -- reinit chain
-            chain = RaggerChain(
-                st.session_state.tokenizer,
-                st.session_state.model,
-                model_name,
-                vector_store,
-                index_type=index_type,
-                instruction_lang=instruction_lang,
-            )
+            # Check if the chain class accepts instruction_lang parameter
+            import inspect
+            sig = inspect.signature(RaggerChain.__init__)
+            if 'instruction_lang' in sig.parameters:
+                chain = RaggerChain(
+                    st.session_state.tokenizer,
+                    st.session_state.model,
+                    model_name,
+                    vector_store,
+                    index_type=index_type,
+                    instruction_lang=instruction_lang,
+                )
+            else:
+                chain = RaggerChain(
+                    st.session_state.tokenizer,
+                    st.session_state.model,
+                    model_name,
+                    vector_store,
+                    index_type=index_type,
+                )
             st.session_state.chain = chain
             st.rerun()
     # --
