@@ -1,41 +1,37 @@
-import torch
-import os
-import faiss
-import pickle
-import weaviate
-import numpy as np
-from langchain_community.vectorstores import Chroma
-
-# --
-import warnings
 import asyncio
+import logging
+import os
+import pickle
+import sys
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
 
-from src.reasoning_instructions import ALL_NAIVE_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
+import faiss
+import numpy as np
+import torch
+import weaviate
+from langchain_community.vectorstores import Chroma
+from sentence_transformers import SentenceTransformer
+
+from src.chunker import BM25Retriever, cache_chunker_embedding_chain
+from src.globalvariables import (
+    EMBEDDING_NAME,
+    VECTOR_STORE_PATH,
+    IndexType,
+)
+from src.metrics import Evaluatrix
+from src.reasoning_instructions import (
+    ALL_NAIVE_INSTRUCTIONS,
+    DEFAULT_INSTRUCTION_LANG,
+    InstructionLangs,
+)
 from src.utils import format_llm_response
 
 if torch.cuda.is_available():
     from vllm import SamplingParams
-from functools import lru_cache
-
-from sentence_transformers import SentenceTransformer
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
-
-# --
-import sys
-import logging
-from src.globalvariables import (
-    VECTOR_STORE_PATH,
-    IndexType,
-    EMBEDDING_NAME,
-)
-from src.chunker import cache_chunker_embedding_chain, BM25Retriever
-
-# -- Model evaluation
-from src.metrics import Evaluatrix
-
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -83,7 +79,9 @@ class CustomLLMChain:
         self.device = torch.device(
             "cuda"
             if torch.cuda.is_available()
-            else "cpu" if torch.backends.mps.is_available() else "cpu"
+            else "cpu"
+            if torch.backends.mps.is_available()
+            else "cpu"
         )
 
         if self.model is None or self.tokenizer is None:
@@ -141,9 +139,7 @@ class CustomLLMChain:
             if os.path.exists(
                 str(vector_store_path / "faiss.index")
             ) and os.path.exists(str(vector_store_path / "faiss.pkl")):
-                self.index = faiss.read_index(
-                    str(vector_store_path / "faiss.index")
-                )
+                self.index = faiss.read_index(str(vector_store_path / "faiss.index"))
                 with open(str(vector_store_path / "faiss.pkl"), "rb") as f:
                     self.texts = pickle.load(f)
                 logging.info("FAISS index and texts loaded successfully.")
@@ -210,9 +206,7 @@ class CustomLLMChain:
                 break
 
             with ThreadPoolExecutor() as executor:
-                mmr_scores = list(
-                    executor.map(compute_mmr_score, candidate_indices)
-                )
+                mmr_scores = list(executor.map(compute_mmr_score, candidate_indices))
 
             # -- Select the document with the highest MMR score
             best_index = candidate_indices[np.argmax(mmr_scores)]
@@ -323,12 +317,9 @@ class CustomLLMChain:
         # Transfer chunks in parallel
         with ThreadPoolExecutor(max_workers=num_chunks) as executor:
             futures = [
-                executor.submit(self.device_transfer, chunk, device)
-                for chunk in chunks
+                executor.submit(self.device_transfer, chunk, device) for chunk in chunks
             ]
-            device_chunks = [
-                future.result() for future in as_completed(futures)
-            ]
+            device_chunks = [future.result() for future in as_completed(futures)]
 
         return torch.cat(device_chunks, dim=1)
 
@@ -343,7 +334,6 @@ class CustomLLMChain:
         """
         SHORT_CONTEXT = 512
         MEDIUM_CONTEXT = 1024
-        LONG_CONTEXT = 2048
 
         # -- corresponding penalties
         SHORT_PENALTY = 0.01
@@ -372,9 +362,7 @@ class CustomLLMChain:
             - The generated text.
         """
         max_new_tokens = (
-            self.tokenizer.max_len_single_sentence
-            if max_length is None
-            else max_length
+            self.tokenizer.max_len_single_sentence if max_length is None else max_length
         )
         inputs = self.tokenizer(
             prompt,
@@ -382,15 +370,15 @@ class CustomLLMChain:
         )
 
         # -- transfer the input_ids to the device
-        inputs_on_device = self.parallel_chunk_transfer(
-            inputs["input_ids"], self.device.type
-        )
+        # inputs_on_device = self.parallel_chunk_transfer(
+        #     inputs["input_ids"], self.device.type
+        # )
         """
         check if model.generate returns empty strings..otherwise, return empty text.
-        Sometimes, the model returns empty strings 
+        Sometimes, the model returns empty strings
         """
         # -- choose whether to use mixed precision based on the device
-        use_mixed_precision = True if self.device.type == "cuda" else False
+        # use_mixed_precision = True if self.device.type == "cuda" else False
         if torch.cuda.is_available():
             sampling_params = SamplingParams(
                 temperature=temperature,
@@ -426,9 +414,7 @@ class CustomLLMChain:
                 )
 
                 if isinstance(output, dict):
-                    response = (
-                        output.get("choices", [{}])[0].get("text", "").strip()
-                    )
+                    response = output.get("choices", [{}])[0].get("text", "").strip()
                 else:
                     response = output.choices[0].text.strip()
 
@@ -448,9 +434,7 @@ class CustomLLMChain:
         Returns:
             str: LLM generated text
         """
-        prompt_format = self.template.format(
-            context=context, question=question
-        )
+        prompt_format = self.template.format(context=context, question=question)
         generated_text = await self.generate_text(prompt_format)
         return generated_text
 
@@ -514,9 +498,7 @@ class CustomLLMChain:
             else:
                 # Handle different index types
                 if self.index_type == IndexType.CHROMA:
-                    embeddings = np.array(
-                        self.embedding_model.embed_documents(texts)
-                    )
+                    embeddings = np.array(self.embedding_model.embed_documents(texts))
                 elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
                     try:
                         embeddings = self.embedding_model.encode(
@@ -525,18 +507,14 @@ class CustomLLMChain:
                             show_progress_bar=False,
                             device=self.device.type,  # Ensure it uses the correct device
                         )
-                        embeddings = (
-                            embeddings.to(dtype=torch.float32).cpu().numpy()
-                        )
+                        embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
                     except IndexError as e:
                         logging.error(
                             f"🚩 Index out of range error: {e}. Check input text length."
                         )
                         return np.array([])
                 else:
-                    logging.error(
-                        f"🚩 Unsupported embedding type: {self.index_type}"
-                    )
+                    logging.error(f"🚩 Unsupported embedding type: {self.index_type}")
                     return np.array([])
 
             return embeddings
@@ -564,9 +542,7 @@ class CustomLLMChain:
             return [result.page_content for result in results]
         elif self.index_type == IndexType.WEAVIATE:
             results = await asyncio.to_thread(
-                self.weaviate_client.query.get(
-                    self.class_name, ["page_content"]
-                )
+                self.weaviate_client.query.get(self.class_name, ["page_content"])
                 .with_near_vector({"vector": embedding.tolist()})
                 .with_limit(k)
                 .do
@@ -659,9 +635,7 @@ class CustomLLMChain:
         Returns:
             tuple (str, str, dict): answer, conbined context, evaluation metrics
         """
-        relevant_contexts = await self.search_similar_texts_async(
-            question, k=5
-        )
+        relevant_contexts = await self.search_similar_texts_async(question, k=5)
         combined_context = "\n\n".join(relevant_contexts)
         result_text = await self.custom_llm_chain(combined_context, question)
         answer = self._format_llm_response(result_text, self.instruction_lang)
@@ -689,7 +663,9 @@ class CustomLLMChain:
         return self.run_async_in_thread(self.invoke_async(question))
 
     @staticmethod
-    def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+    def _format_llm_response(
+        response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG
+    ) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
 

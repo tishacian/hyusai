@@ -1,14 +1,23 @@
 import re
+import time
 from itertools import chain
 from os import makedirs
 from urllib.parse import urljoin
 
+import nltk
 import numpy as np
 import pandas as pd
 import requests
+import tika
 from bs4 import BeautifulSoup
+from deep_translator import GoogleTranslator
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from tika import parser
 
 from src.globalvariables import DATA_PATH
+
+tika.initVM()
 
 # %% Download domain names from wiki tables
 
@@ -121,9 +130,7 @@ def scrapper_url(url, http, main_com, pdf=False):
 
 if __name__ == "__main__":
     # website_url = "https://safengy.com/our-skills/environmental-french-regulation/"
-    domain = list(
-        np.load(DATA_PATH / "url_suffixes.npy", allow_pickle=True)
-    ) + [
+    domain = list(np.load(DATA_PATH / "url_suffixes.npy", allow_pickle=True)) + [
         "www",
         "gouv",
         "fr",
@@ -140,9 +147,7 @@ if __name__ == "__main__":
         http = splitted[0]
         main_com = splitted[1].split(".")
         main_com_sep = "".join([i for i in main_com if i not in domain])
-        main_com_inc = ".".join(
-            [i for i in main_com if i in domain if i != "www"]
-        )
+        main_com_inc = ".".join([i for i in main_com if i in domain if i != "www"])
         main_ = (main_com_sep, main_com_inc)
         scrapper_url(site, http, main_, pdf=pdf)
 
@@ -166,17 +171,13 @@ if __name__ == "__main__":
 
 # %% Scrap the pdf --> Save pdf based on codes title L. 101- et al.
 
-import tika
-
-tika.initVM()
-from tika import parser  # extract text from pdf
 
 PDF_PATH = DATA_PATH / "pdfs"
 
 
 def method_scrap_all(path, filename: str = None):
     assert path.exists(), "File path does not exist"
-    if filename == None:
+    if filename is None:
         return
     if filename.endswith(".pdf"):
         filename = "Code de l'environnement.pdf"
@@ -215,15 +216,13 @@ R. 131-34-1-2   Legif.   Plan   Jp.C.Cass.   Jp.Appel   Jp.Admin.   Juricaf Les 
 l'honorariat de leur dernier grade par décision du directeur général de l'office.
 R. 131-34-1-3   Legif. Plan   Jp.C.Cass.   Jp.Appel   Jp.Admin.   Juricaf A titre exceptionnel, les agents commissionnés et assermentés peuvent, après avis de la commission
 consultative paritaire ou de la commission administrative paritaire, faire l'objet des mesures suivantes
-L. 594-2 au moins sur les dix années suivantes. La projection est réalisée selon un scénario de référence, des scénarios dégradés représentant des conditions détériorées de marché et des scénarios dégradés portant sur le montant ou l'échéancier des charges nucléaires. Au titre de la revue des risques identifiés prévue au premier alinéa, en ce qui concerne les risques relatifs à des événements ou conditions susceptibles d'affecter le montant ou l'échéancier des charges nucléaires correspondant à un groupe d'opérations donné, l'exploitant peut s'appuyer sur la réalisation d'une revue dédiée à ces risques durant les trois précédentes années à condition qu'il n'y ait pas eu de changement significatif de ces risques depuis ladite revue dédiée. Dans ce cas, l'exploitant réalise néanmoins une revue des risques identifiés associés aux interdépendances avec ce groupe d'opérations. A l'issue de l'évaluation interne des risques, l'exploitant analyse ses résultats, détermine et programme les actions appropriées pour améliorer la maîtrise des risques et les met en œuvre. 
+L. 594-2 au moins sur les dix années suivantes. La projection est réalisée selon un scénario de référence, des scénarios dégradés représentant des conditions détériorées de marché et des scénarios dégradés portant sur le montant ou l'échéancier des charges nucléaires. Au titre de la revue des risques identifiés prévue au premier alinéa, en ce qui concerne les risques relatifs à des événements ou conditions susceptibles d'affecter le montant ou l'échéancier des charges nucléaires correspondant à un groupe d'opérations donné, l'exploitant peut s'appuyer sur la réalisation d'une revue dédiée à ces risques durant les trois précédentes années à condition qu'il n'y ait pas eu de changement significatif de ces risques depuis ladite revue dédiée. Dans ce cas, l'exploitant réalise néanmoins une revue des risques identifiés associés aux interdépendances avec ce groupe d'opérations. A l'issue de l'évaluation interne des risques, l'exploitant analyse ses résultats, détermine et programme les actions appropriées pour améliorer la maîtrise des risques et les met en œuvre.
 R. 181-15 Décret n°2017-81 du 26 janvier 2017 - art. 1     Legif.   Plan   Jp.C.Cass.   Jp.Appel   Jp.Admin.   Juricaf Le dossier de demande d'autorisation environnementale est complété par les pièces, documents et informations
 propres aux activités, installations, ouvrages et travaux prévus par le projet pour lequel l'autorisation est sollicitée ainsi qu'aux espaces et espèces faisant l'objet de mesures de protection auxquels il est susceptible de porter atteinte.
 D. 594-11  Décret n°2020-830 du 1er juillet 2020 - art. 1      Legif.    Plan    Jp.C.Cass.    Jp.Appel    Jp.Admin.    Juricaf  I.-L'exploitant tient à jour un inventaire des actifs de couverture qui assure la traçabilité de chaque mouvement d'actif et est aisément consultable par l'autorité administrative. II.-L'exploitant transmet à l'autorité une synthèse de cet inventaire selon la périodicité suivante : -une fois tous les douze mois si la base de dispersion est inférieure à 100 millions d'euros ou si les actifs de couverture comprennent principalement des actifs mentionnés au 1° ou au 2° du II de l'article
-D. 594-6 ; -une fois tous les trois mois dans les autres cas. En cas de recours à des instruments financiers à terme, cette transmission comprend également une synthèse du relevé mentionné à l'article R. 336-4 du code des assurances ainsi qu'une indication du nombre d'opérations à terme effectuées durant la période considérée et du montant notionnel cumulé correspondant, en les distinguant par catégorie d'instruments financiers à terme. L'autorité précise à l'exploitant la forme et le contenu de cette transmission. 
+D. 594-6 ; -une fois tous les trois mois dans les autres cas. En cas de recours à des instruments financiers à terme, cette transmission comprend également une synthèse du relevé mentionné à l'article R. 336-4 du code des assurances ainsi qu'une indication du nombre d'opérations à terme effectuées durant la période considérée et du montant notionnel cumulé correspondant, en les distinguant par catégorie d'instruments financiers à terme. L'autorité précise à l'exploitant la forme et le contenu de cette transmission.
 D. 594-12  Décret n°2020-830 du 1er juillet 2020 - art. 1      Legif.    Plan    Jp.C.Cass.    Jp.Appel    Jp.Admin.    Juricaf  I.-Pour l'établissement des documents comptables mentionnés à la section 2 du chapitre III du titre II du livre Ier du code de commerce et aux articles.
-""".replace(
-    "\n", ""
-)
+""".replace("\n", "")
 
 
 # %% Testing code extraction...
@@ -324,34 +323,29 @@ for files_ in list(save_env_codes_txt.iterdir()):
 
 # %% Translate environmental codes from French to English
 
-import nltk
-from deep_translator import GoogleTranslator  # TODO: add to requirements
-
 
 def googleTranslator(env_codes, g_translator):
     # translate sentence-by-sentence to avoid maximum token error...if avoidable for split
     # otherwise, call chunk function
     splitted_env_codes = nltk.tokenize.sent_tokenize(env_codes)
     translated = [g_translator.translate(i) for i in splitted_env_codes]
-    translated = [i if i != None else "" for i in translated]
+    translated = [i if i is not None else "" for i in translated]
     return " ".join(translated)
 
 
 def chunk_text(article, n, g_translator):
     chunk_size = len(article) // n
-    chunks = [
-        article[i : i + chunk_size] for i in range(0, len(article), chunk_size)
-    ]
+    chunks = [article[i : i + chunk_size] for i in range(0, len(article), chunk_size)]
     chunked_translation = []
     for chk in chunks:
         splitted_env_codes = nltk.tokenize.sent_tokenize(chk)
         translated = [g_translator.translate(i) for i in splitted_env_codes]
-        translated = [i if i != None else "" for i in translated]
+        translated = [i if i is not None else "" for i in translated]
         # print(type(translated))
         chunked_translation.append(
-            " ".join(translated if translated != None else "")
+            " ".join(translated if translated is not None else "")
         )
-    return " ".join(chunked_translation if translated != None else "")
+    return " ".join(chunked_translation if translated is not None else "")
 
 
 def translatee(
@@ -407,10 +401,6 @@ with open(PDF_PATH / "environmental_code_en.txt", "w") as txt_file:
 
 # %% scrap Hong-Kong University embeddings for all model names
 
-import time
-
-from selenium import webdriver  # TODO: add to requirements
-from selenium.webdriver.common.by import By
 
 url = "https://huggingface.co/hkunlp"
 
@@ -448,8 +438,6 @@ np.save(DATA_PATH / "hkunlp_embeddings.npy", model_name_)
 
 # %% load again..
 
-model_name_ = list(
-    np.load(DATA_PATH / "hkunlp_embeddings.npy", allow_pickle=True)
-)
+model_name_ = list(np.load(DATA_PATH / "hkunlp_embeddings.npy", allow_pickle=True))
 
 # %%

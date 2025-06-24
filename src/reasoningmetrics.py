@@ -14,7 +14,6 @@ import numpy as np
 from src.globalvariables import ReasoningType
 from src.reasoning_instructions import ALL_REASONING_PATTERNS, InstructionLangs
 
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,

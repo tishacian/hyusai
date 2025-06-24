@@ -16,6 +16,7 @@ class InstructionLangs(StrEnum):
     EN = "EN"
     FR = "FR"
 
+
 INSTRUCTIONS_LANGS_LIST = list(map(str, InstructionLangs))
 DEFAULT_INSTRUCTION_LANG = InstructionLangs.EN
 

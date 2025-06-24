@@ -19,19 +19,19 @@ from src.globalvariables import (
 )
 from src.utils import get_max_model_len, gpu_arc_type
 
+if not torch.cuda.is_available():
+    from huggingface_hub import hf_hub_download, list_repo_files
+    from llama_cpp import Llama
+else:
+    import psutil
+    from vllm import LLM
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 os.environ["VLLM_ALLOW_LONG_MAX_MODEL_LEN"] = "1"
-gpu_available = True if torch.cuda.is_available() else False
-if not gpu_available:
-    from huggingface_hub import hf_hub_download, list_repo_files
-    from llama_cpp import Llama
-else:
-    import psutil
-    from vllm import LLM
 
 
 class LlamaCppServer:
@@ -347,9 +347,7 @@ class CachedLLM:
 
                 kwargs = {
                     "model": self.model_name,
-                    "quantization": (
-                        "awq" if "awq" in self.model_name else "gptq"
-                    ),
+                    "quantization": ("awq" if "awq" in self.model_name else "gptq"),
                     "tensor_parallel_size": tensor_parallel,
                     "max_model_len": self.max_model_len,
                     "trust_remote_code": True,
@@ -494,7 +492,5 @@ def load_model_and_tokenizer(model_name: str, abs_path: str):
 
         return model, tokenizer
     except Exception as e:
-        logging.error(
-            f"Failed to load model or tokenizer for {model_name}: {e}"
-        )
+        logging.error(f"Failed to load model or tokenizer for {model_name}: {e}")
         return None, None

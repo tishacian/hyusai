@@ -5,11 +5,13 @@ Created on Sun May 25 19:12:35 2025
 @author: kennethezukwoke
 """
 
-import numpy as np
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
-from src.globalvariables import ReasoningType
+from typing import Any, Dict, Optional
+
+import numpy as np
+
 from src.ensembleretriever import FusionMethod
+from src.globalvariables import ReasoningType
 
 
 @dataclass

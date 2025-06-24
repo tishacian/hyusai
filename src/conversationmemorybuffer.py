@@ -13,7 +13,6 @@ from typing import Dict, List, Optional, Tuple
 
 from src.globalvariables import ReasoningType
 
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,

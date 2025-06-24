@@ -10,15 +10,17 @@ from typing import Any
 
 # Import required libraries for Office document processing
 import docx
+from docmeta.core.defaults import (
+    create_office_metadata,  # create_office_metadata returns dict[str, Any]
+)
+from docmeta.utils.text_processing import (
+    count_text_statistics,
+    extract_common_metadata_fields,
+    extract_keywords,
+    get_file_extension,
+)
 from openpyxl import load_workbook
 from pptx import Presentation
-
-from docmeta.core.defaults import \
-    create_office_metadata  # create_office_metadata returns dict[str, Any]
-from docmeta.utils.text_processing import (count_text_statistics,
-                                           extract_common_metadata_fields,
-                                           extract_keywords,
-                                           get_file_extension)
 
 # Configure logger
 logger = logging.getLogger(__name__)

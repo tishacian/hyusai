@@ -1,19 +1,21 @@
-import sys
-import torch
-import faiss
-import pickle
 import logging
-import numpy as np
-from typing import Optional
+import pickle
+import sys
 from functools import lru_cache
+from typing import Optional
+
+import faiss
+import numpy as np
+import torch
+from langchain_community.vectorstores import Chroma
+
+from src.chunker import BM25Retriever, cache_chunker_embedding_chain
+from src.embeddingloader import EmbeddingModelLoader
 from src.globalvariables import (
+    EMBEDDING_NAME,
     VECTOR_STORE_PATH,
     IndexType,
-    EMBEDDING_NAME,
 )
-from src.embeddingloader import EmbeddingModelLoader
-from langchain_community.vectorstores import Chroma
-from src.chunker import cache_chunker_embedding_chain, BM25Retriever
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -66,17 +68,17 @@ class EmbeddingVectors:
         self.device = torch.device(
             "cuda"
             if torch.cuda.is_available()
-            else "cpu" if torch.backends.mps.is_available() else "cpu"
+            else "cpu"
+            if torch.backends.mps.is_available()
+            else "cpu"
         )
         self.embedding_model_name = embedding_model_name
         self.embedding_model = EmbeddingModelLoader.load_embedding_model(
             self.embedding_type, embedding_model_name
         )
         # --
-        self.embedding_dimension = (
-            EmbeddingModelLoader.get_embedding_dimension(
-                self.embedding_type, embedding_model_name
-            )
+        self.embedding_dimension = EmbeddingModelLoader.get_embedding_dimension(
+            self.embedding_type, embedding_model_name
         )
         if self.embedding_type == IndexType.WEAVIATE:
             self.class_name = "Document"
@@ -131,9 +133,7 @@ class EmbeddingVectors:
                 return np.zeros((0, self.embedding_dimension))
 
             if self.embedding_type in [IndexType.FAISS, IndexType.CHROMA]:
-                logging.info(
-                    f"Creating embeddings on device: {self.device.type}"
-                )
+                logging.info(f"Creating embeddings on device: {self.device.type}")
 
                 all_embeddings = []
 
@@ -142,25 +142,18 @@ class EmbeddingVectors:
 
                     embeddings = self.embedding_model.encode(
                         batch_texts,
-                        show_progress_bar=(
-                            True if len(batch_texts) > 10 else False
-                        ),
+                        show_progress_bar=(True if len(batch_texts) > 10 else False),
                         convert_to_tensor=True,
                         device=self.device.type,
                     )
-                    batch_embeddings = (
-                        embeddings.to(dtype=torch.float32).cpu().numpy()
-                    )
+                    batch_embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
                     all_embeddings.append(batch_embeddings)
 
                 # Combine batches
                 if all_embeddings:
                     combined_embeddings = np.vstack(all_embeddings)
                     # -- verify the embedding dimension
-                    if (
-                        combined_embeddings.shape[1]
-                        != self.embedding_dimension
-                    ):
+                    if combined_embeddings.shape[1] != self.embedding_dimension:
                         logging.warning(
                             f"Embedding dimension mismatch! Expected {self.embedding_dimension}, got {combined_embeddings.shape[1]}"
                         )
@@ -209,16 +202,11 @@ class EmbeddingVectors:
                     # Combine batches
                     if all_embeddings:
                         combined_embeddings = np.vstack(all_embeddings)
-                        if (
-                            combined_embeddings.shape[1]
-                            != self.embedding_dimension
-                        ):
+                        if combined_embeddings.shape[1] != self.embedding_dimension:
                             logging.warning(
                                 f" Embedding dimension mismatch! Expected {self.embedding_dimension}, got {combined_embeddings.shape[1]}"
                             )
-                            self.embedding_dimension = (
-                                combined_embeddings.shape[1]
-                            )
+                            self.embedding_dimension = combined_embeddings.shape[1]
                         return combined_embeddings
                     return np.zeros((0, self.embedding_dimension))
 
@@ -228,9 +216,7 @@ class EmbeddingVectors:
                     )
                     return np.zeros((0, self.embedding_dimension))
             else:
-                logging.error(
-                    f"🚩 Unsupported embedding type: {self.embedding_type}"
-                )
+                logging.error(f"🚩 Unsupported embedding type: {self.embedding_type}")
                 return np.zeros((0, self.embedding_dimension))
 
         except Exception as e:
@@ -253,9 +239,9 @@ class EmbeddingVectors:
                 logging.error("🚩 Empty embeddings array received")
                 return None
 
-            assert isinstance(
-                embeddings, np.ndarray
-            ), f"Embedding is type : {type(embeddings)} not an ndarray"
+            assert isinstance(embeddings, np.ndarray), (
+                f"Embedding is type : {type(embeddings)} not an ndarray"
+            )
 
             if embeddings.shape[0] == 0 or embeddings.shape[1] == 0:
                 logging.error("🚩 Embeddings array has zero dimensions")
@@ -272,9 +258,7 @@ class EmbeddingVectors:
                     f" Updating embedding dimension from {self.embedding_dimension} to {dimension}"
                 )
                 self.embedding_dimension = dimension
-                cache_key = (
-                    f"{self.embedding_type}_{self.embedding_model_name}"
-                )
+                cache_key = f"{self.embedding_type}_{self.embedding_model_name}"
                 EmbeddingModelLoader._dimension_cache[cache_key] = dimension
 
             # -- Indexing
@@ -294,9 +278,7 @@ class EmbeddingVectors:
             # otherwise, use GPUs to create IVF index
             if train and embeddings.shape[0] >= 1000:
                 try:
-                    nlist = min(
-                        4096, max(int(np.sqrt(embeddings.shape[0])), 4)
-                    )
+                    nlist = min(4096, max(int(np.sqrt(embeddings.shape[0])), 4))
                     if embeddings.shape[0] < 30 * nlist:
                         logging.warning(
                             f"🚩 Not enough training data for IVF. Using flat index instead. "
@@ -349,8 +331,7 @@ class EmbeddingVectors:
         try:
             if self.create_new_vs:
                 save_path = (
-                    VECTOR_STORE_PATH
-                    / f"{self.embedding_type}_{self.new_vs_name}"
+                    VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
                 )
             else:
                 save_path = (
@@ -390,20 +371,13 @@ class EmbeddingVectors:
                 else:
                     try:
                         try:
-                            with open(
-                                save_path / "dimension_info.pkl", "rb"
-                            ) as f:
+                            with open(save_path / "dimension_info.pkl", "rb") as f:
                                 existing_dimension_info = pickle.load(f)
-                                existing_dimension = (
-                                    existing_dimension_info.get(
-                                        "embedding_dimension"
-                                    )
+                                existing_dimension = existing_dimension_info.get(
+                                    "embedding_dimension"
                                 )
 
-                                if (
-                                    existing_dimension
-                                    != self.embedding_dimension
-                                ):
+                                if existing_dimension != self.embedding_dimension:
                                     logging.error(
                                         f"🚩 Dimension mismatch! Existing index has dimension {existing_dimension}, "
                                         f"but current embeddings have dimension {self.embedding_dimension}. "
@@ -441,17 +415,13 @@ class EmbeddingVectors:
                             with open(save_path / "faiss.pkl", "rb") as f:
                                 existing_texts = pickle.load(f)
 
-                            existing_embeddings = self.create_embeddings(
-                                existing_texts
-                            )
+                            existing_embeddings = self.create_embeddings(existing_texts)
                             new_embeddings = self.create_embeddings(texts)
                             combined_embeddings = np.vstack(
                                 [existing_embeddings, new_embeddings]
                             )
                             combined_texts = existing_texts + texts
-                            combined_index = faiss.IndexFlatL2(
-                                self.embedding_dimension
-                            )
+                            combined_index = faiss.IndexFlatL2(self.embedding_dimension)
                             combined_embeddings_copy = (
                                 combined_embeddings.copy().astype(np.float32)
                             )
@@ -484,9 +454,7 @@ class EmbeddingVectors:
                         logging.warning(
                             f"🚩 Existing index not found at {save_path}. Creating new index."
                         )
-                        faiss.write_index(
-                            index, str(save_path / "faiss.index")
-                        )
+                        faiss.write_index(index, str(save_path / "faiss.index"))
                         with open(save_path / "faiss.pkl", "wb") as f:
                             pickle.dump(texts, f)
                         logging.info(

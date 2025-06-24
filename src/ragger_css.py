@@ -60,12 +60,12 @@ BUTTONS = """
                     color: white !important;
                     transition: background-color 0.3s ease !important;
                 }
-                
+
                 .stButton > button:hover {
                     background-color: #f0f0f0 !important;
                     color: #262730 !important;
                 }
-                
+
                 /* Chat history buttons */
                 button[key^="chat_"] {
                     display: flex !important;
@@ -75,11 +75,11 @@ BUTTONS = """
                     margin-bottom: 5px !important;
                     transition: background-color 0.3s ease !important;
                 }
-                
+
                 button[key^="chat_"]:hover {
                     background-color: #f0f0f0 !important;
                 }
-                
+
                 /* Delete button */
                 button[key^="delete_"] {
                     background-color: transparent !important;
@@ -90,16 +90,16 @@ BUTTONS = """
                     float: right !important;
                     transition: background-color 0.3s ease !important;
                 }
-                
+
                 button[key^="delete_"]:hover {
                     background-color: #f0f0f0 !important;
                 }
-                
+
                 /* Highlight for chat hover */
                 button[key^="chat_"]:focus {
                     background-color: #e6f3ff !important;
                 }
-                
+
                 /* Download styler */
                 .stDownloadButton > button {
                     border: none !important;
@@ -110,11 +110,11 @@ BUTTONS = """
                     margin-bottom: 5px !important;
                     transition: background-color 0.3s ease !important;
                 }
-                
+
                 .stDownloadButton > button:hover {
                     background-color: #f0f0f0 !important;
                 }
-                
+
                 /* Auto-hide sidebar */
                 [data-testid="stSidebar"] {
                     position: fixed !important;
@@ -125,32 +125,32 @@ BUTTONS = """
                     transition: left 0.3s ease-in-out;
                     z-index: 100; /* Ensure sidebar is above other elements */
                 }
-                
+
                 /* Sidebar hover effect for expansion */
                 [data-testid="stSidebar"]:hover {
                     left: 0 !important;
                 }
-                
+
                 /* Adjust main content when sidebar is hidden or shown */
                 .main .block-container {
                     padding-left: 20px;
                     transition: padding-left 0.3s ease-in-out;
                 }
-                
+
                 [data-testid="stSidebar"]:hover + .main .block-container {
                     padding-left: 320px;
                 }
                 </style>
-                
+
                 <script>
                 // Use localStorage to persist the sidebar state (expanded/collapsed) across page reloads
                 document.addEventListener('DOMContentLoaded', function () {
                     const sidebar = document.querySelector('[data-testid="stSidebar"]');
                     const mainContainer = document.querySelector('.main .block-container');
-                    
+
                     // Check if the sidebar state is saved in localStorage
                     const isSidebarExpanded = localStorage.getItem('sidebarExpanded');
-                
+
                     if (isSidebarExpanded === 'true') {
                         sidebar.style.left = '0';
                         mainContainer.style.paddingLeft = '320px';
@@ -158,14 +158,14 @@ BUTTONS = """
                         sidebar.style.left = '-240px';
                         mainContainer.style.paddingLeft = '20px';
                     }
-                
+
                     // Add hover event listener to expand the sidebar
                     sidebar.addEventListener('mouseenter', function () {
                         sidebar.style.left = '0';
                         mainContainer.style.paddingLeft = '320px';
                         localStorage.setItem('sidebarExpanded', 'true');  // Save expanded state
                     });
-                
+
                     // Add event listener to collapse the sidebar on mouse leave
                     sidebar.addEventListener('mouseleave', function () {
                         sidebar.style.left = '-240px';
@@ -182,14 +182,14 @@ THINKING_SPINNER = """
                             content: '';
                             animation: thinking 2s infinite;
                         }
-                        
+
                         @keyframes thinking {
                             0% { content: 'Contextualizing.'; }
                             33% { content: 'Contextualizing..'; }
                             66% { content: 'Contextualizing...'; }
                             100% { content: 'Contextualizing.'; }
                         }
-                        
+
                         .stSpinner > div {
                             visibility: hidden;
                         }
@@ -218,25 +218,25 @@ PADDINGS = """
                 padding-left: 20rem !important;
                 padding-right: 20rem !important;
             }
-            
+
             /* Adjust container width */
             [data-testid="stAppViewContainer"] > .main {
                 max-width: 100% !important;
                 padding-left: 20rem !important;
                 padding-right: 20rem !important;
             }
-            
+
             /* Ensure content respects padding */
             [data-testid="stAppViewContainer"] {
                 max-width: 100% !important;
             }
-            
+
             [data-testid="stHeader"] {
                 max-width: calc(100% - 40rem) !important;
                 margin-left: auto !important;
                 margin-right: auto !important;
             }
-            
+
             /* Responsive adjustments */
             @media (max-width: 1600px) {
                 .stApp,
@@ -247,7 +247,7 @@ PADDINGS = """
                     padding-right: 10rem !important;
                 }
             }
-            
+
             @media (max-width: 1200px) {
                 .stApp,
                 [data-testid="stAppViewContainer"] > .main,
@@ -257,7 +257,7 @@ PADDINGS = """
                     padding-right: 5rem !important;
                 }
             }
-            
+
             @media (max-width: 768px) {
                 .stApp,
                 [data-testid="stAppViewContainer"] > .main,
@@ -267,7 +267,7 @@ PADDINGS = """
                     padding-right: 1rem !important;
                 }
             }
-            
+
             /* Keep existing styles */
             .app-header {
                 display: flex;
@@ -285,7 +285,7 @@ FILE_UPLOADER = """
                     [data-testid="stFileUploader"] {
                         width: 100%;
                     }
-                    
+
                     [data-testid="stFileUploader"] section {
                         padding: 30px;
                         display: flex;
@@ -297,20 +297,20 @@ FILE_UPLOADER = """
                         border-radius: 10px !important;
                         background-color: rgba(78, 140, 255, 0.05) !important;
                     }
-                    
+
                     [data-testid="stFileUploader"] section input {
                         height: 100%;
                     }
-                    
+
                     [data-testid="stFileUploader"] section div[data-testid="stMarkdownContainer"] p {
                         font-size: 1.2em;
                         font-weight: bold;
                     }
-                    
+
                     [data-testid="stFileUploader"] section button {
                         display: none;
                     }
-                    
+
                     / Hide the default text and replace with custom text /
                     [data-testid="stFileUploader"] section div.css-1v0mbdj.e115fcil1 > p {
                     font-size: 1.2em;
@@ -327,39 +327,39 @@ FILE_UPLOADER = """
                     </style>
                     """
 
-BACKGROUND = f"""
+BACKGROUND = """
                 <style>
-                [data-testid="stAppViewContainer"] > .main {{
+                [data-testid="stAppViewContainer"] > .main {
                 background-image: linear-gradient(to right, rgba(0, 48, 87, 0.9), rgba(0, 91, 140, 0.9), rgba(0, 120, 174, 0.8), rgba(30, 144, 195, 0.7));
                 background-size: cover;
                 background-position: center center;
                 background-repeat: no-repeat;
                 background-attachment: fixed;
-                }}
-                [data-testid="stHeader"] {{
+                }
+                [data-testid="stHeader"] {
                 background: rgba(0,0,0,0);
-                }}
-                [data-testid="stBottomBlockContainer"] {{
+                }
+                [data-testid="stBottomBlockContainer"] {
                 background-image: linear-gradient(to right, rgba(0, 48, 87, 0.9), rgba(0, 91, 140, 0.9), rgba(0, 120, 174, 0.8), rgba(30, 144, 195, 0.7));
                 background-size: cover;
                 background-position: center center;
                 background-repeat: no-repeat;
                 background-attachment: fixed;
-                }}
-                [data-testid="stSidebarUserContent"] {{
+                }
+                [data-testid="stSidebarUserContent"] {
                 background-image: linear-gradient(to right, rgba(0, 48, 87, 0.9), rgba(0, 91, 140, 0.9), rgba(0, 120, 174, 0.8), rgba(30, 144, 195, 0.7));
                 background-size: cover;
                 background-position: center center;
                 background-repeat: no-repeat;
                 background-attachment: fixed;
-                }}
-                [data-testid="stSidebarContent"] {{
+                }
+                [data-testid="stSidebarContent"] {
                 background-image: linear-gradient(to right, rgba(0, 48, 87, 0.9), rgba(0, 91, 140, 0.9), rgba(0, 120, 174, 0.8), rgba(30, 144, 195, 0.7));
                 background-size: cover;
                 background-position: center center;
                 background-repeat: no-repeat;
                 background-attachment: fixed;
-                }}
+                }
                 </style>
                 """
 
@@ -405,7 +405,7 @@ SELECT_INPUT_STYLE = """
                     }
                     div[data-baseweb="input"] > div {
                         background: transparent !important;
-                        border: none !important; 
+                        border: none !important;
                     }
                     div[data-baseweb="input"] input {
                         color: white !important;

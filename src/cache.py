@@ -9,7 +9,6 @@ import logging
 import sys
 import time
 
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,

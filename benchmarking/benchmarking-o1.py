@@ -1,27 +1,26 @@
 import os
-import nltk
 import threading
-import GPUtil
-import torch
-import psutil
-from typing import Dict, List, Tuple, Optional
-import datasets
-import numpy as np
-from time import time, sleep
-from tqdm import tqdm
-import pandas as pd
-from modeltokenizer import load_model_and_tokenizer
-from globalvariables import Models, REPO_PATH, ChunkingMethod
-from customchain_hah_o1 import (
-    CustomLLMChain,
-)
-from embedding import EmbeddingVectors
-from chunker import TextChunker
-from sklearn.metrics.pairwise import cosine_similarity
-from rouge import Rouge
 from dataclasses import dataclass
-from codecarbon import EmissionsTracker
+from time import sleep, time
+from typing import Dict, List, Optional, Tuple
 
+import datasets
+import GPUtil
+import nltk
+import numpy as np
+import pandas as pd
+import psutil
+import torch
+from codecarbon import EmissionsTracker
+from customchain_hah_o1 import CustomLLMChain
+from rouge import Rouge
+from sklearn.metrics.pairwise import cosine_similarity
+from tqdm import tqdm
+
+from src.chunker import TextChunker
+from src.embedding import EmbeddingVectors
+from src.globalvariables import REPO_PATH, ChunkingMethod, Models
+from src.modeltokenizer import load_model_and_tokenizer
 
 pipeline = "HAH_o1"
 evaluation_dir = "evaluation_results-o1"
@@ -139,7 +138,7 @@ class ResourceMonitor:
         while self.is_monitoring:
             try:
                 current_time = time()
-                duration = current_time - start_time
+                _ = current_time - start_time
 
                 # Get CPU metrics
                 cpu_percent = psutil.cpu_percent(interval=None)
@@ -657,7 +656,7 @@ class HAHRAGEvaluator:
                     chunker.chunker(text, method=ChunkingMethod.RECURSIVE_CHARACTER)
                 )
 
-            vector_store = embedding_vectors.create_and_save_index(chunks)
+            _ = embedding_vectors.create_and_save_index(chunks)
 
             chain = CustomLLMChain(
                 self.tokenizer,

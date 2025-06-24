@@ -1,7 +1,9 @@
 import os
-import torch
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, List, Optional, Tuple
+
 import datasets
+import torch
+
 from src.globalvariables import Models
 
 

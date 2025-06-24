@@ -1,25 +1,22 @@
-import re
-import sys
-import math
-import torch
 import asyncio
 import logging
-from collections import Counter
+import math
+import re
+import sys
+from collections import Counter, defaultdict
+
 import nltk
-from nltk.corpus import wordnet
+import torch
+from nltk.corpus import stopwords, wordnet
 from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
-from collections import defaultdict
 from sentence_transformers import util
 from sklearn.metrics.pairwise import cosine_similarity
 
-# --
 nltk.download("punkt")
 nltk.download("wordnet")
 nltk.download("stopwords")
 nltk.download("averaged_perceptron_tagger")
 
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -167,9 +164,7 @@ async def fluency_ngram(generated_text, reference_text, n_gram=3):
     min_fluency = 0
     max_fluency = 1
     norm_fluency = max(min(fluency_score, max_fluency), min_fluency)
-    normalized_fluency = (norm_fluency - min_fluency) / (
-        max_fluency - min_fluency
-    )
+    normalized_fluency = (norm_fluency - min_fluency) / (max_fluency - min_fluency)
 
     return normalized_fluency
 
@@ -254,9 +249,7 @@ async def relevance(question, generated_text, embedding_model):
     response_embedding = embedding_model.encode(
         generated_text, convert_to_tensor=True, show_progress_bar=False
     )
-    similarity = util.pytorch_cos_sim(
-        question_embedding, response_embedding
-    ).item()
+    similarity = util.pytorch_cos_sim(question_embedding, response_embedding).item()
     return similarity
 
 
@@ -291,9 +284,7 @@ async def factuality(generated_text, source_texts, embedding_model):
     similarities = util.pytorch_cos_sim(generated_embedding, source_embeddings)
 
     # Use the max similarity as the entailment score
-    entailment_score = (
-        similarities.max().item() if similarities.numel() > 0 else 0.0
-    )
+    entailment_score = similarities.max().item() if similarities.numel() > 0 else 0.0
 
     return entailment_score
 
@@ -327,12 +318,8 @@ async def consistency(generated_text, source_texts, embedding_model):
     if source_embeddings.size(0) == 0:  # Check if source embeddings are empty
         return 0.0
 
-    similarities = util.pytorch_cos_sim(
-        generated_embedding, source_embeddings
-    )[0]
-    consistency_value = (
-        similarities.max().item() if similarities.numel() > 0 else 0.0
-    )
+    similarities = util.pytorch_cos_sim(generated_embedding, source_embeddings)[0]
+    consistency_value = similarities.max().item() if similarities.numel() > 0 else 0.0
 
     return consistency_value
 
@@ -354,9 +341,7 @@ async def faithfulness(generated_text, reference_text):
         tokens = word_tokenize(text.lower())
         stop_words = set(stopwords.words("english"))
         return [
-            token
-            for token in tokens
-            if token.isalnum() and token not in stop_words
+            token for token in tokens if token.isalnum() and token not in stop_words
         ]
 
     def semantic_similarity(word1, word2):
@@ -376,14 +361,11 @@ async def faithfulness(generated_text, reference_text):
     total_similarity = 0
     for gen_token in gen_tokens:
         max_token_similarity = max(
-            semantic_similarity(gen_token, ref_token)
-            for ref_token in ref_tokens
+            semantic_similarity(gen_token, ref_token) for ref_token in ref_tokens
         )
         total_similarity += max_token_similarity
 
-    faithfulness_score = (
-        total_similarity / len(gen_tokens) if gen_tokens else 0
-    )
+    faithfulness_score = total_similarity / len(gen_tokens) if gen_tokens else 0
     return min(faithfulness_score, 1)  # Ensure the score is between 0 and 1
 
 
@@ -417,9 +399,7 @@ async def harmfulness(generated_text, harmful_words=None):
     word_count = len(re.findall(r"\w+", text_lower))
 
     harmful_word_count = sum(text_lower.count(word) for word in harmful_words)
-    harmfulness_score = (
-        harmful_word_count / word_count if word_count > 0 else 0
-    )
+    harmfulness_score = harmful_word_count / word_count if word_count > 0 else 0
 
     return min(harmfulness_score, 1)  # Ensure the score is between 0 and 1
 
@@ -514,9 +494,7 @@ async def HHEM(generated_text, source_texts, embedding_model):
     mean_similarity_score = (
         torch.mean(torch.tensor(similarities)).item() if similarities else 0.0
     )
-    factuality_score = await factuality(
-        generated_text, source_texts, embedding_model
-    )
+    factuality_score = await factuality(generated_text, source_texts, embedding_model)
 
     # Combine the scores
     hhem_score = (mean_similarity_score * factuality_score) / (
@@ -527,9 +505,7 @@ async def HHEM(generated_text, source_texts, embedding_model):
 
 
 # computes the advanced hallucination metric
-async def Advance_HHEM(
-    generated_text, source_texts, question, embedding_model
-):
+async def Advance_HHEM(generated_text, source_texts, question, embedding_model):
     """
     Computes the Advanced HHEM (Adv. Hallucination Evaluation Metric) for the generated text.
 
@@ -562,22 +538,15 @@ async def Advance_HHEM(
     mean_similarity_score = (
         torch.mean(torch.tensor(similarities)).item() if similarities else 0.0
     )
-    factuality_score = await factuality(
-        generated_text, source_texts, embedding_model
-    )
+    factuality_score = await factuality(generated_text, source_texts, embedding_model)
 
     # -- additional checks for coherence and relevance
     coherence_score = await coherence(generated_text, embedding_model)
-    relevance_score = await relevance(
-        question, generated_text, embedding_model
-    )
+    relevance_score = await relevance(question, generated_text, embedding_model)
 
     # -- combined scores
     advanced_hhem_score = (
-        mean_similarity_score
-        * factuality_score
-        * coherence_score
-        * relevance_score
+        mean_similarity_score * factuality_score * coherence_score * relevance_score
     ) / (1 + mean_similarity_score * factuality_score + 1e-8)
 
     return float(advanced_hhem_score)
@@ -602,9 +571,7 @@ async def Evaluatrix(
         ),
         "coherence": coherence(generated_text, embedding_model),
         "relevance": relevance(question, generated_text, embedding_model),
-        "factuality": factuality(
-            generated_text, source_texts, embedding_model
-        ),
+        "factuality": factuality(generated_text, source_texts, embedding_model),
         "correctness": correctness(
             generated_text,
             source_texts,

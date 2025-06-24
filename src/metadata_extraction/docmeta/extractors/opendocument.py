@@ -8,17 +8,18 @@ Supports ODT, ODS, and ODP formats with comprehensive metadata extraction.
 import logging
 from typing import Any
 
+from docmeta.core.defaults import create_opendocument_metadata  # returns dict[str, Any]
+from docmeta.utils.text_processing import (
+    extract_common_metadata_fields,
+    extract_keywords,
+    extract_statistics,
+    get_file_extension,
+)
+
 # Import required libraries for OpenDocument processing
 from odf import opendocument
 from odf.opendocument import Meta
 from odf.text import H, P, Span  # Used in _extract_text_content
-
-from docmeta.core.defaults import \
-    create_opendocument_metadata  # returns dict[str, Any]
-from docmeta.utils.text_processing import (extract_common_metadata_fields,
-                                           extract_keywords,
-                                           extract_statistics,
-                                           get_file_extension)
 
 # Configure logger
 logger = logging.getLogger(__name__)

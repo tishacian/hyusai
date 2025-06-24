@@ -1,10 +1,10 @@
 import os
-import sys
-import torch
 import platform
-from streamlit.web import cli as stcli
+import sys
 import warnings
 
+import torch
+from streamlit.web import cli as stcli
 
 torch.classes.__path__ = []
 os.environ["CUDA_VISIBLE_DEVICES"] = "1" if torch.cuda.device_count() > 1 else "0"
@@ -15,35 +15,43 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*deprecated.*")
 
+
 def get_username_from_path():
     """Extract username from current working directory path."""
     cwd = os.getcwd()
     system = platform.system().lower()
-    path_parts = cwd.replace('\\', '/').split('/')
+    path_parts = cwd.replace("\\", "/").split("/")
     # -- handle different platforms
-    jupyter_user = next((part.replace('jupyter-', '') for part in path_parts 
-                        if part.startswith('jupyter-')), None)
+    jupyter_user = next(
+        (
+            part.replace("jupyter-", "")
+            for part in path_parts
+            if part.startswith("jupyter-")
+        ),
+        None,
+    )
     if jupyter_user:
         return jupyter_user
-    
-    if system == 'windows':
-        if 'Users' in path_parts:
-            idx = path_parts.index('Users')
+
+    if system == "windows":
+        if "Users" in path_parts:
+            idx = path_parts.index("Users")
             if idx + 1 < len(path_parts):
                 return path_parts[idx + 1]
-    elif system in ['darwin', 'linux']:
-        user_dirs = ['Users', 'home']
+    elif system in ["darwin", "linux"]:
+        user_dirs = ["Users", "home"]
         for dir_name in user_dirs:
             if dir_name in path_parts:
                 idx = path_parts.index(dir_name)
                 if idx + 1 < len(path_parts):
                     return path_parts[idx + 1]
-    
+
     try:
         return os.getlogin()
-    except:
+    except Exception:
         return None
-    
+
+
 if __name__ == "__main__":
     base_url_path = get_username_from_path()
 

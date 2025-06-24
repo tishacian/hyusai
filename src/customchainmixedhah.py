@@ -1,11 +1,13 @@
 import asyncio
+import logging
 import os
 import pickle
 import re
+import sys
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
-import warnings
 
 import faiss
 import numpy as np
@@ -13,43 +15,42 @@ import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
 
-if torch.cuda.is_available():
-    from vllm import SamplingParams
-
-warnings.simplefilter(action="ignore", category=FutureWarning)
-
-import logging
-import sys
-
-from src.reasoning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
 from src.cache import TieredCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
 from src.embedding import EmbeddingModelLoader
-from src.retrievalplan import RetrievalContext, QueryAnalysis, RetrievalPlan
-from src.ensembleretriever import FusionMethod, EnsembleConfig, EnsembleRetriever
+from src.ensembleretriever import EnsembleConfig, EnsembleRetriever, FusionMethod
 from src.flashreranker import FlashReranker, RerankerConfig
 from src.globalvariables import (
+    DATA_PATH,
+    EMBEDDING_NAME,
     LARGE_MODELS,
+    MAX_MODEL_LEN,
     VECTOR_STORE_PATH,
     IndexType,
     ReasoningType,
-    MAX_MODEL_LEN,
-    EMBEDDING_NAME,
-    DATA_PATH,
 )
-
 from src.metrics import Evaluatrix
+from src.reasoning_instructions import (
+    ALL_REASONING_INSTRUCTIONS,
+    DEFAULT_INSTRUCTION_LANG,
+    InstructionLangs,
+)
 from src.reasoningmetrics import ReasoningMetrics
+from src.retrievalplan import QueryAnalysis, RetrievalContext, RetrievalPlan
 from src.utils import (
     format_llm_response,
     get_max_model_len,
+    load_stopwords,
     measure_time,
     measure_time_sync,
-    load_stopwords,
 )
 
+if torch.cuda.is_available():
+    from vllm import SamplingParams
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -109,7 +110,9 @@ class CustomLLMChain:
         self.device = torch.device(
             "cuda"
             if torch.cuda.is_available()
-            else "cpu" if torch.backends.mps.is_available() else "cpu"
+            else "cpu"
+            if torch.backends.mps.is_available()
+            else "cpu"
         )
         self.max_input_ratio = 0.8 if self.is_large_model else 0.75
 
@@ -124,9 +127,7 @@ class CustomLLMChain:
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
 
-        self.tiered_cache = TieredCache(
-            l1_size=cache_size, l2_size=cache_size * 10
-        )
+        self.tiered_cache = TieredCache(l1_size=cache_size, l2_size=cache_size * 10)
         self.context_cache = self.tiered_cache.l1_cache
 
         self.conversation_memory = ConversationMemoryBuffer(max_turns=3)
@@ -282,19 +283,13 @@ class CustomLLMChain:
             Retrieved documents
         """
         try:
-            scores = await asyncio.to_thread(
-                self.bm25_retriever.get_scores, query
-            )
+            scores = await asyncio.to_thread(self.bm25_retriever.get_scores, query)
             top_k_indices = np.argsort(scores)[-k:][::-1]
             if hasattr(self.bm25_retriever, "documents"):
-                passages = [
-                    self.bm25_retriever.documents[idx] for idx in top_k_indices
-                ]
+                passages = [self.bm25_retriever.documents[idx] for idx in top_k_indices]
             else:
                 passages = [
-                    self.texts[idx]
-                    for idx in top_k_indices
-                    if idx < len(self.texts)
+                    self.texts[idx] for idx in top_k_indices if idx < len(self.texts)
                 ]
 
             return passages
@@ -302,9 +297,11 @@ class CustomLLMChain:
         except Exception as e:
             logging.error(f"Error in BM25 retrieval: {e}")
             try:
-                bm25_passages, bm25_scores, _ = (
-                    await self.ensemble_retriever._get_bm25_scores(query, k)
-                )
+                (
+                    bm25_passages,
+                    bm25_scores,
+                    _,
+                ) = await self.ensemble_retriever._get_bm25_scores(query, k)
                 return bm25_passages
             except Exception as e2:
                 logging.error(f"Fallback BM25 retrieval also failed: {e2}")
@@ -336,12 +333,12 @@ class CustomLLMChain:
             k_value, lambda_param = 3, 0.4
             complexity = 0.3
 
-        query_characteristics = (
-            self.ensemble_retriever._analyze_query_characteristics(question)
+        query_characteristics = self.ensemble_retriever._analyze_query_characteristics(
+            question
         )
 
-        reasoning_type, reasoning_confidence = (
-            await self.detect_reasoning_type(question)
+        reasoning_type, reasoning_confidence = await self.detect_reasoning_type(
+            question
         )
 
         question_embedding = await self.create_embeddings_async([question])
@@ -438,13 +435,10 @@ class CustomLLMChain:
                 relevance_scores = np.dot(
                     context_embeddings, question_embedding.T
                 ).squeeze()
-                diversity_matrix = np.dot(
-                    context_embeddings, context_embeddings.T
-                )
+                diversity_matrix = np.dot(context_embeddings, context_embeddings.T)
                 np.fill_diagonal(diversity_matrix, 0)
                 diversity_scores = 1 - (
-                    np.sum(diversity_matrix, axis=1)
-                    / max(1, len(contexts) - 1)
+                    np.sum(diversity_matrix, axis=1) / max(1, len(contexts) - 1)
                 )
 
                 if len(relevance_scores.shape) == 0:
@@ -455,9 +449,7 @@ class CustomLLMChain:
                 for i, ctx in enumerate(retrieval_contexts):
                     ctx.relevance_score = float(relevance_scores[i])
                     ctx.diversity_score = float(diversity_scores[i])
-                    ctx.score = (
-                        0.7 * ctx.relevance_score + 0.3 * ctx.diversity_score
-                    )
+                    ctx.score = 0.7 * ctx.relevance_score + 0.3 * ctx.diversity_score
 
             retrieval_contexts.sort(key=lambda x: x.score, reverse=True)
             return [ctx.text for ctx in retrieval_contexts]
@@ -603,9 +595,7 @@ class CustomLLMChain:
                                     show_progress_bar=False,
                                     device=self.device.type,
                                 )
-                                all_embeddings.append(
-                                    batch_embeddings.cpu().numpy()
-                                )
+                                all_embeddings.append(batch_embeddings.cpu().numpy())
                         embeddings = np.vstack(all_embeddings)
                     else:
                         with torch.no_grad():
@@ -633,17 +623,13 @@ class CustomLLMChain:
                                 device=self.device.type,
                             )
                             embeddings = (
-                                embeddings.to(dtype=torch.float32)
-                                .cpu()
-                                .numpy()
+                                embeddings.to(dtype=torch.float32).cpu().numpy()
                             )
                         except IndexError as e:
                             logging.error(f"Index out of range error: {e}")
                             return np.array([])
                     else:
-                        logging.error(
-                            f"Unsupported embedding type: {self.index_type}"
-                        )
+                        logging.error(f"Unsupported embedding type: {self.index_type}")
                         return np.array([])
 
                 if len(texts) == 1:
@@ -709,9 +695,7 @@ class CustomLLMChain:
             if use_bm25_retriever:
                 retrieval_tasks.append(self.bm25_retrieve(question, k=k))
 
-            results = await asyncio.gather(
-                *retrieval_tasks, return_exceptions=True
-            )
+            results = await asyncio.gather(*retrieval_tasks, return_exceptions=True)
 
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
@@ -723,21 +707,16 @@ class CustomLLMChain:
                         contexts, scores = result
                         is_expanded = i > 0
 
-                        for j, (ctx, score) in enumerate(
-                            zip(contexts, scores)
-                        ):
+                        for j, (ctx, score) in enumerate(zip(contexts, scores)):
                             query_expansion_wt = 0.9 if is_expanded else 1.0
                             retrieval_ctx = RetrievalContext(
                                 text=ctx,
                                 score=score
                                 * query_expansion_wt,  # score is 1 - 0.1 if query expansion is used else 1
-                                relevance_score=score
-                                * (0.9 if is_expanded else 1.0),
+                                relevance_score=score * (0.9 if is_expanded else 1.0),
                                 metadata={
                                     "source": (
-                                        "expanded"
-                                        if is_expanded
-                                        else "contextual"
+                                        "expanded" if is_expanded else "contextual"
                                     ),
                                     "rank": j,
                                 },
@@ -778,9 +757,7 @@ class CustomLLMChain:
                     unique_texts.append(ctx.text)
 
             if unique_texts:
-                context_embeddings = await self.create_embeddings_async(
-                    unique_texts
-                )
+                context_embeddings = await self.create_embeddings_async(unique_texts)
 
                 for ctx in all_contexts:
                     idx = text_to_idx[ctx.text]
@@ -791,9 +768,7 @@ class CustomLLMChain:
 
                 if len(context_embeddings.shape) == 1:
                     context_embeddings = context_embeddings.reshape(1, -1)
-                diversity_matrix = np.dot(
-                    context_embeddings, context_embeddings.T
-                )
+                diversity_matrix = np.dot(context_embeddings, context_embeddings.T)
                 np.fill_diagonal(diversity_matrix, 0)
                 for i, ctx in enumerate(unique_texts):
                     idx = text_to_idx[ctx]
@@ -810,17 +785,17 @@ class CustomLLMChain:
 
                 async def compute_reasoning_score(ctx):
                     try:
-                        score = await self.reasoning_metrics.compute_reasoning_score_async(
-                            question, ctx.text, reasoning_type
+                        score = (
+                            await self.reasoning_metrics.compute_reasoning_score_async(
+                                question, ctx.text, reasoning_type
+                            )
                         )
                         return ctx, score
                     except Exception as e:
                         logging.error(f"Error computing reasoning score: {e}")
                         return ctx, 0.5
 
-                reasoning_tasks = [
-                    compute_reasoning_score(ctx) for ctx in all_contexts
-                ]
+                reasoning_tasks = [compute_reasoning_score(ctx) for ctx in all_contexts]
                 reasoning_results = await asyncio.gather(*reasoning_tasks)
 
                 for ctx, score in reasoning_results:
@@ -837,10 +812,7 @@ class CustomLLMChain:
 
             seen_texts = {}
             for ctx in all_contexts:
-                if (
-                    ctx.text not in seen_texts
-                    or ctx.score > seen_texts[ctx.text].score
-                ):
+                if ctx.text not in seen_texts or ctx.score > seen_texts[ctx.text].score:
                     seen_texts[ctx.text] = ctx
 
             unique_contexts = list(seen_texts.values())
@@ -905,9 +877,7 @@ class CustomLLMChain:
                 logging.error(f"Error searching for chunk: {e}")
                 return []
 
-        results = await asyncio.gather(
-            *[safe_search(chunk) for chunk in chunks]
-        )
+        results = await asyncio.gather(*[safe_search(chunk) for chunk in chunks])
         return self.merge_results(results, k)
 
     def merge_results(self, results, k):
@@ -1013,9 +983,7 @@ class CustomLLMChain:
         """
         combined_context = ""
         if conversation_context:
-            combined_context = (
-                f"Previous Conversation:\n{conversation_context}\n\n"
-            )
+            combined_context = f"Previous Conversation:\n{conversation_context}\n\n"
 
         safety_buffer = (
             int(self.max_model_len * 0.05)
@@ -1065,14 +1033,10 @@ class CustomLLMChain:
                 if len(group) == 1:
                     selected_indices.append(group[0])
                 else:
-                    best_idx = max(
-                        group, key=lambda idx: sorted_contexts[idx].score
-                    )
+                    best_idx = max(group, key=lambda idx: sorted_contexts[idx].score)
                     selected_indices.append(best_idx)
 
-            grouped_contexts = [
-                sorted_contexts[idx] for idx in selected_indices
-            ]
+            grouped_contexts = [sorted_contexts[idx] for idx in selected_indices]
             grouped_contexts.sort(key=lambda x: x.score, reverse=True)
         else:
             grouped_contexts = sorted_contexts
@@ -1109,9 +1073,7 @@ class CustomLLMChain:
             if not combined_context:
                 combined_context = f"Context 1:\n{ctx.text}"
             else:
-                combined_context += (
-                    f"\n\nContext {contexts_added + 1}:\n{ctx.text}"
-                )
+                combined_context += f"\n\nContext {contexts_added + 1}:\n{ctx.text}"
 
             current_token_count += ctx.token_count
             contexts_added += 1
@@ -1138,7 +1100,6 @@ class CustomLLMChain:
         """
         SHORT_CONTEXT = 512
         MEDIUM_CONTEXT = 1024
-        LONG_CONTEXT = 2048
 
         SHORT_PENALTY = 0.01
         MEDIUM_PENALTY = 0.05
@@ -1151,9 +1112,7 @@ class CustomLLMChain:
         else:
             return LONG_PENALTY
 
-    def _compute_dynamic_tokens(
-        self, input_len: int, max_input_length: int
-    ) -> int:
+    def _compute_dynamic_tokens(self, input_len: int, max_input_length: int) -> int:
         """Calculate token allocation based on context ratio
 
         Parameters
@@ -1234,9 +1193,7 @@ class CustomLLMChain:
         default_new_tokens = self._compute_dynamic_tokens(
             input_length, self.max_model_len
         )
-        max_new_tokens = (
-            default_new_tokens if max_length is None else max_length
-        )
+        max_new_tokens = default_new_tokens if max_length is None else max_length
         freq_penalty = self._calculate_frequency_penalty(input_length)
 
         if torch.cuda.is_available():
@@ -1285,9 +1242,7 @@ class CustomLLMChain:
                     )
                     if isinstance(output, dict):
                         response = (
-                            output.get("choices", [{}])[0]
-                            .get("text", "")
-                            .strip()
+                            output.get("choices", [{}])[0].get("text", "").strip()
                         )
                     else:
                         response = output.choices[0].text.strip()
@@ -1311,9 +1266,7 @@ class CustomLLMChain:
                     stream=False,
                 )
                 if isinstance(output, dict):
-                    response = (
-                        output.get("choices", [{}])[0].get("text", "").strip()
-                    )
+                    response = output.get("choices", [{}])[0].get("text", "").strip()
                 else:
                     response = output.choices[0].text.strip()
                 return response
@@ -1344,13 +1297,9 @@ class CustomLLMChain:
                     self.embedding_model, self.instruction_lang
                 )
 
-            reasoning_type, confidence = await self.detect_reasoning_type(
-                question
-            )
+            reasoning_type, confidence = await self.detect_reasoning_type(question)
             reasoning_time = time.time() - reasoning_detect_start
-            logging.info(
-                f"Reasoning detection took {reasoning_time:.4f} seconds"
-            )
+            logging.info(f"Reasoning detection took {reasoning_time:.4f} seconds")
 
             template = self.templates[reasoning_type]
             prompt_format = template.format(context=context, question=question)
@@ -1379,13 +1328,13 @@ class CustomLLMChain:
             logging.error(f"Error in custom_llm_chain: {str(e)}")
             try:
                 template = self.templates[ReasoningType.ANALYTICAL]
-                prompt_format = template.format(
-                    context=context, question=question
-                )
+                prompt_format = template.format(context=context, question=question)
                 return await self.generate_text(prompt_format)
             except Exception as e2:
                 logging.error(f"Fallback also failed: {str(e2)}")
-                return "I apologize, but I encountered an error processing your request."
+                return (
+                    "I apologize, but I encountered an error processing your request."
+                )
 
     @measure_time
     async def invoke_async(self, question: str):
@@ -1410,9 +1359,7 @@ class CustomLLMChain:
                 )
             )
 
-            query_analysis_task = asyncio.create_task(
-                self.analyze_query(question)
-            )
+            query_analysis_task = asyncio.create_task(self.analyze_query(question))
 
             await memory_task
             query_analysis = await query_analysis_task
@@ -1451,9 +1398,7 @@ class CustomLLMChain:
                 no_context_response = (
                     "No relevant context found to answer the question."
                 )
-                self.conversation_memory.add_message(
-                    "assistant", no_context_response
-                )
+                self.conversation_memory.add_message("assistant", no_context_response)
                 return no_context_response, "", {}
 
             filtered_contexts = initial_contexts
@@ -1461,24 +1406,18 @@ class CustomLLMChain:
                 filtered_contexts = await self.context_filtering(
                     [
                         ctx.text
-                        for ctx in initial_contexts[
-                            : min(50, len(initial_contexts))
-                        ]
+                        for ctx in initial_contexts[: min(50, len(initial_contexts))]
                     ],
                     query_with_context,
                 )
                 filtered_contexts = [
-                    ctx
-                    for ctx in initial_contexts
-                    if ctx.text in filtered_contexts
+                    ctx for ctx in initial_contexts if ctx.text in filtered_contexts
                 ]
 
             document = ". ".join(
                 [
                     ctx.text
-                    for ctx in filtered_contexts[
-                        : min(10, len(filtered_contexts))
-                    ]
+                    for ctx in filtered_contexts[: min(10, len(filtered_contexts))]
                 ]
             )
 
@@ -1513,23 +1452,17 @@ class CustomLLMChain:
                 all_contexts, conversation_context, query_analysis
             )
             context_build_time = time.time() - context_build_start
-            logging.info(
-                f"Context assembly took {context_build_time:.4f} seconds"
-            )
+            logging.info(f"Context assembly took {context_build_time:.4f} seconds")
 
             generation_start = time.time()
-            result_text = await self.custom_llm_chain(
-                combined_context, question
-            )
+            result_text = await self.custom_llm_chain(combined_context, question)
             answer = self._format_llm_response(result_text, self.instruction_lang)
 
             await asyncio.to_thread(
                 self.conversation_memory.add_message, "assistant", answer
             )
             generation_time = time.time() - generation_start
-            logging.info(
-                f"Response generation took {generation_time:.4f} seconds"
-            )
+            logging.info(f"Response generation took {generation_time:.4f} seconds")
 
             eval_start = time.time()
             try:
@@ -1602,7 +1535,9 @@ class CustomLLMChain:
         return self.run_async_in_thread(self.invoke_async(question))
 
     @staticmethod
-    def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+    def _format_llm_response(
+        response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG
+    ) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
 
@@ -1620,4 +1555,3 @@ class CustomLLMChain:
             Cleaned response with preserved formatting
         """
         return format_llm_response(response, language)
-    

@@ -1,40 +1,31 @@
-import torch
-import re
-import os
-import faiss
-import pickle
-import weaviate
-import numpy as np
-from langchain_community.vectorstores import Chroma
-
-# --
-import warnings
 import asyncio
+import logging
+import os
+import pickle
+import re
+import sys
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
 
+import faiss
+import numpy as np
+import torch
+import weaviate
+from langchain_community.vectorstores import Chroma
+from sentence_transformers import SentenceTransformer
+from torch import autocast
+
+from src.chunker import BM25Retriever, cache_chunker_embedding_chain
+from src.globalvariables import VECTOR_STORE_PATH, IndexType
+from src.metrics import Evaluatrix
 from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, InstructionLangs
 from src.utils import format_llm_response
+
 if torch.cuda.is_available():
     from vllm import SamplingParams
-from functools import lru_cache
-from sentence_transformers import SentenceTransformer
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
-
-# --
-import sys
-import logging
-from src.globalvariables import VECTOR_STORE_PATH
-from src.chunker import cache_chunker_embedding_chain, BM25Retriever
-
-# --
-from torch import autocast
-from src.globalvariables import IndexType
-
-# -- Model evaluation
-from src.metrics import Evaluatrix
-
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -156,19 +147,19 @@ class CustomLLMChain:
         self.load_index()
 
         # -- CoT Template
-        self.template = """[INST] You are an AI assistant specialized in providing precise and detailed information. 
+        self.template = """[INST] You are an AI assistant specialized in providing precise and detailed information.
                           Focus exclusively on information directly supported by the given context.
                           Important Guidelines:
                           1. Only use facts explicitly stated in the context
                           2. If uncertain, acknowledge the limitation
                           3. Maintain clarity and conciseness
                           4. Ensure response flows naturally from the context
-                          
+
                           Context:
                           {context}
-                          
+
                           Question: {question}
-                          
+
                           Provide a focused answer that directly addresses the question using only the information from the context: [/INST]"""
 
     async def analyze_query_complexity(self, question):
@@ -177,7 +168,7 @@ class CustomLLMChain:
         Returns:
             tuple: (k_value, lambda_param) based on query complexity
         """
-        query_embedding = await self.create_embeddings_async([question])
+        _ = await self.create_embeddings_async([question])
         has_multiple_questions = len(re.findall(r"\?", question)) > 1
         word_count = len(question.split())
 
@@ -430,7 +421,7 @@ class CustomLLMChain:
         )
         """
         check if model.generate returns empty strings..otherwise, return empty text.
-        Sometimes, the model returns empty strings 
+        Sometimes, the model returns empty strings
         """
         # -- choose whether to use mixed precision based on the device
         use_mixed_precision = True if self.device.type == "cuda:0" else False
@@ -769,7 +760,9 @@ class CustomLLMChain:
         return self.run_async_in_thread(self.invoke_async(question))
 
     @staticmethod
-    def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+    def _format_llm_response(
+        response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG
+    ) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
 

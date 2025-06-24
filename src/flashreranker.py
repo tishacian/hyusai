@@ -5,15 +5,17 @@ Created on Fri Feb 7 15:48:53 2025
 @author: kennethezukwoke
 """
 
+import logging
 import os
 import sys
-import torch
-import logging
 import warnings
-import numpy as np
-from enum import Enum
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple, Union
+from enum import Enum
+from typing import Dict, List, Optional, Tuple, Union
+
+import numpy as np
+import torch
+
 from src.crossencembeddingmodel import RerankerModelLoader
 
 warnings.simplefilter(action="ignore", category=FutureWarning)

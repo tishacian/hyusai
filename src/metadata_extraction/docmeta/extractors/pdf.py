@@ -9,13 +9,13 @@ import logging
 from typing import Any
 
 import fitz  # PyMuPDF
+from docmeta.core.defaults import (
+    create_pdf_metadata,  # create_pdf_metadata returns dict[str, Any]
+)
+from docmeta.utils.text_processing import parse_keywords  # Keep for embedded keywords
+
 # Import required libraries
 from PyPDF2 import PdfReader
-
-from docmeta.core.defaults import \
-    create_pdf_metadata  # create_pdf_metadata returns dict[str, Any]
-from docmeta.utils.text_processing import \
-    parse_keywords  # Keep for embedded keywords
 
 # Configure logger
 logger = logging.getLogger(__name__)

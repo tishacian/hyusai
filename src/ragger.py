@@ -13,16 +13,17 @@ import streamlit as st
 import torch
 from PIL import Image
 
-from src.chunker import TextChunker
 from configuration import get_standalone_interface_config
+from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
-from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
+from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
 from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
 from src.embedding import EmbeddingVectors
 from src.globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
+    EMBEDDING_NAME,
     GPU_MODEL_SET,
     HELP,
     REPO_PATH,
@@ -30,7 +31,6 @@ from src.globalvariables import (
     ChunkingMethod,
     IndexType,
     PipelineType,
-    EMBEDDING_NAME,
 )
 from src.metrics import DUMMY_METRICS
 from src.modeltokenizer import load_model_and_tokenizer
@@ -42,7 +42,10 @@ from src.ragger_css import (
     SELECT_INPUT_STYLE,
     THINKING_SPINNER,
 )
-from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTIONS_LANGS_LIST, InstructionLangs
+from src.reasoning_instructions import (
+    DEFAULT_INSTRUCTION_LANG,
+    INSTRUCTIONS_LANGS_LIST,
+)
 
 
 # -- device available model
@@ -97,9 +100,7 @@ AI_AVATAR_B64 = image_to_base64(AI_AVATAR)
 def init_db():
     conn = sqlite3.connect("chat_history.db", check_same_thread=False)
     c = conn.cursor()
-    c.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='chats'"
-    )
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chats'")
     if c.fetchone() is None:
         c.execute(
             """
@@ -123,15 +124,13 @@ def init_db():
             ("index_type", "TEXT"),
             ("vector_store", "TEXT"),
             ("pipeline_type", "TEXT"),
-            ("instruction_lang", "TEXT")
+            ("instruction_lang", "TEXT"),
         ]
         for column_name, column_type in columns_to_add:
             c.execute("PRAGMA table_info(chats)")
             existing_columns = [column[1] for column in c.fetchall()]
             if column_name not in existing_columns:
-                c.execute(
-                    f"ALTER TABLE chats ADD COLUMN {column_name} {column_type}"
-                )
+                c.execute(f"ALTER TABLE chats ADD COLUMN {column_name} {column_type}")
 
     conn.commit()
     return conn, c
@@ -268,8 +267,8 @@ def save_chat_to_db(
 
     c.execute(
         """
-        INSERT INTO chats 
-        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang) 
+        INSERT INTO chats
+        (chat_data, timestamp, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -290,7 +289,7 @@ def save_chat_to_db(
 def load_chat_from_db(chat_id):
     c.execute(
         """
-        SELECT chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang 
+        SELECT chat_data, model_name, chunking_method, index_type, vector_store, pipeline_type, instruction_lang
         FROM chats WHERE id = ?
     """,
         (chat_id,),
@@ -383,9 +382,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                         Models,
                         index=(
                             Models.index(
-                                st.session_state.get(
-                                    "model_name", current_model
-                                )
+                                st.session_state.get("model_name", current_model)
                             )
                             if st.session_state.get("model_name") in Models
                             else 0
@@ -400,9 +397,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                         if model and tokenizer:
                             st.session_state.model = model
                             st.session_state.tokenizer = tokenizer
-                            st.success(
-                                f"Successfully loaded model: {model_name}"
-                            )
+                            st.success(f"Successfully loaded model: {model_name}")
                         else:
                             st.error(f"Failed to load model: {model_name}")
 
@@ -416,8 +411,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                                     "chunking_method", ChunkingMethod[0]
                                 )
                             )
-                            if st.session_state.get("chunking_method")
-                            in ChunkingMethod
+                            if st.session_state.get("chunking_method") in ChunkingMethod
                             else 0
                         ),
                     )
@@ -428,9 +422,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                         IndexType,
                         index=(
                             IndexType.index(
-                                st.session_state.get(
-                                    "index_type", IndexType[0]
-                                )
+                                st.session_state.get("index_type", IndexType[0])
                             )
                             if st.session_state.get("index_type") in IndexType
                             else 0
@@ -445,9 +437,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                     for file in vector_store_list
                     if not file.startswith((".", "BM25"))
                 ]
-                current_vector_store = st.session_state.get(
-                    "vector_store", "<New>"
-                )
+                current_vector_store = st.session_state.get("vector_store", "<New>")
                 if current_vector_store not in vector_store_list:
                     current_vector_store = "<New>"
 
@@ -463,9 +453,7 @@ if get_standalone_interface_config().forced_vdb == "None":
             with row_be[1]:
                 new_vs_name = st.text_input(
                     "New Vector Store Name",
-                    value=st.session_state.get(
-                        "new_vs_name", "New_vector_store_name"
-                    ),
+                    value=st.session_state.get("new_vs_name", "New_vector_store_name"),
                     help=HELP["new_vector_store"],
                 )
             if not get_standalone_interface_config().hide_rag_params_config:
@@ -491,9 +479,7 @@ if get_standalone_interface_config().forced_vdb == "None":
             with row_buttons[0]:
                 save_button = st.form_submit_button("Create new vector DB")
             with row_buttons[1]:
-                custom_chain_button = st.form_submit_button(
-                    "Initialize context-chain"
-                )
+                custom_chain_button = st.form_submit_button("Initialize context-chain")
             # --
             if save_button:
                 # Check whether to create new vector store --> Checking params
@@ -791,9 +777,7 @@ if prompt := st.chat_input("Message RAGGER..."):
 
         with st.spinner(""):
             try:
-                response, context, metrics = st.session_state.chain.ainvoke(
-                    prompt
-                )
+                response, context, metrics = st.session_state.chain.ainvoke(prompt)
             except (
                 IndexError,
                 AttributeError,
@@ -832,7 +816,7 @@ if prompt := st.chat_input("Message RAGGER..."):
     if st.session_state.current_chat_id:
         c.execute(
             """
-            UPDATE chats 
+            UPDATE chats
             SET chat_data = ?, model_name = ?, chunking_method = ?, index_type = ?, vector_store = ?, pipeline_type = ?, instruction_lang = ?
             WHERE id = ?
             """,

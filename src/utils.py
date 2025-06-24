@@ -5,29 +5,32 @@ Created on Wed Mar 26 15:32:40 2025
 @author: kennethezukwoke
 """
 
-import os
-import re
-import subprocess
-import importlib.util
-import sys
-import shutil
-import torch
-import logging
-import time
-import pickle
 import functools
-from pathlib import Path
+import importlib.util
+import logging
+import os
+import pickle
+import re
+import shutil
+import subprocess
+import sys
+import time
 from functools import cache
+from pathlib import Path
+
+import torch
+from nltk.corpus import stopwords
+
 from src.globalvariables import (
-    Models,
-    GPU_MODEL_SET,
-    CPUModels,
     CPU_MODEL_SET,
+    GPU_MODEL_SET,
     LARGE_MODELS,
+    CPUModels,
+    Models,
 )
 from src.reasoning_instructions import (
-    ALL_PROMPT_SECTIONS_TO_REMOVE,
     ALL_PROMPT_PHRASES_TO_REMOVE,
+    ALL_PROMPT_SECTIONS_TO_REMOVE,
     DEFAULT_INSTRUCTION_LANG,
     InstructionLangs,
 )
@@ -41,19 +44,12 @@ else:
     # alternative destination for tessdata
     os.environ["TESSDATA_PREFIX"] = "/usr/share/tesseract-ocr/5/tessdata/"
 
-
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-try:
-    from nltk.corpus import stopwords
-
-    NLTK_AVAILABLE = True
-except ImportError:
-    NLTK_AVAILABLE = False
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -282,10 +278,6 @@ def create_stopwords_mlin(data_dir: str = "data"):
     data_path.mkdir(exist_ok=True)
     save_file = data_path / "multilingual_stopwords.pkl"
     languages = ["english", "french", "german", "italian", "russian"]
-
-    if not NLTK_AVAILABLE:
-        logging.error("NLTK not available - cannot create stopwords")
-        return None
 
     try:
         combined_stopwords = set()

@@ -16,7 +16,7 @@ def get_file_common_metadata(path: str) -> FileMetaData:
         path: Path to the file
 
     Returns:
-        FileMetaData: Common metadata 
+        FileMetaData: Common metadata
     """
     stats = os.stat(path)
     pathlib_path = Path(path)

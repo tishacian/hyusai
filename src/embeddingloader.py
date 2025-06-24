@@ -5,15 +5,17 @@ Created on Sat Mar  1 14:21:12 2025
 @author: kennethezukwoke
 """
 
-import sys
-import torch
-import logging
 import asyncio
-import weaviate
+import logging
+import sys
 from functools import lru_cache, wraps
-from typing import Dict, Any
+from typing import Any, Dict
+
+import torch
+import weaviate
 from sentence_transformers import SentenceTransformer
-from src.globalvariables import IndexType, EMBEDDING_NAME
+
+from src.globalvariables import EMBEDDING_NAME, IndexType
 
 logging.basicConfig(
     stream=sys.stdout,

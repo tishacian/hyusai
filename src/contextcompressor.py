@@ -16,7 +16,6 @@ from typing import List, Optional, Tuple
 from src.ensembleretriever import EnsembleRetriever
 from src.flashreranker import FlashReranker
 
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
