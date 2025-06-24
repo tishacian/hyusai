@@ -348,15 +348,9 @@ class EmbeddingVectors:
         """
         try:
             if self.create_new_vs:
-                save_path = (
-                    VECTOR_STORE_PATH
-                    / f"{self.embedding_type}_{self.new_vs_name}"
-                )
+                save_path = VECTOR_STORE_PATH / self.new_vs_name
             else:
-                save_path = (
-                    VECTOR_STORE_PATH
-                    / f"{self.embedding_type}_{self.existing_vector_store}"
-                )
+                save_path = VECTOR_STORE_PATH / self.existing_vector_store
 
             save_path.mkdir(parents=True, exist_ok=True)
 
