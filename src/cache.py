@@ -18,6 +18,8 @@ logging.basicConfig(
 
 
 class LRUCache:
+    """Simple LRU Cache implementation for context caching"""
+
     def __init__(self, capacity):
         self.cache = {}
         self.capacity = capacity
@@ -39,11 +41,6 @@ class LRUCache:
             del self.cache[oldest]
         self.cache[key] = value
         self.order.append(key)
-
-    def clear(self):
-        self.cache.clear()
-        self.order.clear()
-        logging.info("LRU cache cleared")
 
 
 class TimedCache:
@@ -281,15 +278,3 @@ class TieredCache:
             Embedding to cache
         """
         self.embedding_cache[text_key] = embedding
-
-    def clear(self):
-        """Clear all caches (L1, L2, and embedding cache)
-        
-        Returns
-        -------
-        None
-        """
-        self.l1_cache.cache.clear()
-        self.l1_cache.order.clear()
-        self.l2_cache.clear()
-        self.embedding_cache.clear()

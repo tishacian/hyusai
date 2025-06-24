@@ -111,14 +111,15 @@ class ConversationMemoryBuffer:
 
     def clear(self) -> None:
         """
-        Clear all chat messages and reset the buffer
+        clear chat messages
 
         Returns
         -------
             None
+
         """
-        self.messages = []
-        logging.info("Conversation buffer cleared and reset")
+        self.messages.clear()
+        logging.info("Conversation buffer cleared")
 
     def get_context_with_reasoning(
         self, reasoning_type: "ReasoningType"
