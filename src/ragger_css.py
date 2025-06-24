@@ -125,7 +125,13 @@ BUTTONS = """
                     transition: left 0.3s ease-in-out;
                     z-index: 100; /* Ensure sidebar is above other elements */
                 }
-                
+
+                /* Enable scrolling */
+                [data-testid="stSidebar"] > div > div {
+                    overflow-y: auto !important;
+                    max-height: 100vh !important;
+                }
+
                 /* Sidebar hover effect for expansion */
                 [data-testid="stSidebar"]:hover {
                     left: 0 !important;
@@ -340,13 +346,6 @@ BACKGROUND = f"""
                 background: rgba(0,0,0,0);
                 }}
                 [data-testid="stBottomBlockContainer"] {{
-                background-image: linear-gradient(to right, rgba(0, 48, 87, 0.9), rgba(0, 91, 140, 0.9), rgba(0, 120, 174, 0.8), rgba(30, 144, 195, 0.7));
-                background-size: cover;
-                background-position: center center;
-                background-repeat: no-repeat;
-                background-attachment: fixed;
-                }}
-                [data-testid="stSidebarUserContent"] {{
                 background-image: linear-gradient(to right, rgba(0, 48, 87, 0.9), rgba(0, 91, 140, 0.9), rgba(0, 120, 174, 0.8), rgba(30, 144, 195, 0.7));
                 background-size: cover;
                 background-position: center center;
