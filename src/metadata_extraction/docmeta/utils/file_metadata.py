@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from docmeta.core.types import FileMetaData
+from ..core.types import FileMetaData
 
 
 def get_file_common_metadata(path: str) -> FileMetaData:

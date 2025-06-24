@@ -12,9 +12,9 @@ import fitz  # PyMuPDF
 # Import required libraries
 from PyPDF2 import PdfReader
 
-from docmeta.core.defaults import \
+from ..core.defaults import \
     create_pdf_metadata  # create_pdf_metadata returns dict[str, Any]
-from docmeta.utils.text_processing import \
+from ..utils.text_processing import \
     parse_keywords  # Keep for embedded keywords
 
 # Configure logger

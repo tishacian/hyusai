@@ -11,8 +11,8 @@ from typing import Any
 
 import yaml
 
-from docmeta.core.defaults import create_text_metadata
-from docmeta.utils.text_processing import detect_encoding, get_file_extension
+from ..core.defaults import create_text_metadata
+from ..utils.text_processing import detect_encoding, get_file_extension
 
 # Configure logger
 logger = logging.getLogger(__name__)

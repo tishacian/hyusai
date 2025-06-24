@@ -14,11 +14,11 @@ from typing import Any
 import tomli
 import yaml
 
-from docmeta.core.defaults import \
+from ..core.defaults import \
     create_structured_data_metadata  # returns dict[str, Any]
-from docmeta.utils.text_processing import \
+from ..utils.text_processing import \
     initialize_metadata  # Returns (metadata_dict, encoding)
-from docmeta.utils.text_processing import (analyze_dict_structure,
+from ..utils.text_processing import (analyze_dict_structure,
                                            analyze_list_structure,
                                            detect_csv_header,
                                            get_file_extension,
