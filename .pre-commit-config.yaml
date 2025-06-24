@@ -48,3 +48,8 @@ repos:
     rev: v0.7.0
     hooks:
       - id: pre-commit-update
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.20.0
+    hooks:
+      - id: pyupgrade
+        args: ["--py311-plus"]
