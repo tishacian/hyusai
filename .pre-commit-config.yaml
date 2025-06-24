@@ -5,7 +5,7 @@ repos:
       - id: check-added-large-files
       - id: check-case-conflict
       - id: check-shebang-scripts-are-executable
-        # - id: check-executables-have-shebangs # not applicable to this repo
+      - id: check-executables-have-shebangs
         # - id: detect-aws-credentials
       - id: destroyed-symlinks
       - id: mixed-line-ending
