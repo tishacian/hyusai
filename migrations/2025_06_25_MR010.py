@@ -10,6 +10,9 @@ def migrate():
     base_dir = "vector_store"
     prefixes = ("faiss_", "weaviate_", "chroma_")
 
+    if not os.path.isdir("vector_store"):
+        print("⚠️ Vector store not found (probably not initialized). Migration skipped.")
+
     for entry in os.listdir(base_dir):
         full_path = os.path.join(base_dir, entry)
         if os.path.isdir(full_path) and entry.startswith(prefixes):
