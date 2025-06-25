@@ -7,7 +7,7 @@ from datetime import datetime
 from io import BytesIO
 from tempfile import NamedTemporaryFile
 from typing import Iterator
-
+import time
 import pandas as pd
 import streamlit as st
 import torch
@@ -18,7 +18,11 @@ from configuration import get_standalone_interface_config
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
-from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
+from src.docloader import (
+    LOADER_MAPPING,
+    ThreadMultiDocLoader,
+    loadSingleDocument,
+)
 from src.embedding import EmbeddingVectors
 from src.globalvariables import (
     CPU_MODEL_SET,
@@ -42,7 +46,11 @@ from src.ragger_css import (
     SELECT_INPUT_STYLE,
     THINKING_SPINNER,
 )
-from src.reasoning_instructions import DEFAULT_INSTRUCTION_LANG, INSTRUCTIONS_LANGS_LIST, InstructionLangs
+from src.reasoning_instructions import (
+    DEFAULT_INSTRUCTION_LANG,
+    INSTRUCTIONS_LANGS_LIST,
+    InstructionLangs,
+)
 
 
 # -- device available model
@@ -123,7 +131,7 @@ def init_db():
             ("index_type", "TEXT"),
             ("vector_store", "TEXT"),
             ("pipeline_type", "TEXT"),
-            ("instruction_lang", "TEXT")
+            ("instruction_lang", "TEXT"),
         ]
         for column_name, column_type in columns_to_add:
             c.execute("PRAGMA table_info(chats)")
@@ -158,22 +166,31 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-# st.markdown(
-#    PADDINGS,
-#    unsafe_allow_html=True,
-# )
-
 
 # -- metrics style
 def display_metrics(metrics):
     metrics_html = "<div class='metrics-container'>"
     try:
         for key, value in metrics.items():
-            if key in ["hhem", "Advance_HHEM"]:
-                color = "red" if value > 0.5 else "green"
+            latency_keys = ["latency", "time", "duration", "response_time"]
+            is_latency_metric = any(latency_key in key.lower() for latency_key in latency_keys)
+            
+            if is_latency_metric:
+                color = "white"
+                formatted_value = f"{value:.2f}s"
             else:
-                color = "green" if value >= 0.5 else "red"
-            metrics_html += f"<span class='metric'><span class='metric-name'>{key}:</span><span class='metric-value {color}'>{value:.2f}</span></span>"
+                if key in ["hhem", "Advance_HHEM"]:
+                    color = "red" if value > 0.5 else "green"
+                else:
+                    color = "green" if value >= 0.5 else "red"
+                formatted_value = f"{value:.2f}"
+            
+            metrics_html += (
+                f"<span class='metric'>"
+                f"<span class='metric-name'>{key}:</span>"
+                f"<span class='metric-value {color}'>{formatted_value}</span>"
+                f"</span>"
+            )
         metrics_html += "</div>"
         st.markdown(metrics_html, unsafe_allow_html=True)
     except (IndexError, AttributeError, IOError, ValueError, TypeError):
@@ -791,9 +808,12 @@ if prompt := st.chat_input("Message RAGGER..."):
 
         with st.spinner(""):
             try:
+                start_time = time.time()
                 response, context, metrics = st.session_state.chain.ainvoke(
                     prompt
                 )
+                end_time = time.time()
+                metrics["latency"] = end_time - start_time
             except (
                 IndexError,
                 AttributeError,
