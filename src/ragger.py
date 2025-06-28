@@ -529,6 +529,13 @@ if get_standalone_interface_config().forced_vdb == "None":
                 if not uploaded_files:
                     st.error("No document uploaded...")
                 else:
+                    if create_new_vs:
+                        target_dir = str(VECTOR_STORE_PATH / f"{index_type}_{new_vs_name}")
+                    else:
+                        target_dir = str(VECTOR_STORE_PATH / f"{index_type}_{existing_vector_store}")
+                    # -- target directory if it doesn't exist
+                    os.makedirs(target_dir, exist_ok=True)
+                    
                     if NUMBER_OF_FILES == 1:
                         # -- load temporary folder first before loading document..
                         _, extension = os.path.splitext(uploaded_files[0].name)
@@ -536,7 +543,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                             delete=False, suffix=extension
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
-                            documents = loadSingleDocument(temp_file.name)
+                            documents = loadSingleDocument(temp_file.name, target_dir)
                     else:
                         # -- Save the location of all the temporary files first..
                         temp_files = []
@@ -548,7 +555,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                                 temp_file.write(uploaded_file.getbuffer())
                                 temp_files.append(temp_file.name)
                         # -- Threaded loading of collected documents
-                        documents = ThreadMultiDocLoader(temp_files)
+                        documents = ThreadMultiDocLoader(temp_files, target_dir=target_dir)
                 chunker = TextChunker(
                     st.session_state.tokenizer, st.session_state.model
                 )
