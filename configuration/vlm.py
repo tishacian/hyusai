@@ -9,7 +9,11 @@ class VLM(BaseSettings):
     Whether to enable VLM image analysis for PDF processing.
     """
 
+<<<<<<< HEAD
     vlm_model: str = "smolvlm-256m"
+=======
+    vlm_model: str = "vllm-smolvlm-256m"
+>>>>>>> 6ed8d09 (DEV: image analysis configuration param)
     """
     VLM model to use for image analysis.
     """
@@ -22,6 +26,7 @@ class VLM(BaseSettings):
     max_workers: int = 16
     """
     Maximum number of workers for PDF processing.
+<<<<<<< HEAD
     """
 
     skip_large_images: bool = True
@@ -102,4 +107,6 @@ class VLM(BaseSettings):
     torch_dtype: str = "auto"
     """
     Torch data type for model loading (auto, float16, bfloat16, float32).
+=======
+>>>>>>> 6ed8d09 (DEV: image analysis configuration param)
     """ 

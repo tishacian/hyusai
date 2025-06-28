@@ -28,5 +28,10 @@ def get_standalone_interface_config():
 
 
 @cache
+def get_standalone_interface_config():
+    return StandaloneInterface()
+
+
+@cache
 def get_vlm_config():
     return VLM()
