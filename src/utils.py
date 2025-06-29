@@ -17,11 +17,10 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from functools import lru_cache
+from functools import 
 from pathlib import Path
-
 import torch
-
+from functools import cache, lru_cache
 from src.globalvariables import (
     CPU_MODEL_SET,
     GPU_MODEL_SET,
@@ -29,11 +28,29 @@ from src.globalvariables import (
     CPUModels,
     Models,
 )
-from src.system_prompts import (
-    ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE,
-    ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE,
-    DEFAULT_SYSTEM_PROMPT_LANG,
-    SystemPromptLangs,
+from src.reasoning_instructions import (
+    ALL_PROMPT_SECTIONS_TO_REMOVE,
+    ALL_PROMPT_PHRASES_TO_REMOVE,
+    DEFAULT_INSTRUCTION_LANG,
+    InstructionLangs,
+)
+
+# Import nltk stopwords directly (assume availability)
+from nltk.corpus import stopwords
+NLTK_AVAILABLE = True
+
+from collections.abc import Iterable
+
+# Import all metadata TypedDicts 
+from metadata_extraction.docmeta.core.types import (
+    FileMetaData,
+    PDFMetaData,
+    ImageMetaData,
+    OfficeMetaData,
+    OpenDocumentMetaData,
+    TextMetaData,
+    MarkupMetaData,
+    StructuredDataMetaData,
 )
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
@@ -51,13 +68,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-
-try:
-    from nltk.corpus import stopwords
-
-    NLTK_AVAILABLE = True
-except ImportError:
-    NLTK_AVAILABLE = False
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -377,50 +387,160 @@ def format_llm_response(
         return "No sufficient context to respond to the question."
 
 
+
+
+@lru_cache(maxsize=1)
+def _build_field_type_map() -> dict[str, set[type]]:
+    """Build a mapping of metadata field name -> expected python types.
+
+    This inspects the TypedDict annotations defined in the metadata types module
+    so the filter logic can perform basic type-aware normalisation when
+    comparing metadata values against the user-supplied filter values.
+    """
+    field_map: dict[str, set[type]] = {}
+    for _cls in (
+        FileMetaData,
+        PDFMetaData,
+        ImageMetaData,
+        OfficeMetaData,
+        OpenDocumentMetaData,
+        TextMetaData,
+        MarkupMetaData,
+        StructuredDataMetaData,
+    ):
+        for key, _typ in getattr(_cls, "__annotations__", {}).items():
+            field_map.setdefault(key, set()).add(_typ)
+    return field_map
+
+
+def _safe_cast(value: object, target_types: set[type]):
+    """Attempt to cast *value* to one of *target_types* (best-effort).
+
+    Only simple numeric / bool / datetime / str conversions are handled. If no
+    conversion succeeds, the original *value* is returned.
+    """
+    if not target_types:
+        return value  # Nothing to do
+
+    # Normalise set for quick lookup
+    simple_types = {int, float, bool, str}
+    targets = target_types & simple_types
+
+    # Helper lambdas
+    def _try_int(v):
+        return int(v) if isinstance(v, str) and v.isdigit() else v
+
+    def _try_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return v
+
+    def _try_bool(v):
+        if isinstance(v, str):
+            if v.lower() in {"true", "false"}:
+                return v.lower() == "true"
+        return v
+
+    for t in targets:
+        if t is int:
+            casted = _try_int(value)
+            if isinstance(casted, int):
+                return casted
+        elif t is float:
+            casted = _try_float(value)
+            if isinstance(casted, float):
+                return casted
+        elif t is bool:
+            casted = _try_bool(value)
+            if isinstance(casted, bool):
+                return casted
+        elif t is str:
+            # Always possible
+            return str(value)
+
+    return value  # Fallback
+
+
+def _values_match(meta_val, filter_val) -> bool:
+    """Return True if *meta_val* satisfies *filter_val* condition."""
+    # If filter_val is iterable (but not str/bytes) treat as membership set
+    if isinstance(filter_val, (list, tuple, set)):
+        return any(_values_match(meta_val, fv) for fv in filter_val)
+
+    # Direct equality if same type
+    if type(meta_val) is type(filter_val):
+        return meta_val == filter_val
+
+    # Fallback to string comparison
+    return str(meta_val) == str(filter_val)
+
+
 def filter_by_metadata(items, meta_filter=None):
     """Filter a collection of items by metadata.
 
-    Aimed to be generic so it works with:
-        • list of (text, metadata) tuples
-        • list of RetrievalContext objects (has .metadata)
-        • list of dictionaries (already metadata)
-        • plain strings (no metadata – always kept)
+    Parameters
+    ----------
+    items : Iterable
+        Iterable of elements. Each element can be:
+          * (text, metadata) tuple
+          * object with a ``metadata`` attribute
+          * plain dict of metadata
+          * raw string (kept irrespective of filter)
+    meta_filter : Mapping | None
+        Mapping of key -> value OR key -> iterable(values). Logical *AND*
+        across keys.
 
-    meta_filter is a mapping {key: value or iterable_of_values}
-    The function applies logical *AND* across keys:
-        - If filter value is a collection (set / list / tuple), keep item if
-          meta[key] is *in* that collection.
-        - Otherwise, keep when meta[key] == value.
-    If a key is missing in the item metadata the item is discarded.
-    If meta_filter is falsy, the original list is returned unmodified.
+    Returns
+    -------
+    list
+        Items that satisfy *meta_filter*.
     """
+
     if not meta_filter:
         return list(items)
 
-    def _match(meta: dict) -> bool:
-        for key, condition in meta_filter.items():
-            if isinstance(condition, (list, set, tuple)):
-                if meta.get(key) not in condition:
-                    return False
-            else:
-                if meta.get(key) != condition:
-                    return False
-        return True
-
+    field_type_map = _build_field_type_map()
     filtered = []
-    for it in items:
-        # Extract metadata depending on representation
-        meta = {}
-        if isinstance(it, tuple) and len(it) == 2 and isinstance(it[1], dict):
-            meta = it[1]
-        elif hasattr(it, "metadata") and isinstance(it.metadata, dict):
-            meta = it.metadata
-        elif isinstance(it, dict):
-            meta = it
-        # else: leave meta empty
 
-        if _match(meta):
-            filtered.append(it)
+    for item in items:
+        # Extract metadata dict depending on representation
+        if isinstance(item, tuple) and len(item) == 2 and isinstance(item[1], dict):
+            meta = item[1]
+        elif hasattr(item, "metadata") and isinstance(item.metadata, dict):
+            meta = item.metadata
+        elif isinstance(item, dict):
+            meta = item
+        else:
+            # For strings or unknown types, keep by default (not filtered out)
+            filtered.append(item)
+            continue
+
+        # Evaluate all filter conditions
+        keep = True
+        for key, desired in meta_filter.items():
+            if key not in meta:
+                keep = False
+                break
+
+            meta_val = meta[key]
+            expected_types = field_type_map.get(key, set())
+
+            # Best-effort cast of *desired* to expected type(s)
+            if isinstance(desired, Iterable) and not isinstance(desired, (str, bytes)):
+                casted_desired = [
+                    _safe_cast(v, expected_types) for v in desired
+                ]
+            else:
+                casted_desired = _safe_cast(desired, expected_types)
+
+            if not _values_match(meta_val, casted_desired):
+                keep = False
+                break
+
+        if keep:
+            filtered.append(item)
+
     return filtered
 
 

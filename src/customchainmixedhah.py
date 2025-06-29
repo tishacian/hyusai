@@ -1563,9 +1563,18 @@ class CustomLLMChain:
                     text_to_ctx = {ctx.text: ctx for ctx in all_contexts}
                     all_contexts = [text_to_ctx[text] for text, _ in filtered_pairs if text in text_to_ctx]
                     if not all_contexts:
-                        all_contexts = [text_to_ctx[text] for text in text_to_ctx.keys()]
+                        no_match_response = "No documents found matching the specified metadata criteria."
+                        self.conversation_memory.add_message("assistant", no_match_response)
+                        return no_match_response, "", {}
+                        
                 except Exception as e:
                     logging.error(f"Error during metadata filtering: {e}")
+                    error_response = "Error occurred while filtering documents by metadata."
+                    self.conversation_memory.add_message("assistant", error_response)
+                    return error_response, "", {}
+                    error_response = "Error occurred while filtering documents by metadata."
+                    self.conversation_memory.add_message("assistant", error_response)
+                    return error_response, "", {}
 
             context_build_start = time.time()
             combined_context = await self.assemble_context(
