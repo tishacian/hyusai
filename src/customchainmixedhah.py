@@ -1572,9 +1572,6 @@ class CustomLLMChain:
                     error_response = "Error occurred while filtering documents by metadata."
                     self.conversation_memory.add_message("assistant", error_response)
                     return error_response, "", {}
-                    error_response = "Error occurred while filtering documents by metadata."
-                    self.conversation_memory.add_message("assistant", error_response)
-                    return error_response, "", {}
 
             context_build_start = time.time()
             combined_context = await self.assemble_context(
