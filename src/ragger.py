@@ -7,7 +7,6 @@ from datetime import datetime
 from io import BytesIO
 from tempfile import NamedTemporaryFile
 from typing import Iterator
-import time
 import pandas as pd
 import streamlit as st
 import torch
