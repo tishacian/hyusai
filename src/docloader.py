@@ -22,11 +22,8 @@ tesseract_path, tesseract_available = configure_tesseract()
 
 
 class Document:
-    """Document container with content and metadata."""
-
     def __init__(self, content: str, metadata: dict | None = None) -> None:
-        """
-        Initialize a Document instance.
+        """Initialize a Document instance.
 
         Parameters
         ----------
@@ -50,8 +47,7 @@ class PDFMarkdownLoader:
         target_dir: str | None = None,
         **kwargs,
     ) -> None:
-        """
-        Initialize PDF Markdown loader.
+        """Initialize PDF Markdown loader.
 
         Parameters
         ----------
@@ -75,8 +71,7 @@ class PDFMarkdownLoader:
         self.kwargs = kwargs
 
     def load(self) -> list[Document]:
-        """
-        Load PDF and return document as markdown content.
+        """Load PDF and return document as markdown content.
 
         Returns
         -------
@@ -104,8 +99,7 @@ class PDFMarkdownLoader:
             return self._create_error_document(str(e))
 
     def _output_directory(self) -> str:
-        """
-        Get the output directory for the conversion.
+        """Get the output directory for the conversion.
 
         Returns
         -------
@@ -118,8 +112,7 @@ class PDFMarkdownLoader:
         return os.getcwd()
 
     def read_markdown_file(self, markdown_path: str) -> str:
-        """
-        Read the generated markdown content from file.
+        """Read the generated markdown content from file.
 
         Parameters
         ----------
@@ -135,8 +128,7 @@ class PDFMarkdownLoader:
             return f.read()
 
     def create_document(self, result: dict) -> list[Document]:
-        """
-        Create a document for empty content.
+        """Create a document for empty content.
 
         Parameters
         ----------
@@ -162,8 +154,7 @@ class PDFMarkdownLoader:
     def convert_to_document(
         self, markdown_content: str, result: dict
     ) -> list[Document]:
-        """
-        Create a document for successful conversion.
+        """Create a document for successful conversion.
 
         Parameters
         ----------
@@ -190,8 +181,7 @@ class PDFMarkdownLoader:
         ]
 
     def _create_error_document(self, error_message: str) -> list[Document]:
-        """
-        Create a document for conversion errors.
+        """Create a document for conversion errors.
 
         Parameters
         ----------
@@ -221,8 +211,7 @@ class PDFLoader:
     def pdf_loader(
         use_ocr: bool = True, ocr_dpi: int = 150, force_ocr: bool = True
     ) -> tuple[type, dict]:
-        """
-        Get the appropriate PDF loader based on OCR preference.
+        """Get the appropriate PDF loader based on OCR preference.
 
         Parameters
         ----------
@@ -272,8 +261,7 @@ LOADER_MAPPING = {
 
 
 def loadSingleDocument(file_path: str, target_dir: str | None = None) -> str:
-    """
-    Load a single document from file.
+    """Load a single document from file.
 
     Parameters
     ----------
@@ -329,8 +317,7 @@ def ThreadMultiDocLoader(
     ignored_files: list[str] | None = None,
     target_dir: str | None = None,
 ) -> str:
-    """
-    Load multiple documents using threaded execution.
+    """Load multiple documents using threaded execution.
 
     Parameters
     ----------
