@@ -2,7 +2,7 @@ import os
 from enum import Enum, StrEnum
 from pathlib import Path
 
-from configuration import get_backend_config
+from configuration import get_backend_config, get_vlm_config
 
 # %% Directory
 
@@ -138,6 +138,22 @@ class CPUTokenizer(StrEnum):
     )
 
 
+# VLM Models
+class VLMModels(StrEnum):
+    # vLLM versions (preferred for speed, but cannot be used if vLLM instance is already running)
+    VLLM_SMOLVLM_256M = "vllm-smolvlm-256m"
+    VLLM_SMOLVLM_500M = "vllm-smolvlm-500m"
+    VLLM_SMOLVLM_2_2B = "vllm-smolvlm-2.2b"
+    VLLM_MOONDREAM = "vllm-moondream"
+    VLLM_QWEN = "vllm-qwen"
+    # classical versions (can be used if vLLM instance is already running)
+    SMOLVLM_256M = "smolvlm-256m"
+    SMOLVLM_500M = "smolvlm-500m"
+    SMOLVLM_2_2B = "smolvlm-2.2b"
+    MOONDREAM = "moondream"
+    QWEN = "qwen"
+
+
 GPU_MODEL_SET = {model for model in GPUModels}
 CPU_MODEL_SET = {model for model in CPUModels}
 
@@ -184,4 +200,27 @@ class OCRConfig(Enum):
     OCR_DPI = 150
     FORCE_OCR = get_backend_config().force_ocr_on_all_pdf
     LANGS = os.getenv("LANGS", "eng fra deu spa ita por kor ara").split(" ")
+
+
+class VLMConfig(Enum):
+    ENABLE_VLM = get_vlm_config().enable_vlm
+    VLM_MODEL = get_vlm_config().vlm_model
+    VLM_WORKERS = get_vlm_config().vlm_workers
+    MAX_WORKERS = get_vlm_config().max_workers
+    SKIP_LARGE_IMAGES = get_vlm_config().skip_large_images
+    MAX_MODEL_LEN = get_vlm_config().max_model_len
+    GPU_MEMORY_UTILIZATION = get_vlm_config().gpu_memory_utilization
+    TEMPERATURE = get_vlm_config().temperature
+    MAX_TOKENS = get_vlm_config().max_tokens
+    TOP_P = get_vlm_config().top_p
+    FREQUENCY_PENALTY = get_vlm_config().frequency_penalty
+    PRESENCE_PENALTY = get_vlm_config().presence_penalty
+    REPETITION_PENALTY = get_vlm_config().repetition_penalty
+    MAX_IMAGE_SIZE = get_vlm_config().max_image_size
+    MIN_IMAGE_SIZE = get_vlm_config().min_image_size
+    MAX_TOKENS_LIMIT = get_vlm_config().max_tokens_limit
+    JPEG_QUALITY_LEVELS = get_vlm_config().jpeg_quality_levels
+    DEVICE = get_vlm_config().device
+    USE_FLASH_ATTENTION = get_vlm_config().use_flash_attention
+    TORCH_DTYPE = get_vlm_config().torch_dtype
 
