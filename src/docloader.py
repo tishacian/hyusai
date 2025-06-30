@@ -161,6 +161,9 @@ def ThreadMultiDocLoader(file_paths: List[str], ignored_files: List[str] = [], r
     texts: List[str] = []
     metadatas: List[dict] = []
 
+    # Pre-compute a stable doc_id for each file (order in input list)
+    file_order = {fp: idx for idx, fp in enumerate(filtered_files)}
+
     with ThreadPoolExecutor() as executor:
         future_to_file = {
             executor.submit(loadSingleDocument, file, return_metadata): file
@@ -176,6 +179,12 @@ def ThreadMultiDocLoader(file_paths: List[str], ignored_files: List[str] = [], r
                     if return_metadata:
                         doc_text, meta = result
                         if doc_text:
+                            # Attach per-document identifier so that downstream
+                            # chunk metadata can uniquely identify a chunk
+                            # across multiple documents.
+                            meta = meta.copy() if isinstance(meta, dict) else {}
+                            meta["doc_id"] = file_order.get(file, len(texts))
+
                             texts.append(doc_text)
                             metadatas.append(meta)
                     else:
@@ -186,5 +195,10 @@ def ThreadMultiDocLoader(file_paths: List[str], ignored_files: List[str] = [], r
                     logging.error(f"🚩 Error loading document {file}: {e}")
                 pbar.update()
 
-    document = "".join(texts)
-    return (document, metadatas) if return_metadata else document
+    # Instead of concatenating all texts into one giant string, return the list of
+    # extracted texts so that callers can keep the 1-to-1 correspondence with the
+    # `metadatas` list.  This enables downstream components (chunker, embedding
+    # pipeline) to attach the correct metadata to every chunk when multiple
+    # documents are processed in a single batch.
+
+    return (texts, metadatas) if return_metadata else texts

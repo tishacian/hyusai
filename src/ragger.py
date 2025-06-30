@@ -605,6 +605,8 @@ if get_standalone_interface_config().forced_vdb == "None":
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
                             documents, meta = loadSingleDocument(temp_file.name)
+                            if isinstance(meta, dict):
+                                meta["doc_id"] = 0
                     else:
                         # -- Save the location of all the temporary files first..
                         temp_files = []
@@ -615,16 +617,35 @@ if get_standalone_interface_config().forced_vdb == "None":
                             ) as temp_file:
                                 temp_file.write(uploaded_file.getbuffer())
                                 temp_files.append(temp_file.name)
-                        # -- Threaded loading of collected documents
-                        documents, _ = ThreadMultiDocLoader(temp_files)
+
+                        # -- Threaded loading of collected documents (returns
+                        #    *parallel* lists of texts and metadata)
+                        documents, metadatas = ThreadMultiDocLoader(temp_files)
+
                 chunker = TextChunker(
                     st.session_state.tokenizer, st.session_state.model
                 )
-                # Pass metadata when available (single-file case)
+                # Build chunks, preserving metadata for every document
+                chunks = []
                 if NUMBER_OF_FILES == 1:
-                    chunks = chunker.chunker(documents, method=chunking_method, metadata=meta)
+                    # Single-file path: metadata is a single dict
+                    chunks = chunker.chunker(
+                        documents,
+                        method=chunking_method,
+                        metadata=meta,
+                    )
                 else:
-                    chunks = chunker.chunker(documents, method=chunking_method)
+                    # Multi-file path: iterate over each (text, meta) pair so
+                    # that every produced chunk carries the correct
+                    # document-level metadata.
+                    for doc_text, meta in zip(documents, metadatas):
+                        chunks.extend(
+                            chunker.chunker(
+                                doc_text,
+                                method=chunking_method,
+                                metadata=meta,
+                            )
+                        )
 
                 if not chunks or len(chunks) == 0:
                     st.error(
