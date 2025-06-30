@@ -25,36 +25,39 @@ def _normalize(text: str) -> str:
     return " ".join(text.split())
 
 
-def is_trivial(message: str) -> bool:
+def is_trivial_question(message: str) -> bool:
+    """Return True if a message is considered *trivial*.
+
+    A message is trivial when it is short and mainly composed of greeting or
+    courtesy keywords.  The decision flow is expressed as a single
+    if/elif/else chain to keep the cognitive-complexity of the function low
+    while preserving the original semantics.
+    """
 
     if not message:
-        return True  # Empty input is definitely trivial
+        # Empty input is definitely trivial
+        return True
 
     norm = _normalize(message)
-
-    # Length gate first
-    if len(norm) > TRIVIAL_LEN:
-        return False
-    
-    if len(norm.split()) < 2:
-        return True
-
-    # Full-phrase match (covers multi-word greetings like "thank you")
-    if norm in TRIVIAL_ENGLISH_VOCABULARY:
-        return True
-
-    # Whole-word greeting detection (at least one keyword present)
-    if not any(pat.search(norm) for pat in RE_BOUNDARY.values()):
-        return False  # no greeting words at all
-
-    # Remove greeting tokens and see what's left
     words = norm.split()
-    leftover = [w for w in words if w not in TRIVIAL_ENGLISH_VOCABULARY]
-    # If at least 2 non-greeting words, it's likely a real query
-    if len(leftover) >= 2:
-        return False
 
-    return True
+    if len(norm) > TRIVIAL_LEN:
+        # Too long to be considered a quick greeting
+        return False
+    elif len(words) < 2:
+        # Single-word messages like "hi"/"ok" are trivial
+        return True
+    elif norm in TRIVIAL_ENGLISH_VOCABULARY:
+        # Exact keyword/phrase match (e.g. "thank you")
+        return True
+    elif not any(pat.search(norm) for pat in RE_BOUNDARY.values()):
+        # No greeting tokens at all → not trivial
+        return False
+    else:
+        # Remove greeting tokens and inspect the leftover
+        leftover = [w for w in words if w not in TRIVIAL_ENGLISH_VOCABULARY]
+        # Fewer than two non-greeting words → treat as trivial
+        return len(leftover) < 2
 
 
 # ---------------------------------------------------------------------------

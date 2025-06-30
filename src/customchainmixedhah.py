@@ -51,7 +51,7 @@ from src.utils import (
 )
 
 # Import trivial-input detection from router
-from router import is_trivial as is_trivial_question
+from router import is_trivial_question
 
 logging.basicConfig(
     stream=sys.stdout,
