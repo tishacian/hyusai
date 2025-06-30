@@ -167,7 +167,7 @@ class CustomLLMChain:
 
         init_time = time.time() - start_time
         logging.info(
-            f"Enhanced CustomLLMChain initialization completed in {init_time:.4f} seconds"
+            f"mini-CustomLLMChain initialization completed in {init_time:.4f} seconds"
         )
 
     @measure_time_sync
