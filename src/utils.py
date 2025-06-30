@@ -631,3 +631,51 @@ def add_leading_space_if_needed(s: str) -> str:
     if s and not s[0].isspace():
         return " " + s
     return s
+
+
+# ---------------------------------------------------------------------------
+# Metadata helper: preserve original upload attributes that are lost when we
+# copy the file to a temporary location.  This augments the metadata produced
+# by `extract_metadata()` so facets like `file_path` and timestamps still
+# reflect the user-provided file rather than the temp file on disk.
+# ---------------------------------------------------------------------------
+
+
+def _patch_uploaded_metadata(original_meta: dict | None, uploaded_file) -> dict:
+    """Return a copy of *original_meta* extended with fields from *uploaded_file*.
+
+    Parameters
+    ----------
+    original_meta : dict | None
+        Metadata returned by `extract_metadata()` (may be empty).
+    uploaded_file : streamlit.runtime.uploaded_file_manager.UploadedFile
+        The object returned by `st.file_uploader`.
+    """
+    from datetime import datetime
+
+    meta = original_meta.copy() if isinstance(original_meta, dict) else {}
+
+    # Basic path/name information from the browser upload
+    meta["file_path"] = uploaded_file.name  # original filename as path substitute
+    meta["file_name"] = os.path.basename(uploaded_file.name)
+    meta["file_extension"] = os.path.splitext(uploaded_file.name)[1]
+
+    # Size (bytes) & MIME type if available
+    if getattr(uploaded_file, "size", None) is not None:
+        meta["size"] = uploaded_file.size
+
+    if getattr(uploaded_file, "type", None):
+        meta["mime_type"] = uploaded_file.type
+
+    # Always overwrite time-related fields to avoid temp-file timestamps.
+    ts_ms = getattr(uploaded_file, "last_modified", None)
+    if ts_ms is not None:
+        dt = datetime.fromtimestamp(ts_ms / 1000)
+    else:
+        dt = None  # original timestamp unavailable
+
+    meta["last_modified_time"] = dt
+    meta["creation_time"] = dt
+    meta["last_accessed_time"] = dt
+
+    return meta

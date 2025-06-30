@@ -52,6 +52,7 @@ from src.reasoning_instructions import (
     InstructionLangs,
 )
 
+from src.utils import _patch_uploaded_metadata
 
 # -- device available model
 def device_available_models():
@@ -90,6 +91,8 @@ def image_to_base64(image):
     buffered = BytesIO()
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
+
+
 
 
 # -- avatars
@@ -605,8 +608,12 @@ if get_standalone_interface_config().forced_vdb == "None":
                         ) as temp_file:
                             temp_file.write(uploaded_files[0].getbuffer())
                             documents, meta = loadSingleDocument(temp_file.name)
-                            if isinstance(meta, dict):
-                                meta["doc_id"] = 0
+
+                            # Preserve original upload attributes
+                            meta = _patch_uploaded_metadata(meta, uploaded_files[0])
+
+                            # Attach doc_id = 0 for single-file uploads
+                            meta["doc_id"] = 0
                     else:
                         # -- Save the location of all the temporary files first..
                         temp_files = []
@@ -621,6 +628,14 @@ if get_standalone_interface_config().forced_vdb == "None":
                         # -- Threaded loading of collected documents (returns
                         #    *parallel* lists of texts and metadata)
                         documents, metadatas = ThreadMultiDocLoader(temp_files)
+
+                        # Augment each metadata dict with the corresponding upload info
+                        for idx, (up_file, m) in enumerate(zip(uploaded_files, metadatas)):
+                            patched = _patch_uploaded_metadata(m, up_file)
+                            # Ensure doc_id (already set by ThreadMultiDocLoader) is kept
+                            if "doc_id" in m:
+                                patched.setdefault("doc_id", m["doc_id"])
+                            metadatas[idx] = patched
 
                 chunker = TextChunker(
                     st.session_state.tokenizer, st.session_state.model
