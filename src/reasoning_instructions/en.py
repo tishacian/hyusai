@@ -6,6 +6,7 @@ REASONING_PATTERNS = {
     ReasoningType.COMPARATIVE: ["compare", "contrast", "differ", "distinguish", "similar", "alike", "resemble", "parallel", "versus", "vs", "difference", "distinction", "better", "worse", "stronger", "weaker", "rank", "rate", "grade", "score", "prefer", "choice", "select", "opt", "more than", "less than", "equal to", "greater than", "advantage", "disadvantage", "pro", "con"],
     ReasoningType.CAUSAL: ["why", "because", "cause", "effect", "result", "outcome", "consequence", "impact", "lead to", "follow from", "derive from", "stem from", "influence", "affect", "determine", "shape", "trigger", "initiate", "spark", "prompt", "cascade", "chain", "sequence", "series", "factor", "contributor", "driver", "determinant", "strong", "weak", "direct", "indirect"],
     ReasoningType.HYPOTHETICAL: ["if", "would", "could", "might", "assume", "suppose", "presume", "consider", "predict", "forecast", "project", "estimate", "scenario", "situation", "case", "instance", "possible", "probable", "likely", "potential", "alternative", "option", "choice", "path", "risk", "chance", "probability", "likelihood", "what if", "otherwise", "alternatively", "instead"],
+    ReasoningType.TRIVIAL: [],
 }  # fmt: skip
 
 REASONING_INSTRUCTIONS = {
@@ -72,6 +73,12 @@ REASONING_INSTRUCTIONS = {
                                                 Question: {question}
                                                 
                                                 Explore this scenario based on the context: [/INST]""",
+    ReasoningType.TRIVIAL: """[INST] You are a friendly conversational assistant. If there is any previous conversation below, keep it in mind. Otherwise just answer the user's short message naturally (greeting, thanks, farewell, etc.). Do NOT provide additional information beyond what is appropriate for the user's message.
+
+{context}
+
+User: {question}
+Assistant: [/INST]""",
 }
 NAIVE_INSTRUCTION = """[INST] You are an AI assistant specialized in providing precise and detailed information. Focus on important information that directly addresses the main topic or question.
                                                 Include relevant details that provide context or support your points.

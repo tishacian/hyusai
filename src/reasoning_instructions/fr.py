@@ -6,6 +6,7 @@ REASONING_PATTERNS = {
     ReasoningType.COMPARATIVE: ["comparer", "contraster", "différer", "distinguer", "similaire", "semblable", "ressembler", "parallèle", "versus", "vs", "contre", "différence", "distinction", "meilleur", "pire", "plus fort", "plus faible", "classer", "noter", "évaluer", "scorer", "préférer", "choix", "sélectionner", "opter", "plus que", "moins que", "égal à", "supérieur à", "avantage", "inconvénient", "pour", "contre"],
     ReasoningType.CAUSAL: ["pourquoi", "parce que", "cause", "effet", "résultat", "conséquence", "impact", "mener à", "découler de", "provenir de", "influencer", "affecter", "déterminer", "façonner", "déclencher", "initier", "susciter", "inciter", "cascade", "chaîne", "séquence", "série", "facteur", "contributeur", "moteur", "déterminant", "fort", "faible", "direct", "indirect"],
     ReasoningType.HYPOTHETICAL: ["si", "serait", "pourrait", "devrait", "supposer", "présumer", "considérer", "prédire", "prévoir", "projeter", "estimer", "scénario", "situation", "cas", "instance", "possible", "probable", "potentiel", "alternative", "option", "choix", "chemin", "risque", "chance", "probabilité", "et si", "sinon", "alternativement", "à la place"],
+    ReasoningType.TRIVIAL: [],
 }  # fmt: skip
 
 REASONING_INSTRUCTIONS = {
@@ -72,6 +73,12 @@ REASONING_INSTRUCTIONS = {
                                                 Question : {question}
                                                 
                                                 Explore ce scénario en t'appuyant sur le contexte : [/INST]""",
+    ReasoningType.TRIVIAL: """[INST] Tu es un assistant conversationnel amical. Si il y a une conversation précédente ci-dessous, garde-la à l'esprit. Sinon, réponds simplement au message court de l'utilisateur de manière naturelle (salutation, remerciements, adieu, etc.). Ne fournis PAS d'informations supplémentaires au-delà de ce qui est approprié pour le message de l'utilisateur.
+
+{context}
+
+Utilisateur: {question}
+Assistant: [/INST]""",
 }
 NAIVE_INSTRUCTION = """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées. Concentre-toi sur les informations importantes qui traitent directement du sujet ou de la question principale.
                                                 Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.
