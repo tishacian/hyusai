@@ -9,7 +9,7 @@ class VLM(BaseSettings):
     Whether to enable VLM image analysis for PDF processing.
     """
 
-    vlm_model: str = "vllm-smolvlm-256m"
+    vlm_model: str = "smolvlm-256m"
     """
     VLM model to use for image analysis.
     """
@@ -94,7 +94,7 @@ class VLM(BaseSettings):
     Device to use for VLM processing (auto, cuda, cpu, mps).
     """
 
-    use_flash_attention: bool = True
+    use_flash_attention: bool = False
     """
     Whether to use flash attention for transformers models.
     """
