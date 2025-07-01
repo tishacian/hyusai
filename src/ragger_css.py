@@ -141,12 +141,11 @@ BUTTONS = """
                 
                 /* Adjust main content when sidebar is hidden or shown */
                 .main .block-container {
-                    padding-left: 20px;
                     transition: padding-left 0.3s ease-in-out;
                 }
                 
                 [data-testid="stSidebar"]:hover + .main .block-container {
-                    padding-left: 320px;
+                    padding-left: 380px;
                 }
                 </style>
                 
