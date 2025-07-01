@@ -1,5 +1,4 @@
 import string
-import pathlib, csv
 import re
 from src.globalvariables import TRIVIAL_ENGLISH_VOCABULARY, TRIVIAL_FRENCH_VOCABULARY, TRIVIAL_LEN
 from src.reasoning_instructions import InstructionLangs, DEFAULT_INSTRUCTION_LANG
@@ -94,76 +93,56 @@ def is_trivial_question(message: str, language: InstructionLangs = DEFAULT_INSTR
 # Self-contained basic tests (run: `python src/router.py` to validate locally)
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Test both languages
-    print("Testing English trivial detection:")
-    print(f"'hello' -> {is_trivial_question('hello', InstructionLangs.EN)}")
-    print(f"'thank you' -> {is_trivial_question('thank you', InstructionLangs.EN)}")
-    print(f"'What is the weather today?' -> {is_trivial_question('What is the weather today?', InstructionLangs.EN)}")
+    # Test cases: (text, expected_result, language)
+    test_cases = [
+        # English trivial cases
+        ("hello", True, InstructionLangs.EN),
+        ("hi", True, InstructionLangs.EN),
+        ("thank you", True, InstructionLangs.EN),
+        ("thanks", True, InstructionLangs.EN),
+        ("good morning", True, InstructionLangs.EN),
+        ("bye", True, InstructionLangs.EN),
+        ("", True, InstructionLangs.EN),  # Empty is trivial
+        
+        # English non-trivial cases  
+        ("What is the weather today?", False, InstructionLangs.EN),
+        ("Explain quantum mechanics", False, InstructionLangs.EN),
+        ("Calculate the derivative of x^2", False, InstructionLangs.EN),
+        ("hello, what is photosynthesis?", False, InstructionLangs.EN),  # Mixed case
+        
+        # French trivial cases
+        ("bonjour", True, InstructionLangs.FR),
+        ("salut", True, InstructionLangs.FR),
+        ("merci", True, InstructionLangs.FR),
+        ("merci beaucoup", True, InstructionLangs.FR),
+        ("au revoir", True, InstructionLangs.FR),
+        ("bonne journée", True, InstructionLangs.FR),
+        
+        # French non-trivial cases
+        ("Quel temps fait-il aujourd'hui?", False, InstructionLangs.FR),
+        ("Expliquez la mécanique quantique", False, InstructionLangs.FR),
+        ("Calculez la dérivée de x^2", False, InstructionLangs.FR),
+        ("bonjour, qu'est-ce que la photosynthèse?", False, InstructionLangs.FR),  # Mixed case
+    ]
     
-    print("\nTesting French trivial detection:")
-    print(f"'bonjour' -> {is_trivial_question('bonjour', InstructionLangs.FR)}")
-    print(f"'merci beaucoup' -> {is_trivial_question('merci beaucoup', InstructionLangs.FR)}")
-    french_question = "Quel temps fait-il aujourd'hui?"
-    print(f"'{french_question}' -> {is_trivial_question(french_question, InstructionLangs.FR)}")
+    print("Testing trivial question detection:")
+    print("=" * 50)
     
-    # Continue with existing test logic...
-    csv_path = pathlib.Path(__file__).parent / "test_questions_router_2.csv"
-
-    tests = []
-    with csv_path.open("r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if not row:
-                continue
-            if len(row) == 1:
-                # no expected label provided -> skip accuracy
-                tests.append((row[0], None))
-            else:
-                question, label = row[0].strip(), row[1].strip()
-                expected = label.lower() in {"t", "true", "1", "false", "f"}
-                expected_bool = label.lower() in {"t", "true", "1"}
-                tests.append((question, expected_bool))
-
-    total = len(tests)
-    failures = 0
-    false_negatives = 0  # expected True, predicted False
-    false_positives = 0  # expected False, predicted True
-    misclassified = []
-    unlabeled = 0
-    for text, expected in tests:
-        result = is_trivial_question(text, InstructionLangs.EN)  # Default to English for existing tests
-        if expected is None:
-            # just print prediction for unlabeled case
-            print(f"{result}\t{text}")
-            unlabeled += 1
-            continue
-        if result != expected:
-            failures += 1
-            misclassified.append((text, result, expected))
-            if expected and not result:
-                false_negatives += 1
-            elif (not expected) and result:
-                false_positives += 1
-
-    labeled_total = total - unlabeled
-    passed = labeled_total - failures
-    accuracy = passed / labeled_total * 100 if labeled_total else 0.0
-
-    true_cases = sum(1 for _, exp in tests if exp)
-    false_cases = sum(1 for _, exp in tests if exp is not None and not exp)
-    fn_percent = (false_negatives / true_cases * 100) if true_cases else 0.0
-    fp_percent = (false_positives / false_cases * 100) if false_cases else 0.0
-
-    print("\n----------------------")
-    print(f"Total cases     : {total}")
-    print(f"Labeled cases   : {labeled_total}")
-    print(f"Passed          : {passed}")
-    print(f"Failed          : {failures}")
-    print(f"Accuracy        : {accuracy:.2f}%")
-    print(f"False Negatives : {false_negatives}  ({fn_percent:.2f}% of TRUE cases)")
-    print(f"False Positives : {false_positives}  ({fp_percent:.2f}% of FALSE cases)")
-
-    if misclassified:
-        print("\nMisclassified examples (input → predicted | expected):")
-        for text, predicted, expected in misclassified:
-            print(f"  - {text!r} → {predicted} | {expected}") 
+    passed = 0
+    failed = 0
+    
+    for text, expected, language in test_cases:
+        result = is_trivial_question(text, language)
+        status = "✓ PASS" if result == expected else "✗ FAIL"
+        lang_code = "EN" if language == InstructionLangs.EN else "FR"
+        
+        print(f"[{lang_code}] {status} | '{text}' -> {result} (expected {expected})")
+        
+        if result == expected:
+            passed += 1
+        else:
+            failed += 1
+    
+    print("=" * 50)
+    print(f"Results: {passed} passed, {failed} failed")
+    print(f"Accuracy: {passed / (passed + failed) * 100:.1f}%") 
