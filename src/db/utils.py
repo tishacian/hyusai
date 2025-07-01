@@ -1,7 +1,7 @@
 import functools
 import logging
 import os
-from functools import cache
+from functools import lru_cache
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 Base = declarative_base()
 
 
-@cache
+@lru_cache(maxsize=None)
 def get_engine():
     db_url = get_database_config().url
 

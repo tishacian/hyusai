@@ -1,4 +1,4 @@
-from functools import cache
+from functools import lru_cache
 
 from .backend import BackendConfig
 from .database import DatabaseConfig
@@ -6,21 +6,21 @@ from .general import GeneralConfig
 from .standalone_interface import StandaloneInterfaceConfig
 
 
-@cache
+@lru_cache(maxsize=None)
 def get_general_config():
     return GeneralConfig()
 
 
-@cache
+@lru_cache(maxsize=None)
 def get_backend_config():
     return BackendConfig()
 
 
-@cache
+@lru_cache(maxsize=None)
 def get_database_config():
     return DatabaseConfig()
 
 
-@cache
+@lru_cache(maxsize=None)
 def get_standalone_interface_config():
     return StandaloneInterfaceConfig()

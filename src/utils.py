@@ -17,7 +17,7 @@ import time
 import pickle
 import functools
 from pathlib import Path
-from functools import cache
+from functools import lru_cache
 from src.globalvariables import (
     Models,
     GPU_MODEL_SET,
@@ -86,7 +86,7 @@ def measure_time_sync(func):
 # %%  tesseract utils
 
 
-@cache
+@lru_cache(maxsize=None)
 def configure_tesseract():
     """Configure Tesseract OCR and determine if its available.
 
