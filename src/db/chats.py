@@ -66,6 +66,36 @@ class Chats(Base):
         timestamp: DateTime = func.now(),
         session: Session | None = None,
     ) -> int:
+        """
+        Save a chat history to the database.
+        Parameters
+        ----------
+        chat_history : list[HumanChat | AIChat]
+            List of chat messages, where each message is a dictionary.
+        model_name : str
+            Name of the model used for the chat.
+        chunking_method : str
+            Chunking method used for the chat.
+        index_type : str
+            Type of index used for the chat.
+        vector_store : str
+            Vector store used for the chat.
+        pipeline_type : str
+            Type of pipeline used for the chat.
+        instruction_lang : str
+            Language of the instructions used in the chat.
+        timestamp : DateTime, optional
+            Datetime when the chat was created, by default func.now()
+            Should be used for migration only.
+        session : Session | None, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+
+        Returns
+        -------
+        int
+            The ID of the newly created chat entry.
+        """
         for msg in chat_history:
             if "avatar" in msg and isinstance(msg["avatar"], str):
                 msg["avatar"] = msg["avatar"].split(",")[-1]
@@ -100,6 +130,30 @@ class Chats(Base):
         *,
         session: Session | None = None,
     ) -> None:
+        """
+        Update an existing chat entry in the database.
+        Parameters
+        ----------
+        chat_id : int
+            ID of the chat entry to update.
+        chat_history : list[HumanChat | AIChat]
+            List of chat messages, where each message is a dictionary.
+        model_name : str
+            Name of the model used for the chat.
+        chunking_method : str
+            Chunking method used for the chat.
+        index_type : str
+            Type of index used for the chat.
+        vector_store : str
+            Vector store used for the chat.
+        pipeline_type : str
+            Type of pipeline used for the chat.
+        instruction_lang : str
+            Language of the instructions used in the chat.
+        session : Session | None, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+        """
         chat_json = json.dumps(chat_history)
         stmt = (
             sqlalchemy.update(cls)
@@ -129,6 +183,25 @@ class Chats(Base):
         str | None,
         str | None,
     ]:
+        """
+        Retrieve a chat entry from the database by its ID.
+
+        Parameters
+        ----------
+        chat_id : int
+            ID of the chat to retrieve.
+        session : Session | None, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+
+        Returns
+        -------
+        tuple[list[HumanChat | AIChat], str | None, str | None, str | None, str | None, str | None, str | None]
+            A tuple containing the chat history as a list of dictionaries,
+            the model name, chunking method, index type, vector store,
+            pipeline type, and instruction language. If the chat does not exist,
+            the chat history will be an empty list and the other fields will be None.
+        """
         stmt = sqlalchemy.select(cls).where(cls.id == chat_id)
         result = session.execute(stmt).scalar_one_or_none()
 
@@ -155,12 +228,32 @@ class Chats(Base):
     @classmethod
     @session_manager_decorator
     def delete_chat(cls, chat_id: int, *, session: Session | None = None) -> None:
+        """
+        Delete a chat entry from the database by its ID.
+
+        Parameters
+        ----------
+        chat_id : int
+            ID of the chat to delete.
+        session : Session | None, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+        """
         stmt = sqlalchemy.delete(cls).where(cls.id == chat_id)
         session.execute(stmt)
 
     @classmethod
     @session_manager_decorator
     def delete_all_chats(cls, *, session: Session | None = None) -> None:
+        """
+        Delete all chat entries from the database.
+
+        Parameters
+        ----------
+        session : Session | None, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+        """
         session.query(cls).delete()
 
     @classmethod
@@ -168,5 +261,20 @@ class Chats(Base):
     def get_all_chats(
         cls, *, session: Session | None = None
     ) -> list[tuple[int, datetime]]:
+        """
+        Retrieve all chat entries from the database, ordered by timestamp in descending order.
+
+        Parameters
+        ----------
+        session : Session | None, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+
+        Returns
+        -------
+        list[tuple[int, datetime]]
+            A list of tuples, each containing the chat ID and its timestamp,
+            ordered by timestamp in descending order.
+        """
         stmt = sqlalchemy.select(cls.id, cls.timestamp).order_by(cls.timestamp.desc())
         return session.execute(stmt).all()
