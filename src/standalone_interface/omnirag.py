@@ -63,7 +63,7 @@ def device_default_model():
     )
 
 
-def home_page():
+def omnirag_page():
     # default values
     pipeline_type = PipelineType.HAHCOMPOSITE
     chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
@@ -761,4 +761,4 @@ def home_page():
 
 
 if __name__ == "__main__":
-    home_page()
+    omnirag_page()

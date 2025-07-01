@@ -105,7 +105,7 @@ if __name__ == "__main__":
     sys.argv = [
         "streamlit",
         "run",
-        "src/standalone_interface/home.py",
+        "src/standalone_interface/omnirag.py",
         "--server.port",
         str(port),
         "--server.baseUrlPath",
