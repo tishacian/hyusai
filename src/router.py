@@ -1,20 +1,33 @@
 import string
 import pathlib, csv
 import re
-from globalvariables import TRIVIAL_ENGLISH_VOCABULARY, TRIVIAL_LEN
+from src.globalvariables import TRIVIAL_ENGLISH_VOCABULARY, TRIVIAL_FRENCH_VOCABULARY, TRIVIAL_LEN
+from src.reasoning_instructions import InstructionLangs, DEFAULT_INSTRUCTION_LANG
 # -----------------------------
 # Trivial-input detection logic
 # -----------------------------
 # A message is considered *trivial* when both conditions are met:
 #   1. Its length (after stripping whitespace) is at most `TRIVIAL_LEN`.
-#   2. It contains at least one token/phrase from `TRIVIAL_ENGLISH_VOCABULARY` (case-insensitive).
+#   2. It contains at least one token/phrase from the appropriate vocabulary (case-insensitive).
 
-
+# Language-specific vocabularies
+TRIVIAL_VOCABULARIES = {
+    InstructionLangs.EN: TRIVIAL_ENGLISH_VOCABULARY,
+    InstructionLangs.FR: TRIVIAL_FRENCH_VOCABULARY,
+}
 
 # Pre-compile regex patterns for efficiency (whole-word matching, case-insensitive)
-RE_BOUNDARY = {
-    kw: re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE) for kw in TRIVIAL_ENGLISH_VOCABULARY
-}
+# We'll build this dynamically based on the language
+RE_BOUNDARY_CACHE = {}
+
+def _get_regex_patterns(language: InstructionLangs):
+    """Get or create regex patterns for the specified language"""
+    if language not in RE_BOUNDARY_CACHE:
+        vocabulary = TRIVIAL_VOCABULARIES[language]
+        RE_BOUNDARY_CACHE[language] = {
+            kw: re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE) for kw in vocabulary
+        }
+    return RE_BOUNDARY_CACHE[language]
 
 PUNCT_TABLE = str.maketrans({ch: " " for ch in string.punctuation})
 
@@ -25,13 +38,23 @@ def _normalize(text: str) -> str:
     return " ".join(text.split())
 
 
-def is_trivial_question(message: str) -> bool:
+def is_trivial_question(message: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> bool:
     """Return True if a message is considered *trivial*.
 
     A message is trivial when it is short and mainly composed of greeting or
-    courtesy keywords.  The decision flow is expressed as a single
-    if/elif/else chain to keep the cognitive-complexity of the function low
-    while preserving the original semantics.
+    courtesy keywords in the specified language.
+
+    Parameters
+    ----------
+    message : str
+        The message to analyze
+    language : InstructionLangs, optional
+        The language to use for trivial detection, by default DEFAULT_INSTRUCTION_LANG
+
+    Returns
+    -------
+    bool
+        True if the message is considered trivial
     """
 
     if not message:
@@ -40,32 +63,50 @@ def is_trivial_question(message: str) -> bool:
 
     norm = _normalize(message)
     words = norm.split()
+    
+    # Get vocabulary and regex patterns for the specified language
+    vocabulary = TRIVIAL_VOCABULARIES[language]
+    re_patterns = _get_regex_patterns(language)
 
     if len(norm) > TRIVIAL_LEN:
         # Too long to be considered a quick greeting
         return False
     elif len(words) < 2:
-        # Single-word messages like "hi"/"ok" are trivial
+        # Single-word messages like "hi"/"salut" are trivial
         return True
-    elif norm in TRIVIAL_ENGLISH_VOCABULARY:
-        # Exact keyword/phrase match (e.g. "thank you")
+    elif norm in vocabulary:
+        # Exact keyword/phrase match (e.g. "thank you"/"merci")
         return True
-    elif not any(pat.search(norm) for pat in RE_BOUNDARY.values()):
+    elif not any(pat.search(norm) for pat in re_patterns.values()):
         # No greeting tokens at all → not trivial
         return False
     else:
         # Remove greeting tokens and inspect the leftover
-        leftover = [w for w in words if w not in TRIVIAL_ENGLISH_VOCABULARY]
+        leftover = [w for w in words if w not in vocabulary]
         # Fewer than two non-greeting words → treat as trivial
         return len(leftover) < 2
+
+
+
 
 
 # ---------------------------------------------------------------------------
 # Self-contained basic tests (run: `python src/router.py` to validate locally)
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # print(is_trivial("you're welcome"))
-    # exit()
+    # Test both languages
+    print("Testing English trivial detection:")
+    print(f"'hello' -> {is_trivial_question('hello', InstructionLangs.EN)}")
+    print(f"'thank you' -> {is_trivial_question('thank you', InstructionLangs.EN)}")
+    print(f"'What is the weather today?' -> {is_trivial_question('What is the weather today?', InstructionLangs.EN)}")
+    
+    print("\nTesting French trivial detection:")
+    print(f"'bonjour' -> {is_trivial_question('bonjour', InstructionLangs.FR)}")
+    print(f"'merci beaucoup' -> {is_trivial_question('merci beaucoup', InstructionLangs.FR)}")
+    french_question = "Quel temps fait-il aujourd'hui?"
+    print(f"'{french_question}' -> {is_trivial_question(french_question, InstructionLangs.FR)}")
+    
+    # Continue with existing test logic...
     csv_path = pathlib.Path(__file__).parent / "test_questions_router_2.csv"
 
     tests = []
@@ -90,7 +131,7 @@ if __name__ == "__main__":
     misclassified = []
     unlabeled = 0
     for text, expected in tests:
-        result = is_trivial(text)
+        result = is_trivial_question(text, InstructionLangs.EN)  # Default to English for existing tests
         if expected is None:
             # just print prediction for unlabeled case
             print(f"{result}\t{text}")

@@ -53,7 +53,7 @@ logging.basicConfig(
 )
 
 # Import trivial-input detector
-from router import is_trivial_question
+from src.router import is_trivial_question
 
 # %% Custom LLMChain
 
@@ -1089,7 +1089,7 @@ class CustomLLMChain:
             # -------------------------------------------------------------
             # Trivial question bypass – skips expensive retrieval & reasoning
             # -------------------------------------------------------------
-            if is_trivial_question(question):
+            if is_trivial_question(question, self.instruction_lang):
                 # Persist user message in memory
                 self.conversation_memory.add_message("user", question)
 

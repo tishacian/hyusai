@@ -51,7 +51,7 @@ from src.utils import (
 )
 
 # Import trivial-input detection from router
-from router import is_trivial_question
+from src.router import is_trivial_question
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -1415,7 +1415,7 @@ class CustomLLMChain:
         try:
             # Trivial question bypass using router.is_trivial
             # -------------------------------------------------------------
-            if is_trivial_question(question):
+            if is_trivial_question(question, self.instruction_lang):
                 # Maintain conversation memory even for trivial queries
                 await asyncio.to_thread(
                     self.conversation_memory.add_message, "user", question
