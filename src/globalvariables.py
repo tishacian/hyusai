@@ -1,7 +1,6 @@
 import os
 from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Set
 
 from configuration import get_backend_config
 
@@ -227,7 +226,7 @@ GPU_MEMORY_SAFETY_MARGIN = 2
 
 TRIVIAL_LEN: int = 100
 
-TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
+TRIVIAL_ENGLISH_VOCABULARY: set[str] = {
     "hello",
     "hi",
     "hey",
@@ -647,7 +646,7 @@ TRIVIAL_ENGLISH_VOCABULARY: Set[str] = {
     "time to go",
 }
 
-TRIVIAL_FRENCH_VOCABULARY: Set[str] = {
+TRIVIAL_FRENCH_VOCABULARY: set[str] = {
     "bonjour",
     "salut",
     "coucou",
