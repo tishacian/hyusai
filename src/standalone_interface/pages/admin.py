@@ -34,20 +34,9 @@ def reset_all_section(updated_by: str):
 
 
 def update_section() -> str:
-    col_lang, col_reasoning = st.columns(2)
-    with col_lang:
-        language = st.selectbox(
-            "Select a language", options=SystemPrompts.get_languages()
-        )
-    with col_reasoning:
-        reasoning_type = st.selectbox(
-            "Select a reasoning type",
-            options=SystemPrompts.get_system_prompt_types(language),
-        )
+    language = st.selectbox("Select a language", options=SystemPrompts.get_languages())
+    system_prompt = SystemPrompts.get_by_language(language)
 
-    system_prompt = SystemPrompts.get_by_language_and_system_prompt_type(
-        language, reasoning_type
-    )
     new_llm_role_definition = st.text_area(
         label="LLM Instruction", value=system_prompt.llm_role_definition, height=200
     )

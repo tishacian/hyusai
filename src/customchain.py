@@ -28,7 +28,7 @@ from src.cache import LRUCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
-from src.db.system_prompts import SystemPrompts, ALL_SYSTEM_PROMPT_TEMPLATES, DEFAULT_SYSTEM_PROMPT_LANG, TRIVIAL_TEMPLATES, SystemPromptLangs
+from src.db.system_prompts import SystemPrompts
 from src.embedding import EmbeddingModelLoader
 from src.ensembleretriever import EnsembleConfig, EnsembleRetriever, FusionMethod
 from src.flashreranker import FlashReranker, RerankerConfig
@@ -45,6 +45,12 @@ from src.globalvariables import (
 # -- Model evaluation
 from src.metrics import Evaluatrix
 from src.reasoningmetrics import ReasoningMetrics
+from src.system_prompts import (
+    ALL_SYSTEM_PROMPT_TEMPLATES,
+    DEFAULT_SYSTEM_PROMPT_LANG,
+    TRIVIAL_TEMPLATES,
+    SystemPromptLangs,
+)
 from src.utils import (
     format_llm_response,
     get_max_model_len,
@@ -161,11 +167,7 @@ class CustomLLMChain:
 
         # -- CoT template
         self.templates = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang]
-        system_prompts = SystemPrompts.get_all(filter_by_language=self.instruction_lang)
-        self.roles = {
-            prompt.system_prompt_type: prompt.llm_role_definition
-            for prompt in system_prompts
-        }
+        self.assistant_role = SystemPrompts.get_by_language(self.instruction_lang)
 
         init_time = time.time() - start_time
         logging.info(
@@ -715,11 +717,8 @@ class CustomLLMChain:
                 reasoning_time = time.time() - reasoning_detect_start
                 logging.info(f"Reasoning detection took {reasoning_time:.4f} seconds")
                 template = self.templates[reasoning_type]
-            assistant_role = SystemPrompts.get_by_language_and_system_prompt_type(
-                self.instruction_lang, reasoning_type
-            )
             prompt_format = template.format(
-                assistant_role=assistant_role, context=context, question=question
+                assistant_role=self.assistant_role, context=context, question=question
             )
 
             generate_start = time.time()
@@ -733,9 +732,8 @@ class CustomLLMChain:
             logging.error(f"Error in custom_llm_chain: {str(e)}")
             fallback_reasoning_type = ReasoningType.ANALYTICAL
             template = self.templates[fallback_reasoning_type]
-            assistant_role = self.roles[fallback_reasoning_type]
             prompt_format = template.format(
-                assistant_role=assistant_role, context=context, question=question
+                assistant_role=self.assistant_role, context=context, question=question
             )
             return await self.generate_text(prompt_format)
 

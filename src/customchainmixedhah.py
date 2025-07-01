@@ -43,14 +43,11 @@ from src.metrics import Evaluatrix
 from src.reasoningmetrics import ReasoningMetrics
 from src.retrievalplan import QueryAnalysis, RetrievalContext, RetrievalPlan
 from src.system_prompts import (
-    ALL_DEFAULT_SYSTEM_PROMPT_ROLES,
     ALL_SYSTEM_PROMPT_TEMPLATES,
     DEFAULT_SYSTEM_PROMPT_LANG,
     TRIVIAL_TEMPLATES,
     SystemPromptLangs,
 )
-
-# Import trivial detection
 from src.trivial_check import is_trivial_question
 from src.utils import (
     format_llm_response,
@@ -166,11 +163,7 @@ class CustomLLMChain:
         self._initialize_contextual_retriever()
 
         self.templates = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang]
-        system_prompts = SystemPrompts.get_all(filter_by_language=self.instruction_lang)
-        self.roles = {
-            prompt.system_prompt_type: prompt.llm_role_definition
-            for prompt in system_prompts
-        }
+        self.assistant_role = SystemPrompts.get_by_language(self.instruction_lang)
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count())
 
         self.perf_stats = {
@@ -1322,9 +1315,8 @@ class CustomLLMChain:
                 logging.info(f"Reasoning detection took {reasoning_time:.4f} seconds")
 
             template = self.templates[reasoning_type]
-            assistant_role = self.roles[reasoning_type]
             prompt_format = template.format(
-                assistant_role=assistant_role, context=context, question=question
+                assistant_role=self.assistant_role, context=context, question=question
             )
 
             generate_start = time.time()
@@ -1346,9 +1338,10 @@ class CustomLLMChain:
             try:
                 fallback_reasoning_type = ReasoningType.ANALYTICAL
                 template = self.templates[fallback_reasoning_type]
-                assistant_role = self.roles[fallback_reasoning_type]
                 prompt_format = template.format(
-                    assistant_role=assistant_role, context=context, question=question
+                    assistant_role=self.assistant_role,
+                    context=context,
+                    question=question,
                 )
                 return await self.generate_text(prompt_format)
             except Exception as e2:

@@ -6,29 +6,19 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
 from src.db.utils import Base, session_manager_decorator
-from src.system_prompts import ALL_DEFAULT_SYSTEM_PROMPT_ROLES
+from src.system_prompts import ALL_DEFAULT_SYSTEM_PROMPT_ROLE
 
 
 class SystemPrompts(Base):
-    """
-    ORM model for system prompts, representing AI assistant role definitions
-    with a unique (language, system_prompt_type) combination.
-    """
+    """ORM model for system prompts."""
 
     __tablename__ = "system_prompts"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    system_prompt_type = Column(String(255))
     language = Column(String(10))
     llm_role_definition = Column(Text)
     updated_by = Column(String(255))
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-
-    __table_args__ = (
-        sqlalchemy.UniqueConstraint(
-            "language", "system_prompt_type", name="_lang_sttype_uc"
-        ),
-    )
 
     @classmethod
     @session_manager_decorator
@@ -56,18 +46,16 @@ class SystemPrompts(Base):
 
     @classmethod
     @session_manager_decorator
-    def get_by_language_and_system_prompt_type(
-        cls, language: str, system_prompt_type: str, *, session: Session | None = None
+    def get_by_language(
+        cls, language: str, *, session: Session | None = None
     ) -> "SystemPrompts | None":
         """
-        Retrieve a SystemPrompts record by language and system_prompt_type.
+        Retrieve a SystemPrompts record by language.
 
         Parameters
         ----------
         language : str
             Language of the system prompt.
-        system_prompt_type : str
-            Type of the system prompt.
         session : Session | None, optional
             Automatically set by the context manager, by default None.
             Should not be set manually.
@@ -77,35 +65,31 @@ class SystemPrompts(Base):
         SystemPrompts | None
             The SystemPrompts record if found, otherwise None.
         """
-        stmt = sqlalchemy.select(cls).where(
-            (cls.language == language) & (cls.system_prompt_type == system_prompt_type)
-        )
+        stmt = sqlalchemy.select(cls).where((cls.language == language))
         return session.execute(stmt).scalar_one_or_none()
 
     @classmethod
     @session_manager_decorator
     def get_all(
-        cls, *, session: Session | None = None, filter_by_language: str | None = None
+        cls,
+        *,
+        session: Session | None = None,
     ) -> list["SystemPrompts"]:
         """
-        Retrieve all SystemPrompts records, optionally filtered by language.
+        Retrieve all SystemPrompts records.
 
         Parameters
         ----------
         session : Session | None, optional
             Automatically set by the context manager, by default None.
             Should not be set manually.
-        filter_by_language : str | None, optional
-            If provided, filter records by this language.
 
         Returns
         -------
         list[SystemPrompts]
-            List of SystemPrompts records, ordered by system_prompt_type.
+            List of SystemPrompts records, ordered by language.
         """
-        stmt = sqlalchemy.select(cls).order_by(cls.system_prompt_type)
-        if filter_by_language:
-            stmt = stmt.where(cls.language == filter_by_language)
+        stmt = sqlalchemy.select(cls).order_by(cls.language)
         return session.execute(stmt).scalars().all()
 
     @classmethod
@@ -139,10 +123,7 @@ class SystemPrompts(Base):
         """Reset the llm_role_definition of a record to its default value."""
         old_system_prompt = cls.get_by_id(record_id, session=session)
         language = old_system_prompt.language
-        system_prompt_type = old_system_prompt.system_prompt_type
-        default_llm_role_definition = ALL_DEFAULT_SYSTEM_PROMPT_ROLES[language][
-            system_prompt_type
-        ]
+        default_llm_role_definition = ALL_DEFAULT_SYSTEM_PROMPT_ROLE[language]
         cls.update(
             record_id,
             session=session,
@@ -165,15 +146,13 @@ class SystemPrompts(Base):
             Should not be set manually.
         """
         session.query(cls).delete()
-        for language, prompts in ALL_DEFAULT_SYSTEM_PROMPT_ROLES.items():
-            for system_prompt_type, llm_role_definition in prompts.items():
-                new_prompt = cls(
-                    language=language,
-                    system_prompt_type=system_prompt_type,
-                    llm_role_definition=llm_role_definition,
-                    updated_by=updated_by,
-                )
-                session.add(new_prompt)
+        for language, llm_role_definition in ALL_DEFAULT_SYSTEM_PROMPT_ROLE.items():
+            new_prompt = cls(
+                language=language,
+                llm_role_definition=llm_role_definition,
+                updated_by=updated_by,
+            )
+            session.add(new_prompt)
 
     @classmethod
     @session_manager_decorator
@@ -193,30 +172,5 @@ class SystemPrompts(Base):
             A list of unique languages available in the system prompts.
         """
         stmt = sqlalchemy.select(cls.language).distinct()
-        result = session.execute(stmt).scalars().all()
-        return result
-
-    @classmethod
-    @session_manager_decorator
-    def get_system_prompt_types(
-        cls, language: str, *, session: Session | None = None
-    ) -> list[str]:
-        """
-        Retrieve all system prompt types for a given language.
-
-        Parameters
-        ----------
-        language : str
-            Language for which to retrieve system prompt types.
-        session : Session | None, optional
-            Automatically set by the context manager, by default None.
-            Should not be set manually.
-
-        Returns
-        -------
-        list[str]
-            A list of system prompt types available for the specified language.
-        """
-        stmt = sqlalchemy.select(cls.system_prompt_type).where(cls.language == language)
         result = session.execute(stmt).scalars().all()
         return result

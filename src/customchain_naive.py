@@ -142,11 +142,7 @@ class CustomLLMChain:
         self.template = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang][
             SystemPromptTypes.NAIVE
         ]
-        system_prompts = SystemPrompts.get_all(filter_by_language=self.instruction_lang)
-        self.roles = {
-            prompt.system_prompt_type: prompt.llm_role_definition
-            for prompt in system_prompts
-        }
+        self.assistant_role = SystemPrompts.get_by_language(self.instruction_lang)
 
     def load_index(self):
         # -- load BM25 retriever first
@@ -454,9 +450,8 @@ class CustomLLMChain:
         Returns:
             str: LLM generated text
         """
-        assistant_role = self.roles[SystemPromptTypes.NAIVE]
         prompt_format = self.template.format(
-            assistant_role=assistant_role, context=context, question=question
+            assistant_role=self.assistant_role, context=context, question=question
         )
         generated_text = await self.generate_text(prompt_format)
         return generated_text
