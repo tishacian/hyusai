@@ -18,6 +18,7 @@ class Metrics(TypedDict):
     correctness: float
     hhem: float
     Advance_HHEM: float
+    latency: float
 
 
 class HumanChat(TypedDict):
