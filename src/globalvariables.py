@@ -185,3 +185,34 @@ class OCRConfig(Enum):
     FORCE_OCR = get_backend_config().force_ocr_on_all_pdf
     LANGS = os.getenv("LANGS", "eng fra deu spa ita por kor ara").split(" ")
 
+
+class GPUMemoryStatus(Enum):
+    AVAILABLE = "available"
+    INSUFFICIENT = "insufficient"
+    UNAVAILABLE = "unavailable"
+
+
+# -- GPU memory requirements (in GiB)
+GPU_MEMORY_REQUIREMENTS = {
+    "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16": 16,
+    "neuralmagic/Meta-Llama-3.1-70B-Instruct-quantized.w4a16": 70,
+    "neuralmagic/Meta-Llama-3.1-405B-Instruct-quantized.w4a16": 200,
+    "neuralmagic/Meta-Llama-3-8B-Instruct-quantized.w4a16": 16,
+    "neuralmagic/Meta-Llama-3-70B-Instruct-quantized.w4a16": 70,
+    "neuralmagic/Llama-2-7b-chat-quantized.w4a16": 14,
+    "TheBloke/Llama-2-13B-chat-GPTQ": 26,
+    "neuralmagic/Mistral-7B-Instruct-v0.3-quantized.w4a16": 14,
+    "neuralmagic/Mistral-Nemo-Instruct-2407-quantized.w4a16": 8,
+    "neuralmagic/gemma-2-9b-it-quantized.w4a16": 18,
+    "neuralmagic/TinyLlama-1.1B-Chat-v1.0-marlin": 2,
+    "MBZUAI/LaMini-GPT-774M": 8,
+    "MBZUAI/LaMini-Neo-125M": 4,
+    "MBZUAI/LaMini-Cerebras-590M": 8,
+    "MBZUAI/LaMini-Flan-T5-783M": 8,
+}
+
+# -- Default requirement (7/8 of H100 memory ~70 GiB)
+DEFAULT_GPU_MEMORY_REQUIREMENT = 70
+
+# Safety margin memory (reserved memory, also in GiB)
+GPU_MEMORY_SAFETY_MARGIN = 2
