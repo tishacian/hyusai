@@ -6,16 +6,27 @@ import socket
 from streamlit.web import cli as stcli
 import warnings
 
+# Import the GPU manager
+from src.gpuselector import GPUSelector
+
 torch.classes.__path__ = []
-os.environ["CUDA_VISIBLE_DEVICES"] = (
-    "1" if torch.cuda.device_count() > 1 else "0"
-)
-os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 warnings.simplefilter(action="ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*deprecated.*")
+
+# -- GPU REQUIREMENTS
+gpu_selector = GPUSelector()
+gpu_selected = gpu_selector.auto_select_gpu()
+
+if gpu_selected is None:
+    os.environ["CUDA_VISIBLE_DEVICES"] = (
+        "1" if torch.cuda.device_count() > 1 else "0"
+    )
+
+# Set other environment variables
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
 def get_username_from_path():
@@ -52,7 +63,7 @@ def get_username_from_path():
 
     try:
         return os.getlogin()
-    except:
+    except OSError:
         return None
 
 
@@ -71,7 +82,8 @@ def available_port(
     Returns
     -------
     int or None
-        Available port number, or None if no port is available within the range.
+        Available port number, or None if no port is available within
+        the range.
     """
     for port in range(start_port, end_port + 1):
         try:
