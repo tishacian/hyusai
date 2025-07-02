@@ -391,4 +391,4 @@ def humanize_datetime(dt: datetime) -> str:
     """
     if not dt:
         return "N/A"
-    return dt.strftime("%B %d, %Y at %H:%M UTC")
+    return dt.strftime("%B %d, %Y at %H:%M")

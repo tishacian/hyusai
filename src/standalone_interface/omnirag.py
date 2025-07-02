@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 import time
@@ -9,7 +8,6 @@ from typing import Iterator
 import pandas as pd
 import streamlit as st
 import torch
-from PIL import Image
 
 from configuration import get_standalone_interface_config
 from src.chunker import TextChunker
@@ -33,14 +31,14 @@ from src.globalvariables import (
 )
 from src.metrics import DUMMY_METRICS
 from src.modeltokenizer import load_model_and_tokenizer
-from src.standalone_interface.style import (
-    BACKGROUND,
-    BUTTONS,
-    FILE_UPLOADER,
-    HEADER_METRICS,
-    SELECT_INPUT_STYLE,
-    THINKING_SPINNER,
+from src.standalone_interface.assets import (
+    AI_AVATAR,
+    AI_AVATAR_B64,
+    HUMAN_AVATAR,
+    HUMAN_AVATAR_B64,
+    omnirag_header,
 )
+from src.standalone_interface.style import apply_omnirag_style
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SYSTEM_PROMPT_LANGS_LIST
 from src.utils import humanize_datetime
 
@@ -71,46 +69,13 @@ def omnirag_page():
     model_name = device_default_model()
     instruction_lang = DEFAULT_SYSTEM_PROMPT_LANG
 
-    HUMAN_AVATAR_PATH = get_standalone_interface_config().human_chat_logo
-    AI_AVATAR_PATH = get_standalone_interface_config().ai_chat_logo
-
-    def load_avatar(image_path):
-        return Image.open(image_path).resize((128, 128))
-
-    def image_to_base64(image):
-        buffered = BytesIO()
-        image.save(buffered, format="PNG")
-        return base64.b64encode(buffered.getvalue()).decode()
-
-    # -- avatars
-    HUMAN_AVATAR = load_avatar(HUMAN_AVATAR_PATH)
-    AI_AVATAR = load_avatar(AI_AVATAR_PATH)
-
-    # -- avatars to base64
-    HUMAN_AVATAR_B64 = image_to_base64(HUMAN_AVATAR)
-    AI_AVATAR_B64 = image_to_base64(AI_AVATAR)
-
     st.set_page_config(
         page_title=get_standalone_interface_config().page_title,
         page_icon=get_standalone_interface_config().page_icon,
         layout="wide",
     )
-
-    st.markdown(HEADER_METRICS, unsafe_allow_html=True)
-    st.markdown(BUTTONS, unsafe_allow_html=True)
-    st.markdown(THINKING_SPINNER, unsafe_allow_html=True)
-    st.markdown(FILE_UPLOADER, unsafe_allow_html=True)
-    st.markdown(BACKGROUND, unsafe_allow_html=True)
-    st.markdown(SELECT_INPUT_STYLE, unsafe_allow_html=True)
-    st.markdown(
-        f"""
-    <div class="app-header">
-        <img src="data:image/png;base64,{AI_AVATAR_B64}" alt="AI Avatar"/>
-        <h1>{get_standalone_interface_config().header_title}</h1>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
+    apply_omnirag_style()
+    omnirag_header()
 
     # -- metrics style
     def display_metrics(metrics):
