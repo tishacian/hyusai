@@ -118,10 +118,12 @@ BUTTONS = """
                 /* Auto-hide sidebar */
                 [data-testid="stSidebar"] {
                     position: fixed !important;
-                    left: -320px;
+                    left: -299px;
                     top: -10px;
                     height: 100vh;
                     width: 300px;
+                    min-width: 300px;
+                    max-width: 300px;
                     transition: left 0.3s ease-in-out;
                     z-index: 100; /* Ensure sidebar is above other elements */
                 }
@@ -139,12 +141,11 @@ BUTTONS = """
                 
                 /* Adjust main content when sidebar is hidden or shown */
                 .main .block-container {
-                    padding-left: 20px;
                     transition: padding-left 0.3s ease-in-out;
                 }
                 
                 [data-testid="stSidebar"]:hover + .main .block-container {
-                    padding-left: 320px;
+                    padding-left: 380px;
                 }
                 </style>
                 
