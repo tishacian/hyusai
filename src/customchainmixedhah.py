@@ -163,7 +163,9 @@ class CustomLLMChain:
         self._initialize_contextual_retriever()
 
         self.templates = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang]
-        self.assistant_role = SystemPrompts.get_by_language(self.instruction_lang)
+        self.assistant_role = SystemPrompts.get_by_language(
+            self.instruction_lang
+        ).llm_role_definition
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count())
 
         self.perf_stats = {

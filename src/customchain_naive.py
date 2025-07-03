@@ -142,7 +142,9 @@ class CustomLLMChain:
         self.template = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang][
             SystemPromptTypes.NAIVE
         ]
-        self.assistant_role = SystemPrompts.get_by_language(self.instruction_lang)
+        self.assistant_role = SystemPrompts.get_by_language(
+            self.instruction_lang
+        ).llm_role_definition
 
     def load_index(self):
         # -- load BM25 retriever first
