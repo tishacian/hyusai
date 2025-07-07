@@ -39,7 +39,15 @@ def update_section() -> str:
     system_prompt = SystemPrompts.get_by_language(language)
 
     new_llm_role_definition = st.text_area(
-        label="LLM Instruction", value=system_prompt.llm_role_definition, height=200
+        label="Custom System Prompt Context",
+        value=system_prompt.llm_role_definition,
+        height=200,
+        help=(
+            "The assistant is already guided with reasoning instructions and structured "
+            "analysis steps tailored to the detected prompt type. Use this field to add "
+            "extra context such as tone, domain expertise, brand voice, or audience targeting. "
+            "This helps the assistant better reflect your specific use case or communication style."
+        ),
     )
 
     updated_by = st.text_input(
@@ -94,7 +102,7 @@ def prompt_page():
     apply_omnirag_style()
     omnirag_header()
     init_prompt_session_state()
-    st.title("🔧 LLM Instruction Manager")
+    st.title("🔧 System Prompt Customization")
     updated_by = update_section()
     st.markdown("---")
     reset_all_section(updated_by)
