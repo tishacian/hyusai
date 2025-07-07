@@ -9,10 +9,10 @@ REASONING_PATTERNS = {
     ReasoningType.HYPOTHETICAL: ["si", "serait", "pourrait", "devrait", "supposer", "présumer", "considérer", "prédire", "prévoir", "projeter", "estimer", "scénario", "situation", "cas", "instance", "possible", "probable", "potentiel", "alternative", "option", "choix", "chemin", "risque", "chance", "probabilité", "et si", "sinon", "alternativement", "à la place"],
 }  # fmt: skip
 
-DEFAULT_SYSTEM_PROMPT_ROLE = "Tu es un assistant IA."
+DEFAULT_SYSTEM_PROMPT_ROLE = ""
 
 SYSTEM_PROMPT_TEMPLATES = {
-    SystemPromptTypes.FACTUAL: """[INST] {assistant_role} Tu es spécialisé dans la fourniture d'informations précises et factuelles.
+    SystemPromptTypes.FACTUAL: """[INST] {assistant_role} Tu es un assistant IA spécialisé dans la fourniture d'informations précises et factuelles.
                                                 Étapes d'analyse :
                                                 1. Identifier les faits clés du contexte
                                                 2. Extraire les informations pertinentes
@@ -24,7 +24,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                 
                                                 Fournis une réponse factuelle claire en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.ANALYTICAL: """[INST] {assistant_role} Tu es spécialisé dans l'analyse approfondie.
+    SystemPromptTypes.ANALYTICAL: """[INST] {assistant_role} Tu es un assistant IA spécialisé dans l'analyse approfondie.
                                                 Étapes d'analyse :
                                                 1. Identifier l'objectif principal et les contraintes
                                                 2. Décomposer les exigences clés et les paramètres
@@ -39,7 +39,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                                                                
                                                 Fournis une analyse approfondie qui combine précision factuelle et renseignements analytiques en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.COMPARATIVE: """[INST] {assistant_role} Tu es spécialisé dans l'analyse comparative.
+    SystemPromptTypes.COMPARATIVE: """[INST] {assistant_role} Tu es un assistant IA spécialisé dans l'analyse comparative.
                                                 Étapes d'analyse :
                                                 1. Identifier les éléments à comparer
                                                 2. Examiner les similitudes et différences
@@ -51,7 +51,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                 
                                                 Fournis une analyse comparative en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.CAUSAL: """[INST] {assistant_role} Tu es spécialisé dans l'analyse causale.
+    SystemPromptTypes.CAUSAL: """[INST] {assistant_role} Tu es un assistant IA spécialisé dans l'analyse causale.
                                                 Étapes d'analyse :
                                                 1. Identifier les relations de cause à effet
                                                 2. Examiner les facteurs contribuants
@@ -63,7 +63,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                 
                                                 Explique les relations causales en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.HYPOTHETICAL: """[INST] {assistant_role} Tu es spécialisé dans le raisonnement hypothétique.
+    SystemPromptTypes.HYPOTHETICAL: """[INST] {assistant_role} Tu es un assistant IA spécialisé dans le raisonnement hypothétique.
                                                 Étapes d'analyse :
                                                 1. Considérer les hypothèses conditionnelles
                                                 2. Analyser les scénarios potentiels
@@ -75,7 +75,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                 
                                                 Explore ce scénario en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.NAIVE: """[INST] {assistant_role} Tu es spécialisé dans la fourniture d'informations précises et détaillées.
+    SystemPromptTypes.NAIVE: """[INST] {assistant_role} Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées.
                                                 Concentre-toi sur les informations importantes qui traitent directement du sujet ou de la question principale.
                                                 Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.
                                                 Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle.
@@ -101,8 +101,7 @@ PROMPT_SECTIONS_TO_REMOVE = [
     r"Contexte?\s*\d*\s*:((.|\n)*?)(?=Question\s*:)",
 ]
 PROMPT_PHRASES_TO_REMOVE = [
-    r"Tu es un assistant IA.*",
-    r"Tu es spécialisé dans .*",
+    r"Tu es un assistant IA spécialisé dans .*",
     r"Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.",
     r"Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle qui leur sont propres.",
     r"Ta tâche consiste à répondre à la question suivante en te basant sur le contexte donné.",
