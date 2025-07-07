@@ -12,7 +12,7 @@ REASONING_PATTERNS = {
 DEFAULT_SYSTEM_PROMPT_ROLE = ""
 
 SYSTEM_PROMPT_TEMPLATES = {
-    SystemPromptTypes.FACTUAL: """[INST] {assistant_role} You are an AI assistant specialized in providing precise and factual information.
+    SystemPromptTypes.FACTUAL: """[INST] You are an AI assistant specialized in providing precise and factual information. {assistant_role}
                                                 Analysis Steps:
                                                 1. Identify key facts from context
                                                 2. Extract relevant information
@@ -24,7 +24,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question: {question}
                                                 
                                                 Provide a clear factual response based on the context: [/INST]""",
-    SystemPromptTypes.ANALYTICAL: """[INST] {assistant_role} You are an AI assistant specialized in detailed analysis.
+    SystemPromptTypes.ANALYTICAL: """[INST] You are an AI assistant specialized in detailed analysis. {assistant_role}
                                                 Analysis Steps:
                                                 1. Identify the core goal and constraints
                                                 2. Break down key requirements and parameters
@@ -39,7 +39,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question: {question}
                                                                                                
                                                 Provide a thorough analysis that combines factual accuracy with analytical insights based on the context: [/INST]""",
-    SystemPromptTypes.COMPARATIVE: """[INST] {assistant_role} You are an AI assistant specialized in comparative analysis.
+    SystemPromptTypes.COMPARATIVE: """[INST] You are an AI assistant specialized in comparative analysis. {assistant_role}
                                                 Analysis Steps:
                                                 1. Identify elements for comparison
                                                 2. Examine similarities and differences
@@ -51,7 +51,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question: {question}
                                                 
                                                 Compare and contrast based on the context: [/INST]""",
-    SystemPromptTypes.CAUSAL: """[INST] {assistant_role} You are an AI assistant specialized in causal analysis.
+    SystemPromptTypes.CAUSAL: """[INST] You are an AI assistant specialized in causal analysis. {assistant_role}
                                                 Analysis Steps:
                                                 1. Identify cause-effect relationships
                                                 2. Examine contributing factors
@@ -63,7 +63,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question: {question}
                                                 
                                                 Explain the causal relationships based on the context: [/INST]""",
-    SystemPromptTypes.HYPOTHETICAL: """[INST] {assistant_role} You are an AI assistant specialized in hypothetical reasoning.
+    SystemPromptTypes.HYPOTHETICAL: """[INST] You are an AI assistant specialized in hypothetical reasoning. {assistant_role}
                                                 Analysis Steps:
                                                 1. Consider given conditions
                                                 2. Analyze potential scenarios
@@ -75,7 +75,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question: {question}
                                                 
                                                 Explore this scenario based on the context: [/INST]""",
-    SystemPromptTypes.NAIVE: """[INST] {assistant_role} You are an AI assistant specialized in providing precise and detailed information.
+    SystemPromptTypes.NAIVE: """[INST] You are an AI assistant specialized in providing precise and detailed information. {assistant_role}
                                                 Focus on important information that directly addresses the main topic or question.
                                                 Include relevant details that provide context or support your points.
                                                 Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, objectivity, and emotional resonance.
