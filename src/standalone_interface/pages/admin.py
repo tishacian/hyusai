@@ -48,6 +48,10 @@ def update_section() -> str:
             "extra context such as tone, domain expertise, brand voice, or audience targeting. "
             "This helps the assistant better reflect your specific use case or communication style."
         ),
+        placeholder=(
+            "Respond in a friendly tone for a healthcare audience. "
+            "Use plain language suitable for non-technical users."
+        ),
     )
 
     updated_by = st.text_input(
