@@ -508,14 +508,14 @@ class CustomLLMChain:
                 reasoning_type, confidence = result
                 if isinstance(reasoning_type, str):
                     try:
-                        reasoning_type = ReasoningType[reasoning_type]
+                        reasoning_type = ReasoningType(reasoning_type)
                     except KeyError:
                         reasoning_type = ReasoningType.ANALYTICAL
             elif isinstance(result, ReasoningType):
                 reasoning_type, confidence = result, 0.8
             elif isinstance(result, str):
                 try:
-                    reasoning_type = ReasoningType[result]
+                    reasoning_type = ReasoningType(result)
                     confidence = 0.8
                 except KeyError:
                     reasoning_type = ReasoningType.ANALYTICAL
