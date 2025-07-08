@@ -21,7 +21,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 import logging
 import sys
 
-from src.reasoning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from src.reasoning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs, TRIVIAL_TEMPLATES
 from src.cache import TieredCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
@@ -38,6 +38,7 @@ from src.globalvariables import (
     MAX_MODEL_LEN,
     EMBEDDING_NAME,
     DATA_PATH,
+    TRIVIAL_CONTEXT,
 )
 
 from src.metrics import Evaluatrix
@@ -1344,7 +1345,7 @@ class CustomLLMChain:
         """
         try:
             if is_trivial:
-                template = self.templates[ReasoningType.TRIVIAL]
+                template = TRIVIAL_TEMPLATES.get(self.instruction_lang)
             else:
                 reasoning_detect_start = time.time()
                 if not hasattr(self, "reasoning_metrics"):
@@ -1424,7 +1425,7 @@ class CustomLLMChain:
                 # Retrieve recent conversation context (lightweight)
                 conversation_context = await asyncio.to_thread(
                     self.conversation_memory.get_context_with_reasoning,
-                    ReasoningType.TRIVIAL,
+                    TRIVIAL_CONTEXT,
                 )
 
                 combined_context = conversation_context or ""

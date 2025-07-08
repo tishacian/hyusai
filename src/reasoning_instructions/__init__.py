@@ -10,6 +10,8 @@ from .fr import PROMPT_PHRASES_TO_REMOVE as FR_PROMPT_PHRASES_TO_REMOVE
 from .fr import PROMPT_SECTIONS_TO_REMOVE as FR_PROMPT_SECTIONS_TO_REMOVE
 from .fr import REASONING_INSTRUCTIONS as FR_REASONING_INSTRUCTIONS
 from .fr import REASONING_PATTERNS as FR_REASONING_PATTERNS
+from .en import TRIVIAL_TEMPLATE as EN_TRIVIAL_TEMPLATE
+from .fr import TRIVIAL_TEMPLATE as FR_TRIVIAL_TEMPLATE
 
 
 class InstructionLangs(StrEnum):
@@ -40,6 +42,11 @@ ALL_PROMPT_PHRASES_TO_REMOVE = {
     InstructionLangs.FR: FR_PROMPT_PHRASES_TO_REMOVE,
 }
 
+# Mapping of trivial templates by language (mirrors the pattern of other constants)
+TRIVIAL_TEMPLATES = {
+    InstructionLangs.EN: EN_TRIVIAL_TEMPLATE,
+    InstructionLangs.FR: FR_TRIVIAL_TEMPLATE,
+}
 
 __all__ = (
     "InstructionLangs",
@@ -49,4 +56,5 @@ __all__ = (
     "ALL_REASONING_INSTRUCTIONS",
     "ALL_PROMPT_SECTIONS_TO_REMOVE",
     "ALL_PROMPT_PHRASES_TO_REMOVE",
+    "TRIVIAL_TEMPLATES",
 )
