@@ -51,8 +51,8 @@ from src.utils import (
     load_stopwords,
 )
 
-# Import trivial-input detection from router
-from src.router import is_trivial_question
+# Import trivial detection
+from src.trivial_check import is_trivial_question
 
 logging.basicConfig(
     stream=sys.stdout,

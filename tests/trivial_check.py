@@ -1,6 +1,6 @@
 import pytest
 
-from src.router import is_trivial_question
+from src.trivial_check import is_trivial_question
 from src.reasoning_instructions import InstructionLangs
 
 
