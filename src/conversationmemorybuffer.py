@@ -10,8 +10,8 @@ import sys
 import logging
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple
-from src.globalvariables import ReasoningType
+from typing import List, Dict, Optional, Tuple, Union
+from src.globalvariables import ReasoningType, TRIVIAL_CONTEXT
 
 # --
 logging.basicConfig(
@@ -122,7 +122,7 @@ class ConversationMemoryBuffer:
         logging.info("Conversation buffer cleared")
 
     def get_context_with_reasoning(
-        self, reasoning_type: "ReasoningType"
+        self, reasoning_type: "Union[ReasoningType, str]"
     ) -> str:
         """
         Context with reasoning template
@@ -145,12 +145,11 @@ class ConversationMemoryBuffer:
                 "ReasoningType.COMPARATIVE": "Previous comparison points:\n",
                 "ReasoningType.CAUSAL": "Earlier cause-effect discussion:\n",
                 "ReasoningType.HYPOTHETICAL": "Previous hypothetical scenarios:\n",
-                "ReasoningType.TRIVIAL": "Previous conversation history:\n",
+                TRIVIAL_CONTEXT: "Previous conversation history:\n",
             }
 
-            prefix = reasoning_prefixes.get(
-                str(reasoning_type), "Previous context:\n"
-            )
+            key = str(reasoning_type)
+            prefix = reasoning_prefixes.get(key, "Previous context:\n")
             return f"{prefix}{recent_context}"
 
         except Exception as e:

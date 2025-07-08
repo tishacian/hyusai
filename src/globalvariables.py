@@ -86,7 +86,6 @@ class ReasoningType(Enum):
     COMPARATIVE = "comparative"
     CAUSAL = "causal"
     HYPOTHETICAL = "hypothetical"
-    TRIVIAL = "trivial"
 
 
 # %% StrEnums
@@ -1318,3 +1317,6 @@ TRIVIAL_FRENCH_VOCABULARY: set[str] = {
     "damné",
     "damnée",
 }
+
+# Trivial conversation context constant
+TRIVIAL_CONTEXT = "TRIVIAL"
