@@ -76,13 +76,21 @@ REASONING_INSTRUCTIONS = {
 NAIVE_INSTRUCTION = """[INST] You are an AI assistant specialized in providing precise and detailed information. Focus on important information that directly addresses the main topic or question.
                                                 Include relevant details that provide context or support your points.
                                                 Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, objectivity, and emotional resonance.
-                                                
+
                                                 Your task is to answer the following question based on the given context:
                                                 {context}
-                                                
-                                                Question: {question}
-                                                
+
+Question: {question}
+
                                                 Answer: [/INST]"""
+
+# Trivial template for simple greetings/courtesy messages
+TRIVIAL_TEMPLATE = """[INST] You are a friendly conversational assistant. If there is any previous conversation below, keep it in mind. Otherwise just answer the user's short message naturally (greeting, thanks, farewell, etc.). Do NOT provide additional information beyond what is appropriate for the user's message.
+
+{context}
+
+User: {question}
+Assistant: [/INST]"""
 
 PROMPT_SECTIONS_TO_REMOVE = [
     r"Analysis Steps\s*:(.*?)(?=Context\s*\d*\s*:)",

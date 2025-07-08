@@ -79,10 +79,18 @@ NAIVE_INSTRUCTION = """[INST] Tu es un assistant IA spécialisé dans la fournit
 
                                                 Ta tâche consiste à répondre à la question suivante en te basant sur le contexte donné :
                                                 {context}
-                                                
-                                                Question : {question}
-                                                
+
+Question : {question}
+
                                                 Réponse : [/INST]"""
+
+# Template trivial pour les messages de salutation/courtoisie simples
+TRIVIAL_TEMPLATE = """[INST] Tu es un assistant conversationnel amical. Si il y a une conversation précédente ci-dessous, garde-la à l'esprit. Sinon, réponds simplement au message court de l'utilisateur de manière naturelle (salutation, remerciements, adieu, etc.). Ne fournis PAS d'informations supplémentaires au-delà de ce qui est approprié pour le message de l'utilisateur.
+
+{context}
+
+Utilisateur: {question}
+Assistant: [/INST]"""
 
 PROMPT_SECTIONS_TO_REMOVE = [
     r"Étapes d'analyse\s*:((.|\n)*?)(?=Contexte?\s*\d*\s*:)",

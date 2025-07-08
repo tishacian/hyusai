@@ -137,4 +137,4 @@ echo "Try to detect nvidia-smi"
 	pip install -r requirements/cpu.txt
 }
 
-pip install -r requirements/shared.txt -r requirements/standalone_interface.txt
+pip install -r requirements/shared.txt -r requirements/standalone_interface.txt -r requirements/test.txt
