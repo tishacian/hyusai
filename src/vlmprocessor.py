@@ -86,7 +86,9 @@ class BaseVLM(ABC):
             image = self._load_image(image_path)
             combined_prompt = self._get_standard_prompt()
 
-            full_response = await self._generate_response(image, combined_prompt)
+            full_response = await self._generate_response(
+                image, combined_prompt
+            )
             extracted_text, description = (
                 ResponseParser.parse_combined_response(full_response)
             )
@@ -114,16 +116,18 @@ class BaseVLM(ABC):
     def _get_standard_prompt(self) -> str:
         """Get the standard prompt for all VLM models."""
         return (
-            "You are an advanced AI agent specialized in image analysis and OCR. "
-            "Analyze this image and provide results in exactly this format:\n\n"
-            "OCR TEXT: [Perform OCR now and extract any visible text, numbers, "
-            "symbols, or characters. If no text is visible, write 'No visible "
-            "text found']\n\n"
-            "IMAGE DESCRIPTION: [Describe the image content including objects, "
-            "people, scenes, colors, layout, and visual elements]\n\n"
-            "Important: Actually perform OCR and extract real text. Do not "
-            "repeat instructions. Only return the OCR TEXT and IMAGE DESCRIPTION "
-            "sections with actual results."
+            "You are an advanced AI agent specialized in image analysis "
+            "and OCR. Analyze this image and provide results in exactly "
+            "this format:\n\n"
+            "OCR TEXT: [Perform OCR now and extract any visible text, "
+            "numbers, symbols, or characters. If no text is visible, "
+            "write 'No visible text found']\n\n"
+            "IMAGE DESCRIPTION: [Describe the image content including "
+            "objects, people, scenes, colors, layout, and visual "
+            "elements]\n\n"
+            "Important: Actually perform OCR and extract real text. "
+            "Do not repeat instructions. Only return the OCR TEXT and "
+            "IMAGE DESCRIPTION sections with actual results."
         )
 
     def _get_confidence(self) -> float:
@@ -584,7 +588,9 @@ class BaseVLLMVLM(BaseVLM):
         with ThreadPoolExecutor() as executor:
             outputs = await loop.run_in_executor(
                 executor,
-                lambda: self.llm.generate([prepared_prompt], self.sampling_params),
+                lambda: self.llm.generate(
+                    [prepared_prompt], self.sampling_params
+                ),
             )
 
         return outputs[0].outputs[0].text.strip()
@@ -602,7 +608,7 @@ class BaseVLLMVLM(BaseVLM):
         Returns
         -------
         str
-            Prepared prompt.    
+            Prepared prompt.
         """
         config = get_vlm_config()
         max_size = config.max_image_size
@@ -642,7 +648,8 @@ class BaseVLLMVLM(BaseVLM):
             if estimated_tokens >= config.max_tokens_limit:
                 raise ValueError(
                     f"Image too large even after optimization: "
-                    f"{estimated_tokens} tokens (limit: {config.max_tokens_limit})"
+                    f"{estimated_tokens} tokens "
+                    f"(limit: {config.max_tokens_limit})"
                 )
 
         return f"<image>{img_base64}</image>\n{prompt}"
@@ -774,7 +781,7 @@ class SmolVLM(BaseVLM):
         self,
         model_name: str = "HuggingFaceTB/SmolVLM-500M-Instruct",
         device: str = None,
-    ):  
+    ):
         """init
         Parameters
         ----------
@@ -1007,7 +1014,7 @@ class QwenVLM(BaseVLM):
                 no_repeat_ngram_size=3,
             )
             generated_ids_trimmed = [
-                out_ids[len(in_ids) :]
+                out_ids[len(in_ids):]
                 for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
             ]
             output_text = self.processor.batch_decode(
