@@ -53,8 +53,8 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-# Import trivial-input detector
-from src.router import is_trivial_question
+# Import trivial detection
+from src.trivial_check import is_trivial_question
 
 # %% Custom LLMChain
 
