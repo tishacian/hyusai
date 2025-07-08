@@ -6,11 +6,13 @@ Created on Fri Feb 14 16:45:10 2025
 @author: kennethezukwoke
 """
 
+from __future__ import annotations
+
 import sys
 import logging
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple, Union
+from typing import Any
 from src.globalvariables import ReasoningType, TRIVIAL_CONTEXT
 
 # --
@@ -28,7 +30,7 @@ class Message:
     role: str  # 'user' or 'assistant'
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
-    metadata: Dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -36,10 +38,10 @@ class ConversationMemoryBuffer:
     """Manages conversation history with a fixed-size buffer of recent messages"""
 
     max_turns: int = 2  # last 2 conversation
-    messages: List[Message] = field(default_factory=list)
+    messages: list[Message] = field(default_factory=list)
 
     def add_message(
-        self, role: str, content: str, metadata: Optional[Dict] = None
+        self, role: str, content: str, metadata: dict[str, Any] | None = None
     ) -> None:
         """Manages conversation history with a fixed-size buffer of recent messages
         Add a new message to the conversation history
@@ -65,7 +67,7 @@ class ConversationMemoryBuffer:
         except Exception as e:
             logging.error(f"Error adding message to buffer: {e}")
 
-    def get_recent_context(self, num_turns: Optional[int] = None) -> str:
+    def get_recent_context(self, num_turns: int | None = None) -> str:
         """
         Format recent conversation for LLM
 
@@ -89,7 +91,7 @@ class ConversationMemoryBuffer:
             logging.error(f"Error getting conversation context: {e}")
             return ""
 
-    def get_last_exchange(self) -> Tuple[Optional[str], Optional[str]]:
+    def get_last_exchange(self) -> tuple[str | None, str | None]:
         """
         Most recent user-assistant exchange
 
@@ -122,7 +124,7 @@ class ConversationMemoryBuffer:
         logging.info("Conversation buffer cleared")
 
     def get_context_with_reasoning(
-        self, reasoning_type: "Union[ReasoningType, str]"
+        self, reasoning_type: ReasoningType | str
     ) -> str:
         """
         Context with reasoning template
