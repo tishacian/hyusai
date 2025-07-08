@@ -888,44 +888,7 @@ class PDFToMarkdownConverter:
             f"[Table content would be extracted here]\n\n"
         )
 
-    def _process_text_content(
-        self, page_elements: list, page_content: list[str], page_num: int
-    ) -> None:
-        """Process text content on a page.
 
-        Parameters
-        ----------
-        page_elements : list
-            Page layout elements.
-        page_content : list[str]
-            List to append markdown content.
-        page_num : int
-            Page number.
-        """
-        text_boxes = [
-            elem for elem in page_elements if isinstance(elem, LTTextBox)
-        ]
-        text_boxes.sort(key=lambda x: x.y0, reverse=True)
-        merged_text_boxes = self._merge_split_headers(text_boxes)
-
-        for text_box in merged_text_boxes:
-            text = text_box.get_text().strip()
-            if text:
-                header_level = self._get_header_level(text_box)
-
-                if header_level > 0:
-                    hashes = "#" * header_level
-                    formatted_text = f"{hashes} {text}\n\n"
-                    if 1 <= header_level <= 6:
-                        self.stats["headers"][f"h{header_level}"] += 1
-                    else:
-                        self.stats["headers"]["h1"] += 1  # fallback to h1
-                else:
-                    formatted_text = f"{text}\n\n"
-                    self.stats["paragraphs"] += 1
-
-                page_content.append(formatted_text)
-                self._add_to_structure(page_num, "text", text)
 
     def _detect_header_by_pattern(self, text: str, font_size: float) -> int:
         """Detect headers based on text patterns commonly found in documents.
@@ -1149,12 +1112,25 @@ class PDFToMarkdownConverter:
         content : str
             Element content.
         """
+        is_header = False
+        header_level = 0
+
+        if element_type == "text":
+            if content.strip().startswith("#"):
+                is_header = True
+                header_level = len(content) - len(content.lstrip("#"))
+            elif re.match(r"^\d+\.", content.strip()):
+                is_header = True
+                header_level = 2
+
         self.document_structure.append(
             {
                 "page": page_num,
                 "type": element_type,
                 "content": content,
                 "position": len(self.document_structure),
+                "is_header": is_header,
+                "header_level": header_level,
             }
         )
 
@@ -1224,7 +1200,7 @@ class PDFToMarkdownConverter:
             for elem in page_elements
             if hasattr(elem, "__class__") and "Line" in elem.__class__.__name__
         ]
-        if len(lines) >= 4:  # Potential table structure
+        if len(lines) >= 4:
             self.stats["tables"]["total"] += 1
 
     async def _process_images_with_vlm(self, images_dir: str) -> None:
@@ -1303,25 +1279,52 @@ class PDFToMarkdownConverter:
 
         lines = markdown_content.split("\n")
         enhanced_lines = []
+        image_count = 0
+        enhanced_count = 0
 
         for line in lines:
             enhanced_lines.append(line)
 
             if line.strip().startswith("![") and line.strip().endswith(")"):
+                image_count += 1
                 match = re.search(r"!\[([^\]]+)\]", line)
                 if match:
                     image_name = match.group(1)
-
+                    
+                    # Try to find VLM result with different name variations
+                    vlm_result = None
+                    
+                    # First try exact match
                     if image_name in self.vlm_results:
                         vlm_result = self.vlm_results[image_name]
-                        if vlm_result and (
-                            vlm_result.extracted_text or vlm_result.description
-                        ):
-                            analysis_text = self.vlm_processor.format_vlm_result_for_markdown(
-                                vlm_result
-                            )
-                            enhanced_lines.append(analysis_text)
-                            enhanced_lines.append("")
+                        print(f"Markdown enhancement: Found exact match for {image_name}")
+                    else:
+                        # Try without extension
+                        image_name_no_ext = Path(image_name).stem
+                        if image_name_no_ext in self.vlm_results:
+                            vlm_result = self.vlm_results[image_name_no_ext]
+                            print(f"Markdown enhancement: Found match without extension for {image_name} -> {image_name_no_ext}")
+                        else:
+                            # Try with common extensions
+                            for ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
+                                test_name = image_name_no_ext + ext
+                                if test_name in self.vlm_results:
+                                    vlm_result = self.vlm_results[test_name]
+                                    print(f"Markdown enhancement: Found match with extension for {image_name} -> {test_name}")
+                                    break
+
+                    if vlm_result and (
+                        vlm_result.extracted_text or vlm_result.description
+                    ):
+                        analysis_text = self.vlm_processor.format_vlm_result_for_markdown(
+                            vlm_result
+                        )
+                        enhanced_lines.append(analysis_text)
+                        enhanced_lines.append("")
+                        enhanced_count += 1
+                        print(f"Markdown enhancement: Added VLM analysis for {image_name}")
+                    else:
+                        print(f"Markdown enhancement: No VLM result found for {image_name}")
 
         return "\n".join(enhanced_lines)
 
@@ -1443,7 +1446,7 @@ class PDFToMarkdownConverter:
             f.write(content)
 
     def _export_structure_to_excel(self, excel_path: str) -> None:
-        """Export document structure to Excel file.
+        """Export document structure to Excel file with enhanced organization.
 
         Parameters
         ----------
@@ -1453,31 +1456,217 @@ class PDFToMarkdownConverter:
         if not self.document_structure:
             return
 
-        df_data = []
+        structured_data = []
+        current_section = ""
+        current_subsection = ""
+        section_counter = 0
+        subsection_counters = {}
+        page_sections = {}
+        current_page_section = {
+            "page": 1,
+            "section": "",
+            "paragraphs": [],
+            "bullets": [],
+            "images": [],
+            "tables": [],
+        }
+
         for item in self.document_structure:
-            row = {
-                "Page": item["page"],
-                "Type": item["type"],
-                "Content": item["content"],
-                "Position": item["position"],
-            }
+            page_num = item["page"]
+            content_type = item["type"]
+            content = item["content"]
 
-            if item["type"] == "image" and item["content"] in self.vlm_results:
-                vlm_result = self.vlm_results[item["content"]]
-                row["VLM_Description"] = (
-                    vlm_result.description if vlm_result else ""
+            if page_num not in page_sections:
+                page_sections[page_num] = []
+
+            if content_type == "text":
+                header_level = self._detect_content_header_level(content)
+
+                if header_level > 0:
+                    if (
+                        current_page_section["paragraphs"]
+                        or current_page_section["bullets"]
+                        or current_page_section["images"]
+                        or current_page_section["tables"]
+                    ):
+                        page_sections[current_page_section["page"]].append(
+                            current_page_section.copy()
+                        )
+
+                    if header_level <= 2:  # -- main section
+                        section_counter += 1
+                        current_section = str(section_counter)
+                        subsection_counters = {}
+                        current_subsection = ""
+                    elif header_level <= 4:  # subsection
+                        if current_section not in subsection_counters:
+                            subsection_counters[current_section] = 0
+                        subsection_counters[current_section] += 1
+                        current_subsection = f"{current_section}.{subsection_counters[current_section]}"
+                    else:  # sub-subsections
+                        if (
+                            current_subsection
+                            and current_subsection in subsection_counters
+                        ):
+                            subsection_counters[current_subsection] = (
+                                subsection_counters.get(current_subsection, 0)
+                                + 1
+                            )
+                            section_num = f"{current_subsection}.{subsection_counters[current_subsection]}"
+                        else:
+                            section_num = (
+                                current_subsection
+                                if current_subsection
+                                else current_section
+                            )
+
+                    # Start new section
+                    section_num = (
+                        current_subsection
+                        if current_subsection
+                        else current_section
+                    )
+                    current_page_section = {
+                        "page": page_num,
+                        "section": section_num,
+                        "section_title": content.strip(),
+                        "paragraphs": [],
+                        "bullets": [],
+                        "images": [],
+                        "tables": [],
+                        "original_text": content,
+                    }
+                else:
+                    # Regular paragraph content
+                    cleaned_content = content.strip()
+                    if cleaned_content:
+                        # Check if it's a bullet point
+                        if cleaned_content.startswith(
+                            ("•", "-", "*", "·")
+                        ) or re.match(r"^\d+\.", cleaned_content):
+                            current_page_section["bullets"].append(
+                                cleaned_content
+                            )
+                        else:
+                            current_page_section["paragraphs"].append(
+                                cleaned_content
+                            )
+
+            elif content_type == "image":
+                current_page_section["images"].append(content)
+
+            elif content_type == "table":
+                current_page_section["tables"].append(content)
+
+        if (
+            current_page_section["paragraphs"]
+            or current_page_section["bullets"]
+            or current_page_section["images"]
+            or current_page_section["tables"]
+        ):
+            page_sections[current_page_section["page"]].append(
+                current_page_section.copy()
+            )
+
+        for page_num in sorted(page_sections.keys()):
+            sections = page_sections[page_num]
+
+            if not sections:
+                structured_data.append(
+                    {
+                        "Page": page_num,
+                        "Image Tag": "",
+                        "Section": "",
+                        "Section Title": "",
+                        "Paragraphs": "",
+                        "Bullet Points": "",
+                        "Tables": "",
+                        "Original Text": "",
+                        "VLM Caption": "",
+                        "VLM Description": "",
+                    }
                 )
-                row["VLM_Extracted_Text"] = (
-                    vlm_result.extracted_text if vlm_result else ""
+
+            for section_data in sections:
+                paragraphs_text = (
+                    "\n\n".join(section_data["paragraphs"])
+                    if section_data["paragraphs"]
+                    else ""
                 )
-            else:
-                row["VLM_Description"] = ""
-                row["VLM_Extracted_Text"] = ""
 
-            df_data.append(row)
+                bullets_text = (
+                    "\n".join(section_data["bullets"])
+                    if section_data["bullets"]
+                    else ""
+                )
 
-        df = pd.DataFrame(df_data)
+                image_tags = ""
+                vlm_captions = ""
+                vlm_descriptions = ""
 
+                if section_data["images"]:
+                    image_tags = "; ".join(section_data["images"])
+
+                    # Get VLM data for images if available
+                    if self.config.enable_vlm and self.vlm_results:
+                        captions = []
+                        descriptions = []
+
+                        for image_name in section_data["images"]:
+                            # Extract base name without extension for VLM lookup
+                            base_name = (
+                                image_name.replace(".png", "")
+                                .replace(".jpg", "")
+                                .replace(".jpeg", "")
+                            )
+
+                            if base_name in self.vlm_results:
+                                vlm_result = self.vlm_results[base_name]
+                                if vlm_result:
+                                    if vlm_result.extracted_text:
+                                        captions.append(
+                                            vlm_result.extracted_text
+                                        )
+                                    if vlm_result.description:
+                                        descriptions.append(
+                                            vlm_result.description
+                                        )
+
+                        vlm_captions = (
+                            "\n---\n".join(captions) if captions else ""
+                        )
+                        vlm_descriptions = (
+                            "\n---\n".join(descriptions)
+                            if descriptions
+                            else ""
+                        )
+
+                # Handle tables
+                tables_text = (
+                    "; ".join(section_data["tables"])
+                    if section_data["tables"]
+                    else ""
+                )
+
+                # Create row data
+                row_data = {
+                    "Page": page_num,
+                    "Image Tag": image_tags,
+                    "Section": section_data.get("section", ""),
+                    "Section Title": section_data.get("section_title", ""),
+                    "Paragraphs": paragraphs_text,
+                    "Bullet Points": bullets_text,
+                    "Tables": tables_text,
+                    "Original Text": section_data.get("original_text", ""),
+                }
+
+                if self.config.enable_vlm:
+                    row_data["VLM Caption"] = vlm_captions
+                    row_data["VLM Description"] = vlm_descriptions
+
+                structured_data.append(row_data)
+
+        df = pd.DataFrame(structured_data)
         with pd.ExcelWriter(excel_path, engine="xlsxwriter") as writer:
             df.to_excel(writer, index=False, sheet_name="Document_Structure")
 
@@ -1490,15 +1679,113 @@ class PDFToMarkdownConverter:
                     "bg_color": "#4CAF50",
                     "font_color": "white",
                     "border": 1,
+                    "text_wrap": True,
+                    "align": "center",
+                    "valign": "top",
+                }
+            )
+
+            section_format = workbook.add_format(
+                {
+                    "bold": True,
+                    "bg_color": "#E8F5E8",
+                    "border": 1,
+                    "text_wrap": True,
+                    "align": "left",
+                    "valign": "top",
+                }
+            )
+
+            cell_format = workbook.add_format(
+                {
+                    "text_wrap": True,
+                    "align": "left",
+                    "valign": "top",
+                    "border": 1,
                 }
             )
 
             for col_num, value in enumerate(df.columns.values):
                 worksheet.write(0, col_num, value, header_format)
 
-            for i, col in enumerate(df.columns):
-                max_len = max(df[col].astype(str).apply(len).max(), len(col))
-                worksheet.set_column(i, i, min(max_len + 2, 50))
+            for row_num in range(1, len(df) + 1):
+                for col_num, col_name in enumerate(df.columns):
+                    cell_value = df.iloc[row_num - 1, col_num]
+
+                    if col_name == "Section Title" and str(cell_value).strip():
+                        worksheet.write(
+                            row_num, col_num, cell_value, section_format
+                        )
+                    else:
+                        worksheet.write(
+                            row_num, col_num, cell_value, cell_format
+                        )
+
+            # Set column widths
+            column_widths = {
+                "Page": 8,
+                "Image Tag": 20,
+                "Section": 10,
+                "Section Title": 30,
+                "Paragraphs": 50,
+                "Bullet Points": 40,
+                "Tables": 25,
+                "Original Text": 40,
+            }
+
+            if self.config.enable_vlm:
+                column_widths["VLM Caption"] = 35
+                column_widths["VLM Description"] = 35
+
+            for col_num, (col_name, width) in enumerate(column_widths.items()):
+                if col_name in df.columns:
+                    worksheet.set_column(col_num, col_num, width)
+
+            worksheet.set_default_row(30)
+
+    def _detect_content_header_level(self, content: str) -> int:
+        """Detect if content is a header and return its level.
+
+        Parameters
+        ----------
+        content : str
+            Content to analyze.
+
+        Returns
+        -------
+        int
+            Header level (1-6) or 0 if not a header.
+        """
+        return self._detect_header_by_pattern(
+            content, 12
+        )  # use default font size for pattern. should be less than 14
+
+    def _is_bullet_point(self, text: str) -> bool:
+        """Check if text is a bullet point.
+
+        Parameters
+        ----------
+        text : str
+            Text to check.
+
+        Returns
+        -------
+        bool
+            True if text is a bullet point.
+        """
+        text = text.strip()
+        bullet_patterns = [
+            r"^[•\-\*]\s+",  # • - *
+            r"^\d+\.\s+",  # 1. 2. etc.
+            r"^[a-z]\)\s+",  # a) b) etc.
+            r"^[A-Z]\)\s+",  # A) B) etc.
+        ]
+
+        for pattern in bullet_patterns:
+            if re.match(pattern, text):
+                return True
+
+        return False
 
 
 async def markdown_converter_async(
