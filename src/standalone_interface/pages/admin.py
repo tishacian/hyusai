@@ -3,6 +3,7 @@ import streamlit as st
 from configuration import get_standalone_interface_config
 from src.db.system_prompts import SystemPrompts
 from src.standalone_interface.assets import omnirag_header
+from src.standalone_interface.components.auth import auth_component
 from src.standalone_interface.style import apply_omnirag_style
 from src.utils import humanize_datetime
 
@@ -98,13 +99,6 @@ def update_section() -> str:
 
 
 def prompt_page():
-    st.set_page_config(
-        page_title=get_standalone_interface_config().page_title,
-        page_icon=get_standalone_interface_config().page_icon,
-        layout="wide",
-    )
-    apply_omnirag_style()
-    omnirag_header()
     init_prompt_session_state()
     st.title("🔧 System Prompt Customization")
     updated_by = update_section()
@@ -113,4 +107,13 @@ def prompt_page():
 
 
 if __name__ == "__main__":
-    prompt_page()
+    st.set_page_config(
+        page_title=get_standalone_interface_config().page_title,
+        page_icon=get_standalone_interface_config().page_icon,
+        layout="wide",
+    )
+    apply_omnirag_style()
+    omnirag_header()
+    auth_component()
+    if st.session_state.get("authentication_status"):
+        prompt_page()

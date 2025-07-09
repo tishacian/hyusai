@@ -37,6 +37,7 @@ from src.standalone_interface.assets import (
     HUMAN_AVATAR_B64,
     omnirag_header,
 )
+from src.standalone_interface.components.auth import auth_component
 from src.standalone_interface.style import apply_omnirag_style
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SYSTEM_PROMPT_LANGS_LIST
 from src.utils import humanize_datetime
@@ -67,14 +68,6 @@ def omnirag_page():
     index_type = IndexType.FAISS
     model_name = device_default_model()
     instruction_lang = DEFAULT_SYSTEM_PROMPT_LANG
-
-    st.set_page_config(
-        page_title=get_standalone_interface_config().page_title,
-        page_icon=get_standalone_interface_config().page_icon,
-        layout="wide",
-    )
-    apply_omnirag_style()
-    omnirag_header()
 
     # -- metrics style
     def display_metrics(metrics):
@@ -732,4 +725,13 @@ def omnirag_page():
 
 
 if __name__ == "__main__":
-    omnirag_page()
+    st.set_page_config(
+        page_title=get_standalone_interface_config().page_title,
+        page_icon=get_standalone_interface_config().page_icon,
+        layout="wide",
+    )
+    apply_omnirag_style()
+    omnirag_header()
+    auth_component()
+    if st.session_state.get("authentication_status"):
+        omnirag_page()
