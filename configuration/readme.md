@@ -60,3 +60,14 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
 - `DEFAULT_GPU_MODEL` (str)
     - Default GPU model.
     - By default `"neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"`
+- `COOKIE_NAME` (str)
+    - Name of the authentification cookie.
+    - By default `omnirag_auth`
+- `COOKIE_KEY` (str)
+    - Secret key for the authentification cookie.
+    Consider setting this to a set value using a private .env file to fully benefit from
+    the authentification cookie after restart.
+    - By default `secrets.token_hex(32)`
+- `COOKIE_EXPIRY_DAYS` (int)
+    - Number of days the authentification cookie will be valid.
+    - By default `1`
