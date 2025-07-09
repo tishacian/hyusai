@@ -1,0 +1,177 @@
+from sqlalchemy import Column, DateTime, Integer, String, select, update
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
+from streamlit_authenticator import Hasher
+
+from src.db.utils import Base, session_manager_decorator
+
+
+class Users(Base):
+    """ORM model for user table."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, nullable=False, default=func.now())
+    updated_at = Column(
+        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    )
+    email = Column(String(128), nullable=False, unique=True)
+    password_hash = Column(String(256), nullable=False)
+    name = Column(String(128), nullable=False)
+    role = Column(String(64), nullable=False, default="user")
+
+    @classmethod
+    @session_manager_decorator
+    def get_all(cls, *, session: Session = None) -> list["Users"]:
+        """Get all users from the database.
+
+        Returns
+        -------
+        list[Users]
+            A list of all users in the database.
+        """
+        return session.execute(select(cls)).scalars().all()
+
+    @classmethod
+    @session_manager_decorator
+    def get_by_id(cls, user_id: int, *, session: Session = None) -> "Users | None":
+        """Get a user by their ID.
+
+        Parameters
+        ----------
+        user_id : int
+            The ID of the user to retrieve.
+        session : Session, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+
+        Returns
+        -------
+        Users | None
+            The user object if found, otherwise None.
+        """
+        return session.execute(
+            select(cls).where(cls.id == user_id)
+        ).scalar_one_or_none()
+
+    @classmethod
+    @session_manager_decorator
+    def get_by_email(cls, email: str, *, session: Session = None) -> "Users | None":
+        """Get a user by their email.
+
+        Parameters
+        ----------
+        email : str
+            The email of the user to retrieve.
+        session : Session, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+
+        Returns
+        -------
+        Users | None
+            The user object if found, otherwise None.
+        """
+        return session.execute(
+            select(cls).where(cls.email == email)
+        ).scalar_one_or_none()
+
+    @classmethod
+    @session_manager_decorator
+    def add_user(
+        cls,
+        email: str,
+        password: str,
+        name: str,
+        role: str = "user",
+        *,
+        session: Session = None,
+    ) -> "Users":
+        """Add a new user to the database.
+
+        Parameters
+        ----------
+        email : str
+            The email of the user.
+        password : str
+            The password of the user.
+        name : str
+            The name of the user.
+        role : str, optional
+            The role of the user, by default "user"
+        session : Session, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+
+        Returns
+        -------
+        Users
+            The newly created user object.
+        """
+        hashed_pw = Hasher.hash(password)
+        new_user = cls(
+            email=email,
+            password_hash=hashed_pw,
+            name=name,
+            role=role,
+        )
+        session.add(new_user)
+        return new_user
+
+    @classmethod
+    @session_manager_decorator
+    def update_password(
+        cls, user_id: int, new_password: str, *, session: Session = None
+    ) -> None:
+        """Update the password for a user.
+
+        Parameters
+        ----------
+        user_id : int
+            The ID of the user whose password is to be updated.
+        new_password : str
+            The new password for the user.
+        session : Session, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+        """
+        hashed_pw = Hasher.hash(new_password)
+        session.execute(
+            update(cls).where(cls.id == user_id).values(password_hash=hashed_pw)
+        )
+
+    @classmethod
+    @session_manager_decorator
+    def update_profile(
+        cls,
+        user_id: int,
+        *,
+        name: str | None = None,
+        role: str | None = None,
+        session: Session = None,
+    ) -> None:
+        """Update the profile of a user.
+
+        Parameters
+        ----------
+        user_id : int
+            The ID of the user whose profile is to be updated.
+        name : str | None, optional
+            The new name for the user, by default None.
+            If None, the name will not be updated.
+        role : str | None, optional
+            The new role for the user, by default None.
+            If None, the role will not be updated.
+        session : Session, optional
+            Automatically set by the context manager, by default None.
+            Should not be set manually.
+        """
+        updates = {}
+        if name is not None:
+            updates["name"] = name
+        if role is not None:
+            updates["role"] = role
+
+        if updates:
+            session.execute(update(cls).where(cls.id == user_id).values(**updates))

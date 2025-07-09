@@ -1,5 +1,6 @@
 from .chats import Chats  # required for tables creation
 from .system_prompts import SystemPrompts
+from .users import Users  # required for tables creation
 from .utils import Base, get_engine
 
 
