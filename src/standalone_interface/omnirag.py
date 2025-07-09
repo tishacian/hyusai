@@ -155,7 +155,7 @@ def omnirag_page():
         st.session_state.chunking_method = None
     if "index_type" not in st.session_state:
         st.session_state.index_type = None
-    if "model_name" not in st.session_state:
+    if "model_name" not in st.session_state or "tokenizer" not in st.session_state:
         st.session_state.model_name = device_default_model()
         init_cached_model(st.session_state.model_name, REPO_PATH)
     if "expand_doc_embedding" not in st.session_state:
