@@ -399,6 +399,17 @@ def humanize_datetime(dt: datetime) -> str:
     return dt.strftime("%B %d, %Y at %H:%M")
 
 
+def download_nltk_data():
+    """Download NLTK data if not already available."""
+    import nltk
+
+    nltk.download("punkt")
+    nltk.download("punkt_tab")
+    nltk.download("wordnet")
+    nltk.download("stopwords")
+    nltk.download("averaged_perceptron_tagger")
+
+
 def add_leading_space_if_needed(s: str) -> str:
     """Add a leading space to a non-empty string if it does not already start with one.
 

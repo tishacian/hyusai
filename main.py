@@ -9,6 +9,7 @@ import torch
 
 from src.db import init_db
 from src.gpuselector import GPUSelector
+from src.utils import download_nltk_data
 
 torch.classes.__path__ = []
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -95,6 +96,7 @@ def available_port(start_port=8501, end_port=8509):
 
 
 if __name__ == "__main__":
+    download_nltk_data()
     base_url_path = get_username_from_path()
     port = available_port()
     if port is None:
