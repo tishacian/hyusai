@@ -13,7 +13,7 @@ import logging
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Any
-from src.globalvariables import ReasoningType, TRIVIAL_CONTEXT
+from src.system_prompts.types import SystemPromptTypes
 
 # --
 logging.basicConfig(
@@ -124,16 +124,19 @@ class ConversationMemoryBuffer:
         logging.info("Conversation buffer cleared")
 
     def get_context_with_reasoning(
-        self, reasoning_type: ReasoningType | str
+        self, system_prompt_type: SystemPromptTypes | str
     ) -> str:
-        """
-        Context with reasoning template
+        """Context with reasoning template
 
-         Parameters:
-             reasoning_type (ReasoningType): The type of reasoning to apply
+        Parameters
+        ----------
+        system_prompt_type : SystemPromptTypes | str
+            The type of reasoning to apply
 
-         Returns:
-             str: Formatted context with reasoning template
+        Returns
+        -------
+        str
+            Formatted context with reasoning template
         """
         try:
             recent_context = self.get_recent_context()
@@ -142,16 +145,14 @@ class ConversationMemoryBuffer:
 
             # -- mapping reasoning types to cotext prefix
             reasoning_prefixes = {
-                "ReasoningType.FACTUAL": "Previous factual discussion:\n",
-                "ReasoningType.ANALYTICAL": "Prior analysis context:\n",
-                "ReasoningType.COMPARATIVE": "Previous comparison points:\n",
-                "ReasoningType.CAUSAL": "Earlier cause-effect discussion:\n",
-                "ReasoningType.HYPOTHETICAL": "Previous hypothetical scenarios:\n",
-                TRIVIAL_CONTEXT: "Previous conversation history:\n",
+                SystemPromptTypes.FACTUAL: "Previous factual discussion:\n",
+                SystemPromptTypes.ANALYTICAL: "Prior analysis context:\n",
+                SystemPromptTypes.COMPARATIVE: "Previous comparison points:\n",
+                SystemPromptTypes.CAUSAL: "Earlier cause-effect discussion:\n",
+                SystemPromptTypes.HYPOTHETICAL: "Previous hypothetical scenarios:\n",
+                SystemPromptTypes.TRIVIAL: "Previous conversation history:\n",
             }
-
-            key = str(reasoning_type)
-            prefix = reasoning_prefixes.get(key, "Previous context:\n")
+            prefix = reasoning_prefixes.get(system_prompt_type, "Previous context:\n")
             return f"{prefix}{recent_context}"
 
         except Exception as e:

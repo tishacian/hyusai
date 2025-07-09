@@ -36,7 +36,6 @@ from src.globalvariables import (
     EMBEDDING_NAME,
     LARGE_MODELS,
     MAX_MODEL_LEN,
-    TRIVIAL_CONTEXT,
     VECTOR_STORE_PATH,
     IndexType,
     ReasoningType,
@@ -48,9 +47,10 @@ from src.reasoningmetrics import ReasoningMetrics
 from src.system_prompts import (
     ALL_SYSTEM_PROMPT_TEMPLATES,
     DEFAULT_SYSTEM_PROMPT_LANG,
-    TRIVIAL_TEMPLATES,
     SystemPromptLangs,
 )
+from src.system_prompts.types import SystemPromptTypes
+from src.trivial_check import is_trivial_question
 from src.utils import (
     format_llm_response,
     get_max_model_len,
@@ -65,8 +65,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-# Import trivial detection
-from src.trivial_check import is_trivial_question
 
 # %% Custom LLMChain
 
@@ -705,7 +703,7 @@ class CustomLLMChain:
         """
         try:
             if is_trivial:
-                template = TRIVIAL_TEMPLATES.get(self.instruction_lang)
+                reasoning_type = SystemPromptTypes.TRIVIAL
             else:
                 reasoning_detect_start = time.time()
                 if not hasattr(self, "reasoning_metrics"):
@@ -718,7 +716,7 @@ class CustomLLMChain:
                 )
                 reasoning_time = time.time() - reasoning_detect_start
                 logging.info(f"Reasoning detection took {reasoning_time:.4f} seconds")
-                template = self.templates[reasoning_type]
+            template = self.templates[reasoning_type]
             prompt_format = template.format(
                 assistant_role=self.assistant_role, context=context, question=question
             )
@@ -1085,7 +1083,9 @@ class CustomLLMChain:
 
                 # Lightweight conversation context (if any)
                 conversation_context = (
-                    self.conversation_memory.get_context_with_reasoning(TRIVIAL_CONTEXT)
+                    self.conversation_memory.get_context_with_reasoning(
+                        SystemPromptTypes.TRIVIAL
+                    )
                 )
 
                 combined_context = conversation_context or ""

@@ -356,11 +356,12 @@ def format_llm_response(response: str, language: SystemPromptLangs = DEFAULT_SYS
     str
         Cleaned response with preserved formatting
     """
-    instruction_block = r"\[INST\].*?\[/INST\]"
+    instruction_blocks = [r"\[INST\].*?\[/INST\]", r"\[INST\]", r"\[/INST\]"]
     prompt_sections = ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE[language]
     prompt_phrases = ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE[language]
     try:
-        response = re.sub(instruction_block, "", response, flags=re.DOTALL).strip()
+        for block in instruction_blocks:
+            response = re.sub(block, "", response, flags=re.DOTALL).strip()
         # remove standard prompt sections/phrases
         for section in prompt_sections:
             response = re.sub(section, "", response, flags=re.IGNORECASE | re.DOTALL).strip()

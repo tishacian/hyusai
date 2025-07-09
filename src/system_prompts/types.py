@@ -10,3 +10,4 @@ class SystemPromptTypes(StrEnum):
     CAUSAL = "causal"
     HYPOTHETICAL = "hypothetical"
     NAIVE = "naive"
+    TRIVIAL = "trivial"

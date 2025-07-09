@@ -13,6 +13,8 @@ import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
 
+from src.system_prompts.types import SystemPromptTypes
+
 if torch.cuda.is_available():
     from vllm import SamplingParams
 
@@ -34,7 +36,6 @@ from src.globalvariables import (
     EMBEDDING_NAME,
     LARGE_MODELS,
     MAX_MODEL_LEN,
-    TRIVIAL_CONTEXT,
     VECTOR_STORE_PATH,
     IndexType,
     ReasoningType,
@@ -45,7 +46,6 @@ from src.retrievalplan import QueryAnalysis, RetrievalContext, RetrievalPlan
 from src.system_prompts import (
     ALL_SYSTEM_PROMPT_TEMPLATES,
     DEFAULT_SYSTEM_PROMPT_LANG,
-    TRIVIAL_TEMPLATES,
     SystemPromptLangs,
 )
 from src.trivial_check import is_trivial_question
@@ -1304,7 +1304,7 @@ class CustomLLMChain:
         """
         try:
             if is_trivial:
-                template = TRIVIAL_TEMPLATES.get(self.instruction_lang)
+                reasoning_type = SystemPromptTypes.TRIVIAL
             else:
                 reasoning_detect_start = time.time()
                 if not hasattr(self, "reasoning_metrics"):
@@ -1380,7 +1380,7 @@ class CustomLLMChain:
                 # Retrieve recent conversation context (lightweight)
                 conversation_context = await asyncio.to_thread(
                     self.conversation_memory.get_context_with_reasoning,
-                    TRIVIAL_CONTEXT,
+                    SystemPromptTypes.TRIVIAL,
                 )
 
                 combined_context = conversation_context or ""
