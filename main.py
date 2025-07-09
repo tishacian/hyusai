@@ -1,11 +1,11 @@
 import os
 import platform
 import socket
+import subprocess
 import sys
 import warnings
 
 import torch
-from streamlit.web import cli as stcli
 
 from src.db import init_db
 from src.gpuselector import GPUSelector
@@ -96,19 +96,21 @@ def available_port(start_port=8501, end_port=8509):
 
 if __name__ == "__main__":
     base_url_path = get_username_from_path()
-    init_db()
     port = available_port()
-
     if port is None:
         sys.exit(1)
 
-    sys.argv = [
-        "streamlit",
-        "run",
-        "src/standalone_interface/omnirag.py",
-        "--server.port",
-        str(port),
-        "--server.baseUrlPath",
-        base_url_path,
-    ]
-    sys.exit(stcli.main())
+    init_db()
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            "src/standalone_interface/omnirag.py",
+            "--server.port",
+            str(port),
+            "--server.baseUrlPath",
+            base_url_path,
+        ]
+    )
