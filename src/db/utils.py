@@ -4,8 +4,7 @@ import os
 from functools import lru_cache
 
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, declarative_base
 
 from configuration import get_database_config
 
