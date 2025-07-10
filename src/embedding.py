@@ -10,6 +10,8 @@ from src.globalvariables import (
     VECTOR_STORE_PATH,
     IndexType,
     EMBEDDING_NAME,
+    METADATA_STORAGE_MODE,
+    MetadataStorageMode,
 )
 from src.embeddingloader import EmbeddingModelLoader
 from langchain_community.vectorstores import Chroma
@@ -123,6 +125,55 @@ class EmbeddingVectors:
             texts, metas = zip(*chunks)
             return list(texts), list(metas)
         return chunks, []
+
+    # ------------------------------------------------------------------
+    # Metadata helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _prepare_metadata_for_saving(metadatas: list[dict]):
+        """Split full chunk metadata list into
+
+        1. *chunk_metadatas* – a lightweight list aligned with *texts* that
+           contains only ``doc_id`` (and optional ``chunk_id``).
+        2. *doc_metadata_collection* – dict mapping ``doc_id`` → full metadata
+
+        Parameters
+        ----------
+        metadatas : list[dict]
+            Original metadata list (one entry per chunk).
+
+        Returns
+        -------
+        tuple[list[dict], dict]
+            ``(chunk_metadatas, doc_metadata_collection)``
+        """
+        doc_metadata_collection: dict = {}
+        chunk_metadatas: list[dict] = []
+
+        for meta in metadatas:
+            if not isinstance(meta, dict):  # Defensive – copy as-is
+                chunk_metadatas.append(meta or {})
+                continue
+
+            doc_id = meta.get("doc_id")
+            if doc_id is None:
+                # No doc_id → leave metadata untouched (legacy behaviour)
+                chunk_metadatas.append(meta)
+                continue
+
+            # Ensure single entry per document in the collection
+            if doc_id not in doc_metadata_collection:
+                # Exclude chunk-level keys from doc-level store
+                doc_meta = {k: v for k, v in meta.items() if k not in {"chunk_id"}}
+                doc_metadata_collection[doc_id] = doc_meta
+
+            # Simplified metadata for the chunk (only ids)
+            simplified = {"doc_id": doc_id}
+            if "chunk_id" in meta:
+                simplified["chunk_id"] = meta["chunk_id"]
+            chunk_metadatas.append(simplified)
+
+        return chunk_metadatas, doc_metadata_collection
 
     def create_embeddings(self, texts, batch_size: Optional[int] = None):
         """
@@ -344,7 +395,7 @@ class EmbeddingVectors:
             logging.error(f"🚩 Error creating FAISS index: {e}")
             return None
 
-    def save_index(self, index, texts, metadatas=None, meta_stats=None):
+    def save_index(self, index, texts, metadatas=None, meta_stats=None, doc_metadata_collection=None):
         """
         Save index -- vector database
         If create_new_vs is True, create a new vector store.
@@ -380,6 +431,23 @@ class EmbeddingVectors:
             }
             with open(save_path / "dimension_info.pkl", "wb") as f:
                 pickle.dump(dimension_info, f)
+
+            # Persist the document-level metadata collection if reference mode is active
+            if doc_metadata_collection:
+                doc_meta_path = save_path / "doc_meta_collection.pkl"
+                try:
+                    if doc_meta_path.exists():
+                        with open(doc_meta_path, "rb") as f:
+                            existing_doc_metas = pickle.load(f)
+                    else:
+                        existing_doc_metas = {}
+
+                    # Merge and persist
+                    existing_doc_metas.update(doc_metadata_collection)
+                    with open(doc_meta_path, "wb") as f:
+                        pickle.dump(existing_doc_metas, f)
+                except Exception as exc:
+                    logging.error("🚩 Error saving doc_meta_collection: %s", exc)
 
             # ensure metadatas aligns with texts length
             if metadatas is None:
@@ -647,7 +715,23 @@ class EmbeddingVectors:
             if self.embedding_type == IndexType.FAISS:
                 index = self.create_faiss_index(self.embeddings)
                 if index is not None:
-                    self.save_index(index, texts, metadatas, meta_stats)
+                    # Decide how to store metadata based on global flag
+                    if METADATA_STORAGE_MODE == MetadataStorageMode.REFERENCE:
+                        chunk_metas, doc_meta_coll = self._prepare_metadata_for_saving(metadatas)
+                        self.save_index(
+                            index,
+                            texts,
+                            chunk_metas,
+                            meta_stats,
+                            doc_metadata_collection=doc_meta_coll,
+                        )
+                    else:  # Legacy *inplace* behaviour
+                        self.save_index(
+                            index,
+                            texts,
+                            metadatas,
+                            meta_stats,
+                        )
                 else:
                     logging.error("🚩 Failed to create FAISS index")
             elif self.embedding_type == IndexType.CHROMA:

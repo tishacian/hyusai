@@ -216,6 +216,22 @@ class CustomLLMChain:
                                 self.metadatas = self.metadatas[: len(self.texts)]
                     else:
                         self.metadatas = [{} for _ in self.texts]
+
+                    # Document-level metadata collection
+                    self.doc_metadatas: dict = {}
+                    doc_meta_path = vector_store_path / "doc_meta_collection.pkl"
+                    if doc_meta_path.exists():
+                        try:
+                            with open(doc_meta_path, "rb") as f:
+                                self.doc_metadatas = pickle.load(f)
+                            logging.info(f"Loaded document metadata collection with {len(self.doc_metadatas)} documents")
+                            # Debug: Show a sample of doc metadata
+                            for doc_id, doc_meta in list(self.doc_metadatas.items())[:2]:
+                                logging.info(f"  Doc {doc_id}: {doc_meta}")
+                        except Exception as exc:
+                            logging.warning("Failed to load doc_meta_collection: %s", exc)
+                    else:
+                        logging.info("No doc_meta_collection.pkl found - running in legacy INPLACE mode")
                     logging.info("FAISS index and texts loaded successfully.")
                 else:
                     raise FileNotFoundError(
@@ -246,6 +262,7 @@ class CustomLLMChain:
                 embedding_model=self.embedding_model,
                 texts=self.texts,
                 metadatas=self.metadatas,
+                doc_metadatas=getattr(self, "doc_metadatas", {}),
                 config=EnsembleConfig(),
             )
 
@@ -740,23 +757,38 @@ class CustomLLMChain:
                     continue
 
                 if i == 0 or (i < len(expanded_queries) and i > 0):
-                    if isinstance(result, tuple) and len(result) == 2:
-                        contexts, scores = result
+                    if isinstance(result, tuple) and len(result) >= 2:
+                        contexts, scores = result[0], result[1]
+                        metadatas = result[2] if len(result) > 2 else [{} for _ in contexts]
                         is_expanded = i > 0
 
-                        for j, (ctx, score) in enumerate(zip(contexts, scores)):
+                        for j, (ctx, score, metadata) in enumerate(
+                            zip(contexts, scores, metadatas)
+                        ):
                             query_expansion_wt = 0.9 if is_expanded else 1.0
+                            
+                            # Debug: log received metadata
+                            if j < 1:  # Log first 1 for debugging
+                                logging.debug(f"parallel_composite_retrieval: Received metadata {j}: {metadata}")
+                            
+                            # Merge contextual metadata with retrieval metadata
+                            combined_metadata = {
+                                **metadata,  # Start with rehydrated metadata from EnsembleRetriever
+                                "source": (
+                                    "expanded"
+                                    if is_expanded
+                                    else "contextual"
+                                ),
+                                "rank": j,
+                            }
+                            
                             retrieval_ctx = RetrievalContext(
                                 text=ctx,
                                 score=score
                                 * query_expansion_wt,  # score is 1 - 0.1 if query expansion is used else 1
-                                relevance_score=score * (0.9 if is_expanded else 1.0),
-                                metadata={
-                                    "source": (
-                                        "expanded" if is_expanded else "contextual"
-                                    ),
-                                    "rank": j,
-                                },
+                                relevance_score=score
+                                * (0.9 if is_expanded else 1.0),
+                                metadata=combined_metadata,
                             )
                             all_contexts.append(retrieval_ctx)
                 elif i == len(expanded_queries):
@@ -854,18 +886,6 @@ class CustomLLMChain:
 
             unique_contexts = list(seen_texts.values())
             unique_contexts.sort(key=lambda x: x.score, reverse=True)
-
-            # -------------------------------------------------------------
-            # Attach original chunk metadata (if available) to contexts
-            # -------------------------------------------------------------
-            if hasattr(self, "metadatas") and self.metadatas and self.texts:
-                meta_lookup = {t: m for t, m in zip(self.texts, self.metadatas)}
-                for ctx in unique_contexts:
-                    if ctx.text in meta_lookup:
-                        base_meta_raw = meta_lookup[ctx.text] or {}
-                        base_meta = {k: (str(v) if not isinstance(v, str) else v) for k, v in base_meta_raw.items()}
-                        merged = {**base_meta, **getattr(ctx, "metadata", {})}
-                        ctx.metadata = merged
 
             return unique_contexts[:k]
 

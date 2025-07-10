@@ -834,7 +834,7 @@ class CustomLLMChain:
             reasoning_task, contexts_task
         )
         reasoning_type, confidence = reasoning_result
-        contexts, scores = contexts_result
+        contexts, scores, metadatas = contexts_result
         reasoning_time = time.time() - reasoning_start
         logging.info(
             f"Reasoning and contexts retrieval took {reasoning_time:.4f} seconds"

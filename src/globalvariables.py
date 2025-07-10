@@ -179,6 +179,40 @@ class PipelineType(StrEnum):
     NAIVE = "Naive RAG"
 
 
+# --- Metadata storage mode ---------------------------------------------------
+class MetadataStorageMode(StrEnum):
+    """Controls how document metadata is stored with chunks.
+
+    INPLACE    -> full metadata duplicated on every chunk (legacy behaviour)
+    REFERENCE  -> only ``doc_id`` stored on each chunk, full metadata kept in
+                  a separate pickle keyed by ``doc_id``.  
+    """
+
+    INPLACE = "inplace"
+    REFERENCE = "reference"
+
+
+# ── Configure how metadata is stored ─────────────────────────────────────────
+# Change the value below to switch between legacy *INPLACE* mode (full metadata
+# duplicated on every chunk) and the new *REFERENCE* mode (per‐doc collection).
+
+METADATA_STORAGE_MODE: MetadataStorageMode = MetadataStorageMode.REFERENCE  # ← set mode here
+
+
+# Optional helper for runtime switching (e.g. from a UI)
+def set_metadata_storage_mode(mode: MetadataStorageMode | str):
+    """Update the global ``METADATA_STORAGE_MODE`` at runtime.
+
+    Accepts either a ``MetadataStorageMode`` enum value or its string name
+    ("inplace" / "reference").
+    """
+
+    global METADATA_STORAGE_MODE
+    if isinstance(mode, str):
+        mode = MetadataStorageMode(mode.lower())
+    METADATA_STORAGE_MODE = mode
+
+
 class OCRConfig(Enum):
     USE_OCR = not get_backend_config().disable_ocr_for_pdf
     OCR_DPI = 150

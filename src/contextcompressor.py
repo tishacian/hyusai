@@ -10,7 +10,7 @@ import sys
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Optional
 from src.flashreranker import FlashReranker
 from src.ensembleretriever import EnsembleRetriever
 from concurrent.futures import ThreadPoolExecutor
@@ -69,19 +69,19 @@ class ContextualCompressionRetriever:
         self._executor.shutdown(wait=False)
 
     async def _process_batch(
-        self, query: str, passages: List[str]
-    ) -> Tuple[List[str], List[float]]:
+        self, query: str, passages: list[str]
+    ) -> tuple[list[str], list[float]]:
         """Batch processing
 
         Parameters
         ----------
         query (str): input query
-        passages : List[str]
+        passages : list[str]
             context.
 
         Returns
         -------
-        (Tuple[List[str], List[float]])
+        (tuple[list[str], list[float]])
             context/passages.
         """
         try:
@@ -94,20 +94,20 @@ class ContextualCompressionRetriever:
             return passages, [0.0] * len(passages)
 
     async def _compress_results(
-        self, passages: List[str], scores: List[float]
-    ) -> Tuple[List[str], List[float]]:
+        self, passages: list[str], scores: list[float]
+    ) -> tuple[list[str], list[float]]:
         """Compressing context
 
         Parameters
         ----------
-        passages : List[str]
+        passages : list[str]
             context.
-        scores : List[float]
+        scores : list[float]
             relevance scores.
 
         Returns
         -------
-        (Tuple[List[str], List[float]])
+        (tuple[list[str], list[float]])
             contexts w/ scores.
 
         """
@@ -119,7 +119,7 @@ class ContextualCompressionRetriever:
 
     async def retrieve_and_compress(
         self, query: str, k: Optional[int] = None
-    ) -> Tuple[List[str], List[float]]:
+    ) -> tuple[list[str], list[float], list[dict]]:
         """Retrieve and compress
 
         Parameters
@@ -131,17 +131,17 @@ class ContextualCompressionRetriever:
 
         Returns
         -------
-        (Tuple[List[str], List[float]])
-            contexts w/ scores.
+        (tuple[list[str], list[float], list[dict]])
+            contexts w/ scores and metadata.
 
         """
         try:
-            base_passages, base_scores, _ = await self.base_retriever.retrieve(
+            base_passages, base_scores, base_metadatas = await self.base_retriever.retrieve(
                 query, k
             )
 
             if not base_passages:
-                return [], []
+                return [], [], []
 
             # -- rerank results
             if self.config.use_threading:
@@ -158,33 +158,42 @@ class ContextualCompressionRetriever:
                     query, base_passages
                 )
 
-            # --  compressed contxets
+            # --  compressed contexts and preserve metadata order
             final_passages, final_scores = await self._compress_results(
                 reranked_passages, scores
             )
+            
+            # Preserve metadata aligned with reranked/compressed passages
+            passage_to_meta = {passage: meta for passage, meta in zip(base_passages, base_metadatas)}
+            final_metadatas = [passage_to_meta.get(passage, {}) for passage in final_passages]
 
-            return final_passages, final_scores
+            # Debug: log preserved metadata
+            logging.debug(f"ContextualCompressionRetriever: Preserved {len(final_metadatas)} metadata entries")
+            for i, meta in enumerate(final_metadatas[:1]):  # Log first 1 for debugging
+                logging.debug(f"  Preserved Meta {i}: {meta}")
+
+            return final_passages, final_scores, final_metadatas
 
         except Exception as e:
             logging.error(f"Error in retrieve_and_compress: {e}")
-            return [], []
+            return [], [], []
 
     async def abatch_retrieve_and_compress(
-        self, queries: List[str], k: Optional[int] = None
-    ) -> List[Tuple[List[str], List[float]]]:
+        self, queries: list[str], k: Optional[int] = None
+    ) -> list[tuple[list[str], list[float], list[dict]]]:
         """Asynchronous retrieving and compressing
 
         Parameters
         ----------
-        queries : List[str]
+        queries : list[str]
             queries.
         k : Optional[int], optional
             context size. The default is None.
 
         Returns
         -------
-        (List[Tuple[List[str], List[float]]])
-            k-queries and scores.
+        (list[tuple[list[str], list[float], list[dict]]])
+            k-queries, scores, and metadata.
 
         """
         try:
@@ -197,7 +206,7 @@ class ContextualCompressionRetriever:
 
         except Exception as e:
             logging.error(f"Batch retrieval error: {e}")
-            return [([], []) for _ in queries]
+            return [([], [], []) for _ in queries]
 
     def run_async(self, coro):
         """Asynchronous run
@@ -222,7 +231,7 @@ class ContextualCompressionRetriever:
 
     def retrieve(
         self, query: str, k: Optional[int] = None
-    ) -> Tuple[List[str], List[float]]:
+    ) -> tuple[list[str], list[float], list[dict]]:
         """Retrieval
 
         Parameters
@@ -233,28 +242,28 @@ class ContextualCompressionRetriever:
 
         Returns
         -------
-        (Tuple[List[str], List[float]])
-            contexts.
+        (tuple[list[str], list[float], list[dict]])
+            contexts, scores, and metadata.
 
         """
         return self.run_async(self.retrieve_and_compress(query, k))
 
     def batch_retrieve(
-        self, queries: List[str], k: Optional[int] = None
-    ) -> List[Tuple[List[str], List[float]]]:
+        self, queries: list[str], k: Optional[int] = None
+    ) -> list[tuple[list[str], list[float], list[dict]]]:
         """Batch retrieval
 
         Parameters
         ----------
-        queries : List[str]
+        queries : list[str]
             k-queries.
         k : Optional[int], optional
             context size. The default is None.
 
         Returns
         -------
-        (List[Tuple[List[str], List[float]]])
-            k-retrievals.
+        (list[tuple[list[str], list[float], list[dict]]])
+            k-retrievals with metadata.
 
         """
         return self.run_async(self.abatch_retrieve_and_compress(queries, k))
