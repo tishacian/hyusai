@@ -196,6 +196,7 @@ class PDFToMarkdownConverter:
         self.vlm_results: dict[str, VLMResult] = {}
         self.images_dir: str | None = None
         self.image_positions: list[ImagePosition] = []
+        self._hierarchy_counter = {"main": 0, "sub": 0, "subsub": 0}
 
         if self.config.enable_vlm and VLM_AVAILABLE:
             self._initialize_vlm()
@@ -565,7 +566,10 @@ class PDFToMarkdownConverter:
                     if table_markdown:
                         page_content.append(table_markdown)
                         self._add_to_structure(
-                            page_num, "table", table_markdown.strip()
+                            page_num,
+                            "table",
+                            table_markdown.strip(),
+                            table_markdown.strip(),
                         )
 
             # -- process text content and insert images at appropriate positions
@@ -621,12 +625,25 @@ class PDFToMarkdownConverter:
                         self.stats["headers"][f"h{header_level}"] += 1
                     else:
                         self.stats["headers"]["h1"] += 1  # fallback to h1
-                else:
-                    formatted_text = f"{text}\n\n"
-                    self.stats["paragraphs"] += 1
 
-                page_content.append(formatted_text)
-                self._add_to_structure(page_num, "text", text)
+                    page_content.append(formatted_text)
+                    self._add_to_structure(
+                        page_num, "text", text, text, header_level
+                    )
+                else:
+                    # Check if it's a bullet point
+                    if self._is_bullet_point(text):
+                        formatted_text = f"{text}\n\n"
+                        page_content.append(formatted_text)
+                        self._add_to_structure(page_num, "text", text, text, 0)
+                        self.stats[
+                            "paragraphs"
+                        ] += 1  # Count as paragraph for stats
+                    else:
+                        formatted_text = f"{text}\n\n"
+                        page_content.append(formatted_text)
+                        self._add_to_structure(page_num, "text", text, text, 0)
+                        self.stats["paragraphs"] += 1
 
                 if page_images:
                     image_pos = page_images.pop(0)
@@ -640,7 +657,10 @@ class PDFToMarkdownConverter:
                     )
                     page_content.append(image_tag)
                     self._add_to_structure(
-                        page_num, "image", image_pos.image_name
+                        page_num,
+                        "image",
+                        image_pos.image_name,
+                        image_pos.image_name,
                     )
 
         for image_pos in page_images:
@@ -649,7 +669,9 @@ class PDFToMarkdownConverter:
                 os.path.dirname(self.images_dir) if self.images_dir else ".",
             )
             page_content.append(image_tag)
-            self._add_to_structure(page_num, "image", image_pos.image_name)
+            self._add_to_structure(
+                page_num, "image", image_pos.image_name, image_pos.image_name
+            )
 
     def _merge_split_headers(self, text_boxes: list) -> list:
         """Heuristics to merge text boxes that are likely split headers.
@@ -810,7 +832,6 @@ class PDFToMarkdownConverter:
                 return self._text
 
             def __iter__(self):
-                # Return the original box's characters for font size detection
                 return iter(original_box)
 
         return MergedTextBox(original_box, merged_text)
@@ -879,16 +900,40 @@ class PDFToMarkdownConverter:
             Markdown formatted table.
         """
         table_name = f"table-{page_num}-{self.stats['tables']['total'] + 1}"
+        table_x0, table_y0, table_x1, table_y1 = table_box
 
         self.stats["tables"]["total"] += 1
         self.stats["tables"]["generic"] += 1
 
-        return (
-            f"\n**Table: {table_name}**\n\n"
-            f"[Table content would be extracted here]\n\n"
-        )
+        table_text_boxes = []
+        for elem in page_elements:
+            if isinstance(elem, LTTextBox):
+                if (
+                    table_x0 <= elem.x0 <= table_x1
+                    and table_y0 <= elem.y0 <= table_y1
+                ):
+                    table_text_boxes.append(elem)
 
+        table_text_boxes.sort(key=lambda x: (-x.y0, x.x0))
 
+        table_content = []
+        for text_box in table_text_boxes:
+            text = text_box.get_text().strip()
+            if text:
+                table_content.append(text)
+
+        if table_content:
+            table_markdown = f"\n**Table: {table_name}**\n\n"
+            table_markdown += "| " + " | ".join(table_content) + " |\n"
+            table_markdown += "|" + "---|" * len(table_content) + "\n"
+            table_markdown += "| " + " | ".join(table_content) + " |\n\n"
+        else:
+            table_markdown = (
+                f"\n**Table: {table_name}**\n\n"
+                f"[Table content extracted but no text found]\n\n"
+            )
+
+        return table_markdown
 
     def _detect_header_by_pattern(self, text: str, font_size: float) -> int:
         """Detect headers based on text patterns commonly found in documents.
@@ -1099,9 +1144,14 @@ class PDFToMarkdownConverter:
             return 0
 
     def _add_to_structure(
-        self, page_num: int, element_type: str, content: str
+        self,
+        page_num: int,
+        element_type: str,
+        content: str,
+        original_text: str = None,
+        header_level: int = 0,
     ) -> None:
-        """Add element to document structure.
+        """Add element to document structure with enhanced metadata.
 
         Parameters
         ----------
@@ -1111,28 +1161,380 @@ class PDFToMarkdownConverter:
             Type of element.
         content : str
             Element content.
+        original_text : str, optional
+            Original text as read from PDF.
+        header_level : int, optional
+            Header level if it's a header.
         """
-        is_header = False
-        header_level = 0
+        subtype = self._determine_subtype(content, element_type)
+        is_header = header_level > 0 or self._is_header_content(content)
+        original_hierarchy = (
+            self._extract_original_hierarchy(content) if is_header else ""
+        )
+        current_hierarchy = (
+            self._get_current_hierarchy(header_level) if is_header else ""
+        )
+        structural_context = self._get_context_for_element(
+            content, header_level, element_type
+        )
+        semantic_context = self._extract_semantic_context(
+            content, element_type, page_num
+        )
+        # -- structure and semantic context
+        if structural_context:
+            context = f"{structural_context} - {semantic_context}"
+        else:
+            context = semantic_context
 
-        if element_type == "text":
-            if content.strip().startswith("#"):
-                is_header = True
-                header_level = len(content) - len(content.lstrip("#"))
-            elif re.match(r"^\d+\.", content.strip()):
-                is_header = True
-                header_level = 2
+        raw_data = self._get_raw_data_content(content, element_type, page_num)
 
         self.document_structure.append(
             {
                 "page": page_num,
                 "type": element_type,
                 "content": content,
+                "original_text": original_text or content,
                 "position": len(self.document_structure),
                 "is_header": is_header,
                 "header_level": header_level,
+                "subtype": subtype,
+                "original_hierarchy": original_hierarchy,
+                "hierarchy": current_hierarchy,
+                "context": context,
+                "raw_data": raw_data,
             }
         )
+
+    def _determine_subtype(self, content: str, element_type: str) -> str:
+        """Determine the subtype of an element.
+
+        Parameters
+        ----------
+        content : str
+            Element content.
+        element_type : str
+            Type of element.
+
+        Returns
+        -------
+        str
+            Subtype of the element.
+        """
+        if element_type == "image":
+            return "image"
+        elif element_type == "table":
+            return "table"
+        elif element_type == "text":
+            content_clean = content.strip()
+            if content_clean.startswith("#") or re.match(
+                r"^\d+\.", content_clean
+            ):
+                return "heading"
+            elif self._is_bullet_point(content_clean):
+                return "bullet"
+            else:
+                return "paragraph"
+        return "unknown"
+
+    def _is_header_content(self, content: str) -> bool:
+        """Check if content is a header.
+
+        Parameters
+        ----------
+        content : str
+            Content to check.
+
+        Returns
+        -------
+        bool
+            True if content is a header.
+        """
+        content_clean = content.strip()
+        return (
+            content_clean.startswith("#")
+            or re.match(r"^\d+\.", content_clean)
+            or self._is_header_start(content_clean)
+        )
+
+    def _extract_original_hierarchy(self, content: str) -> str:
+        """Extract original hierarchy from content.
+
+        Parameters
+        ----------
+        content : str
+            Content to extract hierarchy from.
+
+        Returns
+        -------
+        str
+            Original hierarchy string.
+        """
+        # Extract patterns like "III.2)d. Requirements GPU"
+        patterns = [
+            r"^([IVX]+\.\d+\)[a-z]?\.?\s*[A-Z][^.]*)",  # Roman numerals
+            r"^(\d+\.\d+\)[a-z]?\.?\s*[A-Z][^.]*)",  # Numbers
+            r"^([A-Z]\.\d+\)[a-z]?\.?\s*[A-Z][^.]*)",  # Letters
+        ]
+
+        for pattern in patterns:
+            match = re.match(pattern, content)
+            if match:
+                return match.group(1)
+
+        return content.strip()
+
+    def _get_current_hierarchy(self, header_level: int) -> str:
+        """Get current hierarchy level.
+
+        Parameters
+        ----------
+        header_level : int
+            Header level.
+
+        Returns
+        -------
+        str
+            Current hierarchy string.
+        """
+        if header_level == 1:
+            self._hierarchy_counter["main"] += 1
+            self._hierarchy_counter["sub"] = 0
+            self._hierarchy_counter["subsub"] = 0
+            return str(self._hierarchy_counter["main"])
+        elif header_level == 2:
+            self._hierarchy_counter["sub"] += 1
+            self._hierarchy_counter["subsub"] = 0
+            return f"{self._hierarchy_counter['main']}.{self._hierarchy_counter['sub']}"
+        elif header_level == 3:
+            self._hierarchy_counter["subsub"] += 1
+            return f"{self._hierarchy_counter['main']}.{self._hierarchy_counter['sub']}-{self._hierarchy_counter['subsub']}"
+
+        return ""
+
+    def _get_context_for_element(
+        self, content: str, header_level: int, element_type: str = "text"
+    ) -> str:
+        """Get intelligent context for an element based on its type and position.
+
+        Parameters
+        ----------
+        content : str
+            Element content.
+        header_level : int
+            Header level.
+        element_type : str
+            Type of element (text, image, table, etc.)
+
+        Returns
+        -------
+        str
+            Context string with intelligent extraction.
+        """
+        if header_level > 0:
+            if header_level == 2:
+                return content.strip()
+            elif header_level > 2:
+                for item in reversed(self.document_structure):
+                    if item.get("header_level") == 2:
+                        return item.get("content", "").strip()
+
+        if element_type == "text":
+            for item in reversed(self.document_structure):
+                if item.get("header_level", 0) > 0:
+                    return item.get("content", "").strip()
+
+        elif element_type == "image":
+            for item in reversed(self.document_structure):
+                if (
+                    item.get("type") == "text"
+                    and item.get("header_level", 0) > 0
+                ):
+                    return item.get("content", "").strip()
+                elif (
+                    item.get("type") == "text"
+                    and len(item.get("content", "")) > 10
+                ):
+                    return item.get("content", "")[:50] + "..."
+
+        elif element_type == "table":
+            for item in reversed(self.document_structure):
+                content_text = item.get("content", "").lower()
+                if (
+                    "table" in content_text
+                    or "figure" in content_text
+                    or "data" in content_text
+                    or "summary" in content_text
+                ):
+                    return item.get("content", "").strip()
+                elif item.get("header_level", 0) > 0:
+                    return item.get("content", "").strip()
+
+        elif element_type == "bullet":
+            for item in reversed(self.document_structure):
+                if (
+                    item.get("type") == "text"
+                    and item.get("header_level", 0) > 0
+                ):
+                    return item.get("content", "").strip()
+
+        return ""
+
+    def _get_raw_data_content(
+        self, content: str, element_type: str = "text", page_num: int = 1
+    ) -> str:
+        """Get intelligent raw data for different element types.
+
+        Parameters
+        ----------
+        content : str
+            Element content.
+        element_type : str
+            Type of element (text, image, table, bullet, etc.)
+        page_num : int
+            Page number for context.
+
+        Returns
+        -------
+        str
+            Raw data content or blob reference.
+        """
+        if element_type == "image":
+            # Extract image filename and create blob storage link
+            if "images/" in content:
+                filename = content.split("images/")[-1].split(")")[0]
+                return f"blob://images/{filename}"
+            elif content.endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp")):
+                return f"blob://images/{content}"
+            else:
+                return f"blob://images/{content}.png"  # Default extension
+
+        elif element_type == "table":
+            return content
+
+        elif element_type == "text":
+            return content
+
+        elif element_type == "bullet":
+            return content
+
+        return ""
+
+    def _extract_semantic_context(
+        self, content: str, element_type: str, page_num: int
+    ) -> str:
+        """Extract semantic context by analyzing content patterns and relationships.
+
+        Parameters
+        ----------
+        content : str
+            Element content.
+        element_type : str
+            Type of element.
+        page_num : int
+            Page number.
+
+        Returns
+        -------
+        str
+            Semantic context description.
+        """
+        if element_type == "image":
+            image_keywords = self._extract_image_keywords(content)
+            if image_keywords:
+                return f"Image related to: {', '.join(image_keywords)}"
+            return "Document image"
+
+        elif element_type == "table":
+            table_keywords = self._extract_table_keywords(content)
+            if table_keywords:
+                return f"Table containing: {', '.join(table_keywords)}"
+            return "Data table"
+
+        elif element_type == "bullet":
+            if "requirements" in content.lower():
+                return "Requirements list"
+            elif "features" in content.lower():
+                return "Features list"
+            elif "steps" in content.lower() or "procedure" in content.lower():
+                return "Procedure steps"
+            else:
+                return "Bullet point list"
+
+        elif element_type == "text":
+            if len(content) < 50:
+                return "Short text element"
+            elif "figure" in content.lower() or "table" in content.lower():
+                return "Figure/Table reference"
+            elif any(
+                word in content.lower()
+                for word in ["introduction", "conclusion", "summary"]
+            ):
+                return "Section text"
+            else:
+                return "Paragraph text"
+
+        return "Document element"
+
+    def _extract_image_keywords(self, content: str) -> list[str]:
+        """Extract keywords that might indicate image context.
+
+        Parameters
+        ----------
+        content : str
+            Image content or filename.
+
+        Returns
+        -------
+        list[str]
+            List of relevant keywords.
+        """
+        keywords = []
+        content_lower = content.lower()
+
+        if any(
+            word in content_lower for word in ["chart", "graph", "diagram"]
+        ):
+            keywords.append("chart/diagram")
+        if any(
+            word in content_lower for word in ["photo", "image", "picture"]
+        ):
+            keywords.append("photograph")
+        if any(word in content_lower for word in ["logo", "brand"]):
+            keywords.append("logo/branding")
+        if any(word in content_lower for word in ["screenshot", "screen"]):
+            keywords.append("screenshot")
+
+        return keywords
+
+    def _extract_table_keywords(self, content: str) -> list[str]:
+        """Extract keywords that might indicate table content.
+
+        Parameters
+        ----------
+        content : str
+            Table content.
+
+        Returns
+        -------
+        list[str]
+            List of relevant keywords.
+        """
+        keywords = []
+        content_lower = content.lower()
+
+        # -- common table types
+        if any(word in content_lower for word in ["specification", "specs"]):
+            keywords.append("specifications")
+        if any(word in content_lower for word in ["comparison", "compare"]):
+            keywords.append("comparison")
+        if any(word in content_lower for word in ["summary", "overview"]):
+            keywords.append("summary")
+        if any(word in content_lower for word in ["data", "statistics"]):
+            keywords.append("data/statistics")
+        if any(word in content_lower for word in ["requirements", "req"]):
+            keywords.append("requirements")
+
+        return keywords
 
     def _update_stats(self, page_content: str, page_elements: list) -> None:
         """Update document statistics.
@@ -1290,41 +1692,59 @@ class PDFToMarkdownConverter:
                 match = re.search(r"!\[([^\]]+)\]", line)
                 if match:
                     image_name = match.group(1)
-                    
+
                     # Try to find VLM result with different name variations
                     vlm_result = None
-                    
+
                     # First try exact match
                     if image_name in self.vlm_results:
                         vlm_result = self.vlm_results[image_name]
-                        print(f"Markdown enhancement: Found exact match for {image_name}")
+                        print(
+                            f"Markdown enhancement: Found exact match for {image_name}"
+                        )
                     else:
                         # Try without extension
                         image_name_no_ext = Path(image_name).stem
                         if image_name_no_ext in self.vlm_results:
                             vlm_result = self.vlm_results[image_name_no_ext]
-                            print(f"Markdown enhancement: Found match without extension for {image_name} -> {image_name_no_ext}")
+                            print(
+                                f"Markdown enhancement: Found match without extension for {image_name} -> {image_name_no_ext}"
+                            )
                         else:
                             # Try with common extensions
-                            for ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
+                            for ext in [
+                                ".png",
+                                ".jpg",
+                                ".jpeg",
+                                ".tiff",
+                                ".bmp",
+                            ]:
                                 test_name = image_name_no_ext + ext
                                 if test_name in self.vlm_results:
                                     vlm_result = self.vlm_results[test_name]
-                                    print(f"Markdown enhancement: Found match with extension for {image_name} -> {test_name}")
+                                    print(
+                                        f"Markdown enhancement: Found match with extension for {image_name} -> {test_name}"
+                                    )
                                     break
 
                     if vlm_result and (
                         vlm_result.extracted_text or vlm_result.description
                     ):
-                        analysis_text = self.vlm_processor.format_vlm_result_for_markdown(
-                            vlm_result
+                        analysis_text = (
+                            self.vlm_processor.format_vlm_result_for_markdown(
+                                vlm_result
+                            )
                         )
                         enhanced_lines.append(analysis_text)
                         enhanced_lines.append("")
                         enhanced_count += 1
-                        print(f"Markdown enhancement: Added VLM analysis for {image_name}")
+                        print(
+                            f"Markdown enhancement: Added VLM analysis for {image_name}"
+                        )
                     else:
-                        print(f"Markdown enhancement: No VLM result found for {image_name}")
+                        print(
+                            f"Markdown enhancement: No VLM result found for {image_name}"
+                        )
 
         return "\n".join(enhanced_lines)
 
@@ -1457,214 +1877,58 @@ class PDFToMarkdownConverter:
             return
 
         structured_data = []
-        current_section = ""
-        current_subsection = ""
-        section_counter = 0
-        subsection_counters = {}
-        page_sections = {}
-        current_page_section = {
-            "page": 1,
-            "section": "",
-            "paragraphs": [],
-            "bullets": [],
-            "images": [],
-            "tables": [],
-        }
 
+        # Process each element in the document structure
         for item in self.document_structure:
             page_num = item["page"]
-            content_type = item["type"]
             content = item["content"]
+            original_text = item.get("original_text", content)
+            subtype = item.get("subtype", "unknown")
+            hierarchy = item.get("hierarchy", "")
+            original_hierarchy = item.get("original_hierarchy", "")
+            context = item.get("context", "")
+            raw_data = item.get("raw_data", "")
 
-            if page_num not in page_sections:
-                page_sections[page_num] = []
+            # Get VLM data for images if available
+            vlm_caption = ""
+            vlm_description = ""
 
-            if content_type == "text":
-                header_level = self._detect_content_header_level(content)
-
-                if header_level > 0:
-                    if (
-                        current_page_section["paragraphs"]
-                        or current_page_section["bullets"]
-                        or current_page_section["images"]
-                        or current_page_section["tables"]
-                    ):
-                        page_sections[current_page_section["page"]].append(
-                            current_page_section.copy()
-                        )
-
-                    if header_level <= 2:  # -- main section
-                        section_counter += 1
-                        current_section = str(section_counter)
-                        subsection_counters = {}
-                        current_subsection = ""
-                    elif header_level <= 4:  # subsection
-                        if current_section not in subsection_counters:
-                            subsection_counters[current_section] = 0
-                        subsection_counters[current_section] += 1
-                        current_subsection = f"{current_section}.{subsection_counters[current_section]}"
-                    else:  # sub-subsections
-                        if (
-                            current_subsection
-                            and current_subsection in subsection_counters
-                        ):
-                            subsection_counters[current_subsection] = (
-                                subsection_counters.get(current_subsection, 0)
-                                + 1
-                            )
-                            section_num = f"{current_subsection}.{subsection_counters[current_subsection]}"
-                        else:
-                            section_num = (
-                                current_subsection
-                                if current_subsection
-                                else current_section
-                            )
-
-                    # Start new section
-                    section_num = (
-                        current_subsection
-                        if current_subsection
-                        else current_section
-                    )
-                    current_page_section = {
-                        "page": page_num,
-                        "section": section_num,
-                        "section_title": content.strip(),
-                        "paragraphs": [],
-                        "bullets": [],
-                        "images": [],
-                        "tables": [],
-                        "original_text": content,
-                    }
-                else:
-                    # Regular paragraph content
-                    cleaned_content = content.strip()
-                    if cleaned_content:
-                        # Check if it's a bullet point
-                        if cleaned_content.startswith(
-                            ("•", "-", "*", "·")
-                        ) or re.match(r"^\d+\.", cleaned_content):
-                            current_page_section["bullets"].append(
-                                cleaned_content
-                            )
-                        else:
-                            current_page_section["paragraphs"].append(
-                                cleaned_content
-                            )
-
-            elif content_type == "image":
-                current_page_section["images"].append(content)
-
-            elif content_type == "table":
-                current_page_section["tables"].append(content)
-
-        if (
-            current_page_section["paragraphs"]
-            or current_page_section["bullets"]
-            or current_page_section["images"]
-            or current_page_section["tables"]
-        ):
-            page_sections[current_page_section["page"]].append(
-                current_page_section.copy()
-            )
-
-        for page_num in sorted(page_sections.keys()):
-            sections = page_sections[page_num]
-
-            if not sections:
-                structured_data.append(
-                    {
-                        "Page": page_num,
-                        "Image Tag": "",
-                        "Section": "",
-                        "Section Title": "",
-                        "Paragraphs": "",
-                        "Bullet Points": "",
-                        "Tables": "",
-                        "Original Text": "",
-                        "VLM Caption": "",
-                        "VLM Description": "",
-                    }
+            if (
+                item["type"] == "image"
+                and self.config.enable_vlm
+                and self.vlm_results
+            ):
+                # Extract base name without extension for VLM lookup
+                base_name = (
+                    content.replace(".png", "")
+                    .replace(".jpg", "")
+                    .replace(".jpeg", "")
                 )
 
-            for section_data in sections:
-                paragraphs_text = (
-                    "\n\n".join(section_data["paragraphs"])
-                    if section_data["paragraphs"]
-                    else ""
-                )
+                if base_name in self.vlm_results:
+                    vlm_result = self.vlm_results[base_name]
+                    if vlm_result:
+                        if vlm_result.extracted_text:
+                            vlm_caption = vlm_result.extracted_text
+                        if vlm_result.description:
+                            vlm_description = vlm_result.description
 
-                bullets_text = (
-                    "\n".join(section_data["bullets"])
-                    if section_data["bullets"]
-                    else ""
-                )
+            row_data = {
+                "Page No": page_num,
+                "Text": content,
+                "SubType": subtype,
+                "Hierarchy": hierarchy,
+                "Original Hierarchy": original_hierarchy,
+                "Context": context,
+                "Raw Data": raw_data,
+            }
 
-                image_tags = ""
-                vlm_captions = ""
-                vlm_descriptions = ""
+            # Add VLM columns if enabled
+            if self.config.enable_vlm:
+                row_data["VLM Caption"] = vlm_caption
+                row_data["VLM Description"] = vlm_description
 
-                if section_data["images"]:
-                    image_tags = "; ".join(section_data["images"])
-
-                    # Get VLM data for images if available
-                    if self.config.enable_vlm and self.vlm_results:
-                        captions = []
-                        descriptions = []
-
-                        for image_name in section_data["images"]:
-                            # Extract base name without extension for VLM lookup
-                            base_name = (
-                                image_name.replace(".png", "")
-                                .replace(".jpg", "")
-                                .replace(".jpeg", "")
-                            )
-
-                            if base_name in self.vlm_results:
-                                vlm_result = self.vlm_results[base_name]
-                                if vlm_result:
-                                    if vlm_result.extracted_text:
-                                        captions.append(
-                                            vlm_result.extracted_text
-                                        )
-                                    if vlm_result.description:
-                                        descriptions.append(
-                                            vlm_result.description
-                                        )
-
-                        vlm_captions = (
-                            "\n---\n".join(captions) if captions else ""
-                        )
-                        vlm_descriptions = (
-                            "\n---\n".join(descriptions)
-                            if descriptions
-                            else ""
-                        )
-
-                # Handle tables
-                tables_text = (
-                    "; ".join(section_data["tables"])
-                    if section_data["tables"]
-                    else ""
-                )
-
-                # Create row data
-                row_data = {
-                    "Page": page_num,
-                    "Image Tag": image_tags,
-                    "Section": section_data.get("section", ""),
-                    "Section Title": section_data.get("section_title", ""),
-                    "Paragraphs": paragraphs_text,
-                    "Bullet Points": bullets_text,
-                    "Tables": tables_text,
-                    "Original Text": section_data.get("original_text", ""),
-                }
-
-                if self.config.enable_vlm:
-                    row_data["VLM Caption"] = vlm_captions
-                    row_data["VLM Description"] = vlm_descriptions
-
-                structured_data.append(row_data)
+            structured_data.append(row_data)
 
         df = pd.DataFrame(structured_data)
         with pd.ExcelWriter(excel_path, engine="xlsxwriter") as writer:
@@ -1712,7 +1976,7 @@ class PDFToMarkdownConverter:
                 for col_num, col_name in enumerate(df.columns):
                     cell_value = df.iloc[row_num - 1, col_num]
 
-                    if col_name == "Section Title" and str(cell_value).strip():
+                    if col_name == "SubType" and str(cell_value) == "heading":
                         worksheet.write(
                             row_num, col_num, cell_value, section_format
                         )
@@ -1721,16 +1985,14 @@ class PDFToMarkdownConverter:
                             row_num, col_num, cell_value, cell_format
                         )
 
-            # Set column widths
             column_widths = {
-                "Page": 8,
-                "Image Tag": 20,
-                "Section": 10,
-                "Section Title": 30,
-                "Paragraphs": 50,
-                "Bullet Points": 40,
-                "Tables": 25,
-                "Original Text": 40,
+                "Page No": 8,
+                "Text": 50,
+                "SubType": 12,
+                "Hierarchy": 15,
+                "Original Hierarchy": 25,
+                "Context": 30,
+                "Raw Data": 20,
             }
 
             if self.config.enable_vlm:
