@@ -50,6 +50,7 @@ class Chats(Base):
     vector_store = Column(String(255))
     pipeline_type = Column(String(255))
     instruction_lang = Column(String(10))
+    user_id = Column(Integer, nullable=True)
 
     @classmethod
     @session_manager_decorator
@@ -62,6 +63,7 @@ class Chats(Base):
         vector_store: str,
         pipeline_type: str,
         instruction_lang: str,
+        user_id: int,
         *,
         timestamp: DateTime = func.now(),
         session: Session | None = None,
@@ -87,6 +89,8 @@ class Chats(Base):
         timestamp : DateTime, optional
             Datetime when the chat was created, by default func.now()
             Should be used for migration only.
+        user_id : int
+            ID of the user who initiated the chat.
         session : Session | None, optional
             Automatically set by the context manager, by default None.
             Should not be set manually.
@@ -110,6 +114,7 @@ class Chats(Base):
             pipeline_type=pipeline_type,
             instruction_lang=instruction_lang,
             timestamp=timestamp,
+            user_id=user_id,
         )
         session.add(new_chat)
         session.flush()
@@ -244,28 +249,36 @@ class Chats(Base):
 
     @classmethod
     @session_manager_decorator
-    def delete_all_chats(cls, *, session: Session | None = None) -> None:
+    def delete_all_user_chats(
+        cls, user_id: int, *, session: Session | None = None
+    ) -> None:
         """
-        Delete all chat entries from the database.
+        Delete all chat entries for a specific user from the database.
 
         Parameters
         ----------
+        user_id : int
+            ID of the user whose chats should be deleted.
         session : Session | None, optional
             Automatically set by the context manager, by default None.
             Should not be set manually.
         """
-        session.query(cls).delete()
+        stmt = sqlalchemy.delete(cls).where(cls.user_id == user_id)
+        session.execute(stmt)
 
     @classmethod
     @session_manager_decorator
-    def get_all_chats(
-        cls, *, session: Session | None = None
+    def get_all_user_chats(
+        cls, user_id: int, *, session: Session | None = None
     ) -> list[tuple[int, datetime]]:
         """
-        Retrieve all chat entries from the database, ordered by timestamp in descending order.
+        Retrieve all chat IDs and their timestamps for a specific user,
+        ordered by timestamp in descending order.
 
         Parameters
         ----------
+        user_id : int
+            ID of the user whose chats should be retrieved.
         session : Session | None, optional
             Automatically set by the context manager, by default None.
             Should not be set manually.
@@ -276,5 +289,9 @@ class Chats(Base):
             A list of tuples, each containing the chat ID and its timestamp,
             ordered by timestamp in descending order.
         """
-        stmt = sqlalchemy.select(cls.id, cls.timestamp).order_by(cls.timestamp.desc())
+        stmt = (
+            sqlalchemy.select(cls.id, cls.timestamp)
+            .where(cls.user_id == user_id)
+            .order_by(cls.timestamp.desc())
+        )
         return session.execute(stmt).all()

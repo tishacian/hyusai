@@ -14,6 +14,7 @@ from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
 from src.db.chats import Chats
+from src.db.users import Users
 from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
 from src.embedding import EmbeddingVectors
 from src.globalvariables import (
@@ -442,16 +443,19 @@ def omnirag_page():
 
     # -- Recently saved chats...
     st.sidebar.markdown("Recents")
-    historical_chats = Chats.get_all_chats()
-    for chat_id, timestamp in historical_chats:
-        chat_label = f"Chat {chat_id}"
+    user_id = Users.get_by_email(st.session_state.get("username")).id
+    historical_chats = Chats.get_all_user_chats(user_id)
+    total_chats = len(historical_chats)
+    for chat_number, (chat_id, timestamp) in enumerate(historical_chats, start=1):
+        chat_desc_number = total_chats - chat_number + 1
+        chat_label = f"Chat {chat_desc_number}"
         if timestamp:
             chat_label += f" - {humanize_datetime(timestamp)}"
 
         col1, col2 = st.sidebar.columns([15, 1])
 
         with col1:
-            if st.button(chat_label, key=f"chat_{chat_id}"):
+            if st.button(chat_label, key=f"chat_{chat_desc_number}"):
                 (
                     chat_history,
                     model_name,
@@ -505,7 +509,8 @@ def omnirag_page():
 
     # -- Clear all chat history + from DB..
     if st.sidebar.button("Clear All Chat History"):
-        Chats.delete_all_chats()
+        user_id = Users.get_by_email(st.session_state.get("username")).id
+        Chats.delete_all_user_chats(user_id)
         st.session_state.chat_history.clear()
         st.session_state.current_chat_id = None
         st.rerun()
@@ -576,7 +581,7 @@ def omnirag_page():
         st.session_state.chat_history.append(
             {"role": "human", "content": prompt, "avatar": HUMAN_AVATAR_B64}
         )
-
+        user_id = Users.get_by_email(st.session_state.get("username")).id
         if st.session_state.current_chat_id:
             Chats.update_chat(
                 st.session_state.current_chat_id,
@@ -587,6 +592,7 @@ def omnirag_page():
                 st.session_state.get("vector_store", ""),
                 st.session_state.get("pipeline_type", ""),
                 st.session_state.get("instruction_lang", ""),
+                user_id,
             )
         else:
             chat_id = Chats.post_chat(
@@ -597,6 +603,7 @@ def omnirag_page():
                 st.session_state.get("vector_store", ""),
                 st.session_state.get("pipeline_type", ""),
                 st.session_state.get("instruction_lang", ""),
+                user_id,
             )
             st.session_state.current_chat_id = chat_id
 
@@ -650,6 +657,7 @@ def omnirag_page():
             }
         )
 
+        user_id = Users.get_by_email(st.session_state.get("username")).id
         Chats.update_chat(
             st.session_state.current_chat_id,
             st.session_state.chat_history,
@@ -659,6 +667,7 @@ def omnirag_page():
             st.session_state.get("vector_store", ""),
             st.session_state.get("pipeline_type", ""),
             st.session_state.get("instruction_lang", ""),
+            user_id,
         )
 
     data = []

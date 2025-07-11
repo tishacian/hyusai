@@ -74,6 +74,10 @@ def register_form():
             )
             st.success("User registered successfully!")
 
+def reset_session_state(*args, **kwargs):
+    """Reset session state"""
+    for key in st.session_state.keys():
+        del st.session_state[key]
 
 def auth_component():
     """Display the authentication component."""
@@ -81,7 +85,7 @@ def auth_component():
         if "logout" not in st.session_state:
             st.session_state["logout"] = False
         auth = get_authenticator()
-        auth.logout("Logout", "sidebar")
+        auth.logout("Logout", "sidebar", callback=reset_session_state)
     else:
         tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
         with tab_login:
