@@ -1,4 +1,3 @@
-import json
 import os
 import time
 from io import BytesIO
@@ -444,16 +443,6 @@ def omnirag_page():
 
     # -- New chat
     if st.sidebar.button("New Chat"):
-        if st.session_state.chat_history:
-            Chats.post_chat(
-                st.session_state.chat_history,
-                st.session_state.get("model_name", ""),
-                st.session_state.get("chunking_method", ""),
-                st.session_state.get("index_type", ""),
-                st.session_state.get("vector_store", ""),
-                st.session_state.get("pipeline_type", ""),
-                st.session_state.get("instruction_lang", ""),
-            )
         st.session_state.chat_history = []
         st.session_state.current_chat_id = None
         st.rerun()
@@ -595,6 +584,29 @@ def omnirag_page():
             {"role": "human", "content": prompt, "avatar": HUMAN_AVATAR_B64}
         )
 
+        if st.session_state.current_chat_id:
+            Chats.update_chat(
+                st.session_state.current_chat_id,
+                st.session_state.chat_history,
+                st.session_state.get("model_name", ""),
+                st.session_state.get("chunking_method", ""),
+                st.session_state.get("index_type", ""),
+                st.session_state.get("vector_store", ""),
+                st.session_state.get("pipeline_type", ""),
+                st.session_state.get("instruction_lang", ""),
+            )
+        else:
+            chat_id = Chats.post_chat(
+                st.session_state.chat_history,
+                st.session_state.get("model_name", ""),
+                st.session_state.get("chunking_method", ""),
+                st.session_state.get("index_type", ""),
+                st.session_state.get("vector_store", ""),
+                st.session_state.get("pipeline_type", ""),
+                st.session_state.get("instruction_lang", ""),
+            )
+            st.session_state.current_chat_id = chat_id
+
         with st.chat_message("ai", avatar=AI_AVATAR):
             message_placeholder = st.empty()
 
@@ -645,29 +657,16 @@ def omnirag_page():
             }
         )
 
-        # -- Save or update chat history in database
-        if st.session_state.current_chat_id:
-            Chats.update_chat(
-                st.session_state.current_chat_id,
-                json.dumps(st.session_state.chat_history),
-                st.session_state.get("model_name", ""),
-                st.session_state.get("chunking_method", ""),
-                st.session_state.get("index_type", ""),
-                st.session_state.get("vector_store", ""),
-                st.session_state.get("pipeline_type", ""),
-                st.session_state.get("instruction_lang", ""),
-            )
-        else:
-            chat_id = Chats.post_chat(
-                st.session_state.chat_history,
-                st.session_state.get("model_name", ""),
-                st.session_state.get("chunking_method", ""),
-                st.session_state.get("index_type", ""),
-                st.session_state.get("vector_store", ""),
-                st.session_state.get("pipeline_type", ""),
-                st.session_state.get("instruction_lang", ""),
-            )
-            st.session_state.current_chat_id = chat_id
+        Chats.update_chat(
+            st.session_state.current_chat_id,
+            st.session_state.chat_history,
+            st.session_state.get("model_name", ""),
+            st.session_state.get("chunking_method", ""),
+            st.session_state.get("index_type", ""),
+            st.session_state.get("vector_store", ""),
+            st.session_state.get("pipeline_type", ""),
+            st.session_state.get("instruction_lang", ""),
+        )
 
     data = []
     for i in range(0, len(st.session_state.chat_history), 2):
