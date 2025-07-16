@@ -669,14 +669,21 @@ def omnirag_page():
         )
 
     data = []
-    for i in range(0, len(st.session_state.chat_history), 2):
-        if i + 1 < len(st.session_state.chat_history):
-            question = st.session_state.chat_history[i]["content"]
-            answer = st.session_state.chat_history[i + 1]["content"]
-            metrics = st.session_state.chat_history[i + 1].get("metrics", {})
-            if metrics is None:
-                metrics = DUMMY_METRICS
-            data.append({"Question": question, "Answer": answer, **metrics})
+    chat_history = st.session_state.chat_history
+    i = 0
+    while i < len(chat_history):
+        if chat_history[i]["role"] == "human":
+            question = chat_history[i]["content"]
+            if i + 1 < len(chat_history) and chat_history[i + 1]["role"] == "ai":
+                answer = chat_history[i + 1]["content"]
+                metrics = chat_history[i + 1].get("metrics") or DUMMY_METRICS
+                data.append({"Question": question, "Answer": answer, **metrics})
+                i += 2
+            else:
+                data.append({"Question": question})
+                i += 1
+        else:
+            i += 1
 
     df = pd.DataFrame(data)
 
