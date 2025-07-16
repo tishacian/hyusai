@@ -581,7 +581,6 @@ def omnirag_page():
         st.session_state.chat_history.append(
             {"role": "human", "content": prompt, "avatar": HUMAN_AVATAR_B64}
         )
-        user_id = Users.get_by_email(st.session_state.get("username")).id
         if st.session_state.current_chat_id:
             Chats.update_chat(
                 st.session_state.current_chat_id,
@@ -592,9 +591,9 @@ def omnirag_page():
                 st.session_state.get("vector_store", ""),
                 st.session_state.get("pipeline_type", ""),
                 st.session_state.get("instruction_lang", ""),
-                user_id,
             )
         else:
+            user_id = Users.get_by_email(st.session_state.get("username")).id
             chat_id = Chats.post_chat(
                 st.session_state.chat_history,
                 st.session_state.get("model_name", ""),
@@ -657,7 +656,6 @@ def omnirag_page():
             }
         )
 
-        user_id = Users.get_by_email(st.session_state.get("username")).id
         Chats.update_chat(
             st.session_state.current_chat_id,
             st.session_state.chat_history,
@@ -667,7 +665,6 @@ def omnirag_page():
             st.session_state.get("vector_store", ""),
             st.session_state.get("pipeline_type", ""),
             st.session_state.get("instruction_lang", ""),
-            user_id,
         )
 
     data = []
