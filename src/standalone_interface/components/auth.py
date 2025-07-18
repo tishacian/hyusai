@@ -1,8 +1,29 @@
+import re
+
 import streamlit as st
 import streamlit_authenticator as stauth
 
 from configuration import get_standalone_interface_config
 from src.db.users import Users
+
+
+def is_valid_email(email: str) -> bool:
+    """Basic regex check for valid email."""
+    pattern = r"^[\w\.-]+@[\w\.-]+\.\w{2,}$"
+    return re.match(pattern, email) is not None
+
+
+def is_strong_password(password: str) -> bool:
+    """Basic password strength checker."""
+    if len(password) < 8:
+        return False
+    if not re.search(r"[A-Z]", password):
+        return False
+    if not re.search(r"[a-z]", password):
+        return False
+    if not re.search(r"\d", password):
+        return False
+    return True
 
 
 def get_usernames_from_db() -> dict:
@@ -62,6 +83,13 @@ def register_form():
     if st.button("Sign Up"):
         if not email or not name or not password:
             st.error("Please fill in all fields.")
+        elif not is_valid_email(email):
+            st.error("Please enter a valid email address.")
+        elif not is_strong_password(password):
+            st.error(
+                "Password must be at least 8 characters long and "
+                "include uppercase, lowercase, and a digit."
+            )
         elif password != confirm_password:
             st.error("Passwords do not match.")
         elif Users.get_by_email(email.lower()):
@@ -74,10 +102,12 @@ def register_form():
             )
             st.success("User registered successfully!")
 
+
 def reset_session_state(*args, **kwargs):
     """Reset session state"""
     for key in st.session_state.keys():
         del st.session_state[key]
+
 
 def auth_component():
     """Display the authentication component."""
