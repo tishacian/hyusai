@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Literal, TypedDict
 
 import sqlalchemy
-from sqlalchemy import Column, DateTime, Integer, String, Text
-from sqlalchemy.orm import Session
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Session, relationship
 from sqlalchemy.sql import func
 
 from src.db.utils import Base, session_manager_decorator
@@ -42,7 +42,9 @@ class Chats(Base):
     __tablename__ = "chats"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    timestamp = Column(
+        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    )
     chat_data = Column(Text, nullable=False)  # JSON serialized messages
     model_name = Column(String(255))
     chunking_method = Column(String(255))
@@ -50,7 +52,11 @@ class Chats(Base):
     vector_store = Column(String(255))
     pipeline_type = Column(String(255))
     instruction_lang = Column(String(10))
-    user_id = Column(Integer, nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+    user = relationship("Users", back_populates="chats")
 
     @classmethod
     @session_manager_decorator

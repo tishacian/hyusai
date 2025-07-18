@@ -1,5 +1,5 @@
 from sqlalchemy import Column, DateTime, Integer, String, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, relationship
 from sqlalchemy.sql import func
 from streamlit_authenticator import Hasher
 
@@ -20,6 +20,8 @@ class Users(Base):
     password_hash = Column(String(256), nullable=False)
     name = Column(String(128), nullable=False)
     role = Column(String(64), nullable=False, default="user")
+
+    chats = relationship("Chats", back_populates="user", cascade="all, delete-orphan")
 
     @classmethod
     @session_manager_decorator
