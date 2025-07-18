@@ -15,10 +15,10 @@ class SystemPrompts(Base):
     __tablename__ = "system_prompts"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    language = Column(String(10))
-    llm_role_definition = Column(Text)
-    updated_by = Column(String(255))
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    language = Column(String(10), nullable=False)
+    llm_role_definition = Column(Text, nullable=False)
+    updated_by = Column(String(255), nullable=False)
+    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
 
     @classmethod
     @session_manager_decorator

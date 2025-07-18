@@ -42,15 +42,15 @@ class Chats(Base):
     __tablename__ = "chats"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, default=func.now(), onupdate=func.now())
-    chat_data = Column(Text)  # JSON serialized messages
-    model_name = Column(String(255))
-    chunking_method = Column(String(255))
-    index_type = Column(String(255))
-    vector_store = Column(String(255))
-    pipeline_type = Column(String(255))
-    instruction_lang = Column(String(10))
-    user_id = Column(Integer, nullable=True)
+    timestamp = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    chat_data = Column(Text, nullable=False)  # JSON serialized messages
+    model_name = Column(String(255), nullable=False)
+    chunking_method = Column(String(255), nullable=False)
+    index_type = Column(String(255), nullable=False)
+    vector_store = Column(String(255), nullable=False)
+    pipeline_type = Column(String(255), nullable=False)
+    instruction_lang = Column(String(10), nullable=False)
+    user_id = Column(Integer, nullable=False)
 
     @classmethod
     @session_manager_decorator
