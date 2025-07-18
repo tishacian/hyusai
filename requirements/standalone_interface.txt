@@ -1,2 +1,2 @@
 streamlit==1.37
-streamlit-authenticator
+streamlit-authenticator==0.4.2
