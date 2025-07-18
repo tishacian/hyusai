@@ -403,11 +403,11 @@ def download_nltk_data():
     """Download NLTK data if not already available."""
     import nltk
 
-    nltk.download("punkt")
-    nltk.download("punkt_tab")
-    nltk.download("wordnet")
-    nltk.download("stopwords")
-    nltk.download("averaged_perceptron_tagger")
+    nltk.download("punkt", quiet=True)
+    nltk.download("punkt_tab", quiet=True)
+    nltk.download("wordnet", quiet=True)
+    nltk.download("stopwords", quiet=True)
+    nltk.download("averaged_perceptron_tagger", quiet=True)
 
 
 def add_leading_space_if_needed(s: str) -> str:
