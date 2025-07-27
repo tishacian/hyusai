@@ -672,12 +672,13 @@ class EmbeddingVectors:
             )
             raise
 
-    def create_and_save_index(self, chunks):
+    def create_and_save_index(self, chunks, enable_meta_filter=True):
         """
         Create and save the index -- vector DB with improved validation and error handling
 
         Parameters:
             chunks: list of text chunks
+            enable_meta_filter: bool, whether to enable metadata filtering (default: True)
 
         Return
             None
@@ -695,17 +696,6 @@ class EmbeddingVectors:
                 logging.error("🚩 Failed to create embeddings")
                 return
 
-            # Determine whether metadata filtering is enabled (default: True)
-            enable_meta_filter = True
-            try:
-                import streamlit as st  # Local import to avoid hard dep during unit tests
-
-                enable_meta_filter = st.session_state.get(
-                    "enable_meta_filter", True
-                )
-            except Exception:
-                # Not running within Streamlit – assume default behaviour (enabled)
-                enable_meta_filter = True
 
             # Collect facet inventory only when enabled
             meta_stats = None

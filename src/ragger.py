@@ -677,8 +677,10 @@ if get_standalone_interface_config().forced_vdb == "None":
                     embedding_model_name=EMBEDDING_NAME,
                     embedding_type=index_type,
                 )
+                # Get enable_meta_filter from session state
+                enable_meta_filter = st.session_state.get("enable_meta_filter", True)
                 st.session_state.embedding_index = (
-                    embedding_vector.create_and_save_index(chunks)
+                    embedding_vector.create_and_save_index(chunks, enable_meta_filter)
                 )
                 st.success("PDF processed and embedding index created!")
                 st.session_state.model_name = model_name
