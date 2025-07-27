@@ -1,10 +1,12 @@
 import base64
 import json
 import os
+import pickle
 import sqlite3
 import time
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Iterator
 import time
@@ -525,60 +527,55 @@ if get_standalone_interface_config().forced_vdb == "None":
                 )
             
             with row_buttons[2]:
-                # --- Phase 7: Expose metadata facets in Retrieval UI
-                if st.session_state.get("enable_meta_filter"):
-                    import pickle
-                    from pathlib import Path
+                # Load metadata stats once for both display and filtering
+                meta_stats = {}
+                vs_name = (
+                    existing_vector_store if existing_vector_store != "<New>" else new_vs_name
+                )
+                
+                if st.session_state.get("enable_meta_filter") and vs_name:
+                    # The directory names already include the index type prefix (e.g. "faiss_<name>")
+                    meta_path = VECTOR_STORE_PATH / vs_name / "meta_stats.pkl"
+                    if Path(meta_path).exists():
+                        with open(meta_path, "rb") as f:
+                            meta_stats = pickle.load(f) or {}
 
-                    # Determine which vector store is in effect (either existing selection or new one just created)
-                    vs_name = (
-                        existing_vector_store if existing_vector_store != "<New>" else new_vs_name
-                    )
-                    if vs_name:
-                        # The directory names already include the index type prefix (e.g. "faiss_<name>")
-                        meta_path = VECTOR_STORE_PATH / vs_name / "meta_stats.pkl"
-                        if Path(meta_path).exists():
-                            with open(meta_path, "rb") as f:
-                                meta_stats = pickle.load(f) or {}
+                        # Retrieve any previously selected filter values to keep UI state
+                        previous_filter = st.session_state.get("meta_filter", {})
 
-                            # Retrieve any previously selected filter values to keep UI state
-                            previous_filter = st.session_state.get("meta_filter", {})
-                            current_filter: dict[str, list] = {}
-
-                            st.markdown("**Filter by metadata**")
-                            # Debug/verbosity: show size of each value list
-
-                            for key, values in meta_stats.items():
-                                # Skip empty value lists
-                                if not values:
-                                    continue
-                                default_sel = previous_filter.get(key, [])
-                                selections = st.multiselect(
-                                    key,
-                                    options=values,
-                                    default=default_sel,
-                                    key=f"meta_sel_{key}",
-                                )
-                                if selections:
-                                    current_filter[key] = selections
-                            # Persist the (possibly changed) selections locally; will be committed when user clicks
-                            st.session_state._pending_meta_filter = current_filter
-                        else:
-                            st.info("No metadata facets available for the selected vector DB.")
-                    elif vs_name:
-                        # facet file missing
-                        st.info("meta_stats.pkl not found – ensure indexing ran with 'Enable metadata filters' enabled.")
-                # end Phase 7 UI
+                        st.markdown("**Filter by metadata**")
+                        for key, values in meta_stats.items():
+                            # Skip empty value lists
+                            if not values:
+                                continue
+                            default_sel = previous_filter.get(key, [])
+                            st.multiselect(
+                                key,
+                                options=values,
+                                default=default_sel,
+                                key=f"meta_sel_{key}",
+                            )
+                    else:
+                        st.info("No metadata facets available for the selected vector DB.")
+                elif vs_name:
+                    st.info("meta_stats.pkl not found – ensure indexing ran with 'Enable metadata filters' enabled.")
             # ---------------------- Apply metadata filter button ----------------------
             with row_buttons[3]:
                 apply_meta_button = st.form_submit_button("Apply metadata filter")
 
-            # Commit the filter when the button is pressed (or if no button shown but _pending_meta_filter is set)
+            # Commit the filter when the button is pressed
             if apply_meta_button:
-                # Move pending selections into active filter
-                pending = st.session_state.pop("_pending_meta_filter", None)
-                if pending is not None:
-                    st.session_state.meta_filter = pending
+                # Collect current filter selections from multiselect widgets
+                current_filter: dict[str, list] = {}
+                if meta_stats:  # Use already loaded meta_stats
+                    for key in meta_stats.keys():
+                        if not meta_stats[key]:  # Skip empty value lists
+                            continue
+                        selections = st.session_state.get(f"meta_sel_{key}", [])
+                        if selections:
+                            current_filter[key] = selections
+                
+                st.session_state.meta_filter = current_filter
                 # Log selected filter to console and show in UI for debugging
                 print("[MetaFilter] Selected filter:", st.session_state.get("meta_filter"))
                 st.toast("Metadata filter applied ✅", icon="✅")
