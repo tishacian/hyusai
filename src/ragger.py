@@ -255,6 +255,9 @@ if "display_history" not in st.session_state:
     st.session_state.display_history = False
 if "chain" not in st.session_state:
     st.session_state.chain = None
+# Flag: becomes True once the context-chain has been built 
+if "chain_ready" not in st.session_state:
+    st.session_state.chain_ready = False
 if "chunking_method" not in st.session_state:
     st.session_state.chunking_method = None
 if "index_type" not in st.session_state:
@@ -527,13 +530,18 @@ if get_standalone_interface_config().forced_vdb == "None":
                 )
             
             with row_buttons[2]:
-                # Load metadata stats once for both display and filtering
-                meta_stats = {}
-                vs_name = (
-                    existing_vector_store if existing_vector_store != "<New>" else new_vs_name
-                )
-                
-                if st.session_state.get("enable_meta_filter") and vs_name:
+                # Facet selectors are shown only AFTER the context-chain exists
+                if (
+                    st.session_state.get("chain_ready")
+                    and st.session_state.get("enable_meta_filter")
+                ):
+                    meta_stats = {}
+                    vs_name = (
+                        existing_vector_store
+                        if existing_vector_store != "<New>"
+                        else new_vs_name
+                    )
+
                     # The directory names already include the index type prefix (e.g. "faiss_<name>")
                     meta_path = VECTOR_STORE_PATH / vs_name / "meta_stats.pkl"
                     if Path(meta_path).exists():
@@ -557,11 +565,15 @@ if get_standalone_interface_config().forced_vdb == "None":
                             )
                     else:
                         st.info("No metadata facets available for the selected vector DB.")
-                elif vs_name:
-                    st.info("meta_stats.pkl not found – ensure indexing ran with 'Enable metadata filters' enabled.")
+                else:
+                    st.info("Initialise the context-chain to enable metadata filters.")
             # ---------------------- Apply metadata filter button ----------------------
             with row_buttons[3]:
-                apply_meta_button = st.form_submit_button("Apply metadata filter")
+                # Disabled until the chain is ready
+                apply_meta_button = st.form_submit_button(
+                    "Apply metadata filter",
+                    disabled=not st.session_state.get("chain_ready"),
+                )
 
             # Commit the filter when the button is pressed
             if apply_meta_button:
@@ -710,6 +722,7 @@ if get_standalone_interface_config().forced_vdb == "None":
                     instruction_lang=instruction_lang,
                 )
                 st.session_state.chain = chain
+                st.session_state.chain_ready = True          
                 st.session_state.pipeline_type = pipeline_type
                 st.session_state.instruction_lang = instruction_lang
 else:
@@ -734,6 +747,7 @@ else:
     st.session_state.chain = chain
     st.session_state.pipeline_type = pipeline_type
     st.session_state.instruction_lang = instruction_lang
+    st.session_state.chain_ready = True             
 
 if "model_name" not in st.session_state:
     st.session_state.model_name = device_default_model()
@@ -820,6 +834,7 @@ for chat_id, timestamp in historical_chats:
                 instruction_lang=instruction_lang,
             )
             st.session_state.chain = chain
+            st.session_state.chain_ready = True     
             st.rerun()
     # --
     with col2:
