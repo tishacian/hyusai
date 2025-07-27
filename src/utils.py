@@ -396,6 +396,13 @@ def _build_field_type_map() -> dict[str, set[type]]:
     This inspects the TypedDict annotations defined in the metadata types module
     so the filter logic can perform basic type-aware normalisation when
     comparing metadata values against the user-supplied filter values.
+    
+    Returns
+    -------
+    dict[str, set[type]]
+        A dictionary mapping metadata field names to sets of expected Python types.
+        Keys are field names (strings) and values are sets containing the type
+        annotations found across all metadata TypedDict classes.
     """
     field_map: dict[str, set[type]] = {}
     for _cls in (
@@ -418,6 +425,20 @@ def _safe_cast(value: object, target_types: set[type]):
 
     Only simple numeric / bool / datetime / str conversions are handled. If no
     conversion succeeds, the original *value* is returned.
+    
+    Parameters
+    ----------
+    value : object
+        The value to attempt casting on.
+    target_types : set[type]
+        Set of target types to attempt casting to.
+        
+    Returns
+    -------
+    object
+        The successfully cast value if conversion succeeds, otherwise the
+        original value unchanged. Supported conversions include int, float,
+        bool, and str types.
     """
     if not target_types:
         return value  # Nothing to do
@@ -463,7 +484,24 @@ def _safe_cast(value: object, target_types: set[type]):
 
 
 def _values_match(meta_val, filter_val) -> bool:
-    """Return True if *meta_val* satisfies *filter_val* condition."""
+    """Return True if *meta_val* satisfies *filter_val* condition.
+    
+    Parameters
+    ----------
+    meta_val : object
+        The metadata value to check.
+    filter_val : object
+        The filter condition to match against. Can be a single value or
+        an iterable of values for membership testing.
+        
+    Returns
+    -------
+    bool
+        True if meta_val matches the filter_val condition, False otherwise.
+        For iterable filter_val (except str/bytes), returns True if meta_val
+        matches any element. Otherwise performs direct equality or string
+        comparison.
+    """
     # If filter_val is iterable (but not str/bytes) treat as membership set
     if isinstance(filter_val, (list, tuple, set)):
         return any(_values_match(meta_val, fv) for fv in filter_val)
@@ -650,6 +688,15 @@ def _patch_uploaded_metadata(original_meta: dict | None, uploaded_file) -> dict:
         Metadata returned by `extract_metadata()` (may be empty).
     uploaded_file : streamlit.runtime.uploaded_file_manager.UploadedFile
         The object returned by `st.file_uploader`.
+        
+    Returns
+    -------
+    dict
+        Enhanced metadata dictionary containing original metadata plus additional
+        fields extracted from the uploaded file including file_path, file_name,
+        file_extension, size, mime_type, and timestamp fields (last_modified_time,
+        creation_time, last_accessed_time). Preserves original upload attributes
+        that would otherwise be lost when copying to temporary locations.
     """
     from datetime import datetime
 
