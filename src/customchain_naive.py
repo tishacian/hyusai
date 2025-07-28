@@ -18,7 +18,7 @@ from src.system_prompts import (
     SystemPromptLangs,
     SystemPromptTypes,
 )
-from src.utils import format_llm_response
+from src.utils import add_leading_space_if_needed, format_llm_response
 
 if torch.cuda.is_available():
     from vllm import SamplingParams
@@ -145,6 +145,7 @@ class CustomLLMChain:
         self.assistant_role = SystemPrompts.get_by_language(
             self.instruction_lang
         ).llm_role_definition
+        self.assistant_role = add_leading_space_if_needed(self.assistant_role)
 
     def load_index(self):
         # -- load BM25 retriever first

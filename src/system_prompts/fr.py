@@ -13,7 +13,7 @@ TRIVIAL_VOCABULARY = {"bonjour", "salut", "coucou", "bonsoir", "bonne nuit", "bo
 DEFAULT_SYSTEM_PROMPT_ROLE = ""
 
 SYSTEM_PROMPT_TEMPLATES = {
-    SystemPromptTypes.FACTUAL: """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et factuelles. {assistant_role}
+    SystemPromptTypes.FACTUAL: """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et factuelles.{assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier les faits clés du contexte
                                                 2. Extraire les informations pertinentes
@@ -25,7 +25,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                 
                                                 Fournis une réponse factuelle claire en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.ANALYTICAL: """[INST] Tu es un assistant IA spécialisé dans l'analyse approfondie. {assistant_role}
+    SystemPromptTypes.ANALYTICAL: """[INST] Tu es un assistant IA spécialisé dans l'analyse approfondie.{assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier l'objectif principal et les contraintes
                                                 2. Décomposer les exigences clés et les paramètres
@@ -40,7 +40,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                                                                
                                                 Fournis une analyse approfondie qui combine précision factuelle et renseignements analytiques en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.COMPARATIVE: """[INST] Tu es un assistant IA spécialisé dans l'analyse comparative. {assistant_role}
+    SystemPromptTypes.COMPARATIVE: """[INST] Tu es un assistant IA spécialisé dans l'analyse comparative.{assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier les éléments à comparer
                                                 2. Examiner les similitudes et différences
@@ -52,7 +52,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                 
                                                 Fournis une analyse comparative en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.CAUSAL: """[INST] Tu es un assistant IA spécialisé dans l'analyse causale. {assistant_role}
+    SystemPromptTypes.CAUSAL: """[INST] Tu es un assistant IA spécialisé dans l'analyse causale.{assistant_role}
                                                 Étapes d'analyse :
                                                 1. Identifier les relations de cause à effet
                                                 2. Examiner les facteurs contribuants
@@ -64,7 +64,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                 
                                                 Explique les relations causales en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.HYPOTHETICAL: """[INST] Tu es un assistant IA spécialisé dans le raisonnement hypothétique. {assistant_role}
+    SystemPromptTypes.HYPOTHETICAL: """[INST] Tu es un assistant IA spécialisé dans le raisonnement hypothétique.{assistant_role}
                                                 Étapes d'analyse :
                                                 1. Considérer les hypothèses conditionnelles
                                                 2. Analyser les scénarios potentiels
@@ -76,7 +76,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                 
                                                 Explore ce scénario en t'appuyant sur le contexte : [/INST]""",
-    SystemPromptTypes.NAIVE: """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées. {assistant_role}
+    SystemPromptTypes.NAIVE: """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et détaillées.{assistant_role}
                                                 Concentre-toi sur les informations importantes qui traitent directement du sujet ou de la question principale.
                                                 Inclue des détails pertinents qui fournissent un contexte ou appuient tes arguments.
                                                 Veille à ce que les informations soient intéressantes en faisant attention à l'exactitude, la précision, l'exhaustivité, la concision, la clarté, la pertinence, l'objectivité et la résonance émotionnelle.
@@ -87,7 +87,7 @@ SYSTEM_PROMPT_TEMPLATES = {
                                                 Question : {question}
                                                 
                                                 Réponse : [/INST]""",
-    SystemPromptTypes.TRIVIAL: """[INST] Tu es un assistant conversationnel amical. {assistant_role} Si il y a une conversation précédente ci-dessous, garde-la à l'esprit. Sinon, réponds simplement au message court de l'utilisateur de manière naturelle (salutation, remerciements, adieu, etc.). Ne fournis PAS d'informations supplémentaires au-delà de ce qui est approprié pour le message de l'utilisateur.
+    SystemPromptTypes.TRIVIAL: """[INST] Tu es un assistant conversationnel amical.{assistant_role} Si il y a une conversation précédente ci-dessous, garde-la à l'esprit. Sinon, réponds simplement au message court de l'utilisateur de manière naturelle (salutation, remerciements, adieu, etc.). Ne fournis PAS d'informations supplémentaires au-delà de ce qui est approprié pour le message de l'utilisateur.
 
 {context}
 

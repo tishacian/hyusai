@@ -52,6 +52,7 @@ from src.system_prompts import (
 from src.system_prompts.types import SystemPromptTypes
 from src.trivial_check import is_trivial_question
 from src.utils import (
+    add_leading_space_if_needed,
     format_llm_response,
     get_max_model_len,
     measure_time,
@@ -168,6 +169,7 @@ class CustomLLMChain:
         self.assistant_role = SystemPrompts.get_by_language(
             self.instruction_lang
         ).llm_role_definition
+        self.assistant_role = add_leading_space_if_needed(self.assistant_role)
 
         init_time = time.time() - start_time
         logging.info(

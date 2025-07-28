@@ -50,6 +50,7 @@ from src.system_prompts import (
 )
 from src.trivial_check import is_trivial_question
 from src.utils import (
+    add_leading_space_if_needed,
     format_llm_response,
     get_max_model_len,
     load_stopwords,
@@ -166,6 +167,7 @@ class CustomLLMChain:
         self.assistant_role = SystemPrompts.get_by_language(
             self.instruction_lang
         ).llm_role_definition
+        self.assistant_role = add_leading_space_if_needed(self.assistant_role)
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count())
 
         self.perf_stats = {
