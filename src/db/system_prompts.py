@@ -1,9 +1,9 @@
-from typing import Any
+from datetime import datetime
 
 import sqlalchemy
-from sqlalchemy import Column, DateTime, Integer, String, Text
-from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
+from sqlalchemy import DateTime as SQLADateTime
+from sqlalchemy import Integer, String, Text, func
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from src.db.utils import Base, session_manager_decorator
 from src.system_prompts import ALL_DEFAULT_SYSTEM_PROMPT_ROLE
@@ -14,11 +14,16 @@ class SystemPrompts(Base):
 
     __tablename__ = "system_prompts"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    language = Column(String(10), nullable=False)
-    llm_role_definition = Column(Text, nullable=False)
-    updated_by = Column(String(255), nullable=False)
-    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    language: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
+    llm_role_definition: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        SQLADateTime,
+        nullable=False,
+        server_default=func.now(),
+        server_onupdate=func.now(),
+    )
 
     @classmethod
     @session_manager_decorator
@@ -65,7 +70,7 @@ class SystemPrompts(Base):
         SystemPrompts | None
             The SystemPrompts record if found, otherwise None.
         """
-        stmt = sqlalchemy.select(cls).where((cls.language == language))
+        stmt = sqlalchemy.select(cls).where(cls.language == language)
         return session.execute(stmt).scalar_one_or_none()
 
     @classmethod
@@ -95,7 +100,11 @@ class SystemPrompts(Base):
     @classmethod
     @session_manager_decorator
     def update(
-        cls, record_id: int, *, session: Session | None = None, **updated_values: Any
+        cls,
+        record_id: int,
+        *,
+        session: Session | None = None,
+        **updated_values: str | datetime,
     ) -> None:
         """
         Update a SystemPrompts record with the given values.
@@ -107,7 +116,7 @@ class SystemPrompts(Base):
         session : Session | None, optional
             Automatically set by the context manager, by default None.
             Should not be set manually.
-        updated_values : Any
+        updated_values : str | datetime
             Key-value pairs of fields to update in the SystemPrompts record.
         """
         stmt = (

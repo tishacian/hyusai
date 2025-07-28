@@ -595,6 +595,7 @@ def omnirag_page():
         else:
             user_id = Users.get_by_email(st.session_state.get("username")).id
             chat_id = Chats.post_chat(
+                user_id,
                 st.session_state.chat_history,
                 st.session_state.get("model_name", ""),
                 st.session_state.get("chunking_method", ""),
@@ -602,7 +603,6 @@ def omnirag_page():
                 st.session_state.get("vector_store", ""),
                 st.session_state.get("pipeline_type", ""),
                 st.session_state.get("instruction_lang", ""),
-                user_id,
             )
             st.session_state.current_chat_id = chat_id
 

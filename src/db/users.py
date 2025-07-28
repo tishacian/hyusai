@@ -1,6 +1,8 @@
-from sqlalchemy import Column, DateTime, Integer, String, select, update
-from sqlalchemy.orm import Session, relationship
-from sqlalchemy.sql import func
+from datetime import datetime
+
+from sqlalchemy import DateTime as SQLADateTime
+from sqlalchemy import Integer, String, func, select, update
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 from streamlit_authenticator import Hasher
 
 from src.db.utils import Base, session_manager_decorator
@@ -11,15 +13,20 @@ class Users(Base):
 
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, nullable=False, default=func.now())
-    updated_at = Column(
-        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        SQLADateTime, nullable=False, server_default=func.now()
     )
-    email = Column(String(128), nullable=False, unique=True)
-    password_hash = Column(String(256), nullable=False)
-    name = Column(String(128), nullable=False)
-    role = Column(String(64), nullable=False, default="user")
+    updated_at: Mapped[datetime] = mapped_column(
+        SQLADateTime,
+        nullable=False,
+        server_default=func.now(),
+        server_onupdate=func.now(),
+    )
+    email: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    role: Mapped[str] = mapped_column(String(64), nullable=False, default="user")
 
     chats = relationship("Chats", back_populates="user", cascade="all, delete-orphan")
 

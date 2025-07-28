@@ -3,9 +3,9 @@ from datetime import datetime
 from typing import Literal, TypedDict
 
 import sqlalchemy
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Session, relationship
-from sqlalchemy.sql import func
+from sqlalchemy import DateTime as SQLADateTime
+from sqlalchemy import ForeignKey, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from src.db.utils import Base, session_manager_decorator
 
@@ -41,20 +41,23 @@ class Chats(Base):
 
     __tablename__ = "chats"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(
-        DateTime, nullable=False, default=func.now(), onupdate=func.now()
-    )
-    chat_data = Column(Text, nullable=False)  # JSON serialized messages
-    model_name = Column(String(255))
-    chunking_method = Column(String(255))
-    index_type = Column(String(255))
-    vector_store = Column(String(255))
-    pipeline_type = Column(String(255))
-    instruction_lang = Column(String(10))
-    user_id = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    timestamp: Mapped[datetime] = mapped_column(
+        SQLADateTime,
+        nullable=False,
+        server_default=func.now(),
+        server_onupdate=func.now(),
+    )
+    chat_data: Mapped[str] = mapped_column(Text, nullable=False)
+    model_name: Mapped[str | None] = mapped_column(String(255))
+    chunking_method: Mapped[str | None] = mapped_column(String(255))
+    index_type: Mapped[str | None] = mapped_column(String(255))
+    vector_store: Mapped[str | None] = mapped_column(String(255))
+    pipeline_type: Mapped[str | None] = mapped_column(String(255))
+    instruction_lang: Mapped[str | None] = mapped_column(String(10))
 
     user = relationship("Users", back_populates="chats")
 
@@ -62,41 +65,42 @@ class Chats(Base):
     @session_manager_decorator
     def post_chat(
         cls,
-        chat_history: list[HumanChat | AIChat],
-        model_name: str,
-        chunking_method: str,
-        index_type: str,
-        vector_store: str,
-        pipeline_type: str,
-        instruction_lang: str,
         user_id: int,
+        chat_history: list[HumanChat | AIChat],
+        model_name: str | None,
+        chunking_method: str | None,
+        index_type: str | None,
+        vector_store: str | None,
+        pipeline_type: str | None,
+        instruction_lang: str | None,
         *,
-        timestamp: DateTime = func.now(),
+        timestamp: datetime | None = None,
         session: Session | None = None,
     ) -> int:
         """
         Save a chat history to the database.
         Parameters
         ----------
-        chat_history : list[HumanChat | AIChat]
-            List of chat messages, where each message is a dictionary.
-        model_name : str
-            Name of the model used for the chat.
-        chunking_method : str
-            Chunking method used for the chat.
-        index_type : str
-            Type of index used for the chat.
-        vector_store : str
-            Vector store used for the chat.
-        pipeline_type : str
-            Type of pipeline used for the chat.
-        instruction_lang : str
-            Language of the instructions used in the chat.
-        timestamp : DateTime, optional
-            Datetime when the chat was created, by default func.now()
-            Should be used for migration only.
         user_id : int
             ID of the user who initiated the chat.
+        chat_history : list[HumanChat | AIChat]
+            List of chat messages, where each message is a dictionary.
+        model_name : str | None
+            Name of the model used for the chat.
+        chunking_method : str | None
+            Chunking method used for the chat.
+        index_type : str | None
+            Type of index used for the chat.
+        vector_store : str | None
+            Vector store used for the chat.
+        pipeline_type : str | None
+            Type of pipeline used for the chat.
+        instruction_lang : str | None
+            Language of the instructions used in the chat.
+        timestamp : DateTime | None, optional
+            Datetime when the chat was created, by default None.
+            If None, the current time will be used automatically.
+            Should be used for migration only.
         session : Session | None, optional
             Automatically set by the context manager, by default None.
             Should not be set manually.
@@ -110,18 +114,29 @@ class Chats(Base):
             if "avatar" in msg and isinstance(msg["avatar"], str):
                 msg["avatar"] = msg["avatar"].split(",")[-1]
         chat_json = json.dumps(chat_history)
-
-        new_chat = cls(
-            chat_data=chat_json,
-            model_name=model_name,
-            chunking_method=chunking_method,
-            index_type=index_type,
-            vector_store=vector_store,
-            pipeline_type=pipeline_type,
-            instruction_lang=instruction_lang,
-            timestamp=timestamp,
-            user_id=user_id,
-        )
+        if timestamp is None:
+            new_chat = cls(
+                user_id=user_id,
+                chat_data=chat_json,
+                model_name=model_name,
+                chunking_method=chunking_method,
+                index_type=index_type,
+                vector_store=vector_store,
+                pipeline_type=pipeline_type,
+                instruction_lang=instruction_lang,
+            )
+        else:
+            new_chat = cls(
+                user_id=user_id,
+                timestamp=timestamp,
+                chat_data=chat_json,
+                model_name=model_name,
+                chunking_method=chunking_method,
+                index_type=index_type,
+                vector_store=vector_store,
+                pipeline_type=pipeline_type,
+                instruction_lang=instruction_lang,
+            )
         session.add(new_chat)
         session.flush()
         return new_chat.id
@@ -132,12 +147,12 @@ class Chats(Base):
         cls,
         chat_id: int,
         chat_history: list[HumanChat | AIChat],
-        model_name: str,
-        chunking_method: str,
-        index_type: str,
-        vector_store: str,
-        pipeline_type: str,
-        instruction_lang: str,
+        model_name: str | None,
+        chunking_method: str | None,
+        index_type: str | None,
+        vector_store: str | None,
+        pipeline_type: str | None,
+        instruction_lang: str | None,
         *,
         session: Session | None = None,
     ) -> None:
@@ -149,17 +164,17 @@ class Chats(Base):
             ID of the chat entry to update.
         chat_history : list[HumanChat | AIChat]
             List of chat messages, where each message is a dictionary.
-        model_name : str
+        model_name : str | None
             Name of the model used for the chat.
-        chunking_method : str
+        chunking_method : str | None
             Chunking method used for the chat.
-        index_type : str
+        index_type : str | None
             Type of index used for the chat.
-        vector_store : str
+        vector_store : str | None
             Vector store used for the chat.
-        pipeline_type : str
+        pipeline_type : str | None
             Type of pipeline used for the chat.
-        instruction_lang : str
+        instruction_lang : str | None
             Language of the instructions used in the chat.
         session : Session | None, optional
             Automatically set by the context manager, by default None.
