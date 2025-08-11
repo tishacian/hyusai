@@ -202,6 +202,29 @@ class OCRConfig(Enum):
     LANGS = os.getenv("LANGS", "eng fra deu spa ita por kor ara").split(" ")
 
 
+class PDFProcessingConfig(Enum):
+    # PDF Processing method: "markdown_converter" or "ocr"
+    PDF_PROCESSING_METHOD = "markdown_converter"
+    
+    # "ocr" fallback when markdown fails
+    ENABLE_FALLBACK = True
+    FALLBACK_METHOD = "ocr"
+    
+    # OCR-specific settings (when using OCR method)
+    OCR_DPI = 150
+    OCR_FORCE_OCR = True
+    
+    # Markdown converter settings (when using markdown method)
+    ENABLE_VLM = False
+    VLM_MODEL = "smolvlm-256m"
+    EXTRACT_IMAGES = True
+    EXTRACT_TABLES = True
+    
+    # Performance settings
+    MAX_WORKERS = 4
+    TIMEOUT_SECONDS = 300
+
+
 class VLMConfig(Enum):
     ENABLE_VLM = get_vlm_config().enable_vlm
     VLM_MODEL = get_vlm_config().vlm_model
