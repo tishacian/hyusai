@@ -2,7 +2,7 @@
 Base abstract class for LLM providers.
 """
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
 
 
 class LLMProvider(ABC):
@@ -16,12 +16,12 @@ class LLMProvider(ABC):
     @abstractmethod
     async def generate(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         model: str,
-        temperature: Optional[float] = 0.0,
-        max_tokens: Optional[int] = None,
-        max_completion_tokens: Optional[int] = None,
-        reasoning_effort: Optional[str] = None,
+        temperature: float | None = 0.0,
+        max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
+        reasoning_effort: str | None = None,
         **kwargs
     ) -> str:
         """
@@ -44,12 +44,12 @@ class LLMProvider(ABC):
     @abstractmethod
     async def stream_generate(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         model: str,
-        temperature: Optional[float] = 0.0,
-        max_tokens: Optional[int] = None,
-        max_completion_tokens: Optional[int] = None,
-        reasoning_effort: Optional[str] = None,
+        temperature: float | None = 0.0,
+        max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
+        reasoning_effort: str | None = None,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """
