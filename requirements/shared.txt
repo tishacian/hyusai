@@ -2,6 +2,9 @@
 pydantic_settings
 GPUtil
 
+# protobuf compatibility (required for weaviate and other packages)
+protobuf>=3.19,<5.0
+
 # data manipulation and mathematics
 numpy
 pandas
@@ -39,5 +42,5 @@ transformers                   # tokenizer, reranking model
 
 # vector database
 faiss-cpu~=1.10                # faiss
-weaviate-client                # weaviate
+weaviate-client<3.0.0          # weaviate (compatible with protobuf 4.x)
 langchain-community            # chroma + document loaders
