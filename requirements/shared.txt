@@ -5,6 +5,9 @@ GPUtil
 # protobuf compatibility (required for weaviate and other packages)
 protobuf>=3.19,<5.0
 
+# protobuf compatibility (required for weaviate and other packages)
+protobuf>=3.19,<5.0
+
 # data manipulation and mathematics
 numpy
 pandas
