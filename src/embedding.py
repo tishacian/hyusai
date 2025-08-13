@@ -4,6 +4,7 @@ import faiss
 import pickle
 import logging
 import numpy as np
+import psutil
 from typing import Optional
 from functools import lru_cache
 from src.globalvariables import (
@@ -106,6 +107,7 @@ class EmbeddingVectors:
         if self.embedding_type == IndexType.WEAVIATE:
             self.class_name = "Document"
 
+<<<<<<< HEAD
     def normalize_embeddings_l2(self, embeddings, in_place=False):
         """
         Intelligent L2 normalization with safety checks and optimization
@@ -553,6 +555,8 @@ class EmbeddingVectors:
             logging.error(f"Error validating normalization consistency: {e}")
             return False
 
+=======
+>>>>>>> 02f39e3 (DEV: Dynamic batching for embeddings creation)
     def _calculate_dynamic_batch_size(self, texts, base_batch_size=32):
         """
         Calculate optimal batch size based on available memory and text 
