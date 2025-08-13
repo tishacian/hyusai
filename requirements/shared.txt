@@ -8,6 +8,7 @@ protobuf>=3.19,<5.0
 numpy
 pandas
 scipy
+psutil                    # system monitoring for dynamic batch sizing
 
 # deep and machine learning
 torch~=2.6.0
