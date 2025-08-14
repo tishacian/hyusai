@@ -4,6 +4,7 @@ import faiss
 import pickle
 import logging
 import numpy as np
+from datetime import datetime
 from typing import Optional
 from functools import lru_cache
 from src.globalvariables import (
@@ -34,6 +35,10 @@ class EmbeddingVectors:
         new_vs_name,
         embedding_model_name=EMBEDDING_NAME,
         embedding_type="faiss",
+        normalize_embeddings=True,
+        normalization_strategy="l2",
+        log_normalization_stats=True,
+        detect_already_normalized=True,
     ):
         """
         Creating embedding vector for different vector class
@@ -41,12 +46,24 @@ class EmbeddingVectors:
         Parameters
         ----------
             tokenizer (tokenizer model): tokenizer model)
-            model (huggingface model) :  The model of choice. loading is usually from HuggingFace.
+            model (huggingface model): The model of choice. loading is usually from HuggingFace.
             create_new_vs (str): flag to create a new index
             existing_vector_store (str): flag to indicate existing vector store
-            new_vs_name (str): New vector store name. name are separated by underscore (_). e.x This_is_a_new_vector_store_name
-            embedding_model_name (embedding model), optional : name of the embedding model used for HuggingFaceInstructEmbeddings. The default is "sentence-transformers/all-mpnet-base-v2".
-            embedding_type (str), optional : Type of embedding type e.g faiss or chroma or weaviate. The default is "faiss".
+            new_vs_name (str): New vector store name. name are separated by 
+                underscore (_). e.x This_is_a_new_vector_store_name
+            embedding_model_name (embedding model), optional: name of the 
+                embedding model used for HuggingFaceInstructEmbeddings. 
+                The default is "sentence-transformers/all-mpnet-base-v2".
+            embedding_type (str), optional: Type of embedding type e.g faiss 
+                or chroma or weaviate. The default is "faiss".
+            normalize_embeddings (bool), optional: Whether to normalize 
+                embeddings before storage. Default is True.
+            normalization_strategy (str), optional: Normalization strategy 
+                ("l2", "min_max", "z_score"). Default is "l2".
+            log_normalization_stats (bool), optional: Whether to log 
+                normalization statistics. Default is True.
+            detect_already_normalized (bool), optional: Whether to detect 
+                already normalized vectors. Default is True.
 
         Raises
         ------
@@ -78,8 +95,220 @@ class EmbeddingVectors:
                 self.embedding_type, embedding_model_name
             )
         )
+        
+        # Normalization configuration
+        self.normalize_embeddings = normalize_embeddings
+        self.normalization_strategy = normalization_strategy
+        self.log_normalization_stats = log_normalization_stats
+        self.detect_already_normalized = detect_already_normalized
+        
         if self.embedding_type == IndexType.WEAVIATE:
             self.class_name = "Document"
+
+    def normalize_embeddings_l2(self, embeddings, in_place=False):
+        """
+        Intelligent L2 normalization with safety checks and optimization
+        
+        Parameters:
+            embeddings (np.ndarray): Input embeddings array
+            in_place (bool): Whether to modify the array in-place for memory efficiency
+            
+        Returns:
+            np.ndarray: L2 normalized embeddings
+            dict: Normalization metadata (original norms, zero vector count, etc.)
+        """
+        if embeddings is None or len(embeddings) == 0:
+            return embeddings, {}
+            
+        if not isinstance(embeddings, np.ndarray):
+            embeddings = np.array(embeddings)
+            
+        # -- detect if vectors are already normalized to avoid redundant processing
+        if self.detect_already_normalized:
+            if self._is_already_normalized(embeddings):
+                if self.log_normalization_stats:
+                    logging.info("Embeddings already L2 normalized, skipping normalization")
+                return embeddings, {"already_normalized": True}
+        
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True) # l_2 norm
+        zero_mask = norms < 1e-10
+        zero_count = np.sum(zero_mask)
+        
+        if zero_count > 0:
+            epsilon = 1e-8
+            logging.warning(f"Found {zero_count} zero vectors, setting to small epsilon = {epsilon}")
+            norms[zero_mask] = epsilon
+
+        if in_place:
+            embeddings /= norms
+            normalized_embeddings = embeddings
+        else:
+            normalized_embeddings = embeddings / norms
+            
+        # -- normalization statistics
+        metadata = {
+            "original_norms": norms.flatten(),
+            "zero_vectors": zero_count,
+            "avg_original_norm": float(np.mean(norms)),
+            "min_original_norm": float(np.min(norms)),
+            "max_original_norm": float(np.max(norms)),
+            "already_normalized": False
+        }
+        
+        final_norms = np.linalg.norm(normalized_embeddings, axis=1)
+        norm_std = np.std(final_norms)
+        if norm_std > 1e-6:
+            logging.warning(f"Normalization quality check failed: std={norm_std:.2e}")
+            
+        return normalized_embeddings, metadata
+    
+    def _is_already_normalized(self, embeddings, tolerance=1e-5):
+        """
+        Detect if embeddings are already L2 normalized to avoid redundant processing
+        
+        Parameters:
+            embeddings (np.ndarray): Input embeddings array
+            tolerance (float): Tolerance for considering vectors as normalized
+            
+        Returns:
+            bool: True if embeddings appear to be already normalized
+        """
+        if embeddings is None or len(embeddings) == 0:
+            return False
+            
+        norms = np.linalg.norm(embeddings, axis=1)
+        # -- check if all norms are close to 1.0 with a tolerance
+        return np.allclose(norms, 1.0, atol=tolerance)
+    
+    def _log_normalization_impact(self, original_embeddings, normalized_embeddings, metadata):
+        """
+        Log normalization quality metrics
+        
+        Parameters:
+            original_embeddings (np.ndarray): Original embeddings
+            normalized_embeddings (np.ndarray): Normalized embeddings
+            metadata (dict): Normalization metadata
+        """
+        if not self.log_normalization_stats:
+            return
+            
+        try:
+            if len(original_embeddings) > 1:
+                n_samples = min(10, len(original_embeddings) // 2)
+                indices = np.random.choice(len(original_embeddings), n_samples * 2, replace=False)
+                
+                original_similarities = []
+                normalized_similarities = []
+                
+                for i in range(0, len(indices), 2):
+                    if i + 1 < len(indices):
+                        idx1, idx2 = indices[i], indices[i + 1]
+                        orig_sim = np.dot(original_embeddings[idx1], original_embeddings[idx2]) / (
+                            np.linalg.norm(original_embeddings[idx1]) * 
+                            np.linalg.norm(original_embeddings[idx2])
+                        )
+                        original_similarities.append(orig_sim)
+                        norm_sim = np.dot(normalized_embeddings[idx1], normalized_embeddings[idx2])
+                        normalized_similarities.append(norm_sim)
+                
+                if original_similarities and normalized_similarities:
+                    sim_diff = np.mean(np.abs(np.array(original_similarities) - np.array(normalized_similarities)))
+                    logging.info(f"Normalization similarity preservation: avg diff={sim_diff:.6f}")
+            
+            # -- log normalization stats
+            logging.info(f"L2 Normalization completed: "
+                        f"vectors={len(normalized_embeddings)}, "
+                        f"zero_vectors={metadata.get('zero_vectors', 0)}, "
+                        f"avg_original_norm={metadata.get('avg_original_norm', 0):.3f}")
+                        
+        except Exception as e:
+            logging.warning(f"Could not calculate normalization impact metrics: {e}")
+    
+    def _normalize_in_batches(self, embeddings, batch_size=1000):
+        """
+        Handle large embedding arrays efficiently with batch processing
+        
+        Parameters:
+            embeddings (np.ndarray): Input embeddings array
+            batch_size (int): Batch size for processing
+            
+        Returns:
+            np.ndarray: Normalized embeddings
+            dict: Normalization metadata
+        """
+        if len(embeddings) <= batch_size:
+            return self.normalize_embeddings_l2(embeddings, in_place=False)
+        
+        logging.info(f"Processing normalization in batches of {batch_size}")
+        all_metadata = []
+        normalized_batches = []
+        
+        for i in range(0, len(embeddings), batch_size):
+            batch = embeddings[i:i + batch_size]
+            normalized_batch, metadata = self.normalize_embeddings_l2(batch, in_place=False)
+            normalized_batches.append(normalized_batch)
+            all_metadata.append(metadata)
+            
+            if self.log_normalization_stats:
+                progress = min(100, (i + batch_size) / len(embeddings) * 100)
+                logging.info(f"Normalization progress: {progress:.1f}%")
+        
+        # -- batch normalization
+        combined_embeddings = np.vstack(normalized_batches)
+        combined_metadata = {
+            "zero_vectors": sum(m.get("zero_vectors", 0) for m in all_metadata),
+            "avg_original_norm": np.mean([m.get("avg_original_norm", 0) for m in all_metadata]),
+            "min_original_norm": min([m.get("min_original_norm", float('inf')) for m in all_metadata]),
+            "max_original_norm": max([m.get("max_original_norm", 0) for m in all_metadata]),
+            "already_normalized": False,
+            "batch_processed": True
+        }
+
+        return combined_embeddings, combined_metadata
+
+    def validate_normalization_consistency(self, save_path):
+        """
+        Validate normalization consistency when loading existing indices
+        
+        Parameters:
+            save_path (Path): Path to the vector store
+            
+        Returns:
+            bool: True if normalization is consistent, False otherwise
+        """
+        try:
+            dimension_info_path = save_path / "dimension_info.pkl"
+            if not dimension_info_path.exists():
+                logging.warning("No dimension info found, cannot validate normalization")
+                return True
+                
+            with open(dimension_info_path, "rb") as f:
+                existing_info = pickle.load(f)
+                
+            # -- check for existing normalization..
+            existing_normalization = existing_info.get("normalization_applied", False)
+            existing_strategy = existing_info.get("normalization_strategy", "unknown")
+            
+            if existing_normalization != self.normalize_embeddings:
+                logging.warning(
+                    f"Normalization mismatch: existing index has "
+                    f"normalization={existing_normalization}, "
+                    f"current setting={self.normalize_embeddings}"
+                )
+                return False
+                
+            if existing_normalization and existing_strategy != self.normalization_strategy:
+                logging.warning(
+                    f"Normalization strategy mismatch: existing index uses "
+                    f"{existing_strategy}, current setting={self.normalization_strategy}"
+                )
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error validating normalization consistency: {e}")
+            return False
 
     @classmethod
     async def create_async(
@@ -91,6 +320,10 @@ class EmbeddingVectors:
         new_vs_name,
         embedding_model_name=EMBEDDING_NAME,
         embedding_type="faiss",
+        normalize_embeddings=True,
+        normalization_strategy="l2",
+        log_normalization_stats=True,
+        detect_already_normalized=True,
     ):
         """
         Async factory method that creates an instance and initializes it asynchronously
@@ -103,6 +336,10 @@ class EmbeddingVectors:
             new_vs_name,
             embedding_model_name,
             embedding_type,
+            normalize_embeddings,
+            normalization_strategy,
+            log_normalization_stats,
+            detect_already_normalized,
         )
 
         # Then update the embedding model asynchronously
@@ -162,13 +399,29 @@ class EmbeddingVectors:
                         != self.embedding_dimension
                     ):
                         logging.warning(
-                            f"Embedding dimension mismatch! Expected {self.embedding_dimension}, got {combined_embeddings.shape[1]}"
+                            f"Embedding dimension mismatch! Expected "
+                            f"{self.embedding_dimension}, got "
+                            f"{combined_embeddings.shape[1]}"
                         )
                         self.embedding_dimension = combined_embeddings.shape[1]
                         cache_key = f"{self.embedding_type}_{self.embedding_model_name}"
                         EmbeddingModelLoader._dimension_cache[cache_key] = (
                             self.embedding_dimension
                         )
+                    
+                    if self.normalize_embeddings:
+                        original_embeddings = combined_embeddings.copy()
+                        combined_embeddings, norm_metadata = self.normalize_embeddings_l2(
+                            combined_embeddings, in_place=True
+                        )
+                        if self.log_normalization_stats:
+                            self._log_normalization_impact(
+                                original_embeddings, combined_embeddings, norm_metadata
+                            )
+                            logging.info(f"Applied L2 normalization for {self.embedding_type}: "
+                                        f"zero vectors: {norm_metadata.get('zero_vectors', 0)}, "
+                                        f"avg original norm: {norm_metadata.get('avg_original_norm', 0):.3f}")
+                    
                     return combined_embeddings
                 return np.zeros((0, self.embedding_dimension))
 
@@ -214,11 +467,27 @@ class EmbeddingVectors:
                             != self.embedding_dimension
                         ):
                             logging.warning(
-                                f" Embedding dimension mismatch! Expected {self.embedding_dimension}, got {combined_embeddings.shape[1]}"
+                                f" Embedding dimension mismatch! Expected "
+                                f"{self.embedding_dimension}, got "
+                                f"{combined_embeddings.shape[1]}"
                             )
                             self.embedding_dimension = (
                                 combined_embeddings.shape[1]
                             )
+                        
+                        if self.normalize_embeddings:
+                            original_embeddings = combined_embeddings.copy()
+                            combined_embeddings, norm_metadata = self.normalize_embeddings_l2(
+                                combined_embeddings, in_place=True
+                            )
+                            if self.log_normalization_stats:
+                                self._log_normalization_impact(
+                                    original_embeddings, combined_embeddings, norm_metadata
+                                )
+                                logging.info(f"Applied L2 normalization for {self.embedding_type}: "
+                                            f"zero vectors: {norm_metadata.get('zero_vectors', 0)}, "
+                                            f"avg original norm: {norm_metadata.get('avg_original_norm', 0):.3f}")
+                        
                         return combined_embeddings
                     return np.zeros((0, self.embedding_dimension))
 
@@ -280,7 +549,15 @@ class EmbeddingVectors:
             # -- Indexing
             train = self.device.type != "cpu"
             embeddings_copy = embeddings.copy().astype(np.float32)
-            faiss.normalize_L2(embeddings_copy)
+            
+            # -- check embedding normalization
+            if self.normalize_embeddings and not self._is_already_normalized(embeddings_copy):
+                faiss.normalize_L2(embeddings_copy)
+            elif self.normalize_embeddings:
+                logging.info("Embeddings already normalized, skipping FAISS normalization")
+            else:
+                pass
+                
             index = faiss.IndexFlatL2(dimension)
             index.add(embeddings_copy)
 
@@ -364,6 +641,9 @@ class EmbeddingVectors:
             dimension_info = {
                 "embedding_model_name": self.embedding_model_name,
                 "embedding_dimension": self.embedding_dimension,
+                "normalization_applied": self.normalize_embeddings,
+                "normalization_strategy": self.normalization_strategy,
+                "normalization_timestamp": str(datetime.now()),
             }
             with open(save_path / "dimension_info.pkl", "wb") as f:
                 pickle.dump(dimension_info, f)
@@ -389,6 +669,11 @@ class EmbeddingVectors:
                     )
                 else:
                     try:
+                        # Validate normalization consistency
+                        if not self.validate_normalization_consistency(save_path):
+                            logging.error("🚩 Normalization consistency validation failed")
+                            return
+                            
                         try:
                             with open(
                                 save_path / "dimension_info.pkl", "rb"
@@ -405,14 +690,17 @@ class EmbeddingVectors:
                                     != self.embedding_dimension
                                 ):
                                     logging.error(
-                                        f"🚩 Dimension mismatch! Existing index has dimension {existing_dimension}, "
-                                        f"but current embeddings have dimension {self.embedding_dimension}. "
+                                        f"🚩 Dimension mismatch! Existing index has "
+                                        f"dimension {existing_dimension}, "
+                                        f"but current embeddings have dimension "
+                                        f"{self.embedding_dimension}. "
                                         f"Cannot merge indices with different dimensions."
                                     )
                                     return
                         except FileNotFoundError:
                             logging.warning(
-                                "No dimension info found for existing index. Proceeding with caution."
+                                "No dimension info found for existing index. "
+                                "Proceeding with caution."
                             )
 
                         existing_index = faiss.read_index(
@@ -455,7 +743,13 @@ class EmbeddingVectors:
                             combined_embeddings_copy = (
                                 combined_embeddings.copy().astype(np.float32)
                             )
-                            faiss.normalize_L2(combined_embeddings_copy)
+                            # -- apply normalization if enabled
+                            if self.normalize_embeddings:
+                                combined_embeddings_copy, _ = self.normalize_embeddings_l2(
+                                    combined_embeddings_copy, in_place=True
+                                )
+                            else:
+                                faiss.normalize_L2(combined_embeddings_copy)
                             combined_index.add(combined_embeddings_copy)
                             faiss.write_index(
                                 combined_index, str(save_path / "faiss.index")
