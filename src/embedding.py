@@ -117,6 +117,21 @@ class EmbeddingVectors:
             np.ndarray: L2 normalized embeddings
             dict: Normalization metadata (original norms, zero vector count, etc.)
         """
+        return self.normalize_embeddings_strategy(embeddings, "l2", in_place)
+
+    def normalize_embeddings_strategy(self, embeddings, strategy="l2", in_place=False):
+        """
+        Intelligent normalization with multiple strategy support
+        
+        Parameters:
+            embeddings (np.ndarray): Input embeddings array
+            strategy (str): Normalization strategy ("l2", "min_max", "z_score")
+            in_place (bool): Whether to modify the array in-place for memory efficiency
+            
+        Returns:
+            np.ndarray: Normalized embeddings
+            dict: Normalization metadata
+        """
         if embeddings is None or len(embeddings) == 0:
             return embeddings, {}
             
@@ -125,12 +140,26 @@ class EmbeddingVectors:
             
         # -- detect if vectors are already normalized to avoid redundant processing
         if self.detect_already_normalized:
-            if self._is_already_normalized(embeddings):
+            if self._is_already_normalized(embeddings, strategy):
                 if self.log_normalization_stats:
-                    logging.info("Embeddings already L2 normalized, skipping normalization")
-                return embeddings, {"already_normalized": True}
+                    logging.info(f"Embeddings already {strategy} normalized, skipping normalization")
+                return embeddings, {"already_normalized": True, "strategy": strategy}
         
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True) # l_2 norm
+        if strategy == "l2":
+            return self._normalize_l2(embeddings, in_place)
+        elif strategy == "min_max":
+            return self._normalize_min_max(embeddings, in_place)
+        elif strategy == "z_score":
+            return self._normalize_z_score(embeddings, in_place)
+        else:
+            logging.warning(f"Unknown normalization strategy: {strategy}. Falling back to L2.")
+            return self._normalize_l2(embeddings, in_place)
+
+    def _normalize_l2(self, embeddings, in_place=False):
+        """
+        L2 normalization implementation
+        """
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)  # l_2 norm
         zero_mask = norms < 1e-10
         zero_count = np.sum(zero_mask)
         
@@ -152,22 +181,97 @@ class EmbeddingVectors:
             "avg_original_norm": float(np.mean(norms)),
             "min_original_norm": float(np.min(norms)),
             "max_original_norm": float(np.max(norms)),
-            "already_normalized": False
+            "already_normalized": False,
+            "strategy": "l2"
         }
         
+        # Verify normalization quality
         final_norms = np.linalg.norm(normalized_embeddings, axis=1)
         norm_std = np.std(final_norms)
         if norm_std > 1e-6:
-            logging.warning(f"Normalization quality check failed: std={norm_std:.2e}")
+            logging.warning(f"L2 normalization quality check failed: std={norm_std:.2e}")
+            
+        return normalized_embeddings, metadata
+
+    def _normalize_min_max(self, embeddings, in_place=False):
+        """
+        Min-Max normalization (scales to [0, 1] range)
+        """
+        if in_place:
+            embeddings_copy = embeddings
+        else:
+            embeddings_copy = embeddings.copy()
+            
+        min_vals = np.min(embeddings_copy, axis=0, keepdims=True)
+        max_vals = np.max(embeddings_copy, axis=0, keepdims=True)
+        range_vals = max_vals - min_vals
+        constant_mask = range_vals < 1e-10
+        constant_count = np.sum(constant_mask)
+        
+        if constant_count > 0:
+            logging.warning(f"Found {constant_count} constant dimensions, setting range to 1")
+            range_vals[constant_mask] = 1.0
+        
+        normalized_embeddings = (embeddings_copy - min_vals) / range_vals
+        
+        metadata = {
+            "min_vals": min_vals.flatten(),
+            "max_vals": max_vals.flatten(),
+            "range_vals": range_vals.flatten(),
+            "constant_dimensions": constant_count,
+            "already_normalized": False,
+            "strategy": "min_max"
+        }
+        
+        final_min = np.min(normalized_embeddings, axis=0)
+        final_max = np.max(normalized_embeddings, axis=0)
+        if not (np.allclose(final_min, 0, atol=1e-6) and np.allclose(final_max, 1, atol=1e-6)):
+            logging.warning("Min-max normalization quality check failed")
+            
+        return normalized_embeddings, metadata
+
+    def _normalize_z_score(self, embeddings, in_place=False):
+        """
+        Z-score normalization (standardization)
+        """
+        if in_place:
+            embeddings_copy = embeddings
+        else:
+            embeddings_copy = embeddings.copy()
+            
+        mean_vals = np.mean(embeddings_copy, axis=0, keepdims=True)
+        std_vals = np.std(embeddings_copy, axis=0, keepdims=True)
+        zero_std_mask = std_vals < 1e-10
+        zero_std_count = np.sum(zero_std_mask)
+        
+        if zero_std_count > 0:
+            logging.warning(f"Found {zero_std_count} dimensions with zero std, setting to 1")
+            std_vals[zero_std_mask] = 1.0
+        
+        normalized_embeddings = (embeddings_copy - mean_vals) / std_vals
+        
+        metadata = {
+            "mean_vals": mean_vals.flatten(),
+            "std_vals": std_vals.flatten(),
+            "zero_std_dimensions": zero_std_count,
+            "already_normalized": False,
+            "strategy": "z_score"
+        }
+        
+        final_mean = np.mean(normalized_embeddings, axis=0)
+        final_std = np.std(normalized_embeddings, axis=0)
+        if not (np.allclose(final_mean, 0, atol=1e-6) and np.allclose(final_std, 1, atol=1e-6)):
+            logging.warning("Z-score normalization quality check failed")
             
         return normalized_embeddings, metadata
     
-    def _is_already_normalized(self, embeddings, tolerance=1e-5):
+    def _is_already_normalized(self, embeddings, strategy="l2", tolerance=1e-5):
         """
-        Detect if embeddings are already L2 normalized to avoid redundant processing
+        Detect if embeddings are already normalized using the specified strategy
         
         Parameters:
             embeddings (np.ndarray): Input embeddings array
+            strategy (str): Normalization strategy to check
             tolerance (float): Tolerance for considering vectors as normalized
             
         Returns:
@@ -176,9 +280,22 @@ class EmbeddingVectors:
         if embeddings is None or len(embeddings) == 0:
             return False
             
-        norms = np.linalg.norm(embeddings, axis=1)
-        # -- check if all norms are close to 1.0 with a tolerance
-        return np.allclose(norms, 1.0, atol=tolerance)
+        if strategy == "l2":
+            norms = np.linalg.norm(embeddings, axis=1)
+            return np.allclose(norms, 1.0, atol=tolerance)
+        elif strategy == "min_max":
+            min_vals = np.min(embeddings, axis=0)
+            max_vals = np.max(embeddings, axis=0)
+            return (np.allclose(min_vals, 0, atol=tolerance) and 
+                   np.allclose(max_vals, 1, atol=tolerance))
+        elif strategy == "z_score":
+            mean_vals = np.mean(embeddings, axis=0)
+            std_vals = np.std(embeddings, axis=0)
+            return (np.allclose(mean_vals, 0, atol=tolerance) and 
+                   np.allclose(std_vals, 1, atol=tolerance))
+        else:
+            norms = np.linalg.norm(embeddings, axis=1)
+            return np.allclose(norms, 1.0, atol=tolerance)
     
     def _log_normalization_impact(self, original_embeddings, normalized_embeddings, metadata):
         """
@@ -216,10 +333,23 @@ class EmbeddingVectors:
                     logging.info(f"Normalization similarity preservation: avg diff={sim_diff:.6f}")
             
             # -- log normalization stats
-            logging.info(f"L2 Normalization completed: "
-                        f"vectors={len(normalized_embeddings)}, "
-                        f"zero_vectors={metadata.get('zero_vectors', 0)}, "
-                        f"avg_original_norm={metadata.get('avg_original_norm', 0):.3f}")
+            strategy = metadata.get('strategy', 'unknown')
+            if strategy == "l2":
+                logging.info(f"L2 Normalization completed: "
+                            f"vectors={len(normalized_embeddings)}, "
+                            f"zero_vectors={metadata.get('zero_vectors', 0)}, "
+                            f"avg_original_norm={metadata.get('avg_original_norm', 0):.3f}")
+            elif strategy == "min_max":
+                logging.info(f"Min-Max Normalization completed: "
+                            f"vectors={len(normalized_embeddings)}, "
+                            f"constant_dimensions={metadata.get('constant_dimensions', 0)}")
+            elif strategy == "z_score":
+                logging.info(f"Z-Score Normalization completed: "
+                            f"vectors={len(normalized_embeddings)}, "
+                            f"zero_std_dimensions={metadata.get('zero_std_dimensions', 0)}")
+            else:
+                logging.info(f"{strategy.title()} Normalization completed: "
+                            f"vectors={len(normalized_embeddings)}")
                         
         except Exception as e:
             logging.warning(f"Could not calculate normalization impact metrics: {e}")
@@ -245,24 +375,50 @@ class EmbeddingVectors:
         
         for i in range(0, len(embeddings), batch_size):
             batch = embeddings[i:i + batch_size]
-            normalized_batch, metadata = self.normalize_embeddings_l2(batch, in_place=False)
+            normalized_batch, metadata = self.normalize_embeddings_strategy(
+                batch, self.normalization_strategy, in_place=False
+            )
             normalized_batches.append(normalized_batch)
             all_metadata.append(metadata)
             
             if self.log_normalization_stats:
                 progress = min(100, (i + batch_size) / len(embeddings) * 100)
-                logging.info(f"Normalization progress: {progress:.1f}%")
+                logging.info(f"{self.normalization_strategy} normalization progress: {progress:.1f}%")
         
         # -- batch normalization
         combined_embeddings = np.vstack(normalized_batches)
-        combined_metadata = {
-            "zero_vectors": sum(m.get("zero_vectors", 0) for m in all_metadata),
-            "avg_original_norm": np.mean([m.get("avg_original_norm", 0) for m in all_metadata]),
-            "min_original_norm": min([m.get("min_original_norm", float('inf')) for m in all_metadata]),
-            "max_original_norm": max([m.get("max_original_norm", 0) for m in all_metadata]),
-            "already_normalized": False,
-            "batch_processed": True
-        }
+        
+        # Aggregate metadata based on strategy
+        if self.normalization_strategy == "l2":
+            combined_metadata = {
+                "zero_vectors": sum(m.get("zero_vectors", 0) for m in all_metadata),
+                "avg_original_norm": np.mean([m.get("avg_original_norm", 0) for m in all_metadata]),
+                "min_original_norm": min([m.get("min_original_norm", float('inf')) for m in all_metadata]),
+                "max_original_norm": max([m.get("max_original_norm", 0) for m in all_metadata]),
+                "already_normalized": False,
+                "batch_processed": True,
+                "strategy": self.normalization_strategy
+            }
+        elif self.normalization_strategy == "min_max":
+            combined_metadata = {
+                "constant_dimensions": sum(m.get("constant_dimensions", 0) for m in all_metadata),
+                "already_normalized": False,
+                "batch_processed": True,
+                "strategy": self.normalization_strategy
+            }
+        elif self.normalization_strategy == "z_score":
+            combined_metadata = {
+                "zero_std_dimensions": sum(m.get("zero_std_dimensions", 0) for m in all_metadata),
+                "already_normalized": False,
+                "batch_processed": True,
+                "strategy": self.normalization_strategy
+            }
+        else:
+            combined_metadata = {
+                "already_normalized": False,
+                "batch_processed": True,
+                "strategy": self.normalization_strategy
+            }
 
         return combined_embeddings, combined_metadata
 
@@ -411,16 +567,16 @@ class EmbeddingVectors:
                     
                     if self.normalize_embeddings:
                         original_embeddings = combined_embeddings.copy()
-                        combined_embeddings, norm_metadata = self.normalize_embeddings_l2(
-                            combined_embeddings, in_place=True
+                        combined_embeddings, norm_metadata = self.normalize_embeddings_strategy(
+                            combined_embeddings, self.normalization_strategy, in_place=True
                         )
                         if self.log_normalization_stats:
                             self._log_normalization_impact(
                                 original_embeddings, combined_embeddings, norm_metadata
                             )
-                            logging.info(f"Applied L2 normalization for {self.embedding_type}: "
-                                        f"zero vectors: {norm_metadata.get('zero_vectors', 0)}, "
-                                        f"avg original norm: {norm_metadata.get('avg_original_norm', 0):.3f}")
+                            strategy_name = self.normalization_strategy.upper()
+                            logging.info(f"Applied {strategy_name} normalization for {self.embedding_type}: "
+                                        f"strategy={self.normalization_strategy}")
                     
                     return combined_embeddings
                 return np.zeros((0, self.embedding_dimension))
@@ -477,16 +633,16 @@ class EmbeddingVectors:
                         
                         if self.normalize_embeddings:
                             original_embeddings = combined_embeddings.copy()
-                            combined_embeddings, norm_metadata = self.normalize_embeddings_l2(
-                                combined_embeddings, in_place=True
+                            combined_embeddings, norm_metadata = self.normalize_embeddings_strategy(
+                                combined_embeddings, self.normalization_strategy, in_place=True
                             )
                             if self.log_normalization_stats:
                                 self._log_normalization_impact(
                                     original_embeddings, combined_embeddings, norm_metadata
                                 )
-                                logging.info(f"Applied L2 normalization for {self.embedding_type}: "
-                                            f"zero vectors: {norm_metadata.get('zero_vectors', 0)}, "
-                                            f"avg original norm: {norm_metadata.get('avg_original_norm', 0):.3f}")
+                                strategy_name = self.normalization_strategy.upper()
+                                logging.info(f"Applied {strategy_name} normalization for {self.embedding_type}: "
+                                            f"strategy={self.normalization_strategy}")
                         
                         return combined_embeddings
                     return np.zeros((0, self.embedding_dimension))
@@ -551,10 +707,16 @@ class EmbeddingVectors:
             embeddings_copy = embeddings.copy().astype(np.float32)
             
             # -- check embedding normalization
-            if self.normalize_embeddings and not self._is_already_normalized(embeddings_copy):
-                faiss.normalize_L2(embeddings_copy)
+            if self.normalize_embeddings and not self._is_already_normalized(embeddings_copy, self.normalization_strategy):
+                if self.normalization_strategy == "l2":
+                    faiss.normalize_L2(embeddings_copy)
+                else:
+                    # -- apply custom normalization for non-L2 strategies
+                    embeddings_copy, _ = self.normalize_embeddings_strategy(
+                        embeddings_copy, self.normalization_strategy, in_place=True
+                    )
             elif self.normalize_embeddings:
-                logging.info("Embeddings already normalized, skipping FAISS normalization")
+                logging.info(f"Embeddings already {self.normalization_strategy} normalized, skipping FAISS normalization")
             else:
                 pass
                 
@@ -745,8 +907,8 @@ class EmbeddingVectors:
                             )
                             # -- apply normalization if enabled
                             if self.normalize_embeddings:
-                                combined_embeddings_copy, _ = self.normalize_embeddings_l2(
-                                    combined_embeddings_copy, in_place=True
+                                combined_embeddings_copy, _ = self.normalize_embeddings_strategy(
+                                    combined_embeddings_copy, self.normalization_strategy, in_place=True
                                 )
                             else:
                                 faiss.normalize_L2(combined_embeddings_copy)
