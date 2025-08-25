@@ -49,20 +49,20 @@ class EmbeddingVectors:
             model (huggingface model): The model of choice. loading is usually from HuggingFace.
             create_new_vs (str): flag to create a new index
             existing_vector_store (str): flag to indicate existing vector store
-            new_vs_name (str): New vector store name. name are separated by 
+            new_vs_name (str): New vector store name. name are separated by
                 underscore (_). e.x This_is_a_new_vector_store_name
-            embedding_model_name (embedding model), optional: name of the 
-                embedding model used for HuggingFaceInstructEmbeddings. 
+            embedding_model_name (embedding model), optional: name of the
+                embedding model used for HuggingFaceInstructEmbeddings.
                 The default is "sentence-transformers/all-mpnet-base-v2".
-            embedding_type (str), optional: Type of embedding type e.g faiss 
+            embedding_type (str), optional: Type of embedding type e.g faiss
                 or chroma or weaviate. The default is "faiss".
-            normalize_embeddings (bool), optional: Whether to normalize 
+            normalize_embeddings (bool), optional: Whether to normalize
                 embeddings before storage. Default is True.
-            normalization_strategy (str), optional: Normalization strategy 
+            normalization_strategy (str), optional: Normalization strategy
                 ("l2", "min_max", "z_score"). Default is "l2".
-            log_normalization_stats (bool), optional: Whether to log 
+            log_normalization_stats (bool), optional: Whether to log
                 normalization statistics. Default is True.
-            detect_already_normalized (bool), optional: Whether to detect 
+            detect_already_normalized (bool), optional: Whether to detect
                 already normalized vectors. Default is True.
 
         Raises
@@ -95,56 +95,63 @@ class EmbeddingVectors:
                 self.embedding_type, embedding_model_name
             )
         )
-        
+
         # Normalization configuration
         self.normalize_embeddings = normalize_embeddings
         self.normalization_strategy = normalization_strategy
         self.log_normalization_stats = log_normalization_stats
         self.detect_already_normalized = detect_already_normalized
-        
+
         if self.embedding_type == IndexType.WEAVIATE:
             self.class_name = "Document"
 
     def normalize_embeddings_l2(self, embeddings, in_place=False):
         """
         Intelligent L2 normalization with safety checks and optimization
-        
+
         Parameters:
             embeddings (np.ndarray): Input embeddings array
             in_place (bool): Whether to modify the array in-place for memory efficiency
-            
+
         Returns:
             np.ndarray: L2 normalized embeddings
             dict: Normalization metadata (original norms, zero vector count, etc.)
         """
         return self.normalize_embeddings_strategy(embeddings, "l2", in_place)
 
-    def normalize_embeddings_strategy(self, embeddings, strategy="l2", in_place=False):
+    def normalize_embeddings_strategy(
+        self, embeddings, strategy="l2", in_place=False
+    ):
         """
         Intelligent normalization with multiple strategy support
-        
+
         Parameters:
             embeddings (np.ndarray): Input embeddings array
             strategy (str): Normalization strategy ("l2", "min_max", "z_score")
             in_place (bool): Whether to modify the array in-place for memory efficiency
-            
+
         Returns:
             np.ndarray: Normalized embeddings
             dict: Normalization metadata
         """
         if embeddings is None or len(embeddings) == 0:
             return embeddings, {}
-            
+
         if not isinstance(embeddings, np.ndarray):
             embeddings = np.array(embeddings)
-            
+
         # -- detect if vectors are already normalized to avoid redundant processing
         if self.detect_already_normalized:
             if self._is_already_normalized(embeddings, strategy):
                 if self.log_normalization_stats:
-                    logging.info(f"Embeddings already {strategy} normalized, skipping normalization")
-                return embeddings, {"already_normalized": True, "strategy": strategy}
-        
+                    logging.info(
+                        f"Embeddings already {strategy} normalized, skipping normalization"
+                    )
+                return embeddings, {
+                    "already_normalized": True,
+                    "strategy": strategy,
+                }
+
         if strategy == "l2":
             return self._normalize_l2(embeddings, in_place)
         elif strategy == "min_max":
@@ -152,7 +159,9 @@ class EmbeddingVectors:
         elif strategy == "z_score":
             return self._normalize_z_score(embeddings, in_place)
         else:
-            logging.warning(f"Unknown normalization strategy: {strategy}. Falling back to L2.")
+            logging.warning(
+                f"Unknown normalization strategy: {strategy}. Falling back to L2."
+            )
             return self._normalize_l2(embeddings, in_place)
 
     def _normalize_l2(self, embeddings, in_place=False):
@@ -162,10 +171,12 @@ class EmbeddingVectors:
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)  # l_2 norm
         zero_mask = norms < 1e-10
         zero_count = np.sum(zero_mask)
-        
+
         if zero_count > 0:
             epsilon = 1e-8
-            logging.warning(f"Found {zero_count} zero vectors, setting to small epsilon = {epsilon}")
+            logging.warning(
+                f"Found {zero_count} zero vectors, setting to small epsilon = {epsilon}"
+            )
             norms[zero_mask] = epsilon
 
         if in_place:
@@ -173,7 +184,7 @@ class EmbeddingVectors:
             normalized_embeddings = embeddings
         else:
             normalized_embeddings = embeddings / norms
-            
+
         # -- normalization statistics
         metadata = {
             "original_norms": norms.flatten(),
@@ -182,15 +193,19 @@ class EmbeddingVectors:
             "min_original_norm": float(np.min(norms)),
             "max_original_norm": float(np.max(norms)),
             "already_normalized": False,
-            "strategy": "l2"
+            "strategy": "l2",
         }
-        
+
         # Verify normalization quality
         final_norms = np.linalg.norm(normalized_embeddings, axis=1)
         norm_std = np.std(final_norms)
         if norm_std > 1e-6:
-            logging.warning(f"L2 normalization quality check failed: std={norm_std:.2e}")
-            
+            logging.warning(
+                f"L2 normalization quality check failed: std={norm_std:.2e}"
+            )
+
+        self.last_normalization_metadata = metadata
+
         return normalized_embeddings, metadata
 
     def _normalize_min_max(self, embeddings, in_place=False):
@@ -201,33 +216,40 @@ class EmbeddingVectors:
             embeddings_copy = embeddings
         else:
             embeddings_copy = embeddings.copy()
-            
+
         min_vals = np.min(embeddings_copy, axis=0, keepdims=True)
         max_vals = np.max(embeddings_copy, axis=0, keepdims=True)
         range_vals = max_vals - min_vals
         constant_mask = range_vals < 1e-10
         constant_count = np.sum(constant_mask)
-        
+
         if constant_count > 0:
-            logging.warning(f"Found {constant_count} constant dimensions, setting range to 1")
+            logging.warning(
+                f"Found {constant_count} constant dimensions, setting range to 1"
+            )
             range_vals[constant_mask] = 1.0
-        
+
         normalized_embeddings = (embeddings_copy - min_vals) / range_vals
-        
+
         metadata = {
             "min_vals": min_vals.flatten(),
             "max_vals": max_vals.flatten(),
             "range_vals": range_vals.flatten(),
             "constant_dimensions": constant_count,
             "already_normalized": False,
-            "strategy": "min_max"
+            "strategy": "min_max",
         }
-        
+
         final_min = np.min(normalized_embeddings, axis=0)
         final_max = np.max(normalized_embeddings, axis=0)
-        if not (np.allclose(final_min, 0, atol=1e-6) and np.allclose(final_max, 1, atol=1e-6)):
+        if not (
+            np.allclose(final_min, 0, atol=1e-6)
+            and np.allclose(final_max, 1, atol=1e-6)
+        ):
             logging.warning("Min-max normalization quality check failed")
-            
+
+        self.last_normalization_metadata = metadata
+
         return normalized_embeddings, metadata
 
     def _normalize_z_score(self, embeddings, in_place=False):
@@ -238,69 +260,82 @@ class EmbeddingVectors:
             embeddings_copy = embeddings
         else:
             embeddings_copy = embeddings.copy()
-            
+
         mean_vals = np.mean(embeddings_copy, axis=0, keepdims=True)
         std_vals = np.std(embeddings_copy, axis=0, keepdims=True)
         zero_std_mask = std_vals < 1e-10
         zero_std_count = np.sum(zero_std_mask)
-        
+
         if zero_std_count > 0:
-            logging.warning(f"Found {zero_std_count} dimensions with zero std, setting to 1")
+            logging.warning(
+                f"Found {zero_std_count} dimensions with zero std, setting to 1"
+            )
             std_vals[zero_std_mask] = 1.0
-        
+
         normalized_embeddings = (embeddings_copy - mean_vals) / std_vals
-        
+
         metadata = {
             "mean_vals": mean_vals.flatten(),
             "std_vals": std_vals.flatten(),
             "zero_std_dimensions": zero_std_count,
             "already_normalized": False,
-            "strategy": "z_score"
+            "strategy": "z_score",
         }
-        
+
         final_mean = np.mean(normalized_embeddings, axis=0)
         final_std = np.std(normalized_embeddings, axis=0)
-        if not (np.allclose(final_mean, 0, atol=1e-6) and np.allclose(final_std, 1, atol=1e-6)):
+        if not (
+            np.allclose(final_mean, 0, atol=1e-6)
+            and np.allclose(final_std, 1, atol=1e-6)
+        ):
             logging.warning("Z-score normalization quality check failed")
-            
+
+        self.last_normalization_metadata = metadata
+
         return normalized_embeddings, metadata
-    
-    def _is_already_normalized(self, embeddings, strategy="l2", tolerance=1e-5):
+
+    def _is_already_normalized(
+        self, embeddings, strategy="l2", tolerance=1e-5
+    ):
         """
         Detect if embeddings are already normalized using the specified strategy
-        
+
         Parameters:
             embeddings (np.ndarray): Input embeddings array
             strategy (str): Normalization strategy to check
             tolerance (float): Tolerance for considering vectors as normalized
-            
+
         Returns:
             bool: True if embeddings appear to be already normalized
         """
         if embeddings is None or len(embeddings) == 0:
             return False
-            
+
         if strategy == "l2":
             norms = np.linalg.norm(embeddings, axis=1)
             return np.allclose(norms, 1.0, atol=tolerance)
         elif strategy == "min_max":
             min_vals = np.min(embeddings, axis=0)
             max_vals = np.max(embeddings, axis=0)
-            return (np.allclose(min_vals, 0, atol=tolerance) and 
-                   np.allclose(max_vals, 1, atol=tolerance))
+            return np.allclose(min_vals, 0, atol=tolerance) and np.allclose(
+                max_vals, 1, atol=tolerance
+            )
         elif strategy == "z_score":
             mean_vals = np.mean(embeddings, axis=0)
             std_vals = np.std(embeddings, axis=0)
-            return (np.allclose(mean_vals, 0, atol=tolerance) and 
-                   np.allclose(std_vals, 1, atol=tolerance))
+            return np.allclose(mean_vals, 0, atol=tolerance) and np.allclose(
+                std_vals, 1, atol=tolerance
+            )
         else:
             norms = np.linalg.norm(embeddings, axis=1)
             return np.allclose(norms, 1.0, atol=tolerance)
-    
-    def _log_normalization_impact(self, original_embeddings, normalized_embeddings, metadata):
+
+    def _log_normalization_impact(
+        self, original_embeddings, normalized_embeddings, metadata
+    ):
         """
         Log normalization quality metrics
-        
+
         Parameters:
             original_embeddings (np.ndarray): Original embeddings
             normalized_embeddings (np.ndarray): Normalized embeddings
@@ -308,116 +343,158 @@ class EmbeddingVectors:
         """
         if not self.log_normalization_stats:
             return
-            
+
         try:
             if len(original_embeddings) > 1:
                 n_samples = min(10, len(original_embeddings) // 2)
-                indices = np.random.choice(len(original_embeddings), n_samples * 2, replace=False)
-                
+                indices = np.random.choice(
+                    len(original_embeddings), n_samples * 2, replace=False
+                )
+
                 original_similarities = []
                 normalized_similarities = []
-                
+
                 for i in range(0, len(indices), 2):
                     if i + 1 < len(indices):
                         idx1, idx2 = indices[i], indices[i + 1]
-                        orig_sim = np.dot(original_embeddings[idx1], original_embeddings[idx2]) / (
-                            np.linalg.norm(original_embeddings[idx1]) * 
-                            np.linalg.norm(original_embeddings[idx2])
+                        orig_sim = np.dot(
+                            original_embeddings[idx1],
+                            original_embeddings[idx2],
+                        ) / (
+                            np.linalg.norm(original_embeddings[idx1])
+                            * np.linalg.norm(original_embeddings[idx2])
                         )
                         original_similarities.append(orig_sim)
-                        norm_sim = np.dot(normalized_embeddings[idx1], normalized_embeddings[idx2])
+                        norm_sim = np.dot(
+                            normalized_embeddings[idx1],
+                            normalized_embeddings[idx2],
+                        )
                         normalized_similarities.append(norm_sim)
-                
+
                 if original_similarities and normalized_similarities:
-                    sim_diff = np.mean(np.abs(np.array(original_similarities) - np.array(normalized_similarities)))
-                    logging.info(f"Normalization similarity preservation: avg diff={sim_diff:.6f}")
-            
+                    sim_diff = np.mean(
+                        np.abs(
+                            np.array(original_similarities)
+                            - np.array(normalized_similarities)
+                        )
+                    )
+                    logging.info(
+                        f"Normalization similarity preservation: avg diff={sim_diff:.6f}"
+                    )
+
             # -- log normalization stats
-            strategy = metadata.get('strategy', 'unknown')
+            strategy = metadata.get("strategy", "unknown")
             if strategy == "l2":
-                logging.info(f"L2 Normalization completed: "
-                            f"vectors={len(normalized_embeddings)}, "
-                            f"zero_vectors={metadata.get('zero_vectors', 0)}, "
-                            f"avg_original_norm={metadata.get('avg_original_norm', 0):.3f}")
+                logging.info(
+                    f"L2 Normalization completed: "
+                    f"vectors={len(normalized_embeddings)}, "
+                    f"zero_vectors={metadata.get('zero_vectors', 0)}, "
+                    f"avg_original_norm={metadata.get('avg_original_norm', 0):.3f}"
+                )
             elif strategy == "min_max":
-                logging.info(f"Min-Max Normalization completed: "
-                            f"vectors={len(normalized_embeddings)}, "
-                            f"constant_dimensions={metadata.get('constant_dimensions', 0)}")
+                logging.info(
+                    f"Min-Max Normalization completed: "
+                    f"vectors={len(normalized_embeddings)}, "
+                    f"constant_dimensions={metadata.get('constant_dimensions', 0)}"
+                )
             elif strategy == "z_score":
-                logging.info(f"Z-Score Normalization completed: "
-                            f"vectors={len(normalized_embeddings)}, "
-                            f"zero_std_dimensions={metadata.get('zero_std_dimensions', 0)}")
+                logging.info(
+                    f"Z-Score Normalization completed: "
+                    f"vectors={len(normalized_embeddings)}, "
+                    f"zero_std_dimensions={metadata.get('zero_std_dimensions', 0)}"
+                )
             else:
-                logging.info(f"{strategy.title()} Normalization completed: "
-                            f"vectors={len(normalized_embeddings)}")
-                        
+                logging.info(
+                    f"{strategy.title()} Normalization completed: "
+                    f"vectors={len(normalized_embeddings)}"
+                )
+
         except Exception as e:
-            logging.warning(f"Could not calculate normalization impact metrics: {e}")
-    
+            logging.warning(
+                f"Could not calculate normalization impact metrics: {e}"
+            )
+
     def _normalize_in_batches(self, embeddings, batch_size=1000):
         """
         Handle large embedding arrays efficiently with batch processing
-        
+
         Parameters:
             embeddings (np.ndarray): Input embeddings array
             batch_size (int): Batch size for processing
-            
+
         Returns:
             np.ndarray: Normalized embeddings
             dict: Normalization metadata
         """
         if len(embeddings) <= batch_size:
             return self.normalize_embeddings_l2(embeddings, in_place=False)
-        
+
         logging.info(f"Processing normalization in batches of {batch_size}")
         all_metadata = []
         normalized_batches = []
-        
+
         for i in range(0, len(embeddings), batch_size):
-            batch = embeddings[i:i + batch_size]
+            batch = embeddings[i : i + batch_size]
             normalized_batch, metadata = self.normalize_embeddings_strategy(
                 batch, self.normalization_strategy, in_place=False
             )
             normalized_batches.append(normalized_batch)
             all_metadata.append(metadata)
-            
+
             if self.log_normalization_stats:
                 progress = min(100, (i + batch_size) / len(embeddings) * 100)
-                logging.info(f"{self.normalization_strategy} normalization progress: {progress:.1f}%")
-        
+                logging.info(
+                    f"{self.normalization_strategy} normalization progress: {progress:.1f}%"
+                )
+
         # -- batch normalization
         combined_embeddings = np.vstack(normalized_batches)
-        
+
         # Aggregate metadata based on strategy
         if self.normalization_strategy == "l2":
             combined_metadata = {
-                "zero_vectors": sum(m.get("zero_vectors", 0) for m in all_metadata),
-                "avg_original_norm": np.mean([m.get("avg_original_norm", 0) for m in all_metadata]),
-                "min_original_norm": min([m.get("min_original_norm", float('inf')) for m in all_metadata]),
-                "max_original_norm": max([m.get("max_original_norm", 0) for m in all_metadata]),
+                "zero_vectors": sum(
+                    m.get("zero_vectors", 0) for m in all_metadata
+                ),
+                "avg_original_norm": np.mean(
+                    [m.get("avg_original_norm", 0) for m in all_metadata]
+                ),
+                "min_original_norm": min(
+                    [
+                        m.get("min_original_norm", float("inf"))
+                        for m in all_metadata
+                    ]
+                ),
+                "max_original_norm": max(
+                    [m.get("max_original_norm", 0) for m in all_metadata]
+                ),
                 "already_normalized": False,
                 "batch_processed": True,
-                "strategy": self.normalization_strategy
+                "strategy": self.normalization_strategy,
             }
         elif self.normalization_strategy == "min_max":
             combined_metadata = {
-                "constant_dimensions": sum(m.get("constant_dimensions", 0) for m in all_metadata),
+                "constant_dimensions": sum(
+                    m.get("constant_dimensions", 0) for m in all_metadata
+                ),
                 "already_normalized": False,
                 "batch_processed": True,
-                "strategy": self.normalization_strategy
+                "strategy": self.normalization_strategy,
             }
         elif self.normalization_strategy == "z_score":
             combined_metadata = {
-                "zero_std_dimensions": sum(m.get("zero_std_dimensions", 0) for m in all_metadata),
+                "zero_std_dimensions": sum(
+                    m.get("zero_std_dimensions", 0) for m in all_metadata
+                ),
                 "already_normalized": False,
                 "batch_processed": True,
-                "strategy": self.normalization_strategy
+                "strategy": self.normalization_strategy,
             }
         else:
             combined_metadata = {
                 "already_normalized": False,
                 "batch_processed": True,
-                "strategy": self.normalization_strategy
+                "strategy": self.normalization_strategy,
             }
 
         return combined_embeddings, combined_metadata
@@ -425,26 +502,32 @@ class EmbeddingVectors:
     def validate_normalization_consistency(self, save_path):
         """
         Validate normalization consistency when loading existing indices
-        
+
         Parameters:
             save_path (Path): Path to the vector store
-            
+
         Returns:
             bool: True if normalization is consistent, False otherwise
         """
         try:
             dimension_info_path = save_path / "dimension_info.pkl"
             if not dimension_info_path.exists():
-                logging.warning("No dimension info found, cannot validate normalization")
+                logging.warning(
+                    "No dimension info found, cannot validate normalization"
+                )
                 return True
-                
+
             with open(dimension_info_path, "rb") as f:
                 existing_info = pickle.load(f)
-                
+
             # -- check for existing normalization..
-            existing_normalization = existing_info.get("normalization_applied", False)
-            existing_strategy = existing_info.get("normalization_strategy", "unknown")
-            
+            existing_normalization = existing_info.get(
+                "normalization_applied", False
+            )
+            existing_strategy = existing_info.get(
+                "normalization_strategy", "unknown"
+            )
+
             if existing_normalization != self.normalize_embeddings:
                 logging.warning(
                     f"Normalization mismatch: existing index has "
@@ -452,16 +535,19 @@ class EmbeddingVectors:
                     f"current setting={self.normalize_embeddings}"
                 )
                 return False
-                
-            if existing_normalization and existing_strategy != self.normalization_strategy:
+
+            if (
+                existing_normalization
+                and existing_strategy != self.normalization_strategy
+            ):
                 logging.warning(
                     f"Normalization strategy mismatch: existing index uses "
                     f"{existing_strategy}, current setting={self.normalization_strategy}"
                 )
                 return False
-                
+
             return True
-            
+
         except Exception as e:
             logging.error(f"Error validating normalization consistency: {e}")
             return False
@@ -564,23 +650,50 @@ class EmbeddingVectors:
                         EmbeddingModelLoader._dimension_cache[cache_key] = (
                             self.embedding_dimension
                         )
-                    
-                    if self.normalize_embeddings:
+
+                        if self.normalize_embeddings:
+                            if (
+                                not self.create_new_vs
+                                and self.existing_vector_store
+                            ):
+                                existing_save_path = (
+                                    VECTOR_STORE_PATH
+                                    / f"{self.embedding_type}_{self.existing_vector_store}"
+                                )
+                                compatibility_checked, rescaled_old_embeddings = (
+                                    self.check_normalization_compatibility(
+                                        existing_save_path
+                                    )
+                                )
+                                
+                                if rescaled_old_embeddings is not None:
+                                    combined_embeddings = np.vstack([rescaled_old_embeddings, combined_embeddings])
+
                         if self.log_normalization_stats:
                             original_embeddings = combined_embeddings.copy()
-                        
-                        combined_embeddings, norm_metadata = self.normalize_embeddings_strategy(
-                            combined_embeddings, self.normalization_strategy, in_place=True
+
+                        combined_embeddings, norm_metadata = (
+                            self.normalize_embeddings_strategy(
+                                combined_embeddings,
+                                self.normalization_strategy,
+                                in_place=True,
+                            )
                         )
                         
+                        self.last_embeddings_to_save = combined_embeddings.copy()
+
                         if self.log_normalization_stats:
                             self._log_normalization_impact(
-                                original_embeddings, combined_embeddings, norm_metadata
+                                original_embeddings,
+                                combined_embeddings,
+                                norm_metadata,
                             )
                             strategy_name = self.normalization_strategy.upper()
-                            logging.info(f"Applied {strategy_name} normalization for {self.embedding_type}: "
-                                        f"strategy={self.normalization_strategy}")
-                    
+                            logging.info(
+                                f"Applied {strategy_name} normalization for {self.embedding_type}: "
+                                f"strategy={self.normalization_strategy}"
+                            )
+
                     return combined_embeddings
                 return np.zeros((0, self.embedding_dimension))
 
@@ -633,23 +746,53 @@ class EmbeddingVectors:
                             self.embedding_dimension = (
                                 combined_embeddings.shape[1]
                             )
-                        
+
                         if self.normalize_embeddings:
+                            if (
+                                not self.create_new_vs
+                                and self.existing_vector_store
+                            ):
+                                existing_save_path = (
+                                    VECTOR_STORE_PATH
+                                    / f"{self.embedding_type}_{self.existing_vector_store}"
+                                )
+                                compatibility_checked, rescaled_old_embeddings = (
+                                    self.check_normalization_compatibility(
+                                        existing_save_path
+                                    )
+                                )
+
+                                if rescaled_old_embeddings is not None:
+                                    combined_embeddings = np.vstack([rescaled_old_embeddings, combined_embeddings])
+
                             if self.log_normalization_stats:
-                                original_embeddings = combined_embeddings.copy()
-                            
-                            combined_embeddings, norm_metadata = self.normalize_embeddings_strategy(
-                                combined_embeddings, self.normalization_strategy, in_place=True
+                                original_embeddings = (
+                                    combined_embeddings.copy()
+                                )
+
+                            combined_embeddings, norm_metadata = (
+                                self.normalize_embeddings_strategy(
+                                    combined_embeddings,
+                                    self.normalization_strategy,
+                                    in_place=True,
+                                )
                             )
                             
+                            self.last_embeddings_to_save = combined_embeddings.copy()
+
                             if self.log_normalization_stats:
                                 self._log_normalization_impact(
-                                    original_embeddings, combined_embeddings, norm_metadata
+                                    original_embeddings,
+                                    combined_embeddings,
+                                    norm_metadata,
                                 )
-                                strategy_name = self.normalization_strategy.upper()
-                                logging.info(f"Applied {strategy_name} normalization for {self.embedding_type}: "
-                                            f"strategy={self.normalization_strategy}")
-                        
+                                strategy_name = (
+                                    self.normalization_strategy.upper()
+                                )
+                                logging.info(
+                                    f"Applied {strategy_name} normalization for {self.normalization_strategy}"
+                                )
+
                         return combined_embeddings
                     return np.zeros((0, self.embedding_dimension))
 
@@ -711,21 +854,27 @@ class EmbeddingVectors:
             # -- Indexing
             train = self.device.type != "cpu"
             embeddings_copy = embeddings.copy().astype(np.float32)
-            
+
             # -- check embedding normalization
-            if self.normalize_embeddings and not self._is_already_normalized(embeddings_copy, self.normalization_strategy):
+            if self.normalize_embeddings and not self._is_already_normalized(
+                embeddings_copy, self.normalization_strategy
+            ):
                 if self.normalization_strategy == "l2":
                     faiss.normalize_L2(embeddings_copy)
                 else:
                     # -- apply custom normalization for non-L2 strategies
                     embeddings_copy, _ = self.normalize_embeddings_strategy(
-                        embeddings_copy, self.normalization_strategy, in_place=True
+                        embeddings_copy,
+                        self.normalization_strategy,
+                        in_place=True,
                     )
             elif self.normalize_embeddings:
-                logging.info(f"Embeddings already {self.normalization_strategy} normalized, skipping FAISS normalization")
+                logging.info(
+                    f"Embeddings already {self.normalization_strategy} normalized, skipping FAISS normalization"
+                )
             else:
                 pass
-                
+
             index = faiss.IndexFlatL2(dimension)
             index.add(embeddings_copy)
 
@@ -816,6 +965,24 @@ class EmbeddingVectors:
             with open(save_path / "dimension_info.pkl", "wb") as f:
                 pickle.dump(dimension_info, f)
 
+            if self.normalize_embeddings and hasattr(self, 'last_normalization_metadata'):
+                self.save_normalization_metadata(save_path, self.last_normalization_metadata)
+            
+            if hasattr(self, 'last_embeddings_to_save'):
+                embeddings_save_path = save_path / "embeddings"
+                embeddings_save_path.mkdir(exist_ok=True)
+
+                if self.create_new_vs:
+                    index_name = self.new_vs_name
+                else:
+                    index_name = self.existing_vector_store
+                    
+                norm_type = self.normalization_strategy if self.normalize_embeddings else "raw"
+                embedding_filename = f"{index_name}_embedding_{norm_type}.npy"
+                embedding_filepath = embeddings_save_path / embedding_filename
+                
+                np.save(embedding_filepath, self.last_embeddings_to_save) # save embeddings to file
+
             # -- initialize and save BM25 retriever
             try:
                 bm25_retriever = BM25Retriever(texts)
@@ -838,10 +1005,14 @@ class EmbeddingVectors:
                 else:
                     try:
                         # Validate normalization consistency
-                        if not self.validate_normalization_consistency(save_path):
-                            logging.error("🚩 Normalization consistency validation failed")
+                        if not self.validate_normalization_consistency(
+                            save_path
+                        ):
+                            logging.error(
+                                "🚩 Normalization consistency validation failed"
+                            )
                             return
-                            
+
                         try:
                             with open(
                                 save_path / "dimension_info.pkl", "rb"
@@ -913,8 +1084,12 @@ class EmbeddingVectors:
                             )
                             # -- apply normalization if enabled
                             if self.normalize_embeddings:
-                                combined_embeddings_copy, _ = self.normalize_embeddings_strategy(
-                                    combined_embeddings_copy, self.normalization_strategy, in_place=True
+                                combined_embeddings_copy, _ = (
+                                    self.normalize_embeddings_strategy(
+                                        combined_embeddings_copy,
+                                        self.normalization_strategy,
+                                        in_place=True,
+                                    )
                                 )
                             else:
                                 faiss.normalize_L2(combined_embeddings_copy)
@@ -1056,3 +1231,150 @@ class EmbeddingVectors:
                 )
         except Exception as e:
             logging.error(f"🚩 Error in create_and_save_index: {e}")
+
+    def save_normalization_metadata(self, save_path, metadata):
+        """
+        Save normalization metadata for future use
+
+        Parameters:
+            save_path (Path): Path to save the metadata
+            metadata (dict): Normalization metadata to save
+        """
+        try:
+            metadata_path = save_path / "normalization_metadata.pkl"
+            with open(metadata_path, "wb") as f:
+                pickle.dump(metadata, f)
+            logging.info(f"Saved normalization metadata to {metadata_path}")
+        except Exception as e:
+            logging.error(f"Error saving normalization metadata: {e}")
+
+    def load_normalization_metadata(self, save_path):
+        """
+        Load normalization metadata from existing index
+
+        Parameters:
+            save_path (Path): Path to load the metadata from
+
+        Returns:
+            dict: Normalization metadata or None if not found
+        """
+        try:
+            metadata_path = save_path / "normalization_metadata.pkl"
+            if not metadata_path.exists():
+                return None
+
+            with open(metadata_path, "rb") as f:
+                metadata = pickle.load(f)
+            return metadata
+        except Exception as e:
+            return None
+
+    def _rescale_embeddings(self, embeddings, metadata, strategy):
+        """
+        Rescale normalized embeddings back to their original scale
+
+        Parameters:
+            embeddings (np.ndarray): Normalized embeddings to rescale
+            metadata (dict): Original normalization metadata
+            strategy (str): Normalization strategy used
+
+        Returns:
+            np.ndarray: Rescaled embeddings
+        """
+        if strategy == "min_max":
+            min_vals = metadata.get("min_vals", None)
+            max_vals = metadata.get("max_vals", None)
+            if min_vals is not None and max_vals is not None:
+                min_vals = min_vals.reshape(1, -1)
+                max_vals = max_vals.reshape(1, -1)
+                range_vals = max_vals - min_vals
+                return embeddings * range_vals + min_vals
+
+        elif strategy == "z_score":
+            mean_vals = metadata.get("mean_vals", None)
+            std_vals = metadata.get("std_vals", None)
+            if mean_vals is not None and std_vals is not None:
+                mean_vals = mean_vals.reshape(1, -1)
+                std_vals = std_vals.reshape(1, -1)
+                return embeddings * std_vals + mean_vals
+
+        elif strategy == "l2":
+            return embeddings
+
+        return embeddings
+
+    def _load_existing_embeddings(self, save_path):
+        """
+        Load existing embeddings from saved embedding files
+        
+        Parameters:
+            save_path (Path): Path to existing vector store
+            
+        Returns:
+            np.ndarray: Loaded embeddings or None if failed
+        """
+        try:
+            embeddings_save_path = save_path / "embeddings"
+            if not embeddings_save_path.exists():
+                logging.warning(f"No embeddings folder found at {embeddings_save_path}")
+                return None
+            
+            embedding_files = list(embeddings_save_path.glob("*.npy"))
+            if not embedding_files:
+                logging.warning(f"No embedding files found in {embeddings_save_path}")
+                return None
+            
+            # -- load the first embedding file found (assuming single embedding file per index)
+            embedding_file = embedding_files[0]
+            embeddings = np.load(embedding_file)
+            logging.info(f"Loaded {len(embeddings)} embeddings from {embedding_file}")
+            return embeddings
+                
+        except Exception as e:
+            logging.error(f"Error loading existing embeddings: {e}")
+            
+        return None
+
+    def check_normalization_compatibility(self, existing_save_path):
+        """
+        Check normalization compatibility when appending to existing index
+        and rescale old embeddings if needed for mathematical consistency
+        
+        Parameters:
+            existing_save_path (Path): Path to existing vector store
+            
+        Returns:
+            tuple: (bool, np.ndarray) - (compatibility_checked, rescaled_old_embeddings or None)
+        """
+        if not existing_save_path.exists():
+            return False, None
+            
+        # -- load existing normalization metadata
+        existing_metadata = self.load_normalization_metadata(
+            existing_save_path
+        )
+        if not existing_metadata:
+            return False, None
+            
+        existing_strategy = existing_metadata.get("strategy", "l2")
+        
+        if existing_strategy == "l2":
+            return True, None
+            
+        if existing_strategy in ["min_max", "z_score"]:
+            try:
+                old_embeddings = self._load_existing_embeddings(existing_save_path)
+                if old_embeddings is not None:
+                    rescaled_embeddings = self._rescale_embeddings(
+                        old_embeddings, existing_metadata, existing_strategy
+                    )
+                    logging.info(f"Successfully rescaled {len(old_embeddings)} old embeddings from {existing_strategy} normalization")
+                    return True, rescaled_embeddings
+                else:
+                    logging.warning(f"Could not load old embeddings for rescaling from {existing_save_path}")
+                    return True, None
+            except Exception as e:
+                logging.error(f"Error rescaling old embeddings: {e}")
+                return True, None
+        
+        return True, None
