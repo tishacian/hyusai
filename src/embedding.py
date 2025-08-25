@@ -566,10 +566,13 @@ class EmbeddingVectors:
                         )
                     
                     if self.normalize_embeddings:
-                        original_embeddings = combined_embeddings.copy()
+                        if self.log_normalization_stats:
+                            original_embeddings = combined_embeddings.copy()
+                        
                         combined_embeddings, norm_metadata = self.normalize_embeddings_strategy(
                             combined_embeddings, self.normalization_strategy, in_place=True
                         )
+                        
                         if self.log_normalization_stats:
                             self._log_normalization_impact(
                                 original_embeddings, combined_embeddings, norm_metadata
@@ -632,10 +635,13 @@ class EmbeddingVectors:
                             )
                         
                         if self.normalize_embeddings:
-                            original_embeddings = combined_embeddings.copy()
+                            if self.log_normalization_stats:
+                                original_embeddings = combined_embeddings.copy()
+                            
                             combined_embeddings, norm_metadata = self.normalize_embeddings_strategy(
                                 combined_embeddings, self.normalization_strategy, in_place=True
                             )
+                            
                             if self.log_normalization_stats:
                                 self._log_normalization_impact(
                                     original_embeddings, combined_embeddings, norm_metadata
