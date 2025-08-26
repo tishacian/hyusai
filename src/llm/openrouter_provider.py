@@ -80,23 +80,14 @@ class OpenRouterProvider(LLMProvider):
         """
         Clean parameters to ensure compatibility with OpenRouter API.
 
-        Args:
-            params: Dictionary of parameters
-
-        Returns:
-            Cleaned parameters dictionary
+        Removes unsupported keys that OpenRouter does not consume, since we
+        normalize these at higher layers (LLM facade) already.
         """
-        # Make a copy to avoid modifying the original
         cleaned = params.copy()
 
-        # For regular models, just remove unsupported parameters
-        # Remove parameters that aren't supported by OpenRouter API
-        if 'provider' in cleaned:
-            # If provider is specified, use route parameter instead
-            provider_info = cleaned.pop('provider')
-            # Only set route if it's not already set
-            if 'route' not in cleaned and isinstance(provider_info, dict):
-                cleaned['route'] = provider_info
+        # Remove parameters that aren't supported/necessary for OpenRouter API
+        for key in ("provider", "reasoning_effort", "max_completion_tokens"):
+            cleaned.pop(key, None)
 
         return cleaned
 
@@ -186,10 +177,7 @@ class OpenRouterProvider(LLMProvider):
         Returns:
             AsyncGenerator yielding chunks of the response as they become available
         """
-        # Use default model if none provided
-        if model is None:
-            model = os.getenv("OPENROUTER_DEFAULT_MODEL", self.DEFAULT_MODEL)
-            
+        # No defaulting here; model must be provided by caller per base interface
         logging.info(f"Starting OpenRouter streaming with model: {model}")
 
         # Prepare request parameters
