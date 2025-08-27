@@ -1,8 +1,6 @@
 """
 Main LLM class providing a unified interface for different LLM providers.
 """
-import os
-import logging
 from collections.abc import AsyncGenerator
 
 from .base import LLMProvider
@@ -173,41 +171,3 @@ class LLM:
             **params
         ):
             yield chunk
-
-
-
-if __name__ == "__main__":
-    import asyncio
-    
-    # Configure logging
-    logging.basicConfig(level=logging.INFO)
-    
-    async def test_llm():
-        """Test the LLM class with different providers."""
-        llm1 = LLM("openai", api_key=os.getenv("OPENAI_API_KEY"))
-        llm2 = LLM("openrouter", api_key=os.getenv("OPENROUTER_API_KEY"))
-
-        # Test OpenAI
-        response1 = await llm1.generate(
-            messages=[
-                {"role": "user", "content": "you are about to get connected with a second LLM ask it to do something nice for u?"}
-            ],
-            model="gpt-5-nano"
-        )
-        print("OpenAI Response:", response1)
-        print()
-        print('-------------------------')
-        print('-------------------------')
-        # Test OpenRouter
-        async for chunk in llm2.stream_generate(
-            messages=[
-                {"role": "user", "content": response1},
-            ],
-            model="openai/gpt-oss-120b"
-        ):
-            print(chunk, end=" ")
-        
-        
-    
-    # Run the test
-    asyncio.run(test_llm())
