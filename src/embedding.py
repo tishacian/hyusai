@@ -607,7 +607,10 @@ class EmbeddingVectors:
         try:
             if not texts or len(texts) == 0:
                 logging.error("🚩 Empty texts array received")
-                return np.zeros((0, self.embedding_dimension))
+                empty_embeddings = np.zeros((0, self.embedding_dimension))
+                self.last_embeddings_to_save = empty_embeddings.copy()
+                self.last_normalization_metadata = {"strategy": "raw", "already_normalized": False, "error": "empty_texts"}
+                return empty_embeddings
 
             if self.embedding_type in [IndexType.FAISS, IndexType.CHROMA]:
                 logging.info(
@@ -691,12 +694,17 @@ class EmbeddingVectors:
                                 )
                         else:
                             norm_metadata = {"strategy": "raw", "already_normalized": False}
-
+                        
                         self.last_embeddings_to_save = combined_embeddings.copy()
                         self.last_normalization_metadata = norm_metadata
 
                     return combined_embeddings
-                return np.zeros((0, self.embedding_dimension))
+                
+                logging.warning("No embeddings were created in FAISS/Chroma path, returning empty array")
+                empty_embeddings = np.zeros((0, self.embedding_dimension))
+                self.last_embeddings_to_save = empty_embeddings.copy()
+                self.last_normalization_metadata = {"strategy": "raw", "already_normalized": False, "error": "creation_failed"}
+                return empty_embeddings
 
             elif self.embedding_type == IndexType.WEAVIATE:
                 # Use tokenizer-based embeddings for Weaviate
@@ -795,22 +803,35 @@ class EmbeddingVectors:
                         self.last_normalization_metadata = norm_metadata
 
                         return combined_embeddings
-                    return np.zeros((0, self.embedding_dimension))
+                    logging.warning("No embeddings were created, returning empty array")
+                    empty_embeddings = np.zeros((0, self.embedding_dimension))
+                    self.last_embeddings_to_save = empty_embeddings.copy()
+                    self.last_normalization_metadata = {"strategy": "raw", "already_normalized": False, "error": "creation_failed"}
+                    return empty_embeddings
 
                 except IndexError as e:
                     logging.error(
                         f"🚩 Index out of range error: {e}. Check input text length."
                     )
-                    return np.zeros((0, self.embedding_dimension))
+                    empty_embeddings = np.zeros((0, self.embedding_dimension))
+                    self.last_embeddings_to_save = empty_embeddings.copy()
+                    self.last_normalization_metadata = {"strategy": "raw", "already_normalized": False, "error": "index_error"}
+                    return empty_embeddings
             else:
                 logging.error(
                     f"🚩 Unsupported embedding type: {self.embedding_type}"
                 )
-                return np.zeros((0, self.embedding_dimension))
+                empty_embeddings = np.zeros((0, self.embedding_dimension))
+                self.last_embeddings_to_save = empty_embeddings.copy()
+                self.last_normalization_metadata = {"strategy": "raw", "already_normalized": False, "error": "unsupported_type"}
+                return empty_embeddings
 
         except Exception as e:
             logging.error(f"🚩 Error creating embeddings: {e}")
-            return np.zeros((0, self.embedding_dimension))
+            empty_embeddings = np.zeros((0, self.embedding_dimension))
+            self.last_embeddings_to_save = empty_embeddings.copy()
+            self.last_normalization_metadata = {"strategy": "raw", "already_normalized": False, "error": "general_exception"}
+            return empty_embeddings
 
     def create_faiss_index(self, embeddings, chunk_size=None):
         """
@@ -973,13 +994,13 @@ class EmbeddingVectors:
                 }
                 self.save_normalization_metadata(save_path, default_metadata)
             
-            logging.info(f"Checking for embeddings to save: hasattr={hasattr(self, 'last_embeddings_to_save')}")
             if hasattr(self, 'last_embeddings_to_save'):
                 logging.info(f"Found embeddings to save: shape={self.last_embeddings_to_save.shape}")
                 if self.create_new_vs:
                     embeddings_save_path = save_path / "embeddings"
                     index_name = self.new_vs_name
                 else:
+                    # --Appending to existing index
                     new_save_path = VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
                     embeddings_save_path = new_save_path / "embeddings"
                     index_name = self.new_vs_name
@@ -1237,17 +1258,27 @@ class EmbeddingVectors:
                 logging.error("🚩 Empty texts array received")
                 return
 
-            embeddings = self.create_embeddings(texts)
-            if embeddings is None or len(embeddings) == 0:
+            self.embeddings = self.create_embeddings(texts)
+            if self.embeddings is None or len(self.embeddings) == 0:
                 logging.error("🚩 Failed to create embeddings")
                 return
-            
-            self.embeddings = embeddings
-            
+
             if not hasattr(self, 'last_embeddings_to_save'):
-                self.last_embeddings_to_save = embeddings.copy()
-            else:
-                logging.info(f"last_embeddings_to_save already exists: shape={self.last_embeddings_to_save.shape}")
+                self.last_embeddings_to_save = self.embeddings.copy()
+
+            if not hasattr(self, 'last_normalization_metadata'):
+                if self.normalize_embeddings:
+                    self.last_normalization_metadata = {
+                        "strategy": self.normalization_strategy,
+                        "already_normalized": True,
+                        "timestamp": str(datetime.now())
+                    }
+                else:
+                    self.last_normalization_metadata = {
+                        "strategy": "raw",
+                        "already_normalized": False,
+                        "timestamp": str(datetime.now())
+                    }
 
             if self.embedding_type == IndexType.FAISS:
                 index = self.create_faiss_index(self.embeddings)
