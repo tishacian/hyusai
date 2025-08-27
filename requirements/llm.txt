@@ -1,0 +1,12 @@
+openai
+google-generativeai
+anthropic
+aiohttp
+groq
+together
+ollama
+boto3
+azure-identity
+langchain
+litellm
+requests
