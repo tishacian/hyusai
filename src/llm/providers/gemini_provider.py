@@ -154,7 +154,7 @@ class GeminiProvider(LLMProvider):
         Returns:
             AsyncGenerator yielding chunks of the response as they become available
         """
-        logging.info(f"Starting Gemini streaming with model: {model}")
+        logging.debug(f"Starting Gemini streaming with model: {model}")
 
         # Convert OpenAI-style messages to Gemini format
         gemini_messages = self._convert_messages_to_gemini_format(messages)
@@ -201,7 +201,7 @@ class GeminiProvider(LLMProvider):
                     logging.debug(f"Gemini streaming: received {chunk_count} chunks so far")
                 yield chunk.text
 
-        logging.info(f"Gemini streaming complete: {chunk_count} chunks total")
+        logging.debug(f"Gemini streaming complete: {chunk_count} chunks total")
 
     def _convert_messages_to_gemini_format(self, messages: list[dict[str, str]]) -> list[dict[str, object]] | str:
         """

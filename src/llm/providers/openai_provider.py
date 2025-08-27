@@ -84,19 +84,18 @@ class OpenAIProvider(LLMProvider):
 
         # For thinking models (o1, o3, etc.)
         if is_thinking:
-            logging.info(f"Using thinking model: {model}")
+            logging.debug(f"Using thinking model: {model}")
 
             # Handle reasoning_effort parameter
             if reasoning_effort:
                 params["reasoning_effort"] = reasoning_effort
-                logging.info(f"Setting reasoning_effort={reasoning_effort} for model {model}")
+                logging.debug(f"Setting reasoning_effort={reasoning_effort} for model {model}")
 
             # Handle token limit for thinking models
             if max_completion_tokens is not None:
-                logging.info(f"Using max_completion_tokens={max_completion_tokens} for model {model}")
                 params["max_completion_tokens"] = max_completion_tokens
             elif max_tokens is not None:
-                logging.info(f"Using max_tokens={max_tokens} as max_completion_tokens for model {model}")
+                logging.debug(f"Using max_tokens={max_tokens} as max_completion_tokens for model {model}")
                 params["max_completion_tokens"] = max_tokens
         else:
             # For standard models (gpt-4o, etc.)
@@ -106,7 +105,7 @@ class OpenAIProvider(LLMProvider):
 
             # Handle token limit for regular models
             if max_tokens is not None:
-                logging.info(f"Using max_tokens={max_tokens} for model {model}")
+                logging.debug(f"Using max_tokens={max_tokens} for model {model}")
                 params["max_tokens"] = max_tokens
 
         # Add any additional parameters
@@ -156,19 +155,18 @@ class OpenAIProvider(LLMProvider):
 
         # For thinking models (o1, o3, etc.)
         if is_thinking:
-            logging.info(f"Using thinking model with streaming: {model}")
+            logging.debug(f"Using thinking model: {model}")
 
             # Handle reasoning_effort parameter
             if reasoning_effort:
                 params["reasoning_effort"] = reasoning_effort
-                logging.info(f"Setting reasoning_effort={reasoning_effort} for model {model}")
+                logging.debug(f"Setting reasoning_effort={reasoning_effort} for model {model}")
 
             # Handle token limit for thinking models
             if max_completion_tokens is not None:
-                logging.info(f"Using max_completion_tokens={max_completion_tokens} for model {model}")
                 params["max_completion_tokens"] = max_completion_tokens
             elif max_tokens is not None:
-                logging.info(f"Using max_tokens={max_tokens} as max_completion_tokens for model {model}")
+                logging.debug(f"Using max_tokens={max_tokens} as max_completion_tokens for model {model}")
                 params["max_completion_tokens"] = max_tokens
         else:
             # For standard models (gpt-4o, etc.)
@@ -178,7 +176,7 @@ class OpenAIProvider(LLMProvider):
 
             # Handle token limit for regular models
             if max_tokens is not None:
-                logging.info(f"Using max_tokens={max_tokens} for model {model}")
+                logging.debug(f"Using max_tokens={max_tokens} for model {model}")
                 params["max_tokens"] = max_tokens
 
         # Add any additional parameters
@@ -198,4 +196,4 @@ class OpenAIProvider(LLMProvider):
                     logging.debug(f"OpenAI streaming: received {chunk_count} chunks, {total_tokens} chars so far")
                 yield chunk_content
 
-        logging.info(f"OpenAI streaming complete: {chunk_count} chunks, {total_tokens} chars total")
+        logging.debug(f"OpenAI streaming complete: {chunk_count} chunks, {total_tokens} chars total")

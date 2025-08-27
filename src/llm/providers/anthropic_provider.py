@@ -6,10 +6,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Dict, List, Any
 
-try:
-    import anthropic
-except ImportError:
-    raise ImportError("The 'anthropic' library is required. Please install it using 'pip install anthropic'.")
+import anthropic
 
 from .base import LLMProvider
 
@@ -47,7 +44,7 @@ class AnthropicProvider(LLMProvider):
             base_url=self.base_url
         )
 
-        logging.info("Anthropic provider initialized")
+        logging.debug("Anthropic provider initialized")
 
     def _prepare_messages(self, messages: list[dict[str, str]]) -> tuple[str, list[dict[str, str]]]:
         """
@@ -175,7 +172,7 @@ class AnthropicProvider(LLMProvider):
             AsyncGenerator yielding chunks of the response as they become available
         """
         # No defaulting here; model must be provided by caller per base interface
-        logging.info(f"Starting Anthropic streaming with model: {model}")
+        logging.debug(f"Starting Anthropic streaming with model: {model}")
 
         # Separate system message from other messages
         system_message, filtered_messages = self._prepare_messages(messages)
@@ -217,4 +214,4 @@ class AnthropicProvider(LLMProvider):
                         logging.debug(f"Anthropic streaming: received {chunk_count} chunks, {total_chars} chars so far")
                     yield text
 
-        logging.info(f"Anthropic streaming complete: {chunk_count} chunks, {total_chars} chars total")
+        logging.debug(f"Anthropic streaming complete: {chunk_count} chunks, {total_chars} chars total")

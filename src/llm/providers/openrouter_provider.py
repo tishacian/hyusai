@@ -55,7 +55,7 @@ class OpenRouterProvider(LLMProvider):
             api_key=self.api_key
         )
 
-        logging.info("OpenRouter provider initialized")
+        logging.debug("OpenRouter provider initialized")
 
     def _get_headers(self) -> dict[str, str]:
         """
@@ -178,7 +178,7 @@ class OpenRouterProvider(LLMProvider):
             AsyncGenerator yielding chunks of the response as they become available
         """
         # No defaulting here; model must be provided by caller per base interface
-        logging.info(f"Starting OpenRouter streaming with model: {model}")
+        logging.debug(f"Starting OpenRouter streaming with model: {model}")
 
         # Prepare request parameters
         params: dict[str, object] = {
@@ -218,4 +218,4 @@ class OpenRouterProvider(LLMProvider):
                     logging.debug(f"OpenRouter streaming: received {chunk_count} chunks, {total_tokens} chars so far")
                 yield chunk_content
 
-        logging.info(f"OpenRouter streaming complete: {chunk_count} chunks, {total_tokens} chars total")
+        logging.debug(f"OpenRouter streaming complete: {chunk_count} chunks, {total_tokens} chars total")
