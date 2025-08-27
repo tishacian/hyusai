@@ -656,10 +656,7 @@ class EmbeddingVectors:
                                 not self.create_new_vs
                                 and self.existing_vector_store
                             ):
-                                existing_save_path = (
-                                    VECTOR_STORE_PATH
-                                    / f"{self.embedding_type}_{self.existing_vector_store}"
-                                )
+                                existing_save_path = VECTOR_STORE_PATH / self.existing_vector_store
                                 compatibility_checked, rescaled_old_embeddings = (
                                     self.check_normalization_compatibility(
                                         existing_save_path
@@ -672,27 +669,31 @@ class EmbeddingVectors:
                         if self.log_normalization_stats:
                             original_embeddings = combined_embeddings.copy()
 
-                        combined_embeddings, norm_metadata = (
-                            self.normalize_embeddings_strategy(
-                                combined_embeddings,
-                                self.normalization_strategy,
-                                in_place=True,
+                        if self.normalize_embeddings:
+                            combined_embeddings, norm_metadata = (
+                                self.normalize_embeddings_strategy(
+                                    combined_embeddings,
+                                    self.normalization_strategy,
+                                    in_place=True,
+                                )
                             )
-                        )
-                        
-                        self.last_embeddings_to_save = combined_embeddings.copy()
+                            
+                            if self.log_normalization_stats:
+                                self._log_normalization_impact(
+                                    original_embeddings,
+                                    combined_embeddings,
+                                    norm_metadata,
+                                )
+                                strategy_name = self.normalization_strategy.upper()
+                                logging.info(
+                                    f"Applied {strategy_name} normalization for {self.embedding_type}: "
+                                    f"strategy={self.normalization_strategy}"
+                                )
+                        else:
+                            norm_metadata = {"strategy": "raw", "already_normalized": False}
 
-                        if self.log_normalization_stats:
-                            self._log_normalization_impact(
-                                original_embeddings,
-                                combined_embeddings,
-                                norm_metadata,
-                            )
-                            strategy_name = self.normalization_strategy.upper()
-                            logging.info(
-                                f"Applied {strategy_name} normalization for {self.embedding_type}: "
-                                f"strategy={self.normalization_strategy}"
-                            )
+                        self.last_embeddings_to_save = combined_embeddings.copy()
+                        self.last_normalization_metadata = norm_metadata
 
                     return combined_embeddings
                 return np.zeros((0, self.embedding_dimension))
@@ -752,10 +753,7 @@ class EmbeddingVectors:
                                 not self.create_new_vs
                                 and self.existing_vector_store
                             ):
-                                existing_save_path = (
-                                    VECTOR_STORE_PATH
-                                    / f"{self.embedding_type}_{self.existing_vector_store}"
-                                )
+                                existing_save_path = VECTOR_STORE_PATH / self.existing_vector_store
                                 compatibility_checked, rescaled_old_embeddings = (
                                     self.check_normalization_compatibility(
                                         existing_save_path
@@ -778,8 +776,6 @@ class EmbeddingVectors:
                                 )
                             )
                             
-                            self.last_embeddings_to_save = combined_embeddings.copy()
-
                             if self.log_normalization_stats:
                                 self._log_normalization_impact(
                                     original_embeddings,
@@ -792,6 +788,11 @@ class EmbeddingVectors:
                                 logging.info(
                                     f"Applied {strategy_name} normalization for {self.normalization_strategy}"
                                 )
+                        else:
+                            norm_metadata = {"strategy": "raw", "already_normalized": False}
+                        
+                        self.last_embeddings_to_save = combined_embeddings.copy()
+                        self.last_normalization_metadata = norm_metadata
 
                         return combined_embeddings
                     return np.zeros((0, self.embedding_dimension))
@@ -947,10 +948,7 @@ class EmbeddingVectors:
                     / f"{self.embedding_type}_{self.new_vs_name}"
                 )
             else:
-                save_path = (
-                    VECTOR_STORE_PATH
-                    / f"{self.embedding_type}_{self.existing_vector_store}"
-                )
+                save_path = VECTOR_STORE_PATH / self.existing_vector_store
 
             save_path.mkdir(parents=True, exist_ok=True)
 
@@ -965,23 +963,37 @@ class EmbeddingVectors:
             with open(save_path / "dimension_info.pkl", "wb") as f:
                 pickle.dump(dimension_info, f)
 
-            if self.normalize_embeddings and hasattr(self, 'last_normalization_metadata'):
+            if hasattr(self, 'last_normalization_metadata'):
                 self.save_normalization_metadata(save_path, self.last_normalization_metadata)
+            else:
+                default_metadata = {
+                    "strategy": "raw" if not self.normalize_embeddings else self.normalization_strategy,
+                    "already_normalized": False,
+                    "timestamp": str(datetime.now())
+                }
+                self.save_normalization_metadata(save_path, default_metadata)
             
+            logging.info(f"Checking for embeddings to save: hasattr={hasattr(self, 'last_embeddings_to_save')}")
             if hasattr(self, 'last_embeddings_to_save'):
-                embeddings_save_path = save_path / "embeddings"
-                embeddings_save_path.mkdir(exist_ok=True)
-
+                logging.info(f"Found embeddings to save: shape={self.last_embeddings_to_save.shape}")
                 if self.create_new_vs:
+                    embeddings_save_path = save_path / "embeddings"
                     index_name = self.new_vs_name
                 else:
-                    index_name = self.existing_vector_store
-                    
+                    new_save_path = VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
+                    embeddings_save_path = new_save_path / "embeddings"
+                    index_name = self.new_vs_name
+                
+                embeddings_save_path.mkdir(parents=True, exist_ok=True)
                 norm_type = self.normalization_strategy if self.normalize_embeddings else "raw"
                 embedding_filename = f"{index_name}_embedding_{norm_type}.npy"
                 embedding_filepath = embeddings_save_path / embedding_filename
                 
-                np.save(embedding_filepath, self.last_embeddings_to_save) # save embeddings to file
+                np.save(embedding_filepath, self.last_embeddings_to_save)
+                logging.info(f"Saved embeddings to {embedding_filepath}")
+            else:
+                if hasattr(self, 'embeddings'):
+                    logging.info(f"self.embeddings exists: {self.embeddings.shape if self.embeddings is not None else 'None'}")
 
             # -- initialize and save BM25 retriever
             try:
@@ -1094,13 +1106,30 @@ class EmbeddingVectors:
                             else:
                                 faiss.normalize_L2(combined_embeddings_copy)
                             combined_index.add(combined_embeddings_copy)
+                            
+                            # Save combined index to new path (faiss_CV) not existing path (faiss_Resume)
+                            new_save_path = VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
+                            new_save_path.mkdir(parents=True, exist_ok=True)
+                            
                             faiss.write_index(
-                                combined_index, str(save_path / "faiss.index")
+                                combined_index, str(new_save_path / "faiss.index")
                             )
-                            with open(save_path / "faiss.pkl", "wb") as f:
+                            with open(new_save_path / "faiss.pkl", "wb") as f:
                                 pickle.dump(combined_texts, f)
+                            
+                            # Save dimension info and other metadata to new path
+                            dimension_info = {
+                                "embedding_model_name": self.embedding_model_name,
+                                "embedding_dimension": self.embedding_dimension,
+                                "normalization_applied": self.normalize_embeddings,
+                                "normalization_strategy": self.normalization_strategy,
+                                "normalization_timestamp": str(datetime.now()),
+                            }
+                            with open(new_save_path / "dimension_info.pkl", "wb") as f:
+                                pickle.dump(dimension_info, f)
+                            
                             logging.info(
-                                f"Created new combined FAISS index and saved to {save_path}"
+                                f"Created new combined FAISS index and saved to {new_save_path}"
                             )
                             return
 
@@ -1208,10 +1237,17 @@ class EmbeddingVectors:
                 logging.error("🚩 Empty texts array received")
                 return
 
-            self.embeddings = self.create_embeddings(texts)
-            if self.embeddings is None or len(self.embeddings) == 0:
+            embeddings = self.create_embeddings(texts)
+            if embeddings is None or len(embeddings) == 0:
                 logging.error("🚩 Failed to create embeddings")
                 return
+            
+            self.embeddings = embeddings
+            
+            if not hasattr(self, 'last_embeddings_to_save'):
+                self.last_embeddings_to_save = embeddings.copy()
+            else:
+                logging.info(f"last_embeddings_to_save already exists: shape={self.last_embeddings_to_save.shape}")
 
             if self.embedding_type == IndexType.FAISS:
                 index = self.create_faiss_index(self.embeddings)
