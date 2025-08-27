@@ -7,7 +7,7 @@ import asyncio
 import google.generativeai as genai
 from collections.abc import AsyncGenerator
 
-from .base import LLMProvider
+from ..base import LLMProvider
 
 
 class GeminiProvider(LLMProvider):
@@ -20,8 +20,6 @@ class GeminiProvider(LLMProvider):
     # Default base URL for Gemini API
     DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com"
     
-    # Models that might require special handling
-    THINKING_MODELS: list[str] = []
 
     # Default models for Gemini
     DEFAULT_MODEL = "gemini-2.5-pro"
@@ -56,9 +54,6 @@ class GeminiProvider(LLMProvider):
         """
         return genai.GenerativeModel(model_name)
 
-    def _is_thinking_model(self, model: str) -> bool:
-        """Check if the model is a thinking model."""
-        return model in self.THINKING_MODELS
 
     async def generate(
         self,
@@ -105,8 +100,6 @@ class GeminiProvider(LLMProvider):
         # Add max output tokens if provided
         if max_tokens is not None:
             generation_config["max_output_tokens"] = max_tokens
-        elif max_completion_tokens is not None:
-            generation_config["max_output_tokens"] = max_completion_tokens
 
         # Add any additional parameters
         generation_config.update(kwargs.get("generation_config", {}))
@@ -172,8 +165,6 @@ class GeminiProvider(LLMProvider):
         # Add max output tokens if provided
         if max_tokens is not None:
             generation_config["max_output_tokens"] = max_tokens
-        elif max_completion_tokens is not None:
-            generation_config["max_output_tokens"] = max_completion_tokens
 
         # Add any additional parameters
         generation_config.update(kwargs.get("generation_config", {}))

@@ -5,7 +5,7 @@ import os
 import logging
 from collections.abc import AsyncGenerator
 from openai import AsyncOpenAI
-from .base import LLMProvider
+from ..base import LLMProvider
 
 
 class OpenAIProvider(LLMProvider):

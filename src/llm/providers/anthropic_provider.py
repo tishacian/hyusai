@@ -8,7 +8,7 @@ from typing import Dict, List, Any
 
 import anthropic
 
-from .base import LLMProvider
+from ..base import LLMProvider
 
 
 class AnthropicProvider(LLMProvider):
@@ -22,7 +22,7 @@ class AnthropicProvider(LLMProvider):
     DEFAULT_BASE_URL = "https://api.anthropic.com"
 
     # Default models for Anthropic
-    DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+    DEFAULT_MODEL = "claude-3-4-sonnet"
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None):
         """
