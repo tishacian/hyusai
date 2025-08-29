@@ -7,7 +7,6 @@ pandas
 scipy
 
 # deep and machine learning
-torch~=2.6.0
 scikit-learn
 nltk
 
