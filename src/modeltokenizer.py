@@ -352,7 +352,7 @@ class CachedLLM:
                     ),
                     "tensor_parallel_size": tensor_parallel,
                     "max_model_len": self.max_model_len,
-                    "trust_remote_code": True,
+                    #"trust_remote_code": True,
                     "gpu_memory_utilization": gpu_utilization,  # <-- Too high values may cause "Cache issues", OOM Error. Lowers values are preferred.
                     "enforce_eager": False,
                     "swap_space": swap_space,
@@ -366,7 +366,7 @@ class CachedLLM:
                         {
                             "rope_scaling": {
                                 "rope_type": "llama3",
-                                "type": "resonance_yarn",
+                                #"type": "resonance_yarn",
                                 "factor": 8.0,
                                 "low_freq_factor": 1.0,
                                 "high_freq_factor": 4.0,
