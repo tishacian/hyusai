@@ -6,7 +6,7 @@ export LANG=C.UTF-8
 
 # Determine the OS type
 OS_TYPE=$(uname)
-PYTHON_VERSION='3.11'
+PYTHON_VERSION='3.12'
 
 updatePathBrew() {
 	local BREW_INSTALL_DIR='/opt/homebrew/bin'
@@ -83,18 +83,18 @@ install_python() {
 	install_python
 }
 
-echo "Updating pip..."
-eval "python$PYTHON_VERSION -m pip install --upgrade pip"
+echo "Creating virtual environment with Python $PYTHON_VERSION..."
+eval "python$PYTHON_VERSION -m venv .venv"
 
-echo "Installing Python venv..."
-eval "python$PYTHON_VERSION -m pip install virtualenv"
-
-echo "Creating environment..."
-eval "python$PYTHON_VERSION -m virtualenv .venv"
-
-echo "Activating environment..."
+echo "Activating virtual environment..."
 # shellcheck source=.venv/bin/activate
 source .venv/bin/activate
+
+echo "Updating pip in virtual environment..."
+python -m pip install --upgrade pip
+
+echo "Installing Python venv in virtual environment..."
+python -m pip install virtualenv
 
 install_tesseract() {
 	echo "Installing tesseract"
@@ -132,6 +132,9 @@ echo "Try to detect nvidia-smi"
 	set -e
 	echo "CUDA detected. Installing GPU requirements..."
 	pip install -r requirements/gpu.txt -r requirements/shared.txt -r requirements/standalone_interface.txt -r requirements/test.txt
+	# Install PyTorch with CUDA 12.8 support
+	pip uninstall -y torch torchvision torchaudio
+	pip install torch==2.7.0+cu128 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 } || {
 	echo "CUDA not detected. Installing CPU requirements..."
 	pip install -r requirements/cpu.txt -r requirements/shared.txt -r requirements/standalone_interface.txt -r requirements/test.txt
