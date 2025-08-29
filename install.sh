@@ -6,22 +6,7 @@ export LANG=C.UTF-8
 
 # Determine the OS type
 OS_TYPE=$(uname)
-
-# Python version detection
-PYTHON_VERSION=""
-for version in 3.10 3.11 3.12 3.13 3.14 3.15 3.16 3.17 3.18 3.19 3.20; do
-    if command -v "python$version" >/dev/null 2>&1; then
-        PYTHON_VERSION="$version"
-        echo "Found Python $PYTHON_VERSION"
-        break
-    fi
-done
-
-# If no Python found, default to 3.11 for installation
-if [ -z "$PYTHON_VERSION" ]; then
-    PYTHON_VERSION="3.11"
-    echo "No Python found, will install Python $PYTHON_VERSION"
-fi
+PYTHON_VERSION='3.12'
 
 updatePathBrew() {
 	local BREW_INSTALL_DIR='/opt/homebrew/bin'
