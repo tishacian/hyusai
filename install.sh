@@ -133,7 +133,6 @@ echo "Try to detect nvidia-smi"
 	echo "CUDA detected. Installing GPU requirements..."
 	pip install -r requirements/gpu.txt -r requirements/shared.txt -r requirements/standalone_interface.txt -r requirements/test.txt
 	# Install PyTorch with CUDA 12.8 support
-	pip uninstall -y torch torchvision torchaudio
 	pip install torch==2.7.0+cu128 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 } || {
 	echo "CUDA not detected. Installing CPU requirements..."
