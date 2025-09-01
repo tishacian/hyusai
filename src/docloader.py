@@ -20,7 +20,7 @@ from tqdm import tqdm
 from src.customdocloader import MyEmlLoader, OCRPDFLoader
 from src.globalvariables import OCRConfig
 
-from metadata_extraction.docmeta.core.factory import extract_metadata
+from src.metadata_extraction.docmeta.core.factory import extract_metadata
 
 logging.basicConfig(
     stream=sys.stdout,

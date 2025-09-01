@@ -336,7 +336,10 @@ def omnirag_page():
                                 delete=False, suffix=extension
                             ) as temp_file:
                                 temp_file.write(uploaded_files[0].getbuffer())
-                                documents = loadSingleDocument(temp_file.name)
+                                document, metadata = loadSingleDocument(temp_file.name)
+                                # Wrap single document results in lists for consistency
+                                documents = [document]
+                                metadatas = [metadata]
                         else:
                             # -- Save the location of all the temporary files first..
                             temp_files = []
@@ -348,11 +351,20 @@ def omnirag_page():
                                     temp_file.write(uploaded_file.getbuffer())
                                     temp_files.append(temp_file.name)
                             # -- Threaded loading of collected documents
-                            documents = ThreadMultiDocLoader(temp_files)
+                            documents, metadatas = ThreadMultiDocLoader(temp_files)
                     text_chunker = TextChunker(
                         st.session_state.tokenizer, st.session_state.model
                     )
-                    chunks = text_chunker.chunker(documents, method=chunking_method)
+                    # Handle multiple documents properly
+                    chunks = []
+                    for doc_text, meta in zip(documents, metadatas):
+                        chunks.extend(
+                            text_chunker.chunker(
+                                doc_text,
+                                method=chunking_method,
+                                metadata=meta,
+                            )
+                        )
 
                     if not chunks or len(chunks) == 0:
                         st.error(

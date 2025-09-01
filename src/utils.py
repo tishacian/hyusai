@@ -17,7 +17,6 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from functools import 
 from pathlib import Path
 import torch
 from functools import cache, lru_cache
@@ -28,21 +27,22 @@ from src.globalvariables import (
     CPUModels,
     Models,
 )
-from src.reasoning_instructions import (
-    ALL_PROMPT_SECTIONS_TO_REMOVE,
-    ALL_PROMPT_PHRASES_TO_REMOVE,
-    DEFAULT_INSTRUCTION_LANG,
-    InstructionLangs,
+from src.system_prompts import (
+    ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE,
+    ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE,
+    DEFAULT_SYSTEM_PROMPT_LANG,
+    SystemPromptLangs,
 )
+
 
 # Import nltk stopwords directly (assume availability)
 from nltk.corpus import stopwords
 NLTK_AVAILABLE = True
 
 from collections.abc import Iterable
-
+from collections import defaultdict
 # Import all metadata TypedDicts 
-from metadata_extraction.docmeta.core.types import (
+from src.metadata_extraction.docmeta.core.types import (
     FileMetaData,
     PDFMetaData,
     ImageMetaData,
@@ -597,8 +597,7 @@ def collect_metadata_stats(metadatas):
         Includes the *base* keys defined in ``FileMetaData`` plus any extra keys
         discovered in the input list.
     """
-    from collections import defaultdict
-    from metadata_extraction.docmeta.core.types import FileMetaData
+    
 
     # Collect required/base keys from FileMetaData TypedDict
     base_keys = set(FileMetaData.__annotations__.keys())

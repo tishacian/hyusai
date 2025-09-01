@@ -57,8 +57,8 @@ from src.utils import (
     get_max_model_len,
     measure_time,
     measure_time_sync,
-), filter_by_metadata
-
+    filter_by_metadata
+)
 # --
 logging.basicConfig(
     stream=sys.stdout,

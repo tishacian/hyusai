@@ -17,7 +17,7 @@ from src.embeddingloader import EmbeddingModelLoader
 from langchain_community.vectorstores import Chroma
 from src.chunker import cache_chunker_embedding_chain, BM25Retriever
 from langchain_community.embeddings import SentenceTransformerEmbeddings
-from utils import collect_metadata_stats
+from src.utils import collect_metadata_stats
 
 logging.basicConfig(
     stream=sys.stdout,
