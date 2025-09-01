@@ -1275,6 +1275,12 @@ class CustomLLMChain:
         max_new_tokens = default_new_tokens if max_length is None else max_length
         freq_penalty = self._calculate_frequency_penalty(input_length)
 
+        print('------------------')
+        print(prompt)
+        print('------------------')
+        print()
+        print()
+        print()
         if torch.cuda.is_available():
             sampling_params = SamplingParams(
                 temperature=temperature,
@@ -1302,6 +1308,9 @@ class CustomLLMChain:
                         sampling_params,
                     )
                     generated_text = outputs[0].outputs[0].text.strip()
+                    print('------------------')
+                    print(generated_text)
+                    print('------------------')
                     return generated_text
             except Exception as e:
                 logging.error(f"Error in GPU generation: {e}")
@@ -1344,6 +1353,12 @@ class CustomLLMChain:
                     stop=["###"],
                     stream=False,
                 )
+                print('------------------')
+                print(generated_text)
+                print('------------------')
+                print()
+                print()
+                print()
 
                 return generated_text.strip()
             except Exception as e:
@@ -1571,6 +1586,35 @@ class CustomLLMChain:
 
 
             if meta_filter:
+                print('--------------------------')
+                from pprint import pprint
+                print('before metadata filetering')
+                for i in all_contexts:
+                    print('chunk text:')
+                    print()
+                    pprint(i.text)
+                    print()
+                    print('chunk metadata:')
+                    print()
+                    pprint(i.metadata)
+                    print()
+                    print('chunk score:')
+                    print()
+                    pprint(i.score)
+                    print()
+                    print()
+                    print()
+                    print()
+                    print('##########################')
+                print()
+                print()
+                print()
+                print('meta_filter')
+                print('-------------------------')
+                print(meta_filter)
+                print()
+                print()
+                print()
                 try:
                     # Convert RetrievalContext objects into (text, metadata) pairs expected by filter utility
                     ctx_pairs = [
@@ -1582,6 +1626,11 @@ class CustomLLMChain:
                     # Replace all_contexts with filtered ones, preserving existing RetrievalContext objects
                     text_to_ctx = {ctx.text: ctx for ctx in all_contexts}
                     all_contexts = [text_to_ctx[text] for text, _ in filtered_pairs if text in text_to_ctx]
+                    print('--------------------------------')
+                    print('filtered_contexts')
+                    print([i.text for i in all_contexts])
+                    print()
+                    print()
                     if not all_contexts:
                         no_match_response = "No documents found matching the specified metadata criteria."
                         self.conversation_memory.add_message("assistant", no_match_response)
