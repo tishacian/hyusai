@@ -111,7 +111,10 @@ def reset_session_state(*args, **kwargs):
 
 def auth_component():
     """Display the authentication component."""
-    if st.session_state.get("authentication_status"):
+    if get_standalone_interface_config().skip_authentication:
+        st.session_state["authentication_status"] = True
+        st.session_state["username"] = "dev"
+    elif st.session_state.get("authentication_status"):
         if "logout" not in st.session_state:
             st.session_state["logout"] = False
         auth = get_authenticator()

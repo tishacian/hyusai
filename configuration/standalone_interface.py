@@ -47,3 +47,6 @@ class StandaloneInterfaceConfig(BaseSettings):
 
     cookie_expiry_days: int = 1
     """Number of days the authentification cookie will be valid."""
+
+    skip_authentication: bool = True
+    """Skip the authentication process (for development purposes)."""

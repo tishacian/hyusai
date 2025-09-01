@@ -71,3 +71,6 @@ Standalone Interface is only available if `IS_STANDALONE` is set to `True`.
 - `COOKIE_EXPIRY_DAYS` (int)
     - Number of days the authentification cookie will be valid.
     - By default `1`
+- `SKIP_AUTHENTIFICATION` (bool)
+    - Skip the authentication process (for development purposes).
+    - By default `True`
