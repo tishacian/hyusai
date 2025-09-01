@@ -1,3 +1,2 @@
 vllm     # gpu llm model wrapper
 psutil          # gpu memory util
-GPUtil

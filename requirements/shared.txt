@@ -1,5 +1,6 @@
 # configuration
 pydantic_settings
+GPUtil
 
 # data manipulation and mathematics
 numpy
