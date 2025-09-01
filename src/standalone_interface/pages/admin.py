@@ -3,6 +3,7 @@ import streamlit as st
 from configuration import get_standalone_interface_config
 from src.db.system_prompts import SystemPrompts
 from src.standalone_interface.assets import omnirag_header
+from src.standalone_interface.components.auth import auth_component
 from src.standalone_interface.style import apply_omnirag_style
 from src.utils import humanize_datetime
 
@@ -18,23 +19,20 @@ def init_prompt_session_state():
         st.session_state.just_reset_all = False
 
 
-def reset_all_section(updated_by: str):
+def reset_all_section():
     st.subheader("⚠️ Reset All Prompts")
     confirm_reset_all = st.checkbox("I confirm I want to reset all prompts to default")
     reset_all_button = st.button("Reset All", disabled=not confirm_reset_all)
     if reset_all_button and confirm_reset_all:
-        if not updated_by.strip():
-            st.error("'Updated by' field is required.")
-        else:
-            SystemPrompts.reset_all(updated_by=updated_by)
-            st.session_state["just_reset_all"] = True
-            st.rerun()
+        SystemPrompts.reset_all(updated_by=st.session_state.get("username", "guest"))
+        st.session_state["just_reset_all"] = True
+        st.rerun()
     if st.session_state.get("just_reset_all"):
         st.success("All prompts have been reset to defaults.")
         del st.session_state["just_reset_all"]
 
 
-def update_section() -> str:
+def update_section():
     language = st.selectbox("Select a language", options=SystemPrompts.get_languages())
     system_prompt = SystemPrompts.get_by_language(language)
 
@@ -54,23 +52,16 @@ def update_section() -> str:
         ),
     )
 
-    updated_by = st.text_input(
-        "Updated by",
-        value=st.session_state.updated_by,
-        placeholder="Your name or username",
-        key="updated_by",
-    )
-
     col_save, col_reset = st.columns(2)
     with col_save:
         if st.button("💾 Save Changes"):
-            if not new_llm_role_definition.strip() or not updated_by.strip():
-                st.error("Both fields are required.")
+            if not new_llm_role_definition.strip():
+                st.error("LLM Instruction cannot be empty.")
             else:
                 SystemPrompts.update(
                     system_prompt.id,
                     llm_role_definition=new_llm_role_definition,
-                    updated_by=updated_by,
+                    updated_by=st.session_state.get("username", "guest"),
                 )
                 st.session_state["just_saved"] = True
                 st.rerun()
@@ -79,12 +70,12 @@ def update_section() -> str:
             del st.session_state["just_saved"]
     with col_reset:
         if st.button("🔄 Reset current LLM Instruction"):
-            if not new_llm_role_definition.strip() or not updated_by.strip():
-                st.error("Both fields are required.")
-            else:
-                SystemPrompts.reset(system_prompt.id, updated_by=updated_by)
-                st.session_state["just_reset"] = True
-                st.rerun()
+            SystemPrompts.reset(
+                system_prompt.id,
+                updated_by=st.session_state.get("username", "guest"),
+            )
+            st.session_state["just_reset"] = True
+            st.rerun()
         if st.session_state.get("just_reset"):
             st.success("Current prompt reset to default.")
             del st.session_state["just_reset"]
@@ -94,10 +85,16 @@ def update_section() -> str:
         humanized_updated_at = humanize_datetime(system_prompt.updated_at)
         st.markdown(f"**Last updated at:** {humanized_updated_at}")
 
-    return updated_by
-
 
 def prompt_page():
+    init_prompt_session_state()
+    st.title("🔧 System Prompt Customization")
+    update_section()
+    st.markdown("---")
+    reset_all_section()
+
+
+if __name__ == "__main__":
     st.set_page_config(
         page_title=get_standalone_interface_config().page_title,
         page_icon=get_standalone_interface_config().page_icon,
@@ -105,12 +102,6 @@ def prompt_page():
     )
     apply_omnirag_style()
     omnirag_header()
-    init_prompt_session_state()
-    st.title("🔧 System Prompt Customization")
-    updated_by = update_section()
-    st.markdown("---")
-    reset_all_section(updated_by)
-
-
-if __name__ == "__main__":
-    prompt_page()
+    auth_component()
+    if st.session_state.get("authentication_status"):
+        prompt_page()

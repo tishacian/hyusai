@@ -1,16 +1,12 @@
 import torch
 import re
 import math
-import nltk
 import pickle
 import warnings
 import numpy as np
 from typing import List
 from nltk.tokenize import sent_tokenize
 
-# --
-nltk.download("punkt")
-nltk.download("punkt_tab")
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 # -- utils for Semantic chunking

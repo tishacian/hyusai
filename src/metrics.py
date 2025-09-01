@@ -5,7 +5,6 @@ import torch
 import asyncio
 import logging
 from collections import Counter
-import nltk
 from nltk.corpus import wordnet
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -13,11 +12,6 @@ from collections import defaultdict
 from sentence_transformers import util
 from sklearn.metrics.pairwise import cosine_similarity
 
-# --
-nltk.download("punkt")
-nltk.download("wordnet")
-nltk.download("stopwords")
-nltk.download("averaged_perceptron_tagger")
 
 # --
 logging.basicConfig(

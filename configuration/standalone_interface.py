@@ -1,3 +1,4 @@
+import secrets
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,3 +35,18 @@ class StandaloneInterfaceConfig(BaseSettings):
 
     default_gpu_model: str = "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"
     """Default GPU model."""
+
+    cookie_name: str = "omnirag_auth"
+    """Name of the authentification cookie."""
+
+    cookie_key: str = secrets.token_hex(32)
+    """Secret key for the authentification cookie.
+    Consider setting this to a set value using a private .env file to fully benefit from
+    the authentification cookie after restart.
+    """
+
+    cookie_expiry_days: int = 1
+    """Number of days the authentification cookie will be valid."""
+
+    skip_authentication: bool = True
+    """Skip the authentication process (for development purposes)."""
