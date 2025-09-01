@@ -325,8 +325,8 @@ def omnirag_page():
                         "Initialize context-chain"
                     )
                 
+                # Metadata filter controls in columns 3 and 4
                 with row_buttons[2]:
-                    # Facet selectors are shown only AFTER the context-chain exists
                     if (
                         st.session_state.get("chain_ready")
                         and st.session_state.get("enable_meta_filter")
@@ -344,36 +344,46 @@ def omnirag_page():
                             with open(meta_path, "rb") as f:
                                 meta_stats = pickle.load(f) or {}
 
-                            # Retrieve any previously selected filter values to keep UI state
-                            previous_filter = st.session_state.get("meta_filter", {})
+                            if meta_stats:
+                                # Retrieve any previously selected filter values to keep UI state
+                                previous_filter = st.session_state.get("meta_filter", {})
 
-                            st.markdown("**Filter by metadata**")
-                            for key, values in meta_stats.items():
-                                # Skip empty value lists
-                                if not values:
-                                    continue
-                                default_sel = previous_filter.get(key, [])
-                                st.multiselect(
-                                    key,
-                                    options=values,
-                                    default=default_sel,
-                                    key=f"meta_sel_{key}",
-                                )
+                                st.markdown("**Filter by metadata**")
+                                for key, values in meta_stats.items():
+                                    # Skip empty value lists
+                                    if not values:
+                                        continue
+                                    default_sel = previous_filter.get(key, [])
+                                    st.multiselect(
+                                        key,
+                                        options=values,
+                                        default=default_sel,
+                                        key=f"meta_sel_{key}",
+                                    )
+                            else:
+                                st.info("No metadata facets available.")
                         else:
-                            st.info("No metadata facets available for the selected vector DB.")
+                            st.info("No metadata stats file found.")
                     else:
-                        st.info("Initialise the context-chain to enable metadata filters.")
+                        if not st.session_state.get("enable_meta_filter"):
+                            st.empty()
+                        else:
+                            st.info("Initialize context-chain first.")
                 
-                # ---------------------- Apply metadata filter button ----------------------
                 with row_buttons[3]:
-                    # Disabled until the chain is ready
-                    apply_meta_button = st.form_submit_button(
-                        "Apply metadata filter",
-                        disabled=not st.session_state.get("chain_ready"),
-                    )
-
-                # Commit the filter when the button is pressed
-                if apply_meta_button:
+                    if (
+                        st.session_state.get("chain_ready")
+                        and st.session_state.get("enable_meta_filter")
+                    ):
+                        # Apply metadata filter button
+                        apply_meta_button = st.form_submit_button(
+                            "Apply metadata filter"
+                        )
+                    else:
+                        st.empty()
+                
+                # Handle apply metadata filter button press
+                if 'apply_meta_button' in locals() and apply_meta_button:
                     # Collect current filter selections from multiselect widgets
                     current_filter: dict[str, list] = {}
                     if 'meta_stats' in locals():  # Use already loaded meta_stats
@@ -388,6 +398,7 @@ def omnirag_page():
                     # Log selected filter to console and show in UI for debugging
                     print("[MetaFilter] Selected filter:", st.session_state.get("meta_filter"))
                     st.toast("Metadata filter applied ✅", icon="✅")
+                
                 # --
                 if save_button:
                     # Check whether to create new vector store --> Checking params
@@ -563,6 +574,7 @@ def omnirag_page():
         st.session_state.pipeline_type = PipelineType.HAHCOMPOSITE
     if "instruction_lang" not in st.session_state:
         st.session_state.instruction_lang = DEFAULT_SYSTEM_PROMPT_LANG
+
 
     # -- New chat
     if st.sidebar.button("New Chat"):
