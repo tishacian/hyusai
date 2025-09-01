@@ -1,6 +1,8 @@
 import os
+import pickle
 import time
 from io import BytesIO
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Iterator
 
@@ -39,7 +41,7 @@ from src.standalone_interface.assets import (
 )
 from src.standalone_interface.style import apply_omnirag_style
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SYSTEM_PROMPT_LANGS_LIST
-from src.utils import humanize_datetime
+from src.utils import humanize_datetime, _patch_uploaded_metadata
 
 
 # -- device available model
@@ -169,6 +171,9 @@ def omnirag_page():
         st.session_state.expand_doc_embedding = True
     if "instruction_lang" not in st.session_state:
         st.session_state.instruction_lang = None
+    # Flag: becomes True once the context-chain has been built
+    if "chain_ready" not in st.session_state:
+        st.session_state.chain_ready = False
 
     # -- Pipeline/Embedding...
     PIPELINE_TYPES = list(map(str, PipelineType))
@@ -303,14 +308,86 @@ def omnirag_page():
                             SYSTEM_PROMPT_LANGS_LIST,
                             help="Select the language of the LLM reasoning instructions.",
                         )
+                
+                enable_meta_filter = st.checkbox(
+                    "Enable metadata filters",
+                    key="enable_meta_filter",
+                    value=st.session_state.get("enable_meta_filter", True),
+                    help="When enabled, the indexer will inventory unique metadata values so they can be used as filters during retrieval.",
+                )
+                
                 # --
-                row_buttons = st.columns(6)
+                row_buttons = st.columns(4)
                 with row_buttons[0]:
                     save_button = st.form_submit_button("Create new vector DB")
                 with row_buttons[1]:
                     custom_chain_button = st.form_submit_button(
                         "Initialize context-chain"
                     )
+                
+                with row_buttons[2]:
+                    # Facet selectors are shown only AFTER the context-chain exists
+                    if (
+                        st.session_state.get("chain_ready")
+                        and st.session_state.get("enable_meta_filter")
+                    ):
+                        meta_stats = {}
+                        vs_name = (
+                            existing_vector_store
+                            if existing_vector_store != "<New>"
+                            else new_vs_name
+                        )
+
+                        # The directory names already include the index type prefix (e.g. "faiss_<name>")
+                        meta_path = VECTOR_STORE_PATH / vs_name / "meta_stats.pkl"
+                        if Path(meta_path).exists():
+                            with open(meta_path, "rb") as f:
+                                meta_stats = pickle.load(f) or {}
+
+                            # Retrieve any previously selected filter values to keep UI state
+                            previous_filter = st.session_state.get("meta_filter", {})
+
+                            st.markdown("**Filter by metadata**")
+                            for key, values in meta_stats.items():
+                                # Skip empty value lists
+                                if not values:
+                                    continue
+                                default_sel = previous_filter.get(key, [])
+                                st.multiselect(
+                                    key,
+                                    options=values,
+                                    default=default_sel,
+                                    key=f"meta_sel_{key}",
+                                )
+                        else:
+                            st.info("No metadata facets available for the selected vector DB.")
+                    else:
+                        st.info("Initialise the context-chain to enable metadata filters.")
+                
+                # ---------------------- Apply metadata filter button ----------------------
+                with row_buttons[3]:
+                    # Disabled until the chain is ready
+                    apply_meta_button = st.form_submit_button(
+                        "Apply metadata filter",
+                        disabled=not st.session_state.get("chain_ready"),
+                    )
+
+                # Commit the filter when the button is pressed
+                if apply_meta_button:
+                    # Collect current filter selections from multiselect widgets
+                    current_filter: dict[str, list] = {}
+                    if 'meta_stats' in locals():  # Use already loaded meta_stats
+                        for key in meta_stats.keys():
+                            if not meta_stats[key]:  # Skip empty value lists
+                                continue
+                            selections = st.session_state.get(f"meta_sel_{key}", [])
+                            if selections:
+                                current_filter[key] = selections
+                    
+                    st.session_state.meta_filter = current_filter
+                    # Log selected filter to console and show in UI for debugging
+                    print("[MetaFilter] Selected filter:", st.session_state.get("meta_filter"))
+                    st.toast("Metadata filter applied ✅", icon="✅")
                 # --
                 if save_button:
                     # Check whether to create new vector store --> Checking params
@@ -337,6 +414,13 @@ def omnirag_page():
                             ) as temp_file:
                                 temp_file.write(uploaded_files[0].getbuffer())
                                 document, metadata = loadSingleDocument(temp_file.name)
+                                
+                                # Preserve original upload attributes
+                                metadata = _patch_uploaded_metadata(metadata, uploaded_files[0])
+                                
+                                # Attach doc_id = 0 for single-file uploads
+                                metadata["doc_id"] = 0
+                                
                                 # Wrap single document results in lists for consistency
                                 documents = [document]
                                 metadatas = [metadata]
@@ -351,20 +435,40 @@ def omnirag_page():
                                     temp_file.write(uploaded_file.getbuffer())
                                     temp_files.append(temp_file.name)
                             # -- Threaded loading of collected documents
+                            # (returns parallel lists of texts and metadata)
                             documents, metadatas = ThreadMultiDocLoader(temp_files)
+                            
+                            # Augment each metadata dict with the corresponding upload info
+                            for idx, (up_file, m) in enumerate(zip(uploaded_files, metadatas)):
+                                patched = _patch_uploaded_metadata(m, up_file)
+                                # Ensure doc_id (already set by ThreadMultiDocLoader) is kept
+                                if "doc_id" in m:
+                                    patched.setdefault("doc_id", m["doc_id"])
+                                metadatas[idx] = patched
                     text_chunker = TextChunker(
                         st.session_state.tokenizer, st.session_state.model
                     )
-                    # Handle multiple documents properly
+                    # Build chunks, preserving metadata for every document
                     chunks = []
-                    for doc_text, meta in zip(documents, metadatas):
-                        chunks.extend(
-                            text_chunker.chunker(
-                                doc_text,
-                                method=chunking_method,
-                                metadata=meta,
-                            )
+                    if NUMBER_OF_FILES == 1:
+                        # Single-file path: metadata is a single dict
+                        chunks = text_chunker.chunker(
+                            documents[0],
+                            method=chunking_method,
+                            metadata=metadatas[0],
                         )
+                    else:
+                        # Multi-file path: iterate over each (text, meta) pair so
+                        # that every produced chunk carries the correct
+                        # document-level metadata.
+                        for doc_text, meta in zip(documents, metadatas):
+                            chunks.extend(
+                                text_chunker.chunker(
+                                    doc_text,
+                                    method=chunking_method,
+                                    metadata=meta,
+                                )
+                            )
 
                     if not chunks or len(chunks) == 0:
                         st.error(
@@ -381,8 +485,10 @@ def omnirag_page():
                         embedding_model_name=EMBEDDING_NAME,
                         embedding_type=index_type,
                     )
+                    # Get enable_meta_filter from session state
+                    enable_meta_filter = st.session_state.get("enable_meta_filter", True)
                     st.session_state.embedding_index = (
-                        embedding_vector.create_and_save_index(chunks)
+                        embedding_vector.create_and_save_index(chunks, enable_meta_filter)
                     )
                     st.success("PDF processed and embedding index created!")
                     st.session_state.model_name = model_name
@@ -415,30 +521,35 @@ def omnirag_page():
                         instruction_lang=instruction_lang,
                     )
                     st.session_state.chain = chain
+                    st.session_state.chain_ready = True
                     st.session_state.pipeline_type = pipeline_type
                     st.session_state.instruction_lang = instruction_lang
+                    st.rerun()
     else:
-        RaggerChain = (
-            CHAHCustomLLMChain
-            if pipeline_type == PipelineType.HAHCOMPOSITE
-            else (
-                HAHCustomLLMChain
-                if pipeline_type == PipelineType.HAH
-                else NaiveCustomLLMChain
+        # Only initialize if not already ready to prevent infinite loop
+        if not st.session_state.get("chain_ready", False):
+            RaggerChain = (
+                CHAHCustomLLMChain
+                if pipeline_type == PipelineType.HAHCOMPOSITE
+                else (
+                    HAHCustomLLMChain
+                    if pipeline_type == PipelineType.HAH
+                    else NaiveCustomLLMChain
+                )
             )
-        )
 
-        chain = RaggerChain(
-            st.session_state.tokenizer,
-            st.session_state.model,
-            model_name,
-            get_standalone_interface_config().forced_vdb,
-            index_type=index_type,
-            instruction_lang=instruction_lang,
-        )
-        st.session_state.chain = chain
-        st.session_state.pipeline_type = pipeline_type
-        st.session_state.instruction_lang = instruction_lang
+            chain = RaggerChain(
+                st.session_state.tokenizer,
+                st.session_state.model,
+                model_name,
+                get_standalone_interface_config().forced_vdb,
+                index_type=index_type,
+                instruction_lang=instruction_lang,
+            )
+            st.session_state.chain = chain
+            st.session_state.chain_ready = True
+            st.session_state.pipeline_type = pipeline_type
+            st.session_state.instruction_lang = instruction_lang
 
     if "model_name" not in st.session_state:
         st.session_state.model_name = device_default_model()
@@ -512,6 +623,7 @@ def omnirag_page():
                     instruction_lang=instruction_lang,
                 )
                 st.session_state.chain = chain
+                st.session_state.chain_ready = True
                 st.rerun()
         # --
         with col2:
@@ -632,7 +744,9 @@ def omnirag_page():
             with st.spinner(""):
                 try:
                     start_time = time.time()
-                    response, context, metrics = st.session_state.chain.ainvoke(prompt)
+                    response, context, metrics = st.session_state.chain.ainvoke(
+                        prompt, meta_filter=st.session_state.get("meta_filter")
+                    )
                     end_time = time.time()
                     metrics["latency"] = end_time - start_time
                 except (
