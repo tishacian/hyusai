@@ -211,8 +211,8 @@ GPU_MEMORY_REQUIREMENTS = {
     "MBZUAI/LaMini-Flan-T5-783M": 8,
 }
 
-# -- Default requirement (7/8 of H100 memory ~70 GiB)
-DEFAULT_GPU_MEMORY_REQUIREMENT = 70
+# -- Default requirement (78% of RTX5090 memory ~25 GiB)
+DEFAULT_GPU_MEMORY_REQUIREMENT = 25
 
 # Safety margin memory (reserved memory, also in GiB)
 GPU_MEMORY_SAFETY_MARGIN = 2
