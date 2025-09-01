@@ -1,8 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class General(BaseSettings):
-    model_config = SettingsConfigDict(protected_namespaces=("settings_",))
+class GeneralConfig(BaseSettings):
+    model_config = SettingsConfigDict(protected_namespaces=("general_",))
 
     is_standalone: bool = True
     """

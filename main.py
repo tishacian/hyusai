@@ -1,12 +1,13 @@
 import os
-import sys
-import torch
 import platform
 import socket
-from streamlit.web import cli as stcli
+import sys
 import warnings
 
-# Import the GPU manager
+import torch
+from streamlit.web import cli as stcli
+
+from src.db import init_db
 from src.gpuselector import GPUSelector
 
 torch.classes.__path__ = []
@@ -20,9 +21,7 @@ gpu_selector = GPUSelector()
 gpu_selected = gpu_selector.auto_select_gpu()
 
 if gpu_selected is None:
-    os.environ["CUDA_VISIBLE_DEVICES"] = (
-        "1" if torch.cuda.device_count() > 1 else "0"
-    )
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1" if torch.cuda.device_count() > 1 else "0"
 
 # Set other environment variables
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
@@ -67,9 +66,7 @@ def get_username_from_path():
         return None
 
 
-def available_port(
-    start_port=8501, end_port=8509
-):
+def available_port(start_port=8501, end_port=8509):
     """Find an available port and return None if not available
 
     Parameters
@@ -99,6 +96,7 @@ def available_port(
 
 if __name__ == "__main__":
     base_url_path = get_username_from_path()
+    init_db()
     port = available_port()
 
     if port is None:
@@ -107,7 +105,7 @@ if __name__ == "__main__":
     sys.argv = [
         "streamlit",
         "run",
-        "src/ragger.py",
+        "src/standalone_interface/omnirag.py",
         "--server.port",
         str(port),
         "--server.baseUrlPath",

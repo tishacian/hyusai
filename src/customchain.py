@@ -23,28 +23,41 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import logging
 import sys
-from src.reasoning_instructions import ALL_REASONING_INSTRUCTIONS, DEFAULT_INSTRUCTION_LANG, InstructionLangs, TRIVIAL_TEMPLATES
+
 from src.cache import LRUCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
+from src.db.system_prompts import SystemPrompts
 from src.embedding import EmbeddingModelLoader
-from src.ensembleretriever import FusionMethod, EnsembleConfig, EnsembleRetriever
+from src.ensembleretriever import EnsembleConfig, EnsembleRetriever, FusionMethod
 from src.flashreranker import FlashReranker, RerankerConfig
 from src.globalvariables import (
+    EMBEDDING_NAME,
     LARGE_MODELS,
+    MAX_MODEL_LEN,
     VECTOR_STORE_PATH,
     IndexType,
     ReasoningType,
-    MAX_MODEL_LEN,
-    EMBEDDING_NAME,
-    TRIVIAL_CONTEXT,
 )
 
 # -- Model evaluation
 from src.metrics import Evaluatrix
 from src.reasoningmetrics import ReasoningMetrics
-from src.utils import format_llm_response, get_max_model_len, measure_time, measure_time_sync
+from src.system_prompts import (
+    ALL_SYSTEM_PROMPT_TEMPLATES,
+    DEFAULT_SYSTEM_PROMPT_LANG,
+    SystemPromptLangs,
+)
+from src.system_prompts.types import SystemPromptTypes
+from src.trivial_check import is_trivial_question
+from src.utils import (
+    add_leading_space_if_needed,
+    format_llm_response,
+    get_max_model_len,
+    measure_time,
+    measure_time_sync,
+)
 
 # --
 logging.basicConfig(
@@ -53,8 +66,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-# Import trivial detection
-from src.trivial_check import is_trivial_question
 
 # %% Custom LLMChain
 
@@ -72,7 +83,7 @@ class CustomLLMChain:
         index_type=IndexType.FAISS,
         cache_size=1000,
         dynamic_k=True,
-        instruction_lang: InstructionLangs = DEFAULT_INSTRUCTION_LANG,
+        instruction_lang: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG,
     ):
         """Custom LLMChain
 
@@ -94,8 +105,8 @@ class CustomLLMChain:
             Size of token to cache. The default is 1000.
         dynamic_k : bool, optional
             k-computation type. The default is True.
-        instruction_lang : InstructionLangs, optional
-            Language of the LLM instruction, by default DEFAULT_INSTRUCTION_LANG
+        instruction_lang : SystemPromptLangs, optional
+            Language of the LLM instruction, by default DEFAULT_SYSTEM_PROMPT_LANG
 
         Raises
         ------
@@ -118,7 +129,9 @@ class CustomLLMChain:
         self.device = torch.device(
             "cuda"
             if torch.cuda.is_available()
-            else "cpu" if torch.backends.mps.is_available() else "cpu"
+            else "cpu"
+            if torch.backends.mps.is_available()
+            else "cpu"
         )
         self.max_input_ratio = 0.8 if self.is_large_model else 0.75
         if self.model is None or self.tokenizer is None:
@@ -152,7 +165,11 @@ class CustomLLMChain:
         self._initialize_contextual_retriever()
 
         # -- CoT template
-        self.templates = ALL_REASONING_INSTRUCTIONS[self.instruction_lang]
+        self.templates = ALL_SYSTEM_PROMPT_TEMPLATES[self.instruction_lang]
+        self.assistant_role = SystemPrompts.get_by_language(
+            self.instruction_lang
+        ).llm_role_definition
+        self.assistant_role = add_leading_space_if_needed(self.assistant_role)
 
         init_time = time.time() - start_time
         logging.info(
@@ -361,9 +378,7 @@ class CustomLLMChain:
             "normalize_scores": self.ensemble_retriever.config.normalize_scores,
         }
 
-        adaptive_stats = (
-            self.ensemble_retriever.get_adaptive_weights_statistics()
-        )
+        adaptive_stats = self.ensemble_retriever.get_adaptive_weights_statistics()
         if adaptive_stats:
             stats.update(adaptive_stats)
 
@@ -451,9 +466,7 @@ class CustomLLMChain:
                 break
 
             with ThreadPoolExecutor() as executor:
-                mmr_scores = list(
-                    executor.map(compute_mmr_score, candidate_indices)
-                )
+                mmr_scores = list(executor.map(compute_mmr_score, candidate_indices))
 
             # -- Select the document with the highest MMR score
             best_index = candidate_indices[np.argmax(mmr_scores)]
@@ -523,12 +536,9 @@ class CustomLLMChain:
         # -- Transfer chunks in parallel
         with ThreadPoolExecutor(max_workers=num_chunks) as executor:
             futures = [
-                executor.submit(self.device_transfer, chunk, device)
-                for chunk in chunks
+                executor.submit(self.device_transfer, chunk, device) for chunk in chunks
             ]
-            device_chunks = [
-                future.result() for future in as_completed(futures)
-            ]
+            device_chunks = [future.result() for future in as_completed(futures)]
 
         return torch.cat(device_chunks, dim=1)
 
@@ -557,9 +567,7 @@ class CustomLLMChain:
         else:  # ignore LONG_CONTEXT here
             return LONG_PENALTY
 
-    def _compute_dynamic_tokens(
-        self, input_len: int, max_input_length: int
-    ) -> int:
+    def _compute_dynamic_tokens(self, input_len: int, max_input_length: int) -> int:
         """
         Calculate token allocation based on context ratio.
 
@@ -624,9 +632,7 @@ class CustomLLMChain:
         default_new_tokens = self._compute_dynamic_tokens(
             input_length, self.max_model_len
         )
-        max_new_tokens = (
-            default_new_tokens if max_length is None else max_length
-        )
+        max_new_tokens = default_new_tokens if max_length is None else max_length
         freq_penalty = self._calculate_frequency_penalty(input_length)
 
         if torch.cuda.is_available():
@@ -676,9 +682,7 @@ class CustomLLMChain:
                     stream=False,
                 )
                 if isinstance(output, dict):
-                    response = (
-                        output.get("choices", [{}])[0].get("text", "").strip()
-                    )
+                    response = output.get("choices", [{}])[0].get("text", "").strip()
                 else:
                     response = output.choices[0].text.strip()
                 return response
@@ -701,7 +705,7 @@ class CustomLLMChain:
         """
         try:
             if is_trivial:
-                template = TRIVIAL_TEMPLATES.get(self.instruction_lang)
+                reasoning_type = SystemPromptTypes.TRIVIAL
             else:
                 reasoning_detect_start = time.time()
                 if not hasattr(self, "reasoning_metrics"):
@@ -709,15 +713,15 @@ class CustomLLMChain:
                         self.embedding_model, self.instruction_lang
                     )
 
-                reasoning_type, _ = (
-                    self.reasoning_metrics.bayesian_reasoning_detection(question)
+                reasoning_type, _ = self.reasoning_metrics.bayesian_reasoning_detection(
+                    question
                 )
                 reasoning_time = time.time() - reasoning_detect_start
-                logging.info(
-                    f"Reasoning detection took {reasoning_time:.4f} seconds"
-                )
-                template = self.templates[reasoning_type]
-            prompt_format = template.format(context=context, question=question)
+                logging.info(f"Reasoning detection took {reasoning_time:.4f} seconds")
+            template = self.templates[reasoning_type]
+            prompt_format = template.format(
+                assistant_role=self.assistant_role, context=context, question=question
+            )
 
             generate_start = time.time()
             generated_text = await self.generate_text(prompt_format)
@@ -728,8 +732,11 @@ class CustomLLMChain:
 
         except Exception as e:
             logging.error(f"Error in custom_llm_chain: {str(e)}")
-            template = self.templates[ReasoningType.ANALYTICAL]
-            prompt_format = template.format(context=context, question=question)
+            fallback_reasoning_type = ReasoningType.ANALYTICAL
+            template = self.templates[fallback_reasoning_type]
+            prompt_format = template.format(
+                assistant_role=self.assistant_role, context=context, question=question
+            )
             return await self.generate_text(prompt_format)
 
     @measure_time_sync
@@ -813,14 +820,10 @@ class CustomLLMChain:
         # -- t/p/c
         context_score_tasks = [process_context(ctx) for ctx in contexts]
         context_scores = await asyncio.gather(*context_score_tasks)
-        ranked_contexts = sorted(
-            context_scores, key=lambda x: x[1], reverse=True
-        )
+        ranked_contexts = sorted(context_scores, key=lambda x: x[1], reverse=True)
         filtered_contexts = [ctx for ctx, _ in ranked_contexts[:k]]
         score_time = time.time() - score_start
-        logging.info(
-            f"Context scoring and ranking took {score_time:.4f} seconds"
-        )
+        logging.info(f"Context scoring and ranking took {score_time:.4f} seconds")
 
         self.context_cache[cache_key] = filtered_contexts
         return filtered_contexts
@@ -842,9 +845,7 @@ class CustomLLMChain:
                 self.embedding_model, self.instruction_lang
             )
 
-        return await self.reasoning_metrics.bayesian_reasoning_detection_async(
-            question
-        )
+        return await self.reasoning_metrics.bayesian_reasoning_detection_async(question)
 
     @measure_time
     async def create_embeddings_async(self, texts):
@@ -869,9 +870,7 @@ class CustomLLMChain:
                     embeddings = embeddings.cpu().numpy()
             else:
                 if self.index_type == IndexType.CHROMA:
-                    embeddings = np.array(
-                        self.embedding_model.embed_documents(texts)
-                    )
+                    embeddings = np.array(self.embedding_model.embed_documents(texts))
                 elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
                     try:
                         embeddings = self.embedding_model.encode(
@@ -880,18 +879,14 @@ class CustomLLMChain:
                             show_progress_bar=False,
                             device=self.device.type,
                         )
-                        embeddings = (
-                            embeddings.to(dtype=torch.float32).cpu().numpy()
-                        )
+                        embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
                     except IndexError as e:
                         logging.error(
                             f"🚩 Index out of range error: {e}. Check input text length."
                         )
                         return np.array([])
                 else:
-                    logging.error(
-                        f"🚩 Unsupported embedding type: {self.index_type}"
-                    )
+                    logging.error(f"🚩 Unsupported embedding type: {self.index_type}")
                     return np.array([])
 
             return embeddings
@@ -920,9 +915,7 @@ class CustomLLMChain:
             return [result.page_content for result in results]
         elif self.index_type == IndexType.WEAVIATE:
             results = await asyncio.to_thread(
-                self.weaviate_client.query.get(
-                    self.class_name, ["page_content"]
-                )
+                self.weaviate_client.query.get(self.class_name, ["page_content"])
                 .with_near_vector({"vector": embedding.tolist()})
                 .with_limit(k)
                 .do
@@ -952,9 +945,7 @@ class CustomLLMChain:
                 logging.error(f"Error searching for chunk: {e}")
                 return []
 
-        results = await asyncio.gather(
-            *[safe_search(chunk) for chunk in chunks]
-        )
+        results = await asyncio.gather(*[safe_search(chunk) for chunk in chunks])
         return self.merge_results(results, k)
 
     @measure_time_sync
@@ -1027,9 +1018,7 @@ class CustomLLMChain:
         Returns:
             bool: True if adding new context stays within limits, False otherwise
         """
-        safety_buffer = (
-            int(self.max_model_len * 0.05) if self.is_large_model else 500
-        )
+        safety_buffer = int(self.max_model_len * 0.05) if self.is_large_model else 500
         estimated_combined_length = len(current_context + new_context) * 0.25
         if self.is_large_model and estimated_combined_length < (
             self.max_model_len * 0.7
@@ -1060,9 +1049,9 @@ class CustomLLMChain:
             return total_tokens <= (self.max_model_len - safety_buffer)
         else:
             token_count = await asyncio.to_thread(
-                lambda: self.tokenizer(
-                    combined, return_tensors="pt", truncation=False
-                )["input_ids"].shape[1]
+                lambda: self.tokenizer(combined, return_tensors="pt", truncation=False)[
+                    "input_ids"
+                ].shape[1]
             )
             return token_count <= (self.max_model_len - safety_buffer)
 
@@ -1095,8 +1084,10 @@ class CustomLLMChain:
                 self.conversation_memory.add_message("user", question)
 
                 # Lightweight conversation context (if any)
-                conversation_context = self.conversation_memory.get_context_with_reasoning(
-                    TRIVIAL_CONTEXT
+                conversation_context = (
+                    self.conversation_memory.get_context_with_reasoning(
+                        SystemPromptTypes.TRIVIAL
+                    )
                 )
 
                 combined_context = conversation_context or ""
@@ -1122,17 +1113,13 @@ class CustomLLMChain:
             # Run reasoning detection
             reasoning_start = time.time()
             reasoning_task = self.detect_reasoning_type(question)
-            conversation_context = (
-                self.conversation_memory.get_context_with_reasoning(
-                    ReasoningType.ANALYTICAL
-                )
+            conversation_context = self.conversation_memory.get_context_with_reasoning(
+                ReasoningType.ANALYTICAL
             )
             reasoning_type, _ = await reasoning_task
             if conversation_context:
                 conversation_context = (
-                    self.conversation_memory.get_context_with_reasoning(
-                        reasoning_type
-                    )
+                    self.conversation_memory.get_context_with_reasoning(reasoning_type)
                 )
             reasoning_time = time.time() - reasoning_start
             logging.info(
@@ -1150,9 +1137,7 @@ class CustomLLMChain:
                 query_with_context
             )
             query_characteristics = (
-                self.ensemble_retriever._analyze_query_characteristics(
-                    question
-                )
+                self.ensemble_retriever._analyze_query_characteristics(question)
             )
             self.optimize_ensemble_for_query_type(query_characteristics)
             complexity_time = time.time() - complexity_start
@@ -1175,9 +1160,7 @@ class CustomLLMChain:
                 no_context_response = (
                     "No relevant context found to answer the question."
                 )
-                self.conversation_memory.add_message(
-                    "assistant", no_context_response
-                )
+                self.conversation_memory.add_message("assistant", no_context_response)
                 return no_context_response, "", {}
 
             # Filter context considering conversation history
@@ -1193,9 +1176,7 @@ class CustomLLMChain:
             search2_start = time.time()
             document = ". ".join(filtered_contexts[:k])
             retrieval_k = 15 if self.is_large_model else 12  # ~ !IMPORTANT
-            relevant_contexts = await self.search_similar_texts(
-                document, k=retrieval_k
-            )
+            relevant_contexts = await self.search_similar_texts(document, k=retrieval_k)
             search2_time = time.time() - search2_start
             logging.info(f"Secondary search took {search2_time:.4f} seconds")
 
@@ -1203,9 +1184,7 @@ class CustomLLMChain:
             context_build_start = time.time()
             combined_context = ""
             if conversation_context:
-                combined_context = (
-                    f"Previous Conversation:\n{conversation_context}\n\n"
-                )
+                combined_context = f"Previous Conversation:\n{conversation_context}\n\n"
 
             contexts_added = 0
             max_contexts = len(relevant_contexts)
@@ -1221,9 +1200,7 @@ class CustomLLMChain:
                     contexts_added += 1
                     continue
 
-                can_add = await self.check_context_length(
-                    combined_context, context
-                )
+                can_add = await self.check_context_length(combined_context, context)
                 if not can_add:
                     logging.info(
                         f"Stopped at {contexts_added} contexts due to length limit"
@@ -1238,9 +1215,7 @@ class CustomLLMChain:
                     f"Large model context: {contexts_added}/{max_contexts} contexts added"
                 )
             context_build_time = time.time() - context_build_start
-            logging.info(
-                f"Context building took {context_build_time:.4f} seconds"
-            )
+            logging.info(f"Context building took {context_build_time:.4f} seconds")
 
             # Generate response
             generation_start = time.time()
@@ -1299,7 +1274,9 @@ class CustomLLMChain:
         return self.run_async_in_thread(self.invoke_async(question))
 
     @staticmethod
-    def _format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+    def _format_llm_response(
+        response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG
+    ) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
 
@@ -1307,9 +1284,9 @@ class CustomLLMChain:
         ----------
         response : str
             Raw response from the LLM
-        language : InstructionLangs, optional
+        language : SystemPromptLangs, optional
             Language of the reasoning instructions to remove,
-            by default DEFAULT_INSTRUCTION_LANG
+            by default DEFAULT_SYSTEM_PROMPT_LANG
 
         Returns
         -------

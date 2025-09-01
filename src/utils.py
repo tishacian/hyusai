@@ -5,28 +5,36 @@ Created on Wed Mar 26 15:32:40 2025
 
 @author: kennethezukwoke
 """
-import os
-import re
-import subprocess
-import importlib.util
-import sys
-import shutil
-from typing import Literal
-import torch
-import logging
-import time
-import pickle
+
 import functools
+import importlib.util
+import logging
+import os
+import pickle
+import re
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
-from functools import cache
+
+import torch
+
 from src.globalvariables import (
-    Models,
-    GPU_MODEL_SET,
-    CPUModels,
     CPU_MODEL_SET,
+    GPU_MODEL_SET,
     LARGE_MODELS,
+    CPUModels,
+    Models,
 )
-from src.reasoning_instructions import ALL_PROMPT_SECTIONS_TO_REMOVE, ALL_PROMPT_PHRASES_TO_REMOVE, DEFAULT_INSTRUCTION_LANG, InstructionLangs
+from src.system_prompts import (
+    ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE,
+    ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE,
+    DEFAULT_SYSTEM_PROMPT_LANG,
+    SystemPromptLangs,
+)
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
 if os.path.isdir(user_tessdata) and any(
@@ -86,7 +94,7 @@ def measure_time_sync(func):
 # %%  tesseract utils
 
 
-@cache
+@lru_cache(maxsize=None)
 def configure_tesseract():
     """Configure Tesseract OCR and determine if its available.
 
@@ -104,9 +112,7 @@ def configure_tesseract():
             logging.info(f"Using Tesseract OCR at: {tesseract_path}")
         except ImportError:
             logging.info("pytesseract is not installed.")
-            logging.info(
-                "Installing pytesseract is required for OCR functionality."
-            )
+            logging.info("Installing pytesseract is required for OCR functionality.")
             tesseract_available = False
     else:
         logging.info(
@@ -239,13 +245,9 @@ def get_max_model_len(model_name, max_model_len: int = None) -> int:
         if model_name in GPU_MODEL_SET:
             gpu_type = gpu_arc_type(device)
             if model_name in LARGE_MODELS:
-                return (
-                    128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
-                )
+                return 128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
             elif model_name in [Models.LLAMA3_8B, Models.LLAMA3_70B]:
-                return (
-                    128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
-                )
+                return 128 * 1024 if gpu_type in ["A100", "H100"] else 128 * 1024
             elif model_name in [Models.LLAMA2_7B, Models.LLAMA2_13B]:
                 return 4 * 1024 if gpu_type in ["A100", "H100"] else 4 * 1024
             elif model_name == Models.TINYLLAMA:
@@ -300,9 +302,7 @@ def create_stopwords_mlin(data_dir: str = "data"):
             return None
 
         with open(save_file, "wb") as f:
-            pickle.dump(
-                combined_stopwords, f, protocol=pickle.HIGHEST_PROTOCOL
-            )
+            pickle.dump(combined_stopwords, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         return combined_stopwords
     except Exception as e:
@@ -339,7 +339,9 @@ def load_stopwords(data_dir: str = "data"):
     return stopwords_set
 
 
-def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INSTRUCTION_LANG) -> str:
+def format_llm_response(
+    response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG
+) -> str:
     """Format LLM response while preserving tables and structured data.
     Only removes template artifacts and prompt phrases.
 
@@ -347,26 +349,69 @@ def format_llm_response(response: str, language: InstructionLangs = DEFAULT_INST
     ----------
     response : str
         Raw response from the LLM
-    language : InstructionLangs, optional
+    language : SystemPromptLangs, optional
         Language of the reasoning instructions to remove,
-        by default DEFAULT_INSTRUCTION_LANG
+        by default DEFAULT_SYSTEM_PROMPT_LANG
 
     Returns
     -------
     str
         Cleaned response with preserved formatting
     """
-    instruction_block = r"\[INST\].*?\[/INST\]"
-    prompt_sections = ALL_PROMPT_SECTIONS_TO_REMOVE[language]
-    prompt_phrases = ALL_PROMPT_PHRASES_TO_REMOVE[language]
+    instruction_blocks = [r"\[INST\].*?\[/INST\]", r"\[INST\]", r"\[/INST\]"]
+    prompt_sections = ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE[language]
+    prompt_phrases = ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE[language]
     try:
-        response = re.sub(instruction_block, "", response, flags=re.DOTALL).strip()
+        for block in instruction_blocks:
+            response = re.sub(block, "", response, flags=re.DOTALL).strip()
         # remove standard prompt sections/phrases
         for section in prompt_sections:
-            response = re.sub(section, "", response, flags=re.IGNORECASE | re.DOTALL).strip()
+            response = re.sub(
+                section, "", response, flags=re.IGNORECASE | re.DOTALL
+            ).strip()
         for phrase in prompt_phrases:
             response = re.sub(phrase, "", response, flags=re.MULTILINE).strip()
         return response
     except Exception as e:
         logging.error(f"🚩 An error occurred during response formatting: {str(e)}")
         return "No sufficient context to respond to the question."
+
+
+def humanize_datetime(dt: datetime) -> str:
+    """
+    Converts a datetime object to a human-readable string.
+
+    Example:
+        2025-06-17T15:42:00Z -> "June 17, 2025 at 15:42 UTC"
+
+    Parameters
+    ----------
+    dt : datetime
+        The datetime object to format.
+
+    Returns
+    -------
+    str
+        A human-readable string representation.
+    """
+    if not dt:
+        return "N/A"
+    return dt.strftime("%B %d, %Y at %H:%M")
+
+
+def add_leading_space_if_needed(s: str) -> str:
+    """Add a leading space to a non-empty string if it does not already start with one.
+
+    Parameters
+    ----------
+    s : str
+        The input string to check.
+
+    Returns
+    -------
+    str
+        The original string with a leading space added if it did not already have one.
+    """
+    if s and not s[0].isspace():
+        return " " + s
+    return s

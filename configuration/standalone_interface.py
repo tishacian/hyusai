@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 image_path = Path(__file__).parent.parent / "image"
 
 
-class StandaloneInterface(BaseSettings):
+class StandaloneInterfaceConfig(BaseSettings):
     model_config = SettingsConfigDict(protected_namespaces=("standalone_interface_",))
 
     page_icon: str = "🦙"
