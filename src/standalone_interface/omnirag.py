@@ -437,6 +437,8 @@ def omnirag_page():
 
     # -- New chat
     if st.sidebar.button("New Chat"):
+        if hasattr(st.session_state.chain, "conversation_memory"):
+            st.session_state.chain.conversation_memory.clear()
         st.session_state.chat_history = []
         st.session_state.current_chat_id = None
         st.rerun()
@@ -724,6 +726,8 @@ def omnirag_page():
     # Add a button to clear chat history
     if st.button("Clear Chat History"):
         st.session_state.chat_history.clear()
+        if hasattr(st.session_state.chain, "conversation_memory"):
+            st.session_state.chain.conversation_memory.clear()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
