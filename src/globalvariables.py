@@ -154,6 +154,22 @@ class VLMModels(StrEnum):
     QWEN = "qwen"
 
 
+# VLM Models
+class VLMModels(StrEnum):
+    # vLLM versions (preferred for speed, but cannot be used if vLLM instance is already running)
+    VLLM_SMOLVLM_256M = "vllm-smolvlm-256m"
+    VLLM_SMOLVLM_500M = "vllm-smolvlm-500m"
+    VLLM_SMOLVLM_2_2B = "vllm-smolvlm-2.2b"
+    VLLM_MOONDREAM = "vllm-moondream"
+    VLLM_QWEN = "vllm-qwen"
+    # classical versions (can be used if vLLM instance is already running)
+    SMOLVLM_256M = "smolvlm-256m"
+    SMOLVLM_500M = "smolvlm-500m"
+    SMOLVLM_2_2B = "smolvlm-2.2b"
+    MOONDREAM = "moondream"
+    QWEN = "qwen"
+
+
 GPU_MODEL_SET = {model for model in GPUModels}
 CPU_MODEL_SET = {model for model in CPUModels}
 
