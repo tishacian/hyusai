@@ -24,6 +24,7 @@ tesserocr
 unstructured[all-docs]         # document loaders
 docx2txt
 pymupdf
+pdfminer.six
 
 # metadata extraction 
 PyPDF2>=2.0.0           # PDF documents
