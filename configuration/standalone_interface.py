@@ -7,7 +7,9 @@ image_path = Path(__file__).parent.parent / "image"
 
 
 class StandaloneInterfaceConfig(BaseSettings):
-    model_config = SettingsConfigDict(protected_namespaces=("standalone_interface_",))
+    model_config = SettingsConfigDict(
+        env_prefix="standalone_interface", env_nested_delimiter="__"
+    )
 
     page_icon: str = "🦙"
     """The page favicon."""

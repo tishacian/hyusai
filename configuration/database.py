@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseConfig(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="database_")
+    model_config = SettingsConfigDict(env_prefix="database", env_nested_delimiter="__")
 
     host: str = "localhost"
     port: PositiveInt = 5432

@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class GeneralConfig(BaseSettings):
-    model_config = SettingsConfigDict(protected_namespaces=("general_",))
+    model_config = SettingsConfigDict(env_prefix="general", env_nested_delimiter="__")
 
     is_standalone: bool = True
     """
