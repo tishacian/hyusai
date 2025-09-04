@@ -594,23 +594,17 @@ def collect_metadata_stats(metadatas):
     -------
     dict[str, list]
         Mapping of metadata key to **sorted** list of unique values (as strings).  
-        Includes the *base* keys defined in ``FileMetaData`` plus any extra keys
-        discovered in the input list.
+        Only keys discovered in the provided metadata are included. Returns an
+        empty dict when no metadata is provided so downstream UI can omit facets.
     """
-    
-
-    # Collect required/base keys from FileMetaData TypedDict
-    base_keys = set(FileMetaData.__annotations__.keys())
+    if not metadatas:
+        return {}
 
     # Prepare accumulator
     acc: defaultdict[str, set] = defaultdict(set)
 
-    # Ensure all base keys represented in accumulator (even if no values yet)
-    for k in base_keys:
-        acc[k]  # touch key to create entry
-
     # Iterate over provided metadata dictionaries
-    for meta in metadatas or []:
+    for meta in metadatas:
         if not isinstance(meta, dict):
             continue
         for key, value in meta.items():
@@ -619,7 +613,8 @@ def collect_metadata_stats(metadatas):
             # Normalise to a set of hashable representations
             if isinstance(value, (list, set, tuple)):
                 for v in value:
-                    acc[key].add(str(v))
+                    if v is not None:
+                        acc[key].add(str(v))
             else:
                 try:
                     acc[key].add(str(value))
