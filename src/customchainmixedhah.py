@@ -887,22 +887,6 @@ class CustomLLMChain:
             unique_contexts = list(seen_texts.values())
             unique_contexts.sort(key=lambda x: x.score, reverse=True)
 
-            # Debug dump at the right position: after retrieval (pre-filtered at retriever), before returning
-            if meta_filter:
-                from pprint import pprint
-                print('--------------------------')
-                print('meta_filter (pre-retrieval applied)')
-                pprint(meta_filter)
-                print('contexts after retrieval (pre-filtered set):')
-                for i in unique_contexts[:k]:
-                    print('chunk text:')
-                    pprint(i.text)
-                    print('chunk metadata:')
-                    pprint(getattr(i, 'metadata', {}))
-                    print('chunk score:')
-                    pprint(getattr(i, 'score', None))
-                    print('##########################')
-
             return unique_contexts[:k]
 
     @measure_time
