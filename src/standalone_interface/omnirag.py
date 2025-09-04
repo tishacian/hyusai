@@ -382,18 +382,22 @@ def omnirag_page():
                     else:
                         st.empty()
                 
-                # Handle apply metadata filter button press
-                if 'apply_meta_button' in locals() and apply_meta_button:
+                # Handle apply metadata filter button press (only if facets exist)
+                if (
+                    'apply_meta_button' in locals()
+                    and apply_meta_button
+                    and 'meta_stats' in locals()
+                    and meta_stats
+                ):
                     # Collect current filter selections from multiselect widgets
                     current_filter: dict[str, list] = {}
-                    if 'meta_stats' in locals():  # Use already loaded meta_stats
-                        for key in meta_stats.keys():
-                            if not meta_stats[key]:  # Skip empty value lists
-                                continue
-                            selections = st.session_state.get(f"meta_sel_{key}", [])
-                            if selections:
-                                current_filter[key] = selections
-                    
+                    for key, values in meta_stats.items():
+                        if not values:  # Skip empty value lists
+                            continue
+                        selections = st.session_state.get(f"meta_sel_{key}", [])
+                        if selections:
+                            current_filter[key] = selections
+
                     st.session_state.meta_filter = current_filter
                     # Log selected filter to console and show in UI for debugging
                     print("[MetaFilter] Selected filter:", st.session_state.get("meta_filter"))
