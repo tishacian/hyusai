@@ -828,7 +828,7 @@ class CustomLLMChain:
         reasoning_start = time.time()
         reasoning_task = asyncio.create_task(self.detect_reasoning_type(chunk))
         contexts_task = asyncio.create_task(
-            self.contextual_retriever.retrieve_and_compress(chunk, k)
+            self.contextual_retriever.retrieve_and_compress(chunk, k, meta_filter)
         )
         reasoning_result, contexts_result = await asyncio.gather(
             reasoning_task, contexts_task
@@ -1097,7 +1097,7 @@ class CustomLLMChain:
             return token_count <= (self.max_model_len - safety_buffer)
 
     @measure_time
-    async def invoke_async(self, question: str):
+    async def invoke_async(self, question: str, meta_filter: dict | None = None):
         """Invoke conversation memory buffer w/ reasoning (adapted for large context models)
 
         Parameters:
@@ -1192,7 +1192,7 @@ class CustomLLMChain:
             # First search pass
             search1_start = time.time()
             initial_contexts = await self.search_similar_texts_async(
-                question, k, lambda_param
+                question, k, lambda_param, meta_filter=meta_filter
             )
             search1_time = time.time() - search1_start
             logging.info(f"Initial search took {search1_time:.4f} seconds")
@@ -1217,7 +1217,9 @@ class CustomLLMChain:
             search2_start = time.time()
             document = ". ".join(filtered_contexts[:k])
             retrieval_k = 15 if self.is_large_model else 12  # ~ !IMPORTANT
-            relevant_contexts = await self.search_similar_texts(document, k=retrieval_k)
+            relevant_contexts = await self.search_similar_texts_async(
+                document, k=retrieval_k, lambda_param=lambda_param, meta_filter=meta_filter
+            )
             search2_time = time.time() - search2_start
             logging.info(f"Secondary search took {search2_time:.4f} seconds")
 
@@ -1303,7 +1305,7 @@ class CustomLLMChain:
             return error_msg, "", {}
 
     @measure_time_sync
-    def ainvoke(self, question):
+    def ainvoke(self, question, meta_filter: dict | None = None):
         """asynchronous invoke
 
         Parameters:
@@ -1312,7 +1314,7 @@ class CustomLLMChain:
         Returns:
             tuple: result of invoke_async
         """
-        return self.run_async_in_thread(self.invoke_async(question))
+        return self.run_async_in_thread(self.invoke_async(question, meta_filter))
 
     @staticmethod
     def _format_llm_response(

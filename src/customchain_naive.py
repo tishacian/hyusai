@@ -18,8 +18,7 @@ from src.system_prompts import (
     SystemPromptLangs,
     SystemPromptTypes,
 )
-from src.utils import add_leading_space_if_needed, format_llm_response
-
+from src.utils import add_leading_space_if_needed, format_llm_response, filter_by_metadata
 if torch.cuda.is_available():
     from vllm import SamplingParams
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -527,7 +526,6 @@ class CustomLLMChain:
 
             # apply metadata filtering if requested
             if meta_filter:
-                from utils import filter_by_metadata
                 contexts = filter_by_metadata(contexts, meta_filter)
 
             return contexts
@@ -688,7 +686,7 @@ class CustomLLMChain:
             future = executor.submit(wrapper)
             return future.result()
 
-    async def invoke_async(self, question):
+    async def invoke_async(self, question, meta_filter: dict | None = None):
         """Use the parallelized search_similar_texts method.
 
         Parameters:
@@ -713,7 +711,7 @@ class CustomLLMChain:
         )
         return answer, combined_context, eval_metrics
 
-    def ainvoke(self, question):
+    def ainvoke(self, question, meta_filter: dict | None = None):
         """Use the enhanced asynchronous invoke method.
 
         Parameters:
@@ -722,7 +720,7 @@ class CustomLLMChain:
         Returns:
             tuple: result of invoke_async
         """
-        return self.run_async_in_thread(self.invoke_async(question))
+        return self.run_async_in_thread(self.invoke_async(question, meta_filter))
 
     @staticmethod
     def _format_llm_response(

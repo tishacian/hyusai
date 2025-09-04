@@ -56,7 +56,6 @@ from src.utils import (
     load_stopwords,
     measure_time,
     measure_time_sync,
-    filter_by_metadata,
 )
 
 logging.basicConfig(
@@ -703,6 +702,7 @@ class CustomLLMChain:
         lambda_param: float = 0.5,
         use_query_expansion: bool = False,
         use_bm25_retriever: bool = False,
+        meta_filter: dict | None = None,
     ):
         """Mixed retrieval strategies in parallel
 
@@ -735,14 +735,14 @@ class CustomLLMChain:
             retrieval_tasks = []
 
             retrieval_tasks.append(
-                self.contextual_retriever.retrieve_and_compress(question, k)
+                self.contextual_retriever.retrieve_and_compress(question, k, meta_filter)
             )
 
             if len(expanded_queries) > 1:
                 for expanded_q in expanded_queries[1:]:
                     retrieval_tasks.append(
                         self.contextual_retriever.retrieve_and_compress(
-                            expanded_q, max(3, k // 2)
+                            expanded_q, max(3, k // 2), meta_filter
                         )
                     )
 
@@ -887,6 +887,22 @@ class CustomLLMChain:
             unique_contexts = list(seen_texts.values())
             unique_contexts.sort(key=lambda x: x.score, reverse=True)
 
+            # Debug dump at the right position: after retrieval (pre-filtered at retriever), before returning
+            if meta_filter:
+                from pprint import pprint
+                print('--------------------------')
+                print('meta_filter (pre-retrieval applied)')
+                pprint(meta_filter)
+                print('contexts after retrieval (pre-filtered set):')
+                for i in unique_contexts[:k]:
+                    print('chunk text:')
+                    pprint(i.text)
+                    print('chunk metadata:')
+                    pprint(getattr(i, 'metadata', {}))
+                    print('chunk score:')
+                    pprint(getattr(i, 'score', None))
+                    print('##########################')
+
             return unique_contexts[:k]
 
     @measure_time
@@ -918,13 +934,11 @@ class CustomLLMChain:
             k=k,
             lambda_param=lambda_param,
             use_query_expansion=lambda_param > 0.6,
+            meta_filter=meta_filter,
         )
 
         if not contexts:
             return []
-
-        if meta_filter:
-            contexts = filter_by_metadata(contexts, meta_filter)
 
         result = [ctx.text for ctx in contexts]
         self.context_cache[cache_key] = result
@@ -1529,6 +1543,7 @@ class CustomLLMChain:
                 k=retrieval_plan.primary_k,
                 lambda_param=query_analysis.lambda_param,
                 use_query_expansion=retrieval_plan.use_query_expansion,
+                meta_filter=meta_filter,
             )
 
             if not initial_contexts:
@@ -1563,6 +1578,7 @@ class CustomLLMChain:
                     document,
                     k=retrieval_plan.secondary_k,
                     lambda_param=query_analysis.lambda_param,
+                    meta_filter=meta_filter,
                 )
             )
 
@@ -1584,63 +1600,6 @@ class CustomLLMChain:
             retrieval_time = time.time() - retrieval_start
             logging.info(f"Total retrieval took {retrieval_time:.4f} seconds")
 
-
-            if meta_filter:
-                print('--------------------------')
-                from pprint import pprint
-                print('before metadata filetering')
-                for i in all_contexts:
-                    print('chunk text:')
-                    print()
-                    pprint(i.text)
-                    print()
-                    print('chunk metadata:')
-                    print()
-                    pprint(i.metadata)
-                    print()
-                    print('chunk score:')
-                    print()
-                    pprint(i.score)
-                    print()
-                    print()
-                    print()
-                    print()
-                    print('##########################')
-                print()
-                print()
-                print()
-                print('meta_filter')
-                print('-------------------------')
-                print(meta_filter)
-                print()
-                print()
-                print()
-                try:
-                    # Convert RetrievalContext objects into (text, metadata) pairs expected by filter utility
-                    ctx_pairs = [
-                        (ctx.text, getattr(ctx, "metadata", {})) for ctx in all_contexts
-                    ]
-
-                    filtered_pairs = filter_by_metadata(ctx_pairs, meta_filter)
-
-                    # Replace all_contexts with filtered ones, preserving existing RetrievalContext objects
-                    text_to_ctx = {ctx.text: ctx for ctx in all_contexts}
-                    all_contexts = [text_to_ctx[text] for text, _ in filtered_pairs if text in text_to_ctx]
-                    print('--------------------------------')
-                    print('filtered_contexts')
-                    print([i.text for i in all_contexts])
-                    print()
-                    print()
-                    if not all_contexts:
-                        no_match_response = "No documents found matching the specified metadata criteria."
-                        self.conversation_memory.add_message("assistant", no_match_response)
-                        return no_match_response, "", {}
-                        
-                except Exception as e:
-                    logging.error(f"Error during metadata filtering: {e}")
-                    error_response = "Error occurred while filtering documents by metadata."
-                    self.conversation_memory.add_message("assistant", error_response)
-                    return error_response, "", {}
 
             context_build_start = time.time()
             combined_context = await self.assemble_context(
