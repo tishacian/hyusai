@@ -108,6 +108,7 @@ class EmbeddingVectors:
             self.class_name = "Document"
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     def normalize_embeddings_l2(self, embeddings, in_place=False):
         """
         Intelligent L2 normalization with safety checks and optimization
@@ -557,6 +558,8 @@ class EmbeddingVectors:
 
 =======
 >>>>>>> 02f39e3 (DEV: Dynamic batching for embeddings creation)
+=======
+>>>>>>> e8972d9674dbcf6e0f95d4a5e05f2e082e7ce63d
     def _calculate_dynamic_batch_size(self, texts, base_batch_size=32):
         """
         Calculate optimal batch size based on available memory and text 
