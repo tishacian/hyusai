@@ -118,7 +118,7 @@ class ContextualCompressionRetriever:
         return passages[:k], scores[:k]
 
     async def retrieve_and_compress(
-        self, query: str, k: Optional[int] = None
+        self, query: str, k: Optional[int] = None, meta_filter: dict | None = None
     ) -> tuple[list[str], list[float], list[dict]]:
         """Retrieve and compress
 
@@ -137,7 +137,7 @@ class ContextualCompressionRetriever:
         """
         try:
             base_passages, base_scores, base_metadatas = await self.base_retriever.retrieve(
-                query, k
+                query, k, meta_filter
             )
 
             if not base_passages:
@@ -179,7 +179,7 @@ class ContextualCompressionRetriever:
             return [], [], []
 
     async def abatch_retrieve_and_compress(
-        self, queries: list[str], k: Optional[int] = None
+        self, queries: list[str], k: Optional[int] = None, meta_filter: dict | None = None
     ) -> list[tuple[list[str], list[float], list[dict]]]:
         """Asynchronous retrieving and compressing
 
@@ -199,7 +199,7 @@ class ContextualCompressionRetriever:
         try:
             async with asyncio.TaskGroup() as tg:
                 tasks = [
-                    tg.create_task(self.retrieve_and_compress(query, k))
+                    tg.create_task(self.retrieve_and_compress(query, k, meta_filter))
                     for query in queries
                 ]
             return [task.result() for task in tasks]
@@ -230,7 +230,7 @@ class ContextualCompressionRetriever:
             loop.close()
 
     def retrieve(
-        self, query: str, k: Optional[int] = None
+        self, query: str, k: Optional[int] = None, meta_filter: dict | None = None
     ) -> tuple[list[str], list[float], list[dict]]:
         """Retrieval
 
@@ -246,10 +246,10 @@ class ContextualCompressionRetriever:
             contexts, scores, and metadata.
 
         """
-        return self.run_async(self.retrieve_and_compress(query, k))
+        return self.run_async(self.retrieve_and_compress(query, k, meta_filter))
 
     def batch_retrieve(
-        self, queries: list[str], k: Optional[int] = None
+        self, queries: list[str], k: Optional[int] = None, meta_filter: dict | None = None
     ) -> list[tuple[list[str], list[float], list[dict]]]:
         """Batch retrieval
 
@@ -266,4 +266,4 @@ class ContextualCompressionRetriever:
             k-retrievals with metadata.
 
         """
-        return self.run_async(self.abatch_retrieve_and_compress(queries, k))
+        return self.run_async(self.abatch_retrieve_and_compress(queries, k, meta_filter))

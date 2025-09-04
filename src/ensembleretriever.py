@@ -8,10 +8,12 @@ Created on Fri Feb 14 16:07:22 2025
 import sys
 import torch
 import numpy as np
+import faiss
 import warnings
 import asyncio
 import logging
 import re
+from src.utils import filter_by_metadata
 from dataclasses import dataclass
 from typing import Any, Optional
 from enum import Enum
@@ -142,7 +144,7 @@ class EnsembleRetriever:
         return {**doc_meta, **chunk_meta}
 
     async def _get_bm25_scores(
-        self, query: str, k: int
+        self, query: str, k: int, meta_filter: dict | None = None
     ) -> tuple[list[str], dict[str, float], list[dict]]:
         """BM25 retriever scores with ranking
 
@@ -158,7 +160,21 @@ class EnsembleRetriever:
         """
         try:
             scores = self.bm25_retriever.get_scores(query)
-            top_k_indices = np.argsort(scores)[-k:][::-1]
+
+            # If a filter is provided, restrict BM25 strictly to allowed indices
+            candidate_indices = None
+            if meta_filter:
+                allowed = [i for i in self._compute_allowed_indices(meta_filter) if 0 <= i < len(scores)]
+                if not allowed:
+                    return [], {}, []
+                candidate_indices = allowed
+            else:
+                candidate_indices = list(range(len(scores)))
+
+            # Select top-k among candidate_indices only
+            pairs = [(idx, float(scores[idx])) for idx in candidate_indices]
+            pairs.sort(key=lambda t: t[1], reverse=True)
+            top_k_indices = [idx for idx, _ in pairs[:k]]
             passages = [
                 self.bm25_retriever.documents[idx] for idx in top_k_indices
             ]
@@ -172,8 +188,25 @@ class EnsembleRetriever:
             logging.error(f"BM25 retrieval error: {e}")
             return [], {}, []
 
+    def _faiss_search(
+        self,
+        index,
+        query_embedding,
+        k: int,
+        texts: list[str],
+        metas: list[dict],
+    ) -> tuple[list[str], dict[str, float], list[dict]]:
+        """Run FAISS search and format results consistently."""
+        D, I = index.search(query_embedding, k)
+        ids = I[0]
+        passages = [texts[idx] for idx in ids]
+        similarities = 1.0 / (1.0 + D[0])
+        scores_dict = {p: float(s) for p, s in zip(passages, similarities)}
+        meta_list = [metas[idx] if idx < len(metas) else {} for idx in ids]
+        return passages, scores_dict, meta_list
+
     async def _get_dense_scores(
-        self, query: str, k: int
+        self, query: str, k: int, meta_filter: dict | None = None
     ) -> tuple[list[str], dict[str, float], list[dict]]:
         """Dense retriever scores with ranking
 
@@ -206,19 +239,23 @@ class EnsembleRetriever:
                         "float32"
                     )
 
-                # FAISS Search
-                D, I = self.dense_retriever.search(query_embedding, k)
-                passages = [self.texts[idx] for idx in I[0]]
-                similarities = 1.0 / (1.0 + D[0])  # distance→similarity
-                scores_dict = {
-                    passage: float(score)
-                    for passage, score in zip(passages, similarities)
-                }
-                meta_list = [
-                    self.metadatas[idx] if idx < len(self.metadatas) else {}
-                    for idx in I[0]
-                ]
-                return passages, scores_dict, meta_list
+                # If a meta_filter is provided, always restrict FAISS search to that subset
+                if meta_filter:
+                    allowed_indices = self._compute_allowed_indices(meta_filter)
+                    if not allowed_indices:
+                        return [], {}, []
+
+                    subset_idx, subset_texts, subset_metas = self._get_or_build_subset_index(
+                        allowed_indices, meta_filter
+                    )
+                    return self._faiss_search(
+                        subset_idx, query_embedding, k, subset_texts, subset_metas
+                    )
+
+                # FAISS Search on full index (no filter)
+                return self._faiss_search(
+                    self.dense_retriever, query_embedding, k, self.texts, self.metadatas
+                )
 
             # Path 2: Chroma (LangChain VectorStore) – use similarity_search_with_score
             if hasattr(self.dense_retriever, "similarity_search_with_score"):
@@ -807,7 +844,7 @@ class EnsembleRetriever:
             )
 
     async def retrieve(
-        self, query: str, k: Optional[int] = None
+        self, query: str, k: Optional[int] = None, meta_filter: dict | None = None
     ) -> tuple[list[str], list[float], list[dict]]:
         """Retrieve passages using the selected fusion method
 
@@ -824,13 +861,45 @@ class EnsembleRetriever:
         """
         k = k or self.config.k
 
+        # Log: pre-filter corpus snapshot and allowed subset summary
+        if meta_filter:
+            total = len(self.texts)
+            pre_sample = []
+            for m in (self.metadatas[: min(10, len(self.metadatas))] or []):
+                if isinstance(m, dict):
+                    pre_sample.append({
+                        'doc_id': m.get('doc_id'),
+                        'chunk_id': m.get('chunk_id'),
+                    })
+            logging.info(
+                "MetaFilter pre: corpus_size=%d sample(doc_id,chunk_id)=%s",
+                total,
+                pre_sample,
+            )
+
+            allowed_dbg = self._compute_allowed_indices(meta_filter)
+            allowed_sample = []
+            for i in allowed_dbg[: min(10, len(allowed_dbg))]:
+                m = self.metadatas[i] if i < len(self.metadatas) else {}
+                if isinstance(m, dict):
+                    allowed_sample.append({
+                        'index': i,
+                        'doc_id': m.get('doc_id'),
+                        'chunk_id': m.get('chunk_id'),
+                    })
+            logging.info(
+                "MetaFilter post: allowed_size=%d sample(index,doc_id,chunk_id)=%s",
+                len(allowed_dbg),
+                allowed_sample,
+            )
+
         try:
             candidate_k = k * 2
             bm25_future = asyncio.create_task(
-                self._get_bm25_scores(query, candidate_k)
+                self._get_bm25_scores(query, candidate_k, meta_filter)
             )
             dense_future = asyncio.create_task(
-                self._get_dense_scores(query, candidate_k)
+                self._get_dense_scores(query, candidate_k, meta_filter)
             )
 
             (bm25_passages, bm25_scores, bm25_meta_list), (
@@ -890,7 +959,6 @@ class EnsembleRetriever:
             metas = [self._merge_chunk_and_document_metadata(m) for m in metas]
             
             # Debug: log merged metadata
-            import logging
             if self.doc_metadatas:
                 logging.debug(f"EnsembleRetriever: Merged {len(metas)} chunk+document metadata entries")
                 for i, meta in enumerate(metas[:1]):  # Log first 1 for debugging
@@ -903,6 +971,85 @@ class EnsembleRetriever:
         except Exception as e:
             logging.error(f"Ensemble retrieval error: {e}")
             return [], [], []
+
+    # -------------------------------
+    # Filtering helpers and caching
+    # -------------------------------
+    def _canonicalize_filter(self, meta_filter: dict) -> str:
+        items: list[str] = []
+        for k in sorted(meta_filter.keys()):
+            v = meta_filter[k]
+            if isinstance(v, (list, set, tuple)):
+                vals = ",".join(sorted(map(str, v)))
+            else:
+                vals = str(v)
+            items.append(f"{k}={vals}")
+        return "|".join(items)
+
+    def _compute_allowed_indices(self, meta_filter: dict) -> list[int]:
+        """Return list of indices in self.texts that satisfy meta_filter.
+
+        Merges chunk metadata with document-level metadata (if available).
+        """
+        items = []
+        for idx, chunk_meta in enumerate(self.metadatas):
+            if not isinstance(chunk_meta, dict):
+                chunk_meta = {}
+            # Merge document-level metadata if present
+            merged = self._merge_chunk_and_document_metadata(chunk_meta) if "doc_id" in chunk_meta else chunk_meta
+            merged = dict(merged)
+            merged["__index__"] = idx
+            items.append((None, merged))
+
+        filtered = filter_by_metadata(items, meta_filter)
+        allowed: list[int] = []
+        for _, meta in filtered:
+            idx = meta.get("__index__") if isinstance(meta, dict) else None
+            if isinstance(idx, int):
+                allowed.append(idx)
+        return allowed
+
+    def _get_or_build_subset_index(self, allowed_indices: list[int], meta_filter: dict):
+        """Build or fetch a cached FAISS index over the subset defined by allowed_indices."""
+        if not hasattr(self, "_subset_cache"):
+            self._subset_cache = {}
+            self._subset_order = []
+            self._subset_capacity = 4
+
+        sig = self._canonicalize_filter(meta_filter)
+        if sig in self._subset_cache:
+            # LRU touch
+            if sig in self._subset_order:
+                self._subset_order.remove(sig)
+            self._subset_order.append(sig)
+            entry = self._subset_cache[sig]
+            return entry["index"], entry["texts"], entry["metas"]
+
+        # Build subset arrays
+        subset_texts = [self.texts[i] for i in allowed_indices if 0 <= i < len(self.texts)]
+        subset_metas = [self.metadatas[i] if i < len(self.metadatas) else {} for i in allowed_indices]
+
+        # Compute embeddings
+        with torch.no_grad():
+            emb = self.embedding_model.encode(
+                subset_texts,
+                convert_to_tensor=True,
+                show_progress_bar=False,
+                device=self.device,
+            )
+            emb = emb.cpu().numpy().astype("float32")
+        faiss.normalize_L2(emb)
+        sub_index = faiss.IndexFlatL2(emb.shape[1])
+        sub_index.add(emb)
+
+        # Cache with LRU policy
+        self._subset_cache[sig] = {"index": sub_index, "texts": subset_texts, "metas": subset_metas}
+        self._subset_order.append(sig)
+        if len(self._subset_order) > self._subset_capacity:
+            evict = self._subset_order.pop(0)
+            self._subset_cache.pop(evict, None)
+
+        return sub_index, subset_texts, subset_metas
 
     async def abatch_retrieve(
         self, queries: list[str], k: Optional[int] = None
