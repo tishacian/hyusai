@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class VLM(BaseSettings):
-    model_config = SettingsConfigDict(protected_namespaces=("settings_",))
+    model_config = SettingsConfigDict(env_prefix="vlm", env_nested_delimiter="__")
 
     enable_vlm: bool = False
     """
