@@ -2,11 +2,23 @@
 vLLM provider implementation.
 """
 import os
+import time
+import logging
 from collections.abc import AsyncGenerator
 
 from openai import AsyncOpenAI
 
 from ..base import LLMProvider
+from ..models import (
+    CompletionRequest,
+    CompletionResponse,
+    Choice,
+    Message,
+    MessageRole,
+    StreamingResponse,
+    StreamChoice,
+    TokenUsage,
+)
 
 
 class VLLMProvider(LLMProvider):
@@ -24,60 +36,262 @@ class VLLMProvider(LLMProvider):
         
         if not self.base_url:
             raise ValueError("vLLM base URL is required")
-        
+
+        # Normalize base_url to include protocol and /v1 suffix per vLLM docs
+        if not (self.base_url.startswith("http://") or self.base_url.startswith("https://")):
+            self.base_url = f"http://{self.base_url}"
+        if not self.base_url.rstrip("/").endswith("/v1"):
+            self.base_url = self.base_url.rstrip("/") + "/v1"
+
         self.client = AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
             **kwargs
         )
     
+    def _prepare_api_params(self, request: CompletionRequest, streaming: bool = False) -> dict:
+        """
+        Prepare parameters for vLLM API call.
+        
+        Args:
+            request: Validated CompletionRequest
+            streaming: Whether this is for streaming
+            
+        Returns:
+            Dictionary of parameters for vLLM API
+        """
+        # Use default model if not specified
+        model = request.model or "Qwen/Qwen2.5-0.6B-Instruct"
+        
+        params = {
+            "model": model,
+            "messages": request.messages,
+        }
+        
+        if streaming:
+            params["stream"] = True
+        
+        # Add optional parameters
+        if request.temperature is not None:
+            params["temperature"] = request.temperature
+        if request.max_tokens is not None:
+            params["max_tokens"] = request.max_tokens
+        if request.top_p is not None:
+            params["top_p"] = request.top_p
+        if request.n is not None:
+            params["n"] = request.n
+        if request.presence_penalty is not None:
+            params["presence_penalty"] = request.presence_penalty
+        if request.frequency_penalty is not None:
+            params["frequency_penalty"] = request.frequency_penalty
+        if request.stop:
+            params["stop"] = request.stop
+        if request.seed is not None:
+            params["seed"] = request.seed
+        if request.user:
+            params["user"] = request.user
+        if request.logit_bias is not None:
+            params["logit_bias"] = request.logit_bias
+
+        # Build vLLM extras for extra_body
+        extra_body: dict[str, object] = {}
+        # Sampling/decoding extras
+        if request.best_of is not None:
+            extra_body["best_of"] = request.best_of
+        if request.use_beam_search is not None:
+            extra_body["use_beam_search"] = request.use_beam_search
+        if request.top_k is not None:
+            extra_body["top_k"] = request.top_k
+        if request.min_p is not None:
+            extra_body["min_p"] = request.min_p
+        if request.repetition_penalty is not None:
+            extra_body["repetition_penalty"] = request.repetition_penalty
+        if request.length_penalty is not None:
+            extra_body["length_penalty"] = request.length_penalty
+        if request.early_stopping is not None:
+            extra_body["early_stopping"] = request.early_stopping
+        if request.ignore_eos is not None:
+            extra_body["ignore_eos"] = request.ignore_eos
+        if request.min_tokens is not None:
+            extra_body["min_tokens"] = request.min_tokens
+        if request.stop_token_ids is not None:
+            extra_body["stop_token_ids"] = request.stop_token_ids
+        if request.skip_special_tokens is not None:
+            extra_body["skip_special_tokens"] = request.skip_special_tokens
+        if request.spaces_between_special_tokens is not None:
+            extra_body["spaces_between_special_tokens"] = request.spaces_between_special_tokens
+        # Behavior extras
+        if request.echo is not None:
+            extra_body["echo"] = request.echo
+        if request.add_generation_prompt is not None:
+            extra_body["add_generation_prompt"] = request.add_generation_prompt
+        if request.include_stop_str_in_output is not None:
+            extra_body["include_stop_str_in_output"] = request.include_stop_str_in_output
+        if request.guided_json is not None:
+            extra_body["guided_json"] = request.guided_json
+        if request.guided_regex is not None:
+            extra_body["guided_regex"] = request.guided_regex
+        if request.guided_choice is not None:
+            extra_body["guided_choice"] = request.guided_choice
+        if request.guided_grammar is not None:
+            extra_body["guided_grammar"] = request.guided_grammar
+        if request.guided_decoding_backend is not None:
+            extra_body["guided_decoding_backend"] = request.guided_decoding_backend
+        # Completions-only (safe to include)
+        if request.truncate_prompt_tokens is not None:
+            extra_body["truncate_prompt_tokens"] = request.truncate_prompt_tokens
+
+        # Merge user-provided extra_body last, allowing explicit fields to win
+        if request.extra_body:
+            extra_body = {**request.extra_body, **extra_body}
+
+        if extra_body:
+            params["extra_body"] = extra_body
+
+        return params
+    
+    def _calculate_costs(self, usage: TokenUsage, model: str) -> TokenUsage:
+        """
+        Calculate costs for vLLM - costs are set to 0 since it's typically self-hosted.
+        
+        Args:
+            usage: Token usage object
+            model: Model name
+            
+        Returns:
+            Updated usage with costs set to 0
+        """
+        # vLLM is typically self-hosted so no costs
+        usage.prompt_cost = 0.0
+        usage.completion_cost = 0.0
+        usage.total_cost = 0.0
+        
+        return usage
+    
     async def generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> str:
-        """Generate a response using vLLM."""
-        params = self._build_params(
-            model=model or "Qwen/Qwen2.5-0.6B-Instruct",
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs
-        )
+        request: CompletionRequest
+    ) -> CompletionResponse:
+        """
+        Generate a response using vLLM.
+
+        Args:
+            request: Validated CompletionRequest with all parameters
+
+        Returns:
+            CompletionResponse with choices, usage, and metadata
+        """
+        # Prepare API parameters
+        params = self._prepare_api_params(request)
         
+        # Track timing
+        start_time = time.time()
+        
+        # Make the API call
         response = await self.client.chat.completions.create(**params)
-        return response.choices[0].message.content
+        
+        # Calculate response time
+        response_ms = (time.time() - start_time) * 1000
+        
+        # Convert vLLM response to our typed response
+        choices = []
+        for choice in response.choices:
+            message = Message(
+                role=MessageRole.ASSISTANT,
+                content=choice.message.content,
+            )
+            
+            choices.append(
+                Choice(
+                    index=choice.index,
+                    message=message,
+                    finish_reason=choice.finish_reason,
+                )
+            )
+        
+        # Build usage info
+        usage = None
+        if response.usage:
+            usage = TokenUsage(
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens
+            )
+            
+            # Calculate costs (set to 0 for vLLM)
+            usage = self._calculate_costs(usage, response.model)
+        
+        return CompletionResponse(
+            id=response.id,
+            model=response.model,
+            created=response.created,
+            choices=choices,
+            usage=usage,
+            response_ms=response_ms
+        )
     
     async def stream_generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> AsyncGenerator[str, None]:
-        """Stream a response using vLLM."""
-        params = self._build_params(
-            model=model or "Qwen/Qwen2.5-0.6B-Instruct",
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            **kwargs
-        )
+        request: CompletionRequest
+    ) -> AsyncGenerator[StreamingResponse, None]:
+        """
+        Stream a response using vLLM.
+
+        Args:
+            request: Validated CompletionRequest with all parameters
+
+        Returns:
+            AsyncGenerator yielding StreamingResponse chunks
+        """
+        # Prepare API parameters
+        params = self._prepare_api_params(request, streaming=True)
         
+        # Make the streaming API call
         stream = await self.client.chat.completions.create(**params)
+        
+        chunk_count = 0
+        
+        # Process each chunk
         async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
-    
-    def _build_params(self, **kwargs) -> dict:
-        """Build API parameters filtering out None values."""
-        return {k: v for k, v in kwargs.items() if v is not None}
+            chunk_count += 1
+            
+            # Convert vLLM chunk to our typed streaming response
+            choices = []
+            for choice in chunk.choices:
+                delta_dict = {}
+                
+                if choice.delta.content is not None:
+                    delta_dict["content"] = choice.delta.content
+                
+                if hasattr(choice.delta, 'role') and choice.delta.role:
+                    delta_dict["role"] = choice.delta.role
+                
+                choices.append(
+                    StreamChoice(
+                        index=choice.index,
+                        delta=delta_dict,
+                        finish_reason=choice.finish_reason
+                    )
+                )
+            
+            # Build usage info if present (usually in the last chunk)
+            usage = None
+            if hasattr(chunk, 'usage') and chunk.usage:
+                usage = TokenUsage(
+                    prompt_tokens=chunk.usage.prompt_tokens,
+                    completion_tokens=chunk.usage.completion_tokens,
+                    total_tokens=chunk.usage.total_tokens
+                )
+                
+                # Calculate costs (set to 0 for vLLM)
+                usage = self._calculate_costs(usage, chunk.model)
+            
+            yield StreamingResponse(
+                id=chunk.id,
+                model=chunk.model,
+                created=chunk.created,
+                choices=choices,
+                usage=usage,
+            )
+        
+        logging.debug(f"Streaming complete: {chunk_count} chunks")

@@ -2,12 +2,23 @@
 Google Gemini LLM provider implementation.
 """
 import os
+import time
 import logging
 import asyncio
 import google.generativeai as genai
 from collections.abc import AsyncGenerator
 
 from ..base import LLMProvider
+from ..models import (
+    CompletionRequest,
+    CompletionResponse,
+    Choice,
+    Message,
+    MessageRole,
+    StreamingResponse,
+    StreamChoice,
+    TokenUsage,
+)
 
 
 class GeminiProvider(LLMProvider):
@@ -15,14 +26,23 @@ class GeminiProvider(LLMProvider):
     Google Gemini API provider implementation.
 
     Handles communication with Google's Gemini API for text generation.
+    Uses Pydantic models for type-safe request/response handling.
     """
 
     # Default base URL for Gemini API
     DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com"
     
-
     # Default models for Gemini
-    DEFAULT_MODEL = "gemini-2.5-pro"
+    DEFAULT_MODEL = "gemini-2.0-flash-exp"
+    
+    # Model pricing per 1000 tokens (approximate)
+    MODEL_PRICING = {
+        "gemini-2.0-flash": {"input": 0.00015, "output": 0.0006},
+        "gemini-2.0-flash-exp": {"input": 0.00015, "output": 0.0006},
+        "gemini-1.5-pro": {"input": 0.00125, "output": 0.005},
+        "gemini-1.5-flash": {"input": 0.000075, "output": 0.0003},
+        "gemini-1.0-pro": {"input": 0.0005, "output": 0.0015},
+    }
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None):
         """
@@ -53,57 +73,83 @@ class GeminiProvider(LLMProvider):
             Gemini model instance
         """
         return genai.GenerativeModel(model_name)
-
+    
+    def _prepare_api_params(self, request: CompletionRequest) -> tuple[str, list, dict]:
+        """
+        Prepare parameters for Gemini API call.
+        
+        Args:
+            request: Validated CompletionRequest
+            
+        Returns:
+            Tuple of (model, messages, generation_config)
+        """
+        # Use default model if not specified
+        model = request.model or os.getenv("GEMINI_DEFAULT_MODEL", self.DEFAULT_MODEL)
+        
+        # Convert messages to Gemini format
+        gemini_messages = self._convert_messages_to_gemini_format(request.messages)
+        
+        # Prepare generation config
+        generation_config = {}
+        
+        if request.temperature is not None:
+            generation_config["temperature"] = request.temperature
+        
+        if request.max_tokens is not None:
+            generation_config["max_output_tokens"] = request.max_tokens
+        
+        if request.top_p is not None:
+            generation_config["top_p"] = request.top_p
+        
+        if request.stop:
+            generation_config["stop_sequences"] = request.stop
+        
+        return model, gemini_messages, generation_config
+    
+    def _calculate_costs(self, usage: TokenUsage, model: str) -> TokenUsage:
+        """
+        Calculate costs based on model pricing.
+        
+        Args:
+            usage: Token usage object
+            model: Model name
+            
+        Returns:
+            Updated usage with costs
+        """
+        # Find matching pricing
+        for model_key, pricing in self.MODEL_PRICING.items():
+            if model_key in model.lower():
+                usage.prompt_cost = usage.prompt_tokens * pricing["input"] / 1000
+                usage.completion_cost = usage.completion_tokens * pricing["output"] / 1000
+                usage.total_cost = usage.prompt_cost + usage.completion_cost
+                break
+        
+        return usage
 
     async def generate(
         self,
-        messages: list[dict[str, str]],
-        model: str = None,  # Will be set to default model
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> str:
+        request: CompletionRequest
+    ) -> CompletionResponse:
         """
         Generate a response using Gemini's API.
 
         Args:
-            messages: List of message dictionaries with 'role' and 'content' keys
-            model: Gemini model identifier (default: gemini-1.5-pro)
-            temperature: Controls randomness (0.0 to 1.0)
-            max_tokens: Maximum number of tokens to generate
-            max_completion_tokens: Not used by Gemini, included for compatibility
-            reasoning_effort: Not used by Gemini, included for compatibility
-            **kwargs: Additional Gemini API parameters
+            request: Validated CompletionRequest with all parameters
 
         Returns:
-            Generated text response
+            CompletionResponse with choices, usage, and metadata
         """
-        # Use default model if none provided
-        if model is None:
-            model = os.getenv("GEMINI_DEFAULT_MODEL", self.DEFAULT_MODEL)
-            
-        # Convert OpenAI-style messages to Gemini format
-        gemini_messages = self._convert_messages_to_gemini_format(messages)
-
+        # Prepare API parameters
+        model, gemini_messages, generation_config = self._prepare_api_params(request)
+        
         # Initialize the model
         gemini_model = self._get_model(model)
-
-        # Prepare generation config
-        generation_config: dict[str, object] = {}
-
-        # Add temperature if provided
-        if temperature is not None:
-            generation_config["temperature"] = temperature
-
-        # Add max output tokens if provided
-        if max_tokens is not None:
-            generation_config["max_output_tokens"] = max_tokens
-
-        # Add any additional parameters
-        generation_config.update(kwargs.get("generation_config", {}))
-
+        
+        # Track timing
+        start_time = time.time()
+        
         # Create a wrapper around the synchronous API call to make it async
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
@@ -111,90 +157,152 @@ class GeminiProvider(LLMProvider):
             lambda: gemini_model.generate_content(
                 gemini_messages,
                 generation_config=generation_config,
-                safety_settings=kwargs.get("safety_settings"),
             )
         )
-
+        
+        # Calculate response time
+        response_ms = (time.time() - start_time) * 1000
+        
         # Check for a successful response
-        if hasattr(response, "text"):
-            return response.text
+        if hasattr(response, "text") and response.text:
+            content = response.text
         else:
             logging.error(f"Unexpected response format from Gemini: {response}")
-            return ""
+            content = ""
+        
+        # Create message
+        message = Message(
+            role=MessageRole.ASSISTANT,
+            content=content
+        )
+        
+        # Create choice
+        choice = Choice(
+            index=0,
+            message=message,
+            finish_reason="stop"
+        )
+        
+        # Estimate token usage (Gemini doesn't provide exact counts)
+        # This is a rough approximation
+        prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+        prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)  # Rough approximation
+        completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0
+        
+        usage = TokenUsage(
+            prompt_tokens=int(prompt_tokens),
+            completion_tokens=int(completion_tokens),
+            total_tokens=int(prompt_tokens + completion_tokens)
+        )
+        
+        # Calculate costs
+        usage = self._calculate_costs(usage, model)
+        
+        return CompletionResponse(
+            id=f"gemini-{int(time.time())}",
+            model=model,
+            created=int(time.time()),
+            choices=[choice],
+            usage=usage,
+            response_ms=response_ms
+        )
 
     async def stream_generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,  # Required to match base class signature
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> AsyncGenerator[str, None]:
+        request: CompletionRequest
+    ) -> AsyncGenerator[StreamingResponse, None]:
         """
         Stream a response using Gemini's API.
 
         Args:
-            messages: List of message dictionaries with 'role' and 'content' keys
-            model: Gemini model identifier (default: gemini-1.5-pro)
-            temperature: Controls randomness (0.0 to 1.0)
-            max_tokens: Maximum number of tokens to generate
-            max_completion_tokens: Not used by Gemini, included for compatibility
-            reasoning_effort: Not used by Gemini, included for compatibility
-            **kwargs: Additional Gemini API parameters
+            request: Validated CompletionRequest with all parameters
 
         Returns:
-            AsyncGenerator yielding chunks of the response as they become available
+            AsyncGenerator yielding StreamingResponse chunks
         """
+        # Prepare API parameters
+        model, gemini_messages, generation_config = self._prepare_api_params(request)
+        
         logging.debug(f"Starting Gemini streaming with model: {model}")
-
-        # Convert OpenAI-style messages to Gemini format
-        gemini_messages = self._convert_messages_to_gemini_format(messages)
-
+        
         # Initialize the model
         gemini_model = self._get_model(model)
-
-        # Prepare generation config
-        generation_config: dict[str, object] = {}
-
-        # Add temperature if provided
-        if temperature is not None:
-            generation_config["temperature"] = temperature
-
-        # Add max output tokens if provided
-        if max_tokens is not None:
-            generation_config["max_output_tokens"] = max_tokens
-
-        # Add any additional parameters
-        generation_config.update(kwargs.get("generation_config", {}))
-
+        
         # Create a wrapper around the synchronous API call to make it stream
-        # Run the initial part synchronously because Gemini's Python SDK doesn't have native async support
-        # We need to use run_in_executor to prevent blocking the event loop
         loop = asyncio.get_event_loop()
         stream_response = await loop.run_in_executor(
             None,
             lambda: gemini_model.generate_content(
                 gemini_messages,
                 generation_config=generation_config,
-                safety_settings=kwargs.get("safety_settings"),
                 stream=True
             )
         )
-
-        # Stream the content
+        
         chunk_count = 0
+        accumulated_content = ""
+        total_completion_tokens = 0
+        
+        # Stream the content
         async for chunk in self._stream_async_generator(stream_response):
             if hasattr(chunk, "text") and chunk.text:
                 chunk_count += 1
+                accumulated_content += chunk.text
+                
+                # Estimate tokens for this chunk
+                chunk_tokens = max(len(chunk.text.split()) * 1.3, 1)
+                total_completion_tokens += chunk_tokens
+                
+                # Create streaming choice
+                choice = StreamChoice(
+                    index=0,
+                    delta={"content": chunk.text},
+                    finish_reason=None
+                )
+                
+                yield StreamingResponse(
+                    id=f"gemini-{int(time.time())}-{chunk_count}",
+                    model=model,
+                    created=int(time.time()),
+                    choices=[choice]
+                )
+                
                 if chunk_count % 10 == 0:
                     logging.debug(f"Gemini streaming: received {chunk_count} chunks so far")
-                yield chunk.text
-
+        
+        # Send final chunk with usage info
+        if chunk_count > 0:
+            # Estimate final usage
+            prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+            prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
+            
+            usage = TokenUsage(
+                prompt_tokens=int(prompt_tokens),
+                completion_tokens=int(total_completion_tokens),
+                total_tokens=int(prompt_tokens + total_completion_tokens)
+            )
+            
+            # Calculate costs
+            usage = self._calculate_costs(usage, model)
+            
+            # Final chunk with finish reason and usage
+            choice = StreamChoice(
+                index=0,
+                delta={},
+                finish_reason="stop"
+            )
+            
+            yield StreamingResponse(
+                id=f"gemini-{int(time.time())}-final",
+                model=model,
+                created=int(time.time()),
+                choices=[choice],
+                usage=usage
+            )
+        
         logging.debug(f"Gemini streaming complete: {chunk_count} chunks total")
 
-    def _convert_messages_to_gemini_format(self, messages: list[dict[str, str]]) -> list[dict[str, object]] | str:
+    def _convert_messages_to_gemini_format(self, messages: list[dict]) -> list[dict[str, object]] | str:
         """
         Convert OpenAI-style messages to Gemini format.
 
@@ -207,7 +315,7 @@ class GeminiProvider(LLMProvider):
         # For simple use cases, we can just extract the content
         # This is a simplified version, as Gemini's API accepts various formats
         if len(messages) == 1:
-            return messages[0]["content"]
+            return messages[0].get("content", "")
 
         # For chat format, we can use "contents" with role mapping
         # This is a simplified approach and may need refinement for specific use cases
@@ -220,8 +328,10 @@ class GeminiProvider(LLMProvider):
         # Create a proper chat history
         gemini_messages: list[dict[str, object]] = []
         for msg in messages:
-            role = role_mapping.get(msg["role"], "user")
-            gemini_messages.append({"role": role, "parts": [{"text": msg["content"]}]})
+            role = role_mapping.get(msg.get("role", "user"), "user")
+            content = msg.get("content", "")
+            if content:  # Only add non-empty messages
+                gemini_messages.append({"role": role, "parts": [{"text": content}]})
 
         return gemini_messages
 

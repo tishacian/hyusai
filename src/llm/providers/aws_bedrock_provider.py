@@ -2,15 +2,25 @@
 AWS Bedrock provider implementation.
 """
 import json
+import time
 import logging
 import os
 import re
 from collections.abc import AsyncGenerator
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
 
 from ..base import LLMProvider
+from ..models import (
+    CompletionRequest,
+    CompletionResponse,
+    Choice,
+    Message,
+    MessageRole,
+    StreamingResponse,
+    StreamChoice,
+    TokenUsage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +40,9 @@ def extract_provider(model: str) -> str:
 
 class AWSBedrockProvider(LLMProvider):
     """AWS Bedrock LLM provider implementation."""
+    
+    # Default model
+    DEFAULT_MODEL = "anthropic.claude-3-sonnet-20240229"
     
     def __init__(
         self, 
@@ -54,29 +67,42 @@ class AWSBedrockProvider(LLMProvider):
             region_name=self.aws_region
         )
     
+    def _calculate_costs(self, usage: TokenUsage, model: str) -> TokenUsage:
+        """Calculate costs based on model pricing."""
+        PRICING = {
+            "anthropic": {"input": 0.008, "output": 0.024},
+            "amazon": {"input": 0.0008, "output": 0.0016},
+            "meta": {"input": 0.00075, "output": 0.00325},
+            "mistral": {"input": 0.00015, "output": 0.00055},
+        }
+        
+        provider = extract_provider(model)
+        prices = PRICING.get(provider, {"input": 0.001, "output": 0.002})
+        
+        usage.prompt_cost = (usage.prompt_tokens / 1000) * prices["input"]
+        usage.completion_cost = (usage.completion_tokens / 1000) * prices["output"]
+        usage.total_cost = usage.prompt_cost + usage.completion_cost
+        
+        return usage
+    
     async def generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> str:
+        request: CompletionRequest
+    ) -> CompletionResponse:
         """Generate a response using AWS Bedrock."""
+        model = request.model or os.getenv("AWS_BEDROCK_DEFAULT_MODEL", self.DEFAULT_MODEL)
         provider = extract_provider(model)
-        
+        start_time = time.time()
         if provider == "anthropic":
-            input_body = self._prepare_anthropic_input(messages, temperature, max_tokens)
+            input_body = self._prepare_anthropic_input(request.messages, request.temperature, request.max_tokens)
         elif provider == "amazon":
-            input_body = self._prepare_amazon_input(messages, temperature, max_tokens)
+            input_body = self._prepare_amazon_input(request.messages, request.temperature, request.max_tokens)
         elif provider == "meta":
-            input_body = self._prepare_meta_input(messages, temperature, max_tokens)
+            input_body = self._prepare_meta_input(request.messages, request.temperature, request.max_tokens)
         elif provider == "mistral":
-            input_body = self._prepare_mistral_input(messages, temperature, max_tokens)
+            input_body = self._prepare_mistral_input(request.messages, request.temperature, request.max_tokens)
         else:
-            input_body = self._prepare_generic_input(messages, temperature, max_tokens)
+            input_body = self._prepare_generic_input(request.messages, request.temperature, request.max_tokens)
         
         response = self.client.invoke_model(
             body=json.dumps(input_body),
@@ -85,31 +111,60 @@ class AWSBedrockProvider(LLMProvider):
             contentType="application/json"
         )
         
-        return self._parse_response(response, provider)
+        response_ms = (time.time() - start_time) * 1000
+        content = self._parse_response(response, provider)
+        
+        message = Message(
+            role=MessageRole.ASSISTANT,
+            content=content
+        )
+        
+        choice = Choice(
+            index=0,
+            message=message,
+            finish_reason="stop"
+        )
+        
+        prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+        prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
+        completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0
+        
+        usage = TokenUsage(
+            prompt_tokens=int(prompt_tokens),
+            completion_tokens=int(completion_tokens),
+            total_tokens=int(prompt_tokens + completion_tokens)
+        )
+        
+        usage = self._calculate_costs(usage, model)
+        
+        return CompletionResponse(
+            id=f"bedrock-{int(time.time())}",
+            model=model,
+            created=int(time.time()),
+            choices=[choice],
+            usage=usage,
+            response_ms=response_ms
+        )
     
     async def stream_generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> AsyncGenerator[str, None]:
+        request: CompletionRequest
+    ) -> AsyncGenerator[StreamingResponse, None]:
         """Stream a response using AWS Bedrock."""
+        model = request.model
         provider = extract_provider(model)
         
+        # Prepare input based on provider
         if provider == "anthropic":
-            input_body = self._prepare_anthropic_input(messages, temperature, max_tokens)
+            input_body = self._prepare_anthropic_input(request.messages, request.temperature, request.max_tokens)
         elif provider == "amazon":
-            input_body = self._prepare_amazon_input(messages, temperature, max_tokens)
+            input_body = self._prepare_amazon_input(request.messages, request.temperature, request.max_tokens)
         elif provider == "meta":
-            input_body = self._prepare_meta_input(messages, temperature, max_tokens)
+            input_body = self._prepare_meta_input(request.messages, request.temperature, request.max_tokens)
         elif provider == "mistral":
-            input_body = self._prepare_mistral_input(messages, temperature, max_tokens)
+            input_body = self._prepare_mistral_input(request.messages, request.temperature, request.max_tokens)
         else:
-            input_body = self._prepare_generic_input(messages, temperature, max_tokens)
+            input_body = self._prepare_generic_input(request.messages, request.temperature, request.max_tokens)
         
         response = self.client.invoke_model_with_response_stream(
             body=json.dumps(input_body),
@@ -118,11 +173,56 @@ class AWSBedrockProvider(LLMProvider):
             contentType="application/json"
         )
         
+        chunk_count = 0
+        accumulated_content = ""
+        
         for event in response["body"]:
+            chunk_count += 1
             chunk = json.loads(event["chunk"]["bytes"])
             text = self._extract_chunk_text(chunk, provider)
+            
             if text:
-                yield text
+                accumulated_content += text
+                
+                choice = StreamChoice(
+                    index=0,
+                    delta={"content": text},
+                    finish_reason=None
+                )
+                
+                yield StreamingResponse(
+                    id=f"bedrock-{int(time.time())}-{chunk_count}",
+                    model=model,
+                    created=int(time.time()),
+                    choices=[choice]
+                )
+        
+        if accumulated_content:
+            prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+            prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
+            completion_tokens = max(len(accumulated_content.split()) * 1.3, 1)
+            
+            usage = TokenUsage(
+                prompt_tokens=int(prompt_tokens),
+                completion_tokens=int(completion_tokens),
+                total_tokens=int(prompt_tokens + completion_tokens)
+            )
+            
+            usage = self._calculate_costs(usage, model)
+            
+            choice = StreamChoice(
+                index=0,
+                delta={},
+                finish_reason="stop"
+            )
+            
+            yield StreamingResponse(
+                id=f"bedrock-{int(time.time())}-final",
+                model=model,
+                created=int(time.time()),
+                choices=[choice],
+                usage=usage
+            )
     
     def _prepare_anthropic_input(self, messages: list[dict[str, str]], temperature: float | None, max_tokens: int | None) -> dict:
         """Prepare input for Anthropic models."""

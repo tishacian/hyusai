@@ -1,79 +1,269 @@
 """
-DeepSeek provider implementation.
+DeepSeek LLM provider implementation.
 """
 import os
+import time
 import logging
 from collections.abc import AsyncGenerator
 
 from openai import AsyncOpenAI
 
 from ..base import LLMProvider
+from ..models import (
+    CompletionRequest,
+    CompletionResponse,
+    Choice,
+    Message,
+    MessageRole,
+    StreamingResponse,
+    StreamChoice,
+    TokenUsage,
+)
 
 
 class DeepSeekProvider(LLMProvider):
-    """DeepSeek LLM provider implementation."""
+    """
+    DeepSeek LLM provider implementation.
     
-    def __init__(self, api_key: str | None = None, base_url: str | None = None, **kwargs):
-        """Initialize the DeepSeek provider."""
+    Handles communication with DeepSeek's API for text generation.
+    Uses Pydantic models for type-safe request/response handling.
+    """
+    
+    # Default model and base URL
+    DEFAULT_MODEL = "deepseek-chat"
+    DEFAULT_BASE_URL = "https://api.deepseek.com"
+    
+    # Model pricing per 1000 tokens (approximate)
+    MODEL_PRICING = {
+        "deepseek-chat": {"input": 0.00014, "output": 0.00028},
+        "deepseek-coder": {"input": 0.00014, "output": 0.00028},
+        "deepseek-v3": {"input": 0.00027, "output": 0.0011},
+    }
+    
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        """
+        Initialize the DeepSeek provider.
+        
+        Args:
+            api_key: DeepSeek API key (defaults to DEEPSEEK_API_KEY environment variable)
+            base_url: DeepSeek API base URL (defaults to DEEPSEEK_API_BASE environment variable)
+        """
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
-        self.base_url = base_url or os.getenv("DEEPSEEK_API_BASE") or "https://api.deepseek.com"
+        self.base_url = base_url or os.getenv("DEEPSEEK_API_BASE", self.DEFAULT_BASE_URL)
         
         if not self.api_key:
             raise ValueError("DeepSeek API key is required")
         
         self.client = AsyncOpenAI(
             api_key=self.api_key,
-            base_url=self.base_url,
-            **kwargs
+            base_url=self.base_url
         )
+    
+    def _prepare_api_params(self, request: CompletionRequest, streaming: bool = False) -> dict:
+        """
+        Prepare parameters for DeepSeek API call.
+        
+        Args:
+            request: Validated CompletionRequest
+            streaming: Whether this is for streaming
+            
+        Returns:
+            Dictionary of parameters for DeepSeek API
+        """
+        # Use default model if not specified
+        model = request.model or os.getenv("DEEPSEEK_DEFAULT_MODEL", self.DEFAULT_MODEL)
+        
+        params = {
+            "model": model,
+            "messages": request.messages,
+        }
+        
+        if streaming:
+            params["stream"] = True
+        
+        # Add parameters that are supported
+        if request.temperature is not None:
+            params["temperature"] = request.temperature
+        
+        if request.max_tokens is not None:
+            params["max_tokens"] = request.max_tokens
+        
+        if request.top_p is not None:
+            params["top_p"] = request.top_p
+        
+        if request.n is not None:
+            params["n"] = request.n
+        
+        if request.stop:
+            params["stop"] = request.stop
+        
+        if request.presence_penalty is not None:
+            params["presence_penalty"] = request.presence_penalty
+        
+        if request.frequency_penalty is not None:
+            params["frequency_penalty"] = request.frequency_penalty
+        
+        if request.seed is not None:
+            params["seed"] = request.seed
+        
+        if request.user:
+            params["user"] = request.user
+        
+        if request.logit_bias is not None:
+            params["logit_bias"] = request.logit_bias
+        
+        return params
+    
+    def _calculate_costs(self, usage: TokenUsage, model: str) -> TokenUsage:
+        """
+        Calculate costs based on model pricing.
+        
+        Args:
+            usage: Token usage object
+            model: Model name
+            
+        Returns:
+            Updated usage with costs
+        """
+        # Find matching pricing
+        for model_key, pricing in self.MODEL_PRICING.items():
+            if model_key in model.lower():
+                usage.prompt_cost = usage.prompt_tokens * pricing["input"] / 1000
+                usage.completion_cost = usage.completion_tokens * pricing["output"] / 1000
+                usage.total_cost = usage.prompt_cost + usage.completion_cost
+                break
+        
+        return usage
     
     async def generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> str:
-        """Generate a response using DeepSeek."""
-        params = self._build_params(
-            model=model or "deepseek-chat",
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs
-        )
+        request: CompletionRequest
+    ) -> CompletionResponse:
+        """
+        Generate a response using DeepSeek's API.
         
+        Args:
+            request: Validated CompletionRequest with all parameters
+        
+        Returns:
+            CompletionResponse with choices, usage, and metadata
+        """
+        # Prepare API parameters
+        params = self._prepare_api_params(request)
+        
+        # Track timing
+        start_time = time.time()
+        
+        # Make the API call
         response = await self.client.chat.completions.create(**params)
-        return response.choices[0].message.content
+        
+        # Calculate response time
+        response_ms = (time.time() - start_time) * 1000
+        
+        # Convert DeepSeek response to our typed response
+        choices = []
+        for choice in response.choices:
+            message = Message(
+                role=MessageRole.ASSISTANT,
+                content=choice.message.content,
+            )
+            
+            choices.append(
+                Choice(
+                    index=choice.index,
+                    message=message,
+                    finish_reason=choice.finish_reason
+                )
+            )
+        
+        # Build usage info
+        usage = None
+        if response.usage:
+            usage = TokenUsage(
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens
+            )
+            
+            # Calculate costs
+            usage = self._calculate_costs(usage, response.model)
+        
+        return CompletionResponse(
+            id=response.id,
+            model=response.model,
+            created=response.created,
+            choices=choices,
+            usage=usage,
+            response_ms=response_ms
+        )
     
     async def stream_generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> AsyncGenerator[str, None]:
-        """Stream a response using DeepSeek."""
-        params = self._build_params(
-            model=model or "deepseek-chat",
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            **kwargs
-        )
+        request: CompletionRequest
+    ) -> AsyncGenerator[StreamingResponse, None]:
+        """
+        Stream a response using DeepSeek's API.
         
+        Args:
+            request: Validated CompletionRequest with all parameters
+        
+        Returns:
+            AsyncGenerator yielding StreamingResponse chunks
+        """
+        # Prepare API parameters
+        params = self._prepare_api_params(request, streaming=True)
+        
+        # Make the streaming API call
         stream = await self.client.chat.completions.create(**params)
+        
+        chunk_count = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        
+        # Process each chunk
         async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
-    
-    def _build_params(self, **kwargs) -> dict:
-        """Build API parameters filtering out None values."""
-        return {k: v for k, v in kwargs.items() if v is not None}
+            chunk_count += 1
+            
+            # Convert DeepSeek chunk to our typed streaming response
+            choices = []
+            for choice in chunk.choices:
+                delta_dict = {}
+                
+                if choice.delta.content is not None:
+                    delta_dict["content"] = choice.delta.content
+                
+                if hasattr(choice.delta, 'role') and choice.delta.role:
+                    delta_dict["role"] = choice.delta.role
+                
+                choices.append(
+                    StreamChoice(
+                        index=choice.index,
+                        delta=delta_dict,
+                        finish_reason=choice.finish_reason
+                    )
+                )
+            
+            # Build usage info if present (usually in the last chunk)
+            usage = None
+            if hasattr(chunk, 'usage') and chunk.usage:
+                total_prompt_tokens = chunk.usage.prompt_tokens
+                total_completion_tokens = chunk.usage.completion_tokens
+                
+                usage = TokenUsage(
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
+                    total_tokens=total_prompt_tokens + total_completion_tokens
+                )
+                
+                # Calculate costs
+                usage = self._calculate_costs(usage, chunk.model)
+            
+            yield StreamingResponse(
+                id=chunk.id,
+                model=chunk.model,
+                created=chunk.created,
+                choices=choices,
+                usage=usage
+            )
+        
+        logging.debug(f"DeepSeek streaming complete: {chunk_count} chunks")

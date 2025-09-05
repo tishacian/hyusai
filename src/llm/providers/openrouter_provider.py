@@ -2,10 +2,21 @@
 OpenRouter LLM provider implementation.
 """
 import os
+import time
 import logging
 from collections.abc import AsyncGenerator
 from openai import AsyncOpenAI
 from ..base import LLMProvider
+from ..models import (
+    CompletionRequest,
+    CompletionResponse,
+    Choice,
+    Message,
+    MessageRole,
+    StreamingResponse,
+    StreamChoice,
+    TokenUsage,
+)
 
 
 class OpenRouterProvider(LLMProvider):
@@ -91,131 +102,232 @@ class OpenRouterProvider(LLMProvider):
 
         return cleaned
 
+    def _calculate_costs(self, usage: TokenUsage, model: str) -> TokenUsage:
+        """
+        Calculate costs based on model pricing.
+        
+        Args:
+            usage: Token usage object
+            model: Model name
+            
+        Returns:
+            Updated usage with costs (OpenRouter handles billing separately)
+        """
+        # OpenRouter handles its own billing, so we don't calculate costs here
+        usage.prompt_cost = 0.0
+        usage.completion_cost = 0.0
+        usage.total_cost = 0.0
+        
+        return usage
+
     async def generate(
         self,
-        messages: list[dict[str, str]],
-        model: str = None,  # Will be set to default model
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> str:
+        request: CompletionRequest
+    ) -> CompletionResponse:
         """
         Generate a response using OpenRouter's API.
 
         Args:
-            messages: List of message dictionaries with 'role' and 'content' keys
-            model: OpenRouter model identifier (default: z-ai/glm-4.5)
-            temperature: Controls randomness (0.0 to 1.0)
-            max_tokens: Maximum number of tokens to generate
-            max_completion_tokens: Not used by OpenRouter, included for compatibility
-            reasoning_effort: Not used by OpenRouter, included for compatibility
-            **kwargs: Additional API parameters
+            request: Validated CompletionRequest with all parameters
 
         Returns:
-            Generated text response
+            CompletionResponse with choices, usage, and metadata
         """
         # Use default model if none provided
-        if model is None:
-            model = os.getenv("OPENROUTER_DEFAULT_MODEL", self.DEFAULT_MODEL)
+        model = request.model or os.getenv("OPENROUTER_DEFAULT_MODEL", self.DEFAULT_MODEL)
             
+        # Track timing
+        start_time = time.time()
+        
         # Prepare request parameters
         params: dict[str, object] = {
             "model": model,
-            "messages": messages,
+            "messages": request.messages,
             "extra_headers": self._get_headers()
         }
 
         # Add temperature if provided
-        if temperature is not None:
-            params["temperature"] = temperature
+        if request.temperature is not None:
+            params["temperature"] = request.temperature
 
         # Add max tokens if provided
-        if max_tokens is not None:
-            params["max_tokens"] = max_tokens
-        elif max_completion_tokens is not None:
+        if request.max_tokens is not None:
+            params["max_tokens"] = request.max_tokens
+        elif request.max_completion_tokens is not None:
             # Use max_completion_tokens as fallback
-            params["max_tokens"] = max_completion_tokens
+            params["max_tokens"] = request.max_completion_tokens
 
-        # Add any additional parameters and clean them
-        params.update(kwargs)
+        # Add optional parameters
+        if request.top_p is not None:
+            params["top_p"] = request.top_p
+        
+        if request.stop:
+            params["stop"] = request.stop
+        
+        if request.presence_penalty is not None:
+            params["presence_penalty"] = request.presence_penalty
+        
+        if request.frequency_penalty is not None:
+            params["frequency_penalty"] = request.frequency_penalty
+        
+        if request.seed is not None:
+            params["seed"] = request.seed
+        if request.n is not None:
+            params["n"] = request.n
+        if request.logit_bias is not None:
+            params["logit_bias"] = request.logit_bias
+        if request.user:
+            params["user"] = request.user
+
+        # Clean parameters
         params = self._clean_params(params)
 
         # Make the API call
         response = await self.client.chat.completions.create(**params)
+        
+        # Calculate response time
+        response_ms = (time.time() - start_time) * 1000
 
-        # Extract and return the response content
-        if response.choices and len(response.choices) > 0:
-            return response.choices[0].message.content or ""
-        else:
-            logging.warning("Empty response from OpenRouter API")
-            return ""
+        # Convert to our typed response
+        choices = []
+        for choice in response.choices:
+            message = Message(
+                role=MessageRole.ASSISTANT,
+                content=choice.message.content
+            )
+            choices.append(
+                Choice(
+                    index=choice.index,
+                    message=message,
+                    finish_reason=choice.finish_reason
+                )
+            )
+
+        # Build usage info
+        usage = None
+        if hasattr(response, 'usage') and response.usage:
+            usage = TokenUsage(
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens
+            )
+            # Calculate costs (OpenRouter handles billing separately)
+            usage = self._calculate_costs(usage, model)
+
+        return CompletionResponse(
+            id=response.id,
+            model=response.model,
+            created=response.created,
+            choices=choices,
+            usage=usage,
+            response_ms=response_ms
+        )
 
     async def stream_generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,  # Required to match base class signature
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> AsyncGenerator[str, None]:
+        request: CompletionRequest
+    ) -> AsyncGenerator[StreamingResponse, None]:
         """
         Stream a response using OpenRouter's API.
 
         Args:
-            messages: List of message dictionaries with 'role' and 'content' keys
-            model: OpenRouter model identifier (default: z-ai/glm-4.5)
-            temperature: Controls randomness (0.0 to 1.0)
-            max_tokens: Maximum number of tokens to generate
-            max_completion_tokens: Not used by OpenRouter, included for compatibility
-            reasoning_effort: Not used by OpenRouter, included for compatibility
-            **kwargs: Additional API parameters
+            request: Validated CompletionRequest with all parameters
 
         Returns:
-            AsyncGenerator yielding chunks of the response as they become available
+            AsyncGenerator yielding StreamingResponse chunks
         """
-        # No defaulting here; model must be provided by caller per base interface
+        # Use the model from request (required by base interface)
+        model = request.model
         logging.debug(f"Starting OpenRouter streaming with model: {model}")
 
         # Prepare request parameters
         params: dict[str, object] = {
             "model": model,
-            "messages": messages,
+            "messages": request.messages,
             "stream": True,
             "extra_headers": self._get_headers()
         }
 
         # Add temperature if provided
-        if temperature is not None:
-            params["temperature"] = temperature
+        if request.temperature is not None:
+            params["temperature"] = request.temperature
 
         # Add max tokens if provided
-        if max_tokens is not None:
-            params["max_tokens"] = max_tokens
-        elif max_completion_tokens is not None:
+        if request.max_tokens is not None:
+            params["max_tokens"] = request.max_tokens
+        elif request.max_completion_tokens is not None:
             # Use max_completion_tokens as fallback
-            params["max_tokens"] = max_completion_tokens
+            params["max_tokens"] = request.max_completion_tokens
 
-        # Add any additional parameters and clean them
-        params.update(kwargs)
+        # Add optional parameters
+        if request.top_p is not None:
+            params["top_p"] = request.top_p
+        
+        if request.stop:
+            params["stop"] = request.stop
+        
+        if request.presence_penalty is not None:
+            params["presence_penalty"] = request.presence_penalty
+        
+        if request.frequency_penalty is not None:
+            params["frequency_penalty"] = request.frequency_penalty
+        
+        if request.seed is not None:
+            params["seed"] = request.seed
+
+        # Clean parameters
         params = self._clean_params(params)
 
         # Stream the response
         chunk_count = 0
-        total_tokens = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
 
         stream = await self.client.chat.completions.create(**params)
 
         async for chunk in stream:
-            if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
-                chunk_content = chunk.choices[0].delta.content
-                chunk_count += 1
-                total_tokens += len(chunk_content)
-                if chunk_count % 10 == 0:
-                    logging.debug(f"OpenRouter streaming: received {chunk_count} chunks, {total_tokens} chars so far")
-                yield chunk_content
+            chunk_count += 1
+            
+            # Convert to our typed streaming response
+            choices = []
+            for choice in chunk.choices:
+                delta_dict = {}
+                
+                if choice.delta.content is not None:
+                    delta_dict["content"] = choice.delta.content
+                
+                if hasattr(choice.delta, 'role') and choice.delta.role:
+                    delta_dict["role"] = choice.delta.role
+                
+                choices.append(
+                    StreamChoice(
+                        index=choice.index,
+                        delta=delta_dict,
+                        finish_reason=choice.finish_reason
+                    )
+                )
+            
+            # Build usage info if present (usually in the last chunk)
+            usage = None
+            if hasattr(chunk, 'usage') and chunk.usage:
+                total_prompt_tokens = chunk.usage.prompt_tokens
+                total_completion_tokens = chunk.usage.completion_tokens
+                
+                usage = TokenUsage(
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
+                    total_tokens=total_prompt_tokens + total_completion_tokens
+                )
+                
+                # Calculate costs (OpenRouter handles billing separately)
+                usage = self._calculate_costs(usage, model)
+            
+            yield StreamingResponse(
+                id=chunk.id,
+                model=chunk.model,
+                created=chunk.created,
+                choices=choices,
+                usage=usage
+            )
 
-        logging.debug(f"OpenRouter streaming complete: {chunk_count} chunks, {total_tokens} chars total")
+        logging.debug(f"OpenRouter streaming complete: {chunk_count} chunks")

@@ -2,15 +2,30 @@
 llama.cpp provider implementation.
 """
 import os
+import time
+import logging
 from collections.abc import AsyncGenerator
 
 from openai import AsyncOpenAI
 
 from ..base import LLMProvider
+from ..models import (
+    CompletionRequest,
+    CompletionResponse,
+    Choice,
+    Message,
+    MessageRole,
+    StreamingResponse,
+    StreamChoice,
+    TokenUsage,
+)
 
 
 class LlamaCppProvider(LLMProvider):
     """llama.cpp LLM provider implementation."""
+    
+    # Default model
+    DEFAULT_MODEL = "llamacpp"
     
     def __init__(
         self, 
@@ -32,168 +47,157 @@ class LlamaCppProvider(LLMProvider):
             **kwargs
         )
     
+    def _calculate_costs(self, usage: TokenUsage, model: str) -> TokenUsage:
+        """Calculate costs based on model pricing."""
+        usage.prompt_cost = 0.0
+        usage.completion_cost = 0.0
+        usage.total_cost = 0.0
+        return usage
+    
     async def generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> str:
+        request: CompletionRequest
+    ) -> CompletionResponse:
         """Generate a response using llama.cpp."""
-        try:
-            # Try OpenAI-compatible API first (newer llama.cpp servers)
-            params = self._build_params(
-                model=model or "llamacpp",
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                **kwargs
+        model = request.model or os.getenv("LLAMACPP_DEFAULT_MODEL", self.DEFAULT_MODEL)
+        start_time = time.time()
+        
+        params = self._build_params(
+            model=model,
+            messages=request.messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens or request.max_completion_tokens,
+            top_p=request.top_p,
+            n=request.n,
+            stop=request.stop,
+            presence_penalty=request.presence_penalty,
+            frequency_penalty=request.frequency_penalty,
+            seed=request.seed,
+            logit_bias=request.logit_bias
+        )
+        
+        response = await self.client.chat.completions.create(**params)
+        response_ms = (time.time() - start_time) * 1000
+        
+        choices = []
+        for choice in response.choices:
+            message = Message(
+                role=MessageRole.ASSISTANT,
+                content=choice.message.content
             )
+            choices.append(
+                Choice(
+                    index=choice.index,
+                    message=message,
+                    finish_reason=choice.finish_reason
+                )
+            )
+        
+        usage = None
+        if hasattr(response, 'usage') and response.usage:
+            usage = TokenUsage(
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens
+            )
+        else:
+            prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+            content = choices[0].message.content if choices else ""
+            prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
+            completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0
             
-            response = await self.client.chat.completions.create(**params)
-            return response.choices[0].message.content or ""
-            
-        except Exception:
-            # Fallback to legacy completion endpoint
-            return await self._legacy_generate(messages, model, temperature, max_tokens, **kwargs)
+            usage = TokenUsage(
+                prompt_tokens=int(prompt_tokens),
+                completion_tokens=int(completion_tokens),
+                total_tokens=int(prompt_tokens + completion_tokens)
+            )
+        
+        usage = self._calculate_costs(usage, model)
+        
+        return CompletionResponse(
+            id=response.id if hasattr(response, 'id') else f"llamacpp-{int(time.time())}",
+            model=model,
+            created=response.created if hasattr(response, 'created') else int(time.time()),
+            choices=choices,
+            usage=usage,
+            response_ms=response_ms
+        )
     
     async def stream_generate(
         self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        max_completion_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-        **kwargs
-    ) -> AsyncGenerator[str, None]:
+        request: CompletionRequest
+    ) -> AsyncGenerator[StreamingResponse, None]:
         """Stream a response using llama.cpp."""
-        try:
-            # Try OpenAI-compatible API first (newer llama.cpp servers)
-            params = self._build_params(
-                model=model or "llamacpp",
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stream=True,
-                **kwargs
-            )
+        model = request.model
+        
+        params = self._build_params(
+            model=model,
+            messages=request.messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens or request.max_completion_tokens,
+            top_p=request.top_p,
+            n=request.n,
+            stop=request.stop,
+            presence_penalty=request.presence_penalty,
+            frequency_penalty=request.frequency_penalty,
+            seed=request.seed,
+            logit_bias=request.logit_bias,
+            stream=True
+        )
+        
+        chunk_count = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        
+        stream = await self.client.chat.completions.create(**params)
+        
+        async for chunk in stream:
+            chunk_count += 1
             
-            stream = await self.client.chat.completions.create(**params)
-            async for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
-                    
-        except Exception:
-            # Fallback to legacy completion endpoint
-            async for chunk in self._legacy_stream_generate(messages, model, temperature, max_tokens, **kwargs):
-                yield chunk
+            choices = []
+            for choice in chunk.choices:
+                delta_dict = {}
+                
+                if choice.delta.content is not None:
+                    delta_dict["content"] = choice.delta.content
+                
+                if hasattr(choice.delta, 'role') and choice.delta.role:
+                    delta_dict["role"] = choice.delta.role
+                
+                choices.append(
+                    StreamChoice(
+                        index=choice.index,
+                        delta=delta_dict,
+                        finish_reason=choice.finish_reason
+                    )
+                )
+            
+            usage = None
+            if hasattr(chunk, 'usage') and chunk.usage:
+                total_prompt_tokens = chunk.usage.prompt_tokens
+                total_completion_tokens = chunk.usage.completion_tokens
+                
+                usage = TokenUsage(
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
+                    total_tokens=total_prompt_tokens + total_completion_tokens
+                )
+                
+                usage = self._calculate_costs(usage, model)
+            
+            yield StreamingResponse(
+                id=chunk.id if hasattr(chunk, 'id') else f"llamacpp-{int(time.time())}-{chunk_count}",
+                model=model,
+                created=chunk.created if hasattr(chunk, 'created') else int(time.time()),
+                choices=choices,
+                usage=usage
+            )
+        
+        logging.debug(f"llama.cpp streaming complete: {chunk_count} chunks")
     
     def _build_params(self, **kwargs) -> dict:
-        """Build API parameters filtering out None values."""
+        """Build API parameters filtering out None values and unsupported parameters."""
+        kwargs.pop('max_completion_tokens', None)
+        kwargs.pop('reasoning_effort', None)
         return {k: v for k, v in kwargs.items() if v is not None}
     
-    async def _legacy_generate(
-        self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        **kwargs
-    ) -> str:
-        """Generate using legacy llama.cpp completion endpoint."""
-        import aiohttp
-        
-        prompt = self._messages_to_prompt(messages)
-        
-        params = {
-            "prompt": prompt,
-            "temperature": temperature or 0.0,
-            "n_predict": max_tokens or 512,
-            "stop": ["<|im_end|>", "User:", "Assistant:", "\n\n"],
-            "stream": False,
-            **kwargs
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self.base_url}/completion",
-                json=params,
-                headers={"Content-Type": "application/json"}
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise RuntimeError(f"llama.cpp API error {response.status}: {error_text}")
-                
-                result = await response.json()
-                return result.get("content", "").strip()
-    
-    async def _legacy_stream_generate(
-        self,
-        messages: list[dict[str, str]],
-        model: str,
-        temperature: float | None = 0.0,
-        max_tokens: int | None = None,
-        **kwargs
-    ) -> AsyncGenerator[str, None]:
-        """Stream using legacy llama.cpp completion endpoint."""
-        import aiohttp
-        import json
-        
-        prompt = self._messages_to_prompt(messages)
-        
-        params = {
-            "prompt": prompt,
-            "temperature": temperature or 0.0,
-            "n_predict": max_tokens or 512,
-            "stop": ["<|im_end|>", "User:", "Assistant:", "\n\n"],
-            "stream": True,
-            **kwargs
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self.base_url}/completion",
-                json=params,
-                headers={"Content-Type": "application/json"}
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise RuntimeError(f"llama.cpp API error {response.status}: {error_text}")
-                
-                async for line in response.content:
-                    line_text = line.decode('utf-8').strip()
-                    if line_text.startswith("data: "):
-                        data_str = line_text[6:]
-                        if data_str == "[DONE]":
-                            break
-                        
-                        try:
-                            chunk_data = json.loads(data_str)
-                            if "content" in chunk_data:
-                                content = chunk_data["content"]
-                                if content:
-                                    yield content
-                        except json.JSONDecodeError:
-                            continue
-
-    def _messages_to_prompt(self, messages: list[dict[str, str]]) -> str:
-        """Convert messages to a single prompt string."""
-        prompt_parts = []
-        
-        for message in messages:
-            role = message.get("role", "user")
-            content = message.get("content", "")
-            
-            if role == "system":
-                prompt_parts.append(f"System: {content}")
-            elif role == "user":
-                prompt_parts.append(f"User: {content}")
-            elif role == "assistant":
-                prompt_parts.append(f"Assistant: {content}")
-        
-        prompt_parts.append("Assistant:")
-        return "\n".join(prompt_parts)
