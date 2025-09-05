@@ -27,11 +27,6 @@ def get_standalone_interface_config():
     return StandaloneInterfaceConfig()
 
 
-@cache
-def get_standalone_interface_config():
-    return StandaloneInterface()
-
-
-@cache
+@lru_cache(maxsize=None)
 def get_vlm_config():
     return VLM()
