@@ -2,8 +2,15 @@
 Main LLM class providing a unified interface for different LLM providers.
 """
 from collections.abc import AsyncGenerator
+from typing import Optional, Any
 
 from .base import LLMProvider
+from .models import (
+    CompletionRequest,
+    CompletionResponse,
+    StreamingResponse,
+    MessageParam,
+)
 from .providers import (
     OpenAIProvider,
     GeminiProvider,
@@ -33,7 +40,7 @@ class LLM:
     LLM abstraction class that routes requests to the appropriate provider.
 
     Serves as a factory for creating and managing different LLM providers,
-    providing a unified interface for text generation.
+    providing a unified interface for text generation with type-safe models.
     """
 
     PROVIDER_MAPPING = {
@@ -82,92 +89,160 @@ class LLM:
 
         # Initialize the provider
         provider_class = self.PROVIDER_MAPPING[self.provider_name]
-        self.provider = provider_class(api_key=api_key, **kwargs)
-
-
-
-    def _prepare_generation_params(self, max_tokens: int | None, temperature: float | None = 0.0, **kwargs) -> dict[str, object]:
-        """
-        Prepare parameters for generation.
-
-        Args:
-            max_tokens: Maximum number of tokens to generate
-            temperature: Controls randomness (0.0 to 1.0)
-            **kwargs: Additional generation parameters
-
-        Returns:
-            Dictionary of generation parameters
-        """
-        params: dict[str, object] = kwargs.copy()
-
-        # Remove 'provider' parameter if it exists to avoid passing it to the API
-        if 'provider' in params:
-            del params['provider']
-
-        # Add standard parameters
-        if max_tokens is not None:
-            params["max_tokens"] = max_tokens
-
-        if temperature is not None:
-            params["temperature"] = temperature
-
-        return params
+        self.provider: LLMProvider = provider_class(api_key=api_key, **kwargs)
 
     async def generate(
         self,
-        messages: list[dict[str, str]],
+        messages: list[MessageParam],
         model: str,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
         **kwargs
-    ) -> str:
+    ) -> CompletionResponse:
         """
         Generate a response using the configured provider.
 
         Args:
             messages: List of message dictionaries with 'role' and 'content' keys
-            model: Specific model name (required, e.g., "gpt-4o", "claude-3-5-sonnet-20241022")
+            model: Specific model name (required, e.g., "gpt-4o", "claude-3-5-sonnet")
             temperature: Controls randomness (0.0 to 1.0, ignored for thinking models)
             max_tokens: Maximum number of tokens to generate
             **kwargs: Additional provider-specific parameters
 
         Returns:
-            Generated text response
+            CompletionResponse with choices, usage, and metadata
         """
-        params = self._prepare_generation_params(max_tokens, temperature, **kwargs)
-
-        return await self.provider.generate(
-            messages=messages,
+        # Create a validated request
+        request = CompletionRequest(
             model=model,
-            **params
+            messages=messages,  # type: ignore - TypedDict compatibility
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs
         )
+        
+        # Call the provider with the validated request
+        return await self.provider.generate(request)
 
     async def stream_generate(
         self,
-        messages: list[dict[str, str]],
+        messages: list[MessageParam],
         model: str,
         temperature: float = 0.0,
-        max_tokens: int | None = None,
+        max_tokens: Optional[int] = None,
         **kwargs
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[StreamingResponse, None]:
         """
-        Generate a streaming response using the configured provider.
+        Stream a response using the configured provider.
 
         Args:
             messages: List of message dictionaries with 'role' and 'content' keys
-            model: Specific model name (required, e.g., "gpt-4o", "claude-3-5-sonnet-20241022")
-            temperature: Controls randomness (0.0 to 1.0, ignored for thinking models)
+            model: Specific model name (required, e.g., "gpt-4o", "claude-3-5-sonnet")
+            temperature: Controls randomness (0.0 to 1.0)
             max_tokens: Maximum number of tokens to generate
             **kwargs: Additional provider-specific parameters
 
         Returns:
-            AsyncGenerator yielding chunks of the response as they become available
+            AsyncGenerator yielding StreamingResponse chunks
         """
-        params = self._prepare_generation_params(max_tokens, temperature, **kwargs)
-
-        async for chunk in self.provider.stream_generate(
-            messages=messages,
+        # Create a validated request
+        request = CompletionRequest(
             model=model,
-            **params
-        ):
+            messages=messages,  # type: ignore - TypedDict compatibility
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+            **kwargs
+        )
+        
+        # Stream from the provider with the validated request
+        async for chunk in self.provider.stream_generate(request):
             yield chunk
+    
+    # Convenience methods for simple text generation
+    
+    async def complete(
+        self,
+        prompt: str,
+        model: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> str:
+        """
+        Simple text completion with automatic message formatting.
+        
+        Args:
+            prompt: User prompt text
+            model: Model to use
+            system_prompt: Optional system message
+            temperature: Controls randomness
+            max_tokens: Maximum tokens to generate
+            **kwargs: Additional parameters
+            
+        Returns:
+            Generated text content
+        """
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        
+        response = await self.generate(
+            messages=messages,  # type: ignore
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs
+        )
+        
+        # Extract text from response
+        if response.choices and response.choices[0].message.content:
+            return response.choices[0].message.content
+        return ""
+    
+    async def stream_complete(
+        self,
+        prompt: str,
+        model: str,
+        system_prompt: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> AsyncGenerator[str, None]:
+        """
+        Simple streaming text completion with automatic message formatting.
+        
+        Args:
+            prompt: User prompt text
+            model: Model to use
+            system_prompt: Optional system message
+            temperature: Controls randomness
+            max_tokens: Maximum tokens to generate
+            **kwargs: Additional parameters
+            
+        Yields:
+            Generated text chunks
+        """
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        
+        async for chunk in self.stream_generate(
+            messages=messages,  # type: ignore
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs
+        ):
+            # Extract content from streaming response
+            if chunk.choices and chunk.choices[0].delta:
+                content = chunk.choices[0].delta.get("content", "")
+                if content:
+                    yield content
+
+
+
+
