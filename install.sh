@@ -134,4 +134,5 @@ if command -v nvidia-smi >/dev/null 2>&1; then
 else
 	echo "CUDA not detected. Installing CPU requirements..."
 	pip install -r requirements/cpu.txt -r requirements/shared.txt -r requirements/standalone_interface.txt -r requirements/test.txt
-}
+fi
+
