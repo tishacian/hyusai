@@ -24,31 +24,54 @@ if not os.path.exists(VECTOR_STORE_PATH):
 # %%
 # -- Helper for suggestions
 HELP = {  # help suggestions..
-    "HuggingFace": "You can get theHuggingFace token from settings of your Huggingface account",
-    "LLM_Model": "An instruction LLM model well (distilled or not) necessary to provide the right anwser"
-    + "\n"
-    "toward the particular context",
-    "Instruction_Embedding": "An instruction LLM Embedding well suited to provide the right anwser"
-    + "\n"
-    + "toward the particular context",
-    "Vector_store": "A lsit vector embedding created using the instruction embedding",
-    "Temperature": "Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore"
-    + "\n"
-    + "diverse choices. A smaller temperature for confident tokens avoiding the influence "
-    + "\n"
-    + "of tail randomness noises",
-    "Max_characer": "The maximum number of characters to generated. This can be similar to the maximum token"
-    + "\n"
-    + " size of the embedding space. The default is set to 500.",
+    "HuggingFace": (
+        "You can get the HuggingFace token from settings of your "
+        "Huggingface account"
+    ),
+    "LLM_Model": (
+        "An instruction LLM model well (distilled or not) necessary to provide "
+        "the right answer"
+        + "\n"
+        "toward the particular context"
+    ),
+    "Instruction_Embedding": (
+        "An instruction LLM Embedding well suited to provide the right "
+        "answer"
+        + "\n"
+        + "toward the particular context"
+    ),
+    "Vector_store": (
+        "A list vector embedding created using the instruction embedding"
+    ),
+    "Temperature": (
+        "Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore"
+        + "\n"
+        + "diverse choices. A smaller temperature for confident tokens avoiding the influence "
+        + "\n"
+        + "of tail randomness noises"
+    ),
+    "Max_character": (
+        "The maximum number of characters to generated. This can be similar to the maximum token"
+        + "\n"
+        + " size of the embedding space. The default is set to 500."
+    ),
     "index_type": "Select desired vector types",
-    "pipeline": "Select the desired pipeline. Default is without Chain of Thought (COT)",
-    "template": "Select a template style of choice. Default is a simple template.",
-    "reranker": "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
-    + "\n"
-    + "The other is the Flash reranker, which uses a Cross-Encoder for reranking.",
-    "new_vector_store": "If choose <New> in the dropdown / multiselect box, name the new vector store. Otherwise, "
-    + "\n"
-    + "fill in the existing vector store to merge.",
+    "pipeline": (
+        "Select the desired pipeline. Default is without Chain of Thought (COT)"
+    ),
+    "template": (
+        "Select a template style of choice. Default is a simple template."
+    ),
+    "reranker": (
+        "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
+        + "\n"
+        + "The other is the Flash reranker, which uses a Cross-Encoder for reranking."
+    ),
+    "new_vector_store": (
+        "If choose <New> in the dropdown / multiselect box, name the new vector store. Otherwise, "
+        + "\n"
+        + "fill in the existing vector store to merge."
+    ),
 }
 
 # -- Template for LLM prompting -->
@@ -67,7 +90,9 @@ SUPPLEMENT = [
 ]
 
 # -- Embedding name
-EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best;  "sentence-transformers/all-MiniLM-L6-v2" (competitive)
+EMBEDDING_NAME = (
+    "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best; "sentence-transformers/all-MiniLM-L6-v2" (competitive)
+)
 
 SINGLE_FILE = 1  # single files
 RANDOM_SEED = 42
@@ -236,24 +261,28 @@ GPU_MEMORY_SAFETY_MARGIN = 2
 # Maximum trivial message length
 TRIVIAL_LEN: int = 100
 
+
 class PDFProcessingConfig(Enum):
     # PDF Processing method: "markdown_converter" or "ocr"
     PDF_PROCESSING_METHOD = "markdown_converter"
-    
+
     # "ocr" fallback when markdown fails
     ENABLE_FALLBACK = True
     FALLBACK_METHOD = "ocr"
-    
+
     # OCR-specific settings (when using OCR method)
     OCR_DPI = 150
     OCR_FORCE_OCR = True
-    
+
     # Markdown converter settings (when using markdown method)
     ENABLE_VLM = False
     VLM_MODEL = "smolvlm-256m"
     EXTRACT_IMAGES = True
     EXTRACT_TABLES = True
-    
+
+    # File saving settings
+    DISABLE_FILE_SAVING = get_backend_config().disable_file_saving
+
     # Performance settings
     MAX_WORKERS = 4
     TIMEOUT_SECONDS = 300
@@ -280,4 +309,3 @@ class VLMConfig(Enum):
     DEVICE = get_vlm_config().device
     USE_FLASH_ATTENTION = get_vlm_config().use_flash_attention
     TORCH_DTYPE = get_vlm_config().torch_dtype
-
