@@ -35,6 +35,7 @@ from src.imageextractor import (
     prepare_images_for_vlm_inference,
     PDFImageExtractor,
 )
+from src.globalvariables import PDFProcessingConfig
 
 
 @dataclass
@@ -66,6 +67,7 @@ class ConverterConfig:
     include_summary: bool = True
     export_excel: bool = True
     filter_nonexistent_images: bool = True
+    disable_file_saving: bool = PDFProcessingConfig.DISABLE_FILE_SAVING.value
 
     def __post_init__(self) -> None:
         """
@@ -290,7 +292,7 @@ class PDFToMarkdownConverter:
         self.images_dir = output_paths["images_dir"]
 
         try:
-            if self.config.extract_images:
+            if self.config.extract_images and not self.config.disable_file_saving:
                 self._extract_images_with_positions(
                     pdf_path, output_paths["images_dir"]
                 )
@@ -301,15 +303,25 @@ class PDFToMarkdownConverter:
                 await self._process_images_with_vlm(output_paths["images_dir"])
                 markdown_content = self.markdown_with_vlm(markdown_content)
 
-            self._write_markdown_file(
-                output_paths["markdown"], markdown_content
-            )
+            if not self.config.disable_file_saving:
+                self._write_markdown_file(
+                    output_paths["markdown"], markdown_content
+                )
 
-            if self.config.export_excel:
-                self._export_structure_to_excel(output_paths["excel"])
+                if self.config.export_excel:
+                    self._export_structure_to_excel(output_paths["excel"])
 
             self.stats["processing_time"] = time.time() - start_time
             self.stats["file_size"] = os.path.getsize(pdf_path)
+
+            # Return empty paths if file saving is disabled
+            if self.config.disable_file_saving:
+                return {
+                    "markdown": "",
+                    "excel": "",
+                    "images_dir": "",
+                    "output_dir": "",
+                }
 
             return output_paths
 
