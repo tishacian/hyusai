@@ -10,6 +10,8 @@ from pathlib import Path
 import fitz
 from PIL import Image
 
+from src.globalvariables import PDFProcessingConfig
+
 
 @dataclass
 class ImageExtractionResult:
@@ -47,6 +49,7 @@ class ImageExtractionConfig:
     output_directory: str = "images"
     filename_pattern: str = "image_{page}_{index}"
     add_checksum_to_filename: bool = False
+    disable_file_saving: bool = PDFProcessingConfig.DISABLE_FILE_SAVING.value
 
 
 class ImageFormatDetector:
@@ -546,6 +549,18 @@ class PDFImageExtractor:
             Result of save operation.
         """
         try:
+            # If file saving is disabled, return success without saving
+            if self.config.disable_file_saving:
+                return ImageExtractionResult(
+                    success=True,
+                    image_path="",  # Empty path since no file was saved
+                    original_format=format_name,
+                    file_size=len(img_data),
+                    dimensions=(0, 0),  # Would need to decode image to get dimensions
+                    checksum=hashlib.md5(img_data).hexdigest(),
+                    extraction_method="skip_save"
+                )
+
             os.makedirs(output_dir, exist_ok=True)
 
             base_name = self.config.filename_pattern.format(
