@@ -23,14 +23,13 @@ from langchain_community.document_loaders import UnstructuredEmailLoader
 from PIL import Image, ImageEnhance
 
 from src.globalvariables import OCRConfig
-from src.utils import get_tesseract_path
+from src.utils import get_tesseract_path, configure_tesseract
 
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-from src.utils import configure_tesseract
 
 tesseract_path, TESSERACT_AVAILABLE = configure_tesseract()
 
@@ -88,7 +87,8 @@ class PDFExtractor:
                 logging.info(f"Found Tesseract at: {tesseract_path}")
             else:
                 logging.info(
-                    "Tesseract not found in any standard locations. OCR will be disabled."
+                    "Tesseract not found in any standard locations. "
+                    "OCR will be disabled."
                 )
 
         if self.use_ocr and tesseract_path:
@@ -178,7 +178,8 @@ class PDFExtractor:
                 return page_num, self._ocr_cache[img_hash]
 
             enhanced_img = self._enhance_image(img)
-            # psm (page segmentation --> 4 single column): 3 -- preserving; engine mode 1 --> LSTM engine
+            # psm (page segmentation --> 4 single column): 3 -- preserving;
+            # engine mode 1 --> LSTM engine
             config = f"--psm 3 --oem 1 {self.lang}"
             text = pytesseract.image_to_string(enhanced_img, config=config)
             self._ocr_cache[img_hash] = text
@@ -265,7 +266,7 @@ class PDFExtractor:
                 batch_size = min(6, self.max_workers * 2)
                 try:
                     for i in range(0, len(pages_needing_ocr), batch_size):
-                        batch_nums = pages_needing_ocr[i : i + batch_size]
+                        batch_nums = pages_needing_ocr[i:i + batch_size]
                         batch = []
                         for page_num in batch_nums:
                             page = doc[page_num]
@@ -395,7 +396,9 @@ class OCRPDFLoader:
                 )
                 return [
                     Document(
-                        page_content="No text could be extracted from this document.",
+                        page_content=(
+                            "No text could be extracted from this document."
+                        ),
                         metadata={
                             "source": self.file_path,
                             "extraction_error": "empty_content",

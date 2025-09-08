@@ -12,3 +12,8 @@ class BackendConfig(BaseSettings):
     ignoring the digital text content.
     `disable_ocr_for_pdf` is expected to be `False` when using this variable.
     """
+
+    disable_file_saving: bool = False
+    """If True, disables saving of all output files (images, markdown, xlsx, etc.).
+    This is useful for processing documents without creating output files.
+    """

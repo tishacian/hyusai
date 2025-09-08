@@ -4,9 +4,10 @@ import faiss
 import pickle
 import logging
 import numpy as np
-from datetime import datetime
+import psutil
 from typing import Optional
 from functools import lru_cache
+from datetime import datetime
 from src.globalvariables import (
     VECTOR_STORE_PATH,
     IndexType,
@@ -15,6 +16,8 @@ from src.globalvariables import (
 from src.embeddingloader import EmbeddingModelLoader
 from langchain_community.vectorstores import Chroma
 from src.chunker import cache_chunker_embedding_chain, BM25Retriever
+
+USE_DYNAMIC_BATCHING_GLOBAL = True
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -552,6 +555,50 @@ class EmbeddingVectors:
             logging.error(f"Error validating normalization consistency: {e}")
             return False
 
+    def _calculate_dynamic_batch_size(self, texts, base_batch_size=32):
+        """
+        Calculate optimal batch size based on available memory and text 
+        characteristics.
+        
+        Parameters:
+            texts (list): List of text chunks
+            base_batch_size (int): Base batch size to start with
+            
+        Returns:
+            int: Optimal batch size
+        """
+        try:
+            available_memory = psutil.virtual_memory().available
+            memory_gb = available_memory / (1024**3)
+            avg_text_length = np.mean([len(text) for text in texts]) if texts else 1000
+            estimated_memory_per_text = avg_text_length * 0.001
+            # Reserve 70% of available memory for embeddings
+            safe_memory = memory_gb * 0.7
+            max_batch_by_memory = int((safe_memory * 1024) / estimated_memory_per_text)
+            base_dimension = 768
+            dimension_factor = max(1, self.embedding_dimension / base_dimension)
+            adjusted_batch_size = max_batch_by_memory // dimension_factor
+            min_batch_size = 1
+            max_batch_size = min(128, len(texts))  # Cap at 128 or total texts
+            
+            optimal_batch_size = max(min_batch_size, 
+                                   min(max_batch_size, adjusted_batch_size))
+            
+            if optimal_batch_size < 1:
+                optimal_batch_size = base_batch_size
+                
+            logging.info(f"Dynamic batch size calculated: {optimal_batch_size} "
+                        f"(available memory: {memory_gb:.1f}GB, "
+                        f"avg text length: {avg_text_length:.0f}, "
+                        f"embedding dim: {self.embedding_dimension})")
+            
+            return optimal_batch_size
+            
+        except Exception as e:
+            logging.warning(f"Failed to calculate dynamic batch size: {e}. "
+                           f"Using base batch size: {base_batch_size}")
+            return base_batch_size
+
     @classmethod
     async def create_async(
         cls,
@@ -592,18 +639,34 @@ class EmbeddingVectors:
         )
         return instance
 
-    def create_embeddings(self, texts, batch_size: Optional[int] = None):
+    def create_embeddings(self, texts, batch_size: Optional[int] = None, 
+                          use_dynamic_batching: Optional[bool] = None):
         """
         Create_embeddings.
-        Creates embeddings using pre-loaded SentenceTransformer or tokenizer based on availability.
+        Creates embeddings using pre-loaded SentenceTransformer or tokenizer 
+        based on availability.
 
         Parameters:
             texts (str): input texts
+            batch_size (int, optional): Fixed batch size. Default is 32.
+            use_dynamic_batching (bool, optional): Whether to use dynamic batch sizing. 
+                                       If None, uses global configuration.
 
         Returns:
             np.array: The embedding vectors
         """
-        self.batch_size = 32 if not batch_size else batch_size
+        if use_dynamic_batching is None:
+            use_dynamic_batching = USE_DYNAMIC_BATCHING_GLOBAL
+            
+        # Determine batch size
+        if use_dynamic_batching:
+            self.batch_size = self._calculate_dynamic_batch_size(texts, 32)
+        else:
+            self.batch_size = 32 if not batch_size else batch_size
+            
+        logging.info(f"Using batch size: {self.batch_size} "
+                    f"(dynamic batching: {use_dynamic_batching})")
+        
         try:
             if not texts or len(texts) == 0:
                 logging.error("🚩 Empty texts array received")
@@ -1104,7 +1167,9 @@ class EmbeddingVectors:
                             existing_embeddings = self.create_embeddings(
                                 existing_texts
                             )
-                            new_embeddings = self.create_embeddings(texts)
+                            new_embeddings = self.create_embeddings(
+                                texts
+                            )
                             combined_embeddings = np.vstack(
                                 [existing_embeddings, new_embeddings]
                             )
@@ -1243,12 +1308,17 @@ class EmbeddingVectors:
             )
             raise
 
-    def create_and_save_index(self, texts):
+    def create_and_save_index(self, texts, batch_size: Optional[int] = None, 
+                             use_dynamic_batching: Optional[bool] = None):
         """
-        Create and save the index -- vector DB with improved validation and error handling
+        Create and save the index -- vector DB with improved validation and 
+        error handling
 
         Parameters:
             texts (str): input texts
+            batch_size (int, optional): Fixed batch size. Default is 32.
+            use_dynamic_batching (bool, optional): Whether to use dynamic batch sizing. 
+                                       If None, uses global configuration.
 
         Return
             None
@@ -1258,7 +1328,9 @@ class EmbeddingVectors:
                 logging.error("🚩 Empty texts array received")
                 return
 
-            self.embeddings = self.create_embeddings(texts)
+            self.embeddings = self.create_embeddings(
+                texts, batch_size, use_dynamic_batching
+            )
             if self.embeddings is None or len(self.embeddings) == 0:
                 logging.error("🚩 Failed to create embeddings")
                 return

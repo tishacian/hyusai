@@ -2,7 +2,7 @@ import os
 from enum import Enum, StrEnum
 from pathlib import Path
 
-from configuration import get_backend_config
+from configuration import get_backend_config, get_vlm_config
 
 # %% Directory
 
@@ -24,31 +24,54 @@ if not os.path.exists(VECTOR_STORE_PATH):
 # %%
 # -- Helper for suggestions
 HELP = {  # help suggestions..
-    "HuggingFace": "You can get theHuggingFace token from settings of your Huggingface account",
-    "LLM_Model": "An instruction LLM model well (distilled or not) necessary to provide the right anwser"
-    + "\n"
-    "toward the particular context",
-    "Instruction_Embedding": "An instruction LLM Embedding well suited to provide the right anwser"
-    + "\n"
-    + "toward the particular context",
-    "Vector_store": "A lsit vector embedding created using the instruction embedding",
-    "Temperature": "Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore"
-    + "\n"
-    + "diverse choices. A smaller temperature for confident tokens avoiding the influence "
-    + "\n"
-    + "of tail randomness noises",
-    "Max_characer": "The maximum number of characters to generated. This can be similar to the maximum token"
-    + "\n"
-    + " size of the embedding space. The default is set to 500.",
+    "HuggingFace": (
+        "You can get the HuggingFace token from settings of your "
+        "Huggingface account"
+    ),
+    "LLM_Model": (
+        "An instruction LLM model well (distilled or not) necessary to provide "
+        "the right answer"
+        + "\n"
+        "toward the particular context"
+    ),
+    "Instruction_Embedding": (
+        "An instruction LLM Embedding well suited to provide the right "
+        "answer"
+        + "\n"
+        + "toward the particular context"
+    ),
+    "Vector_store": (
+        "A list vector embedding created using the instruction embedding"
+    ),
+    "Temperature": (
+        "Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore"
+        + "\n"
+        + "diverse choices. A smaller temperature for confident tokens avoiding the influence "
+        + "\n"
+        + "of tail randomness noises"
+    ),
+    "Max_character": (
+        "The maximum number of characters to generated. This can be similar to the maximum token"
+        + "\n"
+        + " size of the embedding space. The default is set to 500."
+    ),
     "index_type": "Select desired vector types",
-    "pipeline": "Select the desired pipeline. Default is without Chain of Thought (COT)",
-    "template": "Select a template style of choice. Default is a simple template.",
-    "reranker": "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
-    + "\n"
-    + "The other is the Flash reranker, which uses a Cross-Encoder for reranking.",
-    "new_vector_store": "If choose <New> in the dropdown / multiselect box, name the new vector store. Otherwise, "
-    + "\n"
-    + "fill in the existing vector store to merge.",
+    "pipeline": (
+        "Select the desired pipeline. Default is without Chain of Thought (COT)"
+    ),
+    "template": (
+        "Select a template style of choice. Default is a simple template."
+    ),
+    "reranker": (
+        "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
+        + "\n"
+        + "The other is the Flash reranker, which uses a Cross-Encoder for reranking."
+    ),
+    "new_vector_store": (
+        "If choose <New> in the dropdown / multiselect box, name the new vector store. Otherwise, "
+        + "\n"
+        + "fill in the existing vector store to merge."
+    ),
 }
 
 # -- Template for LLM prompting -->
@@ -67,7 +90,9 @@ SUPPLEMENT = [
 ]
 
 # -- Embedding name
-EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best;  "sentence-transformers/all-MiniLM-L6-v2" (competitive)
+EMBEDDING_NAME = (
+    "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best; "sentence-transformers/all-MiniLM-L6-v2" (competitive)
+)
 
 SINGLE_FILE = 1  # single files
 RANDOM_SEED = 42
@@ -136,6 +161,22 @@ class CPUTokenizer(StrEnum):
     LLAMA32_3B_INSTRUCT_TOK = (
         "fbaldassarri/meta-llama_Llama-3.2-3B-Instruct-auto_awq-int4-gs128-sym"
     )
+
+
+# VLM Models
+class VLMModels(StrEnum):
+    # vLLM versions (preferred for speed, but cannot be used if vLLM instance is already running)
+    VLLM_SMOLVLM_256M = "vllm-smolvlm-256m"
+    VLLM_SMOLVLM_500M = "vllm-smolvlm-500m"
+    VLLM_SMOLVLM_2_2B = "vllm-smolvlm-2.2b"
+    VLLM_MOONDREAM = "vllm-moondream"
+    VLLM_QWEN = "vllm-qwen"
+    # classical versions (can be used if vLLM instance is already running)
+    SMOLVLM_256M = "smolvlm-256m"
+    SMOLVLM_500M = "smolvlm-500m"
+    SMOLVLM_2_2B = "smolvlm-2.2b"
+    MOONDREAM = "moondream"
+    QWEN = "qwen"
 
 
 GPU_MODEL_SET = {model for model in GPUModels}
@@ -219,3 +260,52 @@ GPU_MEMORY_SAFETY_MARGIN = 2
 
 # Maximum trivial message length
 TRIVIAL_LEN: int = 100
+
+
+class PDFProcessingConfig(Enum):
+    # PDF Processing method: "markdown_converter" or "ocr"
+    PDF_PROCESSING_METHOD = "markdown_converter"
+
+    # "ocr" fallback when markdown fails
+    ENABLE_FALLBACK = True
+    FALLBACK_METHOD = "ocr"
+
+    # OCR-specific settings (when using OCR method)
+    OCR_DPI = 150
+    OCR_FORCE_OCR = True
+
+    # Markdown converter settings (when using markdown method)
+    ENABLE_VLM = False
+    VLM_MODEL = "smolvlm-256m"
+    EXTRACT_IMAGES = True
+    EXTRACT_TABLES = True
+
+    # File saving settings
+    DISABLE_FILE_SAVING = get_backend_config().disable_file_saving
+
+    # Performance settings
+    MAX_WORKERS = 4
+    TIMEOUT_SECONDS = 300
+
+
+class VLMConfig(Enum):
+    ENABLE_VLM = get_vlm_config().enable_vlm
+    VLM_MODEL = get_vlm_config().vlm_model
+    VLM_WORKERS = get_vlm_config().vlm_workers
+    MAX_WORKERS = get_vlm_config().max_workers
+    SKIP_LARGE_IMAGES = get_vlm_config().skip_large_images
+    MAX_MODEL_LEN = get_vlm_config().max_model_len
+    GPU_MEMORY_UTILIZATION = get_vlm_config().gpu_memory_utilization
+    TEMPERATURE = get_vlm_config().temperature
+    MAX_TOKENS = get_vlm_config().max_tokens
+    TOP_P = get_vlm_config().top_p
+    FREQUENCY_PENALTY = get_vlm_config().frequency_penalty
+    PRESENCE_PENALTY = get_vlm_config().presence_penalty
+    REPETITION_PENALTY = get_vlm_config().repetition_penalty
+    MAX_IMAGE_SIZE = get_vlm_config().max_image_size
+    MIN_IMAGE_SIZE = get_vlm_config().min_image_size
+    MAX_TOKENS_LIMIT = get_vlm_config().max_tokens_limit
+    JPEG_QUALITY_LEVELS = get_vlm_config().jpeg_quality_levels
+    DEVICE = get_vlm_config().device
+    USE_FLASH_ATTENTION = get_vlm_config().use_flash_attention
+    TORCH_DTYPE = get_vlm_config().torch_dtype

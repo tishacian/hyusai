@@ -4,6 +4,7 @@ from .backend import BackendConfig
 from .database import DatabaseConfig
 from .general import GeneralConfig
 from .standalone_interface import StandaloneInterfaceConfig
+from .vlm import VLM
 
 
 @lru_cache(maxsize=None)
@@ -24,3 +25,8 @@ def get_database_config():
 @lru_cache(maxsize=None)
 def get_standalone_interface_config():
     return StandaloneInterfaceConfig()
+
+
+@lru_cache(maxsize=None)
+def get_vlm_config():
+    return VLM()

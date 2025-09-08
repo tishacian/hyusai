@@ -22,21 +22,36 @@ git clone git@bitbucket.org:neuropolisteam/rag.git
 The arrangment of files in the RAGGER folder
 
 ```
-📦 RAG
+📦 OmniRAG
 ├── 📜 README.md
 ├── 📂 benchmarking
+│   ├── 📜 ...
+│   ├── 📂 requirements
+│   │   └── 📄 requirements.txt
+│   └── 📜 resourcemonitor.py
+├── 📂 configuration
+│   ├── 📜 __init__.py
+│   ├── 📜 backend.py
+│   ├── 📜 general.py
+│   ├── 📜 readme.md
+│   ├── 📜 standalone_interface.py
+│   └── 📜 vlm.py
 ├── 📂 data
 │   ├── 📜 hkunlp_embeddings.npy
 │   └── 📜 url_suffixes.npy
+├── 📂 docker
+│   ├── 💼 Dockerfile
+│   ├── 📜 README.md
+│   └── 📄 example.env
 ├── 📂 image
 │   ├── 🖼 aitubo.jpg
 │   └── 🖼 datategy_logo.png
 ├── 📜 install.sh
 ├── 📜 main.py
 ├── 📂 requirements
-│   ├── 📄 shared.txt
-│   ├── 📄 gpu.txt
 │   ├── 📄 cpu.txt
+│   ├── 📄 gpu.txt
+│   ├── 📄 shared.txt
 │   └── 📄 standalone_interface.txt
 ├── 📂 src
 │   ├── 📜 __init__.py
@@ -47,6 +62,7 @@ The arrangment of files in the RAGGER folder
 │   ├── 📜 crossencembeddingmodel.py
 │   ├── 📜 customchain.py
 │   ├── 📜 customchain_naive.py
+│   ├── 📜 customchainmixedhah.py
 │   ├── 📜 customdocloader.py
 │   ├── 📜 docloader.py
 │   ├── 📜 embedding.py
@@ -54,13 +70,32 @@ The arrangment of files in the RAGGER folder
 │   ├── 📜 ensembleretriever.py
 │   ├── 📜 flashreranker.py
 │   ├── 📜 globalvariables.py
-│   ├── 📜 markdownpdfloader.py
+│   ├── 📜 hughes.py
+│   ├── 📜 markdownconverter.py
+│   ├── 📂 metadata_extraction
+│   │   ├── 📜 README.md
+│   │   ├── 📂 docmeta
+│   │   │   ├── 📜 __init__.py
+│   │   │   ├── 📂 core
+│   │   │   │   ├── 📜 ...
+│   │   │   ├── 📂 extractors
+│   │   │   │   ├── 📜 ...
+│   │   │   └── 📂 utils
+│   │   │       ├── 📜 ...
+│   │   └── 📜 manually_test_pdf.py
 │   ├── 📜 metrics.py
 │   ├── 📜 modeltokenizer.py
 │   ├── 📜 ragger.py
 │   ├── 📜 ragger_css.py
+│   ├── 📂 reasoning_instructions
+│   │   ├── 📜 __init__.py
+│   │   ├── 📜 en.py
+│   │   └── 📜 fr.py
 │   ├── 📜 reasoningmetrics.py
-│   └── 📜 scrapper.py
+│   ├── 📜 retrievalplan.py
+│   ├── 📜 scrapper.py
+│   ├── 📜 utils.py
+│   └── 📜 vlmprocessor.py
 └── 📂 vector_store (created upon indexing)
 ```
 
