@@ -94,56 +94,102 @@ class VLLMProvider(LLMProvider):
             params["logit_bias"] = request.logit_bias
 
         # Build vLLM extras for extra_body
+        # Note: CompletionRequest allows extra fields but does not define them.
+        # Access all provider-specific fields via getattr to avoid AttributeError
+        # when they are not present on the model instance.
         extra_body: dict[str, object] = {}
+
         # Sampling/decoding extras
-        if request.best_of is not None:
-            extra_body["best_of"] = request.best_of
-        if request.use_beam_search is not None:
-            extra_body["use_beam_search"] = request.use_beam_search
-        if request.top_k is not None:
-            extra_body["top_k"] = request.top_k
-        if request.min_p is not None:
-            extra_body["min_p"] = request.min_p
-        if request.repetition_penalty is not None:
-            extra_body["repetition_penalty"] = request.repetition_penalty
-        if request.length_penalty is not None:
-            extra_body["length_penalty"] = request.length_penalty
-        if request.early_stopping is not None:
-            extra_body["early_stopping"] = request.early_stopping
-        if request.ignore_eos is not None:
-            extra_body["ignore_eos"] = request.ignore_eos
-        if request.min_tokens is not None:
-            extra_body["min_tokens"] = request.min_tokens
-        if request.stop_token_ids is not None:
-            extra_body["stop_token_ids"] = request.stop_token_ids
-        if request.skip_special_tokens is not None:
-            extra_body["skip_special_tokens"] = request.skip_special_tokens
-        if request.spaces_between_special_tokens is not None:
-            extra_body["spaces_between_special_tokens"] = request.spaces_between_special_tokens
+        best_of = getattr(request, "best_of", None)
+        if best_of is not None:
+            extra_body["best_of"] = best_of
+
+        use_beam_search = getattr(request, "use_beam_search", None)
+        if use_beam_search is not None:
+            extra_body["use_beam_search"] = use_beam_search
+
+        top_k = getattr(request, "top_k", None)
+        if top_k is not None:
+            extra_body["top_k"] = top_k
+
+        min_p = getattr(request, "min_p", None)
+        if min_p is not None:
+            extra_body["min_p"] = min_p
+
+        repetition_penalty = getattr(request, "repetition_penalty", None)
+        if repetition_penalty is not None:
+            extra_body["repetition_penalty"] = repetition_penalty
+
+        length_penalty = getattr(request, "length_penalty", None)
+        if length_penalty is not None:
+            extra_body["length_penalty"] = length_penalty
+
+        early_stopping = getattr(request, "early_stopping", None)
+        if early_stopping is not None:
+            extra_body["early_stopping"] = early_stopping
+
+        ignore_eos = getattr(request, "ignore_eos", None)
+        if ignore_eos is not None:
+            extra_body["ignore_eos"] = ignore_eos
+
+        min_tokens = getattr(request, "min_tokens", None)
+        if min_tokens is not None:
+            extra_body["min_tokens"] = min_tokens
+
+        stop_token_ids = getattr(request, "stop_token_ids", None)
+        if stop_token_ids is not None:
+            extra_body["stop_token_ids"] = stop_token_ids
+
+        skip_special_tokens = getattr(request, "skip_special_tokens", None)
+        if skip_special_tokens is not None:
+            extra_body["skip_special_tokens"] = skip_special_tokens
+
+        spaces_between_special_tokens = getattr(request, "spaces_between_special_tokens", None)
+        if spaces_between_special_tokens is not None:
+            extra_body["spaces_between_special_tokens"] = spaces_between_special_tokens
+
         # Behavior extras
-        if request.echo is not None:
-            extra_body["echo"] = request.echo
-        if request.add_generation_prompt is not None:
-            extra_body["add_generation_prompt"] = request.add_generation_prompt
-        if request.include_stop_str_in_output is not None:
-            extra_body["include_stop_str_in_output"] = request.include_stop_str_in_output
-        if request.guided_json is not None:
-            extra_body["guided_json"] = request.guided_json
-        if request.guided_regex is not None:
-            extra_body["guided_regex"] = request.guided_regex
-        if request.guided_choice is not None:
-            extra_body["guided_choice"] = request.guided_choice
-        if request.guided_grammar is not None:
-            extra_body["guided_grammar"] = request.guided_grammar
-        if request.guided_decoding_backend is not None:
-            extra_body["guided_decoding_backend"] = request.guided_decoding_backend
+        echo = getattr(request, "echo", None)
+        if echo is not None:
+            extra_body["echo"] = echo
+
+        add_generation_prompt = getattr(request, "add_generation_prompt", None)
+        if add_generation_prompt is not None:
+            extra_body["add_generation_prompt"] = add_generation_prompt
+
+        include_stop_str_in_output = getattr(request, "include_stop_str_in_output", None)
+        if include_stop_str_in_output is not None:
+            extra_body["include_stop_str_in_output"] = include_stop_str_in_output
+
+        guided_json = getattr(request, "guided_json", None)
+        if guided_json is not None:
+            extra_body["guided_json"] = guided_json
+
+        guided_regex = getattr(request, "guided_regex", None)
+        if guided_regex is not None:
+            extra_body["guided_regex"] = guided_regex
+
+        guided_choice = getattr(request, "guided_choice", None)
+        if guided_choice is not None:
+            extra_body["guided_choice"] = guided_choice
+
+        guided_grammar = getattr(request, "guided_grammar", None)
+        if guided_grammar is not None:
+            extra_body["guided_grammar"] = guided_grammar
+
+        guided_decoding_backend = getattr(request, "guided_decoding_backend", None)
+        if guided_decoding_backend is not None:
+            extra_body["guided_decoding_backend"] = guided_decoding_backend
+
         # Completions-only (safe to include)
-        if request.truncate_prompt_tokens is not None:
-            extra_body["truncate_prompt_tokens"] = request.truncate_prompt_tokens
+        truncate_prompt_tokens = getattr(request, "truncate_prompt_tokens", None)
+        if truncate_prompt_tokens is not None:
+            extra_body["truncate_prompt_tokens"] = truncate_prompt_tokens
 
         # Merge user-provided extra_body last, allowing explicit fields to win
-        if request.extra_body:
-            extra_body = {**request.extra_body, **extra_body}
+        request_extra_body = getattr(request, "extra_body", None)
+        if request_extra_body:
+            extra_body = {**request_extra_body, **extra_body}
 
         if extra_body:
             params["extra_body"] = extra_body
