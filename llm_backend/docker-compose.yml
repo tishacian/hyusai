@@ -1,0 +1,106 @@
+version: "3.8"
+
+#   - Ensure you have NVIDIA drivers + the NVIDIA Container Toolkit installed
+#   - Ensure env var HF_TOKEN is set (or add to an .env next to this file)
+#   - Create local folders if needed (models, ollama/ollama)
+#   - Start:  docker compose up -d
+#
+# Notes:
+#   - This compose requests GPU via both legacy and newer fields for broad compatibility.
+#   - Adjust model names and paths to your needs before starting.
+
+services:
+  vllm_openai:
+    image: vllm/vllm-openai:latest
+    container_name: vllm_openai
+    ports:
+      - "8000:8000" # OpenAI-compatible API
+    environment:
+      # Pass through Hugging Face token for gated model downloads.
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      # Pin this service to GPU 0
+      - NVIDIA_VISIBLE_DEVICES=0
+      # Optional: enable auth on the server to match client default key
+      # (uncomment the next line and the matching flag in command if you want enforcement)
+      # - VLLM_API_KEY=vllm-api-key
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    ipc: host
+    # Request GPU (works on some setups). Also keep deploy.devices for broader support.
+    runtime: nvidia
+    # Explicit device request for Compose with NVIDIA Container Toolkit
+    device_requests:
+      - driver: nvidia
+        device_ids: ['0']
+        capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              device_ids: ['0']
+              capabilities: [gpu]
+    # You can add extra args to tune vLLM here.
+    # If you want to enforce API key auth, add: --api-key vllm-api-key
+    command: >-
+      --model Qwen/Qwen3-0.6B
+
+  lmdeploy_api_server:
+    image: openmmlab/lmdeploy:latest
+    container_name: lmdeploy_server
+    ports:
+      - "23333:23333"
+    volumes:
+      - ./models:/app/models
+    # Adjust model path below to an actual model under ./models
+    command: >-
+      lmdeploy serve api_server --model-path /app/models/your_model_name
+    environment:
+      # Pin this service to GPU 1
+      - NVIDIA_VISIBLE_DEVICES=1
+    device_requests:
+      - driver: nvidia
+        device_ids: ['1']
+        capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              device_ids: ['1']
+              capabilities: [gpu]
+
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    container_name: ollama
+    pull_policy: always
+    tty: true
+    restart: unless-stopped
+    ports:
+      - "7869:11434"
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      # Pin this service to GPU 2
+      - NVIDIA_VISIBLE_DEVICES=2
+    volumes:
+      - ./ollama/ollama:/root/.ollama
+    networks:
+      - ollama-docker
+    device_requests:
+      - driver: nvidia
+        device_ids: ['2']
+        capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              device_ids: ['2']
+              capabilities: [gpu]
+
+networks:
+  ollama-docker:
+    driver: bridge
