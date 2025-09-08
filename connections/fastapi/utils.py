@@ -1,6 +1,8 @@
 import sys
 import traceback
 
+from fastapi.responses import JSONResponse
+
 from configuration import get_general_config
 
 
@@ -15,6 +17,11 @@ def get_traceback(limit_on_prod_env: int = 0, exc: BaseException | None = None) 
     exc : BaseException, optional
         Exception to get the traceback from. If None, will get the exception
         from the context. By default None
+
+    Returns
+    -------
+    str
+        The formatted traceback as a string.
     """
     if exc is None:
         exc = sys.exception()
@@ -27,3 +34,25 @@ def get_traceback(limit_on_prod_env: int = 0, exc: BaseException | None = None) 
         chain = True
 
     return "\n".join(traceback.format_exception(exc, limit=limit, chain=chain))
+
+
+def prepare_json_response(task_id: str, status_code=200):
+    """Prepare a JSON response with the given task ID and status code.
+
+    Parameters
+    ----------
+    task_id : str
+        The task ID to include in the response.
+    status_code : int, optional
+        The HTTP status code for the response, by default 200.
+
+    Returns
+    -------
+    JSONResponse
+        A JSON response containing the task ID and the specified status code.
+    """
+    return JSONResponse(
+        content={"task_id": task_id},
+        status_code=status_code,
+        media_type="application/json",
+    )
