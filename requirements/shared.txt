@@ -49,3 +49,10 @@ transformers                   # tokenizer, reranking model
 faiss-cpu~=1.10                # faiss
 weaviate-client<3.0.0          # weaviate (compatible with protobuf 4.x)
 langchain-community            # chroma + document loaders
+
+# fastapi
+fastapi
+uvicorn
+
+# logging
+asgi-correlation-id  # assigns a unique ID to each task for better logging

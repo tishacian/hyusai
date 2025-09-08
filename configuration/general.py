@@ -8,3 +8,9 @@ class GeneralConfig(BaseSettings):
     """
     If True, the service will be accessible through a customizable RAG webapp.
     """
+
+    limit_traceback_size: bool = False
+    """
+    If True, full traceback will not be shown and only the final error will be
+    shown. This is useful to not expose users to the full traceback.
+    """
