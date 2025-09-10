@@ -2,7 +2,7 @@ import os
 from enum import Enum, StrEnum
 from pathlib import Path
 
-from configuration import get_backend_config, get_vlm_config
+from configuration import back_conf
 
 # %% Directory
 
@@ -221,9 +221,9 @@ class PipelineType(StrEnum):
 
 
 class OCRConfig(Enum):
-    USE_OCR = not get_backend_config().disable_ocr_for_pdf
+    USE_OCR = not back_conf().backend.disable_ocr_for_pdf
     OCR_DPI = 150
-    FORCE_OCR = get_backend_config().force_ocr_on_all_pdf
+    FORCE_OCR = back_conf().backend.force_ocr_on_all_pdf
     LANGS = os.getenv("LANGS", "eng fra deu spa ita por kor ara").split(" ")
 
 
@@ -281,31 +281,34 @@ class PDFProcessingConfig(Enum):
     EXTRACT_TABLES = True
 
     # File saving settings
-    DISABLE_FILE_SAVING = get_backend_config().disable_file_saving
+    DISABLE_FILE_SAVING = back_conf().backend.disable_file_saving
 
     # Performance settings
     MAX_WORKERS = 4
     TIMEOUT_SECONDS = 300
 
 
+vlm_config = back_conf().vlm
+
+
 class VLMConfig(Enum):
-    ENABLE_VLM = get_vlm_config().enable_vlm
-    VLM_MODEL = get_vlm_config().vlm_model
-    VLM_WORKERS = get_vlm_config().vlm_workers
-    MAX_WORKERS = get_vlm_config().max_workers
-    SKIP_LARGE_IMAGES = get_vlm_config().skip_large_images
-    MAX_MODEL_LEN = get_vlm_config().max_model_len
-    GPU_MEMORY_UTILIZATION = get_vlm_config().gpu_memory_utilization
-    TEMPERATURE = get_vlm_config().temperature
-    MAX_TOKENS = get_vlm_config().max_tokens
-    TOP_P = get_vlm_config().top_p
-    FREQUENCY_PENALTY = get_vlm_config().frequency_penalty
-    PRESENCE_PENALTY = get_vlm_config().presence_penalty
-    REPETITION_PENALTY = get_vlm_config().repetition_penalty
-    MAX_IMAGE_SIZE = get_vlm_config().max_image_size
-    MIN_IMAGE_SIZE = get_vlm_config().min_image_size
-    MAX_TOKENS_LIMIT = get_vlm_config().max_tokens_limit
-    JPEG_QUALITY_LEVELS = get_vlm_config().jpeg_quality_levels
-    DEVICE = get_vlm_config().device
-    USE_FLASH_ATTENTION = get_vlm_config().use_flash_attention
-    TORCH_DTYPE = get_vlm_config().torch_dtype
+    ENABLE_VLM = vlm_config.enable_vlm
+    VLM_MODEL = vlm_config.vlm_model
+    VLM_WORKERS = vlm_config.vlm_workers
+    MAX_WORKERS = vlm_config.max_workers
+    SKIP_LARGE_IMAGES = vlm_config.skip_large_images
+    MAX_MODEL_LEN = vlm_config.max_model_len
+    GPU_MEMORY_UTILIZATION = vlm_config.gpu_memory_utilization
+    TEMPERATURE = vlm_config.temperature
+    MAX_TOKENS = vlm_config.max_tokens
+    TOP_P = vlm_config.top_p
+    FREQUENCY_PENALTY = vlm_config.frequency_penalty
+    PRESENCE_PENALTY = vlm_config.presence_penalty
+    REPETITION_PENALTY = vlm_config.repetition_penalty
+    MAX_IMAGE_SIZE = vlm_config.max_image_size
+    MIN_IMAGE_SIZE = vlm_config.min_image_size
+    MAX_TOKENS_LIMIT = vlm_config.max_tokens_limit
+    JPEG_QUALITY_LEVELS = vlm_config.jpeg_quality_levels
+    DEVICE = vlm_config.device
+    USE_FLASH_ATTENTION = vlm_config.use_flash_attention
+    TORCH_DTYPE = vlm_config.torch_dtype

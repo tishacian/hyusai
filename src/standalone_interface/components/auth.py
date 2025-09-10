@@ -3,7 +3,7 @@ import re
 import streamlit as st
 import streamlit_authenticator as stauth
 
-from configuration import get_standalone_interface_config
+from configuration import front_conf
 from src.db.users import Users
 
 
@@ -50,9 +50,9 @@ def get_authenticator() -> stauth.Authenticate:
     if auth is None:
         st.session_state["authenticator"] = stauth.Authenticate(
             st.session_state["credentials"],
-            get_standalone_interface_config().cookie_name,
-            get_standalone_interface_config().cookie_key,
-            get_standalone_interface_config().cookie_expiry_days,
+            front_conf().standalone_interface.cookie_name,
+            front_conf().standalone_interface.cookie_key,
+            front_conf().standalone_interface.cookie_expiry_days,
         )
     return st.session_state["authenticator"]
 
@@ -111,7 +111,7 @@ def reset_session_state(*args, **kwargs):
 
 def auth_component():
     """Display the authentication component."""
-    if get_standalone_interface_config().skip_authentication:
+    if front_conf().standalone_interface.skip_authentication:
         st.session_state["authentication_status"] = True
         st.session_state["username"] = "dev"
     elif st.session_state.get("authentication_status"):

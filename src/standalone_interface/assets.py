@@ -4,7 +4,7 @@ from io import BytesIO
 import streamlit as st
 from PIL import Image
 
-from configuration import get_standalone_interface_config
+from configuration import front_conf
 
 
 def load_avatar(image_path):
@@ -17,8 +17,8 @@ def image_to_base64(image):
     return base64.b64encode(buffered.getvalue()).decode()
 
 
-HUMAN_AVATAR_PATH = get_standalone_interface_config().human_chat_logo
-AI_AVATAR_PATH = get_standalone_interface_config().ai_chat_logo
+HUMAN_AVATAR_PATH = front_conf().standalone_interface.human_chat_logo
+AI_AVATAR_PATH = front_conf().standalone_interface.ai_chat_logo
 
 HUMAN_AVATAR = load_avatar(HUMAN_AVATAR_PATH)
 AI_AVATAR = load_avatar(AI_AVATAR_PATH)
@@ -32,7 +32,7 @@ def omnirag_header():
         f"""
         <div class="app-header">
             <img src="data:image/png;base64,{AI_AVATAR_B64}" alt="AI Avatar"/>
-            <h1>{get_standalone_interface_config().header_title}</h1>
+            <h1>{front_conf().standalone_interface.header_title}</h1>
         </div>
     """,
         unsafe_allow_html=True,

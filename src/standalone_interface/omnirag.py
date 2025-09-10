@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 import torch
 
-from configuration import get_standalone_interface_config
+from configuration import front_conf
 from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
@@ -56,7 +56,7 @@ def device_available_models():
 def device_default_model():
     """Default model based on device."""
     return (
-        get_standalone_interface_config().default_gpu_model
+        front_conf().standalone_interface.default_gpu_model
         if torch.cuda.is_available()
         else DEFAULT_CPU_MODEL
     )
@@ -173,7 +173,7 @@ def omnirag_page():
     ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
 
     # %% Document embedding
-    if get_standalone_interface_config().forced_vdb == "None":
+    if front_conf().standalone_interface.forced_vdb == "None":
         with st.expander("Document Database Setup"):
             with st.form("document_input"):
                 uploaded_files = st.file_uploader(
@@ -186,7 +186,7 @@ def omnirag_page():
                 )
 
                 NUMBER_OF_FILES = len(uploaded_files)
-                if not get_standalone_interface_config().hide_rag_params_config:
+                if not front_conf().standalone_interface.hide_rag_params_config:
                     row_ae = st.columns([2, 1, 1])
                     with row_ae[0]:
                         current_model = st.session_state.get(
@@ -279,7 +279,7 @@ def omnirag_page():
                         ),
                         help=HELP["new_vector_store"],
                     )
-                if not get_standalone_interface_config().hide_rag_params_config:
+                if not front_conf().standalone_interface.hide_rag_params_config:
                     with row_be[2]:
                         pipeline_type = st.selectbox(
                             "Pipeline",
@@ -414,7 +414,7 @@ def omnirag_page():
             st.session_state.tokenizer,
             st.session_state.model,
             model_name,
-            get_standalone_interface_config().forced_vdb,
+            front_conf().standalone_interface.forced_vdb,
             index_type=index_type,
             instruction_lang=instruction_lang,
         )
@@ -736,8 +736,8 @@ def omnirag_page():
 
 if __name__ == "__main__":
     st.set_page_config(
-        page_title=get_standalone_interface_config().page_title,
-        page_icon=get_standalone_interface_config().page_icon,
+        page_title=front_conf().standalone_interface.page_title,
+        page_icon=front_conf().standalone_interface.page_icon,
         layout="wide",
     )
     apply_omnirag_style()

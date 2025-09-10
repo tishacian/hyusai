@@ -55,4 +55,5 @@ fastapi
 uvicorn
 
 # logging
-asgi-correlation-id  # assigns a unique ID to each task for better logging
+datategy-logging-utils~=0.5.0
+datategy-common-config[logging-setup]~=0.4.4

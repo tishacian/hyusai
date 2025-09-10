@@ -1,17 +1,17 @@
 import uvicorn
-from common_config.uvicorn import UvicornConfig
 
+from configuration import rout_conf
 from connections.fastapi.main import app
 
 if __name__ == "__main__":
-    config = UvicornConfig()
+    uvicorn_config = rout_conf().uvicorn
 
     uvicorn_args = {
         "app": app,
-        "host": config.host,
-        "port": config.port,
-        "log_level": config.log_level,
-        "access_log": config.access_log,
+        "host": uvicorn_config.host,
+        "port": uvicorn_config.port,
+        "log_level": uvicorn_config.log_level,
+        "access_log": uvicorn_config.access_log,
     }
 
     uvicorn.run(**uvicorn_args)

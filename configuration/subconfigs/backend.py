@@ -1,9 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel
 
 
-class BackendConfig(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="backend", env_nested_delimiter="__")
-
+class BackendConfig(BaseModel):
     disable_ocr_for_pdf: bool = False
     """If True, OCR won't be available when processing PDF documents."""
 

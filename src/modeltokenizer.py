@@ -8,7 +8,7 @@ from typing import Optional
 import torch
 from transformers import AutoTokenizer
 
-from configuration import get_standalone_interface_config
+from configuration import front_conf
 from src.globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
@@ -228,14 +228,14 @@ def validate_model_name(selected_model: str) -> str:
             return selected_model
         elif selected_model in CPU_MODEL_SET:
             logging.warning(
-                f"Selected CPU model {selected_model} but GPU is available. Using default GPU model {get_standalone_interface_config().default_gpu_model}"
+                f"Selected CPU model {selected_model} but GPU is available. Using default GPU model {front_conf().standalone_interface.default_gpu_model}"
             )
-            return get_standalone_interface_config().default_gpu_model
+            return front_conf().standalone_interface.default_gpu_model
         else:
             logging.warning(
-                f"Unknown model {selected_model}. Using default GPU model {get_standalone_interface_config().default_gpu_model}"
+                f"Unknown model {selected_model}. Using default GPU model {front_conf().standalone_interface.default_gpu_model}"
             )
-            return get_standalone_interface_config().default_gpu_model
+            return front_conf().standalone_interface.default_gpu_model
     else:
         if selected_model in CPU_MODEL_SET:
             return selected_model

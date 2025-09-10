@@ -1,16 +1,12 @@
 import secrets
 from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel
 
-image_path = Path(__file__).parent.parent / "image"
+image_path = Path(__file__).parent.parent.parent / "image"
 
 
-class StandaloneInterfaceConfig(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="standalone_interface", env_nested_delimiter="__"
-    )
-
+class StandaloneInterfaceConfig(BaseModel):
     page_icon: str = "🦙"
     """The page favicon."""
 

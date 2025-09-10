@@ -1,12 +1,11 @@
 import functools
 import logging
-import os
 from functools import lru_cache
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, declarative_base
 
-from configuration import get_database_config
+from configuration import back_conf
 
 logger = logging.getLogger(__name__)
 
@@ -15,23 +14,15 @@ Base = declarative_base()
 
 @lru_cache(maxsize=None)
 def get_engine():
-    db_url = get_database_config().url
-
-    application_name = get_database_config().application_name
-    if application_name is not None:
-        if get_database_config().application_name_append_pid:
-            application_name += f"_PID_{os.getpid()}"
-        db_url += f"?application_name={application_name}"
-
-    pool_size = get_database_config().pool_size
-    max_overflow = get_database_config().max_overflow
+    db_url = back_conf().db.engine_url
+    db_options = back_conf().db.engine_options.model_dump()
 
     try:
-        return create_engine(db_url, pool_size=pool_size, max_overflow=max_overflow)
+        return create_engine(db_url, **db_options)
     except Exception:
         logger.error(
             f"Error while creating the engine with url: {db_url} "
-            f"coming from config: {get_database_config()}"
+            f"coming from config: {back_conf().db}"
         )
         raise
 

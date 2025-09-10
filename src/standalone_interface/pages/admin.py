@@ -1,6 +1,6 @@
 import streamlit as st
 
-from configuration import get_standalone_interface_config
+from configuration import front_conf
 from src.db.system_prompts import SystemPrompts
 from src.standalone_interface.assets import omnirag_header
 from src.standalone_interface.components.auth import auth_component
@@ -96,8 +96,8 @@ def prompt_page():
 
 if __name__ == "__main__":
     st.set_page_config(
-        page_title=get_standalone_interface_config().page_title,
-        page_icon=get_standalone_interface_config().page_icon,
+        page_title=front_conf().standalone_interface.page_title,
+        page_icon=front_conf().standalone_interface.page_icon,
         layout="wide",
     )
     apply_omnirag_style()

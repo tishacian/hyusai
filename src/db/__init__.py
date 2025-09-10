@@ -1,4 +1,4 @@
-from configuration import get_standalone_interface_config
+from configuration import front_conf
 
 from .chats import Chats  # required for tables creation
 from .system_prompts import SystemPrompts
@@ -12,7 +12,7 @@ def init_db():
     # fill system prompts table
     if len(SystemPrompts.get_all()) == 0:
         SystemPrompts.reset_all(updated_by="system")
-    if get_standalone_interface_config().skip_authentication:
+    if front_conf().standalone_interface.skip_authentication:
         dev_username = "dev"
         dev_user = Users.get_by_email(dev_username)
         if dev_user is None:

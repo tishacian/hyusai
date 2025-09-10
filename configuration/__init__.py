@@ -1,32 +1,20 @@
 from functools import lru_cache
 
-from .backend import BackendConfig
-from .database import DatabaseConfig
-from .general import GeneralConfig
-from .standalone_interface import StandaloneInterfaceConfig
-from .vlm import VLM
+from .celery_app import CeleryAppConfig
+from .fastapi_app import FastapiAppConfig
+from .standalone_interface_app import StandaloneInterfaceAppConfig
 
 
 @lru_cache(maxsize=None)
-def get_general_config():
-    return GeneralConfig()
+def back_conf():
+    return CeleryAppConfig()
 
 
 @lru_cache(maxsize=None)
-def get_backend_config():
-    return BackendConfig()
+def rout_conf():
+    return FastapiAppConfig()
 
 
 @lru_cache(maxsize=None)
-def get_database_config():
-    return DatabaseConfig()
-
-
-@lru_cache(maxsize=None)
-def get_standalone_interface_config():
-    return StandaloneInterfaceConfig()
-
-
-@lru_cache(maxsize=None)
-def get_vlm_config():
-    return VLM()
+def front_conf():
+    return StandaloneInterfaceAppConfig()
