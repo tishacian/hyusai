@@ -3,16 +3,10 @@ Pydantic models for LLM request/response validation.
 """
 from datetime import datetime, timezone
 from enum import Enum
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    Union,
-)
+from typing import Any, Literal, Optional, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
-from typing_extensions import Required, TypedDict
 
 
 def generate_request_id() -> str:
@@ -34,35 +28,30 @@ class CallType(str, Enum):
 
 
 # ============================================================================
-# Message Types (using TypedDict for input validation)
+# Request Message Models (strict Pydantic)
 # ============================================================================
 
-class SystemMessageParam(TypedDict, total=False):
-    """System message parameters."""
-    content: Required[str]
-    role: Required[Literal["system"]]
-    name: str  # Optional participant name
+class BaseMessage(BaseModel):
+    """Base request message model."""
+    content: str
+    name: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class UserMessageParam(TypedDict, total=False):
-    """User message parameters."""
-    content: Required[str]
-    role: Required[Literal["user"]]
-    name: str  # Optional participant name
+class SystemMessage(BaseMessage):
+    role: Literal["system"]
 
 
-class AssistantMessageParam(TypedDict, total=False):
-    """Assistant message parameters."""
-    content: Required[str]
-    role: Required[Literal["assistant"]]
-    name: str  # Optional participant name
+class UserMessage(BaseMessage):
+    role: Literal["user"]
 
 
-MessageParam = Union[
-    SystemMessageParam,
-    UserMessageParam,
-    AssistantMessageParam,
-]
+class AssistantMessage(BaseMessage):
+    role: Literal["assistant"]
+
+
+MessageParam = Union[SystemMessage, UserMessage, AssistantMessage]
 
 
 # ============================================================================
@@ -114,8 +103,8 @@ class CompletionRequest(BaseModel):
     _provider_specific_params: dict[str, Any] = PrivateAttr(default_factory=dict)
     
     model_config = ConfigDict(
-        protected_namespaces=(),  # Allow 'model' field
-        extra="allow",  # Allow additional fields for forward compatibility
+        protected_namespaces=(),
+        extra="allow",  # Strict payload: allow unknown fields
         str_strip_whitespace=True,
     )
     
@@ -125,6 +114,18 @@ class CompletionRequest(BaseModel):
         if not v:
             raise ValueError("At least one message is required")
         return v
+
+    def messages_as_dicts(self) -> list[dict[str, Any]]:
+        """Return messages as list of plain dicts (exclude None fields)."""
+        dicts: list[dict[str, Any]] = []
+        for m in self.messages:
+            if isinstance(m, BaseModel):
+                # Pydantic v2 serialization
+                dicts.append(m.model_dump(exclude_none=True))
+            else:
+                # Already a dict-like (should not happen post-validation, but safe)
+                dicts.append(dict(m))  # type: ignore[arg-type]
+        return dicts
 
 
 # ============================================================================
