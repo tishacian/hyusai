@@ -58,7 +58,7 @@ class LangChainProvider(LLMProvider):
         start_time = time.time()
         
         # Convert messages to LangChain format
-        langchain_messages = self._convert_messages(request.messages)
+        langchain_messages = self._convert_messages(request.messages_as_dicts())
         
         # Configure model if possible
         if hasattr(self.model, 'temperature') and request.temperature is not None:
@@ -89,7 +89,7 @@ class LangChainProvider(LLMProvider):
         )
         
         # Estimate token usage (LangChain doesn't always provide this)
-        prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+        prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
         content = ai_message.content or ""
         prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
         completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0
@@ -118,7 +118,7 @@ class LangChainProvider(LLMProvider):
     ) -> AsyncGenerator[StreamingResponse, None]:
         """Stream a response using LangChain."""
         # Convert messages to LangChain format
-        langchain_messages = self._convert_messages(request.messages)
+        langchain_messages = self._convert_messages(request.messages_as_dicts())
         
         # Configure model if possible
         if hasattr(self.model, 'temperature') and request.temperature is not None:
@@ -192,7 +192,7 @@ class LangChainProvider(LLMProvider):
         # Send final chunk with usage info
         if accumulated_content:
             # Estimate usage
-            prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+            prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
             prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
             completion_tokens = max(len(accumulated_content.split()) * 1.3, 1)
             

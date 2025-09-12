@@ -93,16 +93,17 @@ class AWSBedrockProvider(LLMProvider):
         model = request.model or os.getenv("AWS_BEDROCK_DEFAULT_MODEL", self.DEFAULT_MODEL)
         provider = extract_provider(model)
         start_time = time.time()
+        msgs = request.messages_as_dicts()
         if provider == "anthropic":
-            input_body = self._prepare_anthropic_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_anthropic_input(msgs, request.temperature, request.max_tokens)
         elif provider == "amazon":
-            input_body = self._prepare_amazon_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_amazon_input(msgs, request.temperature, request.max_tokens)
         elif provider == "meta":
-            input_body = self._prepare_meta_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_meta_input(msgs, request.temperature, request.max_tokens)
         elif provider == "mistral":
-            input_body = self._prepare_mistral_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_mistral_input(msgs, request.temperature, request.max_tokens)
         else:
-            input_body = self._prepare_generic_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_generic_input(msgs, request.temperature, request.max_tokens)
         
         response = self.client.invoke_model(
             body=json.dumps(input_body),
@@ -125,7 +126,7 @@ class AWSBedrockProvider(LLMProvider):
             finish_reason="stop"
         )
         
-        prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+        prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
         prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
         completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0
         
@@ -155,16 +156,17 @@ class AWSBedrockProvider(LLMProvider):
         provider = extract_provider(model)
         
         # Prepare input based on provider
+        msgs = request.messages_as_dicts()
         if provider == "anthropic":
-            input_body = self._prepare_anthropic_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_anthropic_input(msgs, request.temperature, request.max_tokens)
         elif provider == "amazon":
-            input_body = self._prepare_amazon_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_amazon_input(msgs, request.temperature, request.max_tokens)
         elif provider == "meta":
-            input_body = self._prepare_meta_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_meta_input(msgs, request.temperature, request.max_tokens)
         elif provider == "mistral":
-            input_body = self._prepare_mistral_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_mistral_input(msgs, request.temperature, request.max_tokens)
         else:
-            input_body = self._prepare_generic_input(request.messages, request.temperature, request.max_tokens)
+            input_body = self._prepare_generic_input(msgs, request.temperature, request.max_tokens)
         
         response = self.client.invoke_model_with_response_stream(
             body=json.dumps(input_body),
@@ -198,7 +200,7 @@ class AWSBedrockProvider(LLMProvider):
                 )
         
         if accumulated_content:
-            prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+            prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
             prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
             completion_tokens = max(len(accumulated_content.split()) * 1.3, 1)
             

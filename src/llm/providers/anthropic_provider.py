@@ -77,7 +77,7 @@ class AnthropicProvider(LLMProvider):
     def _prepare_api_params(self, request: CompletionRequest, streaming: bool = False) -> dict:
         """Prepare parameters for Anthropic API call."""
         model = request.model or os.getenv("ANTHROPIC_DEFAULT_MODEL", self.DEFAULT_MODEL)
-        system_message, messages = self._prepare_messages(request.messages)
+        system_message, messages = self._prepare_messages(request.messages_as_dicts())
         
         params = {
             "model": model,

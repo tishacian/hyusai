@@ -79,7 +79,7 @@ class LMDeployProvider(LLMProvider):
         # Build parameters
         params = self._build_params(
             model=model,
-            messages=request.messages,
+            messages=request.messages_as_dicts(),
             temperature=request.temperature,
             max_tokens=request.max_tokens or request.max_completion_tokens,
             top_p=request.top_p,
@@ -122,7 +122,7 @@ class LMDeployProvider(LLMProvider):
             )
         else:
             # Estimate token usage if not provided
-            prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+        prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
             content = choices[0].message.content if choices else ""
             prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
             completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0
@@ -156,7 +156,7 @@ class LMDeployProvider(LLMProvider):
         # Build parameters
         params = self._build_params(
             model=model,
-            messages=request.messages,
+            messages=request.messages_as_dicts(),
             temperature=request.temperature,
             max_tokens=request.max_tokens or request.max_completion_tokens,
             top_p=request.top_p,

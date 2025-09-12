@@ -142,7 +142,7 @@ class OpenRouterProvider(LLMProvider):
         # Prepare request parameters
         params: dict[str, object] = {
             "model": model,
-            "messages": request.messages,
+            "messages": request.messages_as_dicts(),
             "extra_headers": self._get_headers()
         }
 
@@ -243,7 +243,7 @@ class OpenRouterProvider(LLMProvider):
         # Prepare request parameters
         params: dict[str, object] = {
             "model": model,
-            "messages": request.messages,
+            "messages": request.messages_as_dicts(),
             "stream": True,
             "extra_headers": self._get_headers()
         }

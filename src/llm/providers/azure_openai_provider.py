@@ -99,7 +99,7 @@ class AzureOpenAIProvider(LLMProvider):
         
         # Clean assistant references that might confuse the model
         processed_messages = []
-        for msg in request.messages:
+        for msg in request.messages_as_dicts():
             content = msg["content"].replace("assistant", "ai")
             processed_messages.append({"role": msg["role"], "content": content})
         

@@ -114,7 +114,7 @@ class OllamaProvider(LLMProvider):
         # Make the API call
         response = await self.client.chat(
             model=model,
-            messages=request.messages,
+            messages=request.messages_as_dicts(),
             options=options,
             stream=False
         )
@@ -139,7 +139,7 @@ class OllamaProvider(LLMProvider):
         )
         
         # Estimate token usage (Ollama doesn't provide exact counts)
-        prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+        prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
         prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)  # Rough approximation
         completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0
         
@@ -184,7 +184,7 @@ class OllamaProvider(LLMProvider):
         # Make the streaming API call
         async for chunk in await self.client.chat(
             model=model,
-            messages=request.messages,
+            messages=request.messages_as_dicts(),
             options=options,
             stream=True
         ):
@@ -215,7 +215,7 @@ class OllamaProvider(LLMProvider):
         # Send final chunk with usage info
         if chunk_count > 0:
             # Estimate final usage
-            prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+            prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
             prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
             
             usage = TokenUsage(

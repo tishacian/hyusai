@@ -77,7 +77,7 @@ class SarvamProvider(LLMProvider):
         # Build parameters
         params = self._build_params(
             model=model,
-            messages=request.messages,
+            messages=request.messages_as_dicts(),
             temperature=request.temperature,
             max_tokens=request.max_tokens or request.max_completion_tokens,
             top_p=request.top_p,
@@ -141,7 +141,7 @@ class SarvamProvider(LLMProvider):
         # Build parameters
         params = self._build_params(
             model=model,
-            messages=request.messages,
+            messages=request.messages_as_dicts(),
             temperature=request.temperature,
             max_tokens=request.max_tokens or request.max_completion_tokens,
             top_p=request.top_p,

@@ -86,7 +86,7 @@ class OpenAIProvider(LLMProvider):
         
         params = {
             "model": model,
-            "messages": request.messages,
+            "messages": request.messages_as_dicts(),
         }
         
         if streaming:

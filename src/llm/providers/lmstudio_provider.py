@@ -64,7 +64,7 @@ class LMStudioProvider(LLMProvider):
         
         params = {
             "model": model,
-            "messages": request.messages,
+            "messages": request.messages_as_dicts(),
         }
         
         if streaming:
@@ -172,7 +172,7 @@ class LMStudioProvider(LLMProvider):
             )
         else:
             # Estimate token usage if not provided
-            prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+            prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
             content = choices[0].message.content if choices else ""
             prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
             completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0

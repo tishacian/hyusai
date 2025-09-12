@@ -115,7 +115,7 @@ class LLM:
         # Create a validated request
         request = CompletionRequest(
             model=model,
-            messages=messages,  # type: ignore - TypedDict compatibility
+            messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             **kwargs
@@ -148,7 +148,7 @@ class LLM:
         # Create a validated request
         request = CompletionRequest(
             model=model,
-            messages=messages,  # type: ignore - TypedDict compatibility
+            messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
@@ -242,7 +242,6 @@ class LLM:
                 content = chunk.choices[0].delta.get("content", "")
                 if content:
                     yield content
-
 
 
 

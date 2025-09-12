@@ -88,7 +88,7 @@ class GeminiProvider(LLMProvider):
         model = request.model or os.getenv("GEMINI_DEFAULT_MODEL", self.DEFAULT_MODEL)
         
         # Convert messages to Gemini format
-        gemini_messages = self._convert_messages_to_gemini_format(request.messages)
+        gemini_messages = self._convert_messages_to_gemini_format(request.messages_as_dicts())
         
         # Prepare generation config
         generation_config = {}
@@ -185,7 +185,7 @@ class GeminiProvider(LLMProvider):
         
         # Estimate token usage (Gemini doesn't provide exact counts)
         # This is a rough approximation
-        prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+        prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
         prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)  # Rough approximation
         completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0
         
@@ -273,7 +273,7 @@ class GeminiProvider(LLMProvider):
         # Send final chunk with usage info
         if chunk_count > 0:
             # Estimate final usage
-            prompt_text = " ".join([msg.get("content", "") for msg in request.messages])
+            prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
             prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
             
             usage = TokenUsage(
