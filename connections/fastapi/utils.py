@@ -3,7 +3,7 @@ import traceback
 
 from fastapi.responses import JSONResponse
 
-from configurations import get_general_config
+from configurations import rout_conf
 
 
 def get_traceback(limit_on_prod_env: int = 0, exc: BaseException | None = None) -> str:
@@ -26,7 +26,7 @@ def get_traceback(limit_on_prod_env: int = 0, exc: BaseException | None = None) 
     if exc is None:
         exc = sys.exception()
 
-    if get_general_config().limit_traceback_size is True:
+    if rout_conf().logging.limit_traceback_size is True:
         limit = limit_on_prod_env
         chain = False  # if we limit the traceback, we don't want to show the context
     else:
