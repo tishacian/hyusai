@@ -197,12 +197,37 @@ class EnsembleRetriever:
         metas: list[dict],
     ) -> tuple[list[str], dict[str, float], list[dict]]:
         """Run FAISS search and format results consistently."""
-        D, I = index.search(query_embedding, k)
+        available = len(texts)
+        if available == 0:
+            return [], {}, []
+
+        search_k = min(k, available)
+        if search_k != k:
+            logging.debug(
+                "FAISS search k trimmed from %d to %d due to limited vectors",
+                k,
+                search_k,
+            )
+
+        D, I = index.search(query_embedding, search_k)
         ids = I[0]
-        passages = [texts[idx] for idx in ids]
-        similarities = 1.0 / (1.0 + D[0])
+        distances = D[0]
+
+        valid_mask = [0 <= idx < available for idx in ids]
+        valid_ids = [idx for idx, keep in zip(ids, valid_mask) if keep]
+        valid_dist = [dist for dist, keep in zip(distances, valid_mask) if keep]
+
+        if not valid_ids:
+            logging.debug("FAISS search returned no valid indices for provided subset")
+            return [], {}, []
+
+        passages = [texts[idx] for idx in valid_ids]
+        similarities = [1.0 / (1.0 + dist) for dist in valid_dist]
         scores_dict = {p: float(s) for p, s in zip(passages, similarities)}
-        meta_list = [metas[idx] if idx < len(metas) else {} for idx in ids]
+        meta_list = [metas[idx] if idx < len(metas) else {} for idx in valid_ids]
+        dropped = search_k - len(valid_ids)
+        if dropped:
+            logging.debug("FAISS search discarded %d placeholder results", dropped)
         return passages, scores_dict, meta_list
 
     async def _get_dense_scores(
