@@ -58,3 +58,6 @@ asgi_correlation_id
 # logging
 datategy-logging-utils~=0.5.0
 datategy-common-config[logging-setup]~=0.4.4
+
+# storage
+papai_unified_storage
