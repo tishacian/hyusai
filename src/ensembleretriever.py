@@ -248,6 +248,12 @@ class EnsembleRetriever:
                     subset_idx, subset_texts, subset_metas = self._get_or_build_subset_index(
                         allowed_indices, meta_filter
                     )
+                    index_size = getattr(subset_idx, "ntotal", len(subset_texts))
+                    logging.info(
+                        "MetaFilter subset index ready: type=%s vectors=%d",
+                        type(subset_idx).__name__,
+                        index_size,
+                    )
                     return self._faiss_search(
                         subset_idx, query_embedding, k, subset_texts, subset_metas
                     )
