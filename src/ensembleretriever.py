@@ -1039,6 +1039,11 @@ class EnsembleRetriever:
                 self._subset_order.remove(sig)
             self._subset_order.append(sig)
             entry = self._subset_cache[sig]
+            logging.info(
+                "MetaFilter subset cache hit: key=%s vectors=%d",
+                sig,
+                len(entry["texts"]),
+            )
             return entry["index"], entry["texts"], entry["metas"]
 
         # Build subset arrays
@@ -1064,6 +1069,14 @@ class EnsembleRetriever:
         if len(self._subset_order) > self._subset_capacity:
             evict = self._subset_order.pop(0)
             self._subset_cache.pop(evict, None)
+
+        logging.info(
+            "MetaFilter subset built: key=%s allowed=%d vectors=%d cache_size=%d",
+            sig,
+            len(allowed_indices),
+            len(subset_texts),
+            len(self._subset_cache),
+        )
 
         return sub_index, subset_texts, subset_metas
 
