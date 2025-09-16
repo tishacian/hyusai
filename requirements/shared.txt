@@ -56,8 +56,8 @@ uvicorn
 asgi_correlation_id
 
 # logging
-datategy-logging-utils~=0.5.0
-datategy-common-config[logging-setup]~=0.4.4
+datategy-logging-utils~=0.5.2
+datategy-common-config[logging-setup]~=0.5.2
 
 # storage
-papai_unified_storage
+papai_unified_storage~=0.23.1
