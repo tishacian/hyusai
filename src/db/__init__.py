@@ -1,4 +1,4 @@
-from configuration import front_conf
+from configurations import front_conf
 
 from .chats import Chats  # required for tables creation
 from .system_prompts import SystemPrompts

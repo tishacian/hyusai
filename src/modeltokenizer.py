@@ -8,7 +8,7 @@ from typing import Optional
 import torch
 from transformers import AutoTokenizer
 
-from configuration import front_conf
+from configurations import front_conf
 from src.globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
@@ -347,12 +347,10 @@ class CachedLLM:
 
                 kwargs = {
                     "model": self.model_name,
-                    "quantization": (
-                        "awq" if "awq" in self.model_name else "gptq"
-                    ),
+                    "quantization": ("awq" if "awq" in self.model_name else "gptq"),
                     "tensor_parallel_size": tensor_parallel,
                     "max_model_len": self.max_model_len,
-                    #"trust_remote_code": True,
+                    # "trust_remote_code": True,
                     "gpu_memory_utilization": gpu_utilization,  # <-- Too high values may cause "Cache issues", OOM Error. Lowers values are preferred.
                     "enforce_eager": False,
                     "swap_space": swap_space,
@@ -366,7 +364,7 @@ class CachedLLM:
                         {
                             "rope_scaling": {
                                 "rope_type": "llama3",
-                                #"type": "resonance_yarn",
+                                # "type": "resonance_yarn",
                                 "factor": 8.0,
                                 "low_freq_factor": 1.0,
                                 "high_freq_factor": 4.0,
@@ -494,7 +492,5 @@ def load_model_and_tokenizer(model_name: str, abs_path: str):
 
         return model, tokenizer
     except Exception as e:
-        logging.error(
-            f"Failed to load model or tokenizer for {model_name}: {e}"
-        )
+        logging.error(f"Failed to load model or tokenizer for {model_name}: {e}")
         return None, None

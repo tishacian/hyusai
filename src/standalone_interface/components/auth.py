@@ -3,7 +3,7 @@ import re
 import streamlit as st
 import streamlit_authenticator as stauth
 
-from configuration import front_conf
+from configurations import front_conf
 from src.db.users import Users
 
 

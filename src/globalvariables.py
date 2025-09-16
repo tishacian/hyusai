@@ -2,7 +2,7 @@ import os
 from enum import Enum, StrEnum
 from pathlib import Path
 
-from configuration import back_conf
+from configurations import back_conf
 
 # %% Directory
 
@@ -25,24 +25,18 @@ if not os.path.exists(VECTOR_STORE_PATH):
 # -- Helper for suggestions
 HELP = {  # help suggestions..
     "HuggingFace": (
-        "You can get the HuggingFace token from settings of your "
-        "Huggingface account"
+        "You can get the HuggingFace token from settings of your Huggingface account"
     ),
     "LLM_Model": (
         "An instruction LLM model well (distilled or not) necessary to provide "
-        "the right answer"
-        + "\n"
+        "the right answer" + "\n"
         "toward the particular context"
     ),
     "Instruction_Embedding": (
         "An instruction LLM Embedding well suited to provide the right "
-        "answer"
-        + "\n"
-        + "toward the particular context"
+        "answer" + "\n" + "toward the particular context"
     ),
-    "Vector_store": (
-        "A list vector embedding created using the instruction embedding"
-    ),
+    "Vector_store": ("A list vector embedding created using the instruction embedding"),
     "Temperature": (
         "Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore"
         + "\n"
@@ -59,9 +53,7 @@ HELP = {  # help suggestions..
     "pipeline": (
         "Select the desired pipeline. Default is without Chain of Thought (COT)"
     ),
-    "template": (
-        "Select a template style of choice. Default is a simple template."
-    ),
+    "template": ("Select a template style of choice. Default is a simple template."),
     "reranker": (
         "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
         + "\n"
@@ -90,9 +82,7 @@ SUPPLEMENT = [
 ]
 
 # -- Embedding name
-EMBEDDING_NAME = (
-    "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best; "sentence-transformers/all-MiniLM-L6-v2" (competitive)
-)
+EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best; "sentence-transformers/all-MiniLM-L6-v2" (competitive)
 
 SINGLE_FILE = 1  # single files
 RANDOM_SEED = 42

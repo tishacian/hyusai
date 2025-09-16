@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 import torch
 
-from configuration import front_conf
+from configurations import front_conf
 from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain

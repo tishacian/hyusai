@@ -1,6 +1,6 @@
 import uvicorn
 
-from configuration import rout_conf
+from configurations import rout_conf
 from connections.fastapi.main import app
 
 if __name__ == "__main__":

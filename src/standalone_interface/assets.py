@@ -4,7 +4,7 @@ from io import BytesIO
 import streamlit as st
 from PIL import Image
 
-from configuration import front_conf
+from configurations import front_conf
 
 
 def load_avatar(image_path):

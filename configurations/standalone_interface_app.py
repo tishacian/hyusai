@@ -1,7 +1,7 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from configuration.subconfigs.standalone_interface import StandaloneInterfaceConfig
+from configurations.subconfigs.standalone_interface import StandaloneInterfaceConfig
 
 
 class StandaloneInterfaceAppConfig(BaseSettings):

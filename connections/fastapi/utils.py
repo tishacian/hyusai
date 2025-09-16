@@ -3,7 +3,7 @@ import traceback
 
 from fastapi.responses import JSONResponse
 
-from configuration import get_general_config
+from configurations import get_general_config
 
 
 def get_traceback(limit_on_prod_env: int = 0, exc: BaseException | None = None) -> str:

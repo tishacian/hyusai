@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import torch
 from PIL import Image
 from vllm import LLM, SamplingParams
-from configuration import get_vlm_config
+from configurations import get_vlm_config
 from transformers import (
     AutoProcessor,
     AutoModelForVision2Seq,

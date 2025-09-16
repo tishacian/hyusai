@@ -1,6 +1,6 @@
 import streamlit as st
 
-from configuration import front_conf
+from configurations import front_conf
 from src.db.system_prompts import SystemPrompts
 from src.standalone_interface.assets import omnirag_header
 from src.standalone_interface.components.auth import auth_component
