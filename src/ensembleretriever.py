@@ -871,11 +871,16 @@ class EnsembleRetriever:
                         'doc_id': m.get('doc_id'),
                         'chunk_id': m.get('chunk_id'),
                     })
+            pre_chunk_ids = [
+                m.get('chunk_id') if isinstance(m, dict) else None
+                for m in self.metadatas
+            ]
             logging.info(
                 "MetaFilter pre: corpus_size=%d sample(doc_id,chunk_id)=%s",
                 total,
                 pre_sample,
             )
+            logging.info("MetaFilter pre chunk_ids=%s", pre_chunk_ids)
 
             allowed_dbg = self._compute_allowed_indices(meta_filter)
             allowed_sample = []
@@ -887,11 +892,16 @@ class EnsembleRetriever:
                         'doc_id': m.get('doc_id'),
                         'chunk_id': m.get('chunk_id'),
                     })
+            allowed_chunk_ids = []
+            for i in allowed_dbg:
+                m = self.metadatas[i] if i < len(self.metadatas) else {}
+                allowed_chunk_ids.append(m.get('chunk_id') if isinstance(m, dict) else None)
             logging.info(
                 "MetaFilter post: allowed_size=%d sample(index,doc_id,chunk_id)=%s",
                 len(allowed_dbg),
                 allowed_sample,
             )
+            logging.info("MetaFilter allowed chunk_ids=%s", allowed_chunk_ids)
 
         try:
             candidate_k = k * 2
@@ -957,7 +967,13 @@ class EnsembleRetriever:
 
             # Merge chunk-level metadata with document-level metadata
             metas = [self._merge_chunk_and_document_metadata(m) for m in metas]
-            
+
+            retrieved_chunk_ids = [
+                meta.get('chunk_id') if isinstance(meta, dict) else None
+                for meta in metas
+            ]
+            logging.info("MetaFilter retrieved chunk_ids=%s", retrieved_chunk_ids)
+
             # Debug: log merged metadata
             if self.doc_metadatas:
                 logging.debug(f"EnsembleRetriever: Merged {len(metas)} chunk+document metadata entries")
