@@ -1,0 +1,29 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  correlation-id-root:
+    class: 'logging.Formatter'
+    style: '{'
+    format: '{asctime} [{correlation_id:^10}] {levelname:8} @({name}) {message}'
+
+filters:
+  correlation_id:
+    (): asgi_correlation_id.CorrelationIdFilter
+    uuid_length: 10
+    default_value: "-"
+
+handlers:
+  stdout-correlation-id-root:
+    class: logging.StreamHandler
+    formatter: correlation-id-root
+    filters:
+      - correlation_id
+    stream: ext://sys.stdout
+
+loggers:
+  root:
+    level: WARNING
+    propagate: false
+    handlers:
+      - stdout-correlation-id-root
