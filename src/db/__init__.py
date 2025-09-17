@@ -1,8 +1,9 @@
 from configurations import front_conf
 
+from .celery_task_links import CeleryTaskLinks  # required for tables creation
 from .chats import Chats  # required for tables creation
 from .system_prompts import SystemPrompts
-from .users import Users  # required for tables creation
+from .users import Users
 from .utils import Base, get_engine
 
 
