@@ -186,6 +186,7 @@ def omnirag_page():
     # %% Document embedding
     if get_standalone_interface_config().forced_vdb == "None":
         with st.expander("Document Database Setup"):
+
             with st.form("document_input"):
                 uploaded_files = st.file_uploader(
                     "Upload Documents",
@@ -317,91 +318,14 @@ def omnirag_page():
                 )
                 
                 # --
-                row_buttons = st.columns(4)
+                row_buttons = st.columns((1, 1, 2))
                 with row_buttons[0]:
                     save_button = st.form_submit_button("Create new vector DB")
                 with row_buttons[1]:
                     custom_chain_button = st.form_submit_button(
                         "Initialize context-chain"
                     )
-                
-                # Metadata filter controls in columns 3 and 4
-                with row_buttons[2]:
-                    if (
-                        st.session_state.get("chain_ready")
-                        and st.session_state.get("enable_meta_filter")
-                    ):
-                        meta_stats = {}
-                        vs_name = (
-                            existing_vector_store
-                            if existing_vector_store != "<New>"
-                            else new_vs_name
-                        )
-
-                        # The directory names already include the index type prefix (e.g. "faiss_<name>")
-                        meta_path = VECTOR_STORE_PATH / vs_name / "meta_stats.pkl"
-                        if Path(meta_path).exists():
-                            with open(meta_path, "rb") as f:
-                                meta_stats = pickle.load(f) or {}
-
-                            if meta_stats:
-                                # Retrieve any previously selected filter values to keep UI state
-                                previous_filter = st.session_state.get("meta_filter", {})
-
-                                st.markdown("**Filter by metadata**")
-                                for key, values in meta_stats.items():
-                                    # Skip empty value lists
-                                    if not values:
-                                        continue
-                                    default_sel = previous_filter.get(key, [])
-                                    st.multiselect(
-                                        key,
-                                        options=values,
-                                        default=default_sel,
-                                        key=f"meta_sel_{key}",
-                                    )
-                            else:
-                                st.info("No metadata facets available.")
-                        else:
-                            st.info("No metadata stats file found.")
-                    else:
-                        if not st.session_state.get("enable_meta_filter"):
-                            st.empty()
-                        else:
-                            st.info("Initialize context-chain first.")
-                
-                with row_buttons[3]:
-                    if (
-                        st.session_state.get("chain_ready")
-                        and st.session_state.get("enable_meta_filter")
-                    ):
-                        # Apply metadata filter button
-                        apply_meta_button = st.form_submit_button(
-                            "Apply metadata filter"
-                        )
-                    else:
-                        st.empty()
-                
-                # Handle apply metadata filter button press (only if facets exist)
-                if (
-                    'apply_meta_button' in locals()
-                    and apply_meta_button
-                    and 'meta_stats' in locals()
-                    and meta_stats
-                ):
-                    # Collect current filter selections from multiselect widgets
-                    current_filter: dict[str, list] = {}
-                    for key, values in meta_stats.items():
-                        if not values:  # Skip empty value lists
-                            continue
-                        selections = st.session_state.get(f"meta_sel_{key}", [])
-                        if selections:
-                            current_filter[key] = selections
-
-                    st.session_state.meta_filter = current_filter
-                    # Log selected filter to console and show in UI for debugging
-                    print("[MetaFilter] Selected filter:", st.session_state.get("meta_filter"))
-                    st.toast("Metadata filter applied ✅", icon="✅")
+                row_buttons[2].empty()
                 
                 # --
                 if save_button:
@@ -540,6 +464,77 @@ def omnirag_page():
                     st.session_state.pipeline_type = pipeline_type
                     st.session_state.instruction_lang = instruction_lang
                     st.rerun()
+
+            # -- Metadata filter controls rendered alongside the action buttons, but outside the form
+            filters_row = st.columns((1, 1, 2))
+            filters_row[0].empty()
+            filters_row[1].empty()
+
+            with filters_row[2]:
+                if st.session_state.get("enable_meta_filter"):
+                    if st.session_state.get("chain_ready"):
+                        meta_stats: dict[str, list] = {}
+                        vs_name = (
+                            existing_vector_store
+                            if existing_vector_store != "<New>"
+                            else new_vs_name
+                        )
+                        meta_path = VECTOR_STORE_PATH / vs_name / "meta_stats.pkl"
+
+                        if Path(meta_path).exists():
+                            with open(meta_path, "rb") as f:
+                                meta_stats = pickle.load(f) or {}
+
+                            if meta_stats:
+                                st.markdown("**Filter by metadata**")
+                                for key, values in meta_stats.items():
+                                    if not values:
+                                        continue
+                                    st.multiselect(
+                                        key,
+                                        options=values,
+                                        default=st.session_state.get(
+                                            f"meta_sel_{key}", []
+                                        ),
+                                        key=f"meta_sel_{key}",
+                                    )
+
+                                current_filter: dict[str, list] = {}
+                                for key, values in meta_stats.items():
+                                    if not values:
+                                        continue
+                                    selections = st.session_state.get(
+                                        f"meta_sel_{key}", []
+                                    )
+                                    if selections:
+                                        current_filter[key] = selections
+
+                                previous_filter = st.session_state.get(
+                                    "meta_filter", {}
+                                )
+                                if previous_filter != current_filter:
+                                    st.session_state.meta_filter = current_filter
+                                    print(
+                                        "[MetaFilter] Selected filter:",
+                                        st.session_state.get("meta_filter"),
+                                    )
+
+                                active_text = (
+                                    f"Active metadata filter: {current_filter}"
+                                    if current_filter
+                                    else "No metadata filter applied."
+                                )
+                                st.caption(active_text)
+                            else:
+                                st.info("No metadata facets available.")
+                        else:
+                            st.info("No metadata stats file found.")
+                    else:
+                        st.empty()
+                else:
+                    if st.session_state.get("meta_filter"):
+                        st.session_state.meta_filter = {}
+                    st.empty()
     else:
         # Only initialize if not already ready to prevent infinite loop
         if not st.session_state.get("chain_ready", False):
