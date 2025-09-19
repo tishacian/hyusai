@@ -1,5 +1,6 @@
 # configuration
 pydantic_settings
+pydantic
 GPUtil
 
 # protobuf compatibility (required for weaviate and other packages)
@@ -49,11 +50,6 @@ transformers                   # tokenizer, reranking model
 faiss-cpu~=1.10                # faiss
 weaviate-client<3.0.0          # weaviate (compatible with protobuf 4.x)
 langchain-community            # chroma + document loaders
-
-# fastapi
-fastapi
-uvicorn
-asgi_correlation_id
 
 # logging
 datategy-logging-utils~=0.5.2

@@ -1,0 +1,10 @@
+fastapi~=0.116.2
+uvicorn[standard]~=0.35.0
+asgi_correlation_id~=4.3.4
+pydantic~=2.11.9
+pydantic_settings~=2.10.1
+celery[amqp, sqlalchemy]~=5.5.3
+
+# datategy libraries
+datategy-logging-utils~=0.5.2
+datategy-common-config[logging-setup]~=0.5.2
