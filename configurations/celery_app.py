@@ -1,3 +1,4 @@
+from common_config.base import BaseConfig
 from common_config.celery import (
     CeleryBrokerConfig,
     CeleryEnvConfig,
@@ -7,14 +8,14 @@ from common_config.fsspec_storage import FsspecStorageConfig
 from common_config.logging import LoggingConfig
 from common_config.sqlalchemy_database import SQLAlchemyDBConfig
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 
 from configurations.subconfigs.backend import BackendConfig
 from configurations.subconfigs.core import CoreConfig
 from configurations.subconfigs.vlm import VLMConfig
 
 
-class CeleryAppConfig(BaseSettings):
+class CeleryAppConfig(BaseConfig):
     model_config = SettingsConfigDict(
         env_prefix="papai_llm_celery_", env_nested_delimiter="__"
     )
