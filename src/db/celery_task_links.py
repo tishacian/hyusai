@@ -15,17 +15,16 @@ class LinkType(StrEnum):
     chain = "chain"
     group = "group"
     chord = "chord"
-    map = "map"
-    starmap = "starmap"
-    chunks = "chunks"
-    link = "link"  # plain link signature
-    other = "other"  # fallback
+    link_error = "link_error"
+    link = "link"  # plain link signature or others
 
 
 class TaskNode(TypedDict):
     """A node in the task graph representing a Celery task and its children."""
 
     task_id: str
+    task_name: str
+    task_status: str
     called_with: str
     called_at: datetime
     subtree: list["TaskNode"]  # recursive
@@ -47,8 +46,9 @@ def _walk(node: TaskNode, lines: list[str]) -> None:
         and its edges to this list.
     """
     node_id = node["task_id"]
-    # add node label
-    lines.append(f'    "{node_id}" [label="{node_id}\\n{node["called_with"]}"];')
+    # add node with label including task name and called_at timestamp
+    label = f"{node['task_name']}\\n{node['task_status']}\\n{node['called_at']}"
+    lines.append(f'    "{node_id}" [label="{label}"];')
     for child in node["subtree"]:
         child_id = child["task_id"]
         # add edge with called_with as edge label
@@ -243,15 +243,20 @@ class CeleryTaskLinks(Base):
             .order_by(cls.called_at)
             .all()
         )
-        subtree = [
-            {
-                "task_id": link.child_task_id,
-                "called_with": link.called_with.value,
-                "called_at": link.called_at,
-                "subtree": cls._build_subtree(link.child_task_id, session=session),
-            }
-            for link in children_links
-        ]
+        subtree = []
+        for link in children_links:
+            task_name = getattr(link.child, "name", "name unknown")
+            task_status = getattr(link.child, "status", "status unknown")
+            subtree.append(
+                {
+                    "task_id": link.child_task_id,
+                    "task_name": task_name,
+                    "task_status": task_status,
+                    "called_with": link.called_with.value,
+                    "called_at": link.called_at,
+                    "subtree": cls._build_subtree(link.child_task_id, session=session),
+                }
+            )
         return subtree
 
     @classmethod
@@ -271,8 +276,16 @@ class CeleryTaskLinks(Base):
         -------
         """
         root_task_id = cls.get_root_task(task_id, session=session)
+        task_name = getattr(
+            session.get("TaskExtra", root_task_id), "name", "name unknown"
+        )
+        task_status = getattr(
+            session.get("TaskExtra", root_task_id), "status", "status unknown"
+        )
         graph: TaskNode = {
             "task_id": root_task_id,
+            "task_name": task_name,
+            "task_status": task_status,
             "called_with": "root",
             "called_at": datetime.min,
             "subtree": cls._build_subtree(root_task_id, session=session),

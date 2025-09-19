@@ -61,3 +61,6 @@ datategy-common-config[logging-setup]~=0.5.2
 
 # storage
 papai_unified_storage~=0.23.1
+
+# celery
+celery[sqlalchemy, amqp]~=5.3.0
