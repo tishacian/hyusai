@@ -53,7 +53,7 @@ langchain-community            # chroma + document loaders
 
 # logging
 datategy-logging-utils~=0.5.2
-datategy-common-config[logging-setup]~=0.5.2
+datategy-common-config[logging-setup]~=0.6.0
 
 # storage
 papai_unified_storage~=0.23.1

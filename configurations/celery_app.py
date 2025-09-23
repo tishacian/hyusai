@@ -4,6 +4,7 @@ from common_config.celery import (
     CeleryEnvConfig,
     CeleryResultBackendConfig,
 )
+from common_config.core import CoreConfig
 from common_config.fsspec_storage import FsspecStorageConfig
 from common_config.logging import LoggingConfig
 from common_config.sqlalchemy_database import SQLAlchemyDBConfig
@@ -11,7 +12,6 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from configurations.subconfigs.backend import BackendConfig
-from configurations.subconfigs.core import CoreConfig
 from configurations.subconfigs.vlm import VLMConfig
 
 

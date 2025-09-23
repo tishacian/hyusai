@@ -37,7 +37,7 @@ class CustomTask(Task):
         with change_logger_level("request", logging.ERROR):
             # we don't want to fail the task if core is not reachable
             try:
-                url = f"{back_conf().core.host}{STATUS_UPDATE_ENDPOINT}"
+                url = f"{back_conf().core.base_http_url}{STATUS_UPDATE_ENDPOINT}"
                 request("put", url, asdict(payload))
             except Exception:
                 logger.error("Failed to send progress to core.")
