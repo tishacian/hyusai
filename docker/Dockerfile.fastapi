@@ -21,8 +21,7 @@ COPY --chown=papai:papai . .
 
 # Temporary: make vector_store writable before using ffspec
 RUN mkdir -p /app/vector_store \
-    && chown -R papai:papai /app/vector_store \
-    && chmod -R 777 /app/vector_store  # remove or tighten for production
+    && chown -R papai:papai /app/vector_store
 
 USER papai
 
