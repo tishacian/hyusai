@@ -12,11 +12,10 @@ logger = logging.getLogger(__name__)
 
 @lru_cache(maxsize=None)
 def get_engine():
-    db_url = str(back_conf().db.engine_url)
-    db_options = back_conf().db.engine_options.model_dump()
+    db_url = str(back_conf().celery_result_backend.url)
 
     try:
-        return create_engine(db_url, **db_options)
+        return create_engine(db_url)
     except Exception:
         logger.error(
             f"Error while creating the engine with url: {db_url} "

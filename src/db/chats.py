@@ -7,7 +7,8 @@ from sqlalchemy import DateTime as SQLADateTime
 from sqlalchemy import ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
-from src.db.utils import Base, session_manager_decorator
+from src.db.base import Base
+from src.db.utils import session_manager_decorator
 
 
 class Metrics(TypedDict):

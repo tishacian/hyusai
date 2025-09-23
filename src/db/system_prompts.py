@@ -5,7 +5,8 @@ from sqlalchemy import DateTime as SQLADateTime
 from sqlalchemy import Integer, String, Text, func
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from src.db.utils import Base, session_manager_decorator
+from src.db.base import Base
+from src.db.utils import session_manager_decorator
 from src.system_prompts import ALL_DEFAULT_SYSTEM_PROMPT_ROLE
 
 

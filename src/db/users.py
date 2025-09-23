@@ -3,9 +3,9 @@ from datetime import datetime
 from sqlalchemy import DateTime as SQLADateTime
 from sqlalchemy import Integer, String, func, select, update
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
-from streamlit_authenticator import Hasher
 
-from src.db.utils import Base, session_manager_decorator
+from src.db.base import Base
+from src.db.utils import session_manager_decorator
 
 
 class Users(Base):
@@ -91,7 +91,7 @@ class Users(Base):
     def add_user(
         cls,
         email: str,
-        password: str,
+        password_hash: str,
         name: str,
         role: str = "user",
         *,
@@ -103,8 +103,8 @@ class Users(Base):
         ----------
         email : str
             The email of the user.
-        password : str
-            The password of the user.
+        password_hash : str
+            The hashed password of the user.
         name : str
             The name of the user.
         role : str, optional
@@ -118,10 +118,9 @@ class Users(Base):
         Users
             The newly created user object.
         """
-        hashed_pw = Hasher.hash(password)
         new_user = cls(
             email=email,
-            password_hash=hashed_pw,
+            password_hash=password_hash,
             name=name,
             role=role,
         )
@@ -131,7 +130,7 @@ class Users(Base):
     @classmethod
     @session_manager_decorator
     def update_password(
-        cls, user_id: int, new_password: str, *, session: Session = None
+        cls, user_id: int, password_hash: str, *, session: Session = None
     ) -> None:
         """Update the password for a user.
 
@@ -139,16 +138,13 @@ class Users(Base):
         ----------
         user_id : int
             The ID of the user whose password is to be updated.
-        new_password : str
-            The new password for the user.
+        password_hash : str
+            The new hashed password for the user.
         session : Session, optional
             Automatically set by the context manager, by default None.
             Should not be set manually.
         """
-        hashed_pw = Hasher.hash(new_password)
-        session.execute(
-            update(cls).where(cls.id == user_id).values(password_hash=hashed_pw)
-        )
+        session.execute(update(cls).where(cls.id == user_id).values(password_hash))
 
     @classmethod
     @session_manager_decorator

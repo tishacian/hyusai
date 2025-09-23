@@ -1,10 +1,11 @@
-fastapi~=0.116.2
-uvicorn[standard]~=0.35.0
-asgi_correlation_id~=4.3.4
-pydantic~=2.11.9
-pydantic_settings~=2.10.1
-celery[amqp, sqlalchemy]~=5.5.3
+fastapi~=0.116.2                                 # api router
+uvicorn[standard]~=0.35.0                        # web server
+asgi_correlation_id[celery]~=4.3.4               # logging utils to track link between fastapi/celery
+pydantic~=2.11.9                                 # validation tool
+pydantic_settings~=2.10.1                        # config validation tool
+celery[amqp, sqlalchemy]~=5.5.3                  # task distribution system
+SQLAlchemy[postgresql-psycopg2binary]~=2.0.43.   # agnostic db connector
 
 # datategy libraries
-datategy-logging-utils~=0.5.2
+datategy-logging-utils[httpx]~=0.5.2
 datategy-common-config[logging-setup]~=0.5.2

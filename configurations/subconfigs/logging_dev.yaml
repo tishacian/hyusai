@@ -6,6 +6,10 @@ formatters:
     class: 'logging.Formatter'
     style: '{'
     format: '{asctime} [{correlation_id:^10}] {levelname:8} @({name}) {message}'
+  celery:
+    class: 'logging.Formatter'
+    style: '{'
+    format: '{asctime} [{correlation_id:^10}] [{celery_parent_id:^10}] [{celery_current_id:^10}] {levelname:8} @({name}) {message}'
   web-access:
     class: 'logging.Formatter'
     style: '{'
@@ -24,6 +28,10 @@ filters:
     (): asgi_correlation_id.CorrelationIdFilter
     uuid_length: 10
     default_value: "-"
+  celery_tracing:
+    (): asgi_correlation_id.CeleryTracingIdsFilter
+    uuid_length: 10
+    default_value: "-"
 
 handlers:
   stdout-correlation-id-root:
@@ -31,6 +39,13 @@ handlers:
     formatter: correlation-id-root
     filters:
       - correlation_id
+    stream: ext://sys.stdout
+  celery:
+    class: logging.StreamHandler
+    filters: 
+      - correlation_id
+      - celery_tracing
+    formatter: celery
     stream: ext://sys.stdout
   web-access:
     class: logging.StreamHandler
@@ -56,6 +71,11 @@ loggers:
     level: DEBUG
     handlers:
       - stdout-correlation-id-root
+  connections.celery.tasks:
+    level: DEBUG
+    propagate: false
+    handlers:
+      - celery
   logging_utils.asgi:
     level: DEBUG
     propagate: false

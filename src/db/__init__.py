@@ -1,10 +1,10 @@
 from configurations import front_conf
 
-from .celery_task_links import CeleryTaskLinks  # required for tables creation
-from .chats import Chats  # required for tables creation
+from .base import Base
+from .chats import Chats as Chats
 from .system_prompts import SystemPrompts
 from .users import Users
-from .utils import Base, get_engine
+from .utils import get_engine
 
 
 def init_db():
@@ -17,8 +17,12 @@ def init_db():
         dev_username = "dev"
         dev_user = Users.get_by_email(dev_username)
         if dev_user is None:
+            # won't be used as authentication is skipped, but this is hashed of `password`
+            password_hash = (
+                "$2b$12$b47wpLrzEt5q5LEjZtcHBO5zZ4Yx1rWPdA8EE71dY6Ad0J9kFIBay"
+            )
             Users.add_user(
                 email=dev_username,
-                password="password",  # won't be used as authentication is skipped
+                password_hash=password_hash,
                 name="Development User",
             )

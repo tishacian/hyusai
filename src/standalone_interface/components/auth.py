@@ -95,9 +95,10 @@ def register_form():
         elif Users.get_by_email(email.lower()):
             st.warning("This email is already registered.")
         else:
+            password_hash = stauth.Hasher.hash(password)
             Users.add_user(
                 email=email.lower(),
-                password=password,
+                password_hash=password_hash,
                 name=name,
             )
             st.success("User registered successfully!")
