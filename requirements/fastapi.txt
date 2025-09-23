@@ -4,7 +4,7 @@ asgi_correlation_id[celery]~=4.3.4               # logging utils to track link b
 pydantic~=2.11.9                                 # validation tool
 pydantic_settings~=2.10.1                        # config validation tool
 celery[amqp, sqlalchemy]~=5.5.3                  # task distribution system
-SQLAlchemy[postgresql-psycopg2binary]~=2.0.43.   # agnostic db connector
+SQLAlchemy[postgresql-psycopg2binary]~=2.0.43    # agnostic db connector
 
 # datategy libraries
 datategy-logging-utils[httpx]~=0.5.2
