@@ -42,3 +42,6 @@ data/multilingual_stopwords.pkl
 pdfs/
 *.mdc
 *.zip
+
+# Secrets
+*/secrets/

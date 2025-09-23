@@ -1,0 +1,39 @@
+FROM python:3.12-slim
+
+# Temporary: install build dependencies for llama.cpp before LLMaaS
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ../requirements/ ./requirements/
+# Install dependencies from private Nexus repository using build secrets
+RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
+    --mount=type=secret,id=nexus_password,env=NEXUS_PASSWORD \
+    pip install --no-cache-dir \
+    --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
+    -r requirements/celery.txt -r requirements/cpu.txt
+RUN rm -rf ./requirements/
+
+# create and switch to non-root user
+ARG USERNAME=papai
+ARG USER_UID=20000907
+ARG USER_GID=$USER_UID
+RUN groupadd --gid "$USER_GID" "$USERNAME" \
+    && useradd --uid "$USER_UID" --gid "$USER_GID" -m "$USERNAME"
+
+WORKDIR /app
+COPY --chown=papai:papai . .
+
+# Make the entrypoint executable
+RUN chmod +x ./run_celery.sh
+
+# Temporary: make vector_store writable before using ffspec
+RUN mkdir -p /app/vector_store \
+    && chown -R papai:papai /app/vector_store \
+    && chmod -R 777 /app/vector_store  # remove or tighten for production
+
+USER papai
+
+ENV PYTHONPATH=.
+CMD ["./run_celery.sh"]
