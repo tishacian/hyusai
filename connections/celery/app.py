@@ -1,7 +1,7 @@
 from celery import Celery
 
 from configurations import back_conf
-from connections.celery.celery_extra_extend_db_backend import ExtraDatabaseBackend
+from connections.celery.db.celery_extra_extend_db_backend import ExtraDatabaseBackend
 
 config = back_conf()
 

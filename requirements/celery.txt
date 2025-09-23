@@ -60,3 +60,4 @@ papai_unified_storage~=0.23.1
 
 # celery
 celery[sqlalchemy, amqp]~=5.3.0
+SQLAlchemy[postgresql-psycopg2binary]~=2.0.43

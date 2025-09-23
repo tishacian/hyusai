@@ -1,13 +1,13 @@
 import logging
 from contextvars import ContextVar
 from time import perf_counter
-from typing import Any
 
-from asgi_correlation_id import correlation_id
-from celery.app.task import Task
+from asgi_correlation_id.extensions.celery import (
+    load_celery_current_and_parent_ids,
+    load_correlation_ids,
+)
 from celery.signals import (
     after_task_publish,
-    before_task_publish,
     task_failure,
     task_postrun,
     task_prerun,
@@ -18,7 +18,7 @@ from celery.signals import (
 from celery.worker.request import Request
 
 from configurations import back_conf
-from src.db.celery_task_links import CeleryTaskLinks, LinkType
+from connections.celery.db.celery_task_links import CeleryTaskLinks, LinkType
 
 logger = logging.getLogger("papai")
 
@@ -40,11 +40,9 @@ def remove_readiness_file_on_worker_shutdown(**_):
 
 ## Task Signals
 
-
-@before_task_publish.connect
-def transfer_correlation_id(headers: dict[str, Any], **_) -> None:
-    """from asgi-correlation-id library"""
-    headers["correlation_id"] = correlation_id.get()
+# asgi-correlation signals
+load_correlation_ids()
+load_celery_current_and_parent_ids()
 
 
 @after_task_publish.connect
@@ -53,10 +51,7 @@ def log_task_published(**_):
 
 
 @task_prerun.connect
-def load_correlation_id(task: Task, **_) -> None:
-    """from asgi-correlation-id library"""
-    id_value = task.request.get("correlation_id")
-    correlation_id.set(id_value)
+def start_chrono(**_) -> None:
     task_start_chrono.set(perf_counter())
 
 
@@ -78,11 +73,14 @@ def log_task_failure(task_id: str, exception: Exception, **_):
     logger.exception(f"Celery task {task_id} failed with exception: {exception}")
 
 
-@task_prerun.connect
-def register_task_link(task_id: str, request: Request, **_):
-    """Automatically register task links in the database before the task runs."""
+@task_received.connect
+def register_task_link(request: Request, **_):
+    """Automatically register task links in the database when a child task is received
+    by the broker.
+    """
     # get the parent_id set by celery for canvas tasks
     parent_id = getattr(request, "parent_id", None)
+    task_id = getattr(request, "task_id", None)
     if parent_id:
         if getattr(request, "chord", False):
             link_type = LinkType.chord
@@ -97,3 +95,5 @@ def register_task_link(task_id: str, request: Request, **_):
         CeleryTaskLinks.add_link(
             parent_task_id=parent_id, child_task_id=task_id, link_type=link_type
         )
+    else:
+        raise ValueError(parent_id)
