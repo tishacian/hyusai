@@ -11,9 +11,9 @@ RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
     --mount=type=secret,id=nexus_password,env=NEXUS_PASSWORD \
     --mount=type=bind,source=../requirements,target=/tmp/requirements,readonly \
     pip install --no-cache-dir \
-    --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
-    -r /tmp/requirements/celery.txt \
-    -r /tmp/requirements/cpu.txt
+        --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
+        -r /tmp/requirements/celery.txt \
+        -r /tmp/requirements/cpu.txt
 
 # create and switch to non-root user
 ARG USERNAME=papai
@@ -23,16 +23,16 @@ RUN groupadd --gid "$USER_GID" "$USERNAME" \
     && useradd --uid "$USER_UID" --gid "$USER_GID" -m "$USERNAME"
 
 WORKDIR /app
-COPY --chown=papai:papai . .
+COPY --chown=$USERNAME:$USERNAME . .
 
 # Make the entrypoint executable
 RUN chmod +x ./run_celery.sh
 
 # Temporary: make vector_store writable before using ffspec
 RUN mkdir -p /app/vector_store \
-    && chown -R papai:papai /app/vector_store
+    && chown -R "$USERNAME":"$USERNAME" /app/vector_store
 
-USER papai
+USER $USERNAME
 
 ENV PYTHONPATH=.
 CMD ["./run_celery.sh"]
