@@ -6,14 +6,14 @@ RUN apt-get update \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ../requirements/ ./requirements/
 # Install dependencies from private Nexus repository using build secrets
 RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
     --mount=type=secret,id=nexus_password,env=NEXUS_PASSWORD \
+    --mount=type=bind,source=../requirements,target=/tmp/requirements,readonly \
     pip install --no-cache-dir \
     --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
-    -r requirements/celery.txt -r requirements/cpu.txt
-RUN rm -rf ./requirements/
+    -r /tmp/requirements/celery.txt \
+    -r /tmp/requirements/cpu.txt
 
 # create and switch to non-root user
 ARG USERNAME=papai

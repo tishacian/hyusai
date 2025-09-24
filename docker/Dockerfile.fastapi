@@ -1,13 +1,12 @@
 FROM python:3.12-slim
 
-COPY ../requirements/fastapi.txt ./requirements.txt
 # Install dependencies from private Nexus repository using build secrets
 RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
     --mount=type=secret,id=nexus_password,env=NEXUS_PASSWORD \
+    --mount=type=bind,source=../requirements/fastapi.txt,target=/tmp/requirements.txt,readonly \
     pip install --no-cache-dir \
     --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
-    -r requirements.txt
-RUN rm -f requirements.txt
+    -r /tmp/requirements.txt
 
 # create and switch to non-root user
 ARG USERNAME=papai
