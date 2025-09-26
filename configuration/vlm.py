@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class VLM(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="vlm", env_nested_delimiter="__")
 
-    enable_vlm: bool = False
+    enable_vlm: bool = True
     """
     Whether to enable VLM image analysis for PDF processing.
     """
@@ -102,4 +102,4 @@ class VLM(BaseSettings):
     torch_dtype: str = "auto"
     """
     Torch data type for model loading (auto, float16, bfloat16, float32).
-    """ 
+    """

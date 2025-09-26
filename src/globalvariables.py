@@ -271,7 +271,7 @@ class PDFProcessingConfig(Enum):
     OCR_FORCE_OCR = True
 
     # Markdown converter settings (when using markdown method)
-    ENABLE_VLM = False
+    ENABLE_VLM = True
     VLM_MODEL = "smolvlm-256m"
     EXTRACT_IMAGES = True
     EXTRACT_TABLES = True

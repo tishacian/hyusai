@@ -174,7 +174,7 @@ def omnirag_page():
 
     # %% Document embedding
     if get_standalone_interface_config().forced_vdb == "None":
-        with st.expander("Document Database Setup"):
+        with st.expander("Document Knowledge Base Setup"):
             with st.form("document_input"):
                 uploaded_files = st.file_uploader(
                     "Upload Documents",
@@ -241,7 +241,7 @@ def omnirag_page():
 
                     with row_ae[2]:
                         index_type = st.selectbox(
-                            "Index Type",
+                            "Index type",
                             index_types,
                             index=(
                                 index_types.index(
@@ -265,7 +265,7 @@ def omnirag_page():
                         current_vector_store = "<New>"
 
                     existing_vector_store = st.selectbox(
-                        "Select a document database",
+                        "Select a knowledge base",
                         vector_store_list,
                         index=vector_store_list.index(
                             current_vector_store
@@ -275,9 +275,9 @@ def omnirag_page():
 
                 with row_be[1]:
                     new_vs_name = st.text_input(
-                        "New Vector Store Name",
+                        "New knowledge base name",
                         value=st.session_state.get(
-                            "new_vs_name", "New_vector_store_name"
+                            "new_vs_name", "New_knowledge_base_name"
                         ),
                         help=HELP["new_vector_store"],
                     )
@@ -302,11 +302,9 @@ def omnirag_page():
                 # --
                 row_buttons = st.columns(6)
                 with row_buttons[0]:
-                    save_button = st.form_submit_button("Create new vector DB")
+                    save_button = st.form_submit_button("Create knowledge base")
                 with row_buttons[1]:
-                    custom_chain_button = st.form_submit_button(
-                        "Initialize context-chain"
-                    )
+                    custom_chain_button = st.form_submit_button("Start chat session")
                 # --
                 if save_button:
                     # Check whether to create new vector store --> Checking params
@@ -579,7 +577,7 @@ def omnirag_page():
                 time.sleep(0.01)
 
     # -- prompting...
-    if prompt := st.chat_input("Message RAGGER..."):
+    if prompt := st.chat_input("Ask a question here..."):
         response, context, metrics = None, None, None
         st.chat_message("human", avatar=HUMAN_AVATAR).write(prompt)
         st.session_state.chat_history.append(

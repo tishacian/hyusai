@@ -41,7 +41,8 @@ class StandaloneInterfaceConfig(BaseSettings):
     cookie_name: str = "omnirag_auth"
     """Name of the authentification cookie."""
 
-    cookie_key: str = secrets.token_hex(32)
+    # temp cookie key for internal demo
+    cookie_key: str = "3eccba555cbb6c52e489d5bc4fac43f340ae142e497f8f465f9c5e6c0daa7d35"
     """Secret key for the authentification cookie.
     Consider setting this to a set value using a private .env file to fully benefit from
     the authentification cookie after restart.
@@ -50,5 +51,5 @@ class StandaloneInterfaceConfig(BaseSettings):
     cookie_expiry_days: int = 1
     """Number of days the authentification cookie will be valid."""
 
-    skip_authentication: bool = True
+    skip_authentication: bool = False
     """Skip the authentication process (for development purposes)."""
