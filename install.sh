@@ -128,11 +128,10 @@ install_tesseract() {
 echo "Try to detect nvidia-smi"
 if command -v nvidia-smi >/dev/null 2>&1; then
 	echo "CUDA detected. Installing GPU requirements..."
-	pip install -r requirements/gpu.txt -r requirements/shared.txt -r requirements/standalone_interface.txt -r requirements/test.txt
+	pip install -r requirements/gpu.txt -r requirements/celery.txt -r requirements/standalone_interface.txt -r requirements/test.txt
 	# Install PyTorch with CUDA 12.8 support
 	pip install torch==2.7.0+cu128 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 else
 	echo "CUDA not detected. Installing CPU requirements..."
-	pip install -r requirements/cpu.txt -r requirements/shared.txt -r requirements/standalone_interface.txt -r requirements/test.txt
+	pip install -r requirements/cpu.txt -r requirements/celery.txt -r requirements/standalone_interface.txt -r requirements/test.txt
 fi
-
