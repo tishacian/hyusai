@@ -2,6 +2,23 @@ version: "3.9"
 
 name: papai-llm
 services:
+  frontend:
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.frontend
+      secrets:
+        - nexus_username
+        - nexus_password
+    container_name: papai-llm-frontend
+    ports:
+      - "8501:8501"
+    volumes:
+      - models:/data/models
+    env_file:
+      - test_env_files/frontend.env
+    depends_on:
+      fastapi:
+        condition: service_healthy
   fastapi:
     build:
       context: ..
@@ -21,6 +38,12 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import http.client; exit(0 if http.client.HTTPConnection(\"fastapi\",8000).request(\"GET\",\"/healthz/ready\") or True else 1)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
   celery-cpu:
     build:
       context: ..
@@ -28,6 +51,8 @@ services:
       secrets:
         - nexus_username
         - nexus_password
+    volumes:
+      - models:/data/models
     env_file:
       - test_env_files/celery.env
     environment:
@@ -51,7 +76,9 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmqctl", "status"]
       interval: 10s
+      timeout: 5s
       retries: 5
+      start_period: 10s
   db:
     image: postgres:17
     container_name: db
@@ -63,10 +90,10 @@ services:
       - db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 40s
-      timeout: 30s
-      retries: 3
-      start_period: 60s
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
   minio:
     image: minio/minio:latest
     container_name: minio
@@ -89,6 +116,7 @@ services:
 volumes:
   db_data:
   minio_data:
+  models:
 secrets:
   nexus_username:
     file: ./secrets/nexus_username.txt

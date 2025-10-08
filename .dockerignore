@@ -41,6 +41,7 @@ env/
 
 # Generated data and downloaded models
 vector_store/
+knowledge-bases/*
 *.db
 src/models/
 

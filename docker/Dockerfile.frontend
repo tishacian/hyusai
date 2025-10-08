@@ -1,0 +1,42 @@
+FROM python:3.12-slim
+
+# Temporary: install build dependencies for llama.cpp before LLMaaS
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies from private Nexus repository using build secrets
+RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
+    --mount=type=secret,id=nexus_password,env=NEXUS_PASSWORD \
+    --mount=type=bind,source=../requirements/frontend.txt,target=/tmp/frontend.txt,readonly \
+    --mount=type=bind,source=../requirements/celery.txt,target=/tmp/celery.txt,readonly \
+    --mount=type=bind,source=../requirements/cpu.txt,target=/tmp/cpu.txt,readonly \
+    pip install --no-cache-dir \
+        --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
+        -r /tmp/frontend.txt \
+        -r /tmp/celery.txt \
+        -r /tmp/cpu.txt
+# celery.txt and cpu.txt are there as a temporary workaround until all processing is transferred to celery tasks
+
+# create and switch to non-root user
+ARG USERNAME=papai
+ARG USER_UID=20000907
+ARG USER_GID=$USER_UID
+RUN groupadd --gid "$USER_GID" "$USERNAME" \
+    && useradd --uid "$USER_UID" --gid "$USER_GID" -m "$USERNAME"
+
+WORKDIR /app
+COPY --chown=$USERNAME:$USERNAME . .
+
+# Temporary: make vector_store writable before using ffspec
+RUN mkdir -p /app/vector_store \
+    && chown -R "$USERNAME":"$USERNAME" /app/vector_store \
+    && mkdir -p /data/models \
+    && chown -R "$USERNAME":"$USERNAME" /data/models
+
+USER $USERNAME
+
+EXPOSE 8501
+
+CMD ["python", "run_frontend.py"]
