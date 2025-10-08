@@ -2,4 +2,4 @@ from pydantic import BaseModel
 
 
 class IngestDocumentsPayload(BaseModel):
-    pass
+    knowledge_base_uuid: str

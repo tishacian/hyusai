@@ -1,7 +1,6 @@
 import glob
 import logging
 import os
-import sys
 from functools import lru_cache, wraps
 from typing import Optional
 
@@ -19,11 +18,8 @@ from src.globalvariables import (
 )
 from src.utils import get_max_model_len, gpu_arc_type
 
-logging.basicConfig(
-    stream=sys.stdout,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+logger = logging.getLogger(__name__)
+
 os.environ["VLLM_ALLOW_LONG_MAX_MODEL_LEN"] = "1"
 gpu_available = True if torch.cuda.is_available() else False
 if not gpu_available:
@@ -82,14 +78,14 @@ class LlamaCppServer:
                     verbose=verbose,
                 )
                 LlamaCppServer._instances[model_path] = self.model
-                logging.info(
+                logger.info(
                     f"Model loaded successfully with {n_gpu_layers} GPU layers!"
                 )
             except Exception as e:
                 raise Exception(f"Failed to load model: {str(e)}")
         else:
             self.model = LlamaCppServer._instances[model_path]
-            logging.info("Using cached model instance")
+            logger.info("Using cached model instance")
 
     def _download_model(self, repo_id: str) -> str:
         """
@@ -111,25 +107,27 @@ class LlamaCppServer:
 
         """
         try:
+            if os.path.exists("/.dockerenv") or os.path.isdir("/data"):
+                base_dir = os.path.join("/data", "models")
+            else:
+                base_dir = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "models"
+                )
+            os.makedirs(base_dir, exist_ok=True)
             model_name = repo_id.split("/")[-1]
-            model_dir = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "models",
-                model_name,
-            )
+            model_dir = os.path.join(base_dir, model_name)
             os.makedirs(model_dir, exist_ok=True)
 
             existing_models = glob.glob(os.path.join(model_dir, "*.gguf"))
             if existing_models:
-                logging.info(f"Found existing model: {existing_models[0]}")
+                logger.info(f"Found existing model: {existing_models[0]}")
                 return existing_models[0]
 
-            logging.info(f"Downloading model from {repo_id}...")
+            logger.info(f"Downloading model from {repo_id}...")
             files = list_repo_files(repo_id)
             gguf_files = [f for f in files if f.endswith(".gguf")]
-
             if not gguf_files:
-                raise Exception("No GGUF files found in the repository")
+                raise RuntimeError("No GGUF files found in the repository")
 
             preferred_files = [
                 "model.q4_K_M.gguf",
@@ -137,27 +135,20 @@ class LlamaCppServer:
                 "model.q2_K.gguf",
                 "q2_K.gguf",
             ]
+            chosen_file = next(
+                (f for pref in preferred_files for f in gguf_files if pref in f),
+                gguf_files[0],
+            )
 
-            chosen_file = None
-            for pref in preferred_files:
-                matches = [f for f in gguf_files if pref in f]
-                if matches:
-                    chosen_file = matches[0]
-                    break
-
-            if not chosen_file:
-                chosen_file = gguf_files[0]
-
-            logging.info(f"Downloading {chosen_file}...")
+            logger.info(f"Downloading {chosen_file} into {model_dir}...")
             model_file = hf_hub_download(
                 repo_id=repo_id, filename=chosen_file, local_dir=model_dir
             )
-
-            logging.info(f"Model downloaded successfully to: {model_file}")
+            logger.info(f"Model downloaded successfully to: {model_file}")
             return model_file
 
         except Exception as e:
-            raise Exception(f"Failed to download model: {str(e)}")
+            raise RuntimeError(f"Failed to download model: {str(e)}")
 
 
 class GPUModel:
@@ -227,12 +218,12 @@ def validate_model_name(selected_model: str) -> str:
         if selected_model in GPU_MODEL_SET:
             return selected_model
         elif selected_model in CPU_MODEL_SET:
-            logging.warning(
+            logger.warning(
                 f"Selected CPU model {selected_model} but GPU is available. Using default GPU model {front_conf().standalone_interface.default_gpu_model}"
             )
             return front_conf().standalone_interface.default_gpu_model
         else:
-            logging.warning(
+            logger.warning(
                 f"Unknown model {selected_model}. Using default GPU model {front_conf().standalone_interface.default_gpu_model}"
             )
             return front_conf().standalone_interface.default_gpu_model
@@ -240,12 +231,12 @@ def validate_model_name(selected_model: str) -> str:
         if selected_model in CPU_MODEL_SET:
             return selected_model
         elif selected_model in GPU_MODEL_SET:
-            logging.warning(
+            logger.warning(
                 f"Selected GPU model {selected_model} but no GPU available. Using default CPU model {DEFAULT_CPU_MODEL}"
             )
             return DEFAULT_CPU_MODEL
         else:
-            logging.warning(
+            logger.warning(
                 f"Unknown model {selected_model}. Using default CPU model {DEFAULT_CPU_MODEL}"
             )
             return DEFAULT_CPU_MODEL
@@ -261,7 +252,7 @@ def model_and_tokenizer_cache(func):
         try:
             return func(model_name, *args, **kwargs)
         except Exception as e:
-            logging.error(f"🚩 Error loading model and tokenizer: {e}")
+            logger.error(f"🚩 Error loading model and tokenizer: {e}")
             return None, None
 
     return wrapper
@@ -309,7 +300,7 @@ class CachedLLM:
             For "llama3": Maximum concurrency for 131072 tokens per request: 2.23x (faster) on A100; >=4x faster for both on H100
         """
         if self.model_name not in self._model_instances:
-            logging.info(f"Loading GPU model: {self.model_name}")
+            logger.info(f"Loading GPU model: {self.model_name}")
             try:
                 mem = psutil.virtual_memory()
                 available_ram_gb = (
@@ -377,13 +368,11 @@ class CachedLLM:
                 self._model_instances[self.model_name] = model
 
                 if self.is_large_model:
-                    logging.info(
-                        f"Performing warmup for large model: {self.model_name}"
-                    )
+                    logger.info(f"Performing warmup for large model: {self.model_name}")
                     model.generate("Hello, world")
 
             except Exception as e:
-                logging.error(f"Error loading GPU model: {e}")
+                logger.error(f"Error loading GPU model: {e}")
                 return None
         return self._model_instances[self.model_name]
 
@@ -392,7 +381,7 @@ class CachedLLM:
         Load model for CPU inference
         """
         if self.model_name not in self._model_instances:
-            logging.info(f"Loading CPU model: {self.model_name}")
+            logger.info(f"Loading CPU model: {self.model_name}")
             try:
                 llama_server = LlamaCppServer(
                     model_path=self.model_name,
@@ -401,14 +390,14 @@ class CachedLLM:
                 )
                 self._model_instances[self.model_name] = llama_server.model
             except Exception as e:
-                logging.error(f"Error loading CPU model: {e}")
+                logger.error(f"Error loading CPU model: {e}")
                 return None
         return self._model_instances[self.model_name]
 
     def _load_tokenizer(self):
         """Load and cache tokenizer."""
         if self.model_name not in self._tokenizer_instances:
-            logging.info(f"Loading tokenizer for: {self.model_name}")
+            logger.info(f"Loading tokenizer for: {self.model_name}")
             try:
                 if self.device == "cuda":
                     tokenizer = AutoTokenizer.from_pretrained(
@@ -426,7 +415,7 @@ class CachedLLM:
 
                 self._tokenizer_instances[self.model_name] = tokenizer
             except Exception as e:
-                logging.error(f"Error loading tokenizer: {e}")
+                logger.error(f"Error loading tokenizer: {e}")
                 return None
         return self._tokenizer_instances[self.model_name]
 
@@ -447,7 +436,7 @@ class CachedLLM:
             return model, tokenizer
 
         except Exception as e:
-            logging.error(f"Error in get_model_and_tokenizer: {e}")
+            logger.error(f"Error in get_model_and_tokenizer: {e}")
             return None, None
 
     @classmethod
@@ -455,7 +444,7 @@ class CachedLLM:
         """Clear all cached models and tokenizers."""
         cls._model_instances.clear()
         cls._tokenizer_instances.clear()
-        logging.info("Cleared model and tokenizer cache")
+        logger.info("Cleared model and tokenizer cache")
 
     @classmethod
     def get_cache_info(cls):
@@ -492,5 +481,5 @@ def load_model_and_tokenizer(model_name: str, abs_path: str):
 
         return model, tokenizer
     except Exception as e:
-        logging.error(f"Failed to load model or tokenizer for {model_name}: {e}")
+        logger.error(f"Failed to load model or tokenizer for {model_name}: {e}")
         return None, None

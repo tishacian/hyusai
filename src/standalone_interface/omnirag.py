@@ -1,21 +1,23 @@
 import os
 import time
+import uuid
 from io import BytesIO
-from tempfile import NamedTemporaryFile
 from typing import Iterator
 
 import pandas as pd
+import requests
 import streamlit as st
 import torch
 
 from configurations import front_conf
+from connections.storage import fs
 from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
 from src.db.chats import Chats
 from src.db.users import Users
-from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
+from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader
 from src.embedding import EmbeddingVectors
 from src.globalvariables import (
     CPU_MODEL_SET,
@@ -322,27 +324,42 @@ def omnirag_page():
                     # -- check for uploaded document
                     if not uploaded_files:
                         st.error("No document uploaded...")
-                    else:
-                        if NUMBER_OF_FILES == 1:
-                            # -- load temporary folder first before loading document..
-                            _, extension = os.path.splitext(uploaded_files[0].name)
-                            with NamedTemporaryFile(
-                                delete=False, suffix=extension
-                            ) as temp_file:
-                                temp_file.write(uploaded_files[0].getbuffer())
-                                documents = loadSingleDocument(temp_file.name)
-                        else:
-                            # -- Save the location of all the temporary files first..
-                            temp_files = []
-                            for uploaded_file in uploaded_files:
-                                _, extension = os.path.splitext(uploaded_file.name)
-                                with NamedTemporaryFile(
-                                    delete=False, suffix=extension
-                                ) as temp_file:
-                                    temp_file.write(uploaded_file.getbuffer())
-                                    temp_files.append(temp_file.name)
-                            # -- Threaded loading of collected documents
-                            documents = ThreadMultiDocLoader(temp_files)
+                        st.stop()
+                    knowledge_base_uuid = uuid.uuid4().hex
+                    uploaded_folder = os.path.join(
+                        "knowledge-bases", knowledge_base_uuid, "uploaded"
+                    )  # TODO: use the fs join_path method
+                    for uploaded_file in uploaded_files:
+                        path = os.path.join(uploaded_folder, uploaded_file.name)
+                        fs.write_to_file(path, uploaded_file)
+                    # send to ingestion service
+                    payload = {"knowledge_base_uuid": knowledge_base_uuid}
+                    try:
+                        response = requests.post(
+                            f"{front_conf().uvicorn_client.url}/flow_operations/ingest_documents",
+                            json=payload,
+                        )
+                    except requests.exceptions.RequestException:
+                        st.warning(
+                            "Error connecting to fastapi, attempting to run locally..."
+                        )
+                        try:
+                            from connections.payload_models.flow_operations.ingest_documents import (
+                                IngestDocumentsPayload,
+                            )
+                            from src.services.ingest_documents import (
+                                IngestDocumentsService,
+                            )
+
+                            validated_payload = IngestDocumentsPayload(**payload)
+                            ingest_service = IngestDocumentsService()
+                            ingest_service.call(validated_payload)
+                        except Exception as e:
+                            st.error(f"Unexpected error during document ingestion: {e}")
+                            st.stop()
+
+                    file_paths = fs.list_files(uploaded_folder)
+                    documents = ThreadMultiDocLoader(file_paths)
                     text_chunker = TextChunker(
                         st.session_state.tokenizer, st.session_state.model
                     )

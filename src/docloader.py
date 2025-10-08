@@ -1,7 +1,9 @@
+import logging
 import os
 import time
-import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from tempfile import NamedTemporaryFile
+
 from langchain_community.document_loaders import (
     CSVLoader,
     Docx2txtLoader,
@@ -14,10 +16,14 @@ from langchain_community.document_loaders import (
     UnstructuredPowerPointLoader,
 )
 from tqdm import tqdm
+
+from connections.storage import fs
 from src.customdocloader import MyEmlLoader, OCRPDFLoader
-from src.globalvariables import VLMConfig, PDFProcessingConfig
+from src.globalvariables import PDFProcessingConfig, VLMConfig
 from src.markdownconverter import markdown_converter
 from src.utils import configure_tesseract
+
+logger = logging.getLogger(__name__)
 
 # Configure tesseract for OCR functionality
 tesseract_path, tesseract_available = configure_tesseract()
@@ -118,7 +124,7 @@ class PDFMarkdownLoader:
         
         try:
             primary_method = self.config["pdf_processing_method"]
-            logging.info(
+            logger.info(
                 f"Processing PDF with primary method: {primary_method}"
             )
             
@@ -136,7 +142,7 @@ class PDFMarkdownLoader:
                 return result
                 
             except Exception as primary_error:
-                logging.warning(
+                logger.warning(
                     f"Primary method '{primary_method}' failed: "
                     f"{primary_error}"
                 )
@@ -221,7 +227,7 @@ class PDFMarkdownLoader:
             List containing a single Document from fallback method.
         """
         fallback_method = self.config["fallback_method"]
-        logging.info(f"Applying fallback method: {fallback_method}")
+        logger.info(f"Applying fallback method: {fallback_method}")
         
         try:
             if fallback_method == "markdown_converter":
@@ -245,7 +251,7 @@ class PDFMarkdownLoader:
             return result
             
         except Exception as fallback_error:
-            logging.error(f"Fallback method '{fallback_method}' also failed: {fallback_error}")
+            logger.error(f"Fallback method '{fallback_method}' also failed: {fallback_error}")
             self.stats["errors"].append(f"Fallback method failed: {fallback_error}")
             return self._create_error_document(
                 f"Both primary and fallback methods failed. "
@@ -471,8 +477,8 @@ def loadSingleDocument(file_path: str, target_dir: str | None = None) -> str:
     str
         Document content as string.
     """
-    file_extension = "." + file_path.rsplit(".", 1)[-1]
-
+    # Handle files in remote storage by downloading to a temp file
+    file_extension = os.path.splitext(file_path)[1].lower()
     if file_extension not in LOADER_MAPPING:
         raise ValueError(f"Unsupported file extension '{file_extension}'")
 
@@ -481,26 +487,32 @@ def loadSingleDocument(file_path: str, target_dir: str | None = None) -> str:
     if file_extension == ".pdf" and target_dir:
         loader_args["target_dir"] = target_dir
 
-    try:
-        loader = loader_class(file_path, **loader_args)
-        result = loader.load()
+    with NamedTemporaryFile(suffix=file_extension) as tmp_file:
+        with fs.open_for_reading(file_path) as f:
+            tmp_file.write(f.read())
+            tmp_file.flush()
+            local_file_path = tmp_file.name
+        try:
+            loader = loader_class(local_file_path, **loader_args)
+            result = loader.load()
+        except Exception:
+            logger.error(f"Error loading file: {file_path}", exc_info=True)
+            result = []
 
-        if not result:
-            return ""
+    page_content = [
+        doc.page_content
+        for doc in result
+        if hasattr(doc, "page_content") and doc.page_content
+    ]
+    result_str = "\n".join(page_content) if page_content else ""
 
-        page_content = [
-            doc.page_content
-            for doc in result
-            if hasattr(doc, "page_content") and doc.page_content
-        ]
+    basename, extension = os.path.splitext(os.path.basename(file_path))
+    ingested_filename = f"{basename}_{extension.lstrip('.')}.txt"
+    folder_path = os.path.dirname(file_path).replace("/uploaded", "/ingested")
+    ingested_path = os.path.join(folder_path, ingested_filename)
+    fs.write_to_file(ingested_path, result_str)
 
-        if not page_content:
-            return ""
-
-        return " \n".join(page_content)
-
-    except Exception:
-        return ""
+    return result_str
 
 
 def ThreadMultiDocLoader(
@@ -543,11 +555,15 @@ def ThreadMultiDocLoader(
         ) as pbar:
             for future in as_completed(future_to_file):
                 try:
-                    docs = future.result()
-                    if docs:
-                        results.extend(docs)
+                    doc_content = future.result()
+                    if doc_content:
+                        results.append(doc_content)
                 except Exception:
-                    pass
-                pbar.update()
+                    logger.error(
+                        f"Error processing file: {future_to_file[future]}",
+                        exc_info=True,
+                    )
+                finally:
+                    pbar.update()
 
-    return "".join(results)
+    return "\n".join(results)
