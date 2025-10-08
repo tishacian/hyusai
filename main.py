@@ -7,13 +7,12 @@ import warnings
 
 import torch
 
-# Set environment variables for monolith OmniRAG (even though they won't be used)
-os.environ["PAPAI_LLM_CELERY_CORE__BASE_HTTP_URL"] = "https://www.core.net/"
-os.environ["PAPAI_LLM_CELERY_CELERY_BROKER__URL"] = "https://www.broker.net/"
-os.environ["PAPAI_LLM_CELERY_CELERY_RESULT_BACKEND__URL"] = (
-    "sqlite:///./omnirag_database.db"
-)
-os.environ["PAPAI_LLM_CELERY_DB__ENGINE_URL"] = "sqlite:///./omnirag_database.db"
+# Set environment variables for monolith OmniRAG
+# (even though they won't be used for broker and core)
+os.environ["PAPAILLM_CORE__BASE_HTTP_URL"] = "https://www.core.net/"
+os.environ["PAPAILLM_BROKER__URL"] = "https://www.broker.net/"
+os.environ["PAPAILLM_CELERY_DB__URL"] = "sqlite:///./omnirag_database.db"
+os.environ["PAPAILLM_DATABASE__ENGINE_URL"] = "sqlite:///./omnirag_database.db"
 
 from connections.database import init_db
 from src.gpuselector import GPUSelector
