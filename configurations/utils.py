@@ -2,7 +2,7 @@ from pathlib import Path
 
 import toml
 
-from configurations.subconfigs.streamlit import StreamlitConfig
+from configurations.components.streamlit import StreamlitConfig
 
 
 def create_streamlit_config_file():

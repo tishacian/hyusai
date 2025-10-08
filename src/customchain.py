@@ -24,11 +24,11 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 import logging
 import sys
 
+from connections.database.system_prompts import SystemPrompts
 from src.cache import LRUCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
-from src.db.system_prompts import SystemPrompts
 from src.embedding import EmbeddingModelLoader
 from src.ensembleretriever import EnsembleConfig, EnsembleRetriever, FusionMethod
 from src.flashreranker import FlashReranker, RerankerConfig

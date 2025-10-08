@@ -1,7 +1,7 @@
-from pydantic_settings import BaseSettings
+from pydantic import BaseModel
 
 
-class UvicornClientConfig(BaseSettings):
+class FastAPIClientConfig(BaseModel):
     host: str = "fastapi"
     port: int = 8000
     protocol: str = "http"

@@ -17,7 +17,7 @@ from celery.signals import (
 )
 from celery.worker.request import Request
 
-from configurations import back_conf
+from configurations import Config
 from connections.celery.db.celery_task_links import CeleryTaskLinks, LinkType
 
 logger = logging.getLogger("papai")
@@ -30,12 +30,12 @@ task_start_chrono: ContextVar[float] = ContextVar("task_start_chrono")
 
 @worker_ready.connect
 def create_readiness_file_on_worker_ready(**_):
-    back_conf().celery.readiness_file_path.touch()
+    Config.get().celery.readiness_file_path.touch()
 
 
 @worker_shutdown.connect
 def remove_readiness_file_on_worker_shutdown(**_):
-    back_conf().celery.readiness_file_path.unlink(missing_ok=True)
+    Config.get().celery.readiness_file_path.unlink(missing_ok=True)
 
 
 ## Task Signals

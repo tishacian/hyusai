@@ -6,7 +6,7 @@ from pydantic import BaseModel
 image_path = Path(__file__).parent.parent.parent / "image"
 
 
-class StandaloneInterfaceConfig(BaseModel):
+class InterfaceConfig(BaseModel):
     page_icon: str = "🦙"
     """The page favicon."""
 

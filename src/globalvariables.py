@@ -2,7 +2,7 @@ import os
 from enum import Enum, StrEnum
 from pathlib import Path
 
-from configurations import back_conf
+from configurations import Config
 
 # %% Directory
 
@@ -211,9 +211,9 @@ class PipelineType(StrEnum):
 
 
 class OCRConfig(Enum):
-    USE_OCR = not back_conf().backend.disable_ocr_for_pdf
+    USE_OCR = not Config.get().backend.disable_ocr_for_pdf
     OCR_DPI = 150
-    FORCE_OCR = back_conf().backend.force_ocr_on_all_pdf
+    FORCE_OCR = Config.get().backend.force_ocr_on_all_pdf
     LANGS = os.getenv("LANGS", "eng fra deu spa ita por kor ara").split(" ")
 
 
@@ -271,14 +271,14 @@ class PDFProcessingConfig(Enum):
     EXTRACT_TABLES = True
 
     # File saving settings
-    DISABLE_FILE_SAVING = back_conf().backend.disable_file_saving
+    DISABLE_FILE_SAVING = Config.get().backend.disable_file_saving
 
     # Performance settings
     MAX_WORKERS = 4
     TIMEOUT_SECONDS = 300
 
 
-vlm_config = back_conf().vlm
+vlm_config = Config.get().vlm
 
 
 class VLMConfig(Enum):

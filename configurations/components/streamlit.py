@@ -1,7 +1,6 @@
 from typing import Optional
 
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class LoggerConfig(BaseModel):
@@ -33,9 +32,7 @@ class BrowserConfig(BaseModel):
     )
 
 
-class StreamlitConfig(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="streamlit_", env_nested_delimiter="_")
-
+class StreamlitConfig(BaseModel):
     logger: LoggerConfig = Field(default_factory=LoggerConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)

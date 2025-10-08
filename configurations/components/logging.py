@@ -7,4 +7,4 @@ class CustomLoggingConfig(LoggingConfig):
     limit_traceback_size: bool = False
 
     # overwrite the default config file for logging
-    config_file_path: Path = Path("configurations", "subconfigs", "logging_dev.yaml")
+    config_file_path: Path = Path("configurations", "components", "logging_dev.yaml")

@@ -1,4 +1,4 @@
-from configurations import front_conf
+from configurations import Config
 
 from .base import Base
 from .chats import Chats as Chats
@@ -13,7 +13,7 @@ def init_db():
     # fill system prompts table
     if len(SystemPrompts.get_all()) == 0:
         SystemPrompts.reset_all(updated_by="system")
-    if front_conf().standalone_interface.skip_authentication:
+    if Config.get().interface.skip_authentication:
         dev_username = "dev"
         dev_user = Users.get_by_email(dev_username)
         if dev_user is None:

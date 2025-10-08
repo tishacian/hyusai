@@ -3,8 +3,8 @@ import re
 import streamlit as st
 import streamlit_authenticator as stauth
 
-from configurations import front_conf
-from src.db.users import Users
+from configurations import Config
+from connections.database.users import Users
 
 
 def is_valid_email(email: str) -> bool:
@@ -50,9 +50,9 @@ def get_authenticator() -> stauth.Authenticate:
     if auth is None:
         st.session_state["authenticator"] = stauth.Authenticate(
             st.session_state["credentials"],
-            front_conf().standalone_interface.cookie_name,
-            front_conf().standalone_interface.cookie_key,
-            front_conf().standalone_interface.cookie_expiry_days,
+            Config.get().interface.cookie_name,
+            Config.get().interface.cookie_key,
+            Config.get().interface.cookie_expiry_days,
         )
     return st.session_state["authenticator"]
 
@@ -112,7 +112,7 @@ def reset_session_state(*args, **kwargs):
 
 def auth_component():
     """Display the authentication component."""
-    if front_conf().standalone_interface.skip_authentication:
+    if Config.get().interface.skip_authentication:
         st.session_state["authentication_status"] = True
         st.session_state["username"] = "dev"
     elif st.session_state.get("authentication_status"):

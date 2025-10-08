@@ -15,7 +15,7 @@ services:
     volumes:
       - models:/data/models
     env_file:
-      - test_env_files/frontend.env
+      - test_env_files/papai_llm.env
     depends_on:
       fastapi:
         condition: service_healthy
@@ -30,7 +30,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - test_env_files/fastapi.env
+      - test_env_files/papai_llm.env
     depends_on:
       broker:
         condition: service_healthy
@@ -54,7 +54,7 @@ services:
     volumes:
       - models:/data/models
     env_file:
-      - test_env_files/celery.env
+      - test_env_files/papai_llm.env
     environment:
       CELERY_QUEUES: cpu
       CELERY_LOGLEVEL: debug

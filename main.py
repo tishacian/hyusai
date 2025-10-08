@@ -15,7 +15,7 @@ os.environ["PAPAI_LLM_CELERY_CELERY_RESULT_BACKEND__URL"] = (
 )
 os.environ["PAPAI_LLM_CELERY_DB__ENGINE_URL"] = "sqlite:///./omnirag_database.db"
 
-from src.db import init_db
+from connections.database import init_db
 from src.gpuselector import GPUSelector
 from src.utils import download_nltk_data
 

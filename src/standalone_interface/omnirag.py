@@ -9,14 +9,14 @@ import requests
 import streamlit as st
 import torch
 
-from configurations import front_conf
+from configurations import Config
+from connections.database.chats import Chats
+from connections.database.users import Users
 from connections.storage import fs
 from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
-from src.db.chats import Chats
-from src.db.users import Users
 from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader
 from src.embedding import EmbeddingVectors
 from src.globalvariables import (
@@ -58,7 +58,7 @@ def device_available_models():
 def device_default_model():
     """Default model based on device."""
     return (
-        front_conf().standalone_interface.default_gpu_model
+        Config.get().interface.default_gpu_model
         if torch.cuda.is_available()
         else DEFAULT_CPU_MODEL
     )
@@ -175,7 +175,7 @@ def omnirag_page():
     ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
 
     # %% Document embedding
-    if front_conf().standalone_interface.forced_vdb == "None":
+    if Config.get().interface.forced_vdb == "None":
         with st.expander("Document Database Setup"):
             with st.form("document_input"):
                 uploaded_files = st.file_uploader(
@@ -188,7 +188,7 @@ def omnirag_page():
                 )
 
                 NUMBER_OF_FILES = len(uploaded_files)
-                if not front_conf().standalone_interface.hide_rag_params_config:
+                if not Config.get().interface.hide_rag_params_config:
                     row_ae = st.columns([2, 1, 1])
                     with row_ae[0]:
                         current_model = st.session_state.get(
@@ -281,7 +281,7 @@ def omnirag_page():
                         ),
                         help=HELP["new_vector_store"],
                     )
-                if not front_conf().standalone_interface.hide_rag_params_config:
+                if not Config.get().interface.hide_rag_params_config:
                     with row_be[2]:
                         pipeline_type = st.selectbox(
                             "Pipeline",
@@ -336,7 +336,7 @@ def omnirag_page():
                     payload = {"knowledge_base_uuid": knowledge_base_uuid}
                     try:
                         response = requests.post(
-                            f"{front_conf().uvicorn_client.url}/flow_operations/ingest_documents",
+                            f"{Config.get().fastapi_client.url}/flow_operations/ingest_documents",
                             json=payload,
                         )
                     except requests.exceptions.RequestException:
@@ -431,7 +431,7 @@ def omnirag_page():
             st.session_state.tokenizer,
             st.session_state.model,
             model_name,
-            front_conf().standalone_interface.forced_vdb,
+            Config.get().interface.forced_vdb,
             index_type=index_type,
             instruction_lang=instruction_lang,
         )
@@ -753,8 +753,8 @@ def omnirag_page():
 
 if __name__ == "__main__":
     st.set_page_config(
-        page_title=front_conf().standalone_interface.page_title,
-        page_icon=front_conf().standalone_interface.page_icon,
+        page_title=Config.get().interface.page_title,
+        page_icon=Config.get().interface.page_icon,
         layout="wide",
     )
     apply_omnirag_style()
