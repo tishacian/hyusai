@@ -2,6 +2,16 @@ version: "3.9"
 
 name: papai-llm
 services:
+  # Init services
+  install_tessdata:
+    image: debian:bookworm-slim
+    container_name: install-tessdata
+    volumes:
+      - ./scripts/install_tessdata.sh:/install_tessdata.sh:ro
+      - assets:/data/assets
+    command: bash /install_tessdata.sh
+    restart: "no"
+  # Main services
   frontend:
     build:
       context: ..
@@ -53,6 +63,7 @@ services:
         - nexus_password
     volumes:
       - models:/data/models
+      - assets:/data/assets
     env_file:
       - test_env_files/papai_llm.env
     environment:
@@ -64,7 +75,9 @@ services:
       db:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_started    
+      install_tessdata:
+        condition: service_completed_successfully
     deploy:
       replicas: 2
   broker:
@@ -117,6 +130,7 @@ volumes:
   db_data:
   minio_data:
   models:
+  assets:
 secrets:
   nexus_username:
     file: ./secrets/nexus_username.txt

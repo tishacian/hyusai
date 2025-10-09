@@ -254,7 +254,7 @@ TRIVIAL_LEN: int = 100
 
 class PDFProcessingConfig(Enum):
     # PDF Processing method: "markdown_converter" or "ocr"
-    PDF_PROCESSING_METHOD = "markdown_converter"
+    PDF_PROCESSING_METHOD = "ocr"
 
     # "ocr" fallback when markdown fails
     ENABLE_FALLBACK = True

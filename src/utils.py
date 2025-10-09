@@ -37,10 +37,15 @@ from src.system_prompts import (
 )
 
 user_tessdata = os.path.expanduser("~/.local/share/tessdata")
+docker_tessdata = "/data/assets/tessdata"
 if os.path.isdir(user_tessdata) and any(
     f.endswith(".traineddata") for f in os.listdir(user_tessdata)
 ):
     os.environ["TESSDATA_PREFIX"] = user_tessdata
+elif os.path.isdir(docker_tessdata) and any(
+    f.endswith(".traineddata") for f in os.listdir(docker_tessdata)
+):
+    os.environ["TESSDATA_PREFIX"] = docker_tessdata
 else:
     # alternative destination for tessdata
     os.environ["TESSDATA_PREFIX"] = "/usr/share/tesseract-ocr/5/tessdata/"
@@ -160,6 +165,7 @@ def get_tesseract_path():
 
     # check custom locations
     possible_paths = [
+        "/data/assets/"
         "/workspace/tesseract/bin/tesseract",  # OVH Custom location
         "/usr/bin/tesseract",
         "/usr/local/bin/tesseract",

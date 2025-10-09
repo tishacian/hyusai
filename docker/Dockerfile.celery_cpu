@@ -4,6 +4,7 @@ FROM python:3.12-slim
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         build-essential \
+        tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies from private Nexus repository using build secrets
