@@ -1,5 +1,9 @@
 FROM python:3.12-slim
 
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
 # Install dependencies from private Nexus repository using build secrets
 RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
     --mount=type=secret,id=nexus_password,env=NEXUS_PASSWORD \
@@ -8,7 +12,7 @@ RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
         --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
         -r /tmp/requirements.txt
 
-# create and switch to non-root user
+# Create to non-root user for runtime
 ARG USERNAME=papai
 ARG USER_UID=20000907
 ARG USER_GID=$USER_UID
@@ -16,6 +20,7 @@ RUN groupadd --gid "$USER_GID" "$USERNAME" \
     && useradd --uid "$USER_UID" --gid "$USER_GID" -m "$USERNAME"
 
 WORKDIR /app
+
 COPY --chown=$USERNAME:$USERNAME . .
 
 # Temporary: make vector_store writable before using ffspec

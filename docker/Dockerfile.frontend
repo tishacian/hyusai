@@ -1,5 +1,9 @@
 FROM python:3.12-slim
 
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
 # Temporary: install build dependencies for llama.cpp before LLMaaS
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -19,7 +23,7 @@ RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
         -r /tmp/cpu.txt
 # celery.txt and cpu.txt are there as a temporary workaround until all processing is transferred to celery tasks
 
-# create and switch to non-root user
+# Create to non-root user for runtime
 ARG USERNAME=papai
 ARG USER_UID=20000907
 ARG USER_GID=$USER_UID
@@ -27,6 +31,7 @@ RUN groupadd --gid "$USER_GID" "$USERNAME" \
     && useradd --uid "$USER_UID" --gid "$USER_GID" -m "$USERNAME"
 
 WORKDIR /app
+
 COPY --chown=$USERNAME:$USERNAME . .
 
 # Temporary: make vector_store writable before using ffspec

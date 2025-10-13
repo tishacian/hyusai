@@ -80,6 +80,30 @@ services:
         condition: service_completed_successfully
     deploy:
       replicas: 2
+  celery-gpu:
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.celery_gpu
+      secrets:
+        - nexus_username
+        - nexus_password
+    volumes:
+      - models:/data/models
+      - assets:/data/assets
+    env_file:
+      - test_env_files/papai_llm.env
+    environment:
+      CELERY_QUEUES: gpu
+      CELERY_LOGLEVEL: debug
+    depends_on:
+      broker:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    deploy:
+      replicas: 1
   broker:
     image: rabbitmq:4.1-management
     container_name: broker
