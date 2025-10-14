@@ -12,6 +12,9 @@ import torch
 from configurations import Config
 from connections.database.chats import Chats
 from connections.database.users import Users
+from connections.payload_models.flow_operations.ingest_documents import (
+    IngestDocumentsPayload,
+)
 from connections.storage import fs
 from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
@@ -327,33 +330,31 @@ def omnirag_page():
                         st.stop()
                     knowledge_base_uuid = uuid.uuid4()
                     uploaded_folder = os.path.join(
-                        "knowledge-bases", knowledge_base_uuid, "uploaded"
+                        "knowledge-bases", str(knowledge_base_uuid), "uploaded"
                     )  # TODO: use the fs join_path method
                     for uploaded_file in uploaded_files:
                         path = os.path.join(uploaded_folder, uploaded_file.name)
                         fs.write_to_file(path, uploaded_file)
                     # send to ingestion service
-                    payload = {"knowledge_base_uuid": knowledge_base_uuid}
+                    payload = IngestDocumentsPayload(
+                        knowledge_base_uuid=knowledge_base_uuid
+                    )
                     try:
                         response = requests.post(
                             f"{Config.get().fastapi_client.url}/flow_operations/ingest_documents",
-                            json=payload,
+                            json=payload.model_dump(mode="json"),
                         )
                     except requests.exceptions.RequestException:
                         st.warning(
                             "Error connecting to fastapi, attempting to run locally..."
                         )
                         try:
-                            from connections.payload_models.flow_operations.ingest_documents import (
-                                IngestDocumentsPayload,
-                            )
                             from src.services.ingest_documents import (
                                 IngestDocumentsService,
                             )
 
-                            validated_payload = IngestDocumentsPayload(**payload)
                             ingest_service = IngestDocumentsService()
-                            ingest_service.call(validated_payload)
+                            ingest_service.call(payload)
                         except Exception as e:
                             st.error(f"Unexpected error during document ingestion: {e}")
                             st.stop()
