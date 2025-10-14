@@ -12,9 +12,9 @@ class CeleryConfig:
     task_track_started = True
     task_acks_late = config.celery.acks_late
 
-    task_serializer = "pickle"
-    accept_content = ["pickle", "json"]
-
+    accept_content = ["json"]
+    task_serializer = "json"
+    result_serializer = "json"
     result_extended = True
 
     worker_concurrency = config.celery.worker_concurrency
