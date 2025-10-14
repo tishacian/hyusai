@@ -7,6 +7,7 @@ from sqlalchemy import Enum, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from connections.celery.db.base import ResultModelBase
+from connections.celery.db.celery_task_extra_model import TaskExtra
 from connections.celery.db.utils import session_manager_decorator
 
 
@@ -277,12 +278,9 @@ class CeleryTaskLinks(ResultModelBase):
         -------
         """
         root_task_id = cls.get_root_task(task_id, session=session)
-        task_name = getattr(
-            session.get("TaskExtra", root_task_id), "name", "name unknown"
-        )
-        task_status = getattr(
-            session.get("TaskExtra", root_task_id), "status", "status unknown"
-        )
+        task_obj = session.get(TaskExtra, root_task_id)
+        task_name = getattr(task_obj, "name", "name unknown")
+        task_status = getattr(task_obj, "status", "status unknown")
         graph: TaskNode = {
             "task_id": root_task_id,
             "task_name": task_name,
