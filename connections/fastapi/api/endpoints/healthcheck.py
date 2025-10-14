@@ -9,5 +9,5 @@ def liveness():
 
 
 @router.get("/healthz/ready")
-def readyness():
+def readiness():
     return Response()
