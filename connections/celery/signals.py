@@ -81,19 +81,19 @@ def register_task_link(request: Request, **_):
     # get the parent_id set by celery for canvas tasks
     parent_id = getattr(request, "parent_id", None)
     task_id = getattr(request, "task_id", None)
-    if parent_id:
-        if getattr(request, "chord", False):
-            link_type = LinkType.chord
-        elif getattr(request, "group", False):
-            link_type = LinkType.group
-        elif getattr(request, "chain", False):
-            link_type = LinkType.chain
-        elif getattr(request, "errbacks", False):
-            link_type = LinkType.link_error
-        else:
-            link_type = LinkType.link
-        CeleryTaskLinks.add_link(
-            parent_task_id=parent_id, child_task_id=task_id, link_type=link_type
-        )
+    if not parent_id:
+        # skip root tasks
+        return
+    if getattr(request, "chord", False):
+        link_type = LinkType.chord
+    elif getattr(request, "group", False):
+        link_type = LinkType.group
+    elif getattr(request, "chain", False):
+        link_type = LinkType.chain
+    elif getattr(request, "errbacks", False):
+        link_type = LinkType.link_error
     else:
-        raise ValueError(parent_id)
+        link_type = LinkType.link
+    CeleryTaskLinks.add_link(
+        parent_task_id=parent_id, child_task_id=task_id, link_type=link_type
+    )
