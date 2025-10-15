@@ -165,7 +165,7 @@ def get_tesseract_path():
 
     # check custom locations
     possible_paths = [
-        "/data/assets/"
+        "/data/assets/",
         "/workspace/tesseract/bin/tesseract",  # OVH Custom location
         "/usr/bin/tesseract",
         "/usr/local/bin/tesseract",
