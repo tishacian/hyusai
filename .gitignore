@@ -38,7 +38,9 @@ knowledge-bases/*
 src/models
 
 # Data
-data/multilingual_stopwords.pkl
+data/
+!data/hkunlp_embeddings.npy
+!data/url_suffixes.npy
 .trash
 pdfs/
 *.mdc

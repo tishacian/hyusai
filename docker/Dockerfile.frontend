@@ -5,9 +5,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1
 
 # Temporary: install build dependencies for llama.cpp before LLMaaS
+# and tessract-ocr until all processing is transferred to celery tasks
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         build-essential \
+        tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies from private Nexus repository using build secrets
@@ -37,6 +39,7 @@ COPY --chown=$USERNAME:$USERNAME . .
 # Temporary: make vector_store writable before using ffspec
 RUN mkdir -p /app/vector_store \
     && chown -R "$USERNAME":"$USERNAME" /app/vector_store \
+    # Temporary: download models manually before LLMaaS
     && mkdir -p /data/models \
     && chown -R "$USERNAME":"$USERNAME" /data/models
 

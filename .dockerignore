@@ -52,7 +52,9 @@ tests/
 .pre-commit-config.yaml
 
 # Data
-data/multilingual_stopwords.pkl
+data/
+!data/hkunlp_embeddings.npy
+!data/url_suffixes.npy
 
 # Secrets
 **/secrets/

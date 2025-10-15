@@ -1,9 +1,7 @@
 #!/bin/bash
 set -e
 
-ASSETS_DIR="/data/assets/tessdata"
-
-if [ -d "$ASSETS_DIR" ] && [ "$(ls -A "$ASSETS_DIR")" ]; then
+if [ -d "$PAPAILLM_RESSOURCES__TESSDATA" ] && [ "$(ls -A "$PAPAILLM_RESSOURCES__TESSDATA")" ]; then
     echo "Tesseract languages already installed, skipping."
     exit 0
 fi
@@ -13,7 +11,7 @@ apt-get update \
     && apt-get install --no-install-recommends -y tesseract-ocr-all \
     && rm -rf /var/lib/apt/lists/*
 
-mkdir -p "$ASSETS_DIR"
-cp -r /usr/share/tesseract-ocr/5/tessdata/* "$ASSETS_DIR"
+mkdir -p "$PAPAILLM_RESSOURCES__TESSDATA"
+cp -r /usr/share/tesseract-ocr/5/tessdata/* "$PAPAILLM_RESSOURCES__TESSDATA"
 
 echo "Tesseract languages installed successfully."

@@ -29,27 +29,13 @@ from src.globalvariables import (
     CPUModels,
     Models,
 )
+from src.init_utils import build_multilang_stopwords
 from src.system_prompts import (
     ALL_SYSTEM_PROMPT_PHRASES_TO_REMOVE,
     ALL_SYSTEM_PROMPT_SECTIONS_TO_REMOVE,
     DEFAULT_SYSTEM_PROMPT_LANG,
     SystemPromptLangs,
 )
-
-user_tessdata = os.path.expanduser("~/.local/share/tessdata")
-docker_tessdata = "/data/assets/tessdata"
-if os.path.isdir(user_tessdata) and any(
-    f.endswith(".traineddata") for f in os.listdir(user_tessdata)
-):
-    os.environ["TESSDATA_PREFIX"] = user_tessdata
-elif os.path.isdir(docker_tessdata) and any(
-    f.endswith(".traineddata") for f in os.listdir(docker_tessdata)
-):
-    os.environ["TESSDATA_PREFIX"] = docker_tessdata
-else:
-    # alternative destination for tessdata
-    os.environ["TESSDATA_PREFIX"] = "/usr/share/tesseract-ocr/5/tessdata/"
-
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -148,7 +134,6 @@ def get_tesseract_path():
     try:
         path = shutil.which("tesseract")
         if path:
-            logging.info(f"Found tesseract using 'which': {path}")
             return path
 
         result = subprocess.run(
@@ -275,74 +260,27 @@ def get_max_model_len(model_name, max_model_len: int = None) -> int:
 # %% stopwords
 
 
-def create_stopwords_mlin(data_dir: str = "data"):
-    """Create multilingual stopwords
+def load_multilang_stopwords(target_dir: str) -> set[str]:
+    """Load the multilingual stopwords set, or build it if missing.
 
     Parameters
     ----------
-    data_dir : str, optional
-        Directory to store cache file, by default "data"
+    target_dir : str
+        Directory where the multilingual stopwords set is stored.
 
     Returns
     -------
-    Optional[Set[str]]
-        Combined stopwords set, or None if failed
+    set[str]
+        The loaded multilingual stopwords set.
     """
-    data_path = Path(data_dir)
-    data_path.mkdir(exist_ok=True)
-    save_file = data_path / "multilingual_stopwords.pkl"
-    languages = ["english", "french", "german", "italian", "russian"]
+    file_path = Path(target_dir) / "multilang_stopwords.pkl"
 
-    if not NLTK_AVAILABLE:
-        logging.error("NLTK not available - cannot create stopwords")
-        return None
-
-    try:
-        combined_stopwords = set()
-        for lang in languages:
-            lang_stopwords = set(stopwords.words(lang))
-            combined_stopwords.update(lang_stopwords)
-
-        if not combined_stopwords:
-            logging.error("No stopwords could be loaded from any language")
-            return None
-
-        with open(save_file, "wb") as f:
-            pickle.dump(combined_stopwords, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-        return combined_stopwords
-    except Exception as e:
-        logging.error(f"Error creating multilingual stopwords: {e}")
-        return None
-
-
-def load_stopwords(data_dir: str = "data"):
-    """Load stopwords, create if not exists
-
-    Parameters
-    ----------
-    data_dir : str, optional
-        Directory containing cache file, by default "data"
-
-    Returns
-    -------
-    Set[str]
-        Combined stopwords set (empty set if all methods fail)
-    """
-    saved_file = Path(data_dir) / "multilingual_stopwords.pkl"
-
-    if saved_file.exists():
-        with open(saved_file, "rb") as f:
-            stopwords_set = pickle.load(f)
-        return stopwords_set
-
-    stopwords_set = create_stopwords_mlin(data_dir)
-
-    if stopwords_set is None:
-        logging.error("Failed to create stopwords - returning empty set")
-        return set()
-
-    return stopwords_set
+    if file_path.exists():
+        with file_path.open("rb") as f:
+            return pickle.load(f)
+    else:
+        logging.info("Multilingual stopwords file not found, building new one.")
+        return build_multilang_stopwords(target_dir)
 
 
 def format_llm_response(
@@ -403,17 +341,6 @@ def humanize_datetime(dt: datetime) -> str:
     if not dt:
         return "N/A"
     return dt.strftime("%B %d, %Y at %H:%M")
-
-
-def download_nltk_data():
-    """Download NLTK data if not already available."""
-    import nltk
-
-    nltk.download("punkt", quiet=True)
-    nltk.download("punkt_tab", quiet=True)
-    nltk.download("wordnet", quiet=True)
-    nltk.download("stopwords", quiet=True)
-    nltk.download("averaged_perceptron_tagger", quiet=True)
 
 
 def add_leading_space_if_needed(s: str) -> str:

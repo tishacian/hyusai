@@ -7,15 +7,11 @@ from configurations import Config
 # %% Directory
 
 REPO_PATH = Path(__file__).parent.parent
-DATA_PATH = REPO_PATH / "data"
 IMG_PATH = REPO_PATH / "image"
 VECTOR_STORE_PATH = REPO_PATH / "vector_store"
 EMBEDDING_CACHE_STORE = ".cache/"
 
 # -- Check if paths exist otherwise, create one
-if not os.path.exists(DATA_PATH):
-    os.makedirs(DATA_PATH)
-
 if not os.path.exists(IMG_PATH):
     os.makedirs(IMG_PATH)
 

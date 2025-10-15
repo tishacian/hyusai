@@ -13,6 +13,7 @@ from configurations.components.backend import BackendConfig
 from configurations.components.fastapi_client import FastAPIClientConfig
 from configurations.components.interface import InterfaceConfig
 from configurations.components.logging import CustomLoggingConfig as LoggingConfig
+from configurations.components.ressources import RessourcesConfig
 from configurations.components.streamlit import StreamlitConfig
 from configurations.components.vlm import VLMConfig
 
@@ -32,6 +33,7 @@ class Config(BaseConfig):
     celery_db: CeleryDBConfig = Field(default_factory=CeleryDBConfig)
     backend: BackendConfig = Field(default_factory=BackendConfig)
     vlm: VLMConfig = Field(default_factory=VLMConfig)
+    ressources: RessourcesConfig = Field(default_factory=RessourcesConfig)
     # external services
     core: CoreConfig = Field(default_factory=CoreConfig)
     broker: BrokerConfig = Field(default_factory=BrokerConfig)
