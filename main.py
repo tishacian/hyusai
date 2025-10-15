@@ -116,7 +116,7 @@ if __name__ == "__main__":
             "-m",
             "streamlit",
             "run",
-            "src/standalone_interface/omnirag.py",
+            "src/standalone_interface/omnirag_monolith.py",
             "--server.port",
             str(port),
             "--server.baseUrlPath",

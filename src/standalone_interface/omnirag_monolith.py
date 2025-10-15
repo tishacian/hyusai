@@ -1,4 +1,3 @@
-import logging
 import os
 import time
 import uuid
@@ -37,6 +36,7 @@ from src.globalvariables import (
 )
 from src.metrics import DUMMY_METRICS
 from src.modeltokenizer import load_model_and_tokenizer
+from src.services.ingest_documents import IngestDocumentsService
 from src.standalone_interface.assets import (
     AI_AVATAR,
     AI_AVATAR_B64,
@@ -48,8 +48,6 @@ from src.standalone_interface.components.auth import auth_component
 from src.standalone_interface.style import apply_omnirag_style
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SYSTEM_PROMPT_LANGS_LIST
 from src.utils import humanize_datetime
-
-logger = logging.getLogger(__name__)
 
 
 # -- device available model
@@ -343,13 +341,10 @@ def omnirag_page():
                         knowledge_base_uuid=knowledge_base_uuid
                     )
                     try:
-                        response = requests.post(
-                            f"{Config.get().fastapi_client.url}/flow_operations/ingest_documents",
-                            json=payload.model_dump(mode="json"),
-                        )
-                    except requests.exceptions.RequestException as e:
-                        logger.debug(f"Document ingestion error: {e}", exc_info=True)
-                        st.error("Document ingestion service is unavailable.")
+                        ingest_service = IngestDocumentsService()
+                        ingest_service.call(payload)
+                    except Exception as e:
+                        st.error(f"Unexpected error during document ingestion: {e}")
                         st.stop()
 
                     file_paths = fs.list_files(uploaded_folder)
