@@ -62,13 +62,21 @@ services:
   # ------------------------
   # Init / one-shot services
   # ------------------------
-  install_tessdata:
-    image: debian:bookworm-slim
-    container_name: install-tessdata
+  init:
+    image: papai-llm-fastapi:latest
+    container_name: init
     volumes:
-      - ./scripts/install_tessdata.sh:/install_tessdata.sh:ro
       - assets:/data/assets
-    command: bash /install_tessdata.sh
+    env_file:
+      - test_env_files/papai_llm.env
+    command: bash /app/docker/scripts/run_init.sh
+    depends_on:
+      broker:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
     restart: "no"
 
   # ---------------------
@@ -81,19 +89,14 @@ services:
     container_name: papai-llm-fastapi
     ports:
       - "8000:8000"
-    volumes: []
     env_file:
       - test_env_files/papai_llm.env
     secrets:
       - nexus_username
       - nexus_password
     depends_on:
-      broker:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-      minio:
-        condition: service_started
+      init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import http.client; exit(0 if http.client.HTTPConnection(\"fastapi\",8000).request(\"GET\",\"/healthz/ready\") or True else 1)'"]
       interval: 10s
@@ -117,8 +120,8 @@ services:
       - nexus_username
       - nexus_password
     depends_on:
-      fastapi:
-        condition: service_healthy
+      init:
+        condition: service_completed_successfully
     deploy:
       replicas: 2
 
@@ -138,8 +141,8 @@ services:
       - nexus_username
       - nexus_password
     depends_on:
-      fastapi:
-        condition: service_healthy
+      init:
+        condition: service_completed_successfully
     deploy:
       replicas: 1
 
