@@ -1,8 +1,67 @@
 version: "3.9"
 
 name: papai-llm
+
+volumes:
+  db_data:
+  minio_data:
+  models:
+  assets:
+
+secrets:
+  nexus_username:
+    file: ./secrets/nexus_username.txt
+  nexus_password:
+    file: ./secrets/nexus_password.txt
+
 services:
-  # Init services
+  # -----------------------
+  # Infrastructure services
+  # -----------------------
+  broker:
+    image: rabbitmq:4.1-management
+    container_name: broker
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  db:
+    image: postgres:17
+    container_name: db
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    env_file:
+      - ./test_env_files/db.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web console
+    volumes:
+      - minio_data:/data
+    env_file:
+      - ./test_env_files/minio.env
+    command: server /data --console-address ":9001"
+
+  # ------------------------
+  # Init / one-shot services
+  # ------------------------
   install_tessdata:
     image: debian:bookworm-slim
     container_name: install-tessdata
@@ -11,36 +70,23 @@ services:
       - assets:/data/assets
     command: bash /install_tessdata.sh
     restart: "no"
-  # Main services
-  frontend:
-    build:
-      context: ..
-      dockerfile: ./docker/Dockerfile.frontend
-      secrets:
-        - nexus_username
-        - nexus_password
-    container_name: papai-llm-frontend
-    ports:
-      - "8501:8501"
-    volumes:
-      - models:/data/models
-    env_file:
-      - test_env_files/papai_llm.env
-    depends_on:
-      fastapi:
-        condition: service_healthy
+
+  # ---------------------
+  # Core backend services
+  # ---------------------
   fastapi:
     build:
       context: ..
       dockerfile: ./docker/Dockerfile.fastapi
-      secrets:
-        - nexus_username
-        - nexus_password
     container_name: papai-llm-fastapi
     ports:
       - "8000:8000"
+    volumes: []
     env_file:
       - test_env_files/papai_llm.env
+    secrets:
+      - nexus_username
+      - nexus_password
     depends_on:
       broker:
         condition: service_healthy
@@ -54,13 +100,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
   celery-cpu:
     build:
       context: ..
       dockerfile: ./docker/Dockerfile.celery_cpu
-      secrets:
-        - nexus_username
-        - nexus_password
     volumes:
       - models:/data/models
       - assets:/data/assets
@@ -69,24 +113,19 @@ services:
     environment:
       CELERY_QUEUES: cpu
       CELERY_LOGLEVEL: debug
+    secrets:
+      - nexus_username
+      - nexus_password
     depends_on:
-      broker:
+      fastapi:
         condition: service_healthy
-      db:
-        condition: service_healthy
-      minio:
-        condition: service_started    
-      install_tessdata:
-        condition: service_completed_successfully
     deploy:
       replicas: 2
+
   celery-gpu:
     build:
       context: ..
       dockerfile: ./docker/Dockerfile.celery_gpu
-      secrets:
-        - nexus_username
-        - nexus_password
     volumes:
       - models:/data/models
       - assets:/data/assets
@@ -95,68 +134,32 @@ services:
     environment:
       CELERY_QUEUES: gpu
       CELERY_LOGLEVEL: debug
+    secrets:
+      - nexus_username
+      - nexus_password
     depends_on:
-      broker:
+      fastapi:
         condition: service_healthy
-      db:
-        condition: service_healthy
-      minio:
-        condition: service_started
     deploy:
       replicas: 1
-  broker:
-    image: rabbitmq:4.1-management
-    container_name: broker
+
+  # ----------------
+  # Frontend service
+  # ----------------
+  frontend:
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.frontend
+    container_name: papai-llm-frontend
     ports:
-      - "5672:5672"   # AMQP
-      - "15672:15672" # Management UI
-    healthcheck:
-      test: ["CMD", "rabbitmqctl", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-  db:
-    image: postgres:17
-    container_name: db
-    ports:
-      - "5432:5432"
-    env_file:
-      - ./test_env_files/db.env
+      - "8501:8501"
     volumes:
-      - db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
+      - models:/data/models
     env_file:
-      - ./test_env_files/minio.env
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio_data:/data
-  # # optional db monitorer
-  # pgadmin:
-  #   image: dpage/pgadmin4
-  #   environment:
-  #     PGADMIN_DEFAULT_EMAIL: admin@admin.com
-  #     PGADMIN_DEFAULT_PASSWORD: admin
-  #   ports:
-  #     - "8080:80"
-volumes:
-  db_data:
-  minio_data:
-  models:
-  assets:
-secrets:
-  nexus_username:
-    file: ./secrets/nexus_username.txt
-  nexus_password:
-    file: ./secrets/nexus_password.txt
+      - test_env_files/papai_llm.env
+    secrets:
+      - nexus_username
+      - nexus_password
+    depends_on:
+      fastapi:
+        condition: service_healthy
