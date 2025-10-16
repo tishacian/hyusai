@@ -6,4 +6,4 @@ streamlit-authenticator==0.4.2
 streamlit==1.37
 
 # datategy libraries
-papai_unified_storage~=0.23.1
+papai_unified_storage~=0.24.0

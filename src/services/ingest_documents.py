@@ -1,5 +1,3 @@
-import os
-
 from connections.celery.custom_task_class import CustomTask
 from connections.payload_models.flow_operations.ingest_documents import (
     IngestDocumentsPayload,
@@ -13,8 +11,8 @@ class IngestDocumentsService:
         self.celery_task = celery_task
 
     def call(self, payload: IngestDocumentsPayload):
-        uploaded_folder = os.path.join(
+        uploaded_folder = fs.joinpath(
             "knowledge-bases", str(payload.knowledge_base_uuid), "uploaded"
-        )  # TODO: use the fs join_path method
+        )
         file_paths = fs.list_files(uploaded_folder, recursive=True)
         ThreadMultiDocLoader(file_paths)
