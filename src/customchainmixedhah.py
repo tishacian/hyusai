@@ -13,6 +13,7 @@ import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
 
+from configurations.config import Config
 from src.system_prompts.types import SystemPromptTypes
 
 if torch.cuda.is_available():
@@ -23,16 +24,15 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 import logging
 import sys
 
+from connections.database.system_prompts import SystemPrompts
 from src.cache import TieredCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
-from src.db.system_prompts import SystemPrompts
 from src.embedding import EmbeddingModelLoader
 from src.ensembleretriever import EnsembleConfig, EnsembleRetriever, FusionMethod
 from src.flashreranker import FlashReranker, RerankerConfig
 from src.globalvariables import (
-    DATA_PATH,
     EMBEDDING_NAME,
     LARGE_MODELS,
     MAX_MODEL_LEN,
@@ -53,7 +53,7 @@ from src.utils import (
     add_leading_space_if_needed,
     format_llm_response,
     get_max_model_len,
-    load_stopwords,
+    load_multilang_stopwords,
     measure_time,
     measure_time_sync,
 )
@@ -130,7 +130,7 @@ class CustomLLMChain:
 
         self.index_type = index_type
         self.instruction_lang = instruction_lang
-        self.stopwords = load_stopwords(DATA_PATH)
+        self.stopwords = load_multilang_stopwords(Config.get().ressources.custom)
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
 

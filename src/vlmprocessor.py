@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import torch
 from PIL import Image
 from vllm import LLM, SamplingParams
-from configuration import get_vlm_config
+from configurations import Config
 from transformers import (
     AutoProcessor,
     AutoModelForVision2Seq,
@@ -526,7 +526,7 @@ class BaseVLLMVLM(BaseVLM):
         gpu_memory_utilization : float, optional
             GPU memory utilization. The default is None.
         """
-        config = get_vlm_config()
+        config = Config.get().vlm
         if device is None:
             device = config.device
         if max_model_len is None:
@@ -540,7 +540,7 @@ class BaseVLLMVLM(BaseVLM):
 
     def _load_model(self):
         try:
-            config = get_vlm_config()
+            config = Config.get().vlm
             self.llm = LLM(
                 model=self.model_name,
                 trust_remote_code=True,
@@ -610,7 +610,7 @@ class BaseVLLMVLM(BaseVLM):
         str
             Prepared prompt.
         """
-        config = get_vlm_config()
+        config = Config.get().vlm
         max_size = config.max_image_size
         if max(image.size) > max_size:
             ratio = max_size / max(image.size)
@@ -794,7 +794,7 @@ class SmolVLM(BaseVLM):
         -------
         None.
         """
-        config = get_vlm_config()
+        config = Config.get().vlm
         if device is None:
             device = config.device
 
@@ -802,7 +802,7 @@ class SmolVLM(BaseVLM):
 
     def _load_model(self):
         try:
-            config = get_vlm_config()
+            config = Config.get().vlm
             attn_impl = (
                 "flash_attention_2"
                 if (self.device == "cuda" and config.use_flash_attention)
@@ -834,7 +834,7 @@ class SmolVLM(BaseVLM):
         str
             Generated response.
         """
-        config = get_vlm_config()
+        config = Config.get().vlm
 
         messages = [
             {
@@ -1003,7 +1003,7 @@ class QwenVLM(BaseVLM):
             return_tensors="pt",
         )
         inputs = inputs.to(self.device)
-        config = get_vlm_config()
+        config = Config.get().vlm
 
         with torch.no_grad():
             generated_ids = self.model.generate(
@@ -1143,7 +1143,7 @@ class VLMProcessor:
         **kwargs
             Additional arguments for VLM initialization
         """
-        config = get_vlm_config()
+        config = Config.get().vlm
 
         if model_type is None:
             model_type = config.vlm_model
@@ -1297,7 +1297,7 @@ async def analyze_single_image(
     image_path: str, model_type: str = None
 ) -> VLMResult:
     if model_type is None:
-        model_type = get_vlm_config().vlm_model
+        model_type = Config.get().vlm.vlm_model
 
     processor = VLMProcessor(model_type=model_type)
     return await processor.analyze_image_async(image_path)

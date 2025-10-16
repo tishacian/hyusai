@@ -29,6 +29,7 @@ ENV/
 
 # Generated vector database
 vector_store/*
+knowledge-bases/*
 .safetensors
 .json
 *.db
@@ -37,8 +38,13 @@ vector_store/*
 src/models
 
 # Data
-data/multilingual_stopwords.pkl
+data/
+!data/hkunlp_embeddings.npy
+!data/url_suffixes.npy
 .trash
 pdfs/
 *.mdc
 *.zip
+
+# Secrets
+*/secrets/

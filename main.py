@@ -7,9 +7,18 @@ import warnings
 
 import torch
 
-from src.db import init_db
+from src.init_utils import locate_and_set_tessdata_prefix
+
+# Set environment variables for monolith OmniRAG
+# (even though they won't be used for broker and core)
+os.environ["PAPAILLM_CORE__BASE_HTTP_URL"] = "https://www.core.net/"
+os.environ["PAPAILLM_BROKER__URL"] = "https://www.broker.net/"
+os.environ["PAPAILLM_CELERY_DB__URL"] = "sqlite:///./omnirag_database.db"
+os.environ["PAPAILLM_DATABASE__ENGINE_URL"] = "sqlite:///./omnirag_database.db"
+
+from connections.database import init_db
 from src.gpuselector import GPUSelector
-from src.utils import download_nltk_data
+from src.init_utils import download_nltk_data
 
 torch.classes.__path__ = []
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -96,6 +105,7 @@ def available_port(start_port=8501, end_port=8509):
 
 
 if __name__ == "__main__":
+    locate_and_set_tessdata_prefix()
     download_nltk_data()
     base_url_path = get_username_from_path()
     port = available_port()
@@ -109,7 +119,7 @@ if __name__ == "__main__":
             "-m",
             "streamlit",
             "run",
-            "src/standalone_interface/omnirag.py",
+            "src/standalone_interface/omnirag_monolith.py",
             "--server.port",
             str(port),
             "--server.baseUrlPath",

@@ -1,21 +1,27 @@
+import logging
 import os
 import time
+import uuid
 from io import BytesIO
-from tempfile import NamedTemporaryFile
 from typing import Iterator
 
 import pandas as pd
+import requests
 import streamlit as st
 import torch
 
-from configuration import get_standalone_interface_config
+from configurations import Config
+from connections.database.chats import Chats
+from connections.database.users import Users
+from connections.payload_models.flow_operations.ingest_documents import (
+    IngestDocumentsPayload,
+)
+from connections.storage import fs
 from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
-from src.db.chats import Chats
-from src.db.users import Users
-from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader, loadSingleDocument
+from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader
 from src.embedding import EmbeddingVectors
 from src.globalvariables import (
     CPU_MODEL_SET,
@@ -43,6 +49,8 @@ from src.standalone_interface.style import apply_omnirag_style
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SYSTEM_PROMPT_LANGS_LIST
 from src.utils import humanize_datetime
 
+logger = logging.getLogger(__name__)
+
 
 # -- device available model
 def device_available_models():
@@ -56,7 +64,7 @@ def device_available_models():
 def device_default_model():
     """Default model based on device."""
     return (
-        get_standalone_interface_config().default_gpu_model
+        Config.get().interface.default_gpu_model
         if torch.cuda.is_available()
         else DEFAULT_CPU_MODEL
     )
@@ -173,7 +181,7 @@ def omnirag_page():
     ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
 
     # %% Document embedding
-    if get_standalone_interface_config().forced_vdb == "None":
+    if Config.get().interface.forced_vdb == "None":
         with st.expander("Document Database Setup"):
             with st.form("document_input"):
                 uploaded_files = st.file_uploader(
@@ -186,7 +194,7 @@ def omnirag_page():
                 )
 
                 NUMBER_OF_FILES = len(uploaded_files)
-                if not get_standalone_interface_config().hide_rag_params_config:
+                if not Config.get().interface.hide_rag_params_config:
                     row_ae = st.columns([2, 1, 1])
                     with row_ae[0]:
                         current_model = st.session_state.get(
@@ -279,7 +287,7 @@ def omnirag_page():
                         ),
                         help=HELP["new_vector_store"],
                     )
-                if not get_standalone_interface_config().hide_rag_params_config:
+                if not Config.get().interface.hide_rag_params_config:
                     with row_be[2]:
                         pipeline_type = st.selectbox(
                             "Pipeline",
@@ -322,27 +330,30 @@ def omnirag_page():
                     # -- check for uploaded document
                     if not uploaded_files:
                         st.error("No document uploaded...")
-                    else:
-                        if NUMBER_OF_FILES == 1:
-                            # -- load temporary folder first before loading document..
-                            _, extension = os.path.splitext(uploaded_files[0].name)
-                            with NamedTemporaryFile(
-                                delete=False, suffix=extension
-                            ) as temp_file:
-                                temp_file.write(uploaded_files[0].getbuffer())
-                                documents = loadSingleDocument(temp_file.name)
-                        else:
-                            # -- Save the location of all the temporary files first..
-                            temp_files = []
-                            for uploaded_file in uploaded_files:
-                                _, extension = os.path.splitext(uploaded_file.name)
-                                with NamedTemporaryFile(
-                                    delete=False, suffix=extension
-                                ) as temp_file:
-                                    temp_file.write(uploaded_file.getbuffer())
-                                    temp_files.append(temp_file.name)
-                            # -- Threaded loading of collected documents
-                            documents = ThreadMultiDocLoader(temp_files)
+                        st.stop()
+                    knowledge_base_uuid = uuid.uuid4()
+                    uploaded_folder = os.path.join(
+                        "knowledge-bases", str(knowledge_base_uuid), "uploaded"
+                    )  # TODO: use the fs join_path method
+                    for uploaded_file in uploaded_files:
+                        path = os.path.join(uploaded_folder, uploaded_file.name)
+                        fs.write_to_file(path, uploaded_file)
+                    # send to ingestion service
+                    payload = IngestDocumentsPayload(
+                        knowledge_base_uuid=knowledge_base_uuid
+                    )
+                    try:
+                        response = requests.post(
+                            f"{Config.get().fastapi_client.url}/flow_operations/ingest_documents",
+                            json=payload.model_dump(mode="json"),
+                        )
+                    except requests.exceptions.RequestException as e:
+                        logger.debug(f"Document ingestion error: {e}", exc_info=True)
+                        st.error("Document ingestion service is unavailable.")
+                        st.stop()
+
+                    file_paths = fs.list_files(uploaded_folder)
+                    documents = ThreadMultiDocLoader(file_paths)
                     text_chunker = TextChunker(
                         st.session_state.tokenizer, st.session_state.model
                     )
@@ -414,7 +425,7 @@ def omnirag_page():
             st.session_state.tokenizer,
             st.session_state.model,
             model_name,
-            get_standalone_interface_config().forced_vdb,
+            Config.get().interface.forced_vdb,
             index_type=index_type,
             instruction_lang=instruction_lang,
         )
@@ -736,8 +747,8 @@ def omnirag_page():
 
 if __name__ == "__main__":
     st.set_page_config(
-        page_title=get_standalone_interface_config().page_title,
-        page_icon=get_standalone_interface_config().page_icon,
+        page_title=Config.get().interface.page_title,
+        page_icon=Config.get().interface.page_icon,
         layout="wide",
     )
     apply_omnirag_style()

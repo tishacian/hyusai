@@ -11,7 +11,7 @@ import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
 
-from src.db.system_prompts import SystemPrompts
+from connections.database.system_prompts import SystemPrompts
 from src.system_prompts import (
     ALL_SYSTEM_PROMPT_TEMPLATES,
     DEFAULT_SYSTEM_PROMPT_LANG,

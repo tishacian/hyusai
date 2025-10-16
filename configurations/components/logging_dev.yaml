@@ -1,0 +1,95 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  correlation-id-root:
+    class: 'logging.Formatter'
+    style: '{'
+    format: '{asctime} [{correlation_id:^10}] {levelname:8} @({name}) {message}'
+  celery:
+    class: 'logging.Formatter'
+    style: '{'
+    format: '{asctime} [{correlation_id:^10}] [{celery_parent_id:^10}] [{celery_current_id:^10}] {levelname:8} @({name}) {message}'
+  web-access:
+    class: 'logging.Formatter'
+    style: '{'
+    format: '{asctime} [{correlation_id:^10}] {levelname:8} {method} {root_path}{path} | {message}'
+  request:
+    class: 'logging.Formatter'
+    style: '{'
+    format: '{asctime} [{correlation_id:^10}] {levelname:8} Request {method} @ {url} | {message}'
+  database:
+    class: 'logging.Formatter'
+    style: '{'
+    format: '{asctime} [{correlation_id:^10}] {levelname:8} @{table_name} | {message}'
+
+filters:
+  correlation_id:
+    (): asgi_correlation_id.CorrelationIdFilter
+    uuid_length: 10
+    default_value: "-"
+  celery_tracing:
+    (): asgi_correlation_id.CeleryTracingIdsFilter
+    uuid_length: 10
+    default_value: "-"
+
+handlers:
+  stdout-correlation-id-root:
+    class: logging.StreamHandler
+    formatter: correlation-id-root
+    filters:
+      - correlation_id
+    stream: ext://sys.stdout
+  celery:
+    class: logging.StreamHandler
+    filters: 
+      - correlation_id
+      - celery_tracing
+    formatter: celery
+    stream: ext://sys.stdout
+  web-access:
+    class: logging.StreamHandler
+    formatter: web-access
+    filters:
+      - correlation_id
+    stream: ext://sys.stdout
+  request:
+    class: logging.StreamHandler
+    formatter: request
+    filters:
+      - correlation_id
+    stream: ext://sys.stdout
+  database:
+    class: logging.StreamHandler
+    formatter: database
+    filters:
+    - correlation_id
+    stream: ext://sys.stdout
+
+loggers:
+  root:
+    level: DEBUG
+    handlers:
+      - stdout-correlation-id-root
+  connections.celery.tasks:
+    level: DEBUG
+    propagate: false
+    handlers:
+      - celery
+  logging_utils.asgi:
+    level: DEBUG
+    propagate: false
+    handlers:
+      - web-access
+  logging_utils.request:
+    level: DEBUG
+    propagate: false
+    handlers:
+      - request
+  database:
+    level: DEBUG
+    propagate: false
+    handlers:
+    - database
+  papai_unified_storage.storage:
+    level: DEBUG

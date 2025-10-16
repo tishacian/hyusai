@@ -1,0 +1,47 @@
+FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Install Python 3.12 from deadsnakes PPA
+RUN apt-get update \    
+    && apt-get install --no-install-recommends -y software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y python3.12 python3.12-venv \
+    && python3.12 -m ensurepip \
+    && apt-get purge -y software-properties-common \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies from private Nexus repository using build secrets
+RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
+    --mount=type=secret,id=nexus_password,env=NEXUS_PASSWORD \
+    --mount=type=bind,source=../requirements/celery.txt,target=/tmp/requirements/celery.txt,readonly \
+    python3.12 -m pip install --no-cache-dir \
+      --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
+      -r /tmp/requirements/celery.txt
+
+# Create to non-root user for runtime
+ARG USERNAME=papai
+ARG USER_UID=20000907
+ARG USER_GID=$USER_UID
+RUN groupadd --gid "$USER_GID" "$USERNAME" \
+    && useradd --uid "$USER_UID" --gid "$USER_GID" -m "$USERNAME"
+
+WORKDIR /app
+
+COPY --chown=$USERNAME:$USERNAME . .
+
+# Make the entrypoint executable
+RUN chmod +x ./run_celery.sh
+
+# Temporary: make vector_store writable before using ffspec
+RUN mkdir -p /app/vector_store \
+    && chown -R "$USERNAME":"$USERNAME" /app/vector_store
+
+USER $USERNAME
+
+ENV PYTHONPATH=.
+CMD ["./run_celery.sh"]

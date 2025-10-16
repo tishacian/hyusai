@@ -2,20 +2,16 @@ import os
 from enum import Enum, StrEnum
 from pathlib import Path
 
-from configuration import get_backend_config, get_vlm_config
+from configurations import Config
 
 # %% Directory
 
 REPO_PATH = Path(__file__).parent.parent
-DATA_PATH = REPO_PATH / "data"
 IMG_PATH = REPO_PATH / "image"
 VECTOR_STORE_PATH = REPO_PATH / "vector_store"
 EMBEDDING_CACHE_STORE = ".cache/"
 
 # -- Check if paths exist otherwise, create one
-if not os.path.exists(DATA_PATH):
-    os.makedirs(DATA_PATH)
-
 if not os.path.exists(IMG_PATH):
     os.makedirs(IMG_PATH)
 
@@ -25,24 +21,18 @@ if not os.path.exists(VECTOR_STORE_PATH):
 # -- Helper for suggestions
 HELP = {  # help suggestions..
     "HuggingFace": (
-        "You can get the HuggingFace token from settings of your "
-        "Huggingface account"
+        "You can get the HuggingFace token from settings of your Huggingface account"
     ),
     "LLM_Model": (
         "An instruction LLM model well (distilled or not) necessary to provide "
-        "the right answer"
-        + "\n"
+        "the right answer" + "\n"
         "toward the particular context"
     ),
     "Instruction_Embedding": (
         "An instruction LLM Embedding well suited to provide the right "
-        "answer"
-        + "\n"
-        + "toward the particular context"
+        "answer" + "\n" + "toward the particular context"
     ),
-    "Vector_store": (
-        "A list vector embedding created using the instruction embedding"
-    ),
+    "Vector_store": ("A list vector embedding created using the instruction embedding"),
     "Temperature": (
         "Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore"
         + "\n"
@@ -59,9 +49,7 @@ HELP = {  # help suggestions..
     "pipeline": (
         "Select the desired pipeline. Default is without Chain of Thought (COT)"
     ),
-    "template": (
-        "Select a template style of choice. Default is a simple template."
-    ),
+    "template": ("Select a template style of choice. Default is a simple template."),
     "reranker": (
         "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
         + "\n"
@@ -90,9 +78,7 @@ SUPPLEMENT = [
 ]
 
 # -- Embedding name
-EMBEDDING_NAME = (
-    "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best; "sentence-transformers/all-MiniLM-L6-v2" (competitive)
-)
+EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best; "sentence-transformers/all-MiniLM-L6-v2" (competitive)
 
 SINGLE_FILE = 1  # single files
 RANDOM_SEED = 42
@@ -221,9 +207,9 @@ class PipelineType(StrEnum):
 
 
 class OCRConfig(Enum):
-    USE_OCR = not get_backend_config().disable_ocr_for_pdf
+    USE_OCR = not Config.get().backend.disable_ocr_for_pdf
     OCR_DPI = 150
-    FORCE_OCR = get_backend_config().force_ocr_on_all_pdf
+    FORCE_OCR = Config.get().backend.force_ocr_on_all_pdf
     LANGS = os.getenv("LANGS", "eng fra deu spa ita por kor ara").split(" ")
 
 
@@ -264,7 +250,7 @@ TRIVIAL_LEN: int = 100
 
 class PDFProcessingConfig(Enum):
     # PDF Processing method: "markdown_converter" or "ocr"
-    PDF_PROCESSING_METHOD = "markdown_converter"
+    PDF_PROCESSING_METHOD = "ocr"
 
     # "ocr" fallback when markdown fails
     ENABLE_FALLBACK = True
@@ -281,31 +267,34 @@ class PDFProcessingConfig(Enum):
     EXTRACT_TABLES = True
 
     # File saving settings
-    DISABLE_FILE_SAVING = get_backend_config().disable_file_saving
+    DISABLE_FILE_SAVING = Config.get().backend.disable_file_saving
 
     # Performance settings
     MAX_WORKERS = 4
     TIMEOUT_SECONDS = 300
 
 
+vlm_config = Config.get().vlm
+
+
 class VLMConfig(Enum):
-    ENABLE_VLM = get_vlm_config().enable_vlm
-    VLM_MODEL = get_vlm_config().vlm_model
-    VLM_WORKERS = get_vlm_config().vlm_workers
-    MAX_WORKERS = get_vlm_config().max_workers
-    SKIP_LARGE_IMAGES = get_vlm_config().skip_large_images
-    MAX_MODEL_LEN = get_vlm_config().max_model_len
-    GPU_MEMORY_UTILIZATION = get_vlm_config().gpu_memory_utilization
-    TEMPERATURE = get_vlm_config().temperature
-    MAX_TOKENS = get_vlm_config().max_tokens
-    TOP_P = get_vlm_config().top_p
-    FREQUENCY_PENALTY = get_vlm_config().frequency_penalty
-    PRESENCE_PENALTY = get_vlm_config().presence_penalty
-    REPETITION_PENALTY = get_vlm_config().repetition_penalty
-    MAX_IMAGE_SIZE = get_vlm_config().max_image_size
-    MIN_IMAGE_SIZE = get_vlm_config().min_image_size
-    MAX_TOKENS_LIMIT = get_vlm_config().max_tokens_limit
-    JPEG_QUALITY_LEVELS = get_vlm_config().jpeg_quality_levels
-    DEVICE = get_vlm_config().device
-    USE_FLASH_ATTENTION = get_vlm_config().use_flash_attention
-    TORCH_DTYPE = get_vlm_config().torch_dtype
+    ENABLE_VLM = vlm_config.enable_vlm
+    VLM_MODEL = vlm_config.vlm_model
+    VLM_WORKERS = vlm_config.vlm_workers
+    MAX_WORKERS = vlm_config.max_workers
+    SKIP_LARGE_IMAGES = vlm_config.skip_large_images
+    MAX_MODEL_LEN = vlm_config.max_model_len
+    GPU_MEMORY_UTILIZATION = vlm_config.gpu_memory_utilization
+    TEMPERATURE = vlm_config.temperature
+    MAX_TOKENS = vlm_config.max_tokens
+    TOP_P = vlm_config.top_p
+    FREQUENCY_PENALTY = vlm_config.frequency_penalty
+    PRESENCE_PENALTY = vlm_config.presence_penalty
+    REPETITION_PENALTY = vlm_config.repetition_penalty
+    MAX_IMAGE_SIZE = vlm_config.max_image_size
+    MIN_IMAGE_SIZE = vlm_config.min_image_size
+    MAX_TOKENS_LIMIT = vlm_config.max_tokens_limit
+    JPEG_QUALITY_LEVELS = vlm_config.jpeg_quality_levels
+    DEVICE = vlm_config.device
+    USE_FLASH_ATTENTION = vlm_config.use_flash_attention
+    TORCH_DTYPE = vlm_config.torch_dtype

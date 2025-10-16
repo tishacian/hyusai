@@ -3,8 +3,8 @@ import re
 import streamlit as st
 import streamlit_authenticator as stauth
 
-from configuration import get_standalone_interface_config
-from src.db.users import Users
+from configurations import Config
+from connections.database.users import Users
 
 
 def is_valid_email(email: str) -> bool:
@@ -50,9 +50,9 @@ def get_authenticator() -> stauth.Authenticate:
     if auth is None:
         st.session_state["authenticator"] = stauth.Authenticate(
             st.session_state["credentials"],
-            get_standalone_interface_config().cookie_name,
-            get_standalone_interface_config().cookie_key,
-            get_standalone_interface_config().cookie_expiry_days,
+            Config.get().interface.cookie_name,
+            Config.get().interface.cookie_key,
+            Config.get().interface.cookie_expiry_days,
         )
     return st.session_state["authenticator"]
 
@@ -95,9 +95,10 @@ def register_form():
         elif Users.get_by_email(email.lower()):
             st.warning("This email is already registered.")
         else:
+            password_hash = stauth.Hasher.hash(password)
             Users.add_user(
                 email=email.lower(),
-                password=password,
+                password_hash=password_hash,
                 name=name,
             )
             st.success("User registered successfully!")
@@ -111,7 +112,7 @@ def reset_session_state(*args, **kwargs):
 
 def auth_component():
     """Display the authentication component."""
-    if get_standalone_interface_config().skip_authentication:
+    if Config.get().interface.skip_authentication:
         st.session_state["authentication_status"] = True
         st.session_state["username"] = "dev"
     elif st.session_state.get("authentication_status"):
