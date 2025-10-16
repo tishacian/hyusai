@@ -329,9 +329,9 @@ def omnirag_page():
                         st.error("No document uploaded...")
                         st.stop()
                     knowledge_base_uuid = uuid.uuid4()
-                    uploaded_folder = os.path.join(
+                    uploaded_folder = fs.joinpath(
                         "knowledge-bases", str(knowledge_base_uuid), "uploaded"
-                    )  # TODO: use the fs join_path method
+                    )
                     for uploaded_file in uploaded_files:
                         path = os.path.join(uploaded_folder, uploaded_file.name)
                         fs.write_to_file(path, uploaded_file)
