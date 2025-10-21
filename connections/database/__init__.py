@@ -2,6 +2,7 @@ from configurations import Config
 
 from .base import Base
 from .chats import Chats as Chats
+from .knowledge_bases import KnowledgeBases
 from .system_prompts import SystemPrompts
 from .users import Users
 from .utils import get_engine
