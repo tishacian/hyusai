@@ -17,12 +17,13 @@ scikit-learn
 nltk
 
 # document ingestion
-pytesseract                    # OCR
+pytesseract             # OCR
 tesserocr
-unstructured[all-docs]         # document loaders
+unstructured[all-docs]  # document loaders
 docx2txt
 pymupdf
 pdfminer.six
+fitz                    # image extraction/compression
 
 # metadata extraction
 PyPDF2>=2.0.0           # PDF documents
