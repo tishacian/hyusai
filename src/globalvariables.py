@@ -100,6 +100,18 @@ MAX_MODEL_LEN: int = (
     None  # <-- switch maximum model length here. 64 -> Llama3-70; 128 -> Llama3-8b
 )
 
+# -- LLM configuration (LLM-as-a-service)
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip()
+LLM_MODEL_NAME = (
+    os.getenv("LLM_MODEL_NAME")
+    or ""
+).strip()
+LLM_BASE_URL = (
+    os.getenv("LLM_BASE_URL")
+    or ""
+).strip()
+
+
 # %% reasoning types
 
 

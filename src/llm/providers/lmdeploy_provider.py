@@ -122,10 +122,14 @@ class LMDeployProvider(LLMProvider):
             )
         else:
             # Estimate token usage if not provided
-        prompt_text = " ".join([msg.get("content", "") for msg in request.messages_as_dicts()])
+            prompt_text = " ".join(
+                [msg.get("content", "") for msg in request.messages_as_dicts()]
+            )
             content = choices[0].message.content if choices else ""
             prompt_tokens = max(len(prompt_text.split()) * 1.3, 1)
-            completion_tokens = max(len(content.split()) * 1.3, 1) if content else 0
+            completion_tokens = (
+                max(len(content.split()) * 1.3, 1) if content else 0
+            )
             
             usage = TokenUsage(
                 prompt_tokens=int(prompt_tokens),

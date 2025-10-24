@@ -10,6 +10,11 @@ import numpy as np
 import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
+
+from sentence_transformers import SentenceTransformer
+import tiktoken
 
 from src.db.system_prompts import SystemPrompts
 from src.system_prompts import (
@@ -20,13 +25,6 @@ from src.system_prompts import (
 )
 from src.utils import add_leading_space_if_needed, format_llm_response
 
-if torch.cuda.is_available():
-    from vllm import SamplingParams
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import lru_cache
-
-from sentence_transformers import SentenceTransformer
-
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 # --
@@ -36,11 +34,15 @@ import sys
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.globalvariables import (
     EMBEDDING_NAME,
+    LLM_BASE_URL,
+    LLM_MODEL_NAME,
+    LLM_PROVIDER,
     VECTOR_STORE_PATH,
     IndexType,
 )
 
 # -- Model evaluation
+from src.llm.llm import LLM
 from src.metrics import Evaluatrix
 
 # --
@@ -86,7 +88,28 @@ class CustomLLMChain:
         """
         self.tokenizer = tokenizer
         self.model = model
-        self.model_name = model_name
+
+        env_model_name = LLM_MODEL_NAME or None
+        self.model_name = model_name or env_model_name
+        if not self.model_name:
+            raise ValueError(
+                "Model name must be provided either as an argument or via LLM_MODEL_NAME"
+            )
+
+        self.llm_model_name = env_model_name or self.model_name
+        self.llm_provider = LLM_PROVIDER
+        if not self.llm_provider:
+            raise ValueError(
+                "LLM provider is not configured. Set LLM_PROVIDER in src/globalvariables.py or environment"
+            )
+
+        self.llm_base_url = LLM_BASE_URL
+        llm_kwargs: dict[str, object] = {}
+        if self.llm_base_url:
+            llm_kwargs["base_url"] = self.llm_base_url
+        self.llm = LLM(provider=self.llm_provider, **llm_kwargs)
+        self.token_encoding = self._init_token_encoding(self.llm_model_name)
+
         self.vector_store_name = vector_store_name
         self.device = torch.device(
             "cuda"
@@ -96,10 +119,11 @@ class CustomLLMChain:
             else "cpu"
         )
 
-        if self.model is None or self.tokenizer is None:
-            raise ValueError(
-                f"🚩 Failed to load model or tokenizer. \nModel: {None if not self.model else self.model} and "
-                + f"\nTokenizer: {None if not self.tokenizer else self.tokenizer} cannot be None"
+        if self.model is None:
+            logging.info("Using remote LLM provider for text generation")
+        if self.tokenizer is None:
+            logging.info(
+                "Tokenizer not provided; using tiktoken for token counting"
             )
 
         self.index_type = index_type
@@ -366,6 +390,40 @@ class CustomLLMChain:
         else:  # ignore LONG_CONTEXT here
             return LONG_PENALTY
 
+    def _init_token_encoding(self, model_name: str):
+        try:
+            return tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            logging.debug(
+                "Model %s not recognized by tiktoken; using default encoding",
+                model_name,
+            )
+            return tiktoken.get_encoding("o200k_base")
+
+    def _estimate_token_count(
+        self, text: str, max_length: int | None = None
+    ) -> int:
+        """Estimate token count using tiktoken."""
+        if not text:
+            return 0
+
+        token_count = len(self.token_encoding.encode(text))
+        if max_length is not None:
+            return min(token_count, max_length)
+        return token_count
+
+    def _default_max_new_tokens(self) -> int:
+        """Return default max token count when none is provided."""
+        if self.tokenizer is None:
+            return 2048
+        token_length = getattr(self.tokenizer, "model_max_length", None)
+        if token_length:
+            return int(token_length)
+        token_length = getattr(self.tokenizer, "max_len_single_sentence", None)
+        if token_length:
+            return int(token_length)
+        return 2048
+
     async def generate_text(
         self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=10
     ):
@@ -381,67 +439,21 @@ class CustomLLMChain:
             - The generated text.
         """
         max_new_tokens = (
-            self.tokenizer.max_len_single_sentence if max_length is None else max_length
+            self._default_max_new_tokens() if max_length is None else max_length
         )
-        inputs = self.tokenizer(
-            prompt,
-            return_tensors="pt",  # NOTE:  No need to truncate or pad input during generation.
-        )
+        max_new_tokens = int(max_new_tokens)
+        input_length = self._estimate_token_count(prompt, max_new_tokens)
+        freq_penalty = self._calculate_frequency_penalty(input_length)
 
-        # -- transfer the input_ids to the device
-        inputs_on_device = self.parallel_chunk_transfer(
-            inputs["input_ids"], self.device.type
-        )
-        """
-        check if model.generate returns empty strings..otherwise, return empty text.
-        Sometimes, the model returns empty strings 
-        """
-        # -- choose whether to use mixed precision based on the device
-        use_mixed_precision = True if self.device.type == "cuda" else False
-        if torch.cuda.is_available():
-            sampling_params = SamplingParams(
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                max_tokens=max_new_tokens,
-                stop=[
-                    "[INST]",
-                    "[/INST]",
-                    "<INST>",
-                    "</INST>",
-                    "<|assistant|>",
-                ],
+        try:
+            response = await self.llm.complete(
+                prompt=prompt,
+                model=self.llm_model_name,
             )
-            outputs = self.model.generate([prompt], sampling_params)
-            return outputs[0].outputs[0].text.strip()
-        else:
-            input_length = inputs["input_ids"].shape[1]
-            freq_penalty = self._calculate_frequency_penalty(input_length)
-            formatted_prompt = f"""### Instruction: {prompt}"""
-            try:
-                output = await asyncio.to_thread(
-                    self.model.create_completion,
-                    prompt=formatted_prompt,
-                    max_tokens=max_new_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    presence_penalty=1.0,
-                    frequency_penalty=freq_penalty,
-                    stop=["###"],
-                    stream=False,
-                )
-
-                if isinstance(output, dict):
-                    response = output.get("choices", [{}])[0].get("text", "").strip()
-                else:
-                    response = output.choices[0].text.strip()
-
-                return response
-
-            except Exception as e:
-                logging.error(f"CPU generation error: {e}")
-                return ""
+            return response.strip()
+        except Exception as err:
+            logging.error("LLM generation error: %s", err)
+            raise
 
     async def custom_llm_chain(self, context, question):
         """Custom LLM chain
@@ -658,7 +670,15 @@ class CustomLLMChain:
         """
         relevant_contexts = await self.search_similar_texts_async(question, k=5)
         combined_context = "\n\n".join(relevant_contexts)
-        result_text = await self.custom_llm_chain(combined_context, question)
+        try:
+            result_text = await self.custom_llm_chain(combined_context, question)
+        except Exception as err:
+            logging.error("LLM generation failed: %s", err)
+            return (
+                "I apologize, but I encountered an error processing your request.",
+                combined_context,
+                {},
+            )
         answer = self._format_llm_response(result_text, self.instruction_lang)
         eval_metrics = await Evaluatrix(
             answer,

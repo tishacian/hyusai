@@ -14,9 +14,7 @@ import numpy as np
 import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
-
-if torch.cuda.is_available():
-    from vllm import SamplingParams
+import tiktoken
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
@@ -35,6 +33,9 @@ from src.flashreranker import FlashReranker, RerankerConfig
 from src.globalvariables import (
     EMBEDDING_NAME,
     LARGE_MODELS,
+    LLM_BASE_URL,
+    LLM_MODEL_NAME,
+    LLM_PROVIDER,
     MAX_MODEL_LEN,
     VECTOR_STORE_PATH,
     IndexType,
@@ -42,6 +43,7 @@ from src.globalvariables import (
 )
 
 # -- Model evaluation
+from src.llm.llm import LLM
 from src.metrics import Evaluatrix
 from src.reasoningmetrics import ReasoningMetrics
 from src.system_prompts import (
@@ -121,7 +123,28 @@ class CustomLLMChain:
         start_time = time.time()
         self.tokenizer = tokenizer
         self.model = model
-        self.model_name = model_name
+
+        env_model_name = LLM_MODEL_NAME or None
+        self.model_name = model_name or env_model_name
+        if not self.model_name:
+            raise ValueError(
+                "Model name must be provided either as an argument or via LLM_MODEL_NAME"
+            )
+
+        self.llm_model_name = env_model_name or self.model_name
+        self.llm_provider = LLM_PROVIDER
+        if not self.llm_provider:
+            raise ValueError(
+                "LLM provider is not configured. Set LLM_PROVIDER in src/globalvariables.py or environment"
+            )
+
+        self.llm_base_url = LLM_BASE_URL
+        llm_kwargs: dict[str, object] = {}
+        if self.llm_base_url:
+            llm_kwargs["base_url"] = self.llm_base_url
+        self.llm = LLM(provider=self.llm_provider, **llm_kwargs)
+        self.token_encoding = self._init_token_encoding(self.llm_model_name)
+
         self.vector_store_name = vector_store_name
         self.context_cache = LRUCache(cache_size)
         self.dynamic_k = dynamic_k
@@ -134,15 +157,25 @@ class CustomLLMChain:
             else "cpu"
         )
         self.max_input_ratio = 0.8 if self.is_large_model else 0.75
-        if self.model is None or self.tokenizer is None:
-            raise ValueError(
-                f"🚩 Failed to load model or tokenizer. \nModel: {None if not self.model else self.model} and "
-                + f"\nTokenizer: {None if not self.tokenizer else self.tokenizer} cannot be None"
+        if self.model is None:
+            logging.info("Using remote LLM provider for text generation")
+        if self.tokenizer is None:
+            logging.info(
+                "Tokenizer not provided; using tiktoken for token counting"
             )
 
         self.index_type = index_type
         self.instruction_lang = instruction_lang
-        self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
+        try:
+            self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
+        except ValueError:
+            fallback_len = MAX_MODEL_LEN * 1024 if MAX_MODEL_LEN else 8192
+            logging.warning(
+                "Unknown model %s; defaulting max model length to %s tokens",
+                self.model_name,
+                fallback_len,
+            )
+            self.max_model_len = fallback_len
         self.embedding_model_name = embedding_model_name
         self.conversation_memory = ConversationMemoryBuffer(max_turns=2)
         # --initialize embedding model
@@ -601,6 +634,28 @@ class CustomLLMChain:
         else:
             return 2 * 1024
 
+    def _init_token_encoding(self, model_name: str):
+        try:
+            return tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            logging.debug(
+                "Model %s not recognized by tiktoken; using default encoding",
+                model_name,
+            )
+            return tiktoken.get_encoding("o200k_base")
+
+    def _estimate_token_count(
+        self, text: str, max_length: int | None = None
+    ) -> int:
+        """Estimate token count using tokenizer when available, otherwise fallback."""
+        if not text:
+            return 0
+
+        token_count = len(self.token_encoding.encode(text))
+        if max_length is not None:
+            return min(token_count, max_length)
+        return token_count
+
     @measure_time
     async def generate_text(
         self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=50
@@ -620,75 +675,27 @@ class CustomLLMChain:
             top-k. The default is 50.
         Returns (str): text
         """
-        is_large_model = getattr(self, "is_large_model", False)
         max_input_length = int(self.max_model_len * self.max_input_ratio)
-        input_tokens = self.tokenizer(
-            prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=max_input_length,
-        )
-        input_length = input_tokens["input_ids"].shape[1]
+        input_length = self._estimate_token_count(prompt, max_input_length)
         default_new_tokens = self._compute_dynamic_tokens(
             input_length, self.max_model_len
         )
         max_new_tokens = default_new_tokens if max_length is None else max_length
         freq_penalty = self._calculate_frequency_penalty(input_length)
-
-        if torch.cuda.is_available():
-            sampling_params = SamplingParams(
+        try:
+            response = await self.llm.complete(
+                prompt=prompt,
+                model=self.llm_model_name,
                 temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
                 max_tokens=max_new_tokens,
-                stop=[
-                    "[INST]",
-                    "[/INST]",
-                    "<INST>",
-                    "</INST>",
-                    "<|assistant|>",
-                    "</s>",
-                    "[END]",
-                ],
+                top_p=top_p,
                 frequency_penalty=freq_penalty,
                 presence_penalty=0.1,
-                repetition_penalty=1.15 if not is_large_model else 1.05,
             )
-            try:
-                with torch.inference_mode():
-                    outputs = await asyncio.to_thread(
-                        self.model.generate,
-                        [prompt],
-                        sampling_params,
-                    )
-                    generated_text = outputs[0].outputs[0].text.strip()
-                    return generated_text
-            except Exception as e:
-                logging.error(f"Error in GPU generation: {e}")
-                return ""
-        else:
-            formatted_prompt = f"""### Instruction: {prompt}"""
-            try:
-                output = await asyncio.to_thread(
-                    self.model.create_completion,
-                    prompt=formatted_prompt,
-                    max_tokens=max_new_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    presence_penalty=0.1,
-                    frequency_penalty=freq_penalty,
-                    stop=["###"],
-                    stream=False,
-                )
-                if isinstance(output, dict):
-                    response = output.get("choices", [{}])[0].get("text", "").strip()
-                else:
-                    response = output.choices[0].text.strip()
-                return response
-            except Exception as e:
-                logging.error(f"CPU generation error: {e}")
-                return ""
+            return response.strip()
+        except Exception as err:
+            logging.error("LLM generation error: %s", err)
+            raise
 
     @measure_time
     async def custom_llm_chain(self, context, question, is_trivial: bool = False):
@@ -1027,6 +1034,10 @@ class CustomLLMChain:
 
         combined = f"{current_context}\n\nContext {len(current_context.split('Context')) + 1}:\n{new_context}"
 
+        if self.tokenizer is None:
+            total_tokens = self._estimate_token_count(combined)
+            return total_tokens <= (self.max_model_len - safety_buffer)
+
         if len(combined) > 100000 and self.is_large_model:
             chunk_size = 50000
             chunks = [
@@ -1034,26 +1045,24 @@ class CustomLLMChain:
                 for i in range(0, len(combined), chunk_size)
             ]
 
-            #  --
-            async def tokenize_chunk(chunk):
-                return await asyncio.to_thread(
-                    lambda: self.tokenizer(
-                        chunk, return_tensors="pt", truncation=False
-                    )["input_ids"].shape[1]
-                )
-
             token_counts = await asyncio.gather(
-                *[tokenize_chunk(chunk) for chunk in chunks]
+                *[
+                    asyncio.to_thread(
+                        self._estimate_token_count,
+                        chunk,
+                        None,
+                    )
+                    for chunk in chunks
+                ]
             )
             total_tokens = sum(token_counts)
-            return total_tokens <= (self.max_model_len - safety_buffer)
         else:
-            token_count = await asyncio.to_thread(
-                lambda: self.tokenizer(combined, return_tensors="pt", truncation=False)[
-                    "input_ids"
-                ].shape[1]
+            total_tokens = await asyncio.to_thread(
+                self._estimate_token_count,
+                combined,
+                None,
             )
-            return token_count <= (self.max_model_len - safety_buffer)
+        return total_tokens <= (self.max_model_len - safety_buffer)
 
     @measure_time
     async def invoke_async(self, question: str):
