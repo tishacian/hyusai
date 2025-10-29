@@ -1,9 +1,9 @@
 include:
-  - project: "devops/templates/gitlab-ci"
+  - project: $GITLAB_CI_TEMPLATE_PROJECT_PATH
     ref: 0.27.3
     file: "/templates/.python.yml"
     inputs:
-      python-image-version: 3.11-bookworm
+      python-image-version: 3.12-bookworm
       python-req-enabled: false
       python-tests-enabled: false
-      sonar-python-version: "3.11"
+      sonar-python-version: "3.12"
