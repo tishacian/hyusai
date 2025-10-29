@@ -196,18 +196,20 @@ def omnirag_page():
                         # Validate current model against available models
                         if current_model not in Models:
                             current_model = device_default_model()
-
-                        model_name = st.selectbox(
+                        models = [
+                            "☁️ Anthropic - Claude Sonnet 4.5",
+                            "☁️ OpenAI - GPT 5",
+                            "☁️ Amazon Bedrock - Llama 3.1 8B Instruct",
+                            "💻 Mistral - Mistral 0.3 7B Instruct",
+                            "💻 Meta - Llama 3.1 8B Instruct",
+                            "💻 Google - Gemma 3 12B Instruct",
+                            "💻 OpenAI - GPT OSS 20B",
+                        ]
+                        display_model_name = st.selectbox(
                             "Models",
-                            Models,
-                            index=(
-                                Models.index(
-                                    st.session_state.get("model_name", current_model)
-                                )
-                                if st.session_state.get("model_name") in Models
-                                else 0
-                            ),
+                            models,
                         )
+                        model_name = current_model
                         # Update model and tokenizer when model changes
                         if model_name != st.session_state.get("model_name"):
                             st.session_state.model_name = model_name
