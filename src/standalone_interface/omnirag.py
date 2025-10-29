@@ -197,8 +197,8 @@ def omnirag_page():
                         if current_model not in Models:
                             current_model = device_default_model()
                         models = [
-                            "☁️ Anthropic - Claude Sonnet 4.5",
                             "☁️ OpenAI - GPT 5",
+                            "☁️ Anthropic - Claude Sonnet 4.5",
                             "☁️ Amazon Bedrock - Llama 3.1 8B Instruct",
                             "💻 Mistral - Mistral 0.3 7B Instruct",
                             "💻 Meta - Llama 3.1 8B Instruct",

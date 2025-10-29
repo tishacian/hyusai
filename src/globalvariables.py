@@ -91,9 +91,13 @@ MAX_MODEL_LEN: int = (
 )
 
 # -- LLM configuration (LLM-as-a-service)
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").strip()
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "claude-sonnet-4-5").strip()
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.anthropic.com").strip()
+# LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").strip()
+# LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "claude-sonnet-4-5").strip()
+# LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.anthropic.com").strip()
+
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").strip()
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "gpt-5").strip()
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").strip()
 
 
 # %% reasoning types
