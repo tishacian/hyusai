@@ -25,24 +25,18 @@ if not os.path.exists(VECTOR_STORE_PATH):
 # -- Helper for suggestions
 HELP = {  # help suggestions..
     "HuggingFace": (
-        "You can get the HuggingFace token from settings of your "
-        "Huggingface account"
+        "You can get the HuggingFace token from settings of your Huggingface account"
     ),
     "LLM_Model": (
         "An instruction LLM model well (distilled or not) necessary to provide "
-        "the right answer"
-        + "\n"
+        "the right answer" + "\n"
         "toward the particular context"
     ),
     "Instruction_Embedding": (
         "An instruction LLM Embedding well suited to provide the right "
-        "answer"
-        + "\n"
-        + "toward the particular context"
+        "answer" + "\n" + "toward the particular context"
     ),
-    "Vector_store": (
-        "A list vector embedding created using the instruction embedding"
-    ),
+    "Vector_store": ("A list vector embedding created using the instruction embedding"),
     "Temperature": (
         "Apply a larger temperature when sampling for challenging tokens, allowing LLMs to explore"
         + "\n"
@@ -59,9 +53,7 @@ HELP = {  # help suggestions..
     "pipeline": (
         "Select the desired pipeline. Default is without Chain of Thought (COT)"
     ),
-    "template": (
-        "Select a template style of choice. Default is a simple template."
-    ),
+    "template": ("Select a template style of choice. Default is a simple template."),
     "reranker": (
         "Reranker algorithm selects between two different response types. The first is Reciprocal Rank Fusion,"
         + "\n"
@@ -90,9 +82,7 @@ SUPPLEMENT = [
 ]
 
 # -- Embedding name
-EMBEDDING_NAME = (
-    "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best; "sentence-transformers/all-MiniLM-L6-v2" (competitive)
-)
+EMBEDDING_NAME = "sentence-transformers/all-mpnet-base-v2"  # all-mpnet-base-v2 is best; "sentence-transformers/all-MiniLM-L6-v2" (competitive)
 
 SINGLE_FILE = 1  # single files
 RANDOM_SEED = 42
@@ -101,15 +91,9 @@ MAX_MODEL_LEN: int = (
 )
 
 # -- LLM configuration (LLM-as-a-service)
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "").strip()
-LLM_MODEL_NAME = (
-    os.getenv("LLM_MODEL_NAME")
-    or ""
-).strip()
-LLM_BASE_URL = (
-    os.getenv("LLM_BASE_URL")
-    or ""
-).strip()
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").strip()
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "claude-sonnet-4-5").strip()
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.anthropic.com").strip()
 
 
 # %% reasoning types
