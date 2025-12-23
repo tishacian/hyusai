@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     sessions,
     metrics,
     settings,
+    traces,
 )
 
 api_router = APIRouter()
@@ -36,3 +37,6 @@ api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
 
 # Settings
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
+
+# Traces
+api_router.include_router(traces.router, prefix="/traces", tags=["traces"])

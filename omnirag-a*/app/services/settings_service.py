@@ -12,19 +12,34 @@ class SettingsService:
     """Service for managing application settings"""
     
     @staticmethod
-    def get_settings(db: Session) -> Dict[str, Any]:
+    def get_settings(db: Session, ignore_missing_columns: bool = False) -> Dict[str, Any]:
         """Get current application settings from database"""
-        db_settings = db.query(AppSettings).filter(AppSettings.id == "default").first()
-        
-        if not db_settings:
-            # Create default settings if none exist
-            db_settings = AppSettings(id="default")
-            db.add(db_settings)
-            db.commit()
-            db.refresh(db_settings)
-            logger.info("Created default settings")
-        
-        return SettingsService._settings_to_dict(db_settings)
+        try:
+            db_settings = db.query(AppSettings).filter(AppSettings.id == "default").first()
+            
+            if not db_settings:
+                # Create default settings if none exist
+                db_settings = AppSettings(id="default")
+                db.add(db_settings)
+                db.commit()
+                db.refresh(db_settings)
+                logger.info("Created default settings")
+            
+            return SettingsService._settings_to_dict(db_settings, ignore_missing_columns=ignore_missing_columns)
+        except Exception as e:
+            error_str = str(e)
+            # Check if it's a missing column error (migration not run yet)
+            if "no such column" in error_str.lower() or "rag_vector_db_type" in error_str:
+                if ignore_missing_columns:
+                    # Return empty dict so defaults can be merged
+                    logger.debug("Ignoring missing column error", error=error_str)
+                    return {}
+                else:
+                    # Re-raise to be handled by caller
+                    raise
+            else:
+                # Some other error, re-raise
+                raise
     
     @staticmethod
     def update_settings(db: Session, settings_update: Dict[str, Any]) -> Dict[str, Any]:
@@ -81,9 +96,10 @@ class SettingsService:
             raise
     
     @staticmethod
-    def _settings_to_dict(db_settings: AppSettings) -> Dict[str, Any]:
+    def _settings_to_dict(db_settings: AppSettings, ignore_missing_columns: bool = False) -> Dict[str, Any]:
         """Convert database settings to dictionary"""
-        return {
+        # Use getattr with defaults for columns that might not exist yet (before migration)
+        result = {
             "defaultModel": db_settings.default_model,
             "defaultProvider": db_settings.default_provider,
             "temperature": db_settings.temperature,
@@ -95,6 +111,50 @@ class SettingsService:
             "enableSearch": db_settings.enable_search,
             "ragTopK": db_settings.rag_top_k,
             "ragSimilarityThreshold": db_settings.rag_similarity_threshold,
+        }
+        
+        # Add optional columns that might not exist yet
+        try:
+            result["ragCollectionName"] = getattr(db_settings, 'rag_collection_name', None) or 'documents'
+        except (AttributeError, Exception):
+            result["ragCollectionName"] = 'documents'
+        
+        try:
+            result["ragUseHybridSearch"] = getattr(db_settings, 'rag_use_hybrid_search', True)
+        except (AttributeError, Exception):
+            result["ragUseHybridSearch"] = True
+        
+        try:
+            result["ragVectorWeight"] = getattr(db_settings, 'rag_vector_weight', 0.7)
+        except (AttributeError, Exception):
+            result["ragVectorWeight"] = 0.7
+        
+        try:
+            result["ragBM25Weight"] = getattr(db_settings, 'rag_bm25_weight', 0.3)
+        except (AttributeError, Exception):
+            result["ragBM25Weight"] = 0.3
+        
+        try:
+            result["ragVectorDBType"] = getattr(db_settings, 'rag_vector_db_type', 'faiss')
+        except (AttributeError, Exception):
+            result["ragVectorDBType"] = 'faiss'
+        
+        try:
+            result["ragChunkingMethod"] = getattr(db_settings, 'rag_chunking_method', 'recursive_character')
+        except (AttributeError, Exception):
+            result["ragChunkingMethod"] = 'recursive_character'
+        
+        try:
+            result["ragChunkSize"] = getattr(db_settings, 'rag_chunk_size', 1000)
+        except (AttributeError, Exception):
+            result["ragChunkSize"] = 1000
+        
+        try:
+            result["ragChunkOverlap"] = getattr(db_settings, 'rag_chunk_overlap', 200)
+        except (AttributeError, Exception):
+            result["ragChunkOverlap"] = 200
+        
+        result.update({
             "enableStreaming": db_settings.enable_streaming,
             "streamingSpeed": db_settings.streaming_speed,
             "theme": db_settings.theme,
@@ -109,7 +169,12 @@ class SettingsService:
             "enableRateLimiting": db_settings.enable_rate_limiting,
             "rateLimitPerMinute": db_settings.rate_limit_per_minute,
             "ollamaBaseUrl": db_settings.ollama_base_url,
-        }
+            "ollamaNumCtx": getattr(db_settings, 'ollama_num_ctx', 32768),
+            "ollamaRopeScale": getattr(db_settings, 'ollama_rope_scale', None),
+            "ollamaRopeAlpha": getattr(db_settings, 'ollama_rope_alpha', None),
+        })
+        
+        return result
     
     @staticmethod
     def _map_setting_key(key: str) -> str:
@@ -126,6 +191,14 @@ class SettingsService:
             "enableSearch": "enable_search",
             "ragTopK": "rag_top_k",
             "ragSimilarityThreshold": "rag_similarity_threshold",
+            "ragCollectionName": "rag_collection_name",
+            "ragUseHybridSearch": "rag_use_hybrid_search",
+            "ragVectorWeight": "rag_vector_weight",
+            "ragBM25Weight": "rag_bm25_weight",
+            "ragVectorDBType": "rag_vector_db_type",
+            "ragChunkingMethod": "rag_chunking_method",
+            "ragChunkSize": "rag_chunk_size",
+            "ragChunkOverlap": "rag_chunk_overlap",
             "enableStreaming": "enable_streaming",
             "streamingSpeed": "streaming_speed",
             "theme": "theme",
@@ -140,6 +213,9 @@ class SettingsService:
             "enableRateLimiting": "enable_rate_limiting",
             "rateLimitPerMinute": "rate_limit_per_minute",
             "ollamaBaseUrl": "ollama_base_url",
+            "ollamaNumCtx": "ollama_num_ctx",
+            "ollamaRopeScale": "ollama_rope_scale",
+            "ollamaRopeAlpha": "ollama_rope_alpha",
         }
         return mapping.get(key, key)
 

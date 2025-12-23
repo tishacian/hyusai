@@ -4,6 +4,7 @@ from typing import Dict, Any, AsyncGenerator
 from app.agents.base import BaseAgent
 from app.services.models import ModelService
 from app.services.vector_store import VectorStore
+from app.services.rag.document_service import DocumentService
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_app_settings
@@ -22,6 +23,7 @@ class RAGAgent(BaseAgent):
         )
         self.model_service = ModelService()
         self.vector_store = VectorStore()
+        self.document_service = DocumentService()  # New RAG document service
         self.initialized = False
     
     async def initialize(self) -> None:
@@ -51,7 +53,14 @@ class RAGAgent(BaseAgent):
             "model_preferences", {}
         ).get("model", app_settings.get("defaultModel", settings.ollama_default_model))
         top_k = request.get("top_k", app_settings.get("ragTopK", 5))
-        similarity_threshold = request.get("similarity_threshold", app_settings.get("ragSimilarityThreshold", 0.7))
+        similarity_threshold = request.get("similarity_threshold", app_settings.get("ragSimilarityThreshold", 0.2))
+        
+        # Get collection name and vector DB type from settings
+        collection_name = app_settings.get("ragCollectionName", "documents")
+        vector_db_type = app_settings.get("ragVectorDBType", "faiss")
+        
+        # Initialize document service with the selected collection and vector DB type
+        document_service = DocumentService(collection_name=collection_name, vector_db_type=vector_db_type)
         
         # Get conversation history from context (long-term memory)
         conversation_history = []
@@ -127,6 +136,9 @@ class RAGAgent(BaseAgent):
         # Decision Step 3: Retrieve relevant documents
         retrieve_start = time.time()
         retrieve_id = f"retrieve-{id(query)}"
+        use_hybrid = app_settings.get("ragUseHybridSearch", True)
+        retrieval_method = "RRF (Reciprocal Rank Fusion)" if use_hybrid else "Vector Search"
+        
         yield {
             "chunk_type": "decision_step",
             "decision_step": {
@@ -134,16 +146,97 @@ class RAGAgent(BaseAgent):
                 "type": "retrieve",
                 "component": "Retriever",
                 "status": "active",
-                "title": "Retrieving top candidates",
-                "description": f"Retrieved top {top_k} chunks from vector store\nApplying MMR for diversity (lambda=0.7)\nFiltering by date relevance...",
+                "title": f"Retrieving top candidates ({retrieval_method})",
+                "description": f"Searching collection '{collection_name}' ({vector_db_type})\nMethod: {retrieval_method}\nRequested top_k: {top_k}\nSimilarity threshold: {similarity_threshold}...",
             }
         }
         
-        logger.info("Retrieving documents", query=query[:50], top_k=top_k, similarity_threshold=similarity_threshold)
+        logger.info("Retrieving documents", query=query[:50], top_k=top_k, similarity_threshold=similarity_threshold, collection_name=collection_name, vector_db_type=vector_db_type, use_hybrid=use_hybrid, enable_rag=app_settings.get("enableRAG", True))
         try:
-            retrieval_results = await self.vector_store.search(query, top_k=top_k, similarity_threshold=similarity_threshold)
+            # Use document service with the selected collection
+            try:
+                # Retrieve exactly top_k results (no multiplication)
+                # The similarity threshold filtering happens in the search method
+                retrieval_results_raw = await document_service.search(
+                    query, 
+                    top_k=top_k,  # Use exact top_k value from settings
+                    use_hybrid=use_hybrid
+                )
+                logger.info(f"Retrieved {len(retrieval_results_raw)} results from collection '{collection_name}' (vector_db: {vector_db_type}, requested top_k={top_k}, use_hybrid={use_hybrid})")
+                
+                # Convert to expected format - content can be in metadata or directly in result
+                retrieval_results = []
+                scores_before_threshold = [r.get("combined_score") or r.get("score", 0.0) for r in retrieval_results_raw]
+                max_score = max(scores_before_threshold) if scores_before_threshold else 0.0
+                original_threshold = similarity_threshold
+                threshold_was_adaptive = False
+                
+                # If threshold filters out all results, use adaptive threshold (50% of max score or 0.2, whichever is lower)
+                if max_score < similarity_threshold and len(retrieval_results_raw) > 0:
+                    adaptive_threshold = min(max_score * 0.5, 0.2)
+                    logger.warning(f"Similarity threshold {similarity_threshold} too high (max score: {max_score:.4f}). Using adaptive threshold: {adaptive_threshold:.4f}")
+                    similarity_threshold = adaptive_threshold
+                    threshold_was_adaptive = True
+                
+                for r in retrieval_results_raw:
+                    # Use combined_score if available (from RRF), otherwise use score
+                    score = r.get("combined_score") or r.get("score", 0.0)
+                    if score >= similarity_threshold:
+                        # Content can be in metadata.content or directly in result
+                        content = r.get("content") or r.get("metadata", {}).get("content", "")
+                        if not content:
+                            # Try to get from metadata directly
+                            metadata = r.get("metadata", {})
+                            content = metadata.get("content", "") or metadata.get("text", "")
+                        
+                        if content:  # Only add if we have content
+                            retrieval_results.append({
+                                "content": content,
+                                "score": score,
+                                "metadata": r.get("metadata", {}),
+                                "id": r.get("id", ""),
+                                "vector_score": r.get("vector_score", 0.0),
+                                "bm25_score": r.get("bm25_score", 0.0),
+                            })
+                
+                # Ensure we return exactly top_k results (or as many as available above threshold)
+                retrieval_results = retrieval_results[:top_k]
+                logger.info(f"Final results: {len(retrieval_results)} chunks (requested top_k={top_k}, threshold={similarity_threshold:.4f}, max_score={max_score:.4f}, vector_db={vector_db_type})")
+            except Exception as e:
+                logger.error(f"Document service search failed: {e}", exc_info=True)
+                retrieval_results = []
+            
             retrieve_duration = int((time.time() - retrieve_start) * 1000)
             scores = [r.get("score", 0.0) for r in retrieval_results[:5]] if retrieval_results else []
+            
+            # Build description with retrieval details
+            if retrieval_results:
+                method_desc = f"Method: {retrieval_method}"
+                if use_hybrid and any(r.get("vector_score", 0) > 0 and r.get("bm25_score", 0) > 0 for r in retrieval_results):
+                    method_desc += " (Hybrid: Vector + BM25)"
+                elif use_hybrid:
+                    method_desc += " (Hybrid: Vector only)"
+                else:
+                    method_desc += " (Vector only)"
+                
+                threshold_info = f"threshold ({similarity_threshold:.3f})"
+                if threshold_was_adaptive:
+                    threshold_info += f" [adaptive, original: {original_threshold:.3f}]"
+                
+                description = (
+                    f"Retrieved {len(retrieval_results)} chunks from collection '{collection_name}' ({vector_db_type})\n"
+                    f"{method_desc}\n"
+                    f"Filtered by similarity {threshold_info}\n"
+                    f"Top score: {scores[0]:.3f}" if scores else "No documents found"
+                )
+            else:
+                description = (
+                    f"No chunks retrieved from collection '{collection_name}' ({vector_db_type})\n"
+                    f"Possible reasons:\n"
+                    f"- Collection may be empty\n"
+                    f"- No documents match similarity threshold ({similarity_threshold})\n"
+                    f"- Query may not match indexed content"
+                )
             
             yield {
                 "chunk_type": "decision_step",
@@ -152,13 +245,19 @@ class RAGAgent(BaseAgent):
                     "type": "retrieve",
                     "component": "Retriever",
                     "duration": retrieve_duration,
-                    "status": "completed",
-                    "title": "Retrieving top candidates",
-                    "description": f"Retrieved top {len(retrieval_results)} chunks from vector store\nApplying MMR for diversity (lambda=0.7)\nFiltering by similarity threshold ({similarity_threshold})...",
+                    "status": "completed" if retrieval_results else "warning",
+                    "title": f"Retrieved top candidates ({retrieval_method})",
+                    "description": description,
                     "scores": scores,
                     "details": [
-                        f"Retrieved {len(retrieval_results)} documents",
-                        f"Top score: {scores[0]:.2f}" if scores else "No documents found",
+                        f"Collection: {collection_name} ({vector_db_type})",
+                        f"Retrieved: {len(retrieval_results)}/{top_k} documents",
+                        f"Top score: {scores[0]:.3f}" if scores else "No documents found",
+                        f"Method: {retrieval_method}",
+                    ] if retrieval_results else [
+                        f"Collection: {collection_name} ({vector_db_type})",
+                        f"Retrieved: 0/{top_k} documents",
+                        f"Similarity threshold: {similarity_threshold}",
                     ]
                 }
             }
@@ -256,9 +355,18 @@ class RAGAgent(BaseAgent):
         ] if retrieval_results else []
         
         try:
+            # Get context window settings from app settings
+            # Use 32K default for faster generation (can be increased if needed)
+            num_ctx = app_settings.get("ollamaNumCtx", 32768)  # Default 32K tokens - optimized for speed
+            rope_scale = app_settings.get("ollamaRopeScale", None)
+            rope_alpha = app_settings.get("ollamaRopeAlpha", None)
+            
             async for chunk in self.model_service.ollama_client.stream(
                 model=model_name,
-                prompt=prompt
+                prompt=prompt,
+                num_ctx=num_ctx,
+                rope_scale=rope_scale,
+                rope_alpha=rope_alpha
             ):
                 sequence += 1
                 content = chunk.get("content", "")

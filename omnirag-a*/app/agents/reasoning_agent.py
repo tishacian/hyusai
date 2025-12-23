@@ -68,9 +68,19 @@ Provide your reasoning process step by step, then give your final answer. Format
         full_content = ""
         
         try:
+            # Get context window settings from app settings
+            app_settings = get_app_settings()
+            # Use 32K default for faster generation (can be increased if needed)
+            num_ctx = app_settings.get("ollamaNumCtx", 32768)  # Default 32K tokens - optimized for speed
+            rope_scale = app_settings.get("ollamaRopeScale", None)
+            rope_alpha = app_settings.get("ollamaRopeAlpha", None)
+            
             async for chunk in self.model_service.ollama_client.stream(
                 model=model_name,
-                prompt=reasoning_prompt
+                prompt=reasoning_prompt,
+                num_ctx=num_ctx,
+                rope_scale=rope_scale,
+                rope_alpha=rope_alpha
             ):
                 sequence += 1
                 content = chunk.get("content", "")

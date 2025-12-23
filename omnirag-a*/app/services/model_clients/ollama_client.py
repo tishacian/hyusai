@@ -39,14 +39,45 @@ class OllamaClient:
         self,
         model: str,
         prompt: str,
+        num_ctx: int = None,
+        rope_scale: float = None,
+        rope_alpha: float = None,
         **kwargs
     ) -> Dict[str, Any]:
-        """Generate a response"""
+        """
+        Generate a response
+        
+        Args:
+            model: Model name
+            prompt: Input prompt
+            num_ctx: Context window size (default: model's default, can be up to 1M for supported models)
+            rope_scale: Rope scaling factor for extended context (optional)
+            rope_alpha: Rope alpha parameter for scaling (optional)
+            **kwargs: Additional Ollama API parameters
+        """
         try:
             # For reasoning models, use longer timeout (5 minutes)
             timeout = 300.0
             client = httpx.AsyncClient(timeout=timeout)
             try:
+                # Build options dict for Ollama
+                options = kwargs.pop("options", {})
+                
+                # Add context window parameters
+                if num_ctx is not None:
+                    options["num_ctx"] = num_ctx
+                if rope_scale is not None:
+                    options["rope_freq_base"] = rope_scale
+                    # Set rope scaling type if not specified
+                    if "rope_scaling_type" not in options:
+                        options["rope_scaling_type"] = "linear"  # Options: linear, yarn, dynamic
+                if rope_alpha is not None:
+                    options["rope_alpha"] = rope_alpha
+                
+                # Merge any remaining kwargs into options
+                if options:
+                    kwargs["options"] = options
+                
                 response = await client.post(
                     f"{self.base_url}/api/generate",
                     json={
@@ -83,12 +114,44 @@ class OllamaClient:
         self,
         model: str,
         prompt: str,
+        num_ctx: int = None,
+        rope_scale: float = None,
+        rope_alpha: float = None,
         **kwargs
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Stream response tokens"""
+        """
+        Stream response tokens
+        
+        Args:
+            model: Model name
+            prompt: Input prompt
+            num_ctx: Context window size (default: model's default, can be up to 1M for supported models)
+            rope_scale: Rope scaling factor for extended context (optional)
+            rope_alpha: Rope alpha parameter for scaling (optional)
+            **kwargs: Additional Ollama API parameters
+        """
         try:
             # For reasoning models, increase timeout (5 minutes)
             timeout = 300.0
+            
+            # Build options dict for Ollama
+            options = kwargs.pop("options", {})
+            
+            # Add context window parameters
+            if num_ctx is not None:
+                options["num_ctx"] = num_ctx
+            if rope_scale is not None:
+                options["rope_freq_base"] = rope_scale
+                # Set rope scaling type if not specified
+                if "rope_scaling_type" not in options:
+                    options["rope_scaling_type"] = "linear"  # Options: linear, yarn, dynamic
+            if rope_alpha is not None:
+                options["rope_alpha"] = rope_alpha
+            
+            # Merge any remaining kwargs into options
+            if options:
+                kwargs["options"] = options
+            
             async with httpx.AsyncClient(timeout=timeout).stream(
                 "POST",
                 f"{self.base_url}/api/generate",

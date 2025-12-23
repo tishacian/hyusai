@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "omnirag-a-star"
+name = "omnirag-a*"
 version = "0.1.0"
 description = "Advanced Multi-Model RAG/Agentic AI Application"
 authors = ["Your Name <you@example.com>"]

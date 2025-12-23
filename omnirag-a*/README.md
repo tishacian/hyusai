@@ -11,11 +11,11 @@ A sophisticated multi-agent RAG system that integrates multiple AI models (local
 - **RAG Capabilities**: Vector-based retrieval and augmentation
 - **Clean UI**: Modern frontend with collapsible reasoning traces and sources
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-omnirag-a-star/
-├── 📁 app/                    # Backend (FastAPI)
+📁 omnirag-a*/
+├── app/                    # Backend (FastAPI)
 │   ├── agents/            # Agent implementations
 │   ├── api/v1/           # API endpoints
 │   ├── core/              # Core utilities
@@ -28,10 +28,11 @@ omnirag-a-star/
 │   │   ├── components/   # React components
 │   │   ├── lib/          # API client
 │   │   └── store/        # State management
+├── docs/                  # Documentation
 └── tests/                 # Test files
 ```
 
-## 🛠️ Quick Start
+## Quick Start
 
 ### Backend Setup
 
@@ -50,7 +51,7 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-Backend will be available at `http://localhost:5000`
+Backend will be available at `http://localhost:8000`
 
 ### Frontend Setup
 
@@ -66,7 +67,7 @@ npm run dev
 
 Frontend will be available at `http://localhost:3000`
 
-## 📚 Documentation
+## Documentation
 
 Comprehensive documentation is available in the `docs/` folder:
 
@@ -80,7 +81,7 @@ Comprehensive documentation is available in the `docs/` folder:
 
 ## Current Status
 
-### ✅ Completed
+### Completed
 - Backend API with 20+ endpoints
 - 3 specialized agents (Reasoning, RAG, Search)
 - Model abstraction layer (Ollama, OpenAI, Anthropic)
@@ -90,18 +91,18 @@ Comprehensive documentation is available in the `docs/` folder:
 - Monitoring and metrics
 - Caching layer
 
-### 🚧 In Progress
+### In Progress
 - Comprehensive testing suite
 - Docker deployment setup
 - Redis integration
 
-### 📋 Planned
+### Planned
 - Additional agents (Code, Analysis, Planning)
 - Authentication system
 - Performance optimization
 - Production deployment
 
-## 🔌 API Endpoints
+## API Endpoints
 
 - `GET /health` - Health check
 - `GET /api/v1/models` - List available models
@@ -112,7 +113,7 @@ Comprehensive documentation is available in the `docs/` folder:
 - `GET /api/v1/sessions` - Session management
 - `GET /api/v1/metrics` - System metrics
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Run backend tests
@@ -121,4 +122,3 @@ pytest tests/
 # Run frontend build
 cd frontend && npm run build
 ```
-
