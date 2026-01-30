@@ -68,18 +68,16 @@ class PDFMarkdownLoader:
         self.file_path = file_path
         self.target_dir = target_dir
         self.config = self._load_configuration(**kwargs)
-        
+
         self.stats = {
             "processing_time": 0.0,
             "method_used": None,
             "fallback_used": False,
             "errors": [],
         }
-        
+
         if not os.path.exists(self.file_path):
-            raise FileNotFoundError(
-                f"PDF file not found: {self.file_path}"
-            )
+            raise FileNotFoundError(f"PDF file not found: {self.file_path}")
 
     def _load_configuration(self, **kwargs) -> dict:
         """Load configuration from globalvariables with runtime overrides.
@@ -107,9 +105,9 @@ class PDFMarkdownLoader:
             "max_workers": PDFProcessingConfig.MAX_WORKERS.value,
             "timeout_seconds": PDFProcessingConfig.TIMEOUT_SECONDS.value,
         }
-        
-        config.update(kwargs) # runtime overrides
-        
+
+        config.update(kwargs)  # runtime overrides
+
         return config
 
     def load(self) -> list[Document]:
@@ -121,13 +119,11 @@ class PDFMarkdownLoader:
             List containing a single Document with extracted content.
         """
         start_time = time.time()
-        
+
         try:
             primary_method = self.config["pdf_processing_method"]
-            logger.info(
-                f"Processing PDF with primary method: {primary_method}"
-            )
-            
+            logger.info(f"Processing PDF with primary method: {primary_method}")
+
             try:
                 if primary_method == "markdown_converter":
                     result = self._load_with_markdown_converter()
@@ -135,25 +131,24 @@ class PDFMarkdownLoader:
                     result = self._load_with_ocr()
                 else:
                     raise ValueError(f"Unsupported processing method: {primary_method}")
-                
+
                 self.stats["method_used"] = primary_method
                 self.stats["processing_time"] = time.time() - start_time
-                
+
                 return result
-                
+
             except Exception as primary_error:
                 logger.warning(
-                    f"Primary method '{primary_method}' failed: "
-                    f"{primary_error}"
+                    f"Primary method '{primary_method}' failed: {primary_error}"
                 )
                 self.stats["errors"].append(f"Primary method failed: {primary_error}")
-                
+
                 if self.config["enable_fallback"]:
                     result = self._apply_fallback(primary_error)
                 else:
                     result = self._create_error_document(
                         f"Primary method '{primary_method}' failed and fallback disabled: {primary_error}",
-                        primary_method
+                        primary_method,
                     )
                 self.stats["processing_time"] = time.time() - start_time
                 return result
@@ -172,7 +167,7 @@ class PDFMarkdownLoader:
         """
         try:
             output_dir = self._output_directory()
-            
+
             result = markdown_converter(
                 pdf_path=self.file_path,
                 output_dir=output_dir,
@@ -188,7 +183,9 @@ class PDFMarkdownLoader:
             if not markdown_content:
                 return self._create_empty_document(result, "markdown_converter")
 
-            return self._create_success_document(markdown_content, result, "markdown_converter")
+            return self._create_success_document(
+                markdown_content, result, "markdown_converter"
+            )
 
         except Exception as e:
             raise RuntimeError(f"Markdown converter failed: {e}")
@@ -208,9 +205,9 @@ class PDFMarkdownLoader:
                 force_ocr=self.config["ocr_force_ocr"],
                 max_workers=self.config["max_workers"],
             )
-            
+
             return ocr_loader.load()
-            
+
         except Exception as e:
             raise RuntimeError(f"OCR processing failed: {e}")
 
@@ -229,7 +226,7 @@ class PDFMarkdownLoader:
         """
         fallback_method = self.config["fallback_method"]
         logger.info(f"Applying fallback method: {fallback_method}")
-        
+
         try:
             if fallback_method == "markdown_converter":
                 result = self._load_with_markdown_converter()
@@ -237,28 +234,32 @@ class PDFMarkdownLoader:
                 result = self._load_with_ocr()
             else:
                 raise ValueError(f"Unsupported fallback method: {fallback_method}")
-            
+
             self.stats["fallback_used"] = True
             self.stats["method_used"] = fallback_method
-            
+
             # Update metadata to indicate fallback was used
             if result and len(result) > 0:
-                result[0].metadata.update({
-                    "fallback_used": True,
-                    "fallback_method": fallback_method,
-                    "primary_method_error": str(primary_error),
-                })
-            
+                result[0].metadata.update(
+                    {
+                        "fallback_used": True,
+                        "fallback_method": fallback_method,
+                        "primary_method_error": str(primary_error),
+                    }
+                )
+
             return result
-            
+
         except Exception as fallback_error:
-            logger.error(f"Fallback method '{fallback_method}' also failed: {fallback_error}")
+            logger.error(
+                f"Fallback method '{fallback_method}' also failed: {fallback_error}"
+            )
             self.stats["errors"].append(f"Fallback method failed: {fallback_error}")
             return self._create_error_document(
                 f"Both primary and fallback methods failed. "
                 f"Primary error: {primary_error}. "
                 f"Fallback error: {fallback_error}",
-                fallback_method
+                fallback_method,
             )
 
     def _output_directory(self) -> str:
@@ -316,18 +317,26 @@ class PDFMarkdownLoader:
             "source": self.file_path,
             "processing_method": method_used,
             "fallback_used": self.stats["fallback_used"],
-            "fallback_method": self.config["fallback_method"] if self.stats["fallback_used"] else None,
+            "fallback_method": self.config["fallback_method"]
+            if self.stats["fallback_used"]
+            else None,
             "processing_time": self.stats["processing_time"],
-            "vlm_enabled": self.config["enable_vlm"] if method_used == "markdown_converter" else None,
-            "vlm_model": self.config["vlm_model"] if method_used == "markdown_converter" and self.config["enable_vlm"] else None,
+            "vlm_enabled": self.config["enable_vlm"]
+            if method_used == "markdown_converter"
+            else None,
+            "vlm_model": self.config["vlm_model"]
+            if method_used == "markdown_converter" and self.config["enable_vlm"]
+            else None,
             "ocr_settings": {
                 "dpi": self.config["ocr_dpi"],
                 "force_ocr": self.config["ocr_force_ocr"],
-            } if method_used == "ocr" else None,
+            }
+            if method_used == "ocr"
+            else None,
             "extraction_stats": result if method_used == "markdown_converter" else None,
             "errors": self.stats["errors"] if self.stats["errors"] else None,
         }
-        
+
         return [Document(content=content, metadata=metadata)]
 
     def _create_empty_document(self, result: dict, method_used: str) -> list[Document]:
@@ -349,13 +358,15 @@ class PDFMarkdownLoader:
             "source": self.file_path,
             "processing_method": method_used,
             "fallback_used": self.stats["fallback_used"],
-            "fallback_method": self.config["fallback_method"] if self.stats["fallback_used"] else None,
+            "fallback_method": self.config["fallback_method"]
+            if self.stats["fallback_used"]
+            else None,
             "processing_time": self.stats["processing_time"],
             "extraction_error": "empty_content",
             "extraction_stats": result if method_used == "markdown_converter" else None,
             "errors": self.stats["errors"] if self.stats["errors"] else None,
         }
-        
+
         return [
             Document(
                 content="No content could be extracted from this document.",
@@ -363,7 +374,9 @@ class PDFMarkdownLoader:
             )
         ]
 
-    def _create_error_document(self, error_message: str, method_used: str) -> list[Document]:
+    def _create_error_document(
+        self, error_message: str, method_used: str
+    ) -> list[Document]:
         """Create a document for processing errors.
 
         Parameters
@@ -382,12 +395,14 @@ class PDFMarkdownLoader:
             "source": self.file_path,
             "processing_method": method_used,
             "fallback_used": self.stats["fallback_used"],
-            "fallback_method": self.config["fallback_method"] if self.stats["fallback_used"] else None,
+            "fallback_method": self.config["fallback_method"]
+            if self.stats["fallback_used"]
+            else None,
             "processing_time": self.stats["processing_time"],
             "extraction_error": error_message,
             "errors": self.stats["errors"] if self.stats["errors"] else None,
         }
-        
+
         return [
             Document(
                 content=f"Error processing document: {error_message}",
@@ -420,23 +435,27 @@ class PDFLoader:
             A tuple containing the loader class and its arguments.
         """
         config_overrides = {}
-        
+
         if use_ocr is not None:
-            config_overrides["pdf_processing_method"] = "ocr" if use_ocr else "markdown_converter"
-        
+            config_overrides["pdf_processing_method"] = (
+                "ocr" if use_ocr else "markdown_converter"
+            )
+
         if ocr_dpi is not None:
             config_overrides["ocr_dpi"] = ocr_dpi
-            
+
         if force_ocr is not None:
             config_overrides["ocr_force_ocr"] = force_ocr
-        
+
         # Add VLM configuration
-        config_overrides.update({
-            "enable_vlm": VLMConfig.ENABLE_VLM.value,
-            "vlm_model": VLMConfig.VLM_MODEL.value,
-            "max_workers": VLMConfig.MAX_WORKERS.value,
-        })
-        
+        config_overrides.update(
+            {
+                "enable_vlm": VLMConfig.ENABLE_VLM.value,
+                "vlm_model": VLMConfig.VLM_MODEL.value,
+                "max_workers": VLMConfig.MAX_WORKERS.value,
+            }
+        )
+
         return (PDFMarkdownLoader, config_overrides)
 
 
