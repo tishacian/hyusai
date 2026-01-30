@@ -3,11 +3,15 @@ import hashlib
 import io
 import os
 import re
+import shutil
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import fitz
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LTFigure, LTImage
 from PIL import Image
 
 from src.globalvariables import PDFProcessingConfig
@@ -32,9 +36,7 @@ class ImageExtractionConfig:
     min_image_size: int = 20
     max_image_size: int = 10000
     supported_formats: list[str] = field(
-        default_factory=lambda: [
-            "PNG", "JPEG", "TIFF", "BMP", "GIF", "WEBP"
-        ]
+        default_factory=lambda: ["PNG", "JPEG", "TIFF", "BMP", "GIF", "WEBP"]
     )
 
     preserve_original_format: bool = True
@@ -213,7 +215,7 @@ class ImageCompressor:
         output_path: str,
         max_size: int = 2048,
         quality: int = 85,
-        format: str = "JPEG"
+        format: str = "JPEG",
     ) -> bool:
         """Compress image for VLM inference.
 
@@ -245,20 +247,14 @@ class ImageCompressor:
                     new_size = tuple(int(dim * ratio) for dim in img.size)
                     img = img.resize(new_size, Image.Resampling.LANCZOS)
 
-                img.save(
-                    output_path, format=format, quality=quality, optimize=True
-                )
+                img.save(output_path, format=format, quality=quality, optimize=True)
                 return True
         except Exception:
             return False
 
     @classmethod
     def prepare_for_vlm(
-        cls,
-        image_path: str,
-        temp_dir: str,
-        max_size: int = 2048,
-        quality: int = 85
+        cls, image_path: str, temp_dir: str, max_size: int = 2048, quality: int = 85
     ) -> str | None:
         """Prepare image for VLM inference with compression.
 
@@ -280,9 +276,7 @@ class ImageCompressor:
         """
         try:
             original_name = Path(image_path).stem
-            compressed_path = os.path.join(
-                temp_dir, f"{original_name}_compressed.jpg"
-            )
+            compressed_path = os.path.join(temp_dir, f"{original_name}_compressed.jpg")
 
             if cls.compress_for_inference(
                 image_path, compressed_path, max_size, quality
@@ -387,23 +381,26 @@ class PDFImageExtractor:
 
                         pix = None
 
-                        is_valid, error_msg = (
-                            ImageValidator.validate_image_data(
-                                img_data
-                            )
+                        is_valid, error_msg = ImageValidator.validate_image_data(
+                            img_data
                         )
                         if not is_valid:
                             self.extraction_stats["corrupted_images"] += 1
-                            results.append(ImageExtractionResult(
-                                success=False,
-                                error_message=error_msg,
-                                extraction_method="pymupdf"
-                            ))
+                            results.append(
+                                ImageExtractionResult(
+                                    success=False,
+                                    error_message=error_msg,
+                                    extraction_method="pymupdf",
+                                )
+                            )
                             continue
 
                         result = self._save_image(
-                            img_data, format_name, page_num + 1, img_index + 1,
-                            output_dir
+                            img_data,
+                            format_name,
+                            page_num + 1,
+                            img_index + 1,
+                            output_dir,
                         )
                         result.extraction_method = "pymupdf"
                         results.append(result)
@@ -416,11 +413,13 @@ class PDFImageExtractor:
 
                     except Exception as e:
                         self.extraction_stats["failed_extractions"] += 1
-                        results.append(ImageExtractionResult(
-                            success=False,
-                            error_message=str(e),
-                            extraction_method="pymupdf"
-                        ))
+                        results.append(
+                            ImageExtractionResult(
+                                success=False,
+                                error_message=str(e),
+                                extraction_method="pymupdf",
+                            )
+                        )
 
             doc.close()
 
@@ -450,9 +449,6 @@ class PDFImageExtractor:
         results = []
 
         try:
-            from pdfminer.high_level import extract_pages
-            from pdfminer.layout import LTFigure, LTImage
-
             for page_num, page_layout in enumerate(extract_pages(pdf_path)):
                 page_num += 1
 
@@ -473,46 +469,47 @@ class PDFImageExtractor:
                             else:
                                 continue
 
-                            format_name = ImageFormatDetector.detect_format(
-                                img_data
-                            )
+                            format_name = ImageFormatDetector.detect_format(img_data)
 
-                            is_valid, error_msg = (
-                                ImageValidator.validate_image_data(img_data)
+                            is_valid, error_msg = ImageValidator.validate_image_data(
+                                img_data
                             )
                             if not is_valid:
                                 self.extraction_stats["corrupted_images"] += 1
-                                results.append(ImageExtractionResult(
-                                    success=False,
-                                    error_message=error_msg,
-                                    extraction_method="pdfminer"
-                                ))
+                                results.append(
+                                    ImageExtractionResult(
+                                        success=False,
+                                        error_message=error_msg,
+                                        extraction_method="pdfminer",
+                                    )
+                                )
                                 continue
 
                             result = self._save_image(
-                                img_data, format_name, page_num,
-                                len(results) + 1, output_dir
+                                img_data,
+                                format_name,
+                                page_num,
+                                len(results) + 1,
+                                output_dir,
                             )
                             result.extraction_method = "pdfminer"
                             results.append(result)
 
                             if result.success:
-                                self.extraction_stats[
-                                    "successful_extractions"
-                                ] += 1
+                                self.extraction_stats["successful_extractions"] += 1
                                 self.extraction_stats["format_preserved"] += 1
                             else:
-                                self.extraction_stats[
-                                    "failed_extractions"
-                                ] += 1
+                                self.extraction_stats["failed_extractions"] += 1
 
                         except Exception as e:
                             self.extraction_stats["failed_extractions"] += 1
-                            results.append(ImageExtractionResult(
-                                success=False,
-                                error_message=str(e),
-                                extraction_method="pdfminer"
-                            ))
+                            results.append(
+                                ImageExtractionResult(
+                                    success=False,
+                                    error_message=str(e),
+                                    extraction_method="pdfminer",
+                                )
+                            )
 
         except Exception:
             pass
@@ -525,7 +522,7 @@ class PDFImageExtractor:
         format_name: str,
         page_num: int,
         img_index: int,
-        output_dir: str
+        output_dir: str,
     ) -> ImageExtractionResult:
         """
         Save extracted image data to file.
@@ -558,7 +555,7 @@ class PDFImageExtractor:
                     file_size=len(img_data),
                     dimensions=(0, 0),  # Would need to decode image to get dimensions
                     checksum=hashlib.md5(img_data).hexdigest(),
-                    extraction_method="skip_save"
+                    extraction_method="skip_save",
                 )
 
             os.makedirs(output_dir, exist_ok=True)
@@ -579,14 +576,10 @@ class PDFImageExtractor:
             with open(image_path, "wb") as f:
                 f.write(img_data)
 
-            is_valid, error_msg = ImageValidator.validate_image_file(
-                image_path
-            )
+            is_valid, error_msg = ImageValidator.validate_image_file(image_path)
             if not is_valid:
                 return ImageExtractionResult(
-                    success=False,
-                    error_message=error_msg,
-                    extraction_method="save"
+                    success=False, error_message=error_msg, extraction_method="save"
                 )
 
             img_info = ImageValidator.get_image_info(image_path)
@@ -598,14 +591,12 @@ class PDFImageExtractor:
                 file_size=img_info.get("file_size", 0),
                 dimensions=img_info.get("size", (0, 0)),
                 checksum=hashlib.md5(img_data).hexdigest(),
-                extraction_method="save"
+                extraction_method="save",
             )
 
         except Exception as e:
             return ImageExtractionResult(
-                success=False,
-                error_message=str(e),
-                extraction_method="save"
+                success=False, error_message=str(e), extraction_method="save"
             )
 
     def get_extraction_stats(self) -> dict[str, object]:
@@ -643,9 +634,7 @@ class VLMImageProcessor:
         self.config = config or ImageExtractionConfig()
         self.temp_dir = None
 
-    async def prepare_images_for_vlm(
-        self, image_paths: list[str]
-    ) -> dict[str, str]:
+    async def prepare_images_for_vlm(self, image_paths: list[str]) -> dict[str, str]:
         """
         Prepare images for VLM inference.
 
@@ -662,7 +651,6 @@ class VLMImageProcessor:
         if not self.config.compress_for_inference:
             return {path: path for path in image_paths}
 
-        import tempfile
         self.temp_dir = tempfile.mkdtemp(prefix="vlm_images_")
 
         results = {}
@@ -677,14 +665,12 @@ class VLMImageProcessor:
                     image_path,
                     self.temp_dir,
                     self.config.inference_max_size,
-                    self.config.inference_quality
+                    self.config.inference_quality,
                 )
                 return image_path, compressed_path or image_path
 
         tasks = [process_single_image(path) for path in image_paths]
-        processed_results = await asyncio.gather(
-            *tasks, return_exceptions=True
-        )
+        processed_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for result in processed_results:
             if isinstance(result, Exception):
@@ -697,7 +683,6 @@ class VLMImageProcessor:
     def cleanup_temp_files(self) -> None:
         """Clean up temporary compressed image files."""
         if self.temp_dir and os.path.exists(self.temp_dir):
-            import shutil
             try:
                 shutil.rmtree(self.temp_dir)
             except Exception:
@@ -706,9 +691,7 @@ class VLMImageProcessor:
 
 
 def extract_images_from_pdf(
-    pdf_path: str,
-    output_dir: str,
-    config: ImageExtractionConfig | None = None
+    pdf_path: str, output_dir: str, config: ImageExtractionConfig | None = None
 ) -> list[ImageExtractionResult]:
     """Extract images from PDF.
 
@@ -731,8 +714,7 @@ def extract_images_from_pdf(
 
 
 async def prepare_images_for_vlm_inference(
-    image_paths: list[str],
-    config: ImageExtractionConfig | None = None
+    image_paths: list[str], config: ImageExtractionConfig | None = None
 ) -> dict[str, str]:
     """Prepare images for VLM inference with optional compression.
 
@@ -749,4 +731,4 @@ async def prepare_images_for_vlm_inference(
         Mapping of original paths to processed paths.
     """
     processor = VLMImageProcessor(config)
-    return await processor.prepare_images_for_vlm(image_paths) 
+    return await processor.prepare_images_for_vlm(image_paths)
