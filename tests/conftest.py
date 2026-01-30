@@ -2,12 +2,42 @@
 
 This lets us `import src.*` without installing the package.
 """
-from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, Mock
 
 # Add the project root directory (one level above `tests/`) to sys.path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT)) 
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+
+# Mock Config globally BEFORE any imports that depend on it
+# This prevents issues with missing environment variables
+def _create_mock_config():
+    """Create a mock Config object with sensible test defaults."""
+    from configurations.components.backend import BackendConfig
+    from configurations.components.vlm import VLMConfig
+
+    mock_config = MagicMock()
+
+    # Use actual config classes with defaults
+    mock_config.backend = BackendConfig()
+    mock_config.vlm = VLMConfig()
+
+    return mock_config
+
+
+# Install the mock Config globally before any imports
+mock_config_instance = _create_mock_config()
+sys.modules["configurations"] = Mock()
+sys.modules["configurations"].Config = Mock()
+sys.modules["configurations"].Config.get = Mock(return_value=mock_config_instance)
+
+
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line(
+        "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+    )
