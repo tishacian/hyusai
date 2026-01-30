@@ -149,13 +149,14 @@ class PDFMarkdownLoader:
                 self.stats["errors"].append(f"Primary method failed: {primary_error}")
                 
                 if self.config["enable_fallback"]:
-                    return self._apply_fallback(primary_error)
+                    result = self._apply_fallback(primary_error)
                 else:
-                    return self._create_error_document(
+                    result = self._create_error_document(
                         f"Primary method '{primary_method}' failed and fallback disabled: {primary_error}",
                         primary_method
                     )
-                    
+                self.stats["processing_time"] = time.time() - start_time
+                return result
         except Exception as e:
             self.stats["processing_time"] = time.time() - start_time
             self.stats["errors"].append(f"General processing error: {e}")
