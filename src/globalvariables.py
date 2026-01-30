@@ -186,6 +186,7 @@ class ChunkingMethod(StrEnum):
     TOKEN_BASED = "token_based"
     HIERARCHICAL = "hierarchical"
     MODEL_BASED = "model_based"
+    SENTENCE_BOUNDARY = "sentence_boundary"
 
 
 class IndexType(StrEnum):
