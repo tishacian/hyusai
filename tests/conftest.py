@@ -17,6 +17,8 @@ if str(PROJECT_ROOT) not in sys.path:
 # This prevents issues with missing environment variables
 def _create_mock_config():
     """Create a mock Config object with sensible test defaults."""
+    from common_config.fsspec_storage import FsspecStorageConfig
+
     from configurations.components.backend import BackendConfig
     from configurations.components.vlm import VLMConfig
 
@@ -25,6 +27,7 @@ def _create_mock_config():
     # Use actual config classes with defaults
     mock_config.backend = BackendConfig()
     mock_config.vlm = VLMConfig()
+    mock_config.storage = FsspecStorageConfig()
 
     return mock_config
 
