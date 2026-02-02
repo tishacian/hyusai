@@ -43,3 +43,24 @@ You can now install internal packages directly with:
 pip install <package-name>
 ```
 
+## Running Unit Tests Locally
+
+Unit tests are executed using pytest. Before running them, you must install the required dependency sets.
+
+### 1. Install Required Dependencies
+
+From the project root, inside your local .venv install the following requirements files:
+```
+pip install -r requirements/celery.txt -r requirements/cpu.txt -r requirements/test.txt
+```
+
+### 2. Run the Full Test Suite
+
+```
+pytest
+```
+
+### 3. Advanced pytest Usage
+
+For more advanced use cases (running specific tests, markers, fixtures, parallel execution, debugging, etc.), refer to the official pytest documentation:
+https://docs.pytest.org/en/stable/how-to/usage.html
