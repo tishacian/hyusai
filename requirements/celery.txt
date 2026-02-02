@@ -49,7 +49,7 @@ weaviate-client<3.0.0          # weaviate (compatible with protobuf 4.x)
 langchain-community            # chroma + document loaders
 
 # logging
-datategy-logging-utils~=0.5.2
+datategy-logging-utils~=0.6.1
 datategy-common-config[logging-setup]~=0.6.0
 
 # storage
