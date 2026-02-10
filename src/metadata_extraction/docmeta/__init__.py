@@ -9,7 +9,7 @@ extraction for supported file types like PDFs, images, and documents.
 __version__ = "0.1.0"
 
 # Import extractors to trigger registration
-import docmeta.extractors
+import docmeta.extractors  # noqa: F401
 from docmeta.core import (
     FileMetaData,
     ImageMetaData,

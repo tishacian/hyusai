@@ -1,17 +1,27 @@
 import asyncio
+import logging
 import os
 import pickle
-
-# --
+import sys
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
 
 import faiss
 import numpy as np
 import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
+from sentence_transformers import SentenceTransformer
 
 from connections.database.system_prompts import SystemPrompts
+from src.chunker import BM25Retriever, cache_chunker_embedding_chain
+from src.globalvariables import (
+    EMBEDDING_NAME,
+    VECTOR_STORE_PATH,
+    IndexType,
+)
+from src.metrics import Evaluatrix
 from src.system_prompts import (
     ALL_SYSTEM_PROMPT_TEMPLATES,
     DEFAULT_SYSTEM_PROMPT_LANG,
@@ -22,28 +32,9 @@ from src.utils import add_leading_space_if_needed, format_llm_response
 
 if torch.cuda.is_available():
     from vllm import SamplingParams
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import lru_cache
-
-from sentence_transformers import SentenceTransformer
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-# --
-import logging
-import sys
-
-from src.chunker import BM25Retriever, cache_chunker_embedding_chain
-from src.globalvariables import (
-    EMBEDDING_NAME,
-    VECTOR_STORE_PATH,
-    IndexType,
-)
-
-# -- Model evaluation
-from src.metrics import Evaluatrix
-
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,

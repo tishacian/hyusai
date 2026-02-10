@@ -1,7 +1,9 @@
 import asyncio
+import logging
 import os
 import pickle
 import re
+import sys
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
@@ -14,16 +16,6 @@ import weaviate
 from langchain_community.vectorstores import Chroma
 
 from configurations.config import Config
-from src.system_prompts.types import SystemPromptTypes
-
-if torch.cuda.is_available():
-    from vllm import SamplingParams
-
-warnings.simplefilter(action="ignore", category=FutureWarning)
-
-import logging
-import sys
-
 from connections.database.system_prompts import SystemPrompts
 from src.cache import TieredCache
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
@@ -48,6 +40,7 @@ from src.system_prompts import (
     DEFAULT_SYSTEM_PROMPT_LANG,
     SystemPromptLangs,
 )
+from src.system_prompts.types import SystemPromptTypes
 from src.trivial_check import is_trivial_question
 from src.utils import (
     add_leading_space_if_needed,
@@ -57,6 +50,11 @@ from src.utils import (
     measure_time,
     measure_time_sync,
 )
+
+if torch.cuda.is_available():
+    from vllm import SamplingParams
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
 
 logging.basicConfig(
     stream=sys.stdout,

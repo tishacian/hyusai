@@ -11,7 +11,6 @@ import logging
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from typing import List
 
 import numpy as np
 import pymupdf
@@ -37,7 +36,7 @@ tesseract_path, TESSERACT_AVAILABLE = configure_tesseract()
 class MyEmlLoader(UnstructuredEmailLoader):
     """Wrapper to fallback to text/plain when default does not work"""
 
-    def load(self) -> List[Document]:
+    def load(self) -> list[Document]:
         try:
             try:
                 doc = UnstructuredEmailLoader.load(self)

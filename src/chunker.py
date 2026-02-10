@@ -4,7 +4,6 @@ import pickle
 import re
 import warnings
 from functools import lru_cache, wraps  # caching mechanism
-from typing import List
 
 import numpy as np
 import torch
@@ -148,7 +147,7 @@ class TextChunker:
 
         return adjusted_estimated_chunks
 
-    def apply_overlap(self, chunks: List[str], chunk_overlap: int) -> List[str]:
+    def apply_overlap(self, chunks: list[str], chunk_overlap: int) -> list[str]:
         """
         Apply chunk overlap to the list of chunks.
 
@@ -338,7 +337,7 @@ class TextChunker:
 
     def recursive_character_chunking(
         self, text, chunk_size=None, overlap=None
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Recursively split the text into chunks of specified size.
 
@@ -389,7 +388,7 @@ class TextChunker:
 
         return chunks
 
-    def semantic_chunking(self, text, method="silhouette", max_k=10) -> List[str]:
+    def semantic_chunking(self, text, method="silhouette", max_k=10) -> list[str]:
         """
         Dynamic chunking
         -------------
@@ -422,7 +421,7 @@ class TextChunker:
         chunks = [" ".join(cluster) for cluster in clustered_sentences]
         return chunks
 
-    def token_based_chunking(self, text: str, max_tokens: int = 512) -> List[str]:
+    def token_based_chunking(self, text: str, max_tokens: int = 512) -> list[str]:
         """
         LLM Chunking
         -------------
@@ -484,7 +483,7 @@ class TextChunker:
 
         return chunks
 
-    def model_based_chunking(self, text, max_tokens=512, threshold=1e-4) -> List[str]:
+    def model_based_chunking(self, text, max_tokens=512, threshold=1e-4) -> list[str]:
         """
         Use a machine learning model to determine chunk boundaries.
 

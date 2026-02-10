@@ -8,7 +8,7 @@ import asyncio
 import logging
 import sys
 from functools import lru_cache, wraps
-from typing import Any, Dict
+from typing import Any
 
 import torch
 import weaviate
@@ -54,8 +54,8 @@ class EmbeddingModelLoader:
     Uses both lru_cache and custom caching to optimize performance.
     """
 
-    _model_cache: Dict[str, Any] = {}
-    _dimension_cache: Dict[str, int] = {}
+    _model_cache: dict[str, Any] = {}
+    _dimension_cache: dict[str, int] = {}
 
     @staticmethod
     @lru_cache(maxsize=None)
@@ -182,7 +182,7 @@ class EmbeddingModelLoader:
         )
 
     @staticmethod
-    async def load_multiple_models(model_configs: list) -> Dict[str, Any]:
+    async def load_multiple_models(model_configs: list) -> dict[str, Any]:
         """
         Load multiple embedding models in parallel.
 

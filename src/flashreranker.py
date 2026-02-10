@@ -10,7 +10,7 @@ import sys
 import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -98,8 +98,8 @@ class FlashReranker:
             raise
 
     def _batch_tokenize(
-        self, query: str, passages: List[str]
-    ) -> Dict[str, torch.Tensor]:
+        self, query: str, passages: list[str]
+    ) -> dict[str, torch.Tensor]:
         """Tokenize w/ memory-efficient batching
 
         Parameters
@@ -155,7 +155,7 @@ class FlashReranker:
             )
 
     def _compute_relevance_scores(
-        self, inputs: Dict[str, torch.Tensor]
+        self, inputs: dict[str, torch.Tensor]
     ) -> torch.Tensor:
         """Compute scores
 
@@ -206,8 +206,8 @@ class FlashReranker:
             return torch.zeros(1)
 
     def _batch_process(
-        self, query: str, passages: List[str], batch_size: int
-    ) -> List[float]:
+        self, query: str, passages: list[str], batch_size: int
+    ) -> list[float]:
         """Process passages in memory-efficient batches
 
         Parameters
@@ -247,8 +247,8 @@ class FlashReranker:
         return all_scores
 
     def rerank(
-        self, query: str, passages: List[str], return_scores: bool = False
-    ) -> Union[List[str], Tuple[List[str], List[float]]]:
+        self, query: str, passages: list[str], return_scores: bool = False
+    ) -> Union[list[str], tuple[list[str], list[float]]]:
         """Mem-efficient reranking
 
         Parameters
@@ -297,10 +297,10 @@ class FlashReranker:
 
     def evaluate(
         self,
-        queries: List[str],
-        passages: List[List[str]],
-        relevance_labels: List[List[int]],
-    ) -> Dict[str, float]:
+        queries: list[str],
+        passages: list[list[str]],
+        relevance_labels: list[list[int]],
+    ) -> dict[str, float]:
         """Evaluate reranker performance
 
         Parameters
@@ -365,8 +365,8 @@ class FlashReranker:
         return {metric: np.mean(values) for metric, values in metrics.items()}
 
     def __call__(
-        self, query: str, passages: List[str], return_scores: bool = False
-    ) -> Union[List[str], Tuple[List[str], List[float]]]:
+        self, query: str, passages: list[str], return_scores: bool = False
+    ) -> Union[list[str], tuple[list[str], list[float]]]:
         """Convenience method to rerank context/passages
 
         Parameters

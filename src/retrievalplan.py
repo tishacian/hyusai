@@ -5,7 +5,7 @@ Created on Sun May 25 19:12:35 2025
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -21,7 +21,7 @@ class RetrievalContext:
     diversity_score: float = 0.0
     reasoning_score: float = 0.0
     embedding: Optional[np.ndarray] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     token_count: int = 0
 
     def __lt__(self, other):
@@ -47,7 +47,7 @@ class QueryAnalysis:
     lambda_param: float = 0.5
     has_multiple_questions: bool = False
     word_count: int = 0
-    query_characteristics: Dict[str, float] = field(default_factory=dict)
+    query_characteristics: dict[str, float] = field(default_factory=dict)
     reasoning_type: Optional[ReasoningType] = None
     reasoning_confidence: float = 0.0
     embedding: Optional[np.ndarray] = None

@@ -5,7 +5,6 @@ from io import BytesIO
 from typing import Iterator
 
 import pandas as pd
-import requests
 import streamlit as st
 import torch
 

@@ -1,10 +1,10 @@
 import asyncio
+import logging
 import os
 import pickle
 import re
+import sys
 import time
-
-# --
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
@@ -14,15 +14,6 @@ import numpy as np
 import torch
 import weaviate
 from langchain_community.vectorstores import Chroma
-
-if torch.cuda.is_available():
-    from vllm import SamplingParams
-
-warnings.simplefilter(action="ignore", category=FutureWarning)
-
-# --
-import logging
-import sys
 
 from connections.database.system_prompts import SystemPrompts
 from src.cache import LRUCache
@@ -40,8 +31,6 @@ from src.globalvariables import (
     IndexType,
     ReasoningType,
 )
-
-# -- Model evaluation
 from src.metrics import Evaluatrix
 from src.reasoningmetrics import ReasoningMetrics
 from src.system_prompts import (
@@ -59,7 +48,11 @@ from src.utils import (
     measure_time_sync,
 )
 
-# --
+if torch.cuda.is_available():
+    from vllm import SamplingParams
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,

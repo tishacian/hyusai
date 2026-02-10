@@ -35,18 +35,20 @@ from src.system_prompts import (
     SystemPromptLangs,
 )
 
+try:
+    # import as to avoid unused import warning
+    from nltk.corpus import stopwords as stopwords
+
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-try:
-    from nltk.corpus import stopwords
-
-    NLTK_AVAILABLE = True
-except ImportError:
-    NLTK_AVAILABLE = False
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
