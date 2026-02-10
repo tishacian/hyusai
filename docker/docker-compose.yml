@@ -1,19 +1,15 @@
 version: "3.9"
-
 name: papai-llm
-
 volumes:
   db_data:
   minio_data:
   models:
   assets:
-
 secrets:
   nexus_username:
     file: ./secrets/nexus_username.txt
   nexus_password:
     file: ./secrets/nexus_password.txt
-
 services:
   # -----------------------
   # Infrastructure services
@@ -22,15 +18,14 @@ services:
     image: rabbitmq:4.1-management
     container_name: broker
     ports:
-      - "5672:5672"    # AMQP
-      - "15672:15672"  # Management UI
+      - "5672:5672" # AMQP
+      - "15672:15672" # Management UI
     healthcheck:
       test: ["CMD", "rabbitmqctl", "status"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
-
   db:
     image: postgres:17
     container_name: db
@@ -46,19 +41,17 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-
   minio:
     image: minio/minio:latest
     container_name: minio
     ports:
-      - "9000:9000"  # S3 API
-      - "9001:9001"  # Web console
+      - "9000:9000" # S3 API
+      - "9001:9001" # Web console
     volumes:
       - minio_data:/data
     env_file:
       - ./test_env_files/minio.env
     command: server /data --console-address ":9001"
-
   # ------------------------
   # Init / one-shot services
   # ------------------------
@@ -79,7 +72,6 @@ services:
       minio:
         condition: service_started
     restart: "no"
-
   # ---------------------
   # Core backend services
   # ---------------------
@@ -104,7 +96,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
-
   celery-cpu:
     build:
       context: ..
@@ -125,7 +116,6 @@ services:
         condition: service_completed_successfully
     deploy:
       replicas: 2
-
   celery-gpu:
     build:
       context: ..
@@ -146,7 +136,6 @@ services:
         condition: service_completed_successfully
     deploy:
       replicas: 1
-
   # ----------------
   # Frontend service
   # ----------------

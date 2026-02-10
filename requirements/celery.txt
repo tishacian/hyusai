@@ -24,7 +24,7 @@ docx2txt
 pymupdf
 pdfminer.six
 
-# metadata extraction 
+# metadata extraction
 PyPDF2>=2.0.0           # PDF documents
 Pillow>=8.0.0           # image manipulation
 python-docx>=0.8.10     # Microsoft Word (.docx)

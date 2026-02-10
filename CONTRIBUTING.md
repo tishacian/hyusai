@@ -8,9 +8,9 @@ To set up access to our internal Python packages hosted on GitLab, follow the st
 
 ### 1. Create a Personal Access Token
 
-1. Go to your GitLab **[Personal Access Tokens page](https://gitlab.com/-/user_settings/personal_access_tokens)**.  
-2. Click **"Create new token"**.  
-3. Set the **scope** to `api` — this is the only required permission.  
+1. Go to your GitLab **[Personal Access Tokens page](https://gitlab.com/-/user_settings/personal_access_tokens)**.
+2. Click **"Create new token"**.
+3. Set the **scope** to `api` — this is the only required permission.
 4. Give your token a descriptive name, for example: `package-registry-access-token`
 
 5. Save the generated token securely (you’ll need it in the next step).
@@ -19,7 +19,7 @@ To set up access to our internal Python packages hosted on GitLab, follow the st
 
 ### 2. Configure pip
 
-To allow `pip` to authenticate with GitLab’s package registry, update (or create) your pip configuration file.  
+To allow `pip` to authenticate with GitLab’s package registry, update (or create) your pip configuration file.
 
 Depending on your system:
 - **Linux/macOS:** `~/.config/pip/pip.conf`

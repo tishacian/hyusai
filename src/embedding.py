@@ -557,13 +557,13 @@ class EmbeddingVectors:
 
     def _calculate_dynamic_batch_size(self, texts, base_batch_size=32):
         """
-        Calculate optimal batch size based on available memory and text 
+        Calculate optimal batch size based on available memory and text
         characteristics.
-        
+
         Parameters:
             texts (list): List of text chunks
             base_batch_size (int): Base batch size to start with
-            
+
         Returns:
             int: Optimal batch size
         """
@@ -580,20 +580,20 @@ class EmbeddingVectors:
             adjusted_batch_size = max_batch_by_memory // dimension_factor
             min_batch_size = 1
             max_batch_size = min(128, len(texts))  # Cap at 128 or total texts
-            
-            optimal_batch_size = max(min_batch_size, 
+
+            optimal_batch_size = max(min_batch_size,
                                    min(max_batch_size, adjusted_batch_size))
-            
+
             if optimal_batch_size < 1:
                 optimal_batch_size = base_batch_size
-                
+
             logging.info(f"Dynamic batch size calculated: {optimal_batch_size} "
                         f"(available memory: {memory_gb:.1f}GB, "
                         f"avg text length: {avg_text_length:.0f}, "
                         f"embedding dim: {self.embedding_dimension})")
-            
+
             return optimal_batch_size
-            
+
         except Exception as e:
             logging.warning(f"Failed to calculate dynamic batch size: {e}. "
                            f"Using base batch size: {base_batch_size}")
@@ -639,17 +639,17 @@ class EmbeddingVectors:
         )
         return instance
 
-    def create_embeddings(self, texts, batch_size: Optional[int] = None, 
+    def create_embeddings(self, texts, batch_size: Optional[int] = None,
                           use_dynamic_batching: Optional[bool] = None):
         """
         Create_embeddings.
-        Creates embeddings using pre-loaded SentenceTransformer or tokenizer 
+        Creates embeddings using pre-loaded SentenceTransformer or tokenizer
         based on availability.
 
         Parameters:
             texts (str): input texts
             batch_size (int, optional): Fixed batch size. Default is 32.
-            use_dynamic_batching (bool, optional): Whether to use dynamic batch sizing. 
+            use_dynamic_batching (bool, optional): Whether to use dynamic batch sizing.
                                        If None, uses global configuration.
 
         Returns:
@@ -657,16 +657,16 @@ class EmbeddingVectors:
         """
         if use_dynamic_batching is None:
             use_dynamic_batching = USE_DYNAMIC_BATCHING_GLOBAL
-            
+
         # Determine batch size
         if use_dynamic_batching:
             self.batch_size = self._calculate_dynamic_batch_size(texts, 32)
         else:
             self.batch_size = 32 if not batch_size else batch_size
-            
+
         logging.info(f"Using batch size: {self.batch_size} "
                     f"(dynamic batching: {use_dynamic_batching})")
-        
+
         try:
             if not texts or len(texts) == 0:
                 logging.error("🚩 Empty texts array received")
@@ -728,7 +728,7 @@ class EmbeddingVectors:
                                         existing_save_path
                                     )
                                 )
-                                
+
                                 if rescaled_old_embeddings is not None:
                                     combined_embeddings = np.vstack([rescaled_old_embeddings, combined_embeddings])
 
@@ -743,7 +743,7 @@ class EmbeddingVectors:
                                     in_place=True,
                                 )
                             )
-                            
+
                             if self.log_normalization_stats:
                                 self._log_normalization_impact(
                                     original_embeddings,
@@ -757,12 +757,12 @@ class EmbeddingVectors:
                                 )
                         else:
                             norm_metadata = {"strategy": "raw", "already_normalized": False}
-                        
+
                         self.last_embeddings_to_save = combined_embeddings.copy()
                         self.last_normalization_metadata = norm_metadata
 
                     return combined_embeddings
-                
+
                 logging.warning("No embeddings were created in FAISS/Chroma path, returning empty array")
                 empty_embeddings = np.zeros((0, self.embedding_dimension))
                 self.last_embeddings_to_save = empty_embeddings.copy()
@@ -846,7 +846,7 @@ class EmbeddingVectors:
                                     in_place=True,
                                 )
                             )
-                            
+
                             if self.log_normalization_stats:
                                 self._log_normalization_impact(
                                     original_embeddings,
@@ -861,7 +861,7 @@ class EmbeddingVectors:
                                 )
                         else:
                             norm_metadata = {"strategy": "raw", "already_normalized": False}
-                        
+
                         self.last_embeddings_to_save = combined_embeddings.copy()
                         self.last_normalization_metadata = norm_metadata
 
@@ -1056,7 +1056,7 @@ class EmbeddingVectors:
                     "timestamp": str(datetime.now())
                 }
                 self.save_normalization_metadata(save_path, default_metadata)
-            
+
             if hasattr(self, 'last_embeddings_to_save'):
                 logging.info(f"Found embeddings to save: shape={self.last_embeddings_to_save.shape}")
                 if self.create_new_vs:
@@ -1067,12 +1067,12 @@ class EmbeddingVectors:
                     new_save_path = VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
                     embeddings_save_path = new_save_path / "embeddings"
                     index_name = self.new_vs_name
-                
+
                 embeddings_save_path.mkdir(parents=True, exist_ok=True)
                 norm_type = self.normalization_strategy if self.normalize_embeddings else "raw"
                 embedding_filename = f"{index_name}_embedding_{norm_type}.npy"
                 embedding_filepath = embeddings_save_path / embedding_filename
-                
+
                 np.save(embedding_filepath, self.last_embeddings_to_save)
                 logging.info(f"Saved embeddings to {embedding_filepath}")
             else:
@@ -1192,17 +1192,17 @@ class EmbeddingVectors:
                             else:
                                 faiss.normalize_L2(combined_embeddings_copy)
                             combined_index.add(combined_embeddings_copy)
-                            
+
                             # Save combined index to new path (faiss_CV) not existing path (faiss_Resume)
                             new_save_path = VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
                             new_save_path.mkdir(parents=True, exist_ok=True)
-                            
+
                             faiss.write_index(
                                 combined_index, str(new_save_path / "faiss.index")
                             )
                             with open(new_save_path / "faiss.pkl", "wb") as f:
                                 pickle.dump(combined_texts, f)
-                            
+
                             # Save dimension info and other metadata to new path
                             dimension_info = {
                                 "embedding_model_name": self.embedding_model_name,
@@ -1213,7 +1213,7 @@ class EmbeddingVectors:
                             }
                             with open(new_save_path / "dimension_info.pkl", "wb") as f:
                                 pickle.dump(dimension_info, f)
-                            
+
                             logging.info(
                                 f"Created new combined FAISS index and saved to {new_save_path}"
                             )
@@ -1308,16 +1308,16 @@ class EmbeddingVectors:
             )
             raise
 
-    def create_and_save_index(self, texts, batch_size: Optional[int] = None, 
+    def create_and_save_index(self, texts, batch_size: Optional[int] = None,
                              use_dynamic_batching: Optional[bool] = None):
         """
-        Create and save the index -- vector DB with improved validation and 
+        Create and save the index -- vector DB with improved validation and
         error handling
 
         Parameters:
             texts (str): input texts
             batch_size (int, optional): Fixed batch size. Default is 32.
-            use_dynamic_batching (bool, optional): Whether to use dynamic batch sizing. 
+            use_dynamic_batching (bool, optional): Whether to use dynamic batch sizing.
                                        If None, uses global configuration.
 
         Return
@@ -1445,10 +1445,10 @@ class EmbeddingVectors:
     def _load_existing_embeddings(self, save_path):
         """
         Load existing embeddings from saved embedding files
-        
+
         Parameters:
             save_path (Path): Path to existing vector store
-            
+
         Returns:
             np.ndarray: Loaded embeddings or None if failed
         """
@@ -1457,49 +1457,49 @@ class EmbeddingVectors:
             if not embeddings_save_path.exists():
                 logging.warning(f"No embeddings folder found at {embeddings_save_path}")
                 return None
-            
+
             embedding_files = list(embeddings_save_path.glob("*.npy"))
             if not embedding_files:
                 logging.warning(f"No embedding files found in {embeddings_save_path}")
                 return None
-            
+
             # -- load the first embedding file found (assuming single embedding file per index)
             embedding_file = embedding_files[0]
             embeddings = np.load(embedding_file)
             logging.info(f"Loaded {len(embeddings)} embeddings from {embedding_file}")
             return embeddings
-                
+
         except Exception as e:
             logging.error(f"Error loading existing embeddings: {e}")
-            
+
         return None
 
     def check_normalization_compatibility(self, existing_save_path):
         """
         Check normalization compatibility when appending to existing index
         and rescale old embeddings if needed for mathematical consistency
-        
+
         Parameters:
             existing_save_path (Path): Path to existing vector store
-            
+
         Returns:
             tuple: (bool, np.ndarray) - (compatibility_checked, rescaled_old_embeddings or None)
         """
         if not existing_save_path.exists():
             return False, None
-            
+
         # -- load existing normalization metadata
         existing_metadata = self.load_normalization_metadata(
             existing_save_path
         )
         if not existing_metadata:
             return False, None
-            
+
         existing_strategy = existing_metadata.get("strategy", "l2")
-        
+
         if existing_strategy == "l2":
             return True, None
-            
+
         if existing_strategy in ["min_max", "z_score"]:
             try:
                 old_embeddings = self._load_existing_embeddings(existing_save_path)
@@ -1515,5 +1515,5 @@ class EmbeddingVectors:
             except Exception as e:
                 logging.error(f"Error rescaling old embeddings: {e}")
                 return True, None
-        
+
         return True, None

@@ -221,7 +221,7 @@ class GPUSelector:
             return GPUMemoryStatus.UNAVAILABLE, 0.0
 
     def select_best_gpu(self) -> int | None:
-        """Select the available GPU based on memory requirements, 
+        """Select the available GPU based on memory requirements,
         w/ priority from last index.
 
         Returns
@@ -246,24 +246,24 @@ class GPUSelector:
             )
             if status == GPUMemoryStatus.AVAILABLE:
                 suitable_gpus.append((gpu_info.device_id, available_memory))
-        
+
         if not suitable_gpus:
             self.logger.error(
                 f"No GPU with sufficient memory found. "
                 f"Required: {self.required_memory_gib} GiB"
             )
             return None
-        
+
         # -- reverse sort by device_id in descending order then select available GPU w/ most mem
         suitable_gpus.sort(key=lambda x: x[0], reverse=True)
         best_gpu_id = None
         best_available_memory = 0
-        
+
         for device_id, available_memory in suitable_gpus:
             if best_gpu_id is None or available_memory > best_available_memory:
                 best_gpu_id = device_id
                 best_available_memory = available_memory
-        
+
         self.logger.info(
             f"Selected GPU {best_gpu_id} (last index priority) for use"
         )

@@ -264,7 +264,7 @@ SELECT_INPUT_STYLE = """
     }
     div[data-baseweb="input"] > div {
         background: transparent !important;
-        border: none !important; 
+        border: none !important;
     }
     div[data-baseweb="input"] input {
         color: white !important;

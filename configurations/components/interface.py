@@ -26,7 +26,7 @@ class InterfaceConfig(BaseModel):
     """If True, the section where the user parametrize the RAG steps will be hidden."""
 
     forced_vdb: str = "None"
-    """Force the RAG to use the provided Vector DataBase as context (the section where 
+    """Force the RAG to use the provided Vector DataBase as context (the section where
     the user parametrize the RAG steps per consequent).
     If `"None"`, the user will be asked to create/select the desired Vector DataBase.
     """

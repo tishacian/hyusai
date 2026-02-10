@@ -57,7 +57,7 @@ def is_trivial_question(message: str, language: SystemPromptLangs = DEFAULT_SYST
 
     norm = _normalize(message)
     words = norm.split()
-    
+
     # Get vocabulary and regex patterns for the specified language
     vocabulary = ALL_TRIVIAL_VOCABULARY[language]
     re_patterns = _get_regex_patterns(language)
@@ -79,6 +79,3 @@ def is_trivial_question(message: str, language: SystemPromptLangs = DEFAULT_SYST
         leftover = [w for w in words if w not in vocabulary]
         # Fewer than two non-greeting words → treat as trivial
         return len(leftover) < 2
-
-
-

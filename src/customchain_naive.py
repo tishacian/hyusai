@@ -394,7 +394,7 @@ class CustomLLMChain:
         )
         """
         check if model.generate returns empty strings..otherwise, return empty text.
-        Sometimes, the model returns empty strings 
+        Sometimes, the model returns empty strings
         """
         # -- choose whether to use mixed precision based on the device
         use_mixed_precision = True if self.device.type == "cuda" else False
