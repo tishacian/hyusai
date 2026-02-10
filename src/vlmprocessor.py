@@ -1,22 +1,23 @@
 import asyncio
-import os
-import re
 import base64
 import io
+import os
+import re
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import torch
 from PIL import Image
-from vllm import LLM, SamplingParams
-from configurations import Config
 from transformers import (
-    AutoProcessor,
-    AutoModelForVision2Seq,
     AutoModelForCausalLM,
+    AutoModelForVision2Seq,
+    AutoProcessor,
     Qwen2_5_VLForConditionalGeneration,
 )
+from vllm import LLM, SamplingParams
+
+from configurations import Config
 
 
 @dataclass
@@ -86,11 +87,9 @@ class BaseVLM(ABC):
             image = self._load_image(image_path)
             combined_prompt = self._get_standard_prompt()
 
-            full_response = await self._generate_response(
-                image, combined_prompt
-            )
-            extracted_text, description = (
-                ResponseParser.parse_combined_response(full_response)
+            full_response = await self._generate_response(image, combined_prompt)
+            extracted_text, description = ResponseParser.parse_combined_response(
+                full_response
             )
 
             processing_time = asyncio.get_event_loop().time() - start_time
@@ -148,10 +147,7 @@ class BaseVLM(ABC):
         """
         if torch.cuda.is_available():
             return "cuda"
-        elif (
-            hasattr(torch.backends, "mps")
-            and torch.backends.mps.is_available()
-        ):
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return "mps"
         else:
             return "cpu"
@@ -217,9 +213,7 @@ class BaseVLM(ABC):
 
         cleaned_text = text
         for pattern in patterns:
-            cleaned_text = re.sub(
-                pattern, "", cleaned_text, flags=re.IGNORECASE
-            )
+            cleaned_text = re.sub(pattern, "", cleaned_text, flags=re.IGNORECASE)
 
         return cleaned_text.strip()
 
@@ -255,9 +249,7 @@ class ResponseParser:
         ]
 
         for pattern in prompt_patterns_to_remove:
-            response = re.sub(
-                pattern, "", response, flags=re.DOTALL | re.IGNORECASE
-            )
+            response = re.sub(pattern, "", response, flags=re.DOTALL | re.IGNORECASE)
 
         text_match = None
         desc_match = None
@@ -349,9 +341,7 @@ class ResponseParser:
             description = re.sub(
                 pattern, "", description, flags=re.IGNORECASE | re.DOTALL
             )
-        description = re.sub(
-            r"^Assistant:\s*", "", description, flags=re.IGNORECASE
-        )
+        description = re.sub(r"^Assistant:\s*", "", description, flags=re.IGNORECASE)
 
         desc_placeholder_patterns = [
             r"\[description\]",
@@ -454,9 +444,7 @@ class ResponseParser:
 
         cleaned_text = text
         for pattern in patterns:
-            cleaned_text = re.sub(
-                pattern, "", cleaned_text, flags=re.IGNORECASE
-            )
+            cleaned_text = re.sub(pattern, "", cleaned_text, flags=re.IGNORECASE)
 
         return cleaned_text.strip()
 
@@ -588,9 +576,7 @@ class BaseVLLMVLM(BaseVLM):
         with ThreadPoolExecutor() as executor:
             outputs = await loop.run_in_executor(
                 executor,
-                lambda: self.llm.generate(
-                    [prepared_prompt], self.sampling_params
-                ),
+                lambda: self.llm.generate([prepared_prompt], self.sampling_params),
             )
 
         return outputs[0].outputs[0].text.strip()
@@ -682,9 +668,7 @@ class VLLMSmolVLM(BaseVLLMVLM):
 
 
 class VLLMMoondreamVLM(BaseVLLMVLM):
-    def __init__(
-        self, model_name: str = "vikhyatk/moondream2", device: str = "auto"
-    ):
+    def __init__(self, model_name: str = "vikhyatk/moondream2", device: str = "auto"):
         """init
         Parameters
         ----------
@@ -877,9 +861,7 @@ class SmolVLM(BaseVLM):
 
 
 class MoondreamVLM(BaseVLM):
-    def __init__(
-        self, model_name: str = "vikhyatk/moondream2", device: str = "auto"
-    ):
+    def __init__(self, model_name: str = "vikhyatk/moondream2", device: str = "auto"):
         """init
         Parameters
         ----------
@@ -1014,7 +996,7 @@ class QwenVLM(BaseVLM):
                 no_repeat_ngram_size=3,
             )
             generated_ids_trimmed = [
-                out_ids[len(in_ids):]
+                out_ids[len(in_ids) :]
                 for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
             ]
             output_text = self.processor.batch_decode(
@@ -1097,8 +1079,7 @@ class VLMLoader:
         if model_type not in cls._models:
             available = list(cls._models.keys())
             raise ValueError(
-                f"Unsupported model type: {model_type}. "
-                f"Available: {available}"
+                f"Unsupported model type: {model_type}. Available: {available}"
             )
 
         model_class = cls._models[model_type]
@@ -1262,9 +1243,7 @@ class VLMProcessor:
             markdown_lines.append(f"**OCR Text:** {result.extracted_text}")
 
         if result.description:
-            markdown_lines.append(
-                f"**Image description:** {result.description}"
-            )
+            markdown_lines.append(f"**Image description:** {result.description}")
 
         return "\n".join(markdown_lines)
 
@@ -1272,10 +1251,7 @@ class VLMProcessor:
         if self.stats["images_processed"] == 0:
             return "No images processed"
 
-        avg_time = (
-            self.stats["total_processing_time"]
-            / self.stats["images_processed"]
-        )
+        avg_time = self.stats["total_processing_time"] / self.stats["images_processed"]
         success_rate = (
             self.stats["successful_analyses"] / self.stats["images_processed"]
         ) * 100
@@ -1293,9 +1269,7 @@ class VLMProcessor:
         )
 
 
-async def analyze_single_image(
-    image_path: str, model_type: str = None
-) -> VLMResult:
+async def analyze_single_image(image_path: str, model_type: str = None) -> VLMResult:
     if model_type is None:
         model_type = Config.get().vlm.vlm_model
 

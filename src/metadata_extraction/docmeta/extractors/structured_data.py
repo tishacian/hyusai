@@ -14,15 +14,17 @@ from typing import Any
 import tomli
 import yaml
 
-from docmeta.core.defaults import \
-    create_structured_data_metadata  # returns dict[str, Any]
-from docmeta.utils.text_processing import \
-    initialize_metadata  # Returns (metadata_dict, encoding)
-from docmeta.utils.text_processing import (analyze_dict_structure,
-                                           analyze_list_structure,
-                                           detect_csv_header,
-                                           get_file_extension,
-                                           infer_json_data_types)
+from docmeta.core.defaults import (
+    create_structured_data_metadata,  # returns dict[str, Any]
+)
+from docmeta.utils.text_processing import (
+    analyze_dict_structure,
+    analyze_list_structure,
+    detect_csv_header,
+    get_file_extension,
+    infer_json_data_types,
+    initialize_metadata,  # Returns (metadata_dict, encoding)
+)
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -89,7 +91,7 @@ def _extract_with_csv(path: str) -> tuple[dict[str, Any], str | None]:
         metadata["columns"] = header
         rows = rows[1:]
     else:
-        metadata["columns"] = [f"Column_{i+1}" for i in range(len(header))]
+        metadata["columns"] = [f"Column_{i + 1}" for i in range(len(header))]
         rows = rows
 
     metadata["column_count"] = len(metadata["columns"])

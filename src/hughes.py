@@ -1,10 +1,11 @@
-import torch
-from dataclasses import dataclass
-from sentence_transformers import SentenceTransformer
-from functools import lru_cache
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from functools import lru_cache
+
+import torch
+from sentence_transformers import SentenceTransformer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -149,9 +150,7 @@ class HHEMVerifier:
 
     @torch.no_grad()
     @lru_cache(maxsize=1000)
-    def verify_claims(
-        self, gen_emb: torch.Tensor, ref_emb: torch.Tensor
-    ) -> float:
+    def verify_claims(self, gen_emb: torch.Tensor, ref_emb: torch.Tensor) -> float:
         """Verify claims against reference text.
 
         Parameters:
@@ -222,9 +221,7 @@ class FACTSGJudge:
 
     @torch.no_grad()
     @lru_cache(maxsize=1000)
-    def judge_factuality(
-        self, generated_text: str, reference_text: str
-    ) -> float:
+    def judge_factuality(self, generated_text: str, reference_text: str) -> float:
         """Judge factual consistency of generated text.
 
         Parameters:
@@ -327,8 +324,7 @@ class HughesHallucination:
 
         with ThreadPoolExecutor(max_workers=4) as executor:
             tasks = [
-                executor.submit(method, *args)
-                for method, args in component_methods
+                executor.submit(method, *args) for method, args in component_methods
             ]
             results = [task.result() for task in tasks]
 
@@ -362,9 +358,7 @@ class HughesHallucination:
 
         return {**component_scores, "hallucination_index": hallucination_index}
 
-    async def batch_compute(
-        self, text_pairs: list[tuple[str, str]]
-    ) -> list[dict]:
+    async def batch_compute(self, text_pairs: list[tuple[str, str]]) -> list[dict]:
         """Compute scores for multiple text pairs in parallel.
 
         Parameters:

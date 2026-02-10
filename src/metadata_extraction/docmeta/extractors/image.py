@@ -8,8 +8,9 @@ from typing import Any
 
 from PIL import ExifTags, Image
 
-from docmeta.core.defaults import \
-    create_image_metadata  # create_image_metadata returns dict[str, Any]
+from docmeta.core.defaults import (
+    create_image_metadata,  # create_image_metadata returns dict[str, Any]
+)
 
 
 def extract_image_metadata(path: str) -> tuple[dict[str, Any], str | None]:

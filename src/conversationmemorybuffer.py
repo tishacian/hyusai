@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb 14 16:45:10 2025
 
@@ -8,14 +6,14 @@ Created on Fri Feb 14 16:45:10 2025
 
 from __future__ import annotations
 
-import sys
 import logging
-from datetime import datetime
+import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
+
 from src.system_prompts.types import SystemPromptTypes
 
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -52,9 +50,7 @@ class ConversationMemoryBuffer:
             metadata (Dict, optional): Additional metadata for the message
         """
         try:
-            message = Message(
-                role=role, content=content, metadata=metadata or {}
-            )
+            message = Message(role=role, content=content, metadata=metadata or {})
             self.messages.append(message)
 
             # -- maintain buffer size by removing older messages if needed

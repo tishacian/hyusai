@@ -1,40 +1,32 @@
-import torch
-import re
-import os
-import faiss
-import pickle
-import weaviate
-import numpy as np
-from langchain_community.vectorstores import Chroma
-
-# --
-import warnings
 import asyncio
+import logging
+import os
+import pickle
+import re
+import sys
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
 
+import faiss
+import numpy as np
+import torch
+import weaviate
+from langchain_community.vectorstores import Chroma
+from sentence_transformers import SentenceTransformer
+from torch import autocast
+
+from src.chunker import BM25Retriever, cache_chunker_embedding_chain
+from src.globalvariables import VECTOR_STORE_PATH, IndexType
+from src.metrics import Evaluatrix
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs
 from src.utils import format_llm_response
+
 if torch.cuda.is_available():
     from vllm import SamplingParams
-from functools import lru_cache
-from sentence_transformers import SentenceTransformer
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-# --
-import sys
-import logging
-from src.globalvariables import VECTOR_STORE_PATH
-from src.chunker import cache_chunker_embedding_chain, BM25Retriever
-
-# --
-from torch import autocast
-from src.globalvariables import IndexType
-
-# -- Model evaluation
-from src.metrics import Evaluatrix
-
-# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -773,7 +765,9 @@ class CustomLLMChain:
         return self.run_async_in_thread(self.invoke_async(question))
 
     @staticmethod
-    def _format_llm_response(response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG) -> str:
+    def _format_llm_response(
+        response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG
+    ) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
 

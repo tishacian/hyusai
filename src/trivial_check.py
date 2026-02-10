@@ -1,7 +1,13 @@
-import string
 import re
+import string
+
 from src.globalvariables import TRIVIAL_LEN
-from src.system_prompts import SystemPromptLangs, DEFAULT_SYSTEM_PROMPT_LANG, ALL_TRIVIAL_VOCABULARY
+from src.system_prompts import (
+    ALL_TRIVIAL_VOCABULARY,
+    DEFAULT_SYSTEM_PROMPT_LANG,
+    SystemPromptLangs,
+)
+
 # -----------------------------
 # Trivial-input detection logic
 # -----------------------------
@@ -14,6 +20,7 @@ from src.system_prompts import SystemPromptLangs, DEFAULT_SYSTEM_PROMPT_LANG, AL
 # We'll build this dynamically based on the language
 RE_BOUNDARY_CACHE = {}
 
+
 def _get_regex_patterns(language: SystemPromptLangs):
     """Get or create regex patterns for the specified language"""
     if language not in RE_BOUNDARY_CACHE:
@@ -23,7 +30,9 @@ def _get_regex_patterns(language: SystemPromptLangs):
         }
     return RE_BOUNDARY_CACHE[language]
 
+
 PUNCT_TABLE = str.maketrans({ch: " " for ch in string.punctuation})
+
 
 def _normalize(text: str) -> str:
     """Lower-case, remove all punctuation, and collapse whitespace."""
@@ -32,7 +41,9 @@ def _normalize(text: str) -> str:
     return " ".join(text.split())
 
 
-def is_trivial_question(message: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG) -> bool:
+def is_trivial_question(
+    message: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG
+) -> bool:
     """Return True if a message is considered *trivial*.
 
     A message is trivial when it is short and mainly composed of greeting or

@@ -63,7 +63,6 @@ def extract_and_save_metadata(
         save_json(metadata, output_file)
         print(f"Extracted metadata from {file_name} and saved to {output_file}")
 
-
     return all_metadata
 
 

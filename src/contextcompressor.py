@@ -1,21 +1,20 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb 7 15:48:53 2025
 
 @author: kennethezukwoke
 """
-import os
-import sys
+
 import asyncio
 import logging
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
-from src.flashreranker import FlashReranker
-from src.ensembleretriever import EnsembleRetriever
-from concurrent.futures import ThreadPoolExecutor
 
-# --
+from src.ensembleretriever import EnsembleRetriever
+from src.flashreranker import FlashReranker
+
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -136,9 +135,7 @@ class ContextualCompressionRetriever:
 
         """
         try:
-            base_passages, base_scores = await self.base_retriever.retrieve(
-                query, k
-            )
+            base_passages, base_scores = await self.base_retriever.retrieve(query, k)
 
             if not base_passages:
                 return [], []

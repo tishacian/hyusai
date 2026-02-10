@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTChar, LTTextBox, LTCurve, LTLine
+from pdfminer.layout import LTChar, LTCurve, LTLine, LTTextBox
 
 try:
     from src.vlmprocessor import VLMProcessor, VLMResult, get_supported_models
@@ -30,12 +30,12 @@ except ImportError:
         return []
 
 
+from src.globalvariables import PDFProcessingConfig
 from src.imageextractor import (
     ImageExtractionConfig,
-    prepare_images_for_vlm_inference,
     PDFImageExtractor,
+    prepare_images_for_vlm_inference,
 )
-from src.globalvariables import PDFProcessingConfig
 
 
 @dataclass
@@ -49,9 +49,7 @@ class ImagePosition:
 
 @dataclass
 class ConverterConfig:
-    max_workers: int = field(
-        default_factory=lambda: min(32, (mp.cpu_count() or 1) + 4)
-    )
+    max_workers: int = field(default_factory=lambda: min(32, (mp.cpu_count() or 1) + 4))
     extract_images: bool = True
     extract_tables: bool = True
     preserve_original_format: bool = True
@@ -304,9 +302,7 @@ class PDFToMarkdownConverter:
                 markdown_content = self.markdown_with_vlm(markdown_content)
 
             if not self.config.disable_file_saving:
-                self._write_markdown_file(
-                    output_paths["markdown"], markdown_content
-                )
+                self._write_markdown_file(output_paths["markdown"], markdown_content)
 
                 if self.config.export_excel:
                     self._export_structure_to_excel(output_paths["excel"])
@@ -364,9 +360,7 @@ class PDFToMarkdownConverter:
             "output_dir": str(output_dir),
         }
 
-    def _extract_images_with_positions(
-        self, pdf_path: str, images_dir: str
-    ) -> None:
+    def _extract_images_with_positions(self, pdf_path: str, images_dir: str) -> None:
         """Extract images and record their positions for proper markdown placement.
 
         Parameters
@@ -388,9 +382,7 @@ class PDFToMarkdownConverter:
         )
 
         extractor = PDFImageExtractor(image_config)
-        extraction_results = extractor.extract_images_from_pdf(
-            pdf_path, images_dir
-        )
+        extraction_results = extractor.extract_images_from_pdf(pdf_path, images_dir)
 
         # log extraction success/failure
         for result in extraction_results:
@@ -430,13 +422,9 @@ class PDFToMarkdownConverter:
         List[ImagePosition]
             List of image positions for the page.
         """
-        return [
-            img for img in self.image_positions if img.page_num == page_num
-        ]
+        return [img for img in self.image_positions if img.page_num == page_num]
 
-    def _insert_image_tag(
-        self, image_pos: ImagePosition, output_dir: str
-    ) -> str:
+    def _insert_image_tag(self, image_pos: ImagePosition, output_dir: str) -> str:
         """Create markdown image tag for an image.
 
         Parameters
@@ -592,10 +580,7 @@ class PDFToMarkdownConverter:
             return "".join(page_content)
 
         except Exception as e:
-            return (
-                f"{'─' * 35} page {page_num} {'─' * 35}\n\n"
-                f"Error: {str(e)}\n\n"
-            )
+            return f"{'─' * 35} page {page_num} {'─' * 35}\n\nError: {str(e)}\n\n"
 
     def _process_text_content_with_images(
         self,
@@ -617,9 +602,7 @@ class PDFToMarkdownConverter:
         page_images : List[ImagePosition]
             Images found on this page.
         """
-        text_boxes = [
-            elem for elem in page_elements if isinstance(elem, LTTextBox)
-        ]
+        text_boxes = [elem for elem in page_elements if isinstance(elem, LTTextBox)]
         text_boxes.sort(key=lambda x: x.y0, reverse=True)
         page_images.sort(key=lambda x: x.image_index)
         merged_text_boxes = self._merge_split_headers(text_boxes)
@@ -639,18 +622,14 @@ class PDFToMarkdownConverter:
                         self.stats["headers"]["h1"] += 1  # fallback to h1
 
                     page_content.append(formatted_text)
-                    self._add_to_structure(
-                        page_num, "text", text, text, header_level
-                    )
+                    self._add_to_structure(page_num, "text", text, text, header_level)
                 else:
                     # Check if it's a bullet point
                     if self._is_bullet_point(text):
                         formatted_text = f"{text}\n\n"
                         page_content.append(formatted_text)
                         self._add_to_structure(page_num, "text", text, text, 0)
-                        self.stats[
-                            "paragraphs"
-                        ] += 1  # Count as paragraph for stats
+                        self.stats["paragraphs"] += 1  # Count as paragraph for stats
                     else:
                         formatted_text = f"{text}\n\n"
                         page_content.append(formatted_text)
@@ -661,11 +640,7 @@ class PDFToMarkdownConverter:
                     image_pos = page_images.pop(0)
                     image_tag = self._insert_image_tag(
                         image_pos,
-                        (
-                            os.path.dirname(self.images_dir)
-                            if self.images_dir
-                            else "."
-                        ),
+                        (os.path.dirname(self.images_dir) if self.images_dir else "."),
                     )
                     page_content.append(image_tag)
                     self._add_to_structure(
@@ -724,9 +699,7 @@ class PDFToMarkdownConverter:
                     else:
                         break
 
-                merged_box = self._create_merged_text_box(
-                    current_box, merged_text
-                )
+                merged_box = self._create_merged_text_box(current_box, merged_text)
                 merged_boxes.append(merged_box)
                 i = j  # Skip the merged boxes
             else:
@@ -865,9 +838,7 @@ class PDFToMarkdownConverter:
         if len(lines) < 4:
             return None
 
-        horizontal_lines = [
-            line for line in lines if abs(line.y0 - line.y1) < 2
-        ]
+        horizontal_lines = [line for line in lines if abs(line.y0 - line.y1) < 2]
         vertical_lines = [line for line in lines if abs(line.x0 - line.x1) < 2]
 
         if len(horizontal_lines) < 2 or len(vertical_lines) < 2:
@@ -920,10 +891,7 @@ class PDFToMarkdownConverter:
         table_text_boxes = []
         for elem in page_elements:
             if isinstance(elem, LTTextBox):
-                if (
-                    table_x0 <= elem.x0 <= table_x1
-                    and table_y0 <= elem.y0 <= table_y1
-                ):
+                if table_x0 <= elem.x0 <= table_x1 and table_y0 <= elem.y0 <= table_y1:
                     table_text_boxes.append(elem)
 
         table_text_boxes.sort(key=lambda x: (-x.y0, x.x0))
@@ -1238,9 +1206,7 @@ class PDFToMarkdownConverter:
             return "table"
         elif element_type == "text":
             content_clean = content.strip()
-            if content_clean.startswith("#") or re.match(
-                r"^\d+\.", content_clean
-            ):
+            if content_clean.startswith("#") or re.match(r"^\d+\.", content_clean):
                 return "heading"
             elif self._is_bullet_point(content_clean):
                 return "bullet"
@@ -1357,15 +1323,9 @@ class PDFToMarkdownConverter:
 
         elif element_type == "image":
             for item in reversed(self.document_structure):
-                if (
-                    item.get("type") == "text"
-                    and item.get("header_level", 0) > 0
-                ):
+                if item.get("type") == "text" and item.get("header_level", 0) > 0:
                     return item.get("content", "").strip()
-                elif (
-                    item.get("type") == "text"
-                    and len(item.get("content", "")) > 10
-                ):
+                elif item.get("type") == "text" and len(item.get("content", "")) > 10:
                     return item.get("content", "")[:50] + "..."
 
         elif element_type == "table":
@@ -1383,10 +1343,7 @@ class PDFToMarkdownConverter:
 
         elif element_type == "bullet":
             for item in reversed(self.document_structure):
-                if (
-                    item.get("type") == "text"
-                    and item.get("header_level", 0) > 0
-                ):
+                if item.get("type") == "text" and item.get("header_level", 0) > 0:
                     return item.get("content", "").strip()
 
         return ""
@@ -1503,13 +1460,9 @@ class PDFToMarkdownConverter:
         keywords = []
         content_lower = content.lower()
 
-        if any(
-            word in content_lower for word in ["chart", "graph", "diagram"]
-        ):
+        if any(word in content_lower for word in ["chart", "graph", "diagram"]):
             keywords.append("chart/diagram")
-        if any(
-            word in content_lower for word in ["photo", "image", "picture"]
-        ):
+        if any(word in content_lower for word in ["photo", "image", "picture"]):
             keywords.append("photograph")
         if any(word in content_lower for word in ["logo", "brand"]):
             keywords.append("logo/branding")
@@ -1586,14 +1539,12 @@ class PDFToMarkdownConverter:
 
         if self.stats["text_stats"]["total_sentences"] > 0:
             self.stats["text_stats"]["average_sentence_length"] = (
-                self.stats["word_count"]
-                / self.stats["text_stats"]["total_sentences"]
+                self.stats["word_count"] / self.stats["text_stats"]["total_sentences"]
             )
 
         if self.stats["word_count"] > 0:
             self.stats["text_stats"]["average_word_length"] = (
-                self.stats["text_stats"]["total_characters"]
-                / self.stats["word_count"]
+                self.stats["text_stats"]["total_characters"] / self.stats["word_count"]
             )
 
         if self.stats["word_count"] > 0:
@@ -1770,12 +1721,8 @@ class PDFToMarkdownConverter:
         """
         total_images = len(self.image_positions)
         table = SummaryTable("Document Analysis Summary")
-        table.add_row(
-            "Total Pages", self.stats["pages"], "Number of pages processed"
-        )
-        table.add_row(
-            "Images Found", total_images, "Total images found in PDF"
-        )
+        table.add_row("Total Pages", self.stats["pages"], "Number of pages processed")
+        table.add_row("Images Found", total_images, "Total images found in PDF")
         table.add_row(
             "Images Extracted",
             self.stats["images"]["extracted"],
@@ -1791,12 +1738,8 @@ class PDFToMarkdownConverter:
             self.stats["tables"]["total"],
             "Data tables found",
         )
-        table.add_row(
-            "Headers", sum(self.stats["headers"].values()), "Section headers"
-        )
-        table.add_row(
-            "Paragraphs", self.stats["paragraphs"], "Text paragraphs"
-        )
+        table.add_row("Headers", sum(self.stats["headers"].values()), "Section headers")
+        table.add_row("Paragraphs", self.stats["paragraphs"], "Text paragraphs")
         table.add_row(
             "Word Count",
             f"{self.stats['word_count']:,}",
@@ -1905,16 +1848,10 @@ class PDFToMarkdownConverter:
             vlm_caption = ""
             vlm_description = ""
 
-            if (
-                item["type"] == "image"
-                and self.config.enable_vlm
-                and self.vlm_results
-            ):
+            if item["type"] == "image" and self.config.enable_vlm and self.vlm_results:
                 # Extract base name without extension for VLM lookup
                 base_name = (
-                    content.replace(".png", "")
-                    .replace(".jpg", "")
-                    .replace(".jpeg", "")
+                    content.replace(".png", "").replace(".jpg", "").replace(".jpeg", "")
                 )
 
                 if base_name in self.vlm_results:
@@ -1989,13 +1926,9 @@ class PDFToMarkdownConverter:
                     cell_value = df.iloc[row_num - 1, col_num]
 
                     if col_name == "SubType" and str(cell_value) == "heading":
-                        worksheet.write(
-                            row_num, col_num, cell_value, section_format
-                        )
+                        worksheet.write(row_num, col_num, cell_value, section_format)
                     else:
-                        worksheet.write(
-                            row_num, col_num, cell_value, cell_format
-                        )
+                        worksheet.write(row_num, col_num, cell_value, cell_format)
 
             column_widths = {
                 "Page No": 8,
@@ -2089,9 +2022,7 @@ async def markdown_converter_async(
     dict[str, str]
         Dictionary with output file paths.
     """
-    config = ConverterConfig(
-        enable_vlm=enable_vlm, vlm_model=vlm_model, **kwargs
-    )
+    config = ConverterConfig(enable_vlm=enable_vlm, vlm_model=vlm_model, **kwargs)
 
     converter = PDFToMarkdownConverter(config)
     return await converter.convert(pdf_path, output_dir)
@@ -2125,7 +2056,5 @@ def markdown_converter(
         Dictionary with output file paths.
     """
     return asyncio.run(
-        markdown_converter_async(
-            pdf_path, output_dir, enable_vlm, vlm_model, **kwargs
-        )
+        markdown_converter_async(pdf_path, output_dir, enable_vlm, vlm_model, **kwargs)
     )

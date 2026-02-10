@@ -1,19 +1,20 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Fri Feb 7 15:48:53 2025
 
 @author: kennethezukwoke
 """
+
+import logging
 import os
 import sys
-import torch
-import logging
 import warnings
-import numpy as np
-from enum import Enum
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple, Union
+from enum import Enum
+from typing import Dict, List, Optional, Tuple, Union
+
+import numpy as np
+import torch
+
 from src.crossencembeddingmodel import RerankerModelLoader
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -40,7 +41,9 @@ class RerankerConfig:
     device: Optional[str] = torch.device(
         "cuda"
         if torch.cuda.is_available()
-        else "cpu" if torch.backends.mps.is_available() else "cpu"
+        else "cpu"
+        if torch.backends.mps.is_available()
+        else "cpu"
     )
     model_name: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
 
@@ -67,15 +70,11 @@ class FlashReranker:
                 (
                     "cuda"
                     if torch.cuda.is_available()
-                    and not any(
-                        torch.cuda.empty_cache() or False for _ in [None]
-                    )
+                    and not any(torch.cuda.empty_cache() or False for _ in [None])
                     else "cpu"
                 )
                 if not any(
-                    logging.error(
-                        "Error detecting device, falling back to CPU"
-                    )
+                    logging.error("Error detecting device, falling back to CPU")
                     or False
                     for _ in [None]
                 )
@@ -84,10 +83,8 @@ class FlashReranker:
         )
 
         try:
-            self.model, self.tokenizer = (
-                RerankerModelLoader.load_reranker_model(
-                    self.config.model_name, self.device
-                )
+            self.model, self.tokenizer = RerankerModelLoader.load_reranker_model(
+                self.config.model_name, self.device
             )
             if self.model is None or self.tokenizer is None:
                 raise ValueError(
@@ -180,9 +177,7 @@ class FlashReranker:
                         with torch.inference_mode():
                             outputs = self.model(**inputs)
                     except RuntimeError:
-                        logging.warning(
-                            "CUDA error in scoring, falling back to CPU"
-                        )
+                        logging.warning("CUDA error in scoring, falling back to CPU")
                         self.device = "cpu"
                         device_type = RerankerModelLoader.get_model_device(
                             self.config.model_name
@@ -281,9 +276,7 @@ class FlashReranker:
             scored_passages = list(zip(passages, scores))
             scored_passages.sort(key=lambda x: x[1], reverse=True)
             filtered = [
-                (p, s)
-                for p, s in scored_passages
-                if s >= self.config.threshold
+                (p, s) for p, s in scored_passages if s >= self.config.threshold
             ]
             if not filtered:
                 filtered = scored_passages
@@ -331,9 +324,7 @@ class FlashReranker:
             "ndcg@10": [],  # Normalized Discounted Cumulative Gain
         }
 
-        for query, query_passages, labels in zip(
-            queries, passages, relevance_labels
-        ):
+        for query, query_passages, labels in zip(queries, passages, relevance_labels):
             try:
                 reranked_passages, scores = self.rerank(
                     query, query_passages, return_scores=True
@@ -353,9 +344,7 @@ class FlashReranker:
                     metrics["mrr"].append(0.0)
 
                 # -- P@1
-                metrics["precision@1"].append(
-                    1.0 if ranked_labels[0] > 0 else 0.0
-                )
+                metrics["precision@1"].append(1.0 if ranked_labels[0] > 0 else 0.0)
 
                 # -- NDCG@10
                 dcg = sum(

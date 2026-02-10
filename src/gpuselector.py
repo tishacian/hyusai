@@ -1,11 +1,13 @@
-import os
-import GPUtil
-import subprocess
 import logging
+import os
+import subprocess
 from dataclasses import dataclass
+
+import GPUtil
+
 from src.globalvariables import (
-    GPU_MEMORY_REQUIREMENTS,
     DEFAULT_GPU_MEMORY_REQUIREMENT,
+    GPU_MEMORY_REQUIREMENTS,
     GPU_MEMORY_SAFETY_MARGIN,
     GPUMemoryStatus,
 )
@@ -38,9 +40,7 @@ class GPUSelector:
         -------
         None.
         """
-        self.required_memory_gib = (
-            required_memory_gib or DEFAULT_GPU_MEMORY_REQUIREMENT
-        )
+        self.required_memory_gib = required_memory_gib or DEFAULT_GPU_MEMORY_REQUIREMENT
         self.logger = logging.getLogger(__name__)
         self._setup_logging()
 
@@ -105,17 +105,13 @@ class GPUSelector:
                             temp = 0
                         try:
                             power_usage = (
-                                int(float(parts[7]))
-                                if parts[7] != "N/A"
-                                else 0
+                                int(float(parts[7])) if parts[7] != "N/A" else 0
                             )
                         except Exception:
                             power_usage = 0
                         try:
                             power_capacity = (
-                                int(float(parts[8]))
-                                if parts[8] != "N/A"
-                                else 0
+                                int(float(parts[8])) if parts[8] != "N/A" else 0
                             )
                         except Exception:
                             power_capacity = 0
@@ -164,14 +160,11 @@ class GPUSelector:
                     free_memory_mib=int(gpu.memoryFree),
                     utilization_percent=int(gpu.load * 100),
                     temperature_celsius=(
-                        int(gpu.temperature)
-                        if gpu.temperature is not None
-                        else 0
+                        int(gpu.temperature) if gpu.temperature is not None else 0
                     ),
                     power_usage_watts=(
                         int(gpu.powerUsage)
-                        if hasattr(gpu, "powerUsage")
-                        and gpu.powerUsage is not None
+                        if hasattr(gpu, "powerUsage") and gpu.powerUsage is not None
                         else 0
                     ),
                     power_capacity_watts=0,
@@ -240,8 +233,8 @@ class GPUSelector:
             status, available_memory = self.evaluate_gpu_suitability(gpu_info)
             self.logger.info(
                 f"GPU {gpu_info.device_id} ({gpu_info.name}): "
-                f"Total: {gpu_info.total_memory_mib/1024:.1f} GiB, "
-                f"Free: {gpu_info.free_memory_mib/1024:.1f} GiB, "
+                f"Total: {gpu_info.total_memory_mib / 1024:.1f} GiB, "
+                f"Free: {gpu_info.free_memory_mib / 1024:.1f} GiB, "
                 f"Status: {status.value}"
             )
             if status == GPUMemoryStatus.AVAILABLE:
@@ -264,9 +257,7 @@ class GPUSelector:
                 best_gpu_id = device_id
                 best_available_memory = available_memory
 
-        self.logger.info(
-            f"Selected GPU {best_gpu_id} (last index priority) for use"
-        )
+        self.logger.info(f"Selected GPU {best_gpu_id} (last index priority) for use")
         return best_gpu_id
 
     def set_cuda_visible_devices(self, device_id: int) -> None:
@@ -293,9 +284,7 @@ class GPUSelector:
         int
             Required memory in GiB.
         """
-        return GPU_MEMORY_REQUIREMENTS.get(
-            model_name, DEFAULT_GPU_MEMORY_REQUIREMENT
-        )
+        return GPU_MEMORY_REQUIREMENTS.get(model_name, DEFAULT_GPU_MEMORY_REQUIREMENT)
 
     def auto_select_gpu(self, model_name: str | None = None) -> int | None:
         """Automatically select the GPU for the given model.
@@ -311,9 +300,7 @@ class GPUSelector:
             Selected GPU device ID, or None if no suitable GPU found.
         """
         if model_name:
-            self.required_memory_gib = self.get_memory_requirement_for_model(
-                model_name
-            )
+            self.required_memory_gib = self.get_memory_requirement_for_model(model_name)
             self.logger.info(
                 f"Model {model_name} requires {self.required_memory_gib} GiB"
             )
