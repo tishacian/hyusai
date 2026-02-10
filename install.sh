@@ -135,3 +135,8 @@ else
 	echo "CUDA not detected. Installing CPU requirements..."
 	pip install -r requirements/cpu.txt -r requirements/celery.txt -r requirements/frontend.txt -r requirements/test.txt
 fi
+
+echo "Installing pre-commit hooks..."
+pre-commit install
+
+echo "✅ Installation complete!"
