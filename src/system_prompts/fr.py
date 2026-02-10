@@ -12,6 +12,9 @@ TRIVIAL_VOCABULARY = {"bonjour", "salut", "coucou", "bonsoir", "bonne nuit", "bo
 
 DEFAULT_SYSTEM_PROMPT_ROLE = ""
 
+# NOTE: Whitespace and indentation below are intentional and should not be modified.
+# The LLM relies on the formatting to better understand the prompt structure.
+# fmt: off
 SYSTEM_PROMPT_TEMPLATES = {
     SystemPromptTypes.FACTUAL: """[INST] Tu es un assistant IA spécialisé dans la fourniture d'informations précises et factuelles.{assistant_role}
                                                 Étapes d'analyse :
@@ -94,6 +97,7 @@ SYSTEM_PROMPT_TEMPLATES = {
 Utilisateur: {question}
 Assistant: [/INST]""",
 }
+# fmt: on
 
 PROMPT_SECTIONS_TO_REMOVE = [
     r"Étapes d'analyse\s*:((.|\n)*?)(?=Contexte?\s*\d*\s*:)",

@@ -156,6 +156,9 @@ class CustomLLMChain:
         self.load_index()
 
         # -- CoT Template
+        # NOTE: Whitespace and indentation below are intentional and should not be modified.
+        # The LLM relies on the formatting to better understand the prompt structure.
+        # fmt: off
         self.template = """[INST] You are an AI assistant specialized in providing precise and detailed information. 
                           Focus exclusively on information directly supported by the given context.
                           Important Guidelines:
@@ -170,6 +173,7 @@ class CustomLLMChain:
                           Question: {question}
                           
                           Provide a focused answer that directly addresses the question using only the information from the context: [/INST]"""
+        # fmt: on
 
     async def analyze_query_complexity(self, question):
         """Analyze query complexity to determine optimal retrieval parameters

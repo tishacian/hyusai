@@ -10,6 +10,12 @@ repos:
       - id: destroyed-symlinks
       - id: mixed-line-ending
       - id: trailing-whitespace
+        exclude: |
+          (?x)^(
+            benchmarking/customchain.*\.py|
+            src/system_prompts/en.py|
+            src/system_prompts/fr.py
+          )$
       - id: forbid-submodules
       - id: check-merge-conflict
       - id: end-of-file-fixer

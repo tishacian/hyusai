@@ -125,6 +125,9 @@ class CustomLLMChain:
         self.load_index()
 
         # -- CoT Template
+        # NOTE: Whitespace and indentation below are intentional and should not be modified.
+        # The LLM relies on the formatting to better understand the prompt structure.
+        # fmt: off
         self.template = """[INST] You are an AI assistant specialized in providing precise and detailed information. Focus on important information that directly addresses the main topic or question.
                             Include relevant details that provide context or support your points.
                             Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, 
@@ -136,6 +139,7 @@ class CustomLLMChain:
                             Question: {question}
                             
                             Answer: [/INST]"""
+        # fmt: on
 
     def load_index(self):
         # -- load BM25 retriever first
