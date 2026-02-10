@@ -52,6 +52,9 @@ def transformer_tokenizer():
         return tokenizer
     except ImportError:
         pytest.skip("transformers package not installed")
+    except Exception as e:
+        # Catch network errors or other issues that may arise when loading the tokenizer
+        pytest.skip(f"Failed to load GPT2 tokenizer: {e}")
 
 
 class TestBM25Retriever:
