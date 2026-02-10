@@ -515,6 +515,9 @@ def loadSingleDocument(file_path: str, target_dir: str | None = None) -> str:
         try:
             loader = loader_class(local_file_path, **loader_args)
             result = loader.load()
+        except FileNotFoundError:
+            logger.error(f"File not found: {file_path}", exc_info=True)
+            result = []
         except Exception:
             logger.error(f"Error loading file: {file_path}", exc_info=True)
             result = []
