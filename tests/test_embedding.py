@@ -613,6 +613,8 @@ class TestEmbeddingLifecycle:
             ),
         ]
 
+    @pytest.mark.slow
+    @pytest.mark.integration
     def test_embedding_creation_to_query_lifecycle(self, sample_documents):
         """Test complete lifecycle: creation → indexing → retrieval.
 
@@ -697,6 +699,8 @@ class TestEmbeddingLifecycle:
             assert "source" in chunk.metadata
             assert "chunk_id" in chunk.metadata
 
+    @pytest.mark.slow
+    @pytest.mark.integration
     def test_embedding_lifecycle_with_normalization_config(self, sample_documents):
         """Test embedding lifecycle with normalization enabled (realistic scenario).
 
@@ -767,6 +771,8 @@ class TestEmbeddingLifecycle:
         # so normalized_embeddings will be very close to raw_embeddings. The real value
         # of this normalization is ensuring consistency and handling non-normalized embeddings.
 
+    @pytest.mark.slow
+    @pytest.mark.integration
     def test_embedding_lifecycle_multiple_vector_stores(self, sample_documents):
         """Test embedding lifecycle when reusing existing vector stores.
 
