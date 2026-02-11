@@ -13,8 +13,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-# Mock Config globally BEFORE any imports that depend on it
-# This prevents issues with missing environment variables
 def _create_mock_config():
     """Create a mock Config object with sensible test defaults."""
     from common_config.fsspec_storage import FsspecStorageConfig
@@ -33,6 +31,8 @@ def _create_mock_config():
 
 
 # Install the mock Config globally before any imports
+# This prevents issues with missing environment variables and allows tests to run
+# with standard defaults
 mock_config_instance = _create_mock_config()
 sys.modules["configurations"] = Mock()
 sys.modules["configurations"].Config = Mock()
