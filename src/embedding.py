@@ -924,9 +924,8 @@ class EmbeddingVectors:
                 logging.error("🚩 Empty embeddings array received")
                 return None
 
-            assert isinstance(embeddings, np.ndarray), (
-                f"Embedding is type : {type(embeddings)} not an ndarray"
-            )
+            assert isinstance(embeddings, np.ndarray), \
+                f"Embedding is type: {type(embeddings)}, expected ndarray"
 
             if embeddings.shape[0] == 0 or embeddings.shape[1] == 0:
                 logging.error("🚩 Embeddings array has zero dimensions")
