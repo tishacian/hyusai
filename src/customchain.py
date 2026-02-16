@@ -725,7 +725,7 @@ class CustomLLMChain:
 
         except Exception as e:
             logging.error(f"Error in custom_llm_chain: {str(e)}")
-            fallback_reasoning_type = ReasoningType.ANALYTICAL
+            fallback_reasoning_type = SystemPromptTypes.ANALYTICAL
             template = self.templates[fallback_reasoning_type]
             prompt_format = template.format(
                 assistant_role=self.assistant_role, context=context, question=question
