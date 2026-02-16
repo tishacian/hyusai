@@ -65,7 +65,8 @@ class ContextualCompressionRetriever:
         )
 
     def __del__(self):
-        self._executor.shutdown(wait=False)
+        if self._executor is not None:
+            self._executor.shutdown(wait=False)
 
     async def _process_batch(
         self, query: str, passages: list[str]
