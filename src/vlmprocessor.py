@@ -392,6 +392,9 @@ class ResponseParser:
             Text to format.
 
         Returns
+        -------
+        str
+            Formatted markdown content.
         """
         if not text:
             return text
