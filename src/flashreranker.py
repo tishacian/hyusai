@@ -63,25 +63,17 @@ class FlashReranker:
 
         """
         self.config = config or RerankerConfig()
-        self.device = (
-            self.config.device
-            if self.config.device is not None
-            else (
-                (
-                    "cuda"
-                    if torch.cuda.is_available()
-                    and not any(torch.cuda.empty_cache() or False for _ in [None])
-                    else "cpu"
-                )
-                if not any(
-                    logging.error("Error detecting device, falling back to CPU")
-                    or False
-                    for _ in [None]
-                )
-                else "cpu"
-            )
-        )
-
+        if self.config.device is not None:
+            self.device = self.config.device
+        else:
+            try:
+                if torch.cuda.is_available():
+                    self.device = "cuda"
+                else:
+                    self.device = "cpu"
+            except Exception as e:
+                logging.error(f"Error detecting device, falling back to CPU: {e}")
+                self.device = "cpu"
         try:
             self.model, self.tokenizer = RerankerModelLoader.load_reranker_model(
                 self.config.model_name, self.device
