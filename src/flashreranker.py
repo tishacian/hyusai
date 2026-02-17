@@ -67,10 +67,13 @@ class FlashReranker:
             self.device = self.config.device
         else:
             try:
-                if torch.cuda.is_available():
-                    self.device = "cuda"
-                else:
-                    self.device = "cpu"
+                self.device = torch.device(
+                    "cuda"
+                    if torch.cuda.is_available()
+                    else "mps"
+                    if torch.backends.mps.is_available()
+                    else "cpu"
+                )
             except Exception as e:
                 logging.error(f"Error detecting device, falling back to CPU: {e}")
                 self.device = "cpu"
