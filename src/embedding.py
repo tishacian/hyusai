@@ -925,7 +925,7 @@ class EmbeddingVectors:
                 return None
 
             assert isinstance(embeddings, np.ndarray), (
-                f"Embedding is type : {type(embeddings)} not an ndarray"
+                f"Embedding is type: {type(embeddings)}, expected ndarray"
             )
 
             if embeddings.shape[0] == 0 or embeddings.shape[1] == 0:
@@ -1414,7 +1414,7 @@ class EmbeddingVectors:
             with open(metadata_path, "rb") as f:
                 metadata = pickle.load(f)
             return metadata
-        except Exception as e:
+        except Exception:
             return None
 
     def _rescale_embeddings(self, embeddings, metadata, strategy):

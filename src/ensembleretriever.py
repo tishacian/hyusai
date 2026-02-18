@@ -346,7 +346,7 @@ class EnsembleRetriever:
         characteristics = self._analyze_query_characteristics(query)
         base_bm25_weight = self.config.bm25_weight
         if (
-            characteristics["has_proper_nouns"]
+            characteristics.get("proper_noun_ratio", 0) > 0.5
             or characteristics["technical_ratio"] > 0.3
         ):
             bm25_weight = min(0.7, base_bm25_weight + 0.2)
