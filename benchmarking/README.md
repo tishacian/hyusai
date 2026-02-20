@@ -25,7 +25,6 @@ The arrangment of files in the benchmarking folder
 📜 benchmarking
 ├── 📄 README.md
 ├── 📜 benchmarking.py
-├── 📜 bm_data.py
 ├── 📜 customchain_hah.py
 ├── 📜 customchain_hybrid.py
 ├── 📜 customchain_naive.py
