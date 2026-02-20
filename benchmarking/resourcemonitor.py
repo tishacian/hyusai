@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Created on Fri Dec  6 01:40:22 2024
 
@@ -5,14 +7,13 @@ Created on Fri Dec  6 01:40:22 2024
 """
 
 import threading
-from dataclasses import dataclass
-from time import sleep, time
-from typing import Dict, List, Optional
-
 import GPUtil
-import numpy as np
-import psutil
 import torch
+import psutil
+from typing import Dict, List, Optional
+import numpy as np
+from time import time, sleep
+from dataclasses import dataclass
 from codecarbon import EmissionsTracker
 
 
