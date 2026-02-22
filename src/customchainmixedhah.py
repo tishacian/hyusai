@@ -1109,7 +1109,6 @@ class CustomLLMChain:
         """
         SHORT_CONTEXT = 512
         MEDIUM_CONTEXT = 1024
-        LONG_CONTEXT = 2048
 
         SHORT_PENALTY = 0.01
         MEDIUM_PENALTY = 0.05
