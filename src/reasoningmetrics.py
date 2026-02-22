@@ -301,47 +301,6 @@ class ReasoningMetrics:
         self._pattern_matches_cache[text_hash] = matches
         return matches
 
-    def compute_pattern_entropy(self, text: str, pattern_type: ReasoningType) -> float:
-        """Compute entropy of reasoning patterns in text using Shannon entropy
-
-        Parameters
-        ----------
-        text : str
-            Input text
-        pattern_type : ReasoningType
-            Reasoning pattern type
-
-        Returns
-        -------
-        float
-            Entropy score
-        """
-        cache_key = (hash(text), pattern_type)
-        if cache_key in self._entropy_cache:
-            return self._entropy_cache[cache_key]
-
-        # -- get cached pattern matches or find them
-        matches_dict = self._find_pattern_matches(text)
-        matched_patterns = matches_dict.get(pattern_type, [])
-
-        if not matched_patterns:
-            self._entropy_cache[cache_key] = 0.0
-            return 0.0
-
-        # -- count pattern occurrences
-        pattern_counts = {}
-        for pattern in matched_patterns:
-            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
-
-        total_patterns = sum(pattern_counts.values())
-
-        # -- compute entropy
-        probabilities = np.array(list(pattern_counts.values())) / total_patterns
-        entropy = -np.sum(probabilities * np.log2(probabilities))
-
-        self._entropy_cache[cache_key] = entropy
-        return entropy
-
     def compute_semantic_coherence(
         self, text: str, reasoning_type: ReasoningType
     ) -> float:
