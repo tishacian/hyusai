@@ -1,6 +1,4 @@
 import torch
-import re
-import os
 import faiss
 import pickle
 import weaviate

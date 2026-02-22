@@ -4,7 +4,7 @@ import pickle
 import re
 import time
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 import faiss
 import numpy as np
 import torch

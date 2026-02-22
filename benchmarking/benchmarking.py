@@ -22,7 +22,7 @@ except ImportError as e:
     logger.error(f"Failed to import load_model_and_tokenizer: {e}")
     logger.info("This might be due to vLLM compatibility issues. Please check your CUDA setup.")
     raise
-from src.globalvariables import Models, CPUModels, REPO_PATH, ChunkingMethod
+from src.globalvariables import Models, CPUModels, ChunkingMethod
 from src.embedding import EmbeddingVectors
 from src.chunker import TextChunker
 

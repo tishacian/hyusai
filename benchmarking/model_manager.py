@@ -8,7 +8,7 @@ from typing import Optional, Tuple, Any
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.modeltokenizer import load_model_and_tokenizer
-from src.globalvariables import Models, CPUModels, REPO_PATH
+from src.globalvariables import REPO_PATH
 
 logger = logging.getLogger(__name__)
 
