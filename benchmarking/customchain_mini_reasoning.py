@@ -61,19 +61,20 @@ try:
     )
 except ImportError:
     from enum import StrEnum
+
     class SystemPromptLangs(StrEnum):
         EN = "EN"
         FR = "FR"
-    
+
     DEFAULT_SYSTEM_PROMPT_LANG = SystemPromptLangs.EN
-    
+
     ALL_DEFAULT_SYSTEM_PROMPT_ROLE = {
         SystemPromptLangs.EN: " You are an expert AI assistant with advanced reasoning capabilities, specialized in analyzing complex questions and providing comprehensive, accurate responses. Your expertise spans multiple domains including factual analysis, comparative reasoning, causal relationships, and hypothetical scenarios. You excel at breaking down complex problems, identifying key patterns, and synthesizing information to deliver clear, well-structured answers that directly address the user's needs.",
-        SystemPromptLangs.FR: "Vous êtes un assistant IA utile qui fournit des réponses précises et concises basées sur le contexte donné."
+        SystemPromptLangs.FR: "Vous êtes un assistant IA utile qui fournit des réponses précises et concises basées sur le contexte donné.",
     }
-    
+
     from src.system_prompts.types import SystemPromptTypes
-    
+
     ALL_SYSTEM_PROMPT_TEMPLATES = {
         SystemPromptLangs.EN: {
             SystemPromptTypes.FACTUAL: """[INST] You are an AI assistant specialized in providing precise and factual information.{assistant_role}
@@ -157,7 +158,9 @@ except ImportError:
 User: {question}
 Assistant: [/INST]""",
         },
-        SystemPromptLangs.FR: {"default": "Répondez à la question suivante basée sur le contexte: {question}"}
+        SystemPromptLangs.FR: {
+            "default": "Répondez à la question suivante basée sur le contexte: {question}"
+        },
     }
 
 logging.basicConfig(
@@ -695,9 +698,7 @@ class CustomLLMChain:
             return [question]
 
         words = question.lower().split()
-        key_terms = [
-            w for w in words if w not in self.stopwords and len(w) > 3
-        ]
+        key_terms = [w for w in words if w not in self.stopwords and len(w) > 3]
 
         expanded_queries = [question]
 
@@ -844,6 +845,7 @@ class CustomLLMChain:
         Parameters:
             coro: async coroutine
         """
+
         def wrapper():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -932,7 +934,9 @@ class CustomLLMChain:
                     return generated_text
             except Exception as e:
                 logging.error(f"Error in GPU generation: {e}")
-                return "I apologize, but I encountered an error processing your request."
+                return (
+                    "I apologize, but I encountered an error processing your request."
+                )
         else:
             formatted_prompt = f"""### Instruction: {prompt}"""
             try:
@@ -961,7 +965,6 @@ class CustomLLMChain:
         """Calculate appropriate frequency penalty based on input length"""
         SHORT_CONTEXT = 512
         MEDIUM_CONTEXT = 1024
-        LONG_CONTEXT = 2048
 
         SHORT_PENALTY = 0.01
         MEDIUM_PENALTY = 0.05
@@ -977,7 +980,7 @@ class CustomLLMChain:
     def _compute_dynamic_tokens(self, input_len: int, max_input_length: int) -> int:
         """
         Compute dynamic token allocation based on context ratio
-        
+
         Parameters:
             input_len: int
             max_input_length: int
@@ -1325,7 +1328,7 @@ class CustomLLMChain:
         Parameters:
             contexts: list
             question: str
-            
+
         Returns:
             list: Filtered contexts
         """
@@ -1392,11 +1395,7 @@ class CustomLLMChain:
         if conversation_context:
             combined_context = f"Previous Conversation:\n{conversation_context}\n\n"
 
-        safety_buffer = (
-            int(self.max_model_len * 0.05)
-            if self.is_large_model
-            else 500
-        )
+        safety_buffer = int(self.max_model_len * 0.05) if self.is_large_model else 500
         max_token_limit = self.max_model_len - safety_buffer
         lambda_i = 0.01
         if contexts and not isinstance(contexts[0], RetrievalContext):

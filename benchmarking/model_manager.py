@@ -21,48 +21,53 @@ class ModelManager:
     _tokenizer = None
     _model_name = None
     _device = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(ModelManager, cls).__new__(cls)
         return cls._instance
-    
+
     def load_model(self, model_name: str, country_code: str = "FR") -> Tuple[Any, Any]:
         """
         Load model and tokenizer if not already loaded or if different model requested.
-        
+
         Parameters:
             model_name: Name of the model to load
             country_code: Country code for CO2 emissions calculation
-            
+
         Returns:
             Tuple of (model, tokenizer)
         """
-        if (self._model is not None and self._tokenizer is not None and 
-            self._model_name == model_name):
+        if (
+            self._model is not None
+            and self._tokenizer is not None
+            and self._model_name == model_name
+        ):
             logger.info(f"Reusing existing model instance: {model_name}")
             return self._model, self._tokenizer
-        
+
         if self._model is not None and self._model_name != model_name:
             logger.info(f"Switching from {self._model_name} to {model_name}")
             self.cleanup_model()
-        
+
         logger.info(f"Loading model: {model_name}")
         try:
-            self._model, self._tokenizer = load_model_and_tokenizer(model_name, REPO_PATH)
+            self._model, self._tokenizer = load_model_and_tokenizer(
+                model_name, REPO_PATH
+            )
             if self._model is None or self._tokenizer is None:
                 raise ValueError("Failed to load model or tokenizer")
-            
+
             self._model_name = model_name
             self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            
+
             logger.info(f"Successfully loaded model: {model_name}")
             return self._model, self._tokenizer
-            
+
         except Exception as e:
             logger.error(f"Error loading model {model_name}: {e}")
             raise
-    
+
     def get_model(self) -> Tuple[Any, Any]:
         """Get the currently loaded model and tokenizer.
 
@@ -72,7 +77,7 @@ class ModelManager:
         if self._model is None or self._tokenizer is None:
             raise ValueError("No model loaded. Call load_model() first.")
         return self._model, self._tokenizer
-    
+
     def get_model_name(self) -> Optional[str]:
         """Get the name of the currently loaded model.
 
@@ -80,7 +85,7 @@ class ModelManager:
             str: Name of the currently loaded model
         """
         return self._model_name
-    
+
     def get_device(self) -> Optional[torch.device]:
         """Get the device of the currently loaded model.
 
@@ -88,7 +93,7 @@ class ModelManager:
             torch.device: Device of the currently loaded model
         """
         return self._device
-    
+
     def cleanup_model(self):
         """Clean up the current model instance.
 
@@ -101,15 +106,16 @@ class ModelManager:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
-                
+
                 del self._model
                 del self._tokenizer
-                
+
                 import gc
+
                 gc.collect()
-                
+
                 logger.info("Model cleanup completed")
-                
+
             except Exception as e:
                 logger.warning(f"Error during model cleanup: {e}")
             finally:
@@ -117,7 +123,7 @@ class ModelManager:
                 self._tokenizer = None
                 self._model_name = None
                 self._device = None
-    
+
     def is_model_loaded(self) -> bool:
         """Check if a model is currently loaded.
 
@@ -125,7 +131,7 @@ class ModelManager:
             bool: True if a model is currently loaded
         """
         return self._model is not None and self._tokenizer is not None
-    
+
     def get_model_info(self) -> dict:
         """Get information about the currently loaded model.
 
@@ -135,7 +141,7 @@ class ModelManager:
         return {
             "model_name": self._model_name,
             "device": str(self._device) if self._device else None,
-            "is_loaded": self.is_model_loaded()
+            "is_loaded": self.is_model_loaded(),
         }
 
 
@@ -154,11 +160,11 @@ def get_model_manager() -> ModelManager:
 def load_model_once(model_name: str, country_code: str = "FR") -> Tuple[Any, Any]:
     """
     Convenience function to load a model using the global model manager.
-    
+
     Parameters:
         model_name: Name of the model to load
         country_code: Country code for CO2 emissions calculation
-        
+
     Returns:
         Tuple of (model, tokenizer)
     """
@@ -172,5 +178,3 @@ def cleanup_global_model():
         None
     """
     model_manager.cleanup_model()
-
-

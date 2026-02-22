@@ -12,6 +12,7 @@ import asyncio
 
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs
 from src.utils import format_llm_response
+
 if torch.cuda.is_available():
     try:
         from vllm import SamplingParams
@@ -179,7 +180,7 @@ class CustomLLMChain:
         Returns:
             tuple: (k_value, lambda_param) based on query complexity
         """
-        query_embedding = await self.create_embeddings_async([question])
+        await self.create_embeddings_async([question])
         has_multiple_questions = len(re.findall(r"\?", question)) > 1
         word_count = len(question.split())
 
@@ -214,24 +215,28 @@ class CustomLLMChain:
         # -- load BM25 retriever first
         vector_store_path = VECTOR_STORE_PATH / self.vector_store_name
         bm25_file = vector_store_path / "bm25_retriever.pkl"
-        
+
         if bm25_file.exists():
             self.bm25_retriever = BM25Retriever.load_bm25(bm25_file)
             logging.info("BM25 retriever loaded successfully.")
         else:
-            logging.warning("BM25 retriever file not found. Will be created when needed.")
+            logging.warning(
+                "BM25 retriever file not found. Will be created when needed."
+            )
             self.bm25_retriever = None
         if self.index_type == IndexType.FAISS:
             faiss_index_file = vector_store_path / "faiss.index"
             faiss_texts_file = vector_store_path / "faiss.pkl"
-            
+
             if faiss_index_file.exists() and faiss_texts_file.exists():
                 self.index = faiss.read_index(str(faiss_index_file))
                 with open(str(faiss_texts_file), "rb") as f:
                     self.texts = pickle.load(f)
                 logging.info("FAISS index and texts loaded successfully.")
             else:
-                logging.warning("FAISS index or texts file not found. Will be created when needed.")
+                logging.warning(
+                    "FAISS index or texts file not found. Will be created when needed."
+                )
                 self.index = None
                 self.texts = None
         elif self.index_type == IndexType.CHROMA:
@@ -425,7 +430,9 @@ class CustomLLMChain:
             - The generated text.
         """
         max_new_tokens = (
-            min(self.tokenizer.max_len_single_sentence, 2048) if max_length is None else max_length
+            min(self.tokenizer.max_len_single_sentence, 2048)
+            if max_length is None
+            else max_length
         )
         inputs = self.tokenizer(
             prompt,
@@ -448,7 +455,7 @@ class CustomLLMChain:
             safe_top_p = max(0.0, min(top_p, 1.0))
             safe_top_k = max(1, min(top_k, 100))
             safe_max_tokens = max(1, min(max_new_tokens, 4096))
-            
+
             sampling_params = SamplingParams(
                 temperature=safe_temperature,
                 top_p=safe_top_p,
@@ -479,7 +486,11 @@ class CustomLLMChain:
                         top_p=top_p,
                         top_k=top_k,
                         repeat_penalty=1.0,  # Changed from repetition_penalty
-                        stop=["[INST]", "[/INST]", "<|assistant|>"],  # Added stop tokens
+                        stop=[
+                            "[INST]",
+                            "[/INST]",
+                            "<|assistant|>",
+                        ],  # Added stop tokens
                     )
                     text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
                 except (IndexError, ValueError, RuntimeError, KeyError) as e:
@@ -782,7 +793,9 @@ class CustomLLMChain:
         return self.run_async_in_thread(self.invoke_async(question))
 
     @staticmethod
-    def _format_llm_response(response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG) -> str:
+    def _format_llm_response(
+        response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG
+    ) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
 

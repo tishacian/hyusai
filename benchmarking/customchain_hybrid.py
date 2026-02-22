@@ -12,6 +12,7 @@ import asyncio
 
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs
 from src.utils import format_llm_response
+
 if torch.cuda.is_available():
     try:
         from vllm import SamplingParams
@@ -349,7 +350,9 @@ class CustomLLMChain:
             - The generated text.
         """
         max_new_tokens = (
-            min(self.tokenizer.max_len_single_sentence, 2048) if max_length is None else max_length
+            min(self.tokenizer.max_len_single_sentence, 2048)
+            if max_length is None
+            else max_length
         )
         inputs = self.tokenizer(
             prompt,
@@ -372,7 +375,7 @@ class CustomLLMChain:
             safe_top_p = max(0.0, min(top_p, 1.0))
             safe_top_k = max(1, min(top_k, 100))
             safe_max_tokens = max(1, min(max_new_tokens, 4096))
-            
+
             sampling_params = SamplingParams(
                 temperature=safe_temperature,
                 top_p=safe_top_p,
@@ -403,7 +406,11 @@ class CustomLLMChain:
                         top_p=top_p,
                         top_k=top_k,
                         repeat_penalty=1.0,  # Changed from repetition_penalty
-                        stop=["[INST]", "[/INST]", "<|assistant|>"],  # Added stop tokens
+                        stop=[
+                            "[INST]",
+                            "[/INST]",
+                            "<|assistant|>",
+                        ],  # Added stop tokens
                     )
                     text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
                 except (IndexError, ValueError, RuntimeError, KeyError) as e:
@@ -673,7 +680,9 @@ class CustomLLMChain:
         return self.run_async_in_thread(self.invoke_async(question))
 
     @staticmethod
-    def _format_llm_response(response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG) -> str:
+    def _format_llm_response(
+        response: str, language: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG
+    ) -> str:
         """Format LLM response while preserving tables and structured data.
         Only removes template artifacts and prompt phrases.
 

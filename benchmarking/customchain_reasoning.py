@@ -56,22 +56,25 @@ try:
         SystemPromptLangs,
     )
 except ImportError:
-    logging.warning("Importing system prompts from src.system_prompts failed. Using fallback definitions.")
+    logging.warning(
+        "Importing system prompts from src.system_prompts failed. Using fallback definitions."
+    )
     from enum import StrEnum
+
     class SystemPromptLangs(StrEnum):
         EN = "EN"
         FR = "FR"
-    
+
     DEFAULT_SYSTEM_PROMPT_LANG = SystemPromptLangs.EN
-    
+
     ALL_DEFAULT_SYSTEM_PROMPT_ROLE = {
         SystemPromptLangs.EN: " You are an expert AI assistant with advanced reasoning capabilities, specialized in analyzing complex questions and providing comprehensive, accurate responses. Your expertise spans multiple domains including factual analysis, comparative reasoning, causal relationships, and hypothetical scenarios. You excel at breaking down complex problems, identifying key patterns, and synthesizing information to deliver clear, well-structured answers that directly address the user's needs.",
-        SystemPromptLangs.FR: "Vous êtes un assistant IA utile qui fournit des réponses précises et concises basées sur le contexte donné."
+        SystemPromptLangs.FR: "Vous êtes un assistant IA utile qui fournit des réponses précises et concises basées sur le contexte donné.",
     }
-    
+
     # Import SystemPromptTypes for fallback
     from src.system_prompts.types import SystemPromptTypes
-    
+
     ALL_SYSTEM_PROMPT_TEMPLATES = {
         SystemPromptLangs.EN: {
             SystemPromptTypes.FACTUAL: """[INST] You are an AI assistant specialized in providing precise and factual information.{assistant_role}
@@ -155,7 +158,9 @@ except ImportError:
 User: {question}
 Assistant: [/INST]""",
         },
-        SystemPromptLangs.FR: {"default": "Répondez à la question suivante basée sur le contexte: {question}"}
+        SystemPromptLangs.FR: {
+            "default": "Répondez à la question suivante basée sur le contexte: {question}"
+        },
     }
 
 
@@ -229,7 +234,7 @@ class CustomLLMChain:
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
         self.conversation_memory = ConversationMemoryBuffer(max_turns=2)
-        
+
         # Initialize embedding model
         try:
             load_embedding_start = time.time()
@@ -272,7 +277,7 @@ class CustomLLMChain:
                 vector_store_path / "bm25_retriever.pkl"
             )
             self.texts = []
-            
+
             if self.index_type == IndexType.FAISS:
                 if os.path.exists(
                     str(vector_store_path / "faiss.index")
@@ -383,7 +388,7 @@ class CustomLLMChain:
         try:
             if not contexts:
                 return []
-            
+
             question_embedding = await self.create_embeddings_async([question])
             context_embeddings = await self.create_embeddings_async(contexts)
             if question_embedding.size == 0 or context_embeddings.size == 0:
@@ -406,7 +411,7 @@ class CustomLLMChain:
                 relevance_scores = np.array([float(relevance_scores)])
             if len(diversity_scores.shape) == 0:
                 diversity_scores = np.array([float(diversity_scores)])
-            
+
             final_scores = 0.7 * relevance_scores + 0.3 * diversity_scores
             top_indices = np.argsort(final_scores)[::-1]
             return [contexts[i] for i in top_indices]
@@ -508,7 +513,6 @@ class CustomLLMChain:
         """
         SHORT_CONTEXT = 512
         MEDIUM_CONTEXT = 1024
-        LONG_CONTEXT = 2048
 
         SHORT_PENALTY = 0.01
         MEDIUM_PENALTY = 0.05
@@ -810,6 +814,7 @@ class CustomLLMChain:
         Returns:
             Future: Result
         """
+
         def wrapper():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -937,7 +942,7 @@ class CustomLLMChain:
 
             contexts_added = 0
             max_contexts = len(relevant_contexts)
-            
+
             for i, context in enumerate(relevant_contexts):
                 if not combined_context:
                     combined_context = f"Context 1:\n{context}"
