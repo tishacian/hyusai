@@ -143,25 +143,103 @@ Each dataset gets its own subdirectory with:
 - Cost calculations
 - Summary statistics
 
-## Troubleshooting
+## Using GPU Script
 
-### Import Errors
-If you encounter import errors:
-1. Ensure you're in the benchmarking directory
-2. Run `./setup_benchmarking.sh` to set up the environment
-3. Check that all required modules are available
+```bash
+# Run all pipelines (Naive, Hybrid, HAH) with a model
+./run_benchmarking_gpu.sh --model "MODEL_NAME" --all-pipelines
 
-### Dataset Loading Issues
-If datasets fail to load:
-1. Check internet connection
-2. Verify Hugging Face access
-3. Some datasets may require authentication
+# Run specific pipeline with a model
+./run_benchmarking_gpu.sh --model "MODEL_NAME" PIPELINE_NAME
 
-### Resource Monitoring Issues
-If resource monitoring fails:
-1. Ensure `psutil` and `GPUtil` are installed
-2. Check system permissions for resource access
-3. GPU monitoring requires CUDA-compatible setup
+# Run O1 reasoning pipelines
+./run_benchmarking_gpu.sh --model "MODEL_NAME" --all-o1
+```
+
+### Directly w/ python
+
+```bash
+# Normal pipelines
+python3 benchmarking.py --pipeline PIPELINE_NAME --model "MODEL_NAME"
+
+# O1 reasoning pipelines
+python3 benchmarking_o1.py --pipeline PIPELINE_NAME --model "MODEL_NAME"
+```
+
+## Available Pipelines
+
+| Type | Pipeline Names |
+|------|---------------|
+| **Normal** | `Naive`, `Hybrid`, `HAH` |
+| **O1 Reasoning** | `Reasoning`, `Mini-Reasoning` |
+
+## Available Models
+
+| Model Name | Size | Notes |
+|-----------|------|-------|
+| `neuralmagic/Meta-Llama-3-8B-Instruct-quantized.w4a16` | 8B | Default, quantized |
+| `suayptalha/DeepSeek-R1-Distill-Llama-3B` | 3B | Good for reasoning |
+| `RedHatAI/DeepSeek-R1-Distill-Llama-8B-quantized.w4a16` | 8B | DeepSeek R1 8B, quantized |
+| `RedHatAI/SmolLM3-3B-quantized_w4a16` | 3B | Small, efficient |
+| `RedHatAI/gemma-2-9b-it-quantized_w4a16` | 9B | Medium size |
+| `RedHatAI/gemma-3-4b-it-quantized_w4a16` | 4B | Balanced |
+| `microsoft/Phi-3-mini-4k-instruct` | 3.8B | Microsoft model |
+
+## Common Use Cases
+
+### 1. Test a Single Pipeline-Model Combination
+```bash
+./run_benchmarking_gpu.sh --model "suayptalha/DeepSeek-R1-Distill-Llama-3B" HAH
+```
+
+### 2. Compare All Pipelines with One Model
+```bash
+./run_benchmarking_gpu.sh --model "RedHatAI/gemma-3-4b-it-quantized_w4a16" --all-pipelines
+```
+
+### 3. Compare One Pipeline Across Models
+```bash
+# Run HAH with different models sequentially
+./run_benchmarking_gpu.sh --model "suayptalha/DeepSeek-R1-Distill-Llama-3B" HAH
+./run_benchmarking_gpu.sh --model "RedHatAI/gemma-3-4b-it-quantized_w4a16" HAH
+./run_benchmarking_gpu.sh --model "neuralmagic/Meta-Llama-3-8B-Instruct-quantized.w4a16" HAH
+```
+
+### 4. Run on Specific GPU
+```bash
+CUDA_VISIBLE_DEVICES=1 python3 benchmarking.py --pipeline HAH --model "MODEL_NAME"
+```
+
+### 5. Run O1 Reasoning Pipelines
+```bash
+./run_benchmarking_gpu.sh --model "neuralmagic/Meta-Llama-3-8B-Instruct-quantized.w4a16" --all-o1
+```
+
+## Output Locations
+
+Results are saved in:
+```
+evaluation_results/{model_name}/{pipeline}_evaluation_summary.csv
+```
+
+Example:
+- `evaluation_results/suayptalha_DeepSeek-R1-Distill-Llama-3B/HAH_evaluation_summary.csv`
+
+## Monitoring
+
+```bash
+# Check GPU status
+./monitor_gpu.sh check
+
+# Monitor continuously
+./monitor_gpu.sh
+
+# Check running processes
+./run_benchmarking_gpu.sh --status
+
+# View logs
+tail -f gpu_benchmarking_logs/gpu*_*.log
+```
 
 ## Average Evaluation Metrics of different RAG Methods
 
