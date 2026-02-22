@@ -190,7 +190,7 @@ def omnirag_page():
                     + " et al.",
                 )
 
-                NUMBER_OF_FILES = len(uploaded_files)
+                len(uploaded_files)
                 if not Config.get().interface.hide_rag_params_config:
                     row_ae = st.columns([2, 1, 1])
                     with row_ae[0]:
@@ -640,7 +640,6 @@ def omnirag_page():
                         "Ensure a vector database is selected to initialize before chatting"
                     )
                     response = "No available context is provided to answer this question. Please ensure to initialize the right vector DB"
-                    context = ""
 
             # -- streamer
             try:
