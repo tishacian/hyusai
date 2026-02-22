@@ -160,9 +160,9 @@ class EnsembleRetriever:
                 query_embedding = query_embedding.reshape(1, -1).astype("float32")
 
             # FAISS Search
-            D, I = self.dense_retriever.search(query_embedding, k)
-            passages = [self.texts[idx] for idx in I[0]]
-            similarities = 1.0 / (1.0 + D[0])  # Convert distance to similarity
+            distances, indices = self.dense_retriever.search(query_embedding, k)
+            passages = [self.texts[idx] for idx in indices[0]]
+            similarities = 1.0 / (1.0 + distances[0])  # Convert distance to similarity
             scores_dict = {
                 passage: float(score) for passage, score in zip(passages, similarities)
             }
@@ -405,10 +405,9 @@ class EnsembleRetriever:
 
         if total_confidence > 0:
             bm25_confidence = bm25_var / total_confidence
-            dense_confidence = dense_var / total_confidence
+            dense_var / total_confidence
         else:
             bm25_confidence = 0.5
-            dense_confidence = 0.5
 
         bm25_weight = 0.6 * bm25_confidence + 0.4 * (
             bm25_mean / (bm25_mean + dense_mean)
