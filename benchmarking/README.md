@@ -1,6 +1,6 @@
 # README #
 
-This README is on using the benchmarking pipeline to reproduce the results in the internal report.
+This directory contains benchmarking scripts and utilities for evaluating RAG pipelines, specifically designed for multi-hop reasoning tasks. A detailed report is also available for internal use only.
 
 ### What is this repository for? ###
 
@@ -34,57 +34,136 @@ The arrangment of files in the benchmarking folder
 └── 📜 resourcemonitor.py
 ```
 
-#### Bash installation
-Run command
+
+## Setup Instructions
+
+### Quick Setup
+```bash
+# Make install script executable
+chmod +x install.sh
+
+# Run installation (automatically detects GPU/CPU)
+./install.sh
 ```
-bash install.sh
-```
-Activate virtaul environment
-```
+
+### Manual Setup
+```bash
+# Create virtual environment
+python3 -m venv .venv
+
+# Activate environment
 source .venv/bin/activate
-```
-Launch the webapp on localhost:
-```
-python main.py
+
+# Install dependencies based on your system:
+# For macOS (Apple Silicon or Intel):
+pip install -r requirements/macos.txt
+
+# For GPU (NVIDIA/CUDA):
+pip install -r requirements/gpu.txt
+pip install -r requirements/shared.txt
+
+# For CPU (Linux/Windows):
+pip install -r requirements/cpu.txt
+pip install -r requirements/shared.txt
 ```
 
-#### Scratch installation
-Install python3.12 using [brew](https://docs.brew.sh/Installation) for MacOS for example:
-```
-brew install python@3.12
-```
+## Available Scripts
 
-Create a virtual environment and install the dependencies:
+### 1. `benchmarking.py`
+- Evaluates naive RAG pipeline
+- Uses fallback import system for compatibility
+- Evaluates on multiple multi-hop reasoning datasets
 
-```
-python3.12 -m venv venv
-source venv/bin/activate
-pip install -r benchmarking/requirements/requirements.txt
-```
+### 2. `benchmarking-o1.py`
+- Evaluates HAH (Hybrid Attention and Hierarchical) pipeline
+- Includes comprehensive resource monitoring
+- CO2 emissions tracking and cost calculation
 
+### 3. `dataset_manager.py`
+- Centralized dataset configuration and management
+- Multi-hop reasoning specific dataset loading with caching
+- Proper QA pair extraction for complex reasoning tasks
+- Disk space monitoring and sample size control
 
-### Running benchmarking and reproducing results ###
-Depending on the RAG method of interest, Update the following in the part of the ```benchmarking.py``` script.
+## Usage
 
-- For Naive RAG
-```
-from customchain_naive import CustomLLMChain  # change this for different pipeline [1]
-```
-- For Hybrid RAG
-```
-from customchain_hybrid import CustomLLMChain  # change this for different pipeline [1]
-```
-- For HAH RAG
-```
-from customchain_hah import CustomLLMChain  # change this for different pipeline [1]
-```
+### Basic Benchmarking
+```bash
+# Activate environment
+source .venv/bin/activate
 
-Run the script to reproduce the results
-```
+# Run naive pipeline evaluation
 python benchmarking.py
+
+# Run HAH pipeline evaluation
+python benchmarking-o1.py
 ```
 
-#### Average Evaluation Metrics of different RAG Methods
+### Environment Variables
+```bash
+# Set country code for CO2 emissions calculation
+export COUNTRY_CODE="FR"  # France
+export COUNTRY_CODE="US"  # United States
+export COUNTRY_CODE="DE"  # Germany
+```
+
+## Dataset Information
+
+### Multi-Hop Reasoning Datasets
+
+#### HotpotQA
+- **Purpose**: Multi-hop reasoning with supporting facts
+- **Format**: Question + Answer + Supporting Facts
+- **Use Case**: Complex reasoning requiring multiple information sources
+
+#### 2WikiMultiHop
+- **Purpose**: Multi-hop reasoning with Wikipedia articles
+- **Format**: Question + Answer + Supporting Facts
+- **Use Case**: Knowledge-intensive multi-hop reasoning
+
+#### AmbigQA
+- **Purpose**: Ambiguous questions requiring multi-hop reasoning
+- **Format**: Question + Multiple Possible Answers
+- **Use Case**: Handling ambiguity in complex reasoning tasks
+
+#### CommonsenseQA
+- **Purpose**: Commonsense reasoning with multiple choice
+- **Format**: Question + Choices + Answer Key
+- **Use Case**: Commonsense knowledge integration
+
+## Output Structure
+
+Results are saved to:
+- `evaluation_results/` for naive pipeline
+- `evaluation_results-o1/` for HAH pipeline
+
+Each dataset gets its own subdirectory with:
+- Metrics over time
+- Resource usage metrics
+- Cost calculations
+- Summary statistics
+
+## Troubleshooting
+
+### Import Errors
+If you encounter import errors:
+1. Ensure you're in the benchmarking directory
+2. Run `./setup_benchmarking.sh` to set up the environment
+3. Check that all required modules are available
+
+### Dataset Loading Issues
+If datasets fail to load:
+1. Check internet connection
+2. Verify Hugging Face access
+3. Some datasets may require authentication
+
+### Resource Monitoring Issues
+If resource monitoring fails:
+1. Ensure `psutil` and `GPUtil` are installed
+2. Check system permissions for resource access
+3. GPU monitoring requires CUDA-compatible setup
+
+## Average Evaluation Metrics of different RAG Methods
 
 | Metric | HAH RAG | Hybrid RAG | Naive RAG |
 |--------|---------|------------|------------|
