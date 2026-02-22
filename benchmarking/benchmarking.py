@@ -20,7 +20,9 @@ try:
     from src.modeltokenizer import load_model_and_tokenizer
 except ImportError as e:
     logger.error(f"Failed to import load_model_and_tokenizer: {e}")
-    logger.info("This might be due to vLLM compatibility issues. Please check your CUDA setup.")
+    logger.info(
+        "This might be due to vLLM compatibility issues. Please check your CUDA setup."
+    )
     raise
 from src.globalvariables import Models, CPUModels, ChunkingMethod
 from src.embedding import EmbeddingVectors
@@ -37,15 +39,21 @@ def get_custom_chain_class(pipeline_type: str):
     """Get the appropriate CustomLLMChain class based on pipeline type."""
     if pipeline_type.lower() == "naive":
         from customchain_naive import CustomLLMChain
+
         return CustomLLMChain
     elif pipeline_type.lower() == "hybrid":
         from customchain_hybrid import CustomLLMChain
+
         return CustomLLMChain
     elif pipeline_type.lower() == "hah":
         from customchain_hah import CustomLLMChain
+
         return CustomLLMChain
     else:
-        raise ValueError(f"Unknown pipeline type: {pipeline_type}. Supported types: Naive, Hybrid, HAH")
+        raise ValueError(
+            f"Unknown pipeline type: {pipeline_type}. Supported types: Naive, Hybrid, HAH"
+        )
+
 
 class HAHRAGEvaluator:
     def __init__(self, country_code: str = "FR", model_name: str = None):
@@ -56,21 +64,23 @@ class HAHRAGEvaluator:
             model_name: Specific model to use (overrides default selection)
         """
         self.country_code = country_code
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
-        
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         # --use provided model or default based on hardware
         if model_name:
             self.model_name = model_name
         else:
             self.model_name = (
-                Models.LLAMA3_8B if torch.cuda.is_available() else CPUModels.LLAMA32_3B_INSTRUCT
+                Models.LLAMA3_8B
+                if torch.cuda.is_available()
+                else CPUModels.LLAMA32_3B_INSTRUCT
             )
-        
+
         # -- model manager to load/reuse model
         model_manager = get_model_manager()
-        self.model, self.tokenizer = model_manager.load_model(self.model_name, self.country_code)
+        self.model, self.tokenizer = model_manager.load_model(
+            self.model_name, self.country_code
+        )
         if self.model is None or self.tokenizer is None:
             raise ValueError("Failed to load model or tokenizer")
 
@@ -82,20 +92,22 @@ class HAHRAGEvaluator:
         self.resource_monitor_stopped = False
         # -- cost evaluator
         self.cost_calculator = ResourceCost(sampling_interval=0.1)
-        
+
         # -- initialize dataset manager
         self.dataset_manager = DatasetManager()
 
     def reset_resource_monitor(self):
         """Reset the resource monitor for a new evaluation."""
         try:
-            if not self.resource_monitor_stopped and hasattr(self.resource_monitor, 'stop_monitoring'):
+            if not self.resource_monitor_stopped and hasattr(
+                self.resource_monitor, "stop_monitoring"
+            ):
                 self.resource_monitor.stop_monitoring()
         except Exception as e:
             logger.warning(f"Error stopping resource monitor during reset: {e}")
-        
+
         self.resource_monitor_stopped = False
-        
+
         self.resource_monitor = ResourceMonitor(
             sampling_interval=1.0,
             country_code=self.country_code,
@@ -116,10 +128,10 @@ class HAHRAGEvaluator:
                 question = example["question"]
                 answers = example.get("answers", {})
                 answer = ""
-                
+
                 if answers and "text" in answers and answers["text"]:
                     answer = answers["text"][0]
-                
+
                 if question and answer:
                     return str(question), str(answer)
                 return None, None
@@ -128,7 +140,7 @@ class HAHRAGEvaluator:
                 question = example["question"]
                 choices = example.get("choices", {})
                 answer_key = example.get("answerKey", "")
-                
+
                 # Get the correct answer text
                 answer = ""
                 if choices and "text" in choices and answer_key:
@@ -138,7 +150,7 @@ class HAHRAGEvaluator:
                         answer_idx = choice_keys.index(answer_key)
                         if answer_idx < len(choice_texts):
                             answer = choice_texts[answer_idx]
-                
+
                 if question and answer:
                     return str(question), str(answer)
                 return None, None
@@ -147,14 +159,14 @@ class HAHRAGEvaluator:
                 question = example["question"]
                 answer = example["answer"]
                 supporting_facts = example.get("supporting_facts", [])
-                
+
                 # Add supporting facts to answer for context
                 if supporting_facts:
                     supporting_text = " Supporting facts: " + " ".join(
                         [f"{fact[0]}: {fact[1]}" for fact in supporting_facts]
                     )
                     answer = f"{answer}{supporting_text}"
-                
+
                 if question and answer:
                     return str(question), str(answer)
                 return None, None
@@ -163,14 +175,14 @@ class HAHRAGEvaluator:
                 question = example["question"]
                 answer = example["answer"]
                 supporting_facts = example.get("supporting_facts", [])
-                
+
                 # Add supporting facts to answer for context
                 if supporting_facts:
                     supporting_text = " Supporting facts: " + " ".join(
                         [f"{fact[0]}: {fact[1]}" for fact in supporting_facts]
                     )
                     answer = f"{answer}{supporting_text}"
-                
+
                 if question and answer:
                     return str(question), str(answer)
                 return None, None
@@ -178,13 +190,13 @@ class HAHRAGEvaluator:
             elif dataset_name == "ambig_qa":
                 question = example["question"]
                 answers = example.get("answers", [])
-                
+
                 # Take the first answer if multiple exist
                 if answers and len(answers) > 0:
                     answer = str(answers[0])
                 else:
                     answer = "No answer provided"
-                
+
                 if question and answer:
                     return str(question), str(answer)
                 return None, None
@@ -193,12 +205,12 @@ class HAHRAGEvaluator:
                 question = example["question"]
                 answer = example["answer"]
                 facts = example.get("facts", [])
-                
+
                 # Add facts to answer for context
                 if facts:
                     facts_text = " Facts: " + " ".join(facts)
                     answer = f"{answer}{facts_text}"
-                
+
                 if question and answer:
                     return str(question), str(answer)
                 return None, None
@@ -216,7 +228,7 @@ class HAHRAGEvaluator:
         """Evaluate a single dataset with comprehensive metrics."""
         # Reset resource monitor for this evaluation
         self.reset_resource_monitor()
-        
+
         # Use the same batch_size as the dataset's sample_size
         dataset_info = self.dataset_manager.get_dataset_info(dataset_name)
         batch_size = dataset_info.get("sample_size", 1000) if dataset_info else 1000
@@ -238,13 +250,13 @@ class HAHRAGEvaluator:
             if not qa_pairs:
                 logger.warning(f"No valid QA pairs found for {dataset_name}")
                 return {}, 0.0, {}
-            
+
             logger.info(f"Processing {len(qa_pairs)} QA pairs for {dataset_name}")
 
             # Create chunks from combined texts
             combined_texts = [f"{q} {a}" for q, a in qa_pairs]
             chunker = TextChunker(self.tokenizer, self.model)
-            
+
             chunks = []
             for text in combined_texts:
                 chunks.extend(
@@ -263,7 +275,7 @@ class HAHRAGEvaluator:
             )
 
             # Create and save the index
-            vector_store = embedding_vectors.create_and_save_index(chunks)
+            embedding_vectors.create_and_save_index(chunks)
 
             # Create the chain with the new vector store
             chain = CustomLLMChain(
@@ -316,17 +328,23 @@ class HAHRAGEvaluator:
             # -- Stop resource monitoring and get summary
             logger.info("\nCollecting resource usage metrics...")
             try:
-                if not self.resource_monitor_stopped and hasattr(self.resource_monitor, 'stop_monitoring') and self.resource_monitor is not None:
+                if (
+                    not self.resource_monitor_stopped
+                    and hasattr(self.resource_monitor, "stop_monitoring")
+                    and self.resource_monitor is not None
+                ):
                     resource_metrics = self.resource_monitor.stop_monitoring()
                     self.resource_monitor_stopped = True
                 else:
-                    logger.warning("Resource monitor not properly initialized or already stopped")
+                    logger.warning(
+                        "Resource monitor not properly initialized or already stopped"
+                    )
                     resource_metrics = {
                         "cpu_usage": 0.0,
                         "memory_usage": 0.0,
                         "gpu_usage": 0.0,
                         "power_consumption": 0.0,
-                        "co2_emissions": 0.0
+                        "co2_emissions": 0.0,
                     }
             except Exception as e:
                 logger.warning(f"Error stopping resource monitoring: {e}")
@@ -336,7 +354,7 @@ class HAHRAGEvaluator:
                     "memory_usage": 0.0,
                     "gpu_usage": 0.0,
                     "power_consumption": 0.0,
-                    "co2_emissions": 0.0
+                    "co2_emissions": 0.0,
                 }
 
             # -- Calculate costs
@@ -352,7 +370,7 @@ class HAHRAGEvaluator:
                     "compute_cost_gpu": 0.0,
                     "memory_cost": 0.0,
                     "power_cost": 0.0,
-                    "total_cost": 0.0
+                    "total_cost": 0.0,
                 }
                 cost_per_query = 0.0
 
@@ -409,45 +427,45 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Benchmark RAG pipelines")
     parser.add_argument(
-        "--pipeline", 
-        type=str, 
-        default="Naive", 
+        "--pipeline",
+        type=str,
+        default="Naive",
         choices=["Naive", "Hybrid", "HAH"],
-        help="Pipeline type to benchmark (default: Naive)"
+        help="Pipeline type to benchmark (default: Naive)",
     )
     parser.add_argument(
-        "--country-code", 
-        type=str, 
+        "--country-code",
+        type=str,
         default="FR",
-        help="Country code for CO2 emissions calculation (default: FR)"
+        help="Country code for CO2 emissions calculation (default: FR)",
     )
     parser.add_argument(
         "--model",
         type=str,
-        help="Specific model to use (overrides default model selection)"
+        help="Specific model to use (overrides default model selection)",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
         default="evaluation_results",
-        help="Output directory for results (default: evaluation_results)"
+        help="Output directory for results (default: evaluation_results)",
     )
-    
+
     args = parser.parse_args()
-    
+
     global pipeline
     pipeline = args.pipeline
-    
+
     global CustomLLMChain
     CustomLLMChain = get_custom_chain_class(pipeline)
-    
+
     logger.info(f"Using pipeline: {pipeline}")
-    
+
     try:
         country_code = args.country_code
         model_name = args.model
         output_base_dir = args.output_dir
-        
+
         evaluator = HAHRAGEvaluator(country_code=country_code, model_name=model_name)
         datasets_dict = evaluator.load_datasets()
 
@@ -473,13 +491,17 @@ def main():
 
             # Extract cost metrics into separate columns
             cost_metrics = res_metrics["cost_metrics"]
-            
+
             summary_data.append(
                 {
                     "dataset": dataset_name,
                     "latency": latency,
                     **metrics,
-                    **{f"resource_{k}": v for k, v in res_metrics.items() if k != "cost_metrics"},
+                    **{
+                        f"resource_{k}": v
+                        for k, v in res_metrics.items()
+                        if k != "cost_metrics"
+                    },
                     # Separate cost columns
                     "compute_cost_cpu": cost_metrics["compute_cost_cpu"],
                     "compute_cost_gpu": cost_metrics["compute_cost_gpu"],
