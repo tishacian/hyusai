@@ -90,7 +90,7 @@ class TestLRUCache:
         """Test overwriting an existing key (should not add new entry)."""
         lru_cache["key1"] = "value1"
         lru_cache["key2"] = "value2"
-        original_order = lru_cache.order.copy()
+        lru_cache.order.copy()
 
         # Overwrite key1
         lru_cache["key1"] = "value1_new"
