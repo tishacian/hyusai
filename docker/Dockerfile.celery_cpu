@@ -11,12 +11,11 @@ RUN apt-get update \
         tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies from private Nexus repository using build secrets
-RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
-    --mount=type=secret,id=nexus_password,env=NEXUS_PASSWORD \
-    --mount=type=bind,source=../requirements,target=/tmp/requirements,readonly \
+# Install dependencies (remember to provide PIP_INDEX_URL as private packages are needed)
+ARG PIP_INDEX_URL
+RUN --mount=type=bind,source=../requirements,target=/tmp/requirements,readonly \
     pip install --no-cache-dir \
-        --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
+        --index-url=${PIP_INDEX_URL} \
         -r /tmp/requirements/celery.txt \
         -r /tmp/requirements/cpu.txt
 

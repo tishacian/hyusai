@@ -21,7 +21,7 @@ pytesseract                    # OCR
 tesserocr
 unstructured[all-docs]         # document loaders
 docx2txt
-pymupdf
+pymupdf==1.26.5
 pdfminer.six
 
 # metadata extraction
@@ -56,5 +56,5 @@ datategy-common-config[logging-setup]~=0.6.0
 papai_unified_storage~=0.23.1
 
 # celery
-celery[sqlalchemy, amqp]~=5.3.0
+celery[sqlalchemy, amqp]~=5.5.3
 SQLAlchemy[postgresql-psycopg2binary]~=2.0.43

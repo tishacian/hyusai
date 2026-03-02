@@ -12,17 +12,16 @@ RUN apt-get update \
         tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies from private Nexus repository using build secrets
-RUN --mount=type=secret,id=nexus_username,env=NEXUS_USERNAME \
-    --mount=type=secret,id=nexus_password,env=NEXUS_PASSWORD \
-    --mount=type=bind,source=../requirements/frontend.txt,target=/tmp/frontend.txt,readonly \
-    --mount=type=bind,source=../requirements/celery.txt,target=/tmp/celery.txt,readonly \
-    --mount=type=bind,source=../requirements/cpu.txt,target=/tmp/cpu.txt,readonly \
+# Install dependencies (remember to provide PIP_INDEX_URL as private packages are needed)
+ARG PIP_INDEX_URL
+RUN --mount=type=bind,source=../requirements/frontend.txt,target=/tmp/requirements/frontend.txt,readonly \
+    --mount=type=bind,source=../requirements/celery.txt,target=/tmp/requirements/celery.txt,readonly \
+    --mount=type=bind,source=../requirements/cpu.txt,target=/tmp/requirements/cpu.txt,readonly \
     pip install --no-cache-dir \
-        --index-url "https://$NEXUS_USERNAME:$NEXUS_PASSWORD@nexus.datategy.net/repository/pypi/simple" \
-        -r /tmp/frontend.txt \
-        -r /tmp/celery.txt \
-        -r /tmp/cpu.txt
+        --index-url=${PIP_INDEX_URL} \
+        -r /tmp/requirements/frontend.txt \
+        -r /tmp/requirements/celery.txt \
+        -r /tmp/requirements/cpu.txt
 # celery.txt and cpu.txt are there as a temporary workaround until all processing is transferred to celery tasks
 
 # Create to non-root user for runtime

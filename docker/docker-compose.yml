@@ -5,11 +5,6 @@ volumes:
   minio_data:
   models:
   assets:
-secrets:
-  nexus_username:
-    file: ./secrets/nexus_username.txt
-  nexus_password:
-    file: ./secrets/nexus_password.txt
 services:
   # -----------------------
   # Infrastructure services
@@ -56,6 +51,11 @@ services:
   # Init / one-shot services
   # ------------------------
   init:
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.celery_cpu
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL}
     image: papai-llm-celery-cpu:latest
     container_name: init
     user: root
@@ -79,9 +79,8 @@ services:
     build:
       context: ..
       dockerfile: ./docker/Dockerfile.fastapi
-      secrets:
-        - nexus_username
-        - nexus_password
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL}
     container_name: fastapi
     ports:
       - "8000:8000"
@@ -97,12 +96,7 @@ services:
       retries: 5
       start_period: 5s
   celery-cpu:
-    build:
-      context: ..
-      dockerfile: ./docker/Dockerfile.celery_cpu
-      secrets:
-        - nexus_username
-        - nexus_password
+    image: papai-llm-celery-cpu:latest
     volumes:
       - models:/data/models
       - assets:/data/assets
@@ -116,26 +110,25 @@ services:
         condition: service_completed_successfully
     deploy:
       replicas: 2
-  celery-gpu:
-    build:
-      context: ..
-      dockerfile: ./docker/Dockerfile.celery_gpu
-      secrets:
-        - nexus_username
-        - nexus_password
-    volumes:
-      - models:/data/models
-      - assets:/data/assets
-    env_file:
-      - test_env_files/papai_llm.env
-    environment:
-      CELERY_QUEUES: gpu
-      CELERY_LOGLEVEL: debug
-    depends_on:
-      init:
-        condition: service_completed_successfully
-    deploy:
-      replicas: 1
+  # celery-gpu:
+  #   build:
+  #     context: ..
+  #     dockerfile: ./docker/Dockerfile.celery_gpu
+  #     args:
+  #       PIP_INDEX_URL: ${PIP_INDEX_URL}
+  #   volumes:
+  #     - models:/data/models
+  #     - assets:/data/assets
+  #   env_file:
+  #     - test_env_files/papai_llm.env
+  #   environment:
+  #     CELERY_QUEUES: gpu
+  #     CELERY_LOGLEVEL: debug
+  #   depends_on:
+  #     init:
+  #       condition: service_completed_successfully
+  #   deploy:
+  #     replicas: 1
   # ----------------
   # Frontend service
   # ----------------
@@ -143,9 +136,8 @@ services:
     build:
       context: ..
       dockerfile: ./docker/Dockerfile.frontend
-      secrets:
-        - nexus_username
-        - nexus_password
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL}
     container_name: frontend
     ports:
       - "8501:8501"
