@@ -1,5 +1,23 @@
 # Contributing
 
+## Contribution guidelines
+
+The following are some guidelines on how new code should be written. Following these rules when submitting new code makes the review easier so new code can be integrated in less time.
+
+### While you are coding
+
+- We follow the [PEP8](https://peps.python.org/pep-0008/) standard. Read it thoroughly.
+- Use the [numpy docstring standard](https://numpydoc.readthedocs.io/en/latest/format.html#docstring-standard) in all your docstrings.
+- Prefix your branch so that its content is clear. Read the [confluence page](https://datategy.atlassian.net/wiki/spaces/PAPAI/pages/294913/Git+Flow+Updates#Branch-naming-convention) on branch naming convention.
+- Use the [conventional commit standard](https://www.conventionalcommits.org/en/v1.0.0/) in all your commits.
+- Install and use the pre-commit hooks if not done automatically with `install.sh`.
+- Don't use LLM coding assistant that uses your data for training.
+
+### After you finished developing
+
+- Create a Pull Request from your branch to `develop`.
+- Give a clear title to your PR. You can use the same prefix as for your branch.
+
 ## Accessing Internal Packages
 
 To set up access to our internal Python packages hosted on GitLab, follow the steps below.

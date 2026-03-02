@@ -20,13 +20,11 @@ For any local building / deployment, you need to [**install docker**](https://ww
 
 ## Build and run Papai-LLM locally
 
-0. Make your docker daemon is up.
-1. Configure your nexus secrets in :
-    - `docker/secrets/nexus_password.txt`
-    - `docker/secrets/nexus_username.txt`
-2. Tune your environment configurations if needed using the example .env files in the `test_env_files` folder.
+0. Make sure your docker daemon is up.
+1. Configure your pip index url in `./docker/.env` for build time.
+2. Tune your environment configurations if needed using the example .env files in the `./docker/test_env_files/` folder.
 3. Start all the required services using the `docker-composer.yml` file :
-    - `docker compose up --build` (you might need to `export DOCKER_BUILDKIT=1` to enable secrets usage)
+    - `docker compose up --build` (you might need to `export DOCKER_BUILDKIT=1` to use replicas)
 4. To stop the services, you can run:
     - `docker compose down` for simple stop
     - `docker compose down -v` for stop with data volumes removal

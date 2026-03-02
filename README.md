@@ -1,25 +1,32 @@
-# README #
+# OmniRAG
 
-This README would normally document whatever steps are necessary to get your application up and running.
+In this project, you will find a full-stack independant app called OmniRAG that enables its users to build knowledge bases from documents and to perform RAG (Retrival Augmented Generation) on them.
+This product should be considered as a standalone, but compatibility to integrate operations to papAI should be kept in mind for middle term objective.
 
-### What is this repository for? ###
-
-* Quick summary
-* Version
-* [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
-
-### How do I get set up? ###
+## How do I get set up?
 
 For security reasons, you must clone this repo using an SSH key. You can follow [this guide](https://support.atlassian.com/bitbucket-cloud/docs/configure-ssh-and-two-step-verification/) from Atlassian to generate and add the SSH key to your account.
 
 Once set up, you can safely clone this repository on your computer.
 
 ```
-git clone git@bitbucket.org:neuropolisteam/rag.git
+git clone git@bitbucket.org:datategy-root/omnirag.git
 ```
 
-#### Folder structure
-The arrangment of files in the RAGGER folder
+Check the [CONTRIBUTING.md](CONTRIBUTING.md) guide for to setup your dev environment as well as [docker/README.md](./docker/README.md) on how to start the stack.
+
+## Contribution guidelines
+
+Read the [CONTRIBUTING.md](CONTRIBUTING.md) file.
+
+## Who do I talk to?
+
+- RAG engine : [Kenneth](mailto:kenneth.ezukwoke@datategy.net)
+- LLM as a Service : [Ahmed](mailto:ahmed.benmessaoud@datategy.net)
+- Docker services, API : [Enzo](mailto:enzo.damion@datategy.net)
+
+## Folder structure
+The arrangment of files in the RAGGER folder :
 
 ```
 📦 OmniRAG
@@ -98,38 +105,3 @@ The arrangment of files in the RAGGER folder
 │   └── 📜 vlmprocessor.py
 └── 📂 vector_store (created upon indexing)
 ```
-
-#### Bash installation
-Run command
-```
-bash install.sh
-```
-Activate virtaul environment
-```
-source .venv/bin/activate
-```
-Launch the webapp on localhost:
-```
-python main.py
-```
-
-### Contribution guidelines ###
-
-The following are some guidelines on how new code should be written. Following these rules when submitting new code makes the review easier so new code can be integrated in less time.
-
-#### While you are coding ####
-
-- We follow the [PEP8](https://peps.python.org/pep-0008/) standard. Read it thoroughly.
-- Use the [numpy docstring standard](https://numpydoc.readthedocs.io/en/latest/format.html#docstring-standard) in all your docstrings.
-- Prefix your branch so that its content is clear. Read the [confluence page](https://datategy.atlassian.net/wiki/spaces/PAPAI/pages/294913/Git+Flow+Updates#Branch-naming-convention) on branch naming convention.
-- Use the [conventional commit standard](https://www.conventionalcommits.org/en/v1.0.0/) in all your commits.
-
-#### After you finished developing ####
-
-- Create a Pull Request from your branch to `main`.
-- Give a clear title to your PR. You can use the same prefix as for your branch.
-
-### Who do I talk to? ###
-
-* Repo owner or admin
-* Other community or team contact
