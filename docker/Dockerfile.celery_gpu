@@ -17,10 +17,11 @@ RUN apt-get update \
 
 # Install dependencies (remember to provide PIP_INDEX_URL as private packages are needed)
 ARG PIP_INDEX_URL
-RUN --mount=type=bind,source=../requirements/celery.txt,target=/tmp/requirements/celery.txt,readonly \
-    python3.12 -m pip install --no-cache-dir \
-        --index-url=${PIP_INDEX_URL} \
-        -r /tmp/requirements/celery.txt
+RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+COPY requirements/gpu.txt /tmp/requirements/
+RUN python3.12 -m pip install --no-cache-dir \
+    --index-url=${PIP_INDEX_URL} \
+    -r /tmp/requirements/gpu.txt
 
 # Create to non-root user for runtime
 ARG USERNAME=papai

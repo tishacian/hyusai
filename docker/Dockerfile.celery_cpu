@@ -13,11 +13,12 @@ RUN apt-get update \
 
 # Install dependencies (remember to provide PIP_INDEX_URL as private packages are needed)
 ARG PIP_INDEX_URL
-RUN --mount=type=bind,source=../requirements,target=/tmp/requirements,readonly \
-    pip install --no-cache-dir \
-        --index-url=${PIP_INDEX_URL} \
-        -r /tmp/requirements/celery.txt \
-        -r /tmp/requirements/cpu.txt
+RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+COPY requirements/celery.txt requirements/cpu.txt /tmp/requirements/
+RUN pip install --no-cache-dir \
+    --index-url=${PIP_INDEX_URL} \
+    -r /tmp/requirements/celery.txt \
+    -r /tmp/requirements/cpu.txt
 
 # Create to non-root user for runtime
 ARG USERNAME=papai

@@ -6,10 +6,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # Install dependencies (remember to provide PIP_INDEX_URL as private packages are needed)
 ARG PIP_INDEX_URL
-RUN --mount=type=bind,source=../requirements/fastapi.txt,target=/tmp/requirements/fastapi.txt,readonly \
-    pip install --no-cache-dir \
-        --index-url=${PIP_INDEX_URL} \
-        -r /tmp/requirements/fastapi.txt
+RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+COPY requirements/fastapi.txt /tmp/requirements/
+RUN pip install --no-cache-dir \
+    --index-url=${PIP_INDEX_URL} \
+    -r /tmp/requirements/fastapi.txt
 
 # Create to non-root user for runtime
 ARG USERNAME=papai

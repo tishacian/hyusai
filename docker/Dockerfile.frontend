@@ -14,14 +14,13 @@ RUN apt-get update \
 
 # Install dependencies (remember to provide PIP_INDEX_URL as private packages are needed)
 ARG PIP_INDEX_URL
-RUN --mount=type=bind,source=../requirements/frontend.txt,target=/tmp/requirements/frontend.txt,readonly \
-    --mount=type=bind,source=../requirements/celery.txt,target=/tmp/requirements/celery.txt,readonly \
-    --mount=type=bind,source=../requirements/cpu.txt,target=/tmp/requirements/cpu.txt,readonly \
-    pip install --no-cache-dir \
-        --index-url=${PIP_INDEX_URL} \
-        -r /tmp/requirements/frontend.txt \
-        -r /tmp/requirements/celery.txt \
-        -r /tmp/requirements/cpu.txt
+RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+COPY requirements/frontend.txt requirements/celery.txt requirements/cpu.txt /tmp/requirements/
+RUN pip install --no-cache-dir \
+    --index-url=${PIP_INDEX_URL} \
+    -r /tmp/requirements/frontend.txt \
+    -r /tmp/requirements/celery.txt \
+    -r /tmp/requirements/cpu.txt
 # celery.txt and cpu.txt are there as a temporary workaround until all processing is transferred to celery tasks
 
 # Create to non-root user for runtime
