@@ -15,7 +15,7 @@ class KnowledgeBases(Base):
 
     uuid: Mapped[str] = mapped_column(
         String(36),
-        default_factory=lambda: uuid4(),
+        default=lambda: str(uuid4()),
         primary_key=True,
         unique=True,
         nullable=False,
