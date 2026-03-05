@@ -1,15 +1,16 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Created on Fri Dec  6 01:47:23 2024
 
 @author: kennethezukwoke
 """
 
-from typing import Dict, List
-
 import nltk
+from typing import Dict, List
 import numpy as np
-from rouge import Rouge
 from sklearn.metrics.pairwise import cosine_similarity
+from rouge import Rouge
 
 
 class ExtraMetrics:
@@ -36,7 +37,7 @@ class ExtraMetrics:
             retrieved_docs = retrieved_docs[:k]
 
         def dcg_at_k(r, k):
-            r = np.asfarray(r)[:k]
+            r = np.asarray(r, dtype=float)[:k]
             if r.size:
                 return np.sum(
                     np.subtract(np.power(2, r), 1) / np.log2(np.arange(2, r.size + 2))

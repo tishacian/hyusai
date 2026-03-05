@@ -343,7 +343,6 @@ class CustomLLMChain:
         """
         SHORT_CONTEXT = 512
         MEDIUM_CONTEXT = 1024
-        LONG_CONTEXT = 2048
 
         # -- corresponding penalties
         SHORT_PENALTY = 0.01
@@ -380,15 +379,12 @@ class CustomLLMChain:
         )
 
         # -- transfer the input_ids to the device
-        inputs_on_device = self.parallel_chunk_transfer(
-            inputs["input_ids"], self.device.type
-        )
+        self.parallel_chunk_transfer(inputs["input_ids"], self.device.type)
         """
         check if model.generate returns empty strings..otherwise, return empty text.
         Sometimes, the model returns empty strings
         """
         # -- choose whether to use mixed precision based on the device
-        use_mixed_precision = True if self.device.type == "cuda" else False
         if torch.cuda.is_available():
             sampling_params = SamplingParams(
                 temperature=temperature,

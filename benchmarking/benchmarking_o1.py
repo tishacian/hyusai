@@ -10,11 +10,10 @@ from tqdm import tqdm
 import pandas as pd
 import logging
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# os.environ['CUDA_VISIBLE_DEVICES'] = '1'
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from src.modeltokenizer import load_model_and_tokenizer
@@ -34,39 +33,48 @@ from computationcost import ResourceCost
 from dataset_manager import DatasetManager
 from model_manager import get_model_manager
 
+# Pipeline configuration for O1 reasoning chains
+# Pipeline will be set dynamically in main() based on command line arguments
+
 
 def get_custom_chain_class(pipeline_type: str):
     """Get the appropriate CustomLLMChain class based on pipeline type."""
-    if pipeline_type.lower() == "naive":
-        from customchain_naive import CustomLLMChain
+    if pipeline_type.lower() == "reasoning":
+        from customchain_reasoning import CustomLLMChain
 
         return CustomLLMChain
-    elif pipeline_type.lower() == "hybrid":
-        from customchain_hybrid import CustomLLMChain
-
-        return CustomLLMChain
-    elif pipeline_type.lower() == "hah":
-        from customchain_hah import CustomLLMChain
+    elif pipeline_type.lower() == "mini-reasoning":
+        from customchain_mini_reasoning import CustomLLMChain
 
         return CustomLLMChain
     else:
         raise ValueError(
-            f"Unknown pipeline type: {pipeline_type}. Supported types: Naive, Hybrid, HAH"
+            f"Unknown pipeline type: {pipeline_type}. Supported types: Reasoning, Mini-Reasoning"
         )
 
 
-class HAHRAGEvaluator:
-    def __init__(self, country_code: str = "FR", model_name: str = None):
-        """Initialize model and monitoring based on available hardware
+# CustomLLMChain will be set dynamically in main() after parsing command line arguments
+
+
+class O1RAGEvaluator:
+    def __init__(
+        self,
+        country_code: str = "FR",
+        model_name: str = None,
+        pipeline: str = "Reasoning",
+    ):
+        """Initialize model and monitoring based on available hardware for O1 reasoning chains
 
         Args:
             country_code: ISO country code for CO2 emissions calculation
             model_name: Specific model to use (overrides default selection)
+            pipeline: Pipeline type (Reasoning or Mini-Reasoning)
         """
         self.country_code = country_code
+        self.pipeline = pipeline
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # --use provided model or default based on hardware
+        # Use provided model or default based on hardware
         if model_name:
             self.model_name = model_name
         else:
@@ -76,7 +84,7 @@ class HAHRAGEvaluator:
                 else CPUModels.LLAMA32_3B_INSTRUCT
             )
 
-        # -- model manager to load/reuse model
+        # Use model manager to load/reuse model
         model_manager = get_model_manager()
         self.model, self.tokenizer = model_manager.load_model(
             self.model_name, self.country_code
@@ -89,16 +97,19 @@ class HAHRAGEvaluator:
             sampling_interval=1.0,  # Reduce frequency to avoid warnings
             country_code=self.country_code,
         )
-        self.resource_monitor_stopped = False
+        self.resource_monitor_stopped = (
+            False  # Flag to track if monitor has been stopped
+        )
         # -- cost evaluator
         self.cost_calculator = ResourceCost(sampling_interval=0.1)
 
-        # -- initialize dataset manager
+        # Initialize dataset manager
         self.dataset_manager = DatasetManager()
 
     def reset_resource_monitor(self):
         """Reset the resource monitor for a new evaluation."""
         try:
+            # Stop monitoring if it's running
             if not self.resource_monitor_stopped and hasattr(
                 self.resource_monitor, "stop_monitoring"
             ):
@@ -106,8 +117,10 @@ class HAHRAGEvaluator:
         except Exception as e:
             logger.warning(f"Error stopping resource monitor during reset: {e}")
 
+        # Reset the flag
         self.resource_monitor_stopped = False
 
+        # Create a new resource monitor instance
         self.resource_monitor = ResourceMonitor(
             sampling_interval=1.0,
             country_code=self.country_code,
@@ -225,7 +238,7 @@ class HAHRAGEvaluator:
     def evaluate_dataset(
         self, dataset: datasets.Dataset, dataset_name: str
     ) -> Tuple[Dict[str, float], float, Dict[str, float]]:
-        """Evaluate a single dataset with comprehensive metrics."""
+        """Evaluate a single dataset with comprehensive metrics for O1 reasoning chains."""
         # Reset resource monitor for this evaluation
         self.reset_resource_monitor()
 
@@ -240,7 +253,7 @@ class HAHRAGEvaluator:
             logger.warning(f"Error starting resource monitoring: {e}")
 
         try:
-            # Process QA pairs
+            # -- process QA pairs
             qa_pairs = []
             for idx in range(min(batch_size, len(dataset))):
                 question, answer = self.extract_qa_pair(idx, dataset, dataset_name)
@@ -253,7 +266,7 @@ class HAHRAGEvaluator:
 
             logger.info(f"Processing {len(qa_pairs)} QA pairs for {dataset_name}")
 
-            # Create chunks from combined texts
+            # -- create chunks from combined texts
             combined_texts = [f"{q} {a}" for q, a in qa_pairs]
             chunker = TextChunker(self.tokenizer, self.model)
 
@@ -263,32 +276,55 @@ class HAHRAGEvaluator:
                     chunker.chunker(text, method=ChunkingMethod.RECURSIVE_CHARACTER)
                 )
 
-            # Create embedding vectors and vector store
+            # -- create embedding vectors and vector store
             embedding_vectors = EmbeddingVectors(
                 self.tokenizer,
                 self.model,
                 create_new_vs=True,
                 existing_vector_store="",
-                new_vs_name=f"evaluation_store_{dataset_name}",
+                new_vs_name=f"evaluation_store_o1_{dataset_name}",
                 embedding_type="faiss",
                 embedding_model_name="sentence-transformers/all-MiniLM-L6-v2",
             )
 
-            # Create and save the index
+            # -- create and save the index
             embedding_vectors.create_and_save_index(chunks)
 
-            # Create the chain with the new vector store
+            # -- create the chain with the new vector store
+            # Get the appropriate CustomLLMChain class dynamically
+            CustomLLMChain = get_custom_chain_class(self.pipeline)
             chain = CustomLLMChain(
                 self.tokenizer,
                 self.model,
                 self.model_name,
-                f"faiss_evaluation_store_{dataset_name}",
+                f"faiss_evaluation_store_o1_{dataset_name}",
                 index_type="faiss",
                 embedding_model_name="sentence-transformers/all-MiniLM-L6-v2",
             )
 
+            # Initialize metrics dictionary with all expected metrics
+            # This ensures all metrics are saved even if not computed
             metrics = defaultdict(list)
-            progress_bar = tqdm(qa_pairs, desc="Evaluating QA pairs")
+            # Pre-initialize all expected metric lists to ensure they're in the output
+            expected_metrics = [
+                "ndcg",
+                "rouge1",
+                "rouge2",
+                "rougeL",
+                "fluency",
+                "coherence",
+                "relevance",
+                "factuality",
+                "correctness",
+                "hhem",
+                "Advance_HHEM",
+            ]
+            for metric in expected_metrics:
+                metrics[metric] = []  # Initialize empty list
+
+            progress_bar = tqdm(
+                qa_pairs, desc=f"Evaluating QA pairs with {self.pipeline}"
+            )
             for question, reference in progress_bar:
                 start_time = time()
                 response, context, eval_metrics = chain.ainvoke(question)
@@ -303,25 +339,70 @@ class HAHRAGEvaluator:
                 )
 
                 # -- extra metrics
-                extra_metrics = self.compute_metricx.evaluate_rag(
-                    retrieved_docs=context,
-                    generated_answer=response,
-                    relevant_docs=[reference],
-                    ground_truth=reference,
-                    embeddings_model=embedding_vectors.embedding_model,
-                )
+                try:
+                    extra_metrics = self.compute_metricx.evaluate_rag(
+                        retrieved_docs=context,
+                        generated_answer=response,
+                        relevant_docs=[reference],
+                        ground_truth=reference,
+                        embeddings_model=embedding_vectors.embedding_model,
+                    )
+                    # Ensure all expected metrics are present
+                    expected_metrics = [
+                        "ndcg",
+                        "rouge1",
+                        "rouge2",
+                        "rougeL",
+                        "fluency",
+                        "coherence",
+                        "relevance",
+                        "factuality",
+                        "correctness",
+                        "hhem",
+                        "Advance_HHEM",
+                    ]
+                    for metric in expected_metrics:
+                        if metric not in extra_metrics:
+                            extra_metrics[metric] = 0.0
+                except Exception as e:
+                    logger.warning(f"Error calculating extra metrics: {e}")
+                    # Provide default values for all expected metrics
+                    extra_metrics = {
+                        "ndcg": 0.0,
+                        "rouge1": 0.0,
+                        "rouge2": 0.0,
+                        "rougeL": 0.0,
+                        "fluency": 0.0,
+                        "coherence": 0.0,
+                        "relevance": 0.0,
+                        "factuality": 0.0,
+                        "correctness": 0.0,
+                        "hhem": 0.0,
+                        "Advance_HHEM": 0.0,
+                    }
 
-                metrics.update(extra_metrics)
+                # -- append extra metrics values to the lists (same as regular benchmarking)
+                for k, v in extra_metrics.items():
+                    metrics[k].append(v)
                 for k, v in eval_metrics.items():
                     metrics[k].append(v)
                 metrics["latency"].append(time() - start_time)
 
+                # -- O1-specific reasoning steps
+                o1_reasoning_steps = self._calculate_o1_reasoning_steps(
+                    question, response, context
+                )
+                metrics["o1_reasoning_steps"].append(o1_reasoning_steps)
+
                 avg_metrics = {
-                    k: np.mean(v) for k, v in metrics.items() if k != "latency"
+                    k: np.mean(v)
+                    for k, v in metrics.items()
+                    if k not in ["latency", "o1_reasoning_steps"]
                 }
                 progress_bar.set_postfix(
                     rouge1=f"{avg_metrics.get('rouge1', 0):.3f}",
                     ndcg=f"{avg_metrics.get('ndcg', 0):.3f}",
+                    o1_steps=f"{np.mean(metrics['o1_reasoning_steps']):.1f}",
                 )
 
         finally:
@@ -348,7 +429,6 @@ class HAHRAGEvaluator:
                     }
             except Exception as e:
                 logger.warning(f"Error stopping resource monitoring: {e}")
-                # Provide default resource metrics if monitoring fails
                 resource_metrics = {
                     "cpu_usage": 0.0,
                     "memory_usage": 0.0,
@@ -374,7 +454,6 @@ class HAHRAGEvaluator:
                 }
                 cost_per_query = 0.0
 
-            # Add cost metrics to resource metrics
             resource_metrics.update(
                 {
                     "cost_metrics": cost_metrics,
@@ -382,7 +461,7 @@ class HAHRAGEvaluator:
                 }
             )
 
-        # Save detailed evaluation data
+        # -- save detailed evaluation data
         self._save_detailed_results(
             metrics,
             resource_metrics,
@@ -390,10 +469,32 @@ class HAHRAGEvaluator:
         )
 
         # --compute average metrics
-        avg_metrics = {k: np.mean(v) for k, v in metrics.items() if k != "latency"}
+        avg_metrics = {
+            k: np.mean(v)
+            for k, v in metrics.items()
+            if k not in ["latency", "o1_reasoning_steps"]
+        }
         avg_latency = np.mean(metrics["latency"])
+        np.mean(metrics["o1_reasoning_steps"])
 
         return avg_metrics, avg_latency, resource_metrics
+
+    def _calculate_o1_reasoning_steps(
+        self, question: str, response: str, context: str
+    ) -> int:
+        """Calculate O1 reasoning steps based on question complexity and response length."""
+        question_words = len(question.split())
+        response_words = len(response.split())
+        context_words = len(context.split())
+
+        # -- more complex questions and longer responses indicate more reasoning steps
+        base_steps = 2
+        complexity_factor = min(question_words / 10, 3)  # Cap at 3
+        response_factor = min(response_words / 50, 2)  # Cap at 2
+        context_factor = min(context_words / 100, 1)  # Cap at 1
+
+        total_steps = base_steps + complexity_factor + response_factor + context_factor
+        return int(total_steps)
 
     def _save_detailed_results(
         self,
@@ -410,7 +511,86 @@ class HAHRAGEvaluator:
         """
         output_dir = os.path.join("evaluation_results", dataset_name)
         os.makedirs(output_dir, exist_ok=True)
-        metrics_df = pd.DataFrame(metrics)
+        logger.info(f"Metrics lengths: {[(k, len(v)) for k, v in metrics.items()]}")
+
+        # Ensure all expected metrics are present (even if empty)
+        expected_metrics = [
+            "ndcg",
+            "rouge1",
+            "rouge2",
+            "rougeL",
+            "fluency",
+            "coherence",
+            "relevance",
+            "factuality",
+            "correctness",
+            "hhem",
+            "Advance_HHEM",
+            "latency",
+            "o1_reasoning_steps",
+        ]
+        for metric in expected_metrics:
+            if metric not in metrics or not isinstance(metrics[metric], list):
+                metrics[metric] = []
+
+        # -- ensure all arrays have the same length
+        if metrics:
+            has_data = any(isinstance(v, list) and len(v) > 0 for v in metrics.values())
+            if has_data:
+                max_length = max(
+                    len(v) for v in metrics.values() if isinstance(v, list)
+                )
+            else:
+                max_length = 0
+            if max_length > 0:
+                for k, v in metrics.items():
+                    if isinstance(v, list) and len(v) != max_length:
+                        logger.warning(f"Padding {k} from {len(v)} to {max_length}")
+                        if k in [
+                            "fluency",
+                            "coherence",
+                            "relevance",
+                            "factuality",
+                            "correctness",
+                            "hhem",
+                            "Advance_HHEM",
+                        ]:
+                            padding_value = 0.0  # These are typically 0-1 scores
+                        elif k in ["ndcg", "rouge1", "rouge2", "rougeL"]:
+                            padding_value = 0.0
+                        elif k == "latency":
+                            padding_value = 0.0
+                        elif k == "o1_reasoning_steps":
+                            padding_value = 1
+                        else:
+                            padding_value = 0.0
+
+                        metrics[k] = v + [padding_value] * (max_length - len(v))
+
+        # Create DataFrame ensuring all expected columns are included
+        # Order columns to match expected format (same as Naive/Hybrid/HAH)
+        column_order = [
+            "ndcg",
+            "rouge1",
+            "rouge2",
+            "rougeL",
+            "fluency",
+            "coherence",
+            "relevance",
+            "factuality",
+            "correctness",
+            "hhem",
+            "Advance_HHEM",
+            "latency",
+            "o1_reasoning_steps",
+        ]
+        # Filter to only include columns that exist in metrics
+        available_columns = [col for col in column_order if col in metrics]
+        # Add any other columns that might exist
+        other_columns = [col for col in metrics.keys() if col not in available_columns]
+        final_columns = available_columns + other_columns
+
+        metrics_df = pd.DataFrame({k: metrics[k] for k in final_columns})
         metrics_df.to_csv(
             os.path.join(output_dir, f"{pipeline}_metrics_over_time.csv"),
             index=False,
@@ -423,15 +603,17 @@ class HAHRAGEvaluator:
 
 
 def main():
-    """Main benchmarking function."""
+    """Main O1 benchmarking function."""
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Benchmark RAG pipelines")
+    parser = argparse.ArgumentParser(
+        description="Benchmark RAG pipelines with O1 reasoning chains"
+    )
     parser.add_argument(
         "--pipeline",
         type=str,
-        default="Naive",
-        choices=["Naive", "Hybrid", "HAH"],
-        help="Pipeline type to benchmark (default: Naive)",
+        default="Reasoning",
+        choices=["Reasoning", "Mini-Reasoning"],
+        help="Pipeline type to benchmark (default: Reasoning)",
     )
     parser.add_argument(
         "--country-code",
@@ -453,20 +635,24 @@ def main():
 
     args = parser.parse_args()
 
+    # Update global pipeline variable
     global pipeline
     pipeline = args.pipeline
 
+    # Re-import the appropriate CustomLLMChain class
     global CustomLLMChain
     CustomLLMChain = get_custom_chain_class(pipeline)
 
-    logger.info(f"Using pipeline: {pipeline}")
+    logger.info(f"Using O1 pipeline: {pipeline}")
 
     try:
         country_code = args.country_code
         model_name = args.model
         output_base_dir = args.output_dir
 
-        evaluator = HAHRAGEvaluator(country_code=country_code, model_name=model_name)
+        evaluator = O1RAGEvaluator(
+            country_code=country_code, model_name=model_name, pipeline=pipeline
+        )
         datasets_dict = evaluator.load_datasets()
 
         all_metrics = {}
@@ -479,7 +665,7 @@ def main():
         # --
         for dataset_name, dataset in datasets_dict.items():
             logger.info(f"\n{'*' * 50}")
-            logger.info(f"Evaluating {dataset_name}...")
+            logger.info(f"Evaluating {dataset_name} with {pipeline}...")
             logger.info(f"{'*' * 50}")
             metrics, latency, res_metrics = evaluator.evaluate_dataset(
                 dataset, dataset_name
@@ -495,6 +681,7 @@ def main():
             summary_data.append(
                 {
                     "dataset": dataset_name,
+                    "pipeline": pipeline,
                     "latency": latency,
                     **metrics,
                     **{

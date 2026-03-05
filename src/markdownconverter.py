@@ -1119,7 +1119,7 @@ class PDFToMarkdownConverter:
                 text = text_box.get_text().strip()
                 if text:
                     return self._detect_header_by_pattern(text, 12.0)
-            except:
+            except Exception:
                 pass
             return 0
 
@@ -1837,7 +1837,6 @@ class PDFToMarkdownConverter:
         for item in self.document_structure:
             page_num = item["page"]
             content = item["content"]
-            original_text = item.get("original_text", content)
             subtype = item.get("subtype", "unknown")
             hierarchy = item.get("hierarchy", "")
             original_hierarchy = item.get("original_hierarchy", "")

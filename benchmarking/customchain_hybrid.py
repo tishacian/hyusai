@@ -1,31 +1,43 @@
-import asyncio
-import logging
-import os
-import pickle
-import sys
-import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import lru_cache
-
-import faiss
-import numpy as np
 import torch
+import os
+import faiss
+import pickle
 import weaviate
+import numpy as np
 from langchain_community.vectorstores import Chroma
-from sentence_transformers import SentenceTransformer
-from torch import autocast
 
-from src.chunker import BM25Retriever, cache_chunker_embedding_chain
-from src.globalvariables import VECTOR_STORE_PATH, IndexType
-from src.metrics import Evaluatrix
+# --
+import warnings
+import asyncio
+
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs
 from src.utils import format_llm_response
 
 if torch.cuda.is_available():
-    from vllm import SamplingParams
+    try:
+        from vllm import SamplingParams
+    except ImportError:
+        SamplingParams = None
+from functools import lru_cache
+from sentence_transformers import SentenceTransformer
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
+# --
+import sys
+import logging
+from src.globalvariables import VECTOR_STORE_PATH
+from src.chunker import cache_chunker_embedding_chain, BM25Retriever
+
+# --
+from torch import autocast
+from src.globalvariables import IndexType
+
+# -- Model evaluation
+from src.metrics import Evaluatrix
+
+# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -68,7 +80,7 @@ class CustomLLMChain:
         self.model_name = model_name
         self.vector_store_name = vector_store_name
         self.device = torch.device(
-            "cuda:0"
+            "cuda"
             if torch.cuda.is_available()
             else "mps"
             if torch.backends.mps.is_available()
@@ -117,9 +129,6 @@ class CustomLLMChain:
         self.load_index()
 
         # -- CoT Template
-        # NOTE: Whitespace and indentation below are intentional and should not be modified.
-        # The LLM relies on the formatting to better understand the prompt structure.
-        # fmt: off
         self.template = """[INST] You are an AI assistant specialized in providing precise and detailed information. Focus on important information that directly addresses the main topic or question.
                             Include relevant details that provide context or support your points.
                             Ensure the information is engaging by highlighting unique accuracy, precision, completeness, conciseness, clarity, relevance, 
@@ -131,7 +140,6 @@ class CustomLLMChain:
                             Question: {question}
                             
                             Answer: [/INST]"""
-        # fmt: on
 
     def load_index(self):
         # -- load BM25 retriever first
@@ -277,7 +285,7 @@ class CustomLLMChain:
         """
         Get the number of available devices (GPUs or CPU cores).
         """
-        if self.device == "cuda:0":
+        if self.device == "cuda":
             return torch.cuda.device_count()
         else:
             return torch.get_num_threads()
@@ -295,7 +303,7 @@ class CustomLLMChain:
 
         Parameters:
             - tensor: The tensor to transfer.
-            - device: The target device (e.g., "cuda:0" or "cpu").
+            - device: The target device (e.g., "cuda" or "cpu").
 
         Returns:
             - The tensor on the target device, reassembled from the chunks.
@@ -328,7 +336,7 @@ class CustomLLMChain:
         return torch.cat(device_chunks, dim=1)
 
     async def generate_text(
-        self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=10
+        self, prompt, temperature=0.1, max_length=None, top_p=0.95, top_k=10
     ):
         """
         Generate text from the model with chunked input transfer using ThreadPoolExecutor.
@@ -342,7 +350,9 @@ class CustomLLMChain:
             - The generated text.
         """
         max_new_tokens = (
-            self.tokenizer.max_len_single_sentence if max_length is None else max_length
+            min(self.tokenizer.max_len_single_sentence, 2048)
+            if max_length is None
+            else max_length
         )
         inputs = self.tokenizer(
             prompt,
@@ -358,13 +368,19 @@ class CustomLLMChain:
         Sometimes, the model returns empty strings 
         """
         # -- choose whether to use mixed precision based on the device
-        use_mixed_precision = True if self.device.type == "cuda:0" else False
+        use_mixed_precision = True if self.device.type == "cuda" else False
         if torch.cuda.is_available():
+            # Ensure parameters are within valid ranges for vLLM
+            safe_temperature = max(0.01, min(temperature, 2.0))
+            safe_top_p = max(0.0, min(top_p, 1.0))
+            safe_top_k = max(1, min(top_k, 100))
+            safe_max_tokens = max(1, min(max_new_tokens, 4096))
+
             sampling_params = SamplingParams(
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                max_tokens=max_new_tokens,
+                temperature=safe_temperature,
+                top_p=safe_top_p,
+                top_k=safe_top_k,
+                max_tokens=safe_max_tokens,
                 stop=[
                     "[INST]",
                     "[/INST]",
@@ -382,16 +398,19 @@ class CustomLLMChain:
                 else torch.no_grad()
             ):
                 try:
+                    # llama-cpp-python uses different parameter names
                     outputs = self.model.generate(
                         inputs_on_device,
-                        max_new_tokens=max_new_tokens,
+                        max_tokens=max_new_tokens,  # Changed from max_new_tokens
                         temperature=temperature,
-                        num_return_sequences=1,
-                        do_sample=True,
                         top_p=top_p,
                         top_k=top_k,
-                        repetition_penalty=1.0,
-                        pad_token_id=self.tokenizer.pad_token_id,
+                        repeat_penalty=1.0,  # Changed from repetition_penalty
+                        stop=[
+                            "[INST]",
+                            "[/INST]",
+                            "<|assistant|>",
+                        ],  # Added stop tokens
                     )
                     text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
                 except (IndexError, ValueError, RuntimeError, KeyError) as e:

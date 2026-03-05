@@ -1,32 +1,43 @@
-import asyncio
-import logging
-import os
-import pickle
-import re
-import sys
-import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import lru_cache
-
-import faiss
-import numpy as np
 import torch
+import re
+import faiss
+import pickle
 import weaviate
+import numpy as np
 from langchain_community.vectorstores import Chroma
-from sentence_transformers import SentenceTransformer
-from torch import autocast
 
-from src.chunker import BM25Retriever, cache_chunker_embedding_chain
-from src.globalvariables import VECTOR_STORE_PATH, IndexType
-from src.metrics import Evaluatrix
+# --
+import warnings
+import asyncio
+
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SystemPromptLangs
 from src.utils import format_llm_response
 
 if torch.cuda.is_available():
-    from vllm import SamplingParams
+    try:
+        from vllm import SamplingParams
+    except ImportError:
+        SamplingParams = None
+from functools import lru_cache
+from sentence_transformers import SentenceTransformer
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
+# --
+import sys
+import logging
+from src.globalvariables import VECTOR_STORE_PATH
+from src.chunker import cache_chunker_embedding_chain, BM25Retriever
+
+# --
+from torch import autocast
+from src.globalvariables import IndexType
+
+# -- Model evaluation
+from src.metrics import Evaluatrix
+
+# --
 logging.basicConfig(
     stream=sys.stdout,
     level=logging.INFO,
@@ -148,9 +159,6 @@ class CustomLLMChain:
         self.load_index()
 
         # -- CoT Template
-        # NOTE: Whitespace and indentation below are intentional and should not be modified.
-        # The LLM relies on the formatting to better understand the prompt structure.
-        # fmt: off
         self.template = """[INST] You are an AI assistant specialized in providing precise and detailed information. 
                           Focus exclusively on information directly supported by the given context.
                           Important Guidelines:
@@ -165,7 +173,6 @@ class CustomLLMChain:
                           Question: {question}
                           
                           Provide a focused answer that directly addresses the question using only the information from the context: [/INST]"""
-        # fmt: on
 
     async def analyze_query_complexity(self, question):
         """Analyze query complexity to determine optimal retrieval parameters
@@ -173,7 +180,7 @@ class CustomLLMChain:
         Returns:
             tuple: (k_value, lambda_param) based on query complexity
         """
-        query_embedding = await self.create_embeddings_async([question])
+        await self.create_embeddings_async([question])
         has_multiple_questions = len(re.findall(r"\?", question)) > 1
         word_count = len(question.split())
 
@@ -207,21 +214,31 @@ class CustomLLMChain:
     def load_index(self):
         # -- load BM25 retriever first
         vector_store_path = VECTOR_STORE_PATH / self.vector_store_name
-        self.bm25_retriever = BM25Retriever.load_bm25(
-            vector_store_path / "bm25_retriever.pkl"
-        )
+        bm25_file = vector_store_path / "bm25_retriever.pkl"
+
+        if bm25_file.exists():
+            self.bm25_retriever = BM25Retriever.load_bm25(bm25_file)
+            logging.info("BM25 retriever loaded successfully.")
+        else:
+            logging.warning(
+                "BM25 retriever file not found. Will be created when needed."
+            )
+            self.bm25_retriever = None
         if self.index_type == IndexType.FAISS:
-            if os.path.exists(
-                str(vector_store_path / "faiss.index")
-            ) and os.path.exists(str(vector_store_path / "faiss.pkl")):
-                self.index = faiss.read_index(str(vector_store_path / "faiss.index"))
-                with open(str(vector_store_path / "faiss.pkl"), "rb") as f:
+            faiss_index_file = vector_store_path / "faiss.index"
+            faiss_texts_file = vector_store_path / "faiss.pkl"
+
+            if faiss_index_file.exists() and faiss_texts_file.exists():
+                self.index = faiss.read_index(str(faiss_index_file))
+                with open(str(faiss_texts_file), "rb") as f:
                     self.texts = pickle.load(f)
                 logging.info("FAISS index and texts loaded successfully.")
             else:
-                raise FileNotFoundError(
-                    "🚩 FAISS index or texts file not found. Please create an index first."
+                logging.warning(
+                    "FAISS index or texts file not found. Will be created when needed."
                 )
+                self.index = None
+                self.texts = None
         elif self.index_type == IndexType.CHROMA:
             self.vectorstore = Chroma(
                 persist_directory=str(vector_store_path),
@@ -399,7 +416,7 @@ class CustomLLMChain:
         return torch.cat(device_chunks, dim=1)
 
     async def generate_text(
-        self, prompt, temperature=1e-12, max_length=None, top_p=0.95, top_k=10
+        self, prompt, temperature=0.1, max_length=None, top_p=0.95, top_k=10
     ):
         """
         Generate text from the model with chunked input transfer using ThreadPoolExecutor.
@@ -413,7 +430,9 @@ class CustomLLMChain:
             - The generated text.
         """
         max_new_tokens = (
-            self.tokenizer.max_len_single_sentence if max_length is None else max_length
+            min(self.tokenizer.max_len_single_sentence, 2048)
+            if max_length is None
+            else max_length
         )
         inputs = self.tokenizer(
             prompt,
@@ -431,11 +450,17 @@ class CustomLLMChain:
         # -- choose whether to use mixed precision based on the device
         use_mixed_precision = True if self.device.type == "cuda:0" else False
         if torch.cuda.is_available():
+            # Ensure temperature is within valid range for vLLM
+            safe_temperature = max(0.01, min(temperature, 2.0))
+            safe_top_p = max(0.0, min(top_p, 1.0))
+            safe_top_k = max(1, min(top_k, 100))
+            safe_max_tokens = max(1, min(max_new_tokens, 4096))
+
             sampling_params = SamplingParams(
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                max_tokens=max_new_tokens,
+                temperature=safe_temperature,
+                top_p=safe_top_p,
+                top_k=safe_top_k,
+                max_tokens=safe_max_tokens,
                 stop=[
                     "[INST]",
                     "[/INST]",
@@ -453,16 +478,19 @@ class CustomLLMChain:
                 else torch.no_grad()
             ):
                 try:
+                    # llama-cpp-python uses different parameter names
                     outputs = self.model.generate(
                         inputs_on_device,
-                        max_new_tokens=max_new_tokens,
+                        max_tokens=max_new_tokens,  # Changed from max_new_tokens
                         temperature=temperature,
-                        num_return_sequences=1,
-                        do_sample=True,
                         top_p=top_p,
                         top_k=top_k,
-                        repetition_penalty=1.0,
-                        pad_token_id=self.tokenizer.pad_token_id,
+                        repeat_penalty=1.0,  # Changed from repetition_penalty
+                        stop=[
+                            "[INST]",
+                            "[/INST]",
+                            "<|assistant|>",
+                        ],  # Added stop tokens
                     )
                     text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
                 except (IndexError, ValueError, RuntimeError, KeyError) as e:
