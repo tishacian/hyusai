@@ -1,10 +1,7 @@
 from typing import overload
 
 from connections.celery.status import CeleryStatuses, CeleryStatusesFinal
-from connections.payload_models.core.celery_task_progress import (
-    CoreStatuses,
-    CoreStatusesFinal,
-)
+from connections.models.core.celery_task_progress import CoreStatuses, CoreStatusesFinal
 
 CELERY_STATUSES_TO_CORE_STATUSES: dict[CeleryStatuses, CoreStatuses] = {
     "PENDING": "waiting",

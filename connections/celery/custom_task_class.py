@@ -8,7 +8,7 @@ from logging_utils.requests import request
 from configurations import Config
 from connections.celery.status import CeleryStatuses
 from connections.celery.utils import full_logs_for_task, translate_status_for_core
-from connections.payload_models.core.celery_task_progress import (
+from connections.models.core.celery_task_progress import (
     CeleryTaskProgressToCore,
 )
 
