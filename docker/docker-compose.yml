@@ -108,7 +108,7 @@ services:
       init:
         condition: service_completed_successfully
     deploy:
-      replicas: 2
+      replicas: 1
   # celery-gpu:
   #   build:
   #     context: ..

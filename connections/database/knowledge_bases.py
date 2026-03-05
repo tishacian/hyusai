@@ -2,18 +2,12 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 import sqlalchemy
-from sqlalchemy import JSON, Integer, String, Text, func
+from sqlalchemy import JSON, String, Text, func
 from sqlalchemy import DateTime as SQLADateTime
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from connections.database.base import Base
 from connections.database.utils import session_manager_decorator
-from connections.models.flow_operations.create_vector_store.components.chunking_params import (
-    ChunkingParams,
-)
-from connections.models.flow_operations.create_vector_store.components.embedding_params import (
-    EmbeddingParams,
-)
 
 
 class KnowledgeBases(Base):
@@ -37,10 +31,6 @@ class KnowledgeBases(Base):
     created_by: Mapped[str] = mapped_column(String(255), nullable=False)
     document_names: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     is_embedded: Mapped[bool] = mapped_column(nullable=False, default=False)
-    # only set by create_vector_store task
-    chunking_params: Mapped[dict] = mapped_column(JSON, nullable=True)
-    embedding_params: Mapped[dict] = mapped_column(JSON, nullable=True)
-    embedding_dimension: Mapped[int] = mapped_column(Integer, nullable=True)
 
     @classmethod
     @session_manager_decorator
@@ -94,27 +84,3 @@ class KnowledgeBases(Base):
             return False
         session.delete(kb)
         return True
-
-    @classmethod
-    @session_manager_decorator
-    def set_embedding_info(
-        cls,
-        uuid: UUID,
-        chunking_params: ChunkingParams,
-        embedding_params: EmbeddingParams,
-        embedding_dimension: int,
-        *,
-        session: Session = None,
-    ) -> None:
-        """Update the embedding information of a knowledge base."""
-        stmt = (
-            sqlalchemy.update(cls)
-            .where(cls.uuid == str(uuid))
-            .values(
-                is_embedded=True,
-                chunking_params=chunking_params.model_dump(),
-                embedding_params=embedding_params.model_dump(),
-                embedding_dimension=embedding_dimension,
-            )
-        )
-        session.execute(stmt)

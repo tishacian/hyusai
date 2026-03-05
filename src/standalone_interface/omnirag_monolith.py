@@ -11,9 +11,7 @@ import torch
 from configurations import Config
 from connections.database.chats import Chats
 from connections.database.users import Users
-from connections.payload_models.flow_operations.ingest_documents import (
-    IngestDocumentsPayload,
-)
+from connections.models.flow_operations import IngestDocumentsPayload
 from connections.storage import fs
 from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
