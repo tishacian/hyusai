@@ -23,7 +23,6 @@ unstructured[all-docs]  # document loaders
 docx2txt
 pymupdf==1.26.5
 pdfminer.six
-fitz                    # image extraction/compression
 
 # metadata extraction
 PyPDF2>=2.0.0           # PDF documents

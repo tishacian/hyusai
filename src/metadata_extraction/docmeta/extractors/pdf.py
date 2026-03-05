@@ -8,12 +8,10 @@ Includes token counting using tiktoken for LLM context estimation.
 import logging
 from typing import Any
 
-import fitz  # PyMuPDF
+import fitz  # 'fitz' module is provided by pymupdf, do not install 'fitz' separately
 from PyPDF2 import PdfReader
 
-from docmeta.core.defaults import (
-    create_pdf_metadata,  # create_pdf_metadata returns dict[str, Any]
-)
+from docmeta.core.defaults import create_pdf_metadata
 from docmeta.utils.text_processing import parse_keywords  # Keep for embedded keywords
 
 # Configure logger

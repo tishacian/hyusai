@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import fitz
+import fitz  # 'fitz' module is provided by pymupdf, do not install 'fitz' separately
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTFigure, LTImage
 from PIL import Image
