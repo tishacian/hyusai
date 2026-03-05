@@ -13,7 +13,7 @@ import torch
 from configurations import Config
 from connections.database.chats import Chats
 from connections.database.users import Users
-from connections.payload_models.flow_operations.ingest_documents import (
+from connections.models.flow_operations.ingest_documents import (
     IngestDocumentsPayload,
 )
 from connections.storage import fs
