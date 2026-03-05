@@ -1837,7 +1837,6 @@ class PDFToMarkdownConverter:
         for item in self.document_structure:
             page_num = item["page"]
             content = item["content"]
-            item.get("original_text", content)
             subtype = item.get("subtype", "unknown")
             hierarchy = item.get("hierarchy", "")
             original_hierarchy = item.get("original_hierarchy", "")
