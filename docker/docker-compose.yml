@@ -4,6 +4,7 @@ volumes:
   minio_data:
   models:
   assets:
+  rabbitmq_data:
 services:
   # -----------------------
   # Infrastructure services
@@ -14,6 +15,8 @@ services:
     ports:
       - "5672:5672" # AMQP
       - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmqctl", "status"]
       interval: 10s
