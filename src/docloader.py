@@ -2,7 +2,8 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from tempfile import NamedTemporaryFile
+from pathlib import Path
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from langchain_community.document_loaders import (
     CSVLoader,
@@ -273,7 +274,8 @@ class PDFMarkdownLoader:
         if self.target_dir:
             os.makedirs(self.target_dir, exist_ok=True)
             return self.target_dir
-        return os.getcwd()
+        else:
+            raise ValueError("Target directory must be specified.")
 
     def _read_markdown_file(self, markdown_path: str) -> str:
         """Read the generated markdown content from file.
@@ -477,15 +479,15 @@ LOADER_MAPPING = {
 }
 
 
-def loadSingleDocument(file_path: str, target_dir: str | None = None) -> str:
+def loadSingleDocument(file_path: str, target_dir: str) -> str:
     """Load a single document from file.
 
     Parameters
     ----------
     file_path : str
         Path to the file to load.
-    target_dir : str, optional
-        Target directory for output files.
+    target_dir : str
+        Target directory for the output .txt file.
 
     Raises
     ------
@@ -498,29 +500,28 @@ def loadSingleDocument(file_path: str, target_dir: str | None = None) -> str:
         Document content as string.
     """
     # Handle files in remote storage by downloading to a temp file
-    file_extension = os.path.splitext(file_path)[1].lower()
+    file_extension = Path(file_path).suffix.lower()
     if file_extension not in LOADER_MAPPING:
         raise ValueError(f"Unsupported file extension '{file_extension}'")
 
     loader_class, loader_args = LOADER_MAPPING[file_extension]
 
-    if file_extension == ".pdf" and target_dir:
-        loader_args["target_dir"] = target_dir
-
     with NamedTemporaryFile(suffix=file_extension) as tmp_file:
         with fs.open_for_reading(file_path) as f:
             tmp_file.write(f.read())
             tmp_file.flush()
-            local_file_path = tmp_file.name
-        try:
-            loader = loader_class(local_file_path, **loader_args)
-            result = loader.load()
-        except FileNotFoundError:
-            logger.error(f"File not found: {file_path}", exc_info=True)
-            result = []
-        except Exception:
-            logger.error(f"Error loading file: {file_path}", exc_info=True)
-            result = []
+        with TemporaryDirectory() as temp_dir:
+            if loader_class is PDFMarkdownLoader:
+                loader_args["target_dir"] = temp_dir
+            try:
+                loader = loader_class(tmp_file.name, **loader_args)
+                result = loader.load()
+            except FileNotFoundError:
+                logger.error(f"File not found: {file_path}", exc_info=True)
+                result = []
+            except Exception:
+                logger.error(f"Error loading file: {file_path}", exc_info=True)
+                result = []
 
     page_content = [
         doc.page_content
@@ -529,19 +530,16 @@ def loadSingleDocument(file_path: str, target_dir: str | None = None) -> str:
     ]
     result_str = "\n".join(page_content) if page_content else ""
 
-    basename, extension = os.path.splitext(os.path.basename(file_path))
-    ingested_filename = f"{basename}_{extension.lstrip('.')}.txt"
-    folder_path = os.path.dirname(file_path).replace("/uploaded", "/ingested")
-    ingested_path = os.path.join(folder_path, ingested_filename)
-    fs.write_to_file(ingested_path, result_str)
-
+    p = Path(file_path)
+    ingested_filepath = fs.joinpath(target_dir, f"{p.stem}_{p.suffix.lstrip('.')}.txt")
+    fs.write_to_file(ingested_filepath, result_str)
     return result_str
 
 
 def ThreadMultiDocLoader(
     file_paths: list[str],
+    target_dir: str,
     ignored_files: list[str] | None = None,
-    target_dir: str | None = None,
 ) -> str:
     """Load multiple documents using threaded execution.
 
@@ -549,10 +547,10 @@ def ThreadMultiDocLoader(
     ----------
     file_paths : list[str]
         List of file paths to load.
+    target_dir : str
+        Target directory for the output .txt files.
     ignored_files : list[str], optional
         List of files to ignore, by default None.
-    target_dir : str, optional
-        Target directory for output files, by default None.
 
     Returns
     -------

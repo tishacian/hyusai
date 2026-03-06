@@ -1,36 +1,38 @@
 import logging
-import os
 import time
 import uuid
 from io import BytesIO
 from typing import Iterator
+from uuid import UUID
 
 import pandas as pd
 import requests
 import streamlit as st
 import torch
+from pydantic import ValidationError
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 from configurations import Config
 from connections.database.chats import Chats
+from connections.database.knowledge_bases import KnowledgeBases
 from connections.database.users import Users
 from connections.models.flow_operations.ingest_documents import (
     IngestDocumentsPayload,
 )
-from connections.storage import fs
-from src.chunker import TextChunker
+from connections.models.flow_operations.ingest_documents.response import (
+    IngestDocumentsResponse,
+)
+from connections.storage import BUCKET_FOLDER, WORKSPACE_UUID, fs
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
 from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
 from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
-from src.docloader import LOADER_MAPPING, ThreadMultiDocLoader
-from src.embedding import EmbeddingVectors
+from src.docloader import LOADER_MAPPING
 from src.globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
-    EMBEDDING_NAME,
     GPU_MODEL_SET,
     HELP,
     REPO_PATH,
-    VECTOR_STORE_PATH,
     ChunkingMethod,
     IndexType,
     PipelineType,
@@ -68,6 +70,68 @@ def device_default_model():
         if torch.cuda.is_available()
         else DEFAULT_CPU_MODEL
     )
+
+
+def save_button_action(
+    new_vs_name: str,
+    uploaded_files: list[UploadedFile],
+    chunking_method: str,
+    existing_vector_store: UUID | None,
+    index_type: str,
+    model_name: str,
+):
+    if new_vs_name == "":
+        st.error("Please enter a name for the new knowledge base.")
+        st.stop()
+    if not uploaded_files:
+        st.error("Please upload at least one file before proceeding.")
+        st.stop()
+    # save file to filesystem to mimic papai bucket input
+    input_bucket_uuid = uuid.uuid4()
+    input_bucket_path = fs.joinpath(
+        WORKSPACE_UUID, BUCKET_FOLDER, str(input_bucket_uuid)
+    )
+    for uploaded_file in uploaded_files:
+        path = fs.joinpath(input_bucket_path, uploaded_file.name)
+        fs.write_to_file(path, uploaded_file)
+    # send to ingestion endpoint
+    ingest_docs_payload = IngestDocumentsPayload(
+        input_documents_bucket=input_bucket_uuid,
+        knowledge_base_name=new_vs_name,
+        knowledge_base_creator=st.session_state.get("username", "guest"),
+    )
+    ingest_docs_url = (
+        f"{Config.get().fastapi_client.url}/flow_operations/ingest_documents"
+    )
+    try:
+        response = requests.post(
+            ingest_docs_url,
+            json=ingest_docs_payload.model_dump(mode="json"),
+        )
+        response.raise_for_status()
+        ingest_docs_validated_response = IngestDocumentsResponse(**response.json())
+    except requests.RequestException as e:
+        logger.error(
+            f"Document ingestion request failed: {e}. "
+            f"URL: {ingest_docs_url} "
+            f"Payload: {ingest_docs_payload.model_dump(mode='json')}",
+            exc_info=True,
+        )
+        st.error(
+            "Failed to send document ingestion request. "
+            "Please check your connection or service status."
+        )
+        st.stop()
+    except ValidationError as e:
+        logger.error(
+            f"Document ingestion service returned an unexpected response: {e}. "
+            f"Response content: {response.text}",
+            exc_info=True,
+        )
+        st.error(
+            "Document ingestion service returned invalid data. Please contact support."
+        )
+        st.stop()
 
 
 def omnirag_page():
@@ -154,8 +218,6 @@ def omnirag_page():
         st.session_state.chat_history = []
     if "current_chat_id" not in st.session_state:
         st.session_state.current_chat_id = None
-    if "embedding_index" not in st.session_state:
-        st.session_state.embedding_index = None
     if "display_history" not in st.session_state:
         st.session_state.display_history = False
     if "chain" not in st.session_state:
@@ -260,22 +322,22 @@ def omnirag_page():
 
                 row_be = st.columns(4)
                 with row_be[0]:
-                    vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
-                    vector_store_list = [
-                        file
-                        for file in vector_store_list
-                        if not file.startswith((".", "BM25"))
-                    ]
-                    current_vector_store = st.session_state.get("vector_store", "<New>")
-                    if current_vector_store not in vector_store_list:
-                        current_vector_store = "<New>"
+                    available_kbs = KnowledgeBases.get_all(only_embedded=True)
+                    labels_by_uuid = {
+                        kb.uuid: f"{kb.name} ({humanize_datetime(kb.created_at)})"
+                        for kb in available_kbs
+                    }
+                    labels_by_uuid = {None: "<New>"} | labels_by_uuid
+                    uuids = list(labels_by_uuid.keys())
+                    current_vector_store = st.session_state.get("vector_store", None)
+                    if current_vector_store not in labels_by_uuid:
+                        current_vector_store = None
 
                     existing_vector_store = st.selectbox(
                         "Select a document database",
-                        vector_store_list,
-                        index=vector_store_list.index(
-                            current_vector_store
-                        ),  # This will now be safe
+                        options=uuids,
+                        index=uuids.index(current_vector_store),
+                        format_func=lambda uuid: labels_by_uuid[uuid],
                         help="Which vector store to add the new documents. Choose <New> to create a new vector store.",
                     )
 
@@ -315,79 +377,14 @@ def omnirag_page():
                     )
                 # --
                 if save_button:
-                    # Check whether to create new vector store --> Checking params
-                    create_new_vs = None
-                    if existing_vector_store == "<New>" and new_vs_name != "":
-                        # -- Create new embedding..
-                        create_new_vs = True
-                    elif existing_vector_store != "<New>" and new_vs_name != "":
-                        # -- Use existing embedding..
-                        create_new_vs = False
-                    else:
-                        st.error(
-                            "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
-                        )
-                    # -- check for uploaded document
-                    if not uploaded_files:
-                        st.error("No document uploaded...")
-                        st.stop()
-                    knowledge_base_uuid = uuid.uuid4()
-                    uploaded_folder = fs.joinpath(
-                        "knowledge-bases", str(knowledge_base_uuid), "uploaded"
+                    save_button_action(
+                        new_vs_name=new_vs_name,
+                        uploaded_files=uploaded_files,
+                        chunking_method=chunking_method,
+                        existing_vector_store=existing_vector_store,
+                        index_type=index_type,
+                        model_name=model_name,
                     )
-                    for uploaded_file in uploaded_files:
-                        path = os.path.join(uploaded_folder, uploaded_file.name)
-                        fs.write_to_file(path, uploaded_file)
-                    # send to ingestion service
-                    payload = IngestDocumentsPayload(
-                        knowledge_base_uuid=knowledge_base_uuid
-                    )
-                    try:
-                        response = requests.post(
-                            f"{Config.get().fastapi_client.url}/flow_operations/ingest_documents",
-                            json=payload.model_dump(mode="json"),
-                        )
-                    except requests.exceptions.RequestException as e:
-                        logger.debug(f"Document ingestion error: {e}", exc_info=True)
-                        st.error("Document ingestion service is unavailable.")
-                        st.stop()
-
-                    file_paths = fs.list_files(uploaded_folder)
-                    documents = ThreadMultiDocLoader(file_paths)
-                    text_chunker = TextChunker(
-                        st.session_state.tokenizer, st.session_state.model
-                    )
-                    chunks = text_chunker.chunker(documents, method=chunking_method)
-
-                    if not chunks or len(chunks) == 0:
-                        st.error(
-                            "Document chunking produced no results. The document may be empty or unprocessable."
-                        )
-                        st.stop()
-
-                    embedding_vector = EmbeddingVectors(
-                        st.session_state.tokenizer,
-                        st.session_state.model,
-                        create_new_vs,
-                        existing_vector_store,
-                        new_vs_name,
-                        embedding_model_name=EMBEDDING_NAME,
-                        embedding_type=index_type,
-                    )
-                    st.session_state.embedding_index = (
-                        embedding_vector.create_and_save_index(chunks)
-                    )
-                    st.success("PDF processed and embedding index created!")
-                    st.session_state.model_name = model_name
-                    st.session_state.chunking_method = chunking_method
-                    st.session_state.index_type = index_type
-                    st.session_state.vector_store = (
-                        existing_vector_store
-                        if existing_vector_store != "<New>"
-                        else new_vs_name
-                    )
-                    st.session_state.new_vs_name = new_vs_name
-                    st.rerun()
                 if custom_chain_button:
                     RaggerChain = (
                         CHAHCustomLLMChain
