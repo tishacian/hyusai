@@ -51,7 +51,7 @@ class PDFMarkdownLoader:
     def __init__(
         self,
         file_path: str,
-        target_dir: str | None = None,
+        target_dir: str,
         **kwargs,
     ) -> None:
         """Initialize PDF Markdown loader with configuration-based processing.
@@ -60,9 +60,8 @@ class PDFMarkdownLoader:
         ----------
         file_path : str
             Path to the PDF file.
-        target_dir : str, optional
-            Target directory for output files. If None, uses current
-            working directory.
+        target_dir : str
+            Target directory for output files.
         **kwargs
             Additional arguments that override configuration settings.
         """
