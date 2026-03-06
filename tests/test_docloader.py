@@ -54,30 +54,22 @@ class TestPDFMarkdownLoaderInitialization:
     def test_loader_initialization_valid_file(self):
         """Test loader initialization with valid PDF path."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
 
             assert loader.file_path == f.name
-            assert loader.target_dir is None
+            assert loader.target_dir == "/tmp"
             assert loader.config is not None
             assert loader.stats is not None
 
     def test_loader_initialization_nonexistent_file(self):
         """Test loader initialization with nonexistent file."""
         with pytest.raises(FileNotFoundError):
-            PDFMarkdownLoader("/nonexistent/path/to/file.pdf")
-
-    def test_loader_initialization_with_target_dir(self):
-        """Test loader initialization with target directory."""
-        with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            target_dir = "/tmp/test_output"
-            loader = PDFMarkdownLoader(f.name, target_dir=target_dir)
-
-            assert loader.target_dir == target_dir
+            PDFMarkdownLoader("/nonexistent/path/to/file.pdf", "/tmp")
 
     def test_loader_stats_initialization(self):
         """Test that stats are properly initialized."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
 
             assert "processing_time" in loader.stats
             assert "method_used" in loader.stats
@@ -89,7 +81,7 @@ class TestPDFMarkdownLoaderInitialization:
     def test_loader_config_defaults(self):
         """Test that configuration loads with defaults."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
 
             assert loader.config["enable_fallback"] is not None
             assert loader.config["pdf_processing_method"] is not None
@@ -99,14 +91,14 @@ class TestPDFMarkdownLoaderInitialization:
         """Test that runtime kwargs override defaults."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
             custom_dpi = 300
-            loader = PDFMarkdownLoader(f.name, ocr_dpi=custom_dpi)
+            loader = PDFMarkdownLoader(f.name, "/tmp", ocr_dpi=custom_dpi)
 
             assert loader.config["ocr_dpi"] == custom_dpi
 
     def test_loader_load_configuration_method(self):
         """Test _load_configuration method directly."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
             config = loader._load_configuration(custom_key="custom_value")
 
             assert config["custom_key"] == "custom_value"
@@ -126,14 +118,6 @@ class TestPDFMarkdownLoaderFileOperations:
                 assert Path(result_dir).exists()
                 assert result_dir == target_dir
 
-    def test_output_directory_uses_cwd_if_none(self):
-        """Test that _output_directory returns current directory if target_dir is None."""
-        with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name, target_dir=None)
-            result_dir = loader._output_directory()
-
-            assert result_dir == str(Path.cwd())
-
     def test_read_markdown_file_success(self):
         """Test successful reading of markdown file."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -142,14 +126,14 @@ class TestPDFMarkdownLoaderFileOperations:
             Path(md_path).write_text(test_content)
 
             with tempfile.NamedTemporaryFile(suffix=".pdf") as pdf_file:
-                loader = PDFMarkdownLoader(pdf_file.name)
+                loader = PDFMarkdownLoader(pdf_file.name, "/tmp")
                 content = loader._read_markdown_file(md_path)
                 assert content == test_content
 
     def test_read_markdown_file_not_found(self):
         """Test reading nonexistent markdown file raises error."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
 
             with pytest.raises(RuntimeError):
                 loader._read_markdown_file("/nonexistent/file.md")
@@ -161,7 +145,7 @@ class TestPDFMarkdownLoaderDocumentCreation:
     def test_create_success_document(self):
         """Test _create_success_document creates proper document."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
             content = "Test markdown content"
             result = {"markdown": "/path/to/markdown.md"}
             method = "markdown_converter"
@@ -175,7 +159,7 @@ class TestPDFMarkdownLoaderDocumentCreation:
     def test_create_error_document(self):
         """Test _create_error_document creates error document."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
             error_msg = "Processing failed"
             method = "test_method"
 
@@ -190,7 +174,7 @@ class TestPDFMarkdownLoaderDocumentCreation:
     def test_create_empty_document(self):
         """Test _create_empty_document handles no content."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
             result = {}
             method = "test"
 
@@ -209,7 +193,7 @@ class TestPDFMarkdownLoaderFallback:
         with tempfile.NamedTemporaryFile(suffix=".pdf") as pdf_file:
             mock_converter.return_value = {"markdown": "/tmp/test.md"}
 
-            loader = PDFMarkdownLoader(pdf_file.name)
+            loader = PDFMarkdownLoader(pdf_file.name, "/tmp")
             loader.config["fallback_method"] = "markdown_converter"
 
             with patch.object(
@@ -224,7 +208,7 @@ class TestPDFMarkdownLoaderFallback:
     def test_apply_fallback_unsupported_method(self):
         """Test fallback with unsupported method raises error."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
             loader.config["fallback_method"] = "unsupported_method"
 
             primary_error = Exception("Primary failed")
@@ -247,7 +231,7 @@ class TestPDFMarkdownLoaderIntegration:
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
             mock_converter.return_value = {"markdown": "/tmp/test.md"}
 
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
             loader.config["pdf_processing_method"] = "markdown_converter"
 
             with patch.object(
@@ -257,6 +241,7 @@ class TestPDFMarkdownLoaderIntegration:
 
             assert len(docs) == 1
             assert docs[0].metadata["processing_method"] == "markdown_converter"
+            assert docs[0].page_content == "# Test Content"
 
     @patch("src.docloader.OCRPDFLoader")
     def test_load_with_ocr_success(self, mock_ocr_loader):
@@ -266,7 +251,7 @@ class TestPDFMarkdownLoaderIntegration:
             mock_instance.load.return_value = [Document("OCR content")]
             mock_ocr_loader.return_value = mock_instance
 
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
             loader.config["pdf_processing_method"] = "ocr"
 
             docs = loader.load()
@@ -277,7 +262,7 @@ class TestPDFMarkdownLoaderIntegration:
     def test_load_invalid_method(self):
         """Test load with invalid processing method."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
             loader.config["pdf_processing_method"] = "invalid_method"
             loader.config["enable_fallback"] = False
 
@@ -291,7 +276,7 @@ class TestPDFMarkdownLoaderIntegration:
     def test_load_stats_tracking(self):
         """Test that load() properly tracks stats."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
-            loader = PDFMarkdownLoader(f.name)
+            loader = PDFMarkdownLoader(f.name, "/tmp")
             loader.config["pdf_processing_method"] = "invalid_method"
             loader.config["enable_fallback"] = False
 
@@ -367,7 +352,7 @@ class TestLoadSingleDocument:
         from src.docloader import loadSingleDocument
 
         with pytest.raises(ValueError, match="Unsupported file extension"):
-            loadSingleDocument("/path/to/file.xyz")
+            loadSingleDocument("/path/to/file.xyz", "")
 
     def test_load_single_document_txt_file(self):
         """Test loading a text file."""
@@ -384,7 +369,7 @@ class TestLoadSingleDocument:
                     mock_read.return_value.__enter__.return_value.read.return_value = (
                         test_content.encode()
                     )
-                    result = loadSingleDocument(txt_path)
+                    result = loadSingleDocument(txt_path, "")
 
                     assert isinstance(result, str)
                     assert test_content in result
@@ -403,7 +388,7 @@ class TestLoadSingleDocument:
                     mock_read.return_value.__enter__.return_value.read.return_value = (
                         csv_content.encode()
                     )
-                    result = loadSingleDocument(csv_path)
+                    result = loadSingleDocument(csv_path, "")
 
                     assert isinstance(result, str)
                     # CSV loader should extract data
@@ -414,7 +399,7 @@ class TestLoadSingleDocument:
         from src.docloader import loadSingleDocument
 
         with pytest.raises(ValueError):
-            loadSingleDocument("somefile.unsupported")
+            loadSingleDocument("somefile.unsupported", "")
 
 
 class TestThreadMultiDocLoader:
@@ -424,7 +409,7 @@ class TestThreadMultiDocLoader:
         """Test with empty file list."""
         from src.docloader import ThreadMultiDocLoader
 
-        result = ThreadMultiDocLoader([])
+        result = ThreadMultiDocLoader([], "")
 
         assert result == ""
 
@@ -442,7 +427,7 @@ class TestThreadMultiDocLoader:
                     mock_read.return_value.__enter__.return_value.read.return_value = (
                         test_content.encode()
                     )
-                    result = ThreadMultiDocLoader([txt_path])
+                    result = ThreadMultiDocLoader([txt_path], "")
 
                     assert test_content in result
 
@@ -465,7 +450,7 @@ class TestThreadMultiDocLoader:
                     mock_read.return_value.__enter__.return_value.read.side_effect = [
                         c.encode() for c in file_contents
                     ]
-                    result = ThreadMultiDocLoader(file_paths)
+                    result = ThreadMultiDocLoader(file_paths, "")
 
                     # All contents should be in result
                     for content in file_contents:
@@ -492,7 +477,7 @@ class TestThreadMultiDocLoader:
                     )
 
                     result = ThreadMultiDocLoader(
-                        [file1_path, file2_path], ignored_files=[file2_path]
+                        [file1_path, file2_path], "", ignored_files=[file2_path]
                     )
 
                     # Only file1 should be in result
@@ -518,7 +503,7 @@ class TestThreadMultiDocLoader:
                         good_content.encode()
                     )
 
-                    result = ThreadMultiDocLoader([good_file, bad_file])
+                    result = ThreadMultiDocLoader([good_file, bad_file], "")
 
                     # Should still return good content even if one file fails
                     assert good_content in result
@@ -544,7 +529,7 @@ class TestThreadMultiDocLoader:
                         content2.encode(),
                     ]
 
-                    result = ThreadMultiDocLoader([file1, file2])
+                    result = ThreadMultiDocLoader([file1, file2], "")
 
                     # Both contents should be in result
                     assert content1 in result
