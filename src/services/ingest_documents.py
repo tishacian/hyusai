@@ -6,7 +6,7 @@ from connections.database.knowledge_bases import KnowledgeBases
 from connections.models.flow_operations import IngestDocumentsPayload
 from connections.storage import (
     BUCKET_FOLDER,
-    KB_EXTRACTED_ASSETS_FOLDER,
+    KB_INGESTED_FOLDER,
     KB_ORIGINAL_FOLDER,
     KNOWLEDGE_BASE_FOLDER,
     WORKSPACE_UUID,
@@ -38,10 +38,8 @@ class IngestDocumentsService:
         fs.filesystem.copy(input_folder_path, original_folder_path, recursive=True)
         # ingest documents
         file_paths = fs.joinpaths(original_folder_path, document_filenames)
-        extracted_assets_folder_path = fs.joinpath(
-            WORKSPACE_UUID, KNOWLEDGE_BASE_FOLDER, kb.uuid, KB_EXTRACTED_ASSETS_FOLDER
+        ingested_folder_path = fs.joinpath(
+            WORKSPACE_UUID, KNOWLEDGE_BASE_FOLDER, kb.uuid, KB_INGESTED_FOLDER
         )
-        ThreadMultiDocLoader(
-            file_paths=file_paths, target_dir=extracted_assets_folder_path
-        )
+        ThreadMultiDocLoader(file_paths=file_paths, target_dir=ingested_folder_path)
         return kb.uuid
