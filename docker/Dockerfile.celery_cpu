@@ -18,7 +18,8 @@ COPY requirements/celery.txt requirements/cpu.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/celery.txt \
-    -r /tmp/requirements/cpu.txt
+    -r /tmp/requirements/cpu.txt \
+    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
 # Create to non-root user for runtime
 ARG USERNAME=papai
