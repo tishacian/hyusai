@@ -9,3 +9,4 @@ uvicorn[standard]~=0.35.0                        # web server
 # datategy libraries
 datategy-common-config[logging-setup]~=0.6.0
 datategy-logging-utils[httpx]~=0.6.1
+papai_unified_storage~=0.24.0

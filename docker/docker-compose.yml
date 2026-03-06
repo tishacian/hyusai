@@ -106,7 +106,7 @@ services:
       - test_env_files/papai_llm.env
     environment:
       CELERY_QUEUES: cpu
-      CELERY_LOGLEVEL: debug
+      CELERY_LOGLEVEL: info
     depends_on:
       init:
         condition: service_completed_successfully

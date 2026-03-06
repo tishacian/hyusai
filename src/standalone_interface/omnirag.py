@@ -132,6 +132,7 @@ def save_button_action(
             "Document ingestion service returned invalid data. Please contact support."
         )
         st.stop()
+    st.rerun()
 
 
 def omnirag_page():
