@@ -3,7 +3,8 @@ import math
 import pickle
 import re
 import warnings
-from functools import lru_cache, wraps  # caching mechanism
+from functools import lru_cache, wraps
+from typing import Literal
 
 import numpy as np
 import torch
@@ -13,8 +14,15 @@ from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import silhouette_score
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PreTrainedTokenizer,
+)
 
+from connections.storage import fs
 from src.globalvariables import (
+    DEFAULT_CPU_TOKENIZER,
     RANDOM_SEED,
     ChunkingMethod,
     OptimalMethod,
@@ -66,7 +74,7 @@ class BM25Retriever:
         """
         Save BM25 retriever to a file.
         """
-        with open(filepath, "wb") as f:
+        with fs.open(filepath, "wb") as f:
             pickle.dump(self, f)
 
     @staticmethod
@@ -74,25 +82,16 @@ class BM25Retriever:
         """
         Load BM25 retriever from a file.
         """
-        with open(filepath, "rb") as f:
+        with fs.open(filepath, "rb") as f:
             return pickle.load(f)
 
 
 @lru_cache(maxsize=None)
 @cache_chunker_embedding_chain
 class TextChunker:
-    def __init__(self, tokenizer, model, device=None):
+    def __init__(self):
         """
         Document text chunker
-
-        Parameters
-        ---------
-            model_name (str), optional : The name of the mode of choice. loading is usually from HuggingFace. The default is None.
-            device (str), optional : cuda or cpu device used in computation. The default is None.
-
-        Returns
-        -------
-            None.
 
         Example of LLM chunking
         -----------------------
@@ -119,15 +118,17 @@ class TextChunker:
         Note: that for Hybrid search, Semantic chunking is sufficient.
 
         """
-        self.tokenizer = tokenizer
-        self.model = model
-        self.device = torch.device(
-            "cuda"
-            if torch.cuda.is_available()
-            else "mps"
-            if torch.backends.mps.is_available()
-            else "cpu"
-        )
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def _load_tokenizer_model(self, model_name: str):
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+        except ValueError:
+            logging.warning(
+                f"Could not load tokenizer for model {model_name}. Using default tokenizer."
+            )
+            tokenizer = AutoTokenizer.from_pretrained(DEFAULT_CPU_TOKENIZER)
+        return tokenizer
 
     def estimate_chunk_size(
         self, text, overlap, chunk_size=None, tokenizer_model_max_length=512
@@ -152,10 +153,10 @@ class TextChunker:
         Apply chunk overlap to the list of chunks.
 
         Parameters:
-        - chunks (List[str]): The list of text chunks.
+        - chunks (list[str]): The list of text chunks.
 
         Returns:
-        - List[str]: A list of text chunks with overlap applied.
+        - list[str]: A list of text chunks with overlap applied.
         """
         overlapped_chunks = []
         for i in range(len(chunks)):
@@ -295,20 +296,27 @@ class TextChunker:
             )
         return optimal_k
 
-    def fixed_chunking(self, text, chunk_size=None):
+    def fixed_chunking(
+        self, text: str, generation_model_name: str, max_chunk_length: int | None = None
+    ) -> list[str]:
         """
         Fixed chunking
         """
+        tokenizer: PreTrainedTokenizer = self._load_tokenizer_model(
+            generation_model_name
+        )
+        # TODO: use model config to get max length without loading tokenizer
+        model_max_chunk_length = tokenizer.max_len_single_sentence
         self.chunk_size = (
-            self.tokenizer.max_len_single_sentence
-            if not chunk_size
-            else max(chunk_size, self.tokenizer.max_len_single_sentence)
+            model_max_chunk_length
+            if not max_chunk_length
+            else max(max_chunk_length, model_max_chunk_length)
         )
         return [
             text[i : i + self.chunk_size] for i in range(0, len(text), self.chunk_size)
         ]
 
-    def sentence_boundary_detection(self, text):
+    def sentence_boundary_detection(self, text: str) -> list[str]:
         """
         Chunk text based on sentence boundaries.
 
@@ -317,7 +325,7 @@ class TextChunker:
             text (str): The input text to chunk.
 
         Returns:
-            List[str]: List of sentences.
+            list[str]: list of sentences.
         """
         try:
             if not text or not text.strip():
@@ -336,31 +344,41 @@ class TextChunker:
             raise RuntimeError(f"🚩 Error during sentence tokenization: {str(e)}")
 
     def recursive_character_chunking(
-        self, text, chunk_size=None, overlap=None
+        self,
+        text: str,
+        generation_model_name: str,
+        max_chunk_length: int | None = None,
+        overlap_size: int | None = None,
     ) -> list[str]:
         """
         Recursively split the text into chunks of specified size.
 
         Parameters:
         - text (str): The input text to be split.
-        - chunk_size (int): The size of the chunks to split from larger text. Default is 200.
-        - overlap (int): size of permitted overlapping chunks. Default is 50.
+        - generation_model_name (str): The name of the model that will be used to determine the maximum chunk length.
+        - max_chunk_length (int): The size of the chunks to split from larger text. Default is 200.
+        - overlap_size (int): size of permitted overlapping chunks.
 
         Returns:
-        - List[str]: A list of text chunks.
+        - list[str]: A list of text chunks.
         """
+        tokenizer: PreTrainedTokenizer = self._load_tokenizer_model(
+            generation_model_name
+        )
+        # TODO: use model config to get max length without loading tokenizer
+        model_max_chunk_length = tokenizer.max_len_single_sentence
         self.overlap = (
-            int(self.tokenizer.model_max_length // 10.1) if not overlap else overlap
+            int(model_max_chunk_length // 10.1) if not overlap_size else overlap_size
         )
         self.chunk_size = (
             self.estimate_chunk_size(
                 text,
                 self.overlap,
                 None,
-                self.tokenizer.model_max_length,
+                model_max_chunk_length,
             )
-            if not chunk_size
-            else chunk_size
+            if not max_chunk_length
+            else max_chunk_length
         )
 
         if len(text) <= self.chunk_size:
@@ -388,12 +406,17 @@ class TextChunker:
 
         return chunks
 
-    def semantic_chunking(self, text, method="silhouette", max_k=10) -> list[str]:
+    def semantic_chunking(
+        self,
+        text: str,
+        cluster_selection_method: Literal["elbow", "silhouette", "gap"] = "silhouette",
+        max_k: int = 10,
+    ) -> list[str]:
         """
         Dynamic chunking
         -------------
         - text (str), input text to chunk
-        - method (str), method to determine optimal number of clusters ('elbow', 'silhouette', 'gap')
+        - cluster_selection_method (str), method to determine optimal number of clusters ('elbow', 'silhouette', 'gap')
         - max_k (int), maximum number of clusters to evaluate
         """
         sentences = sent_tokenize(text)
@@ -402,13 +425,15 @@ class TextChunker:
 
         # Find the optimal number of clusters
         num_clusters = (
-            6 if not method else self.find_optimal_k(X, method=method, max_k=max_k)
+            6
+            if not cluster_selection_method
+            else self.find_optimal_k(X, method=cluster_selection_method, max_k=max_k)
         )
 
         # Cluster sentences using k-Means
         km = KMeans(n_clusters=num_clusters, random_state=RANDOM_SEED)
         logging.info(
-            f"Using {method} method..The number of clusters is: {num_clusters}"
+            f"Using {cluster_selection_method} method..The number of clusters is: {num_clusters}"
         )
         km.fit(X)
         clusters = km.labels_.tolist()
@@ -421,57 +446,59 @@ class TextChunker:
         chunks = [" ".join(cluster) for cluster in clustered_sentences]
         return chunks
 
-    def token_based_chunking(self, text: str, max_tokens: int = 512) -> list[str]:
+    def token_based_chunking(
+        self, text: str, generation_model_name: str, max_tokens_per_chunk: int = 512
+    ) -> list[str]:
         """
         LLM Chunking
         -------------
         text (str): Input text to chunk.
-        max_tokens (int): Maximum number of tokens per chunk. Default is 512.
+        generation_model_name (str): The name of the model that will be used to determine the tokenizer model.
+        max_tokens_per_chunk (int): Maximum number of tokens per chunk. Default is 512.
 
         Returns:
-        List[str]: A list of text chunks.
+        list[str]: A list of text chunks.
         """
-        inputs = self.tokenizer(
-            text, return_tensors="pt", padding=False, truncation=False
+        tokenizer: PreTrainedTokenizer = self._load_tokenizer_model(
+            generation_model_name
         )
+        inputs = tokenizer(text, return_tensors="pt", padding=False, truncation=False)
         tokens = inputs["input_ids"].to(self.device)
         token_count = tokens.size(1)  # Get number of tokens in the input
         logging.info(f"Token count: {token_count}")
         # --
-        if token_count <= max_tokens:
+        if token_count <= max_tokens_per_chunk:
             return [text]
         # --
         chunks = []
-        for i in range(0, token_count, max_tokens):
-            chunk_tokens = tokens[:, i : i + max_tokens]
-            chunks.append(
-                self.tokenizer.decode(chunk_tokens[0], skip_special_tokens=True)
-            )
+        for i in range(0, token_count, max_tokens_per_chunk):
+            chunk_tokens = tokens[:, i : i + max_tokens_per_chunk]
+            chunks.append(tokenizer.decode(chunk_tokens[0], skip_special_tokens=True))
 
         return chunks
 
     def hierarchical_chunking(
-        self, text, paragraph_chunk_size=5, sentence_chunk_size=5
-    ):
+        self, text: str, max_paragraph_length: int = 5, max_sentence_length: int = 5
+    ) -> list[str]:
         """
         Hierarchically chunk text into paragraphs and then sentences.
 
         Parameters:
         - text (str): The input text to chunk.
-        - paragraph_chunk_size (int): Maximum size of each paragraph chunk.
-        - sentence_chunk_size (int): Maximum size of each sentence chunk.
+        - max_paragraph_length (int): Maximum size of each paragraph chunk.
+        - max_sentence_length (int): Maximum size of each sentence chunk.
 
         Returns:
-        - List[str]: List of text chunks.
+        - list[str]: list of text chunks.
         """
         paragraphs = text.split("\n\n")
         chunks = []
         for paragraph in paragraphs:
-            if len(paragraph) > paragraph_chunk_size:
+            if len(paragraph) > max_paragraph_length:
                 sentences = sent_tokenize(paragraph)
                 current_chunk = ""
                 for sentence in sentences:
-                    if len(current_chunk) + len(sentence) <= sentence_chunk_size:
+                    if len(current_chunk) + len(sentence) <= max_sentence_length:
                         current_chunk += sentence + " "
                     else:
                         chunks.append(current_chunk.strip())
@@ -483,49 +510,59 @@ class TextChunker:
 
         return chunks
 
-    def model_based_chunking(self, text, max_tokens=512, threshold=1e-4) -> list[str]:
+    def model_based_chunking(
+        self,
+        text: str,
+        generation_model_name: str,
+        max_tokens_per_chunk: int = 512,
+        boundary_detection_model_name: str = "huggingface/smol-lm-135m",
+        boundary_confidence_threshold: float = 1e-4,
+    ) -> list[str]:
         """
         Use a machine learning model to determine chunk boundaries.
 
         Parameters:
         - text (str): The input text to chunk.
-        - max_tokens (int): Maximum number of tokens per chunk.
-        - threshold (float): Threshold for determining chunk boundaries from model outputs.
+        - generation_model_name (str): The name of the model that will be used to determine the tokenizer model.
+        - max_tokens_per_chunk (int): Maximum number of tokens per chunk.
+        - boundary_detection_model_name (str): The model to use for boundary detection.
+        - boundary_confidence_threshold (float): Threshold for determining chunk boundaries from model outputs.
 
         Returns:
-        - List[str]: List of text chunks.
+        - list[str]: list of text chunks.
         """
-        tokens = self.tokenizer(
-            text,
-            return_tensors="pt",
-            truncation=False,
-            add_special_tokens=False,
+        tokenizer: PreTrainedTokenizer = self._load_tokenizer_model(
+            generation_model_name
+        )
+        boundary_detection_model: AutoModelForCausalLM = (
+            AutoModelForCausalLM.from_pretrained(boundary_detection_model_name)
+        )
+        tokens = tokenizer(
+            text, return_tensors="pt", truncation=False, add_special_tokens=False
         )
         input_ids = tokens["input_ids"].squeeze(0)
 
         chunks = []
         current_chunk = []
 
-        for i in range(0, len(input_ids), max_tokens):
-            chunk_ids = input_ids[i : i + max_tokens]
+        for i in range(0, len(input_ids), max_tokens_per_chunk):
+            chunk_ids = input_ids[i : i + max_tokens_per_chunk]
             inputs = {"input_ids": chunk_ids.unsqueeze(0)}
 
             with torch.no_grad():
-                outputs = self.model(**inputs)
+                outputs = boundary_detection_model(**inputs)
                 logits = outputs.logits.squeeze(0)
                 chunk_end_signal = torch.sigmoid(logits).mean().item()
                 current_chunk.extend(chunk_ids.tolist())
                 # -- chunking
-                if chunk_end_signal > threshold:
+                if chunk_end_signal > boundary_confidence_threshold:
                     chunks.append(
-                        self.tokenizer.decode(current_chunk, skip_special_tokens=True)
+                        tokenizer.decode(current_chunk, skip_special_tokens=True)
                     )
                     current_chunk = []
 
         if current_chunk:
-            chunks.append(
-                self.tokenizer.decode(current_chunk, skip_special_tokens=True)
-            )
+            chunks.append(tokenizer.decode(current_chunk, skip_special_tokens=True))
 
         return chunks
 
@@ -548,9 +585,5 @@ class TextChunker:
         elif method == ChunkingMethod.SENTENCE_BOUNDARY:
             self.chunks = self.sentence_boundary_detection(text, **kwargs)
         else:
-            self.chunks = None
-        if not method:
             raise ValueError(f"🚩 Unknown chunking method: {method}")
-
-        # --
         return self.chunks

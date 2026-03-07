@@ -3,7 +3,8 @@ import pickle
 import sys
 from datetime import datetime
 from functools import lru_cache
-from typing import Optional
+from typing import Literal
+from uuid import UUID
 
 import faiss
 import numpy as np
@@ -11,13 +12,15 @@ import psutil
 import torch
 from langchain_community.vectorstores import Chroma
 
+from connections.storage import (
+    KB_VECTOR_STORE_FOLDER,
+    KNOWLEDGE_BASE_FOLDER,
+    WORKSPACE_UUID,
+    fs,
+)
 from src.chunker import BM25Retriever, cache_chunker_embedding_chain
 from src.embeddingloader import EmbeddingModelLoader
-from src.globalvariables import (
-    EMBEDDING_NAME,
-    VECTOR_STORE_PATH,
-    IndexType,
-)
+from src.globalvariables import EMBEDDING_NAME, IndexType
 
 USE_DYNAMIC_BATCHING_GLOBAL = True
 
@@ -33,29 +36,28 @@ logging.basicConfig(
 class EmbeddingVectors:
     def __init__(
         self,
-        tokenizer,
-        model,
-        create_new_vs,
-        existing_vector_store,
-        new_vs_name,
-        embedding_model_name=EMBEDDING_NAME,
-        embedding_type="faiss",
-        normalize_embeddings=True,
-        normalization_strategy="l2",
-        log_normalization_stats=True,
-        detect_already_normalized=True,
+        create_new_vs: bool,
+        existing_vector_store: UUID,
+        new_vs_name: str,
+        knowledge_base_uuid: UUID,
+        embedding_model_name: str = EMBEDDING_NAME,
+        embedding_type: Literal["faiss", "chroma", "weaviate"] = "faiss",
+        normalize_embeddings: bool = True,
+        normalization_strategy: Literal["l2", "min_max", "z_score"] = "l2",
+        log_normalization_stats: bool = True,
+        detect_already_normalized: bool = True,
     ):
         """
         Creating embedding vector for different vector class
 
         Parameters
         ----------
-            tokenizer (tokenizer model): tokenizer model)
-            model (huggingface model): The model of choice. loading is usually from HuggingFace.
-            create_new_vs (str): flag to create a new index
+            create_new_vs (bool): flag to create a new index
             existing_vector_store (str): flag to indicate existing vector store
             new_vs_name (str): New vector store name. name are separated by
                 underscore (_). e.x This_is_a_new_vector_store_name
+            knowledge_base_uuid: UUID of the knowledge base where the vector
+                store should be saved.
             embedding_model_name (embedding model), optional: name of the
                 embedding model used for HuggingFaceInstructEmbeddings.
                 The default is "sentence-transformers/all-mpnet-base-v2".
@@ -79,12 +81,11 @@ class EmbeddingVectors:
             None.
 
         """
-        self.tokenizer = tokenizer
-        self.model = model
         self.embedding_type = embedding_type
-        self.create_new_vs = create_new_vs
+        self.create_new_vs = create_new_vs  # TODO: handle false
         self.existing_vector_store = existing_vector_store
         self.new_vs_name = new_vs_name
+        self.knowledge_base_uuid = knowledge_base_uuid
         self.device = torch.device(
             "cuda"
             if torch.cuda.is_available()
@@ -109,6 +110,19 @@ class EmbeddingVectors:
 
         if self.embedding_type == IndexType.WEAVIATE:
             self.class_name = "Document"
+
+        self.old_vs_path = fs.joinpath(
+            WORKSPACE_UUID,
+            KNOWLEDGE_BASE_FOLDER,
+            str(existing_vector_store),
+            KB_VECTOR_STORE_FOLDER,
+        )
+        self.vs_path = fs.joinpath(
+            WORKSPACE_UUID,
+            KNOWLEDGE_BASE_FOLDER,
+            str(knowledge_base_uuid),
+            KB_VECTOR_STORE_FOLDER,
+        )
 
     def normalize_embeddings_l2(self, embeddings, in_place=False):
         """
@@ -504,14 +518,14 @@ class EmbeddingVectors:
             bool: True if normalization is consistent, False otherwise
         """
         try:
-            dimension_info_path = save_path / "dimension_info.pkl"
-            if not dimension_info_path.exists():
+            dimension_info_path = fs.joinpath(save_path, "dimension_info.pkl")
+            if not fs.filesystem.isfile(dimension_info_path):
                 logging.warning(
                     "No dimension info found, cannot validate normalization"
                 )
                 return True
 
-            with open(dimension_info_path, "rb") as f:
+            with fs.open(dimension_info_path, "rb") as f:
                 existing_info = pickle.load(f)
 
             # -- check for existing normalization..
@@ -595,7 +609,6 @@ class EmbeddingVectors:
     async def create_async(
         cls,
         tokenizer,
-        model,
         create_new_vs,
         existing_vector_store,
         new_vs_name,
@@ -611,7 +624,6 @@ class EmbeddingVectors:
         """
         instance = cls(
             tokenizer,
-            model,
             create_new_vs,
             existing_vector_store,
             new_vs_name,
@@ -634,8 +646,8 @@ class EmbeddingVectors:
     def create_embeddings(
         self,
         texts,
-        batch_size: Optional[int] = None,
-        use_dynamic_batching: Optional[bool] = None,
+        batch_size: int | None = None,
+        use_dynamic_batching: bool | None = None,
     ):
         """
         Create_embeddings.
@@ -712,12 +724,9 @@ class EmbeddingVectors:
 
                         if self.normalize_embeddings:
                             if not self.create_new_vs and self.existing_vector_store:
-                                existing_save_path = (
-                                    VECTOR_STORE_PATH / self.existing_vector_store
-                                )
                                 compatibility_checked, rescaled_old_embeddings = (
                                     self.check_normalization_compatibility(
-                                        existing_save_path
+                                        self.old_vs_path
                                     )
                                 )
 
@@ -781,26 +790,14 @@ class EmbeddingVectors:
                     for i in range(0, len(texts), self.batch_size):
                         batch_texts = texts[i : i + self.batch_size]
 
-                        inputs = self.tokenizer(
+                        embeddings = self.embedding_model.encode(
                             batch_texts,
-                            return_tensors="pt",
-                            padding=True,
-                            truncation=True,
-                            max_length=self.tokenizer.model_max_length,
-                        ).to(self.device.type)
-
-                        if (
-                            inputs["input_ids"].size(1)
-                            > self.tokenizer.model_max_length
-                        ):
-                            logging.warning(
-                                "🚩 Input text exceeds model's maximum length, truncating."
-                            )
-
-                        with torch.no_grad():
-                            embeddings = self.model.transformer.wte(
-                                inputs["input_ids"]
-                            ).mean(dim=1)
+                            show_progress_bar=(
+                                True if len(batch_texts) > 10 else False
+                            ),
+                            convert_to_tensor=True,
+                            device=self.device.type,
+                        )
                         batch_embeddings = (
                             embeddings.to(dtype=torch.float32).cpu().numpy()
                         )
@@ -819,12 +816,9 @@ class EmbeddingVectors:
 
                         if self.normalize_embeddings:
                             if not self.create_new_vs and self.existing_vector_store:
-                                existing_save_path = (
-                                    VECTOR_STORE_PATH / self.existing_vector_store
-                                )
                                 compatibility_checked, rescaled_old_embeddings = (
                                     self.check_normalization_compatibility(
-                                        existing_save_path
+                                        self.old_vs_path
                                     )
                                 )
 
@@ -925,7 +919,7 @@ class EmbeddingVectors:
                 return None
 
             assert isinstance(embeddings, np.ndarray), (
-                f"Embedding is type: {type(embeddings)}, expected ndarray"
+                f"Embedding is type : {type(embeddings)} not an ndarray"
             )
 
             if embeddings.shape[0] == 0 or embeddings.shape[1] == 0:
@@ -1035,13 +1029,14 @@ class EmbeddingVectors:
         """
         try:
             if self.create_new_vs:
-                save_path = (
-                    VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
+                save_path = fs.joinpath(
+                    self.vs_path, f"{self.embedding_type}_{self.new_vs_name}"
                 )
             else:
-                save_path = VECTOR_STORE_PATH / self.existing_vector_store
+                pass  # TODO: handle create new vs false
+                # save_path = VECTOR_STORE_PATH / self.existing_vector_store
 
-            save_path.mkdir(parents=True, exist_ok=True)
+            fs.filesystem.makedirs(save_path, exist_ok=True)
 
             # -- index dimension info
             dimension_info = {
@@ -1051,7 +1046,7 @@ class EmbeddingVectors:
                 "normalization_strategy": self.normalization_strategy,
                 "normalization_timestamp": str(datetime.now()),
             }
-            with open(save_path / "dimension_info.pkl", "wb") as f:
+            with fs.open(fs.joinpath(save_path, "dimension_info.pkl"), "wb") as f:
                 pickle.dump(dimension_info, f)
 
             if hasattr(self, "last_normalization_metadata"):
@@ -1073,22 +1068,25 @@ class EmbeddingVectors:
                     f"Found embeddings to save: shape={self.last_embeddings_to_save.shape}"
                 )
                 if self.create_new_vs:
-                    embeddings_save_path = save_path / "embeddings"
+                    embeddings_save_path = fs.joinpath(save_path, "embeddings")
                     index_name = self.new_vs_name
                 else:
-                    # --Appending to existing index
-                    new_save_path = (
-                        VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
-                    )
-                    embeddings_save_path = new_save_path / "embeddings"
-                    index_name = self.new_vs_name
+                    pass  # TODO: handle create new vs false
+                    # # --Appending to existing index
+                    # new_save_path = (
+                    #     VECTOR_STORE_PATH / f"{self.embedding_type}_{self.new_vs_name}"
+                    # )
+                    # embeddings_save_path = new_save_path / "embeddings"
+                    # index_name = self.new_vs_name
 
-                embeddings_save_path.mkdir(parents=True, exist_ok=True)
+                fs.filesystem.makedirs(embeddings_save_path, exist_ok=True)
                 norm_type = (
                     self.normalization_strategy if self.normalize_embeddings else "raw"
                 )
                 embedding_filename = f"{index_name}_embedding_{norm_type}.npy"
-                embedding_filepath = embeddings_save_path / embedding_filename
+                embedding_filepath = fs.joinpath(
+                    embeddings_save_path, embedding_filename
+                )
 
                 np.save(embedding_filepath, self.last_embeddings_to_save)
                 logging.info(f"Saved embeddings to {embedding_filepath}")
@@ -1101,7 +1099,7 @@ class EmbeddingVectors:
             # -- initialize and save BM25 retriever
             try:
                 bm25_retriever = BM25Retriever(texts)
-                bm25_retriever.save_bm25(save_path / "bm25_retriever.pkl")
+                bm25_retriever.save_bm25(fs.joinpath(save_path, "bm25_retriever.pkl"))
             except Exception as e:
                 logging.error(f"🚩 Error saving BM25 retriever: {e}")
 
@@ -1111,8 +1109,8 @@ class EmbeddingVectors:
                     return
 
                 if self.create_new_vs:
-                    faiss.write_index(index, str(save_path / "faiss.index"))
-                    with open(save_path / "faiss.pkl", "wb") as f:
+                    faiss.write_index(index, fs.joinpath(save_path, "faiss.index"))
+                    with fs.open(fs.joinpath(save_path, "faiss.pkl"), "wb") as f:
                         pickle.dump(texts, f)
                     logging.info(
                         f"New FAISS index and texts saved successfully to {save_path}"
@@ -1127,7 +1125,9 @@ class EmbeddingVectors:
                             return
 
                         try:
-                            with open(save_path / "dimension_info.pkl", "rb") as f:
+                            with fs.open(
+                                fs.joinpath(save_path, "dimension_info.pkl"), "rb"
+                            ) as f:
                                 existing_dimension_info = pickle.load(f)
                                 existing_dimension = existing_dimension_info.get(
                                     "embedding_dimension"
@@ -1171,7 +1171,7 @@ class EmbeddingVectors:
                             logging.warning(
                                 "🚩 Index doesn't support merge_from. Creating a new index."
                             )
-                            with open(save_path / "faiss.pkl", "rb") as f:
+                            with fs.open(save_path / "faiss.pkl", "rb") as f:
                                 existing_texts = pickle.load(f)
 
                             existing_embeddings = self.create_embeddings(existing_texts)
@@ -1198,16 +1198,16 @@ class EmbeddingVectors:
                             combined_index.add(combined_embeddings_copy)
 
                             # Save combined index to new path (faiss_CV) not existing path (faiss_Resume)
-                            new_save_path = (
-                                VECTOR_STORE_PATH
-                                / f"{self.embedding_type}_{self.new_vs_name}"
+                            new_save_path = fs.joinpath(
+                                self.vs_path,
+                                f"{self.embedding_type}_{self.new_vs_name}",
                             )
-                            new_save_path.mkdir(parents=True, exist_ok=True)
+                            fs.filesystem.makedirs(new_save_path, exist_ok=True)
 
                             faiss.write_index(
                                 combined_index, str(new_save_path / "faiss.index")
                             )
-                            with open(new_save_path / "faiss.pkl", "wb") as f:
+                            with fs.open(new_save_path / "faiss.pkl", "wb") as f:
                                 pickle.dump(combined_texts, f)
 
                             # Save dimension info and other metadata to new path
@@ -1218,7 +1218,9 @@ class EmbeddingVectors:
                                 "normalization_strategy": self.normalization_strategy,
                                 "normalization_timestamp": str(datetime.now()),
                             }
-                            with open(new_save_path / "dimension_info.pkl", "wb") as f:
+                            with fs.open(
+                                new_save_path / "dimension_info.pkl", "wb"
+                            ) as f:
                                 pickle.dump(dimension_info, f)
 
                             logging.info(
@@ -1230,10 +1232,10 @@ class EmbeddingVectors:
                         faiss.write_index(
                             existing_index, str(save_path / "faiss.index")
                         )
-                        with open(save_path / "faiss.pkl", "rb") as f:
+                        with fs.open(save_path / "faiss.pkl", "rb") as f:
                             existing_texts = pickle.load(f)
                         existing_texts.extend(texts)
-                        with open(save_path / "faiss.pkl", "wb") as f:
+                        with fs.open(save_path / "faiss.pkl", "wb") as f:
                             pickle.dump(existing_texts, f)
                         logging.info(
                             f"FAISS index merged and texts updated successfully at {save_path}"
@@ -1244,7 +1246,7 @@ class EmbeddingVectors:
                             f"🚩 Existing index not found at {save_path}. Creating new index."
                         )
                         faiss.write_index(index, str(save_path / "faiss.index"))
-                        with open(save_path / "faiss.pkl", "wb") as f:
+                        with fs.open(save_path / "faiss.pkl", "wb") as f:
                             pickle.dump(texts, f)
                         logging.info(
                             f"New FAISS index created and saved to {save_path}"
@@ -1278,25 +1280,18 @@ class EmbeddingVectors:
 
             elif self.embedding_type == IndexType.WEAVIATE:
                 try:
+                    for i, text in enumerate(texts):
+                        self.embedding_model.batch.add_data_object(
+                            {"text": text},
+                            self.class_name,
+                            vector=self.embeddings[i],
+                        )
+                    self.embedding_model.batch.flush()
                     if self.create_new_vs:
-                        for i, text in enumerate(texts):
-                            self.embedding_model.batch.add_data_object(
-                                {"text": text},
-                                self.class_name,
-                                vector=self.embeddings[i],
-                            )
-                        self.embedding_model.batch.flush()
                         logging.info(
                             "New Weaviate index created and texts saved successfully"
                         )
                     else:
-                        for i, text in enumerate(texts):
-                            self.embedding_model.batch.add_data_object(
-                                {"text": text},
-                                self.class_name,
-                                vector=self.embeddings[i],
-                            )
-                        self.embedding_model.batch.flush()
                         logging.info("Weaviate index updated with new texts")
                 except Exception as e:
                     logging.error(f"🚩 Error with Weaviate: {e}")
@@ -1316,8 +1311,8 @@ class EmbeddingVectors:
     def create_and_save_index(
         self,
         texts,
-        batch_size: Optional[int] = None,
-        use_dynamic_batching: Optional[bool] = None,
+        batch_size: int | None = None,
+        use_dynamic_batching: bool | None = None,
     ):
         """
         Create and save the index -- vector DB with improved validation and
@@ -1389,8 +1384,8 @@ class EmbeddingVectors:
             metadata (dict): Normalization metadata to save
         """
         try:
-            metadata_path = save_path / "normalization_metadata.pkl"
-            with open(metadata_path, "wb") as f:
+            metadata_path = fs.joinpath(save_path, "normalization_metadata.pkl")
+            with fs.open(metadata_path, "wb") as f:
                 pickle.dump(metadata, f)
             logging.info(f"Saved normalization metadata to {metadata_path}")
         except Exception as e:
@@ -1411,10 +1406,10 @@ class EmbeddingVectors:
             if not metadata_path.exists():
                 return None
 
-            with open(metadata_path, "rb") as f:
+            with fs.open(metadata_path, "rb") as f:
                 metadata = pickle.load(f)
             return metadata
-        except Exception:
+        except Exception as e:
             return None
 
     def _rescale_embeddings(self, embeddings, metadata, strategy):

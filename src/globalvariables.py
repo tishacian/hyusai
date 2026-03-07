@@ -1,22 +1,8 @@
 import os
 from enum import Enum, StrEnum
-from pathlib import Path
 
 from configurations import Config
 
-# %% Directory
-
-REPO_PATH = Path(__file__).parent.parent
-IMG_PATH = REPO_PATH / "image"
-VECTOR_STORE_PATH = REPO_PATH / "vector_store"
-EMBEDDING_CACHE_STORE = ".cache/"
-
-# -- Check if paths exist otherwise, create one
-if not os.path.exists(IMG_PATH):
-    os.makedirs(IMG_PATH)
-
-if not os.path.exists(VECTOR_STORE_PATH):
-    os.makedirs(VECTOR_STORE_PATH)
 # %%
 # -- Helper for suggestions
 HELP = {  # help suggestions..

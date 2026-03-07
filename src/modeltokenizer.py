@@ -459,7 +459,7 @@ class CachedLLM:
 
 @lru_cache(maxsize=None)
 @model_and_tokenizer_cache
-def load_model_and_tokenizer(model_name: str, abs_path: str):
+def load_model_and_tokenizer(model_name: str):
     """
     Load and cache the model (GPu or CPu) and tokenizer.
 

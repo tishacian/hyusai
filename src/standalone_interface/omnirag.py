@@ -16,6 +16,16 @@ from configurations import Config
 from connections.database.chats import Chats
 from connections.database.knowledge_bases import KnowledgeBases
 from connections.database.users import Users
+from connections.models.flow_operations.base_response import BaseTaskResponse
+from connections.models.flow_operations.create_vector_store.components.chunking_params import (
+    ChunkingParams,
+)
+from connections.models.flow_operations.create_vector_store.components.embedding_params import (
+    EmbeddingParams,
+)
+from connections.models.flow_operations.create_vector_store.payload import (
+    CreateVectorStorePayload,
+)
 from connections.models.flow_operations.ingest_documents import (
     IngestDocumentsPayload,
 )
@@ -30,9 +40,9 @@ from src.docloader import LOADER_MAPPING
 from src.globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
+    EMBEDDING_NAME,
     GPU_MODEL_SET,
     HELP,
-    REPO_PATH,
     ChunkingMethod,
     IndexType,
     PipelineType,
@@ -132,6 +142,62 @@ def save_button_action(
             "Document ingestion service returned invalid data. Please contact support."
         )
         st.stop()
+    # send to create vector store endpoint
+    chunking_params = {"method": chunking_method}
+    if chunking_method in [
+        "fixed",
+        "recursive_character",
+        "token_based",
+        "model_based",
+    ]:
+        chunking_params["generation_model_name"] = model_name
+    create_vs_payload = CreateVectorStorePayload(
+        knowledge_base_uuid=ingest_docs_validated_response.knowledge_base_uuid,
+        chunking_params=ChunkingParams(**chunking_params),
+        embedding_params=EmbeddingParams(
+            old_vector_store_uuid=existing_vector_store,
+            embedding_model_name=EMBEDDING_NAME,
+            vector_store_type=index_type,
+        ),
+    )
+    create_vs_url = (
+        f"{Config.get().fastapi_client.url}/flow_operations/create_vector_store"
+    )
+    try:
+        response = requests.post(
+            create_vs_url,
+            json=create_vs_payload.model_dump(mode="json"),
+        )
+        response.raise_for_status()
+        _ = BaseTaskResponse(**response.json())
+    except requests.RequestException as e:
+        logger.error(
+            f"Vector store creation request failed: {e}. "
+            f"URL: {create_vs_url} "
+            f"Payload: {create_vs_payload.model_dump(mode='json')}",
+            exc_info=True,
+        )
+        st.error(
+            "Failed to send vector store creation request. "
+            "Please check your connection or service status."
+        )
+        st.stop()
+    except ValidationError as e:
+        logger.error(
+            f"Vector store creation service returned an unexpected response: {e}. "
+            f"Response content: {response.text}",
+            exc_info=True,
+        )
+        st.error(
+            "Vector store creation service returned invalid data. Please contact support."
+        )
+        st.stop()
+    st.success("Documents processed and knowledge base created!")
+    st.session_state.model_name = model_name
+    st.session_state.chunking_method = chunking_method
+    st.session_state.index_type = index_type
+    st.session_state.vector_store = ingest_docs_validated_response.knowledge_base_uuid
+    st.session_state.new_vs_name = new_vs_name
     st.rerun()
 
 
@@ -176,18 +242,15 @@ def omnirag_page():
 
     # -- Loader tokenizer and model
     @st.cache_resource
-    def cache_model_and_tokenizer(model_name, abs_path):
-        return load_model_and_tokenizer(model_name, abs_path)
+    def cache_model_and_tokenizer(model_name):
+        return load_model_and_tokenizer(model_name)
 
-    def init_cached_model(
-        model_name: str, repo_path: str, force_update: bool = False
-    ) -> bool:
+    def init_cached_model(model_name: str, force_update: bool = False) -> bool:
         """
         Initialize a model and tokenizer or update them if the model has changed.
 
         Parameters:
             model_name: Name of the model to load
-            repo_path: Repository path for the model
             force_update: If True, reload the model even if it's already loaded
 
         Returns:
@@ -199,7 +262,7 @@ def omnirag_page():
             or st.session_state.get("model_name") != model_name
             or force_update
         ):
-            model, tokenizer = cache_model_and_tokenizer(model_name, repo_path)
+            model, tokenizer = cache_model_and_tokenizer(model_name)
 
             if model and tokenizer:
                 st.session_state.model = model
@@ -229,7 +292,7 @@ def omnirag_page():
         st.session_state.index_type = None
     if "model_name" not in st.session_state or "tokenizer" not in st.session_state:
         st.session_state.model_name = device_default_model()
-        init_cached_model(st.session_state.model_name, REPO_PATH)
+        init_cached_model(st.session_state.model_name)
     if "expand_doc_embedding" not in st.session_state:
         st.session_state.expand_doc_embedding = True
     if "instruction_lang" not in st.session_state:
@@ -282,9 +345,7 @@ def omnirag_page():
                         # Update model and tokenizer when model changes
                         if model_name != st.session_state.get("model_name"):
                             st.session_state.model_name = model_name
-                            model, tokenizer = cache_model_and_tokenizer(
-                                model_name, REPO_PATH
-                            )
+                            model, tokenizer = cache_model_and_tokenizer(model_name)
                             if model and tokenizer:
                                 st.session_state.model = model
                                 st.session_state.tokenizer = tokenizer
