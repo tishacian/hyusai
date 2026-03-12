@@ -28,3 +28,18 @@ For any local building / deployment, you need to [**install docker**](https://ww
 4. To stop the services, you can run:
     - `docker compose down` for simple stop
     - `docker compose down -v` for stop with data volumes removal
+
+## Keycloak
+
+Keycloak is included in the `docker-compose.yml` file and is pre-configured with a realm and client for the application.
+
+### Accessing the Admin Console
+
+You can access the Keycloak Admin Console at [http://localhost:8080/admin/](http://localhost:8080/admin/).
+
+**Default Credentials:**
+
+*   **Username:** `admin`
+*   **Password:** `admin`
+
+These credentials are defined in `docker/test_env_files/keycloak.env`.
