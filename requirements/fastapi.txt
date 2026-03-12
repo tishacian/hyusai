@@ -5,6 +5,7 @@ pydantic_settings~=2.10.1                        # config validation tool
 pydantic~=2.11.9                                 # validation tool
 SQLAlchemy[postgresql-psycopg2binary]~=2.0.43    # agnostic db connector
 uvicorn[standard]~=0.35.0                        # web server
+python-keycloak~=4.7.3
 
 # datategy libraries
 datategy-common-config[logging-setup]~=0.6.0
