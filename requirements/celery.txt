@@ -47,6 +47,7 @@ transformers                   # tokenizer, reranking model
 faiss-cpu~=1.10                # faiss
 weaviate-client<3.0.0          # weaviate (compatible with protobuf 4.x)
 langchain-community            # chroma + document loaders
+qdrant-client~=1.14            # qdrant
 
 # logging
 datategy-logging-utils~=0.6.1
