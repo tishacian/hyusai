@@ -26,6 +26,7 @@ Thumbs.db
 env/
 venv/
 ENV/
+CLAUDE.md
 
 # Generated vector database
 vector_store/*

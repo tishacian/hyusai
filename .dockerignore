@@ -50,6 +50,7 @@ benchmarking/
 install.sh
 tests/
 .pre-commit-config.yaml
+CLAUDE.md
 
 # Data
 data/
