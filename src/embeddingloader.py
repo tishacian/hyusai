@@ -11,10 +11,9 @@ from functools import lru_cache, wraps
 from typing import Any
 
 import torch
-import weaviate
 from sentence_transformers import SentenceTransformer
 
-from src.globalvariables import EMBEDDING_NAME, IndexType
+from src.globalvariables import EMBEDDING_NAME
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -67,7 +66,7 @@ class EmbeddingModelLoader:
         Parameters
         ----------
         embedding_type : str
-            Type of embedding ('faiss', 'chroma', or 'weaviate')
+            Type of embedding (used as cache key prefix, e.g. 'qdrant')
         model_name : str
             Name of the model to load
 
@@ -85,34 +84,18 @@ class EmbeddingModelLoader:
             logging.info(f"Using cached model for {cache_key}")
             return EmbeddingModelLoader._model_cache[cache_key]
 
-        if embedding_type == IndexType.FAISS or embedding_type == IndexType.CHROMA:
-            model = SentenceTransformer(model_name, device=device.type)
-            sample_embedding = model.encode(
-                "sample text for dimension detection",
-                show_progress_bar=False,
-                convert_to_tensor=True,
-                device=device,
-            )
-            dimension = sample_embedding.shape[0]
-            EmbeddingModelLoader._dimension_cache[cache_key] = dimension
-            logging.info(
-                f"Model {model_name} produces embeddings with dimension {dimension}"
-            )
-
-        elif embedding_type == IndexType.WEAVIATE:
-            model = weaviate.Client("http://localhost:8080")
-            class_name = "Document"
-            if not model.schema.contains(class_name):
-                model.schema.create_class(
-                    {
-                        "class": class_name,
-                        "vectorizer": "none",
-                    }
-                )
-        else:
-            raise ValueError(
-                "🚩 Unsupported embedding type. Choose 'faiss', 'chroma', or 'weaviate'."
-            )
+        model = SentenceTransformer(model_name, device=device.type)
+        sample_embedding = model.encode(
+            "sample text for dimension detection",
+            show_progress_bar=False,
+            convert_to_tensor=True,
+            device=device,
+        )
+        dimension = sample_embedding.shape[0]
+        EmbeddingModelLoader._dimension_cache[cache_key] = dimension
+        logging.info(
+            f"Model {model_name} produces embeddings with dimension {dimension}"
+        )
 
         # Store in class-level cache and return
         EmbeddingModelLoader._model_cache[cache_key] = model
@@ -126,7 +109,7 @@ class EmbeddingModelLoader:
         Parameters
         ----------
         embedding_type : str
-            Type of embedding ('faiss', 'chroma', or 'weaviate')
+            Type of embedding (used as cache key prefix, e.g. 'qdrant')
         model_name : str
             Name of the model
 
@@ -142,18 +125,15 @@ class EmbeddingModelLoader:
         # -- reload to get dimension
         model = EmbeddingModelLoader.load_embedding_model(embedding_type, model_name)
 
-        if embedding_type in [IndexType.FAISS, IndexType.CHROMA]:
-            sample_embedding = model.encode(
-                "sample text for dimension detection",
-                show_progress_bar=False,
-                convert_to_tensor=True,
-                device=device,
-            )
-            dimension = sample_embedding.shape[0]
-            EmbeddingModelLoader._dimension_cache[cache_key] = dimension
-            return dimension
-        else:
-            return 384
+        sample_embedding = model.encode(
+            "sample text for dimension detection",
+            show_progress_bar=False,
+            convert_to_tensor=True,
+            device=device,
+        )
+        dimension = sample_embedding.shape[0]
+        EmbeddingModelLoader._dimension_cache[cache_key] = dimension
+        return dimension
 
     @staticmethod
     async def load_embedding_model_async(embedding_type: str, model_name: str) -> Any:
@@ -163,7 +143,7 @@ class EmbeddingModelLoader:
         Parameters
         ----------
         embedding_type : str
-            Type of embedding ('faiss', 'chroma', or 'weaviate')
+            Type of embedding (used as cache key prefix, e.g. 'qdrant')
         model_name : str
             Name of the model to load
 
@@ -219,7 +199,7 @@ class EmbeddingModelLoader:
         Parameters
         ----------
         embedding_type : str
-            Type of embedding ('faiss', 'chroma', or 'weaviate')
+            Type of embedding (used as cache key prefix, e.g. 'qdrant')
 
         Returns
         -------
@@ -227,14 +207,9 @@ class EmbeddingModelLoader:
             The default embedding model for the specified type
         """
         embedding_model_name = EMBEDDING_NAME
-        if embedding_type in [IndexType.FAISS, IndexType.CHROMA]:
-            return EmbeddingModelLoader.load_embedding_model(
-                embedding_type, embedding_model_name
-            )
-        elif embedding_type == IndexType.WEAVIATE:
-            return EmbeddingModelLoader.load_embedding_model(embedding_type, "default")
-        else:
-            raise ValueError("🚩 Unsupported embedding type")
+        return EmbeddingModelLoader.load_embedding_model(
+            embedding_type, embedding_model_name
+        )
 
     @staticmethod
     def clear_cache() -> None:

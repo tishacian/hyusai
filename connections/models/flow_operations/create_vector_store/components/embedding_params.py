@@ -25,9 +25,5 @@ class EmbeddingParams(BaseModel):
     )
     normalization_strategy: Literal["l2", "min_max", "z_score", "raw"] = Field(
         "l2",
-        description="The strategy used to normalize the embeddings before storing them. ",
-    )
-    vector_store_type: Literal["faiss", "chroma", "weaviate"] = Field(
-        "faiss",
-        description="The type of vector store backend to use for storing embeddings.",
+        description="The strategy used to normalize the embeddings before storing them.",
     )

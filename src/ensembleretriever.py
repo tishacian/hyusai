@@ -54,9 +54,9 @@ class EnsembleRetriever:
     def __init__(
         self,
         bm25_retriever: Any,
-        dense_retriever: Any,
+        qdrant_client: Any,
         embedding_model: Any,
-        texts: list[str],
+        collection_name: str,
         config: Optional[EnsembleConfig] = None,
     ):
         """Ensemble retriever
@@ -65,12 +65,12 @@ class EnsembleRetriever:
         ----------
         bm25_retriever : Any
             BM25 retriever.
-        dense_retriever : Any
-            Dense (usually FAISS) retriever.
-        embedding_model : embedding
-            Embedding model.
-        texts : List[str]
-            Text corpus for retrieving passages.
+        qdrant_client : Any
+            Qdrant client for dense retrieval.
+        embedding_model : Any
+            Embedding model used to encode queries.
+        collection_name : str
+            Qdrant collection to search against.
         config : Optional[EnsembleConfig], optional
             Ensemble reranking config. The default is None.
 
@@ -80,9 +80,9 @@ class EnsembleRetriever:
         """
         self.config = config or EnsembleConfig()
         self.bm25_retriever = bm25_retriever
-        self.dense_retriever = dense_retriever
+        self.qdrant_client = qdrant_client
         self.embedding_model = embedding_model
-        self.texts = texts
+        self.collection_name = collection_name
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() and self.config.use_gpu else "cpu"
         )
@@ -146,26 +146,25 @@ class EnsembleRetriever:
         """
         try:
             with torch.no_grad():
-                query_embedding = self.embedding_model.encode(
-                    [query],
-                    convert_to_tensor=True,
-                    show_progress_bar=False,
-                    device=self.device,
+                query_vector = (
+                    self.embedding_model.encode(
+                        [query],
+                        convert_to_tensor=True,
+                        show_progress_bar=False,
+                        device=self.device,
+                    )
+                    .cpu()
+                    .numpy()[0]
+                    .tolist()
                 )
-                query_embedding = query_embedding.cpu().numpy()
 
-            if len(query_embedding.shape) == 2:
-                query_embedding = query_embedding.astype("float32")
-            else:
-                query_embedding = query_embedding.reshape(1, -1).astype("float32")
-
-            # FAISS Search
-            distances, indices = self.dense_retriever.search(query_embedding, k)
-            passages = [self.texts[idx] for idx in indices[0]]
-            similarities = 1.0 / (1.0 + distances[0])  # Convert distance to similarity
-            scores_dict = {
-                passage: float(score) for passage, score in zip(passages, similarities)
-            }
+            results = self.qdrant_client.query_points(
+                collection_name=self.collection_name,
+                query=query_vector,
+                limit=k,
+            ).points
+            passages = [r.payload["text"] for r in results]
+            scores_dict = {r.payload["text"]: float(r.score) for r in results}
             ranks = list(range(1, len(passages) + 1))
 
             return passages, scores_dict, ranks

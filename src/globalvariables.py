@@ -45,7 +45,6 @@ HELP = {  # help suggestions..
         + "\n"
         + " size of the embedding space. The default is set to 500."
     ),
-    "index_type": "Select desired vector types",
     "pipeline": (
         "Select the desired pipeline. Default is without Chain of Thought (COT)"
     ),
@@ -187,12 +186,6 @@ class ChunkingMethod(StrEnum):
     HIERARCHICAL = "hierarchical"
     MODEL_BASED = "model_based"
     SENTENCE_BOUNDARY = "sentence_boundary"
-
-
-class IndexType(StrEnum):
-    FAISS = "faiss"
-    CHROMA = "chroma"
-    WEAVIATE = "weaviate"
 
 
 class OptimalMethod(StrEnum):

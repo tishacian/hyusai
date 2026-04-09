@@ -3,7 +3,7 @@ pydantic_settings
 pydantic
 GPUtil
 
-# protobuf compatibility (required for weaviate and other packages)
+# protobuf compatibility (required for some packages)
 protobuf>=3.19,<5.0
 
 # data manipulation and mathematics
@@ -37,6 +37,7 @@ chardet>=4.0.0          # character encoding detection
 tiktoken>=0.3.0         # token counting (for LLMs)
 PyYAML>=5.4.0           # YAML, structured data
 tomli>=1.2.0            # TOML, structured data
+langchain-community
 
 # embedding and ranking
 sentence-transformers~=4.1     # embedding model
@@ -44,10 +45,7 @@ rank-bm25~=0.2.1               # document indexer for retrival
 transformers                   # tokenizer, reranking model
 
 # vector database
-faiss-cpu~=1.10                # faiss
-weaviate-client<3.0.0          # weaviate (compatible with protobuf 4.x)
-langchain-community            # chroma + document loaders
-qdrant-client~=1.14            # qdrant
+qdrant-client~=1.14
 
 # logging
 datategy-logging-utils~=0.6.1

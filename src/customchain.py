@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import os
-import pickle
 import re
 import sys
 import time
@@ -9,11 +7,8 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 
-import faiss
 import numpy as np
 import torch
-import weaviate
-from langchain_community.vectorstores import Chroma
 
 from connections.database.system_prompts import SystemPrompts
 from src.cache import LRUCache
@@ -28,7 +23,6 @@ from src.globalvariables import (
     LARGE_MODELS,
     MAX_MODEL_LEN,
     VECTOR_STORE_PATH,
-    IndexType,
     ReasoningType,
 )
 from src.metrics import Evaluatrix
@@ -73,7 +67,6 @@ class CustomLLMChain:
         model_name,
         vector_store_name,
         embedding_model_name=EMBEDDING_NAME,
-        index_type=IndexType.FAISS,
         cache_size=1000,
         dynamic_k=True,
         instruction_lang: SystemPromptLangs = DEFAULT_SYSTEM_PROMPT_LANG,
@@ -92,8 +85,6 @@ class CustomLLMChain:
             vector store name.
         embedding_model_name : str, optional
             Embedding name. The default is "sentence-transformers/all-mpnet-base-v2".
-        index_type : str, optional
-            Index type. The default is IndexType.FAISS.
         cache_size : int, optional
             Size of token to cache. The default is 1000.
         dynamic_k : bool, optional
@@ -133,7 +124,6 @@ class CustomLLMChain:
                 + f"\nTokenizer: {None if not self.tokenizer else self.tokenizer} cannot be None"
             )
 
-        self.index_type = index_type
         self.instruction_lang = instruction_lang
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
@@ -142,7 +132,7 @@ class CustomLLMChain:
         try:
             load_embedding_start = time.time()
             self.embedding_model = EmbeddingModelLoader.load_embedding_model(
-                self.index_type, self.embedding_model_name
+                self.embedding_model_name
             )
             load_embedding_time = time.time() - load_embedding_start
             logging.info(
@@ -192,45 +182,26 @@ class CustomLLMChain:
             )
             self.texts = []
             # --
-            if self.index_type == IndexType.FAISS:
-                if os.path.exists(
-                    str(vector_store_path / "faiss.index")
-                ) and os.path.exists(str(vector_store_path / "faiss.pkl")):
-                    self.dense_retriever = faiss.read_index(
-                        str(vector_store_path / "faiss.index")
-                    )
-                    with open(str(vector_store_path / "faiss.pkl"), "rb") as f:
-                        self.texts = pickle.load(f)
-                    logging.info("FAISS index and texts loaded successfully.")
-                else:
-                    raise FileNotFoundError(
-                        "FAISS index or texts file not found. Please create an index first."
-                    )
-            elif self.index_type == IndexType.CHROMA:
-                self.dense_retriever = Chroma(
-                    persist_directory=str(vector_store_path),
-                    embedding_function=self.embedding_model,
-                )
-                logging.info("Chroma index loaded successfully.")
-            elif self.index_type == IndexType.WEAVIATE:
-                self.dense_retriever = weaviate.Client("http://localhost:8080")
-                self.class_name = "Document"
-                if not self.dense_retriever.schema.contains(self.class_name):
-                    raise ValueError(
-                        "Weaviate index not found. Please create an index first."
-                    )
-                logging.info("Weaviate index loaded successfully.")
-            else:
-                raise ValueError(
-                    "Unsupported index type. Choose 'faiss', 'chroma', or 'weaviate'."
-                )
+            from qdrant_client import QdrantClient
+
+            from configurations import Config
+
+            qdrant_cfg = Config.get().qdrant
+            self.dense_retriever = QdrantClient(
+                host=qdrant_cfg.host,
+                port=qdrant_cfg.port,
+                api_key=qdrant_cfg.api_key or None,
+            )
+            self.qdrant_collection_name = f"qdrant_{self.vector_store_name}"
+            self.texts = []
+            logging.info("Qdrant client initialized successfully.")
 
             # -- intialize ensemble retriever
             self.ensemble_retriever = EnsembleRetriever(
                 bm25_retriever=self.bm25_retriever,
-                dense_retriever=self.dense_retriever,
-                embedding_model=self.embedding_model,  # Pass embedding model
-                texts=self.texts,  # Pass texts
+                qdrant_client=self.dense_retriever,
+                embedding_model=self.embedding_model,
+                collection_name=self.qdrant_collection_name,
                 config=EnsembleConfig(),
             )
 
@@ -861,24 +832,18 @@ class CustomLLMChain:
                     )
                     embeddings = embeddings.cpu().numpy()
             else:
-                if self.index_type == IndexType.CHROMA:
-                    embeddings = np.array(self.embedding_model.embed_documents(texts))
-                elif self.index_type in [IndexType.FAISS, IndexType.WEAVIATE]:
-                    try:
-                        embeddings = self.embedding_model.encode(
-                            texts,
-                            convert_to_tensor=True,
-                            show_progress_bar=False,
-                            device=self.device.type,
-                        )
-                        embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
-                    except IndexError as e:
-                        logging.error(
-                            f"🚩 Index out of range error: {e}. Check input text length."
-                        )
-                        return np.array([])
-                else:
-                    logging.error(f"🚩 Unsupported embedding type: {self.index_type}")
+                try:
+                    embeddings = self.embedding_model.encode(
+                        texts,
+                        convert_to_tensor=True,
+                        show_progress_bar=False,
+                        device=self.device.type,
+                    )
+                    embeddings = embeddings.to(dtype=torch.float32).cpu().numpy()
+                except IndexError as e:
+                    logging.error(
+                        f"🚩 Index out of range error: {e}. Check input text length."
+                    )
                     return np.array([])
 
             return embeddings
@@ -886,36 +851,6 @@ class CustomLLMChain:
         except Exception as e:
             logging.error(f"🚩 Error creating embeddings: {e}")
             return np.array([])
-
-    @measure_time
-    async def vector_search_async(self, embedding, k):
-        """Asynchronous vector search for Chroma and Weaviate.
-
-        Parameters:
-            embedding (np): embedding model
-            k (int): number of context to return after search
-
-        Returns:
-            list: list of context generated from vector (index) search
-        """
-        if self.index_type == IndexType.CHROMA:
-            results = await asyncio.to_thread(
-                self.vectorstore.similarity_search_by_vector,
-                embedding.tolist(),
-                k,
-            )
-            return [result.page_content for result in results]
-        elif self.index_type == IndexType.WEAVIATE:
-            results = await asyncio.to_thread(
-                self.weaviate_client.query.get(self.class_name, ["page_content"])
-                .with_near_vector({"vector": embedding.tolist()})
-                .with_limit(k)
-                .do
-            )
-            return [
-                result["page_content"]
-                for result in results["data"]["Get"][self.class_name]
-            ]
 
     @measure_time
     async def parallel_search(self, document, k=5):

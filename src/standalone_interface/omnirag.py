@@ -34,7 +34,6 @@ from src.globalvariables import (
     HELP,
     REPO_PATH,
     ChunkingMethod,
-    IndexType,
     PipelineType,
 )
 from src.metrics import DUMMY_METRICS
@@ -77,7 +76,6 @@ def save_button_action(
     uploaded_files: list[UploadedFile],
     chunking_method: str,
     existing_vector_store: UUID | None,
-    index_type: str,
     model_name: str,
 ):
     if new_vs_name == "":
@@ -139,7 +137,6 @@ def omnirag_page():
     # default values
     pipeline_type = PipelineType.HAHCOMPOSITE
     chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
-    index_type = IndexType.FAISS
     model_name = device_default_model()
     instruction_lang = DEFAULT_SYSTEM_PROMPT_LANG
 
@@ -225,8 +222,6 @@ def omnirag_page():
         st.session_state.chain = None
     if "chunking_method" not in st.session_state:
         st.session_state.chunking_method = None
-    if "index_type" not in st.session_state:
-        st.session_state.index_type = None
     if "model_name" not in st.session_state or "tokenizer" not in st.session_state:
         st.session_state.model_name = device_default_model()
         init_cached_model(st.session_state.model_name, REPO_PATH)
@@ -239,7 +234,6 @@ def omnirag_page():
     PIPELINE_TYPES = list(map(str, PipelineType))
     Models = device_available_models()
     chunking_methods = list(map(str, ChunkingMethod))
-    index_types = list(map(str, IndexType))
 
     ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
 
@@ -258,7 +252,7 @@ def omnirag_page():
 
                 len(uploaded_files)
                 if not Config.get().interface.hide_rag_params_config:
-                    row_ae = st.columns([2, 1, 1])
+                    row_ae = st.columns([2, 1])
                     with row_ae[0]:
                         current_model = st.session_state.get(
                             "model_name", device_available_models()
@@ -304,19 +298,6 @@ def omnirag_page():
                                 )
                                 if st.session_state.get("chunking_method")
                                 in chunking_methods
-                                else 0
-                            ),
-                        )
-
-                    with row_ae[2]:
-                        index_type = st.selectbox(
-                            "Index Type",
-                            index_types,
-                            index=(
-                                index_types.index(
-                                    st.session_state.get("index_type", index_types[0])
-                                )
-                                if st.session_state.get("index_type") in index_types
                                 else 0
                             ),
                         )
@@ -383,7 +364,6 @@ def omnirag_page():
                         uploaded_files=uploaded_files,
                         chunking_method=chunking_method,
                         existing_vector_store=existing_vector_store,
-                        index_type=index_type,
                         model_name=model_name,
                     )
                 if custom_chain_button:
@@ -402,7 +382,6 @@ def omnirag_page():
                         st.session_state.model,
                         model_name,
                         existing_vector_store,
-                        index_type=index_type,
                         instruction_lang=instruction_lang,
                     )
                     st.session_state.chain = chain
@@ -424,7 +403,6 @@ def omnirag_page():
             st.session_state.model,
             model_name,
             Config.get().interface.forced_vdb,
-            index_type=index_type,
             instruction_lang=instruction_lang,
         )
         st.session_state.chain = chain
@@ -435,8 +413,6 @@ def omnirag_page():
         st.session_state.model_name = device_default_model()
     if "chunking_method" not in st.session_state:
         st.session_state.chunking_name = chunking_methods[0]
-    if "index_type" not in st.session_state:
-        st.session_state.index_type = index_types[0]
     if "vector_store" not in st.session_state:
         st.session_state.vector_store = "<New>"
     if "pipeline_type" not in st.session_state:
@@ -471,7 +447,7 @@ def omnirag_page():
                     chat_history,
                     model_name,
                     chunking_method,
-                    index_type,
+                    _,
                     vector_store,
                     pipeline_type,
                     instruction_lang,
@@ -482,7 +458,6 @@ def omnirag_page():
                 st.session_state.current_chat_id = chat_id
                 st.session_state.model_name = model_name
                 st.session_state.chunking_method = chunking_method
-                st.session_state.index_type = index_type
                 st.session_state.vector_store = vector_store
                 st.session_state.pipeline_type = pipeline_type or PipelineType.HAH
                 st.session_state.instruction_lang = instruction_lang
@@ -504,7 +479,6 @@ def omnirag_page():
                     st.session_state.model,
                     model_name,
                     vector_store,
-                    index_type=index_type,
                     instruction_lang=instruction_lang,
                 )
                 st.session_state.chain = chain
@@ -598,7 +572,7 @@ def omnirag_page():
                 st.session_state.chat_history,
                 st.session_state.get("model_name", ""),
                 st.session_state.get("chunking_method", ""),
-                st.session_state.get("index_type", ""),
+                "",
                 st.session_state.get("vector_store", ""),
                 st.session_state.get("pipeline_type", ""),
                 st.session_state.get("instruction_lang", ""),
@@ -610,7 +584,7 @@ def omnirag_page():
                 st.session_state.chat_history,
                 st.session_state.get("model_name", ""),
                 st.session_state.get("chunking_method", ""),
-                st.session_state.get("index_type", ""),
+                "",
                 st.session_state.get("vector_store", ""),
                 st.session_state.get("pipeline_type", ""),
                 st.session_state.get("instruction_lang", ""),
@@ -671,7 +645,7 @@ def omnirag_page():
             st.session_state.chat_history,
             st.session_state.get("model_name", ""),
             st.session_state.get("chunking_method", ""),
-            st.session_state.get("index_type", ""),
+            "",
             st.session_state.get("vector_store", ""),
             st.session_state.get("pipeline_type", ""),
             st.session_state.get("instruction_lang", ""),
