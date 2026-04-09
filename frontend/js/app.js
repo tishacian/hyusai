@@ -809,40 +809,57 @@ function appendAssistantShell(container) {
     return div;
 }
 
+const STEP_ICONS = {
+    query_received: '📥', query_rewrite: '✏️', embedding: '🧬',
+    retrieve: '🔍', context_filtering: '🎯', validation: '✅',
+    synthesis: '⚡', evaluation: '📊',
+    document_ingestion: '📄', default: '⚙️',
+};
+
 function renderToolCallCard(container, step) {
     const existing = document.getElementById('tool-' + step.id);
     const isRunning = step.status === 'active';
     const isDone = step.status === 'completed';
     const isError = step.status === 'error';
 
+    const accentColor = isRunning ? '#00bcd4' : isError ? '#ef4444' : '#10b981';
     const dotColor = isRunning ? '#00bcd4' : isError ? '#ef4444' : '#94a3b8';
-    const titleColor = isRunning ? '#1e293b' : '#64748b';
-    const borderColor = isError ? '#fecaca' : '#e2e8f0';
-    const bgColor = isError ? '#fef2f2' : '#f8fafc';
+    const titleColor = isRunning ? '#0e1726' : isDone ? '#334155' : '#64748b';
+    const borderColor = isRunning ? '#b2ebf2' : isError ? '#fecaca' : isDone ? '#d1fae5' : '#e2e8f0';
+    const bgColor = isRunning ? '#f0fdfa' : isError ? '#fef2f2' : '#f8fafc';
+    const icon = STEP_ICONS[step.type] || STEP_ICONS.default;
 
     const pingHtml = isRunning ? `<span class="tool-dot-ping absolute inline-flex h-1.5 w-1.5 rounded-full opacity-60 animate-ping" style="background:${dotColor}"></span>` : '';
-    const statusLabel = isRunning ? `<span class="tool-status-label text-[10px] ml-auto text-brand-600 font-medium">running…</span>` : '';
-    const durationHtml = step.duration ? `<span class="text-[10px] font-mono text-slate-400 ml-auto">${step.duration}ms</span>` : '';
+    const statusLabel = isRunning ? `<span class="tool-status-label text-[10px] ml-auto font-medium" style="color:#00838f">running…</span>` : '';
+    const doneCheck = isDone && !step.metrics ? '<span class="text-emerald-500 text-[11px] ml-auto">✓</span>' : '';
+    const durationHtml = step.duration ? `<span class="text-[10px] font-mono text-slate-400 ml-1">${step.duration}ms</span>` : '';
 
     const metricsHtml = (step.metrics && isDone) ? renderMetricsGauges(step.metrics) : '';
+
+    const descLines = (step.description || '').split('\n').filter(l => l.trim());
+    const descHtml = !metricsHtml && descLines.length > 0
+        ? `<div class="mt-0.5 space-y-0">${descLines.map(l => `<p class="text-[10px] text-slate-500 leading-tight">${escapeHtml(l)}</p>`).join('')}</div>`
+        : '';
 
     const html = `
         <div id="tool-${step.id}" class="rounded-md border px-3 py-2 transition-all ${isRunning ? 'tool-card-running' : ''}" style="background:${bgColor};border-color:${borderColor}">
             <div class="flex items-center gap-1.5 mb-0.5">
+                <span class="text-[11px] shrink-0">${icon}</span>
                 <div class="relative w-1.5 h-1.5 shrink-0">
                     ${pingHtml}
                     <span class="tool-dot relative inline-flex rounded-full h-1.5 w-1.5" style="background:${dotColor}"></span>
                 </div>
                 <span class="text-[12px] font-mono font-semibold" style="color:${titleColor}">${escapeHtml(step.component)}</span>
                 ${statusLabel}
+                ${doneCheck}
                 ${isDone ? durationHtml : ''}
             </div>
-            <div class="flex items-center gap-1.5 text-[10px] text-slate-400 mb-0.5">
+            <div class="flex items-center gap-1.5 text-[10px] text-slate-400 mb-0.5 pl-5">
                 <span>${escapeHtml(step.title)}</span>
                 <span>&middot;</span>
                 <span class="font-mono">${escapeHtml(step.model || '')}</span>
             </div>
-            ${metricsHtml || (step.description ? `<p class="text-[10px] text-slate-500">${escapeHtml(step.description)}</p>` : '')}
+            <div class="pl-5">${metricsHtml || descHtml}</div>
         </div>
     `;
 
