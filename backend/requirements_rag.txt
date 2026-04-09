@@ -1,0 +1,43 @@
+# RAG System Dependencies
+# Core dependencies for document processing and vector search
+
+# Vector Database
+chromadb>=0.4.0
+faiss-cpu>=1.7.4  # Default vector DB - Fast & Efficient
+# faiss-gpu>=1.7.4  # Uncomment if GPU available and using FAISS
+
+# Embeddings
+sentence-transformers>=2.2.0
+numpy>=1.24.0
+torch>=2.1.0  # Required by sentence-transformers
+
+# Document Processing
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0
+pymupdf>=1.23.0
+beautifulsoup4>=4.12.0
+pandas>=2.0.0
+lxml>=4.9.0
+python-docx>=1.1.0
+odfpy>=1.4.1
+striprtf>=0.0.26
+markdown>=3.4.0
+
+# OCR (Optional - for image text extraction)
+# pytesseract>=0.3.10
+# easyocr>=1.7.0
+# paddleocr>=2.7.0
+# Pillow>=10.0.0
+
+# NLP & Entity Extraction (Optional)
+# spacy>=3.7.0
+# transformers>=4.35.0
+
+# Retrieval (Optional - for hybrid search)
+# rank-bm25>=0.2.2
+# whoosh>=2.7.4
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+

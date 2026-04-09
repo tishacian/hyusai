@@ -1,0 +1,93 @@
+"""FastAPI application entry point"""
+import os
+from pathlib import Path
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
+from app.core.config import settings
+from app.core.logging import setup_logging, get_logger
+from app.core.middleware import error_handler_middleware
+from app.core.settings_manager import get_settings_manager
+from app.api.v1.router import api_router
+from app.agents.orchestrator import AgentOrchestrator
+from app.agents.procurement_agent import ProcurementAgent
+from app.api.v1.endpoints.agents import set_orchestrator
+from app.db.base import engine, Base
+from app.seed_knowledge_base import seed_knowledge_base
+
+setup_logging(settings.log_level)
+logger = get_logger(__name__)
+
+orchestrator = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global orchestrator
+
+    logger.info("Starting application")
+
+    # Create all tables (demo -- no Alembic migration needed)
+    import app.models  # noqa: F401  ensure models are registered
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables created")
+
+    get_settings_manager()
+    logger.info("Settings manager initialized")
+
+    orchestrator = AgentOrchestrator()
+    set_orchestrator(orchestrator)
+
+    procurement_agent = ProcurementAgent()
+    await procurement_agent.initialize()
+    orchestrator.register_agent(procurement_agent)
+
+    # Seed knowledge base with sample docs (idempotent)
+    try:
+        await seed_knowledge_base()
+    except Exception as e:
+        logger.warning("Knowledge base seeding failed (non-blocking)", error=str(e))
+
+    logger.info("Application started", agents_count=len(orchestrator.agents))
+
+    yield
+
+    logger.info("Shutting down application")
+    if orchestrator:
+        for agent in orchestrator.agents.values():
+            await agent.cleanup()
+    logger.info("Application shut down")
+
+
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    debug=settings.debug,
+    lifespan=lifespan,
+)
+
+app.middleware("http")(error_handler_middleware)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# API routes first (takes priority)
+app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "app": settings.app_name, "version": settings.app_version}
+
+
+# Serve frontend static files (catch-all, must be LAST)
+frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
+if frontend_dir.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+    logger.info("Frontend mounted", path=str(frontend_dir))

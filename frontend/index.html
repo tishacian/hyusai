@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Orchestration Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#e6fafb', 100: '#b8f0f5', 200: '#85e5ed',
+                            300: '#4dd9e5', 400: '#22ced9', 500: '#00bcd4',
+                            600: '#00a9bf', 700: '#0091a5', 800: '#007a8c',
+                            900: '#005c69', 950: '#003d47',
+                        },
+                        sidebar: { bg: '#181e2a', hover: '#232b3b', active: '#2a3548', border: '#2a3548' },
+                        accent: { emerald: '#10b981', amber: '#f59e0b', red: '#ef4444', purple: '#8b5cf6', indigo: '#6366f1' },
+                    },
+                    fontSize: {
+                        'xxs': ['10px', '14px'],
+                    },
+                },
+            },
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+        .sidebar-scroll::-webkit-scrollbar { width: 2px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.06); border-radius: 2px; }
+        .code-editor { font-family: 'JetBrains Mono', monospace; resize: none; line-height: 1.6; }
+        .chat-bubble { max-width: 85%; }
+
+        .step-active { background: #00bcd4; color: white; }
+        .step-completed { background: #10b981; color: white; }
+        .step-pending { background: #2a3548; color: #64748b; }
+
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        .cursor-blink::after { content:"▋"; color:#00bcd4; margin-left:2px; font-size:0.75em; animation:blink 1s step-start infinite; }
+
+        @keyframes pulse-dot { 0%,100%{opacity:.4} 50%{opacity:1} }
+        .tool-running { animation:pulse-dot 1.6s ease-in-out infinite; }
+
+        @keyframes bounce-dot { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
+        .dot-bounce { animation:bounce-dot .6s ease-in-out infinite; }
+
+        @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+        .animate-slideUp { animation:slideUp .25s ease-out; }
+
+        /* Prose styling for markdown chat responses */
+        .prose-chat { color:#334155; font-size:13px; line-height:1.65; }
+        .prose-chat p { margin-bottom:.5rem; }
+        .prose-chat p:last-child { margin-bottom:0; }
+        .prose-chat strong { font-weight:600; color:#1e293b; }
+        .prose-chat em { font-style:italic; }
+        .prose-chat ul { list-style:disc; padding-left:1.2rem; margin-bottom:.5rem; }
+        .prose-chat ol { list-style:decimal; padding-left:1.2rem; margin-bottom:.5rem; }
+        .prose-chat li { margin-bottom:.15rem; }
+        .prose-chat code { background:#f1f5f9; color:#475569; padding:1px 5px; border-radius:3px; font-size:12px; font-family:'JetBrains Mono',monospace; }
+        .prose-chat pre { background:#0f172a; color:#e2e8f0; border-radius:6px; padding:.75rem 1rem; overflow-x:auto; margin-bottom:.6rem; }
+        .prose-chat pre code { background:none; padding:0; color:inherit; }
+        .prose-chat blockquote { border-left:2px solid #00bcd4; padding-left:.75rem; color:#64748b; font-style:italic; margin:.6rem 0; }
+        .prose-chat h1 { font-size:1rem; font-weight:700; color:#1e293b; margin:1rem 0 .4rem; }
+        .prose-chat h2 { font-size:.95rem; font-weight:600; color:#1e293b; margin:.8rem 0 .35rem; }
+        .prose-chat h3 { font-size:.875rem; font-weight:600; color:#334155; margin:.6rem 0 .25rem; }
+        .prose-chat h4 { font-size:.8125rem; font-weight:600; color:#334155; margin:.4rem 0 .2rem; }
+        .prose-chat table { width:100%; border-collapse:collapse; font-size:12px; margin:.6rem 0; }
+        .prose-chat th { text-align:left; padding:5px 10px; background:#181e2a; color:#e2e8f0; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+        .prose-chat td { padding:5px 10px; border-bottom:1px solid #e2e8f0; color:#334155; }
+        .prose-chat tr:last-child td { border-bottom:none; }
+        .prose-chat tr:nth-child(even) td { background:#f8fafc; }
+        .prose-chat hr { border:none; border-top:1px solid #e2e8f0; margin:.75rem 0; }
+
+        /* Range slider styling */
+        input[type="range"] { -webkit-appearance:none; height:4px; background:#cbd5e1; border-radius:2px; outline:none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#00bcd4; cursor:pointer; border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.1); }
+    </style>
+</head>
+<body class="bg-[#f0f2f5] text-slate-800 h-screen flex overflow-hidden">
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:#181e2a;">
+        <div class="w-full max-w-sm mx-4">
+            <div class="text-center mb-6">
+                <div class="w-11 h-11 rounded-lg bg-brand-500 flex items-center justify-center mx-auto mb-3">
+                    <span class="material-icons-outlined text-white text-2xl">hub</span>
+                </div>
+                <h1 class="text-lg font-semibold text-white tracking-tight">AI Orchestration Platform</h1>
+                <p class="text-xs text-slate-500 mt-0.5">Enterprise Agent Management</p>
+            </div>
+
+            <div class="bg-white rounded-lg border border-slate-200 p-6">
+                <h2 class="text-sm font-semibold text-slate-900 mb-0.5">Sign in to your workspace</h2>
+                <p class="text-[11px] text-slate-400 mb-4">Select an account to continue</p>
+
+                <div class="space-y-1.5" id="account-list">
+                    <button onclick="selectAccount(this)" data-email="thibaud.ishacian@presight.ai" data-name="Thibaud Ishacian" data-role=""
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-brand-500 bg-brand-50 text-left transition-all">
+                        <div class="w-8 h-8 rounded-md bg-brand-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">TI</div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-[13px] font-medium text-slate-900 truncate">Thibaud Ishacian</p>
+                            <p class="text-[10px] text-slate-500 truncate">thibaud.ishacian@presight.ai</p>
+                        </div>
+                    </button>
+                    <button onclick="selectAccount(this)" data-email="eric.chau@presight.ai" data-name="Eric Chau" data-role=""
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
+                        <div class="w-8 h-8 rounded-md bg-emerald-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">EC</div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-[13px] font-medium text-slate-900 truncate">Eric Chau</p>
+                            <p class="text-[10px] text-slate-500 truncate">eric.chau@presight.ai</p>
+                        </div>
+                    </button>
+                    <button onclick="selectAccount(this)" data-email="mehdi.chouiten@presight.ai" data-name="Mehdi Chouiten" data-role=""
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
+                        <div class="w-8 h-8 rounded-md bg-violet-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">MC</div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-[13px] font-medium text-slate-900 truncate">Mehdi Chouiten</p>
+                            <p class="text-[10px] text-slate-500 truncate">mehdi.chouiten@presight.ai</p>
+                        </div>
+                    </button>
+                    <button onclick="selectAccount(this)" data-email="hermann.kuetat@presight.ai" data-name="Hermann Kuetat" data-role=""
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
+                        <div class="w-8 h-8 rounded-md bg-amber-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">HK</div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-[13px] font-medium text-slate-900 truncate">Hermann Kuetat</p>
+                            <p class="text-[10px] text-slate-500 truncate">hermann.kuetat@presight.ai</p>
+                        </div>
+                    </button>
+                </div>
+
+                <div class="mt-3">
+                    <label class="text-[11px] font-medium text-slate-500 mb-1 block">Password</label>
+                    <input id="login-password" type="password" placeholder="Enter workspace password"
+                        class="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white text-slate-700 focus:ring-1 focus:ring-brand-500 focus:border-brand-500 outline-none">
+                    <p id="login-error" class="text-[11px] text-red-500 mt-1 hidden">Incorrect password</p>
+                </div>
+
+                <button id="login-btn" onclick="handleLogin()" class="w-full mt-4 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors flex items-center justify-center gap-1.5">
+                    Sign In
+                    <span class="material-icons-outlined text-base">arrow_forward</span>
+                </button>
+
+                <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-center gap-1.5">
+                    <span class="material-icons-outlined text-slate-300 text-xs">lock</span>
+                    <span class="text-[10px] text-slate-400">Secured workspace &middot; Role-based access control</span>
+                </div>
+            </div>
+
+            <p class="text-center text-[10px] text-slate-600 mt-4">papAI &middot; Internal Platform</p>
+        </div>
+    </div>
+
+    <!-- Document Preview Modal -->
+    <div id="doc-preview-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;">
+        <div onclick="closeDocPreview()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);"></div>
+        <div style="position:absolute;top:12px;bottom:12px;right:12px;width:540px;max-width:calc(100vw - 320px);background:#fff;border-radius:8px;border:1px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden;">
+            <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 shrink-0 bg-slate-50">
+                <div class="flex items-center gap-2 min-w-0">
+                    <span class="material-icons-outlined text-brand-500 text-lg">description</span>
+                    <h3 id="doc-preview-title" class="text-[13px] font-semibold text-slate-900 truncate">Document</h3>
+                </div>
+                <button onclick="closeDocPreview()" class="w-6 h-6 rounded flex items-center justify-center hover:bg-slate-200 transition-colors">
+                    <span class="material-icons-outlined text-slate-400 text-base">close</span>
+                </button>
+            </div>
+            <div id="doc-preview-body" class="flex-1 overflow-y-auto px-5 py-4 prose-chat text-[13px] leading-relaxed"></div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <aside id="app-sidebar" class="w-[240px] flex flex-col bg-sidebar-bg text-slate-300 flex-shrink-0 h-full border-r border-sidebar-border opacity-0 transition-opacity duration-500">
+        <div class="h-12 flex items-center px-4 border-b border-sidebar-border">
+            <div class="flex items-center gap-2.5">
+                <div class="w-7 h-7 rounded-md bg-brand-500 flex items-center justify-center">
+                    <span class="material-icons-outlined text-white text-base">hub</span>
+                </div>
+                <div class="flex flex-col">
+                    <span class="font-semibold text-white text-[13px] leading-tight tracking-tight">AI Platform</span>
+                    <span class="text-[9px] text-slate-500 font-mono">v3.2</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent Builder Steps -->
+        <div class="px-3 py-3">
+            <p class="text-[9px] font-semibold uppercase tracking-widest text-slate-600 mb-2 px-2">Agent Builder</p>
+            <div class="space-y-0.5" id="step-nav">
+                <button onclick="goToStep(1)" data-step="1" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                    <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-active">1</span>
+                    <span>Agent Creation</span>
+                </button>
+                <button onclick="goToStep(2)" data-step="2" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                    <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">2</span>
+                    <span>Model Selection</span>
+                </button>
+                <button onclick="goToStep(3)" data-step="3" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                    <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">3</span>
+                    <span>Knowledge Upload</span>
+                </button>
+                <button onclick="goToStep(4)" data-step="4" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                    <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">4</span>
+                    <span>Rules & Tools</span>
+                </button>
+                <button onclick="goToStep(5)" data-step="5" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                    <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">5</span>
+                    <span>Governance</span>
+                </button>
+                <button onclick="goToStep(6)" data-step="6" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                    <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">6</span>
+                    <span>Execution</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Sidebar Nav -->
+        <nav class="flex-1 overflow-y-auto sidebar-scroll px-3 space-y-0.5 border-t border-sidebar-border pt-3">
+            <div class="pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest text-slate-600">Build</span></div>
+            <a onclick="goToPage('agents')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-white bg-sidebar-active border-l-2 border-brand-400 rounded-md cursor-pointer" data-page="agents">
+                <span class="material-icons-outlined mr-2.5 text-lg text-brand-400">smart_toy</span>Agents
+            </a>
+            <div class="pt-3 pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest text-slate-600">Data</span></div>
+            <a onclick="goToPage('knowledge')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-md cursor-pointer" data-page="knowledge">
+                <span class="material-icons-outlined mr-2.5 text-lg">library_books</span>Knowledge Base
+            </a>
+            <div class="pt-3 pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest text-slate-600">Governance</span></div>
+            <a onclick="goToPage('access')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-md cursor-pointer" data-page="access">
+                <span class="material-icons-outlined mr-2.5 text-lg">group</span>Access & Roles
+            </a>
+            <a onclick="goToPage('audit')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-md cursor-pointer" data-page="audit">
+                <span class="material-icons-outlined mr-2.5 text-lg">receipt_long</span>Audit Logs
+            </a>
+        </nav>
+
+        <div class="px-3 py-2 border-t border-sidebar-border text-[9px] text-slate-600 text-center">
+            Internal workspace &middot; v3.2
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div id="app-main" class="flex-1 flex flex-col overflow-hidden opacity-0 transition-opacity duration-500">
+        <!-- Header -->
+        <header class="bg-white border-b border-slate-200 px-5 py-2.5 flex-shrink-0">
+            <div class="flex items-center justify-between gap-4 min-w-0">
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1 text-[11px] text-slate-400 mb-0 whitespace-nowrap overflow-hidden">
+                        <span>Agents</span>
+                        <span class="material-icons-outlined text-[11px]">chevron_right</span>
+                        <span class="text-slate-600 font-medium truncate" id="header-title">Agent Creation</span>
+                    </div>
+                    <h1 class="text-[15px] font-semibold text-slate-900 truncate" id="step-title">Create Your Agent</h1>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <div class="relative">
+                        <div id="user-badge" onclick="toggleUserDropdown()" class="hidden sm:flex items-center gap-2 px-2 py-1 bg-slate-50 rounded-md border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div class="w-6 h-6 rounded-md bg-slate-300 flex items-center justify-center text-white text-[9px] font-bold">?</div>
+                            <span class="text-[11px] text-slate-600 font-medium truncate max-w-[100px]">—</span>
+                            <span class="material-icons-outlined text-slate-400 text-xs">expand_more</span>
+                        </div>
+                        <div id="user-dropdown" class="hidden absolute right-0 top-full mt-1 w-52 bg-white rounded-lg border border-slate-200 z-50 overflow-hidden shadow-lg">
+                            <div class="px-3 py-2.5 border-b border-slate-100">
+                                <p id="dd-name" class="text-[13px] font-semibold text-slate-900">—</p>
+                                <p id="dd-email" class="text-[10px] text-slate-500 truncate">—</p>
+                                <p id="dd-role" class="text-[10px] text-brand-600 font-medium mt-0.5">—</p>
+                            </div>
+                            <div class="py-0.5">
+                                <button onclick="showToast('Profile settings coming soon')" class="w-full text-left px-3 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors">
+                                    <span class="material-icons-outlined text-slate-400 text-sm">settings</span>
+                                    Account settings
+                                </button>
+                                <button onclick="showToast('Notifications coming soon')" class="w-full text-left px-3 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors">
+                                    <span class="material-icons-outlined text-slate-400 text-sm">notifications</span>
+                                    Notifications
+                                </button>
+                                <div class="border-t border-slate-100 my-0.5"></div>
+                                <button onclick="signOut()" class="w-full text-left px-3 py-1.5 text-[12px] text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors">
+                                    <span class="material-icons-outlined text-red-500 text-sm">logout</span>
+                                    Sign out
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="next-btn" onclick="nextStep()" class="px-3 py-1.5 text-[13px] font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors flex items-center gap-1 whitespace-nowrap">
+                        Next Step
+                        <span class="material-icons-outlined text-sm">arrow_forward</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Step Content Area -->
+        <div class="flex-1 overflow-y-auto p-5" id="step-content">
+        </div>
+
+        <!-- Environment banner -->
+        <div class="bg-white border-t border-slate-200 px-5 py-1 text-center">
+            <p class="text-[10px] text-slate-400">Preview environment &middot; Procurement workspace</p>
+        </div>
+    </div>
+
+    <script src="js/api.js" type="module"></script>
+    <script src="js/steps.js" type="module"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
