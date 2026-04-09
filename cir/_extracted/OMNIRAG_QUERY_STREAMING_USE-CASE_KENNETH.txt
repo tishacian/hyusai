@@ -1,0 +1,119 @@
+OMNIRAG
+QUERY STREAMING USE-CASE
+Company name:   Date:
+Datategy        17.12.2025
+Agenda
+
+
+
+
+Big picture             QUANT ADVANTAGE
+              01                              02
+
+
+
+
+COMPETITION              DECISION FLOW
+                   03                    04
+
+
+
+
+         FEASIBILITY
+                            05
+Big picture
+01
+
+Query Streaming
+Query REWRITING
+Query rewriting is the process of automatically transforming a user’s
+original search query into a clearer, more effective version before it is
+executed by a search system. This can include correcting spelling,
+expanding abbreviations, adding synonyms, or restructuring the query to
+better match how information is indexed.
+
+
+
+                    For end users, the main benefit is improved search relevance: they receive
+                    more accurate, complete, and useful results with less effort, even if their
+                    initial query is vague, ambiguous, or imperfect.
+HIGHLIGHTS
+Search Accuracy
+
+Query rewriting refines user input by
+correcting errors, resolving ambiguity,
+and adding relevant terms, which helps
+the system better understand the
+user’s intent. As a result, search results
+are more accurate.
+HIGHLIGHTS
+Reduced User Effort
+
+By automatically enhancing
+incomplete or poorly phrased queries,
+query rewriting minimizes the need
+for users to repeatedly modify or
+refine their searches.
+HIGHLIGHTS
+Better Coverage
+
+Rewriting queries to include
+synonyms, related concepts, or
+alternative phrasings allows the
+system to retrieve a broader yet still
+relevant set of results.
+HOW IMPORTANT
+Casual users                               Admin
+
+It is not so relevant to the front users   The value is strongest for analysts,
+except they are very involved in           admins, data owners, and AI product
+minimising token expenses. This            managers, rather than casual users
+applies only to experienced LLM users.
+competitive
+advantage
+Trust through transparency
+OTHER PROVIDERS
+None, maybe WEAVIATE                    OMNIRAG
+
+Some providers expose logs, traces,     Currently the only provider supporting
+or debugging tools (often internal or   live metrics and we could potentially
+developer-only), but non for decision   be the only one providing decision-
+making process. Weaviate seems to       making process to end users
+have an agent RAG app that does the
+same.
+   END USER MOTIVATION
+Detecting poorly interpreted                                   Adjusting prompt strategies,
+queries or misleading rewrites                              retriever weights, or chunking logic
+
+
+
+                                   Identifying missing,
+                                 outdated, or low-quality
+                                   knowledge sources
+
+
+ Validating compliance and
+governance rules (what was                                      Debugging hallucinations by tracing
+  queried, what was used)                                          retrieval and ranking decisions
+relevant IN
+explicability layer
+Yes!
+HOw
+feasible
+The system already performs these steps internally
+through HAH architecture.
+
+
+Semantically, it is correct as long as it is framed as
+“system interpretation,” not “ground truth.” The UI
+should clearly communicate that these are internal
+transformations and retrieval decisions, not
+definitive reasoning
+Questions
+
+
+
+
+            Q&A
+                  Answers
+

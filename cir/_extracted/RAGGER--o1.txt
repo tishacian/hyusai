@@ -1,0 +1,1503 @@
+    RAGGER: Rethinking RAG via Hyper-layering Hybrid Search with
+                 Asynchronous Vector-DB Search
+
+    Kenneth EZUKWOKE ∗, Mohamed ELHAWARY, Thibaud ISHACIAN, Eric CHAU
+                                  Datategy
+                          Research and Development
+                                Paris, France.
+
+
+                     Abstract                         RAG’s powerful retrieval advantages enable exist-
+                                                      ing generative AI models to produce higher-quality
+    While Retrieval-Augmented Generation (RAG)        output by incorporating an additional knowledge
+    has demonstrated significant potential in en-     base (Li et al., 2023; Sheynin et al., 2023; Wu
+    hancing Large Language Models through exter-
+                                                      et al., 2024). Large Language Models (LLMs) have
+    nal knowledge integration, current implemen-
+    tations face substantial trade-offs between ef-   demonstrated exceptional abilities in language un-
+    ficiency and performance, particularly when       derstanding and generation (Achiam et al., 2023;
+    scaling to large documents with millions of to-   Chowdhery et al., 2023), paving the way for their
+    kens. We present Hyper-layered Asynchronous       adoption in various decision-making industries
+    Hybrid RAG (HAH-RAG), a novel framework           such as the semiconductor (Ezukwoke et al., 2024).
+    that implements parallel hybrid search with       However, they still face inherent limitations, includ-
+    asynchronous vector database querying. Our
+                                                      ing hallucinations and outdated internal knowledge
+    approach executes sparse and dense retrievals
+    across multiple specialized layers, each opti-
+                                                      (Zhao et al., 2023, 2024). These challenges are par-
+    mized for different granularities of informa-     ticularly prominent in domain-specific fields like
+    tion retrieval. Through asynchronous vec-         medicine and law, where recent studies have shown
+    tor database calls, we achieve a significant      hallucination rates ranging from 69% to 88% in re-
+    latency reduction while maintaining compre-       sponses to specific legal queries (Dahl et al., 2024).
+    hensive search capabilities. Empirical evalua-       To address these limitations, RAG has been inte-
+    tion demonstrates that HAH-RAG achieves a         grated with LLM to enhance their performance in
+    66.6% reduction in energy consumption and
+                                                      various tasks (Borgeaud et al., 2022; Izacard and
+    CO2 emissions compared to traditional hybrid
+    approaches, while maintaining superior perfor-    Grave, 2021a; Khandelwal et al., 2020; Shi et al.,
+    mance in factuality and correctness, scoring      2023). RAG-augmented LLMs have shown par-
+    0.745 and 0.645, respectively. The method         ticular promise in tasks that demand current and
+    demonstrates particular effectiveness in re-      reliable knowledge, such as Question Answering,
+    sponse time, achieving an average latency of      AI4Science, and software engineering. For exam-
+    4.47 seconds - an improvement of 64. 5% over      ple, Lozano et al. (2023) introduced a scientific
+    existing methods. These results establish HAH-
+                                                      QA method based on dynamic scientific literature
+    RAG as a promising direction for frugal imple-
+    mentation of RAG without compromising the
+                                                      retrieval, while MolReGPT leverages RAG to en-
+    quality of the performance.                       hance ChatGPT’s in-context learning ability for
+                                                      molecular discovery (Li et al., 2023). Integration of
+    Keywords: Retrieval-Augmented Generation,
+                                                      RAG with LLM has also been shown to be effective
+    Asynchronous Hybrid Search, Large Language
+    Models.                                           in reducing hallucinations in conversational tasks
+                                                      (Shuster et al., 2021; Xu et al., 2022). As illustrated
+1   Introduction                                      in the research, RAG-augmented dialogue methods
+                                                      can provide more accurate answers by retrieving
+Retrieval-Augmented Generation (RAG) has              relevant knowledge from external databases when
+emerged as one of the most significant advances       dealing with out-of-scope queries.
+in AI, offering up-to-date and reliable external
+knowledge to enhance various tasks (Lewis et al.,     2   Background
+2020). In the era of AI-Generated Content (AIGC),
+                                                      Retrieval-Augmented Generation (RAG) has
+    ∗
+     Corresponding author: kennedyczar@gmail.com      emerged as a key advancement in artificial in-
+telligence, offering a solution to enhance Large       synthesizes the query and retrieved documents into
+Language Models (LLMs) by incorporating up-            a coherent prompt for the language model response
+to-date and reliable external knowledge (Lewis         (Lewis et al., 2020).
+et al., 2020; Borgeaud et al., 2022). Although            However, Naive RAG faces several limitations:
+LLMs have demonstrated remarkable abilities in         retrieval precision and recall challenges often result
+language understanding and generation, they face       in misaligned or irrelevant chunks, while the gen-
+inherent limitations, including hallucinations, out-   eration phase can suffer from hallucination issues
+dated knowledge, and non-transparent reasoning         where content is produced without proper support
+processes (Zhao et al., 2023, 2024).                   from the retrieved context (Asai et al., 2023). In ad-
+   The state-of-the-art RAG-LLMs have shown            dition, the integration of the information retrieved
+remarkable success across various domains. In          with different tasks can be challenging, sometimes
+molecular discovery, RetMol (Wang et al., 2023b)       resulting in disjointed or incoherent output.
+and MoleculeSTM (Liu et al., 2023) leverage RAG
+for improved molecular property prediction and         2.1.2   Advanced RAG
+generation. Recent works by Li et al. (2024); Yepes    Advanced RAG emerged to address the limitations
+et al. (2024); Zhang et al. (2023) have also demon-    of its predecessor by introducing sophisticated op-
+strated the effectiveness of RAG-LLMs in financial     timization strategies around pre-retrieval and post-
+sentiment analysis and document processing. In the     retrieval processes (Izacard and Grave, 2021b).
+software engineering domain, advanced methods          Key improvements include improved indexing tech-
+such as Atlas (Nashid et al., 2023) and DocPrompt-     niques through sliding windows, fine-grained seg-
+ing (Zhou et al., 2022) have shown significant im-     mentation, and metadata incorporation (Gao et al.,
+provements in code generation and program repair       2023b). Pre-retrieval optimization focuses on im-
+tasks.                                                 proving index structures and query transformation,
+   RAG addresses these challenges by enabling          while post-retrieval processes include reranking
+LLMs to dynamically access and integrate knowl-        and context compression to improve the quality of
+edge from external sources during generation.          retrieved information (Ma et al., 2023).
+   The table 1 provides a comprehensive overview          This paradigm introduces query optimization
+of the key components and considerations in RAG        techniques such as query rewriting, transforma-
+methods. The evolution from Naive RAG to Mod-          tion, and expansion (Wang et al., 2023a; Gao et al.,
+ular RAG shows the increasing sophistication of        2023a). Post-retrieval enhancements include so-
+these methods, while the various retrieval meth-       phisticated reranking strategies and context com-
+ods and integration strategies offer different ap-     pression methods to improve the relevance and us-
+proaches to optimize performance based on specific     ability of retrieved information (Hofstätter et al.,
+use cases and requirements.                            2023).
+
+2.1     Evolution of RAG Methods                       2.1.3   Modular RAG
+The development of RAG can be categorized into         The most advanced paradigm, modular RAG, offers
+three distinct paradigms, namely: Native RAG, Ad-      enhanced adaptability and versatility by incorpo-
+vanced RAG, and Modular RAG.                           rating various strategies to improve its components
+                                                       (Asai et al., 2023). This approach introduces spe-
+2.1.1    Naive RAG                                     cialized modules for similarity searches, retriever
+The initial RAG paradigm emerged as a straight-        fine-tuning, and various other functionalities (Gao
+forward "Retrieve-Read" framework (Ram et al.,         et al., 2023b). Key innovations include: Search
+2023), implementing a three-stage process: index-      Module, which enables direct searches across var-
+ing, retrieval, and generation. During indexing,       ious data sources using LLM-generated code and
+documents are processed into a uniform format,         query languages. Memory Module, Leverages
+segmented into manageable chunks, and converted        LLM’s memory to guide retrieval through iterative
+to vector representations for efficient similarity     self-enhancement. Task Adapter, Tailors RAG
+searches (Gao et al., 2023b). The retrieval phase      to various downstream tasks through automated
+employs the same encoding model to transform           prompt retrieval and task-specific retriever creation
+queries into vectors, computing similarity scores      (Cheng et al., 2023) and Predict Module reduces
+with indexed chunks. Finally, the generation stage     redundancy and noise by generating context di-
+  Table 1: Evolution of RAG methods, Retriever, Granularity and Integration with the pros and cons for each.
+
+  Category     Type/Paradigm        Key Features                      Considerations
+                                    - Basic indexing                  Pros: Simple implementation, low overhead
+               Naive RAG            - Simple retrieval                Cons: Limited accuracy, prone to hallucinations
+                                    - Direct generation               Use-case: Simple QA, basic retrieval
+                                    - Enhanced indexing               Pros: Better accuracy, improved context handling
+               Advanced RAG         - Pre/post retrieval processing   Cons: Higher computational cost
+                                    - Optimized generation            Use-case: Knowledge-intensive tasks, reasoning
+  Evolution                         - Specialized modules             Pros: High adaptability, task-specific optimization
+               Modular RAG          - Flexible architecture           Cons: method complexity, resource intensive
+                                    - Advanced integration patterns   Use-case: Complex reasoning, multi-modal tasks
+                                    - Word-based (TF-IDF, BM25)
+                                                                      Pros: Simple, interpretable results
+               Sparse Retrieval     - No training required
+                                                                      Cons: Limited semantic understanding
+                                    - Direct term matching
+                                    - Embedding-based
+  Retriever                                                           Pros: Better semantic understanding
+               Dense Retrieval      - Learned representations
+                                                                      Cons: Training required, computationally intensive
+                                    - Semantic matching
+                                    - Full document retrieval         Pros: Complete context coverage
+               Document-level
+                                    - Comprehensive context           Cons: Information overload
+                                    - Segmented retrieval             Pros: Good efficiency balance
+               Chunk-level
+                                    - Balanced context size           Cons: Potential fragmentation
+ Granularity
+                                    - Knowledge graph based           Pros: High precision
+               Entity-level
+                                    - Structured information          Cons: Limited to structured data
+                                    - Content concatenation           Pros: Easy implementation
+               Input-Layer
+                                    - Direct augmentation             Cons: Input length limitations
+                                    - Post-processing                 Pros: Flexible implementation
+               Output-Layer
+                                    - Result combination              Cons: Limited reasoning depth
+ Integration
+                                    - Deep integration                Pros: Better reasoning
+               Intermediate-Layer
+                                    - Advanced processing             Cons: Complex implementation
+
+
+rectly through LLM (Yu et al., 2022).                             offering better generalization (e.g., Con-
+                                                                  triever) (Gautier et al., 2022)
+2.2     Retrieval Methods
+                                                                • Generation Model Integration: Some meth-
+2.2.1    Retriever Types
+                                                                  ods use parts of the generation model as em-
+Modern RAG methods employ three primary types                     bedding layers to improve the alignment be-
+of retrievers:                                                    tween the retrieval and generation processes
+Sparse Retrieval : Implements word-based ap-                      (Lewis et al., 2020)
+proaches using techniques such as TF-IDF and                Hybrid Retrieval Hybrid retrieval methods com-
+BM25 (Robertson et al., 2009). These methods                bine the strengths of sparse and dense retrieval
+rely on inverted index matching with raw data in-           approaches to enhance the overall performance of
+put, offering straightforward implementation but            RAG (Ma et al., 2023; Gao et al., 2023b). These
+limited by their fixed-term-based nature. Although          methods leverage the complementary nature of lex-
+effective for direct text matching, they struggle           ical matching (sparse) and semantic understanding
+with semantic understanding and context aware-              (dense) to improve retrieval accuracy and robust-
+ness (Gao et al., 2023b).                                   ness. The sparse retriever implements traditional
+                                                            lexical matching using methods such as BM25 or
+Dense Retrieval : Introduces neural networks to
+                                                            TF-IDF (Robertson et al., 2009), while the dense
+embed queries and documents in continuous vector
+                                                            retriever uses neural encoders to capture semantic
+spaces (Karpukhin et al., 2020). Key implementa-
+                                                            relationships (Karpukhin et al., 2020).
+tions include
+                                                               Two main methods are used to combine the re-
+   • Bi-encoder Architecture: Implements two                sults of BM25 and dense retriever including paral-
+     separate BERT-based encoders for queries               lel and sequential retrievers. Parallel processing
+     and documents, as demonstrated in DPR                  is used to combine the results of both sparse and
+     (Karpukhin et al., 2020)                               dense simultaneously in the input query, the results
+                                                            merged through a fusion mechanism (Khattab et al.,
+   • Single-encoder Models: Pre-trained through             2022; Gao et al., 2023a). Sequential processing al-
+     contrastive learning on unaligned documents,           lows the output of one retriever to guide or filter
+                                                                                              Indexing
+
+       Document
+                                         Embedding    vector
+                                                                                                query vector
+                                                                                                                                                     3a
+                                           Model
+
+
+                                                                                    Reranked context
+                        Chunking
+
+                    1                            2                                Context [0] = query
+                                                                                                                                  VDB Search
+                           Embedding
+                            Model                                                                    Chunked context/query
+
+                                       Embedding
+                                        density
+                                                            3b                                                                               Asynchronous VDB Search
+      User                                                     chunked context vector            chunked context vector                  chunked context vector
+                                                           Reranked context                   Reranked context                        Reranked context
+
+                  Query                                                                                                         ...
+                                                               Context                             Context                                 Context
+                                                                                 VDB Search                        VDB Search                              VDB Search
+
+
+                                                     LLM                                 Reranked-and-merge unique context
+
+                   4               Answer
+
+
+
+                                                           3c
+
+                  Figure 1: Proposed Hyper-layered Asynchronous Hybrid RAG (HAH-RAG).
+
+
+the other’s search space (See 1). Through adap-                                         and retrieval-based distributions. REFEED
+tive switching, the method dynamically chooses                                          (Yu et al., 2023) enhanced this approach by
+between sparse and dense retrieval based on the                                         introducing an answer refinement mechanism
+query characteristics (Ram et al., 2023). A Score-                                      using LLMs to evaluate retrieved information.
+based Fusion method is used to combine the scores
+                                                                                3. Intermediate-Layer Integration: More
+resulting from both methods as follows:
+                                                                                   sophisticated approaches like RETRO
+                                                                                   (Borgeaud et al., 2022) introduced Chunked
+       Sf inal = αSsparse + (1 − α)Sdense                      (1)                 Cross Attention (CCA) layers for processing
+                                                                                   retrieved chunks within generator blocks,
+   Where, α is a weight parameter that can be                                      offering efficient handling of frequently
+fixed based on empirical testing (trial-and-error),                                retrieved information.
+dynamically adjusted using query characteristics,
+                                                                              2.4       Training Strategies
+or learned through supervised training. This fusion
+strategy gives the hybrid approach a significant                              State-of-the-art training approaches can be catego-
+edge in retrieval performance in both contextual un-                          rized into:
+derstanding and robustness (Borgeaud et al., 2022;                              1. Training-free Methods: These approaches
+Lewis et al., 2020).                                                               leverage retrieved knowledge during inference
+                                                                                   without additional training (Izacard and Grave,
+2.3   Architecture Innovations
+                                                                                   2021b; Jiang et al., 2023; Khattab et al., 2022),
+Recent architectural advances in RAG-LLMs have                                     making them computationally efficient and
+focused on three primary integration approaches:                                   adaptable.
+  1. Input-Layer Integration: Methods like In-                                  2. Sequential Training: Methods like RETRO
+     Context RALM (Ram et al., 2023) combine                                       (Borgeaud et al., 2022) and RALMs (Yoran
+     retrieved documents with the original input                                   et al., 2023) adopt a staged approach, first
+     for joint processing. FID (Izacard and Grave,                                 training one component (retriever or gener-
+     2021b) improved on this by introducing inde-                                  ator) before optimizing the other, allowing
+     pendent document processing in the encoder,                                   better component specialization.
+     allowing scalable handling of multiple con-
+     texts.                                                                     3. Joint Training: Advanced approaches like
+                                                                                   RAG (Lewis et al., 2020) and REALM (Guu
+  2. Output-Layer Integration: methods like                                        et al., 2020) optimize both retriever and gen-
+     kNN-LM (Khandelwal et al., 2020) imple-                                       erator simultaneously, enabling better synergy
+     ment post hoc integration by interpolating LM                                 between components.
+Our proposed RAG scheme leverages the training                 where C represents the set of fragments, D is the
+of the retriever at the time of creating the index          input document, θ defines the fragmentation param-
+without the need of repeating inference. A figure           eters, and kdynamic is dynamically selected based
+of the major comparison of our proposed scheme              on the complexity analysis of the query. The seg-
+compared to existing methods in shwon in Figure             mentation function fchunk incorporates semantic
+2.                                                          awareness through:
+
+3     Hyper-layered Asynchronous Hybrid
+                                                            kdynamic = α · complexity(query) + β · len(D)
+      RAG (HAH-RAG)
+                                                                                                        (3)
+Given the limitation that results from scaling tra-           where α and β are tuning parameters adjusted
+ditional RAG schemes to huge documents and the              based on empirical performance.
+loss of context that results from this, an improved         3.2.2 Caching Mechanism
+RAG scheme is proposed. Hyper-layered asyn-
+                                                            The system implements a sophisticated two-level
+chronous hybrid RAG (HAH-RAG) presents an
+                                                            caching strategy:
+innovative approach to retrieval-augmented gen-
+eration by implementing a multi-layered, asyn-                    
+chronous hybrid search framework (see Fig. 1).                    cache[q]
+                                                                                     if q ∈ cache
+This method improves traditional RAG methods                C(q) = compute(q)         if relevance(q) > θcache
+through parallel processing and sophisticated doc-                
+                                                                  
+                                                                   retrieve(q)        otherwise
+ument relevance scoring while keeping computa-                                                            (4)
+tional efficiency, precision trade-off at a max −
+min. Hence, the goal of HAH-RAG can be sum-                   where θcache is the cache relevance threshold
+marized into three main points: (I) Reducing the            and the cache management follows:
+precision-speed trade-off of hybrid RAG for expo-
+nential data size, (II) Question contextualization
+for response improvement and factuality (III) Par-          relevance(q) = γ ·F REQ(q)+(1−γ)·REC(q)
+allelizing the hybrid vector database search.                                                            (5)
+                                                            Where F REQ denotes the frequency and REC
+3.1     Notations                                           denotes the recency. The higher the relevance
+                                                            score the better the performance of the HAH-RAG
+Let {di ∈ D}N   i=0 represent a set of documents            scheme.
+where N is the number of documents. We seg-
+ment the document into smaller sets of documents            3.2.3 Retrieval
+such that {ci ∈ C}N  i=0 represents the fragments.          The multi-retriever ensemble scheme is defined
+Let {ri ∈ R}K i=0 represent the retrievers running          with improved context filtering:
+asynchronously, where K denotes the number of
+retrievers.
+                                                             R = {r1 , r2 , ..., rn } where ri : C → Dr · Q(C)
+3.2     Technical Framework                                                                                  (6)
+                                                              Each retriever operates with parallel execution
+3.2.1 Input Processing and Enhanced Context
+                                                            enhanced by context quality scoring:
+      Processing
+The scheme employs an advanced processing strat-                                      n
+                                                                                      [
+egy that operates in multiple dimensions. Beyond                   P (ci ) = async{       rj (ci )} · Dv (ci )   (7)
+basic document fragmentation, the system now in-                                    j=1
+corporates query complexity analysis and dynamic            3.2.4 Weighted Reciprocal Rank Fusion
+parameter selection. The document processing fol-
+                                                            The enhanced RRF algorithm now incorporates
+lows:
+                                                            quality, Q and diversity, Dv :
+
+
+    C = {c1 , c2 , ..., cn } = fchunk (D, θ, kdynamic )     RRFscore (d) = RRFbm25 (d)·Q(d)+RRFf aiss (d)·Dv (d)
+                                                      (2)                                           (8)
+      Classic VDB Search                   Hybrid VDB Search                            Asynchronous Hybrid VDB Search
+       (semantic search)               (keyword + semantic search)                        (keyword + semantic search)
+
+         query vector                        query vector                                             query vector
+                                                                                                                                                 3a
+                                                                                           Reranked context
+
+
+                                        4                                                 Context [0] = query
+                           3           Reranked context                                                                          VDB Search
+                                                            VDB Search
+                                                                                                          Chunked context
+           VDB Search                                          3           3b                                                             Asynchronous VDB Search
+                                                                             chunked context vector     chunked context vector           chunked context vector
+                                                  Top-k Context
+                                                                            Reranked context           Reranked context                 Reranked context
+           Top-k Context
+                                                                                                                                  ...
+                           4                  5
+                                                                              Context    VDB Search      Context     VDB Search           Context    VDB Search
+
+
+                                                                                               Reranked-and-merge unique context
+
+
+
+
+Figure 2: Comparing the evolution of the different RAG methods. HAH-RAG performs multiple asynchronous
+process in one step as opposed to the three steps hybrid method.
+
+
+                                                                                                      k       ∗
+  where:                                                                                              X  2reli − 1
+                                                                                               IDCG =                                                               (14)
+                                 k
+                                            Q(d)                                                        log2 (i + 1)
+                                                                                                                   i=1
+                                 X
+  RRFbm25 (d) = wbm25                                             (9)
+                                        β + rbm25i (d)                   with reli representing relevance scores computed
+                                 i=1
+                                                                         by cosine similarity between the retrieved and ref-
+                                 k                                       erence documents (Järvelin and Kekäläinen, 2002).
+                                 X        Dv (d)
+ RRFf aiss (d) = wf aiss                                (10)
+                                       β + rf aissi (d)                  ROUGE Scoring The system implements com-
+                                 i=1
+                                                                         prehensive ROUGE metrics:
+3.2.5 FlashReranker                                                                       P
+The FlashReranker also takes into account context                                            gram ∈ref Countmatch (gramn )
+                                                                         ROU GE-N = P n
+quality for computation, thus:                                                                  gramn ∈ref Count(gramn )
+                                                                                                                      (15)
+                                                                         where N can be 1, 2, or L (longest common sub-
+Sf inal (d) = λ · RRF (d) + (1 − λ) · F (d) · Q(d)                       sequence), providing multiple perspectives on the
+                                               (11)                      quality of generation (Lin and Hovy, 2003).
+  where Q(d) represents the quality score that in-
+corporates relevance and diversity metrics.                              Latency System latency is measured as:
+                                                                                                                                          n
+3.3   Evaluation Metrics                                                                                                                  X
+                                                                                Latency = tend − tstart +                                        CLi                (16)
+For evaluating HAH-RAG’s performance across                                                                                               i=1
+the selected datasets, we employ a comprehensive
+set of metrics that target different aspects of the                      where CLi , denoting cache lookup, represents the
+proposed scheme against existing methods (see Fig.                       time spent checking the cache for existing results
+2) (Järvelin and Kekäläinen, 2002; Barzilay and                          (following Eq. 3.2.2).
+Lapata, 2008; Maynez et al., 2020; Gehrmann et al.,                      Fluency measures the grammatical correctness
+2022; Wang et al., 2018).                                                and natural flow of the generated text (Barzilay
+NDCG Computation The Normalized Dis-                                     and Lapata, 2008). A perplexity-based fluency is
+counted Cumulative Gain is computed as:                                  adopted to compute the fluency, thus:
+                                                                                          N
+                                                                                                                             !
+                                   DCG                                                1 X
+                  N DCG =                                      (12)       F = exp             log P (wi |wi−n+1 , ..., wi−1 )
+                                  IDCG                                                N
+                                                                                         i=1
+where:                                                                                                                     (17)
+                           k
+                           X  2reli − 1                                  where P (wi |context) is the probability of word wi
+              DCG =                                            (13)
+                             log2 (i + 1)                                given its context, and N is the number of words.
+                           i=1
+Coherence evaluates the logical connection be-          Correctness combines semantic similarity with
+tween sentences using cosine similarity of sentence     key information overlap (Wang et al., 2018; Ribeiro
+embeddings, E (Barzilay and Lapata, 2008):              et al., 2020):
+
+                         n−1                                    Correctness = 0.5 · ssc + 0.5 · kis      (23)
+                     1 X
+ Coherence, c =              cos(E(si ), E(si+1 ))
+                   n−1
+                         i=1                            where ssc is the semantic score and kis is the key
+                                              (18)
+                                                        info score and computed from the overlap of n-
+where E(si ) represents the embedding of sentence
+                                                        grams between generated and reference texts.
+i. The responses close to 1 are very coherent, and
+                                                           The metrics are scaled using a constant factor
+those close to 0 lack coherence.
+                                                        (scale metric) for standardization across different
+Relevance measures the semantic similarity              evaluation scenarios. Each metric produces scores
+between the question and generated response             in the range [0,1], where higher values generally
+(Maynez et al., 2020):                                  indicate better performance, except for Advanced
+                                                        HHEM, where lower values suggest less hallucina-
+        Relevance, r = cos(E(Q), E(A))          (19)    tion.
+
+where Q and A represent the question and answer         3.4     Energy Consumption and Environmental
+respectively. Higher values indicate the correctness            Impact
+of the response with the question.                      The computation of energy consumption and envi-
+                                                        ronmental impact metrics is based on several key
+Factuality assesses the factual alignment be-
+                                                        components (Henderson et al., 2020; Strubell et al.,
+tween the generated text and source documents
+                                                        2019):
+(Kryscinski et al., 2020):
+                                                        3.4.1     Power Consumption
+Factuality, f = max cos(E(generated), E(sourcei ))
+                  i                                     CPU Power (Patterson et al., 2022) is estimated
+                                            (20)        based on CPU frequency and utilization:
+Higher factuality score is preferred with scores
+ranging between [0, 1].                                                             fcurrent
+                                                                   PCPU = Pbase ·            · CPUutil   (24)
+                                                                                     fmax
+HHEM (Hughes Hallucination Evaluation
+Model) combines similarity (s̄) and factuality (f)      where Pbase is the base CPU power (typically 65W),
+scores (Gehrmann et al., 2022):                         fcurrent and fmax are current and maximum CPU
+                                                        frequencies, and CPUutil is the CPU utilization per-
+                             s̄ · f
+               HHEM =                           (21)    centage.
+                           1 + s̄ · f
+                                                        GPU Power is computed either through direct
+where s̄ is the mean similarity score and f is the      measurement or estimation:
+factuality score. This score is the reverse of the               (
+true hallucination due to ease of compute. When                    Pmeasured       if available
+either similarity or factuality is low (closer to 0),     PGPU =                                (25)
+                                                                   250W · GPUutil otherwise
+it indicates potential hallucination, hence, HHEM
+score approaches 0.                                     where GPUutil is the GPU utilization percentage.
+Advanced HHEM incorporates coherence and                3.4.2     Energy Consumption
+relevance:
+                                                        The total energy consumption is calculated by inte-
+                             s̄ · f · c · r             grating power over time:
+            Adv HHEM =                          (22)
+                              1 + s̄ · f                                 X (PCPU + PGPU ) · ∆t
+                                                              Etotal =                            kWh    (26)
+where c is coherence score and r is relevance score.                      t
+                                                                                1000 · 3600
+It rewards outputs that are not only factual but also
+coherent and relevant. Hence, higher values are         where ∆t is the sampling interval (typically 0.1
+preferred.                                              seconds).
+3.4.3 CO2 Emissions                                   examples; TriviaQA (Joshi et al., 2017), offers a
+CO2 emission (Lacoste et al., 2019) is computed       large-scale question answering dataset with evi-
+using country-specific carbon intensity factors:      dence documents and comprises 95K questions
+                                                      with answers.
+                    Etotal · CIcountry
+            CO2 =                      kg     (27)       To evaluate the capability of HAH-RAG in han-
+                          1000
+                                                      dling complex reasoning and multistep retrieval,
+where CIcountry is the carbon intensity factor (in    we use HotpotQA (Yang et al., 2018). HotpotQA
+g CO2 /kWh) for the specific country. Since this      is specifically selected to assess the effectiveness
+experiment is conducted in France, we use a CI of     of our hyper-layered asynchronous scheme in man-
+70 g CO2 / kWh and a global average CI of 475 g       aging multi-hop questions and made up of 113K
+CO2 /kWh.                                             Wikipedia-based question-and-answer pairs. For
+3.4.4 Resource Metrics                                comprehensive response generation and context in-
+The average resource utilization metrics are com-     tegration, we employ NarrativeQA (Kočiský et al.,
+puted during the monitoring period.                   2018), which is particularly relevant to evaluate
+                                                      how HAH-RAG handles chunk processing and
+                      1 X
+                            N                         maintains context coherence in longer responses.
+           CPUavg =       CPUutil (t)         (28)
+                      N
+                         t=1
+                            N                         4.2   Results
+                    1 X
+           GPUavg =     GPUutil (t)           (29)
+                    N
+                         t=1                          The average evaluation metric for all data sets is
+                                                      presented in Table 2 where HAH RAG is compared
+                        N                             with the hybrid and naive RAG method. Higher
+                  1 X
+      Memoryavg =     Memoryutil (t)          (30)    values are preferred for all metrics except Latency
+                  N
+                       t=1                            and Advance HHEM, which measure hallucination.
+   where N is the total number of observations        We also report mixed performance for where HAH
+collected during the monitoring period.               RAG suffers to outperform both hybrid and naive
+   These metrics are continuously monitored           methods. We hypothesize this may be as a result of
+through a dedicated thread with a sampling inter-     the method used in computing coherence and the
+val of 0.1 seconds (sleep time), providing detailed   results itemized response of big LLMs.
+resource usage profiles throughout the RAG exe-
+cution time. The measurements account for both
+computational resources (CPU, GPU) and their en-      4.3   Quantitative Analysis
+vironmental impact through energy consumption
+and CO2 emissions calculations.                       HAH RAG demonstrates a remarkably fast re-
+                                                      sponse time, achieving an average latency of 4.47
+4     Experimentation                                 seconds. This represents a substantial improvement
+                                                      of 64.5% compared to 12.60 s for hybrid RAG, and
+Setup. The machine used for this experimentation
+                                                      63.5% compared to Naive RAG’s 12.25s. This sig-
+is an NVIDIA L40S comprising a GPU with 46GB
+                                                      nificant reduction in latency does not come at the
+usable RAM (12.4 CUDA version) that comes with
+                                                      expense of accuracy, as evidenced by the evaluation
+a 60-core CPU.
+                                                      metrics (see Table 2).
+4.1    Datasets                                          The factuality and correctness metrics partic-
+The evaluation of HAH-RAG follows a compre-           ularly highlight HAH RAG’s strength in provid-
+hensive scheme across multiple dimensions of per-     ing accurate and reliable responses. HAH RAG
+formance using established benchmarks. To assess      achieves a factuality score of 0.745, outperforming
+basic retrieval performance and knowledge integra-    Hybrid RAG by 18.4% and Naive RAG by 34.5%.
+tion, we employ three primary datasets: Natural       Similarly, its correctness score of 0.645 represents
+Questions (NQ) (Kwiatkowski et al., 2019), which      a substantial improvement of 38.1% over Hybrid
+provides real user queries from Google Search,        RAG’s 0.467 and an even more significant 79.2%
+contains 307K training examples, 8K development       improvement over Naive RAG.
+Table 3: Strongest correlations between evaluation met-           4.3.1    Mixed Performance
+rics
+                                                                  While HAH RAG maintains competitive fluency
+ Metric Pair                             Corr. Coef.       Sig.   performance with a score of 0.895 compared to
+                                                                  0.923 by Naive RAG and surpasses Hybrid RAG’s
+ ROUGE-1 — ROUGE-L                           0.998         ***
+ ROUGE-1 — ROUGE-2                           0.987         ***    0.821, it shows some limitations in coherence. The
+ ROUGE-2 — ROUGE-L                           0.985         ***    coherence score of HAH RAG of 0.198 ±0.051
+ Factuality — Correctness                    0.871         ***    falls below hybrid and naive RAGs with respective
+ HHEM — Correctness                          0.712         ***    scores of 0.295 and 0.321, indicating an area of
+ HHEM — Factuality                           0.654         ***    potential improvement.
+ Relevance — Factuality                      0.587          **
+                                                                     The ROUGE scores present interesting patterns
+ Coherence — Fluency                         0.543          **
+ NDCG — Correctness                          0.521          **
+                                                                  across different datasets. Although the average
+ Adv. HHEM — Coherence                       0.489          **    ROUGE-1 score for HAH RAG is 0.246 and is
+ Significance (Sig.): *** p < 0.001, ** p < 0.01                  lower than the hybrid RAG 0.452, the high stan-
+                                                                  dard deviations suggest significant variation across
+                                                                  different types of queries. Notably, HAH RAG
+                                                                  achieves perfect ROUGE scores on certain datasets,
+Table 2: Average Evaluation Metrics of different RAG
+                                                                  particularly in factual question answering scenarios,
+method on NQ (Kwiatkowski et al., 2019), TriviaQA
+(Joshi et al., 2017), HotpotQA (Yang et al., 2018) and
+                                                                  while showing lower performance in more complex
+NarrativeQA (Kočiský et al., 2018) datasets.                     narrative tasks.
+
+   Metric         HAH RAG        Hybrid RAG      Naive RAG        4.4     Energy consumption and CO2 emission
+   Latency (s)    4.47 ± 2.28     12.60 ± 5.27    12.25 ± 3.73
+   NDCG          0.821 ± 0.178   0.821 ± 0.178   0.821 ± 0.178    The results of energy consumption are particu-
+   ROUGE-1       0.246 ± 0.397   0.452 ± 0.521   0.291 ± 0.483
+   ROUGE-2       0.194 ± 0.389   0.431 ± 0.499   0.274 ± 0.483    larly interesting, as the HAH RAG demonstrates
+   ROUGE-L       0.246 ± 0.397   0.452 ± 0.521   0.291 ± 0.483
+   Fluency       0.895 ± 0.031   0.821 ± 0.067   0.923 ± 0.030    a remarkable reduction 66% compared to the hy-
+   Coherence     0.198 ± 0.051   0.295 ± 0.027   0.321 ± 0.019    brid RAG (see Table 6). Empirical results show
+   Relevance     0.715 ± 0.032   0.610 ± 0.073   0.729 ± 0.029
+   Factuality    0.745 ± 0.071   0.629 ± 0.030   0.554 ± 0.080    that HAH RAG achieves the lowest energy con-
+   Correctness   0.645 ± 0.075   0.467 ± 0.024   0.360 ± 0.051
+   HHEM          0.354 ± 0.043   0.284 ± 0.019   0.236 ± 0.050    sumption at 0.0097 kWh, which is significantly
+   Adv. HHEM     0.047 ± 0.014   0.058 ± 0.009   0.055 ± 0.009
+                                                                  lower than those of Hybrid RAG, 0.0290 kWh,
+  Best performing metrics shown in bold                           and Naive RAG, 0.0271 kWh. This substantial
+  Best performing metrics overall shown in bold bleu
+                                                                  reduction in energy consumption directly results
+                                                                  in environmental benefits, as HAH RAG produces
+                                                                  merely 0.00068 kg of CO2 emissions, compared to
+   The HHEM metric, as a measure of hallucina-                    0.00203 kg and 0.00190 kg for Hybrid and Naive
+tion of the scheme, further supports HAH RAG’s                    RAG, respectively. Low CO2 emission is highly
+effectiveness. HAH RAG achieves a high HHEM                       correlated with lower energy consumption and vice
+score of 0.354, surpassing hybrid RAG by 24.6%                    versa (see Fig. 4, Table 6). The error bars in Fig. 4
+and naive RAG by 50%. This comprehensive met-                     indicate the standard deviation.
+ric suggests that HAH RAG better balances various                                                Environmental Impact of Different RAG Methods
+aspects of performance, from accuracy to response
+                                                                                                             Energy Consumption                                        CO Emissions
+quality.
+                                                                                                                                                          0.0030
+
+   Notice the strong pearson correlation (3) be-                                                      0.04
+                                                                                                                                                          0.0025
+                                                                           Energy Consumption (kWh)
+
+
+
+
+tween factuality and correctness, and HHEM in-                                                                                                                           0.00203
+                                                                                                                                      CO Emissions (kg)
+
+
+
+
+                                                                                                      0.03          0.0290                                0.0020                0.00190
+                                                                                                                             0.0271
+dicates that these metrics effectively capture the au-                                                                                                    0.0015
+                                                                                                      0.02
+thenticity of the response returned by the pipeline                                                                                                       0.0010
+(see Fig. 5 of the appendix section). There is a                                                      0.01 0.0097                                                  0.00068
+                                                                                                                                                          0.0005
+cluster of strong correlations between factuality,
+                                                                                                      0.00                                                0.0000
+correctness, and HHEM metrics, with correlation
+                                                                                                                AG
+
+
+                                                                                                         Na G
+                                                                                                                 G
+
+
+
+
+                                                                                                                                                                      AG
+
+
+                                                                                                                                                               Na G
+                                                                                                                                                                       G
+                                                                                                                A
+
+                                                                                                               RA
+
+
+
+
+                                                                                                                                                                      A
+
+                                                                                                                                                                     RA
+                                                                                                             HR
+
+                                                                                                              dR
+
+
+
+
+                                                                                                                                                                   HR
+
+                                                                                                                                                                    dR
+                                                                                                           ive
+
+
+
+
+                                                                                                                                                                 ive
+
+
+
+
+coefficients ranging from 0.71 to 0.87. A complete
+                                                                                                          bri
+
+
+
+
+                                                                                                                                                                bri
+                                                                                                          HA
+
+
+
+
+                                                                                                                                                                HA
+                                                                                                                Hy
+
+
+
+
+                                                                                                                                                                       Hy
+
+
+
+
+table of strong correlation metrics is provided in                                       RAG Methods
+Table 3.                                                             Figure 4: Comparing
+                                                                                 HAH RAG  Energy
+                                                                                           Hybrid RAG andNaive
+                                                                                                          CORAG2 emission.
+                                NQ Evaluation Metrics                                                               TRIVIAQA Evaluation Metrics
+                                 rougeL          rouge2                                                                 rougeL              rouge2                                                                                 Advanced HHEM Comparison
+                                                                                                                                                                                                                HAH RAG                                          0.07
+                                                                                                                                                                                                      0.07                                                                      0.07
+                                                                                                                                                                                                                Hybrid RAG
+                                                                                                                                                                                                                Naive RAG                                                                      0.06
+                  fluency                                           rouge1                             fluency                                                rouge1
+                                                                                                                                                                                                      0.06                                                               0.06
+                                                                                                                                                                                                                    0.06
+                                                                                                                                                                    1.0                                                                                                                0.05
+                                                                   0.8                                                                                       0.8                                      0.05                 0.05           0.05
+
+
+
+
+                                                                                                                                                                                Advanced HHEM Score
+                                                             0.6                                                                                      0.6                                                                                         0.05
+                                                      0.4                                                                                       0.4                                                                                0.04
+                                               0.2                                                                                      0.2                                                           0.04   0.04
+          coherence                                                          ndcg              coherence                                                                 ndcg                                                                             0.04
+
+                                                                                                                                                                                                      0.03
+
+                                                                                                                                                                                                      0.02
+                 relevance                                          hhem                              relevance                                                hhem
+                                                                                                                                                                                                      0.01
+         HAH RAG                                                                              HAH RAG
+         Hybrid RAG             factuality     correctness                                    Hybrid RAG               factuality       correctness                                                   0.00
+         Naive RAG                                                                            Naive RAG                                                                                                             nq                triviaqa                 hotpotqa          narrativeqa
+                                                                                                                                                                                                                                                    Datasets
+                             HOTPOTQA Evaluation Metrics                                                          NARRATIVEQA Evaluation Metrics
+                                 rougeL          rouge2                                                                 rougeL              rouge2                                                                                        Latency Comparison
+                                                                                                                                                                                                      17.5      HAH RAG                          17.22           17.09
+                                                                                                                                                                                                                Hybrid RAG
+                                                                                                                                                                                                      15.0      Naive RAG
+                  fluency                                           rouge1                             fluency                                                rouge1                                                                                                                   14.47
+                                                                                                                                                                                                                                          13.99
+                                                                                                                                                                   1.0                                12.5                                                              12.27
+                                                                   0.8                                                                                      0.8
+                                                             0.6                                                                                      0.6                                                                                                                                     11.27
+
+
+
+
+                                                                                                                                                                                Latency (seconds)
+                                                      0.4                                                                                      0.4
+                                               0.2                                                                                      0.2                                                           10.0
+          coherence                                                          ndcg              coherence                                                                 ndcg
+                                                                                                                                                                                                                           8.24
+                                                                                                                                                                                                       7.5
+                                                                                                                                                                                                                                   6.52                                         6.48
+
+                                                                                                                                                                                                       5.0          4.85
+                 relevance                                          hhem                              relevance                                                hhem
+                                                                                                                                                                                                       2.5   2.42                                         2.47
+
+         HAH RAG                                                                              HAH RAG
+         Hybrid RAG             factuality     correctness                                    Hybrid RAG               factuality       correctness                                                    0.0
+         Naive RAG                                                                            Naive RAG                                                                                                             nq                triviaqa                 hotpotqa          narrativeqa
+                                                                                                                                                                                                                                                    Datasets
+
+
+
+Figure 3: Evaluation metrics of different RAG method on NQ (Kwiatkowski et al., 2019), TriviaQA (Joshi et al.,
+2017), HotpotQA (Yang et al., 2018) and NarrativeQA (Kočiský et al., 2018) datasets.
+
+Table 4: Resource usage comparison of different RAG method on NQ (Kwiatkowski et al., 2019), TriviaQA (Joshi et al., 2017), HotpotQA (Yang et al., 2018)
+and NarrativeQA (Kočiský et al., 2018) datasets.
+
+Method                       CPU             Memory                 CPU             Energy              CO2                          Carbon GPU                             GPU Mem.                                       GPU Mem.                      GPU Mem.                        GPU
+                             Usage            Usage                Power             Total            Emissions                     Intensity* Util.                          Used                                           Max                           Total                         Power
+                              (%)              (%)                  (W)             (kWh)               (kg)                                   (%)                            (MB)                                           (MB)                          (MB)                           (W)
+HAH RAG                       6.73            4.16                 4.25             0.0097                 0.00068                     70               80.96                        40408                                        40425                         46068                   202.83
+(Ours)                        ±0.07           ±0.04                 ±0.04            ±0.006                 ±0.0004                                         ±4.12                                     ±252                                                                                    ±9.51
+
+Hybrid RAG                    6.74            4.19                 4.22             0.0290                 0.00203                     70               85.78                        40389                                        40399                         46068                   214.75
+                              ±0.01           ±0.02                 ±0.05            ±0.017                  ±0.001                                         ±2.16                                     ±239                                                                                    ±5.12
+
+Naive RAG                     6.76            4.19                 4.29             0.0271                 0.00190                     70               86.31                        40399                                        40409                         46068                   215.99
+                              ±0.03           ±0.01                 ±0.06            ±0.013                  ±0.001                                         ±0.91                                     ±225                                                                                    ±2.44
+  *
+      Carbon Intensity measured in g CO2 /kWh
+      Best performing metrics shown in bold
+
+
+
+      Table 5: Strongest Resource Metric Correlations                                                                                 4.16%. The GPU metrics further underscore HAH
+                                                                                                                                      RAG’s efficiency, achieving the lowest use rate at
+  Metric Pair                                                                            Correlation
+                                                                                                                                      80.96% and the lowest GPU power consumption at
+  Energy Consumption — CO2 Emissions                                                              1.000                               202.83W. This improved GPU efficiency suggests
+  GPU Utilization — GPU Power                                                                     0.998
+  CO2 Emissions — GPU Power                                                                       0.836                               that the HAH RAG scheme better manages compu-
+  Energy Consumption — GPU Power                                                                  0.836                               tational resources, potentially due to asynchronous
+  CO2 Emissions — GPU Utilization                                                                 0.827                               calls.
+                                                                                                                                         Although Hybrid RAG shows marginal advan-
+       Table 6: Environmental Impact Improvements                                                                                     tages in specific areas, such as CPU power con-
+                                                                                                                                      sumption of 4.22W and GPU memory efficiency of
+           Percentage Improvements of HAH RAG                                                                                         40389 MB, these improvements are relatively mod-
+       Energy Consumption reduction — Hybrid 66.6%
+       Energy Consumption reduction — Naive  64.2%
+                                                                                                                                      est compared to HAH RAG’s substantial gains in
+       CO2 Emissions reduction — Hybrid      66.5%                                                                                    overall energy efficiency and environmental impact.
+       CO2 Emissions reduction — Naive       64.2%                                                                                    The result suggests that these minor advantages
+                                                                                                                                      in specific metrics do not offset the significantly
+  HAH RAG performs optimally with a low CPU                                                                                           higher energy consumption and CO2 emissions of
+usage at 6.73% and a low memory usage at                                                                                              the hybrid approach.
+   When examining the evaluation metrics across        contexts while maintaining its energy-efficient char-
+all datasets (Figure 3), HAH RAG maintains consis-     acteristics.
+tent performance while consuming fewer resources.
+Empirical results demonstrate that through care-       Acknowledgment
+ful scheme design and resource management, it is
+                                                       The corresponding author is the main contributor
+possible to achieve both improved efficiency and
+                                                       to this article and other authors contributed to the
+reduced environmental impact in large-scale infor-
+                                                       review and validation of these experiments. We
+mation retrieval schemes.
+                                                       acknowledge the contributions of Yassine YOUSFI
+                                                       (Engineering student, École des Mines de Saint-
+5     Conclusion
+                                                       Étienne) and Enzo Damien (Data Scientist at Datat-
+We propose a novel RAG scheme, particularly in         egy) in validating codes and experimentation, re-
+optimizing the balance between computational effi-     spectively.
+ciency and retrieval accuracy. The empirical results
+reveal substantial improvements in multiple crit-
+ical metrics, with HAH-RAG achieving a 66.6%           References
+reduction in energy consumption and correspond-        Josh Achiam, Steven Adler, Sandhini Agrawal, Lama
+ing CO2 emissions compared to traditional hybrid         Ahmad, Ilge Akkaya, et al. 2023. Gpt-4 technical
+                                                         report. arXiv preprint arXiv:2303.08774.
+approaches. This environmental benefit is achieved
+while maintaining superior performance in key met-     Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and
+rics, including factuality (0.745 ± 0.071) and cor-      Hannaneh Hajishirzi. 2023. Self-rag: Learning to
+rectness (0.645 ± 0.075), demonstrating a frugal         retrieve, generate, and critique through self-reflection.
+                                                         arXiv preprint arXiv:2310.11511.
+and efficient RAG framework without compromis-
+ing retrieval quality.                                 Regina Barzilay and Mirella Lapata. 2008. Modeling
+   The performance of the proposed scheme in la-         local coherence: An entity-based approach. Compu-
+tency reduction is particularly notable, with an         tational Linguistics, 34(1):1–34.
+average response time of 4.47 seconds represent-       Sebastian Borgeaud, Arthur Mensch, Jordan Hoffmann,
+ing a 64.5% improvement over existing methods.           Trevor Cai, Eliza Rutherford, Katie Millican, George
+This efficiency gain is attributed to the innovative     Van Den Driessche, Jean-Baptiste Lespiau, Bogdan
+hyper-layering of the hybrid search scheme and           Damoc, Aidan Clark, et al. 2022. Improving lan-
+                                                         guage models by retrieving from trillions of tokens.
+optimized resource management, as evidenced by           International conference on machine learning, pages
+lower GPU usage at 80.96% and power consump-             2206–2240.
+tion of 202.83W. Although there are areas for po-
+tential improvement, particularly in coherence met-    Daixuan Cheng, Shaohan Huang, Junyu Bi, Yuefeng
+                                                         Zhan, Jianfeng Liu, Yujing Wang, Hao Sun, Furu
+rics, the overall performance profile establishes        Wei, Weiwei Deng, and Qi Zhang. 2023. Uprise:
+HAH-RAG as a significant step forward in the de-         Universal prompt retrieval for improving zero-shot
+sign of environmentally conscious and frugal AI          evaluation. arXiv preprint arXiv:2303.08518.
+methods.
+                                                       Aakanksha Chowdhery, Sharan Narang, Jacob Devlin,
+                                                         Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul
+5.1    Perspectives                                      Barham, Hyung Won Chung, Charles Sutton, Sebas-
+Investigation of fine-tuned optimization techniques      tian Gehrmann, et al. 2023. Palm: Scaling language
+                                                         modeling with pathways. Journal of Machine Learn-
+(either embedding or model) could address current
+                                                         ing Research, 24:1–113.
+limitations in textual fluidity without compromis-
+ing the frugal benefits.                               Matthew Dahl, Varun Magesh, Mirac Suzgun, and
+   Further research might explore the application       Daniel E Ho. 2024. Large legal fictions: Profiling
+                                                        legal hallucinations in large language models. arXiv
+of HAH-RAG’s framework to other domains that            preprint arXiv:2401.01301.
+require efficient large-scale information retrieval,
+such as legal document processing, medical doc-        Kenneth Ezukwoke, Anis Hoayek, Mireille Batton-
+ument analysis, and scientific literature analysis.      Hubert, Xavier Boucher, Pascal Gounet, and Jérôme
+                                                         Adrian. 2024. Big gcvae: decision-making with adap-
+Additionally, the development of automated pa-           tive transformer model for failure root cause analysis
+rameter optimization techniques could enhance the        in semiconductor industry. Journal of Intelligent
+system’s adaptability across different operational       Manufacturing.
+Luyu Gao, Xueguang Ma, Jimmy Lin, and Jamie Callan.         Vladimir Karpukhin, Barlas Oğuz, Sewon Min, Patrick
+  2023a. Precise zero-shot dense retrieval without rele-      Lewis, Ledell Wu, Sergey Edunov, Danqi Chen, and
+  vance labels. ACL, pages 1762–1777.                         Wen-tau Yih. 2020. Dense passage retrieval for open-
+                                                              domain question answering. EMNLP, pages 6769–
+Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia,              6781.
+  Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, Meng Wang,
+  and Haofen Wang. 2023b. Retrieval-augmented gen-          Urvashi Khandelwal, Omer Levy, Dan Jurafsky, Luke
+  eration for large language models: A survey. arXiv          Zettlemoyer, and Mike Lewis. 2020. Generalization
+  preprint arXiv:2312.10997.                                  through memorization: Nearest neighbor language
+                                                              models. International Conference on Learning Rep-
+Izacard Gautier, Mathilde Caron, Lucas Hosseini, Sebas-
+                                                              resentations.
+   tian Riedel, Piotr Bojanowski, Armand Joulin, and
+   Edouard Grave. 2022. Unsupervised dense informa-
+   tion retrieval with contrastive learning. Transactions   Omar Khattab, Keshav Santhanam, Xiang Lisa
+   on Machine Learning Research.                             Li, David Hall, Percy Liang, Christopher Potts,
+                                                             and Matei Zaharia. 2022. Demonstrate-search-
+Sebastian Gehrmann, Elizabeth Clark, and Thibault Sel-       predict: Composing retrieval and language mod-
+  lam. 2022. Repairing the cracked foundation: A             els for knowledge-intensive nlp. arXiv preprint
+  survey of obstacles in human-ai collaboration. arXiv       arXiv:2212.14024.
+  preprint arXiv:2202.13452.
+                                                            Tomáš Kočiský, Jonathan Schwarz, Phil Blunsom, Chris
+Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat,          Dyer, Karl Moritz Hermann, Gábor Melis, and Ed-
+  and Mingwei Chang. 2020. Retrieval augmented lan-           ward Grefenstette. 2018. The narrativeqa reading
+  guage model pre-training. International conference          comprehension challenge. Transactions of the Asso-
+  on machine learning, pages 3929–3938.                       ciation for Computational Linguistics, 6:317–328.
+Peter Henderson, Jieru Hu, Joshua Romoff, Emma Brun-        Wojciech Kryscinski, Bryan McCann, Caiming Xiong,
+  skill, Dan Jurafsky, and Joelle Pineau. 2020. Towards      and Richard Socher. 2020. Evaluating the factual con-
+  the systematic reporting of the energy and carbon          sistency of abstractive text summarization. In Pro-
+  footprints of machine learning. Journal of Machine         ceedings of the 2020 Conference on Empirical Meth-
+  Learning Research, 21(248):1–43.                           ods in Natural Language Processing, pages 9332–
+Sebastian Hofstätter, Jiecao Chen, Karthik Raman, and        9346.
+  Hamed Zamani. 2023. Fid-light: Efficient and ef-
+  fective retrieval-augmented text generation. SIGIR,       Tom Kwiatkowski, Jennimaria Palomaki, Olivia Red-
+  pages 1437–1447.                                            field, Michael Collins, Ankur Parikh, Chris Alberti,
+                                                              Danielle Epstein, Illia Polosukhin, Jacob Devlin, Ken-
+Gautier Izacard and Edouard Grave. 2021a. Distilling          ton Lee, et al. 2019. Natural questions: a benchmark
+  knowledge from reader to retriever for question an-         for question answering research. Transactions of the
+  swering. ICLR 2021-9th International Conference             Association for Computational Linguistics, 7:453–
+  on Learning Representations.                                466.
+
+Gautier Izacard and Edouard Grave. 2021b. Leveraging        Alexandre Lacoste, Alexandra Luccioni, Victor
+  passage retrieval with generative models for open           Schmidt, and Thomas Dandres. 2019. Quantifying
+  domain question answering. EACL 2021-16th Con-              the carbon emissions of machine learning. arXiv
+  ference of the European Chapter of the Association          preprint arXiv:1910.09700.
+  for Computational Linguistics, pages 874–880.
+                                                            Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+Kalervo Järvelin and Jaana Kekäläinen. 2002. Cumu-            Petroni, Vladimir Karpukhin, Naman Goyal, Hein-
+  lated gain-based evaluation of ir techniques. ACM           rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock-
+  Transactions on Information Systems, 20(4):422–             täschel, et al. 2020. Retrieval-augmented generation
+  446.                                                        for knowledge-intensive nlp tasks. Advances in Neu-
+Zhengbao Jiang, Frank F Xu, Luyu Gao, Zhiqing Sun,            ral Information Processing Systems, 33:9459–9474.
+  Qian Liu, Jane Dwivedi-Yu, Yiming Yang, Jamie
+  Callan, and Graham Neubig. 2023. Active retrieval         Jiatong Li, Yunqing Liu, Wenqi Fan, Xiao-Yong Wei,
+  augmented generation. Proceedings of the 2023 Con-           Hui Liu, Jiliang Tang, and Qing Li. 2023. Empower-
+  ference on Empirical Methods in Natural Language             ing molecule discovery for molecule-caption transla-
+  Processing, pages 7969–7992.                                 tion with large language models: A chatgpt perspec-
+                                                               tive. arXiv preprint arXiv:2306.06615.
+Mandar Joshi, Eunsol Choi, Daniel S Weld, and Luke
+ Zettlemoyer. 2017. Triviaqa: A large scale distantly       Xiang Li, Zhenyu Li, Chen Shi, Yong Xu, Qing
+ supervised challenge dataset for reading comprehen-          Du, Mingkui Tan, Jun Huang, and Wei Lin. 2024.
+ sion. In Proceedings of the 55th Annual Meeting of           Alphafin: Benchmarking financial analysis with
+ the Association for Computational Linguistics, pages         retrieval-augmented stock-chain framework. arXiv
+ 1601–1611.                                                   preprint arXiv:2403.12582.
+Chin-Yew Lin and Eduard Hovy. 2003. Automatic              Weijia Shi, Sewon Min, Michihiro Yasunaga, Min-
+  evaluation of summaries using n-gram co-occurrence        joon Seo, Rich James, Mike Lewis, Luke Zettle-
+  statistics. In Proceedings of the 2003 Human Lan-         moyer, and Wen-tau Yih. 2023. Replug: Retrieval-
+  guage Technology Conference of the North American         augmented black-box language models. arXiv
+  Chapter of the Association for Computational Lin-         preprint arXiv:2301.12652.
+  guistics, pages 71–78.
+                                                           Kurt Shuster, Spencer Poff, Moya Chen, Douwe Kiela,
+Shengchao Liu, Weili Nie, Chengpeng Wang, Jiarui             and Jason Weston. 2021. Retrieval augmentation re-
+  Lu, Zhuoran Qiao, Ling Liu, Jian Tang, Chaowei             duces hallucination in conversation. EMNLP (Find-
+  Xiao, and Animashree Anandkumar. 2023. Multi-              ings), pages 3784–3803.
+  modal molecule structure–text model for text-based
+  retrieval and editing. Nature Machine Intelligence,      Emma Strubell, Ananya Ganesh, and Andrew McCal-
+  5(12):1447–1457.                                           lum. 2019. Energy and policy considerations for
+                                                             deep learning in nlp. In Proceedings of the 57th An-
+Alejandro Lozano, Scott L Fleming, Chia-Chun Chiang,         nual Meeting of the Association for Computational
+  and Nigam Shah. 2023. Clinfo. ai: An open-source           Linguistics, pages 3645–3650.
+  retrieval-augmented large language model system for
+  answering medical questions using scientific litera-     Alex Wang, Amanpreet Singh, Julian Michael, Felix
+  ture. In PACIFIC SYMPOSIUM ON BIOCOMPUT-                   Hill, Omer Levy, and Samuel R Bowman. 2018.
+  ING 2024, pages 8–23. World Scientific.                    Glue: A multi-task benchmark and analysis platform
+                                                             for natural language understanding. In Proceedings
+Xinbei Ma, Yeyun Gong, Pengcheng He, Hai Zhao,               of the 2018 Conference on Empirical Methods in
+  and Nan Duan. 2023. Query rewriting for retrieval-         Natural Language Processing, pages 353–355.
+  augmented large language models. arXiv preprint
+  arXiv:2305.14283.                                        Liang Wang, Nan Yang, and Furu Wei. 2023a.
+                                                             Query2doc: Query expansion with large language
+Joshua Maynez, Shashi Narayan, Bernd Bohnet, and             models. EMNLP, pages 9414–9423.
+  Ryan McDonald. 2020. On faithfulness and factu-
+  ality in abstractive summarization. In Proceedings       Zichao Wang, Weili Nie, Zhuoran Qiao, Chaowei Xiao,
+  of the 58th Annual Meeting of the Association for          Richard G Baraniuk, and Anima Anandkumar. 2023b.
+  Computational Linguistics, pages 1906–1919.                Retrieval-based controllable molecule generation.
+                                                             ICLR.
+Noor Nashid, Mifta Sintaha, and Ali Mesbah. 2023.
+  Retrieval-based prompt selection for code-related        Junda Wu, Cheng-Chun Chang, Tong Yu, Zhankui He,
+  few-shot learning. 2023 IEEE/ACM 45th Interna-             Jianing Wang, Yupeng Hou, and Julian McAuley.
+  tional Conference on Software Engineering (ICSE),          2024. Coral: Collaborative retrieval-augmented large
+  pages 2450–2462.                                           language models improve long-tail recommendation.
+                                                             arXiv preprint arXiv:2403.06447.
+David Patterson, Joseph Gonzalez, Quoc Le Holzinger,
+  Hari Awan, Krste Asanovic, Titouan Parcollet, and        Jing Xu, Arthur Szlam, and Jason Weston. 2022. Be-
+  Jeff Dean. 2022. Carbon footprint of training large         yond goldfish memory: Long-term open-domain con-
+  language models. Communications of the ACM,                 versation. ACL (1), pages 5180–5197.
+  65(6):64–67.
+                                                           Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Ben-
+Ori Ram, Yoav Levine, Itay Dalmedigos, Dor Muhlgay,          gio, William W Cohen, Ruslan Salakhutdinov, and
+  Amnon Shashua, Kevin Leyton-Brown, and Yoav                Christopher D Manning. 2018. Hotpotqa: A dataset
+  Shoham. 2023. In-context retrieval-augmented lan-          for diverse, explainable multi-hop question answer-
+  guage models. Transactions of the Association for          ing. arXiv preprint arXiv:1809.09600.
+  Computational Linguistics, 11:1316–1331.
+                                                           Antonio Jimeno Yepes, Yao You, Jan Milczek, Sebas-
+Marco Tulio Ribeiro, Tongshuang Wu, Carlos Guestrin,         tian Laverde, and Leah Li. 2024. Financial report
+ and Sameer Singh. 2020. Beyond accuracy: Behav-             chunking for effective retrieval augmented genera-
+ ioral testing of nlp models with checklist. In Proceed-     tion. arXiv preprint arXiv:2402.05131.
+ ings of the 58th Annual Meeting of the Association
+ for Computational Linguistics, pages 4902–4912.           Ori Yoran, Tomer Wolfson, Ori Ram, and Jonathan Be-
+                                                             rant. 2023. Making retrieval-augmented language
+Stephen Robertson, Hugo Zaragoza, et al. 2009. The           models robust to irrelevant context. The Twelfth In-
+   probabilistic relevance framework: Bm25 and be-           ternational Conference on Learning Representations.
+  yond. Foundations and Trends® in Information Re-
+   trieval, 3(4):333–389.                                  Wenhao Yu, Dan Iter, Shuohang Wang, Yichong
+                                                            Xu, Mingxuan Ju, Soumya Sanyal, Chenguang
+Shelly Sheynin, Oron Ashual, Adam Polyak, Uriel             Zhu, Michael Zeng, and Meng Jiang. 2022. Gen-
+  Singer, Oran Gafni, Eliya Nachmani, and Yaniv Taig-       erate rather than retrieve: Large language mod-
+  man. 2023. knn-diffusion: Image generation via            els are strong context generators. arXiv preprint
+  large-scale retrieval. ICLR.                              arXiv:2209.10063.
+Wenhao Yu, Zhihan Zhang, Zhenwen Liang, Meng
+ Jiang, and Ashish Sabharwal. 2023. Improving lan-
+ guage models via plug-and-play retrieval feedback.
+ arXiv preprint arXiv:2305.14002.
+Boyu Zhang, Hongyang Yang, Tianyu Zhou, Muham-
+  mad Ali Babar, and Xiao-Yang Liu. 2023. Enhancing
+  financial sentiment analysis via retrieval augmented
+  large language models. Proceedings of the Fourth
+  ACM International Conference on AI in Finance,
+  pages 349–356.
+Wayne Xin Zhao, Kun Zhou, Junyi Li, Tianyi Tang,
+ Xiaolei Wang, Yupeng Hou, Yingqian Min, Beichen
+ Zhang, Junjie Zhang, Zican Dong, et al. 2023. A
+ survey of large language models. arXiv preprint
+ arXiv:2303.18223.
+Zihuai Zhao, Wenqi Fan, Jiatong Li, Yunqing Liu, Xi-
+  aowei Mei, Yiqi Wang, Zhen Wen, Fei Wang, Xi-
+  angyu Zhao, Jiliang Tang, et al. 2024. Recommender
+  systems in the era of large language models (llms).
+  IEEE Transactions on Knowledge and Data Engi-
+  neering.
+
+Shuyan Zhou, Uri Alon, Frank F Xu, Zhengbao Jiang,
+  and Graham Neubig. 2022. Docprompting: Gen-
+  erating code by retrieving the docs. The Eleventh
+  International Conference on Learning Representa-
+  tions.
+A     Evaluation Dataset Sources                         B.2       Dataset-Specific Performance
+
+    1. Knowledge-intensive QA:                           HAH RAG dominates in data-specific problems
+                                                         where both simple and complex reasoning are re-
+         • Natural Questions (NQ):                       quired. In fact, dataset-specific analysis reveals
+           https://github.com/                           HAH RAG’s particular strengths in handling nat-
+           google-research-datasets/                     ural questions (NQ) and factual queries. For the
+           natural-questions                             NQ dataset, HAH RAG achieves outstanding per-
+         • TriviaQA:                                     formance in multiple metrics:
+           http://nlp.cs.washington.
+           edu/triviaqa/                                      • Factuality: scores 0.841 compared to the
+                                                                0.588 and 0.484 of Hybrid and Naive RAG,
+    2. Multi-hop Reasoning:                                     respectively.
+         • HotpotQA:
+           https://hotpotqa.github.                           • Correctness: scores 0.714 compared to 0.434
+           io/                                                  by hybrid and 0.296 by naive RAG.
+
+    3. Long-form Generation:                                  • Response time: it scored the lowest latency
+                                                                at 2.42s, which is 2X faster than Hybrid and
+         • NarrativeQA: https://github.
+                                                                3X faster than Naive RAG.
+           com/deepmind/narrativeqa
+
+  Most datasets are provided in JSON format, and            The performance on TriviaQA and HotpotQA
+some offer additional formats such as CSV or SQL         datasets demonstrates the consistency of HAH
+databases. Although each data set includes specific      RAG across different question types, maintaining
+splits for training, validation, and testing purposes;   strong factuality and correctness scores while sig-
+we only use the data set evaluation in the data set      nificantly outperforming other methods in response
+evaluation for performance comparison.                   time. For instance, on HotpotQA, HAH RAG’s
+                                                         latency of 2.47s represents an 85.5% improvement
+B     Further Quantitative Evaluation                    over Hybrid RAG and 79.9% over Naive RAG’s
+                                                         12.27s.
+B.1    Complete table of Energy consumption
+       with CO2 emission                                 B.3       Evaluation metrics correlation
+We summarize the metrics on energy consumption           The correlation matrix between the evaluation met-
+and CO2 emission of the HAH RAG in comparison            rics is shown in Fig. 5.
+with other RAG methods as follows:
+                                                                              Correlation Matrix of Evaluation Metrics
+    • On the NQ dataset, HAH RAG achieves the                    ndcg 1.00 -0.56 -0.51 -0.56 -0.50 0.02 -0.43 -0.05 0.02 -0.03 0.15
+                                                                                                                                             1.00
+
+      lowest energy consumption of 0.0026kWh                   rouge1 -0.56 1.00 0.99 1.00 0.02 -0.07 0.02 0.28 0.03 0.28 0.07               0.75
+      and CO2 emissions, 0.00018kg.                            rouge2 -0.51 0.99 1.00 0.99 -0.00 -0.07 -0.01 0.25 -0.01 0.25 0.04
+                                                                                                                                             0.50
+                                                               rougeL -0.56 1.00 0.99 1.00 0.02 -0.07 0.02 0.28 0.03 0.28 0.07
+    • For HotpotQA, HAH RAG maintains efficient
+                                                                                                                                                    Correlation Coefficient
+
+
+
+
+                                                                                                                                             0.25
+                                                               fluency -0.50 0.02 -0.00 0.02 1.00 -0.03 0.97 -0.09 -0.07 -0.11 -0.18
+      resource usage with only 0.0054kWh energy
+                                                            coherence 0.02 -0.07 -0.07 -0.07 -0.03 1.00 -0.10 -0.80 -0.81 -0.80 0.62         0.00
+      consumption
+                                                             relevance -0.43 0.02 -0.01 0.02     0.97 -0.10 1.00   0.01   0.05 -0.00 -0.14
+                                                                                                                                              0.25
+                                                             factuality -0.05 0.28 0.25 0.28 -0.09 -0.80 0.01 1.00 0.93 1.00 -0.08
+    • GPU usage is notably lower for HAH RAG on
+                                                            correctness 0.02 0.03 -0.01 0.03 -0.07 -0.81 0.05 0.93 1.00 0.93 -0.13            0.50
+      both NQ (76.63%) and HotpotQA (78.18%)
+                                                                hhem -0.03 0.28 0.25 0.28 -0.11 -0.80 -0.00 1.00 0.93 1.00 -0.07              0.75
+      datasets. This can be attributed to the
+                                                         Advance_HHEM 0.15 0.07 0.04 0.07 -0.18 0.62 -0.14 -0.08 -0.13 -0.07 1.00
+                                                                                                                                              1.00
+    • However, since Hybrid RAG does not sup-
+                                                                                                                                    M
+                                                                    cg
+
+                                                                           1
+
+                                                                                 2
+
+                                                                                      L
+                                                                                               cy
+
+                                                                                                               ce
+
+
+
+
+                                                                                                              ess
+                                                                                                      fac e
+                                                                                                    co lity
+
+
+
+                                                                                                                                  em
+                                                                                     ge
+
+
+
+
+                                                                                                             nc
+                                                                         ge
+
+                                                                               ge
+
+
+
+
+                                                                                                                                 HE
+                                                                                           en
+                                                                                                           ren
+                                                                   nd
+
+
+
+
+                                                                                                          tua
+
+
+
+                                                                                                                               hh
+                                                                                                          ctn
+                                                                                                          va
+                                                                                    rou
+                                                                        rou
+
+                                                                              rou
+
+
+
+
+                                                                                                                              _H
+                                                                                          flu
+
+                                                                                                  he
+
+                                                                                                           e
+
+
+                                                                                                      rre
+
+
+
+                                                                                                                           ce
+                                                                                                       rel
+                                                                                                co
+
+
+
+
+      port operation parrellelization, it does better
+                                                                                                                             an
+                                                                                                                              v
+                                                                                                                           Ad
+
+
+
+
+      at CPU power efficiency on the NQ dataset
+      (4.15W) and NarrativeQA (4.21W) than HAH           Figure 5: Correlation matrix between the evaluation
+      RAG.                                               metrics.
+B.4            Resource metrics correlation
+
+                                                      Correlation between Resource Metrics
+                                                                                                                                         1.00
+      resource_cpu_percent_avg        1.00          0.61       -0.06           0.20         0.20         0.52        0.22         0.47
+                                                                                                                                         0.75
+ resource_memory_percent_avg          0.61          1.00       -0.01           0.66         0.66         0.73        0.73         0.71
+                                                                                                                                         0.50
+       resource_cpu_power_avg         -0.06         -0.01          1.00        0.10         0.10         0.18        0.12         0.20
+
+
+
+
+                                                                                                                                                Correlation Coefficient
+                                                                                                                                         0.25
+resource_total_energy_consumed        0.20          0.66           0.10        1.00         1.00         0.83        0.44         0.84
+                                                                                                                                         0.00
+   resource_total_co2_emissions       0.20          0.66           0.10        1.00         1.00         0.83        0.44         0.84
+                                                                                                                                          0.25
+    resource_gpu_utilization_avg      0.52          0.73           0.18        0.83         0.83         1.00        0.36         1.00
+                                                                                                                                          0.50
+resource_gpu_memory_used_avg          0.22          0.73           0.12        0.44         0.44         0.36        1.00         0.34
+                                                                                                                                          0.75
+       resource_gpu_power_avg         0.47          0.71           0.20        0.84         0.84         1.00        0.34         1.00
+                                                                                                                                          1.00
+                                    g
+
+
+                                                 g
+
+
+                                                               g
+
+
+
+
+                                                                                                                                g
+                                                                           d
+
+
+                                                                                         s
+
+
+                                                                                                        g
+
+
+                                                                                                                    g
+                                                                                        ion
+                                   av
+
+
+                                               av
+
+
+                                                             av
+
+
+
+
+                                                                                                                             av
+                                                                           me
+
+
+
+
+                                                                                                      _av
+
+
+                                                                                                                  _av
+                               nt_
+
+
+                                              nt_
+
+
+                                                              r_
+
+
+
+
+                                                                                                                            er_
+                                                                                      iss
+                                                                          su
+
+
+
+
+                                                                                                   ion
+
+
+                                                                                                                ed
+                                                           we
+                              rce
+
+
+                                           rce
+
+
+
+
+                                                                                                                           ow
+                                                                                  _em
+                                                                      on
+
+
+
+
+                                                                                                              _us
+                                                                                               zat
+                                                       _po
+
+
+                                                                    y_c
+
+
+
+
+                                                                                                                        _p
+                           _pe
+
+
+                                        _pe
+
+
+
+
+                                                                                                            ory
+                                                                                                ili
+                                                                                o2
+                                                     pu
+
+
+
+
+                                                                                                                     pu
+                                                                                            _ut
+                                                                  rg
+                         pu
+
+
+                                    ory
+
+
+
+
+                                                                               l_c
+
+
+
+
+                                                                                                         em
+                                                  e_c
+
+
+
+
+                                                                                                                     e_g
+                                                               ne
+
+
+
+
+                                                                                         pu
+                       e_c
+
+
+
+
+                                                                           ota
+                                   em
+
+
+
+
+                                                                                                         _m
+                                                             l_e
+                                               urc
+
+
+
+
+                                                                                                                  urc
+                                                                                         e_g
+                    urc
+
+
+
+
+                                                                         e_t
+                                e_m
+
+
+
+
+                                                                                                      pu
+                                                            ota
+                                                o
+
+
+
+
+                                                                                                                 o
+                                                                                      urc
+                                             res
+
+
+
+
+                                                                                                              res
+                    o
+
+
+
+
+                                                                      urc
+
+
+
+
+                                                                                                  e_g
+                                                         e_t
+                 res
+
+
+                             urc
+
+
+
+
+                                                                                   o
+                                                                       o
+
+
+
+
+                                                                                               urc
+                                                                                res
+                                                      urc
+
+
+                                                                    res
+                            o
+                         res
+
+
+
+
+                                                                                             o
+                                                    o
+
+
+
+
+                                                                                          res
+                                                 res
+
+
+
+
+Figure 6: Correlation matrix between the resource met-
+rics.
+
+
+Table 7: Correlations with Total Energy Consumption
+
+   Metric                                                                                             Correlation
+   CO2 Emissions                                                                                                 1.000
+   GPU Power                                                                                                     0.836
+   GPU Utilization                                                                                               0.827
+   NDCG                                                                                                          0.670
+   Memory Usage                                                                                                  0.664
+   Relevance                                                                                                    -0.575
+   Fluency                                                                                                      -0.557
+   Coherence                                                                                                     0.538
+   Advanced HHEM                                                                                                 0.459
+   GPU Memory Used                                                                                               0.439
+   Note: Values closer to ±1 indicate stronger correlations.
+Table 8: Comprehensive Performance Analysis of different RAG method on NQ (Kwiatkowski et al., 2019),
+TriviaQA (Joshi et al., 2017), HotpotQA (Yang et al., 2018) and NarrativeQA (Kočiský et al., 2018) datasets.
+
+                                                                  Table 9: Resource Usage Comparison
+                                      CPU             Memory        CPU         Total          CO2           Carbon       GPU         GPU Mem.        GPU Mem.      GPU Mem.        GPU
+   Method          Dataset            Usage            Usage       Power       Energy       Emissions       Intensity     Util.          Used            Max           Total       Power
+                                       (%)              (%)         (W)        (kWh)           (kg)                        (%)          (MB)            (MB)          (MB)          (W)
+                     NQ                6.62             4.10        4.30       0.0026        0.00018           70         76.63        40116.31        40126.00      46068.00      193.78
+                  TriviaQA             6.78             4.15        4.25       0.0154        0.00108           70         84.60        40306.05        40328.00      46068.00      211.05
+  HAH RAG         HotpotQA             6.78             4.18        4.19       0.0054        0.00038           70         78.18        40522.69        40560.00      46068.00      195.54
+                 NarrativeQA           6.73             4.19        4.28       0.0152        0.00107           70         84.45        40685.19        40686.00      46068.00      210.96
+                   Average             6.73             4.16        4.25       0.0097        0.00068           70         80.96        40407.56        40425.00      46068.00      202.83
+                     NQ                6.73             4.16        4.15       0.0055        0.00039           70         82.45        40092.95        40098.00      46068.00      206.84
+                  TriviaQA             6.77             4.19        4.25       0.0339        0.00237           70         86.76        40318.32        40324.00      46068.00      216.96
+ Hybrid RAG       HotpotQA             6.74             4.20        4.27       0.0415        0.00291           70         87.05        40483.10        40508.00      46068.00      217.81
+                 NarrativeQA           6.74             4.20        4.21       0.0350        0.00245           70         86.86        40661.83        40664.00      46068.00      217.39
+                   Average             6.74             4.19        4.22       0.0290        0.00203           70         85.78        40389.05        40398.50      46068.00      214.75
+                     NQ                6.80             4.17        4.30       0.0095        0.00067           70         85.00        40119.08        40140.00      46068.00      212.64
+                  TriviaQA             6.74             4.18        4.21       0.0419        0.00293           70         87.12        40325.68        40332.00      46068.00      217.92
+ Naive RAG        HotpotQA             6.75             4.20        4.35       0.0297        0.00208           70         86.75        40485.34        40488.00      46068.00      217.16
+                 NarrativeQA           6.76             4.20        4.30       0.0272        0.00191           70         86.38        40664.58        40676.00      46068.00      216.23
+                   Average             6.76             4.19        4.29       0.0271        0.00190           70         86.31        40398.67        40409.00      46068.00      215.99
+
+
+                                                               Table 10: Evaluation Metrics Comparison
+
+ Method       Dataset        Latency      NDCG           ROUGE-1      ROUGE-2      ROUGE-L        Fluency     Coherence     Relevance    Factuality   Correctness   HHEM    Adv. HHEM
+
+              NQ               2.42           0.564       0.824        0.778            0.824      0.943         0.145        0.754        0.841         0.714      0.411       0.040
+              TriviaQA         6.52           0.962       0.000        0.000            0.000      0.884         0.206        0.685        0.700         0.631      0.326       0.044
+ HAH RAG
+              HotpotQA         2.47           0.906       0.000        0.000            0.000      0.872         0.176        0.692        0.679         0.542      0.314       0.038
+              NarrativeQA      6.48           0.850       0.159        0.000            0.159      0.882         0.263        0.730        0.760         0.693      0.363       0.068
+
+              NQ               4.85           0.564       0.903        0.848            0.903      0.913         0.307        0.719        0.588         0.434      0.257       0.056
+              TriviaQA         13.99          0.962       0.000        0.000            0.000      0.801         0.270        0.574        0.640         0.485      0.291       0.050
+ Hybrid RAG
+              HotpotQA         17.09          0.906       0.000        0.000            0.000      0.813         0.328        0.596        0.629         0.484      0.285       0.071
+              NarrativeQA      14.47          0.850       0.903        0.875            0.903      0.755         0.274        0.552        0.660         0.466      0.302       0.054
+
+              NQ               8.24           0.564       0.166        0.098            0.166      0.946         0.348        0.735        0.484         0.296      0.192       0.048
+              TriviaQA         17.22          0.962       0.000        0.000            0.000      0.890         0.317        0.705        0.498         0.342      0.201       0.046
+ Naive RAG
+              HotpotQA         12.27          0.906       0.000        0.000            0.000      0.951         0.310        0.766        0.579         0.404      0.251       0.060
+              NarrativeQA      11.27          0.850       1.000        1.000            1.000      0.904         0.307        0.709        0.657         0.397      0.301       0.064
+
