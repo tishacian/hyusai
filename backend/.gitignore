@@ -63,7 +63,7 @@ Thumbs.db
 
 # Project specific
 data/
-models/
+/models/
 .cache/
 uploads/
 
