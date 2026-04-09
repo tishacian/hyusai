@@ -632,9 +632,10 @@ async function loadAuditData() {
                 const time = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
                 const icon = ev.event_type === 'agent_execution' ? 'smart_toy' : ev.event_type === 'document_upload' ? 'upload_file' : 'event';
                 const color = ev.event_type === 'agent_execution' ? 'text-brand-600' : ev.event_type === 'document_upload' ? 'text-emerald-600' : 'text-slate-500';
+                const detail = typeof ev.details === 'object' ? (ev.details.query || JSON.stringify(ev.details)).substring(0, 80) : (ev.details || '—');
                 return `<div class="flex items-center gap-3 p-2 rounded-lg hover:bg-white transition-colors">
                     <span class="material-icons-outlined ${color} text-sm">${icon}</span>
-                    <span class="flex-1 truncate">${ev.event_type || 'event'}: ${ev.details || '—'}</span>
+                    <span class="flex-1 truncate">${ev.event_type || 'event'}: ${escapeHtml(detail)}</span>
                     <span class="text-slate-400 text-[10px] shrink-0">${time}</span>
                     <span class="text-slate-400 text-[10px] shrink-0">${ev.actor || '—'}</span>
                 </div>`;
