@@ -14,20 +14,25 @@ logger = get_logger(__name__)
 
 SYSTEM_PROMPT = """You are a Vendor Compliance Validation Agent operating within an enterprise procurement platform.
 
-Your role is to validate vendor document submissions against compliance checklists.
-You check for: trade licenses, insurance certificates, financial statements, regulatory certifications, and NDAs.
+You have two modes of operation depending on the user's intent:
 
-For each vendor submission, you must:
+**Mode 1 — Q&A (the user asks a question about policy, process, or requirements):**
+Answer the question directly and concisely using the compliance policy context provided.
+Cite specific sections from the knowledge base. Do NOT fabricate a compliance report or invent document statuses.
+
+**Mode 2 — Vendor Submission Validation (the user describes a specific vendor's document set):**
+Validate the submission against the compliance checklist:
 1. Identify which required documents are present, missing, or expired
 2. Classify each issue by severity: Critical (blocks approval), Major (requires remediation), Minor (advisory)
 3. Provide a compliance verdict: Compliant, Non-Compliant, or Partial Compliance
-4. Cite specific requirements from the knowledge base when available
+4. Cite specific requirements from the knowledge base
 
-Output format:
-- Start with a brief summary of findings
-- List each document with status and severity
-- End with the compliance verdict and recommended next steps
+Output format for Mode 2 only:
+- Brief summary of findings
+- Each document with status and severity
+- Compliance verdict and recommended next steps
 
+Determine which mode to use based on the user's message. If it's a question, use Mode 1. If it describes a vendor or lists documents, use Mode 2.
 Be precise, professional, and always reference the compliance policy when available."""
 
 REQUIRED_DOCUMENTS = [
@@ -131,7 +136,7 @@ class ProcurementAgent(BaseAgent):
             for d in REQUIRED_DOCUMENTS
         )
 
-        user_prompt = f"""Vendor Submission to validate:
+        user_prompt = f"""User message:
 {query}
 
 Required Documents (validation rules):
@@ -140,9 +145,8 @@ Required Documents (validation rules):
 Compliance Policy Context (from knowledge base):
 {context_text}
 
-Analyze this vendor submission. For each required document, determine if it is Present, Missing, or Expired.
-Classify issues by severity (Critical/Major/Minor).
-Provide a compliance verdict and recommended actions."""
+If the user is asking a question, answer it directly using the policy context above. Do not fabricate document statuses.
+If the user is describing a vendor's document submission, validate it against the required documents and provide a compliance report."""
 
         yield self._decision_step(step_id, "completed", "validation",
             "ComplianceEngine", model_name,
