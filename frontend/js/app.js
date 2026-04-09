@@ -751,10 +751,8 @@ async function sendChat() {
             // Finalize all running tool cards
             toolsContainer.querySelectorAll('.tool-card-running').forEach(el => {
                 el.classList.remove('tool-card-running');
-            });
-            toolsContainer.querySelectorAll('.tool-dot-ping').forEach(el => el.remove());
-            toolsContainer.querySelectorAll('.tool-dot').forEach(el => {
-                el.style.backgroundColor = '#cbd5e1';
+                el.style.borderColor = '#d1fae5';
+                el.style.background = '#f8fafc';
             });
             toolsContainer.querySelectorAll('.tool-status-label').forEach(el => el.remove());
 
@@ -810,10 +808,10 @@ function appendAssistantShell(container) {
 }
 
 const STEP_ICONS = {
-    query_received: '📥', query_rewrite: '✏️', embedding: '🧬',
-    retrieve: '🔍', context_filtering: '🎯', validation: '✅',
-    synthesis: '⚡', evaluation: '📊',
-    document_ingestion: '📄', default: '⚙️',
+    query_received: 'input', query_rewrite: 'auto_fix_high', embedding: 'hub',
+    retrieve: 'search', context_filtering: 'filter_alt', validation: 'verified',
+    synthesis: 'edit_note', evaluation: 'analytics',
+    document_ingestion: 'description', routing: 'alt_route', default: 'settings',
 };
 
 function renderToolCallCard(container, step) {
@@ -822,17 +820,18 @@ function renderToolCallCard(container, step) {
     const isDone = step.status === 'completed';
     const isError = step.status === 'error';
 
-    const accentColor = isRunning ? '#00bcd4' : isError ? '#ef4444' : '#10b981';
-    const dotColor = isRunning ? '#00bcd4' : isError ? '#ef4444' : '#94a3b8';
+    const iconColor = isRunning ? '#00838f' : isError ? '#dc2626' : isDone ? '#059669' : '#94a3b8';
     const titleColor = isRunning ? '#0e1726' : isDone ? '#334155' : '#64748b';
     const borderColor = isRunning ? '#b2ebf2' : isError ? '#fecaca' : isDone ? '#d1fae5' : '#e2e8f0';
     const bgColor = isRunning ? '#f0fdfa' : isError ? '#fef2f2' : '#f8fafc';
-    const icon = STEP_ICONS[step.type] || STEP_ICONS.default;
+    const iconName = STEP_ICONS[step.type] || STEP_ICONS.default;
 
-    const pingHtml = isRunning ? `<span class="tool-dot-ping absolute inline-flex h-1.5 w-1.5 rounded-full opacity-60 animate-ping" style="background:${dotColor}"></span>` : '';
-    const statusLabel = isRunning ? `<span class="tool-status-label text-[10px] ml-auto font-medium" style="color:#00838f">running…</span>` : '';
-    const doneCheck = isDone && !step.metrics ? '<span class="text-emerald-500 text-[11px] ml-auto">✓</span>' : '';
-    const durationHtml = step.duration ? `<span class="text-[10px] font-mono text-slate-400 ml-1">${step.duration}ms</span>` : '';
+    const statusHtml = isRunning
+        ? `<span class="tool-status-label text-[10px] ml-auto font-medium" style="color:#00838f">running…</span>`
+        : '';
+    const durationHtml = isDone && step.duration
+        ? `<span class="text-[10px] font-mono text-slate-400 ml-auto">${step.duration}ms</span>`
+        : '';
 
     const metricsHtml = (step.metrics && isDone) ? renderMetricsGauges(step.metrics) : '';
 
@@ -843,23 +842,18 @@ function renderToolCallCard(container, step) {
 
     const html = `
         <div id="tool-${step.id}" class="rounded-md border px-3 py-2 transition-all ${isRunning ? 'tool-card-running' : ''}" style="background:${bgColor};border-color:${borderColor}">
-            <div class="flex items-center gap-1.5 mb-0.5">
-                <span class="text-[11px] shrink-0">${icon}</span>
-                <div class="relative w-1.5 h-1.5 shrink-0">
-                    ${pingHtml}
-                    <span class="tool-dot relative inline-flex rounded-full h-1.5 w-1.5" style="background:${dotColor}"></span>
-                </div>
+            <div class="flex items-center gap-2 mb-0.5">
+                <span class="material-icons-outlined shrink-0" style="font-size:15px;color:${iconColor}">${iconName}</span>
                 <span class="text-[12px] font-mono font-semibold" style="color:${titleColor}">${escapeHtml(step.component)}</span>
-                ${statusLabel}
-                ${doneCheck}
-                ${isDone ? durationHtml : ''}
+                ${statusHtml}
+                ${durationHtml}
             </div>
-            <div class="flex items-center gap-1.5 text-[10px] text-slate-400 mb-0.5 pl-5">
+            <div class="flex items-center gap-1.5 text-[10px] text-slate-400 mb-0.5 pl-6">
                 <span>${escapeHtml(step.title)}</span>
                 <span>&middot;</span>
                 <span class="font-mono">${escapeHtml(step.model || '')}</span>
             </div>
-            <div class="pl-5">${metricsHtml || descHtml}</div>
+            <div class="pl-6">${metricsHtml || descHtml}</div>
         </div>
     `;
 
