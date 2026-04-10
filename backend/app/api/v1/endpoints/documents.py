@@ -1,25 +1,31 @@
 """Document management endpoints"""
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
+
+import os
+import shutil
+import tempfile
+from typing import Optional
+
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from typing import List, Optional
 from pydantic import BaseModel
+
 from app.core.logging import get_logger
 from app.core.settings_manager import get_app_settings
 from app.services.rag.document_service import DocumentService
-import os
-import tempfile
-import shutil
-import hashlib
 
 logger = get_logger(__name__)
 router = APIRouter()
 
-UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))), "uploads")
+UPLOADS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))),
+    "uploads",
+)
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 
 class DocumentSearchRequest(BaseModel):
     """Document search request"""
+
     query: str
     top_k: int = 10
     filters: Optional[dict] = None
@@ -29,7 +35,8 @@ class DocumentSearchRequest(BaseModel):
 
 class DocumentSearchResponse(BaseModel):
     """Document search response"""
-    results: List[dict]
+
+    results: list[dict]
     total: int
 
 
@@ -44,19 +51,19 @@ async def upload_document(
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
 
-        ext = os.path.splitext(file.filename)[1].lower()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
-            shutil.copyfileobj(file.file, tmp_file)
-            tmp_path = tmp_file.name
-
+        safe_name = file.filename.replace("/", "_").replace("\\", "_")
+        tmp_dir = tempfile.mkdtemp()
+        tmp_path = os.path.join(tmp_dir, safe_name)
         try:
+            with open(tmp_path, "wb") as f:
+                shutil.copyfileobj(file.file, f)
+
             doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
             result = await doc_service.ingest_document(tmp_path)
             doc_id = result.get("document_id", "")
 
             # Persist original file for preview
             if doc_id:
-                safe_name = file.filename.replace("/", "_").replace("\\", "_")
                 persist_path = os.path.join(UPLOADS_DIR, f"{doc_id}_{safe_name}")
                 shutil.copy2(tmp_path, persist_path)
 
@@ -67,9 +74,8 @@ async def upload_document(
                 "filename": file.filename,
             }
         finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-    
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
     except Exception as e:
         logger.error(f"Error uploading document: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -77,7 +83,7 @@ async def upload_document(
 
 @router.post("/upload-batch")
 async def upload_documents_batch(
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
     collection_name: str = Form("documents"),
     vector_db_type: Optional[str] = Form(None),
 ):
@@ -85,34 +91,36 @@ async def upload_documents_batch(
     # Get vector DB type from settings if not provided
     app_settings = get_app_settings()
     db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
-    
+
     temp_files = []
-    
+
     try:
         # Save all files temporarily
         file_paths = []
         for file in files:
-            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1])
+            tmp_file = tempfile.NamedTemporaryFile(
+                delete=False, suffix=os.path.splitext(file.filename)[1]
+            )
             shutil.copyfileobj(file.file, tmp_file)
             tmp_file.close()
             temp_files.append(tmp_file.name)
             file_paths.append(tmp_file.name)
-        
+
         # Ingest documents with specified vector DB type
         doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
         result = await doc_service.ingest_documents_batch(file_paths)
-        
+
         return {
             "status": "success",
             "total": result["total"],
             "successful": result["successful"],
             "failed": result["failed"],
         }
-    
+
     except Exception as e:
         logger.error(f"Error uploading documents batch: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-    
+
     finally:
         # Clean up temp files
         for tmp_path in temp_files:
@@ -127,20 +135,24 @@ async def search_documents(request: DocumentSearchRequest):
         # Get vector DB type from settings
         app_settings = get_app_settings()
         db_type = app_settings.get("ragVectorDBType", "faiss")
-        
-        doc_service = DocumentService(collection_name=request.collection_name, vector_db_type=db_type, use_hybrid=request.use_hybrid)
+
+        doc_service = DocumentService(
+            collection_name=request.collection_name,
+            vector_db_type=db_type,
+            use_hybrid=request.use_hybrid,
+        )
         results = await doc_service.search(
             query=request.query,
             top_k=request.top_k,
             filters=request.filters,
             use_hybrid=request.use_hybrid,
         )
-        
+
         return DocumentSearchResponse(
             results=results,
             total=len(results),
         )
-    
+
     except Exception as e:
         logger.error(f"Error searching documents: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -156,7 +168,14 @@ def _find_original_file(document_id: str, filename: str) -> Optional[str]:
                 return candidate
 
     # 2) Check sample_data/ (pre-loaded seed docs)
-    sample_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))), "sample_data")
+    sample_dir = os.path.join(
+        os.path.dirname(
+            os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            )
+        ),
+        "sample_data",
+    )
     candidate = os.path.join(sample_dir, filename)
     if os.path.isfile(candidate):
         return candidate
@@ -235,7 +254,7 @@ async def serve_document_file(document_id: str, collection_name: str = Query("do
             filepath,
             media_type=media_type,
             filename=filename,
-            headers={"Content-Disposition": f"inline; filename=\"{filename}\""},
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
         )
     except HTTPException:
         raise
@@ -250,33 +269,74 @@ async def get_document_stats(collection_name: str = "documents"):
     try:
         doc_service = DocumentService(collection_name=collection_name)
         count = await doc_service.get_document_count()
-        
+
         # Get cache stats if available
         cache_stats = None
         if doc_service.cache:
             cache_stats = doc_service.cache.get_stats()
-        
+
+        vector_dim = getattr(doc_service.vector_db, "dimension", None)
+
         return {
             "collection_name": collection_name,
             "total_chunks": count,
+            "vector_dim": vector_dim,
             "cache_stats": cache_stats,
         }
-    
+
     except Exception as e:
         logger.error(f"Error getting stats: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/clear")
+async def clear_all_documents(
+    collection_name: str = Query("documents"), vector_db_type: Optional[str] = Query(None)
+):
+    """Clear all documents from a collection"""
+    try:
+        app_settings = get_app_settings()
+        db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
+
+        doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
+        success = await doc_service.clear_all_documents()
+
+        if success:
+            # Also clean up persisted upload files
+            for entry in os.listdir(UPLOADS_DIR):
+                try:
+                    os.unlink(os.path.join(UPLOADS_DIR, entry))
+                except OSError:
+                    pass
+            return {
+                "status": "success",
+                "message": f"All documents cleared from collection '{collection_name}'",
+                "vector_db_type": db_type,
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to clear documents")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error clearing documents: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/{document_id}")
-async def delete_document(document_id: str, collection_name: str = Query("documents"), vector_db_type: Optional[str] = Query(None)):
+async def delete_document(
+    document_id: str,
+    collection_name: str = Query("documents"),
+    vector_db_type: Optional[str] = Query(None),
+):
     """Delete a document and its chunks"""
     try:
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
-        
+
         doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
-        
+
         success = await doc_service.delete_document(document_id)
 
         if not success:
@@ -295,7 +355,7 @@ async def delete_document(document_id: str, collection_name: str = Query("docume
             "message": f"Document {document_id} deleted",
             "vector_db_type": db_type,
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -308,23 +368,23 @@ async def list_collections(vector_db_type: Optional[str] = Query(None)):
     """List all collections for a specific vector DB type"""
     try:
         from app.services.vector_db.factory import VectorDBFactory
-        
+
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
-        
+
         # List collections for the specified vector DB type
         collection_names = VectorDBFactory.list_collections(db_type=db_type)
-        
+
         # Filter out system/internal collections
         collection_names = [name for name in collection_names if not name.startswith("_")]
-        
+
         return {
             "collections": collection_names if collection_names else [],
             "default": collection_names[0] if collection_names else None,
             "vector_db_type": db_type,
         }
-    
+
     except Exception as e:
         logger.error(f"Error listing collections: {e}", exc_info=True)
         # Return empty list on error, let frontend handle it
@@ -336,15 +396,17 @@ async def list_collections(vector_db_type: Optional[str] = Query(None)):
 
 
 @router.post("/collections")
-async def create_collection(collection_name: str = Query(...), vector_db_type: Optional[str] = Query(None)):
+async def create_collection(
+    collection_name: str = Query(...), vector_db_type: Optional[str] = Query(None)
+):
     """Create a new collection"""
     try:
         from app.services.vector_db.factory import VectorDBFactory
-        
+
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
-        
+
         # Check if collection already exists
         existing_collections = VectorDBFactory.list_collections(db_type=db_type)
         if collection_name in existing_collections:
@@ -356,25 +418,25 @@ async def create_collection(collection_name: str = Query(...), vector_db_type: O
                 "total_chunks": 0,
                 "message": "Collection already exists",
             }
-        
+
         # Create collection by initializing the vector DB (will be empty initially)
         vector_db = VectorDBFactory.get_db(collection_name, db_type=db_type)
-        
+
         # For FAISS, ensure the index is created and saved so it shows up in listings
         if db_type == "faiss":
             # Create index with default dimension (384 for all-MiniLM-L6-v2)
             await vector_db.create_index(384)
             # Save to disk immediately so it appears in listings
-            if hasattr(vector_db, '_save'):
+            if hasattr(vector_db, "_save"):
                 vector_db._save()
-        
+
         count = await vector_db.get_count()
-        
+
         # Verify collection was created by listing again
         updated_collections = VectorDBFactory.list_collections(db_type=db_type)
         if collection_name not in updated_collections:
             logger.warning(f"Collection '{collection_name}' created but not found in listings")
-        
+
         return {
             "status": "success",
             "collection_name": collection_name,
@@ -382,13 +444,16 @@ async def create_collection(collection_name: str = Query(...), vector_db_type: O
             "total_chunks": count,
             "collections": updated_collections,  # Return updated list for frontend
         }
-    
+
     except Exception as e:
         logger.error(f"Error creating collection: {e}", exc_info=True)
         error_msg = str(e)
         # Provide more helpful error messages
         if "already exists" in error_msg.lower() or "different settings" in error_msg.lower():
-            raise HTTPException(status_code=409, detail=f"Collection '{collection_name}' already exists or there's a conflict. Please try a different name or clear existing collections.")
+            raise HTTPException(
+                status_code=409,
+                detail=f"Collection '{collection_name}' already exists or there's a conflict. Please try a different name or clear existing collections.",
+            )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -397,54 +462,61 @@ async def delete_collection(collection_name: str, vector_db_type: Optional[str] 
     """Delete a collection"""
     try:
         from urllib.parse import unquote
+
         from app.services.vector_db.factory import VectorDBFactory
-        
+
         # Decode URL-encoded collection name
         collection_name = unquote(collection_name)
-        
+
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
-        
+
         # Check if collection exists
         collections = VectorDBFactory.list_collections(db_type=db_type)
         collection_exists = collection_name in collections
-        
+
         if not collection_exists:
-            raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found in {db_type}")
-        
+            raise HTTPException(
+                status_code=404, detail=f"Collection '{collection_name}' not found in {db_type}"
+            )
+
         # Clear the collection first (delete all documents)
         try:
             vector_db = VectorDBFactory.get_db(collection_name, db_type=db_type)
             await vector_db.clear_collection()
         except Exception as e:
             logger.warning(f"Error clearing collection before deletion: {e}")
-        
+
         # Clear cached instances
         try:
             VectorDBFactory.clear_instance(collection_name, db_type=db_type)
         except Exception as cache_error:
             logger.warning(f"Could not clear cached instance: {cache_error}")
-        
+
         # Delete the collection files
         try:
             if db_type == "chroma":
                 import chromadb
+
                 from app.core.config import settings
+
                 client = chromadb.PersistentClient(path=settings.chroma_persist_directory)
                 client.delete_collection(name=collection_name)
             elif db_type == "faiss":
                 # FAISS collections are files, delete them
-                from app.core.config import settings
                 import os
-                persist_dir = getattr(settings, 'faiss_persist_directory', './faiss_db')
+
+                from app.core.config import settings
+
+                persist_dir = getattr(settings, "faiss_persist_directory", "./faiss_db")
                 index_path = os.path.join(persist_dir, f"{collection_name}.index")
                 metadata_path = os.path.join(persist_dir, f"{collection_name}.metadata.pkl")
                 if os.path.exists(index_path):
                     os.remove(index_path)
                 if os.path.exists(metadata_path):
                     os.remove(metadata_path)
-            
+
             logger.info(f"Successfully deleted collection: {collection_name} (type: {db_type})")
             return {
                 "status": "success",
@@ -455,74 +527,60 @@ async def delete_collection(collection_name: str, vector_db_type: Optional[str] 
             # Collection doesn't exist or already deleted
             error_msg = str(e)
             if "not found" in error_msg.lower() or "does not exist" in error_msg.lower():
-                raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
+                raise HTTPException(
+                    status_code=404, detail=f"Collection '{collection_name}' not found"
+                )
             else:
                 logger.error(f"ValueError when deleting collection: {e}", exc_info=True)
-                raise HTTPException(status_code=500, detail=f"Failed to delete collection: {error_msg}")
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to delete collection: {error_msg}"
+                )
         except Exception as delete_error:
-            logger.error(f"Error deleting collection '{collection_name}': {delete_error}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Failed to delete collection: {str(delete_error)}")
-    
+            logger.error(
+                f"Error deleting collection '{collection_name}': {delete_error}", exc_info=True
+            )
+            raise HTTPException(
+                status_code=500, detail=f"Failed to delete collection: {str(delete_error)}"
+            )
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error deleting collection '{collection_name}': {e}", exc_info=True)
+        logger.error(
+            f"Unexpected error deleting collection '{collection_name}': {e}", exc_info=True
+        )
         raise HTTPException(status_code=500, detail=f"Failed to delete collection: {str(e)}")
 
 
 @router.get("/list")
-async def list_documents(collection_name: str = Query("documents"), vector_db_type: Optional[str] = Query(None)):
+async def list_documents(
+    collection_name: str = Query("documents"), vector_db_type: Optional[str] = Query(None)
+):
     """List all documents in a collection"""
     try:
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
-        
+
         doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
         documents = await doc_service.list_documents()
-        
+
         # Filter out temporary files and system files
         filtered_documents = [
-            doc for doc in documents
+            doc
+            for doc in documents
             if not doc.get("filename", "").startswith(".")  # Exclude hidden files
             and not doc.get("filename", "").endswith(".tmp")  # Exclude temp files
             and doc.get("document_id")  # Ensure document_id exists
         ]
-        
+
         return {
             "collection_name": collection_name,
             "vector_db_type": db_type,
             "documents": filtered_documents,
             "total": len(filtered_documents),
         }
-    
+
     except Exception as e:
         logger.error(f"Error listing documents: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/clear")
-async def clear_all_documents(collection_name: str = Query("documents"), vector_db_type: Optional[str] = Query(None)):
-    """Clear all documents from a collection"""
-    try:
-        # Get vector DB type from settings if not provided
-        app_settings = get_app_settings()
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
-        
-        doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
-        success = await doc_service.clear_all_documents()
-        
-        if success:
-            return {
-                "status": "success",
-                "message": f"All documents cleared from collection '{collection_name}'",
-                "vector_db_type": db_type,
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to clear documents")
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error clearing documents: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

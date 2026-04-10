@@ -1,55 +1,33 @@
-"""Procurement Agent -- Vendor Document Validation
+"""OmniRAG Agent -- Generic RAG pipeline
 
-Full execution streaming pipeline inspired by OmniRAG's OperationType model.
-Each step emits SSE decision_step events for real-time frontend visibility.
+Full execution streaming pipeline with real-time SSE decision_step events.
 """
-import time
+
 import asyncio
-from typing import Dict, Any, AsyncGenerator
+import time
+from typing import Any, AsyncGenerator
+
 from app.agents.base import BaseAgent
 from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-SYSTEM_PROMPT = """You are a Vendor Compliance Validation Agent operating within an enterprise procurement platform.
+SYSTEM_PROMPT = """You are OmniRAG, an intelligent assistant with access to a curated knowledge base.
 
-You have two modes of operation depending on the user's intent:
+Answer questions accurately and concisely using the retrieved context.
+When the context contains relevant information, cite it specifically.
+If no relevant context is available, say so clearly rather than guessing.
 
-**Mode 1 — Q&A (the user asks a question about policy, process, or requirements):**
-Answer the question directly and concisely using the compliance policy context provided.
-Cite specific sections from the knowledge base. Do NOT fabricate a compliance report or invent document statuses.
-
-**Mode 2 — Vendor Submission Validation (the user describes a specific vendor's document set):**
-Validate the submission against the compliance checklist:
-1. Identify which required documents are present, missing, or expired
-2. Classify each issue by severity: Critical (blocks approval), Major (requires remediation), Minor (advisory)
-3. Provide a compliance verdict: Compliant, Non-Compliant, or Partial Compliance
-4. Cite specific requirements from the knowledge base
-
-Output format for Mode 2 only:
-- Brief summary of findings
-- Each document with status and severity
-- Compliance verdict and recommended next steps
-
-Determine which mode to use based on the user's message. If it's a question, use Mode 1. If it describes a vendor or lists documents, use Mode 2.
-Be precise, professional, and always reference the compliance policy when available."""
-
-REQUIRED_DOCUMENTS = [
-    {"name": "Trade License", "severity": "Critical", "validity_months": 12},
-    {"name": "Insurance Certificate", "severity": "Critical", "validity_months": 12},
-    {"name": "Financial Statements", "severity": "Major", "validity_months": 24},
-    {"name": "Regulatory Certifications", "severity": "Major", "validity_months": 12},
-    {"name": "Non-Disclosure Agreement", "severity": "Minor", "validity_months": None},
-]
+Be professional, precise, and helpful."""
 
 
-class ProcurementAgent(BaseAgent):
+class OmniRAGAgent(BaseAgent):
     def __init__(self):
         super().__init__(
-            agent_id="procurement",
-            name="Vendor Compliance Agent",
-            agent_type="procurement",
+            agent_id="rag",
+            name="OmniRAG Agent",
+            agent_type="rag",
         )
         self._llm = None
         self._document_service = None
@@ -61,6 +39,7 @@ class ProcurementAgent(BaseAgent):
     def _get_llm(self):
         if self._llm is None:
             from app.llm.llm import LLM
+
             self._llm = LLM(
                 provider=settings.default_provider,
                 api_key=settings.openai_api_key,
@@ -71,6 +50,7 @@ class ProcurementAgent(BaseAgent):
         if self._document_service is None:
             try:
                 from app.services.rag.document_service import DocumentService
+
                 self._document_service = DocumentService(
                     collection_name="documents",
                     vector_db_type="faiss",
@@ -79,9 +59,7 @@ class ProcurementAgent(BaseAgent):
                 logger.warning("Document service init failed, RAG disabled", error=str(e))
         return self._document_service
 
-    async def process(
-        self, request: Dict[str, Any]
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    async def process(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         query = request.get("query", "")
         rewritten = request.get("rewritten_query", query)
         prefs = request.get("agent_preferences", {}).get("model_preferences", {})
@@ -96,72 +74,141 @@ class ProcurementAgent(BaseAgent):
         # ── Step 1: Query Received ──
         step_start = time.time()
         sid = f"query-received-{uid}"
-        yield self._step(sid, "active", "query_received", "QueryReceiver", model_name,
+        yield self._step(
+            sid,
+            "active",
+            "query_received",
+            "QueryReceiver",
+            model_name,
             "Receiving and parsing query",
-            f'Input: "{query[:120]}"')
-        await asyncio.sleep(0.03)
-        is_question = any(query.strip().endswith(c) for c in ['?', '？']) or any(
-            query.lower().startswith(w) for w in ['what ', 'which ', 'how ', 'who ', 'when ', 'where ', 'why ', 'is ', 'are ', 'can ', 'do ', 'does ']
+            f'Input: "{query[:120]}"',
         )
-        intent = "Q&A / Policy Question" if is_question else "Vendor Submission Validation"
-        yield self._step(sid, "completed", "query_received", "QueryReceiver", model_name,
+        await asyncio.sleep(0.03)
+        is_question = any(query.strip().endswith(c) for c in ["?", "？"]) or any(
+            query.lower().startswith(w)
+            for w in [
+                "what ",
+                "which ",
+                "how ",
+                "who ",
+                "when ",
+                "where ",
+                "why ",
+                "is ",
+                "are ",
+                "can ",
+                "do ",
+                "does ",
+            ]
+        )
+        intent = "Q&A / Question" if is_question else "Document / Data Processing"
+        yield self._step(
+            sid,
+            "completed",
+            "query_received",
+            "QueryReceiver",
+            model_name,
             "Query received",
             f"Intent: {intent} · Length: {len(query)} chars",
-            duration=self._ms_since(step_start))
+            duration=self._ms_since(step_start),
+        )
 
         # ── Step 2: Query Rewrite ──
         step_start = time.time()
         sid = f"query-rewrite-{uid}"
-        yield self._step(sid, "active", "query_rewrite", "QueryRewriter", "gpt-4o-mini",
+        yield self._step(
+            sid,
+            "active",
+            "query_rewrite",
+            "QueryRewriter",
+            "gpt-4o-mini",
             "Rewriting query for optimal retrieval",
-            f'Original: "{query[:80]}…"')
+            f'Original: "{query[:80]}…"',
+        )
 
         has_rewrite = rewritten != query
         await asyncio.sleep(0.02)
-        yield self._step(sid, "completed", "query_rewrite", "QueryRewriter", "gpt-4o-mini",
+        yield self._step(
+            sid,
+            "completed",
+            "query_rewrite",
+            "QueryRewriter",
+            "gpt-4o-mini",
             "Query rewritten" if has_rewrite else "Query kept as-is",
-            f'Rewritten: "{rewritten[:100]}"' if has_rewrite else "No rewrite needed — query already well-formed",
-            duration=self._ms_since(step_start))
+            f'Rewritten: "{rewritten[:100]}"'
+            if has_rewrite
+            else "No rewrite needed — query already well-formed",
+            duration=self._ms_since(step_start),
+        )
 
         # ── Step 3: Embedding Generation ──
         step_start = time.time()
         sid = f"embedding-{uid}"
-        yield self._step(sid, "active", "embedding", "Embedder", "text-embedding-3-small",
+        yield self._step(
+            sid,
+            "active",
+            "embedding",
+            "Embedder",
+            "text-embedding-3-small",
             "Generating query embeddings",
-            "Dimension: 1536 · Model: text-embedding-3-small")
+            "Dimension: 1536 · Model: text-embedding-3-small",
+        )
         await asyncio.sleep(0.04)
-        yield self._step(sid, "completed", "embedding", "Embedder", "text-embedding-3-small",
+        yield self._step(
+            sid,
+            "completed",
+            "embedding",
+            "Embedder",
+            "text-embedding-3-small",
             "Query embedded",
             "Vector generated — ready for similarity search",
-            duration=self._ms_since(step_start))
+            duration=self._ms_since(step_start),
+        )
 
         # ── Step 4: Knowledge Retrieval (FAISS + BM25 hybrid) ──
         step_start = time.time()
         sid = f"kb-retrieval-{uid}"
-        yield self._step(sid, "active", "retrieve", "HybridRetriever",
+        yield self._step(
+            sid,
+            "active",
+            "retrieve",
+            "HybridRetriever",
             "FAISS + BM25 (RRF)",
             "Searching knowledge base",
-            f'Method: Reciprocal Rank Fusion · top_k: 5\nQuery: "{rewritten[:80]}…"')
+            f'Method: Reciprocal Rank Fusion · top_k: 5\nQuery: "{rewritten[:80]}…"',
+        )
 
         retrieval_context = await self._retrieve_context(rewritten)
         n_chunks = len(retrieval_context["chunks"])
         scores = retrieval_context.get("scores", [])
         top_score = f"{scores[0]:.3f}" if scores else "—"
 
-        yield self._step(sid, "completed", "retrieve", "HybridRetriever",
+        yield self._step(
+            sid,
+            "completed",
+            "retrieve",
+            "HybridRetriever",
             "FAISS + BM25 (RRF)",
             f"Retrieved {n_chunks} chunks",
-            f"Top score: {top_score} · Method: RRF (Vector + BM25)" if n_chunks else "No documents in knowledge base — using built-in rules",
+            f"Top score: {top_score} · Method: RRF (Vector + BM25)"
+            if n_chunks
+            else "No documents in knowledge base — using built-in rules",
             duration=self._ms_since(step_start),
-            scores=scores[:5])
+            scores=scores[:5],
+        )
 
         # ── Step 5: Context Filtering & Reranking ──
         step_start = time.time()
         sid = f"context-filter-{uid}"
-        yield self._step(sid, "active", "context_filtering", "ContextFilter",
+        yield self._step(
+            sid,
+            "active",
+            "context_filtering",
+            "ContextFilter",
             "text-embedding-3-small",
             "Filtering and reranking contexts",
-            f"Evaluating {n_chunks} chunks for relevance…")
+            f"Evaluating {n_chunks} chunks for relevance…",
+        )
 
         filtered_chunks = retrieval_context["chunks"]
         filtered_scores = scores
@@ -182,54 +229,78 @@ class ProcurementAgent(BaseAgent):
             before = after = 0
 
         await asyncio.sleep(0.02)
-        yield self._step(sid, "completed", "context_filtering", "ContextFilter",
+        yield self._step(
+            sid,
+            "completed",
+            "context_filtering",
+            "ContextFilter",
             "text-embedding-3-small",
             "Context filtered",
             f"Kept {after}/{before} chunks · Threshold: 0.1 · Sorted by relevance",
-            duration=self._ms_since(step_start))
+            duration=self._ms_since(step_start),
+        )
 
-        # ── Step 6: Compliance Validation ──
+        # ── Step 6: Knowledge Synthesis ──
         step_start = time.time()
-        sid = f"compliance-{uid}"
-        yield self._step(sid, "active", "validation", "ComplianceEngine", model_name,
-            "Applying compliance rules",
-            f"Evaluating {len(REQUIRED_DOCUMENTS)} document requirements with severity classification…")
+        sid = f"synthesis-prep-{uid}"
+        yield self._step(
+            sid,
+            "active",
+            "validation",
+            "KnowledgeSynthesizer",
+            model_name,
+            "Preparing knowledge context",
+            f"Assembling {after} chunks for synthesis…",
+        )
 
-        context_text = "\n\n".join(filtered_chunks) if filtered_chunks else "No specific policy documents available. Use the built-in required documents list."
-        rules_text = "\n".join(
-            f"- {d['name']}: Severity={d['severity']}, Valid for {d['validity_months'] or 'N/A'} months"
-            for d in REQUIRED_DOCUMENTS
+        context_text = (
+            "\n\n".join(filtered_chunks)
+            if filtered_chunks
+            else "No documents found in the knowledge base."
         )
 
         user_prompt = f"""User message:
 {query}
 
-Required Documents (validation rules):
-{rules_text}
-
-Compliance Policy Context (from knowledge base):
+Knowledge base context:
 {context_text}
 
-If the user is asking a question, answer it directly using the policy context above. Do not fabricate document statuses.
-If the user is describing a vendor's document submission, validate it against the required documents and provide a compliance report."""
+Answer the user's question using the context above. If the context is not relevant, say so clearly."""
 
         await asyncio.sleep(0.03)
-        yield self._step(sid, "completed", "validation", "ComplianceEngine", model_name,
-            "Compliance rules applied",
-            f"Validated against {len(REQUIRED_DOCUMENTS)} requirements · Context: {len(context_text)} chars",
-            duration=self._ms_since(step_start))
+        yield self._step(
+            sid,
+            "completed",
+            "validation",
+            "KnowledgeSynthesizer",
+            model_name,
+            "Context ready",
+            f"{after} chunks · {len(context_text)} chars",
+            duration=self._ms_since(step_start),
+        )
 
         # ── Step 7: Response Generation (LLM synthesis, streamed) ──
         step_start = time.time()
         sid = f"synthesis-{uid}"
-        yield self._step(sid, "active", "synthesis", "Synthesizer", model_name,
+        yield self._step(
+            sid,
+            "active",
+            "synthesis",
+            "Synthesizer",
+            model_name,
             "Generating response",
             f"Model: {model_name} · Temperature: {temperature} · Streaming…",
-            has_text=True)
+            has_text=True,
+        )
 
         sources = [
-            {"id": f"chunk-{i}", "type": "document", "title": f"Policy chunk {i+1}",
-             "snippet": c[:200], "relevance_score": filtered_scores[i] if i < len(filtered_scores) else 0.0}
+            {
+                "id": f"chunk-{i}",
+                "type": "document",
+                "title": f"Policy chunk {i + 1}",
+                "snippet": c[:200],
+                "relevance_score": filtered_scores[i] if i < len(filtered_scores) else 0.0,
+            }
             for i, c in enumerate(filtered_chunks[:5])
         ]
 
@@ -257,29 +328,50 @@ If the user is describing a vendor's document submission, validate it against th
         except Exception as e:
             logger.error("LLM generation failed", error=str(e))
             yield {"chunk_type": "error", "content": f"LLM generation error: {e}", "is_final": True}
-            yield self._step(sid, "error", "synthesis", "Synthesizer", model_name,
-                "Generation failed", str(e),
-                duration=self._ms_since(step_start), has_text=True)
+            yield self._step(
+                sid,
+                "error",
+                "synthesis",
+                "Synthesizer",
+                model_name,
+                "Generation failed",
+                str(e),
+                duration=self._ms_since(step_start),
+                has_text=True,
+            )
             return
 
         yield {"chunk_type": "text", "content": "", "is_final": True, "sequence": sequence + 1}
 
         llm_duration_ms = self._ms_since(step_start)
-        yield self._step(sid, "completed", "synthesis", "Synthesizer", model_name,
+        yield self._step(
+            sid,
+            "completed",
+            "synthesis",
+            "Synthesizer",
+            model_name,
             "Response generated",
             f"{len(accumulated)} chars · {len(sources)} citations · {sequence} tokens streamed",
-            duration=llm_duration_ms, has_text=True)
+            duration=llm_duration_ms,
+            has_text=True,
+        )
 
         # ── Step 8: Quality Metrics ──
         step_start = time.time()
         sid = f"quality-metrics-{uid}"
-        yield self._step(sid, "active", "evaluation", "ResponseEvaluator",
+        yield self._step(
+            sid,
+            "active",
+            "evaluation",
+            "ResponseEvaluator",
             "text-embedding-3-small",
             "Evaluating response quality",
-            "Computing factuality, relevance, coherence, HHEM & latency…")
+            "Computing factuality, relevance, coherence, HHEM & latency…",
+        )
 
         try:
             from app.services.metrics.evaluator import ResponseEvaluator
+
             evaluator = ResponseEvaluator()
             metrics = await evaluator.evaluate(
                 query=query,
@@ -288,7 +380,13 @@ If the user is describing a vendor's document submission, validate it against th
             )
         except Exception as e:
             logger.warning("Metrics evaluation failed", error=str(e))
-            metrics = {"relevance": 0.0, "factuality": 0.0, "coherence": 0.0, "hhem": 0.0, "adv_hhem": 0.0}
+            metrics = {
+                "relevance": 0.0,
+                "factuality": 0.0,
+                "coherence": 0.0,
+                "hhem": 0.0,
+                "adv_hhem": 0.0,
+            }
 
         eval_duration_ms = self._ms_since(step_start)
         pipeline_total_ms = self._ms_since(pipeline_start)
@@ -299,7 +397,7 @@ If the user is describing a vendor's document submission, validate it against th
 
     # ── Helpers ──
 
-    async def _retrieve_context(self, query: str) -> Dict[str, Any]:
+    async def _retrieve_context(self, query: str) -> dict[str, Any]:
         doc_svc = self._get_document_service()
         if doc_svc is None:
             return {"chunks": [], "scores": []}
@@ -318,10 +416,17 @@ If the user is describing a vendor's document submission, validate it against th
 
     @staticmethod
     def _step(
-        step_id: str, status: str, step_type: str,
-        component: str, model: str, title: str, description: str,
-        duration: int = None, scores: list = None, has_text: bool = False,
-    ) -> Dict[str, Any]:
+        step_id: str,
+        status: str,
+        step_type: str,
+        component: str,
+        model: str,
+        title: str,
+        description: str,
+        duration: int = None,
+        scores: list = None,
+        has_text: bool = False,
+    ) -> dict[str, Any]:
         step = {
             "id": step_id,
             "type": step_type,
@@ -340,7 +445,7 @@ If the user is describing a vendor's document submission, validate it against th
         return {"chunk_type": "decision_step", "decision_step": step}
 
     @staticmethod
-    def _metrics_step(step_id: str, metrics: Dict[str, float], duration: int) -> Dict[str, Any]:
+    def _metrics_step(step_id: str, metrics: dict[str, float], duration: int) -> dict[str, Any]:
         return {
             "chunk_type": "decision_step",
             "decision_step": {

@@ -1,19 +1,21 @@
 """FastAPI application entry point"""
-import os
+
+from contextlib import asynccontextmanager
 from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from contextlib import asynccontextmanager
+
+from app.agents.orchestrator import AgentOrchestrator
+from app.agents.procurement_agent import OmniRAGAgent
+from app.api.v1.endpoints.agents import set_orchestrator
+from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.logging import setup_logging, get_logger
+from app.core.logging import get_logger, setup_logging
 from app.core.middleware import error_handler_middleware
 from app.core.settings_manager import get_settings_manager
-from app.api.v1.router import api_router
-from app.agents.orchestrator import AgentOrchestrator
-from app.agents.procurement_agent import ProcurementAgent
-from app.api.v1.endpoints.agents import set_orchestrator
-from app.db.base import engine, Base
+from app.db.base import Base, engine
 from app.seed_knowledge_base import seed_knowledge_base
 
 setup_logging(settings.log_level)
@@ -30,6 +32,7 @@ async def lifespan(app: FastAPI):
 
     # Create all tables (demo -- no Alembic migration needed)
     import app.models  # noqa: F401  ensure models are registered
+
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created")
 
@@ -39,9 +42,9 @@ async def lifespan(app: FastAPI):
     orchestrator = AgentOrchestrator()
     set_orchestrator(orchestrator)
 
-    procurement_agent = ProcurementAgent()
-    await procurement_agent.initialize()
-    orchestrator.register_agent(procurement_agent)
+    omnirag_agent = OmniRAGAgent()
+    await omnirag_agent.initialize()
+    orchestrator.register_agent(omnirag_agent)
 
     # Seed knowledge base with sample docs (idempotent)
     try:
