@@ -4,27 +4,33 @@
  */
 
 let currentStep = 1;
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 7;
 let chatStreaming = false;
 let selectedProvider = 'openai';
-let savedAgentName = 'Vendor Compliance Agent';
-let savedAgentType = 'Procurement';
+let savedAgentName = '';
+let savedAgentType = 'Default';
+let savedModel = 'gpt-5';
+let savedTemperature = 0.3;
+let savedSystemPrompt = '';
+let currentAgentId = null;
 
 const stepTitles = {
     1: 'Agent Creation',
     2: 'Model Selection',
     3: 'Knowledge Upload',
-    4: 'Rules & Tools',
+    4: 'Tools',
     5: 'Governance',
     6: 'Execution',
+    7: 'Save Agent',
 };
 const headerSubtitles = {
     1: 'Create Your Agent',
     2: 'Connect to a Model',
     3: 'Upload Knowledge Documents',
-    4: 'Configure Validation Rules',
+    4: 'Configure Tools',
     5: 'Review Governance Controls',
     6: 'Run the Agent',
+    7: 'Review & Save Configuration',
 };
 
 async function loadStepModules() {
@@ -41,12 +47,13 @@ async function renderStep(step) {
         4: mod.step4_rulesTools,
         5: mod.step5_governance,
         6: mod.step6_execution,
+        7: mod.step7_save,
     };
     const content = document.getElementById('step-content');
     content.innerHTML = fns[step]();
 
     if (step === 2) loadRAGSettings();
-    if (step === 3) { initFileUpload(); loadPreloadedDocs(); }
+    if (step === 3) { initFileUpload(); loadKBStats(); }
     if (step === 5) loadAuditData();
     if (step === 6) initChat();
 }
@@ -65,8 +72,14 @@ function updateStepIndicators(step) {
 function persistAgentConfig() {
     const nameEl = document.getElementById('agent-name');
     const typeEl = document.getElementById('agent-type');
+    const modelEl = document.getElementById('model-select');
+    const tempEl = document.getElementById('temp-slider');
+    const promptEl = document.querySelector('.code-editor');
     if (nameEl) savedAgentName = nameEl.value;
     if (typeEl) savedAgentType = typeEl.value;
+    if (modelEl) savedModel = modelEl.value;
+    if (tempEl) savedTemperature = parseInt(tempEl.value) / 100;
+    if (promptEl) savedSystemPrompt = promptEl.value;
 }
 
 function getAgentName() {
@@ -81,10 +94,14 @@ function updateHeader(step) {
     if (title) title.textContent = stepTitles[step];
     if (sub) sub.textContent = step === 6 ? `Run ${getAgentName()}` : headerSubtitles[step];
     if (btn) {
-        if (step >= TOTAL_STEPS) {
-            btn.innerHTML = '<span class="material-icons-outlined text-base">replay</span> Restart';
+        if (step === 7) {
+            btn.innerHTML = '<span class="material-icons-outlined text-base">save</span> Save Agent';
+            btn.onclick = saveCurrentAgent;
+            btn.style.display = '';
         } else {
             btn.innerHTML = 'Next Step <span class="material-icons-outlined text-lg">arrow_forward</span>';
+            btn.onclick = nextStep;
+            btn.style.display = '';
         }
     }
 }
@@ -127,7 +144,7 @@ function nextStep() {
 let currentPage = 'agents';
 
 const pageConfig = {
-    agents:    { title: 'Agents',         breadcrumb: 'Agent Builder' },
+    agents:    { title: 'My Agents',       breadcrumb: 'Agents' },
     knowledge: { title: 'Knowledge Base',  breadcrumb: 'Knowledge Base' },
     access:    { title: 'Access & Roles',  breadcrumb: 'Access & Roles' },
     audit:     { title: 'Audit Logs',      breadcrumb: 'Audit Logs' },
@@ -150,11 +167,6 @@ async function goToPage(page) {
         }
     });
 
-    if (page === 'agents') {
-        goToStep(currentStep);
-        return;
-    }
-
     // Render page content
     const mod = await loadStepModules();
     const content = document.getElementById('step-content');
@@ -167,7 +179,10 @@ async function goToPage(page) {
     if (sub) sub.textContent = cfg.title;
     if (btn) btn.style.display = 'none';
 
-    if (page === 'knowledge') {
+    if (page === 'agents') {
+        content.innerHTML = mod.page_agents();
+        loadAgentsPage();
+    } else if (page === 'knowledge') {
         content.innerHTML = mod.page_knowledgeBase();
         initFileUpload();
         loadKBStats();
@@ -196,11 +211,14 @@ async function loadKBStats() {
         const docEl = document.getElementById('kb-doc-count');
         const chunkEl = document.getElementById('kb-chunk-count');
         const statsEl = document.getElementById('kb-stats');
+        const dimEl = document.getElementById('kb-vector-dim');
         if (docEl) docEl.textContent = docList.total || 0;
         if (chunkEl) chunkEl.textContent = stats.total_chunks || 0;
         if (statsEl) statsEl.querySelector('p').textContent = stats.total_chunks || 0;
+        if (dimEl) dimEl.textContent = stats.vector_dim || '—';
 
         renderDocList(document.getElementById('kb-documents'), docList.documents || []);
+        renderDocList(document.getElementById('preloaded-docs'), docList.documents || []);
     } catch (e) { /* non-blocking */ }
 }
 
@@ -227,6 +245,9 @@ function renderDocList(container, docs) {
             <div class="flex items-center gap-2 shrink-0">
                 <span class="px-2 py-0.5 text-[10px] font-medium bg-emerald-100 text-emerald-700 rounded-full">Indexed</span>
                 <span class="material-icons-outlined text-slate-300 text-sm group-hover:text-brand-400">visibility</span>
+                <button onclick="event.stopPropagation(); deleteIndexedDoc('${doc.document_id}', this)" class="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
+                    <span class="material-icons-outlined text-slate-400 hover:text-red-500 text-sm">delete</span>
+                </button>
             </div>
         </div>`;
     }).join('');
@@ -305,9 +326,16 @@ function selectProvider(card) {
     const modelSel = document.getElementById('model-select');
     if (modelSel) {
         const models = {
-            openai: [['gpt-4o', 'GPT-4o'], ['gpt-4o-mini', 'GPT-4o-mini']],
-            anthropic: [['claude-3.5-sonnet', 'Claude 3.5 Sonnet'], ['claude-3-haiku', 'Claude 3 Haiku']],
-            selfhosted: [['llama-3', 'Llama 3 (8B)'], ['mistral-7b', 'Mistral 7B']],
+            openai: [['gpt-5', 'GPT-5'], ['gpt-4.5', 'GPT-4.5'], ['gpt-4o-mini', 'GPT-4o-mini']],
+            anthropic: [['claude-opus-4-6', 'Claude Opus 4.6'], ['claude-sonnet-4-6', 'Claude Sonnet 4.6'], ['claude-haiku-4-5-20251001', 'Claude Haiku 4.5']],
+            selfhosted: [
+                ['mistral-3-14b', 'Mistral 3 (14B)'],
+                ['gemma-4', 'Gemma 4 (31B)'],
+                ['llama-3.1-8b', 'Llama 3.1 (8B)'],
+                ['gpt-oss-20b', 'GPT-OSS (20B)'],
+                ['phi-4-14b', 'Phi-4 (14B)'],
+                ['qwen-3.5-9b', 'Qwen 3.5 (9B)'],
+            ],
         };
         const opts = models[selectedProvider] || models.openai;
         modelSel.innerHTML = opts.map(([v, l], i) => `<option value="${v}"${i === 0 ? ' selected' : ''}>${l}</option>`).join('');
@@ -540,6 +568,139 @@ async function openDocPreview(docId, title) {
     }
 }
 
+function confirmResetKB() {
+    const modal = document.getElementById('reset-kb-modal');
+    if (modal) { modal.style.display = 'flex'; modal.classList.remove('hidden'); }
+}
+
+function closeResetKBModal() {
+    const modal = document.getElementById('reset-kb-modal');
+    if (modal) { modal.style.display = 'none'; modal.classList.add('hidden'); }
+}
+
+async function doResetKB() {
+    const btn = document.getElementById('reset-kb-confirm-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-icons-outlined text-sm animate-spin">sync</span> Resetting…'; }
+    try {
+        const api = await import('./api.js');
+        await api.clearAllDocuments();
+        closeResetKBModal();
+        showToast('Knowledge base reset');
+        loadKBStats();
+    } catch (e) {
+        showToast(`Reset failed: ${e.message}`);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons-outlined text-sm">delete_forever</span> Reset Knowledge Base'; }
+    }
+}
+
+// -- Agent Library (localStorage) --
+
+function saveCurrentAgent() {
+    persistAgentConfig();
+    const agent = {
+        id: 'agent_' + Date.now(),
+        name: savedAgentName || 'My Agent',
+        type: savedAgentType || 'Default',
+        model: savedModel || 'gpt-5',
+        provider: selectedProvider || 'openai',
+        temperature: savedTemperature ?? 0.3,
+        systemPrompt: savedSystemPrompt || '',
+        createdAt: new Date().toISOString(),
+    };
+    const agents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
+    agents.unshift(agent);
+    localStorage.setItem('omnirag_agents', JSON.stringify(agents));
+
+    const actionsEl = document.getElementById('step7-actions');
+    if (actionsEl) {
+        actionsEl.innerHTML = `
+            <div class="flex flex-col items-center py-5 text-center">
+                <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center mb-2">
+                    <span class="material-icons-outlined text-emerald-600 text-xl">check_circle</span>
+                </div>
+                <p class="text-[13px] font-semibold text-slate-800 mb-0.5">Agent saved!</p>
+                <p class="text-[11px] text-slate-500 mb-3">${escapeHtml(agent.name)} has been added to your library.</p>
+                <div class="flex items-center gap-2">
+                    <button onclick="goToPage('agents')" class="px-3 py-1.5 text-[12px] font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors">
+                        View Agents
+                    </button>
+                    <button onclick="goToStep(1)" class="px-3 py-1.5 text-[12px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors">
+                        New Agent
+                    </button>
+                </div>
+            </div>`;
+    }
+}
+
+function loadAgentsPage() {
+    const container = document.getElementById('agents-list');
+    if (!container) return;
+    const agents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
+    if (!agents.length) {
+        container.innerHTML = `
+            <div class="flex flex-col items-center py-10 text-center">
+                <span class="material-icons-outlined text-slate-300 text-4xl mb-2">smart_toy</span>
+                <p class="text-[13px] font-medium text-slate-500">No agents saved yet</p>
+                <p class="text-[11px] text-slate-400 mt-0.5 mb-3">Use the Agent Builder to create and save your first agent</p>
+                <button onclick="goToStep(1)" class="px-3 py-1.5 text-[12px] font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-md transition-colors">
+                    Create Agent
+                </button>
+            </div>`;
+        return;
+    }
+    const providerColors = { openai: 'emerald', anthropic: 'amber', 'self-hosted': 'violet' };
+    container.innerHTML = agents.map(agent => {
+        const date = new Date(agent.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const pc = providerColors[agent.provider] || 'slate';
+        return `
+        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 hover:border-brand-200 hover:bg-brand-50 transition-colors group">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-8 h-8 rounded-md bg-brand-100 flex items-center justify-center shrink-0">
+                    <span class="material-icons-outlined text-brand-600 text-base">smart_toy</span>
+                </div>
+                <div class="min-w-0">
+                    <p class="text-[13px] font-semibold text-slate-800 truncate">${escapeHtml(agent.name)}</p>
+                    <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        <span class="px-1.5 py-0.5 text-[9px] font-medium bg-slate-200 text-slate-600 rounded">${escapeHtml(agent.type)}</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-medium bg-${pc}-100 text-${pc}-700 rounded">${escapeHtml(agent.model)}</span>
+                        <span class="text-[10px] text-slate-400">${date}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button onclick="chatWithAgent('${agent.id}')" class="px-2.5 py-1.5 text-[11px] font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors flex items-center gap-1">
+                    <span class="material-icons-outlined text-sm">chat</span>Chat
+                </button>
+                <button onclick="deleteAgent('${agent.id}')" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
+                    <span class="material-icons-outlined text-slate-400 hover:text-red-500 text-sm">delete</span>
+                </button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function chatWithAgent(agentId) {
+    const agents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
+    const agent = agents.find(a => a.id === agentId);
+    if (!agent) return;
+    savedAgentName = agent.name;
+    savedAgentType = agent.type;
+    savedModel = agent.model;
+    selectedProvider = agent.provider;
+    savedTemperature = agent.temperature;
+    savedSystemPrompt = agent.systemPrompt;
+    currentAgentId = agentId;
+    goToStep(6);
+}
+
+function deleteAgent(agentId) {
+    const agents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
+    localStorage.setItem('omnirag_agents', JSON.stringify(agents.filter(a => a.id !== agentId)));
+    loadAgentsPage();
+    showToast('Agent deleted');
+}
+
 function closeDocPreview() {
     const modal = document.getElementById('doc-preview-modal');
     if (modal) modal.classList.add('hidden');
@@ -551,6 +712,32 @@ async function loadPreloadedDocs() {
         const docList = await api.listDocuments();
         renderDocList(document.getElementById('preloaded-docs'), docList.documents || []);
     } catch (e) { /* non-blocking */ }
+}
+
+async function deleteIndexedDoc(documentId, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-icons-outlined text-slate-300 text-sm animate-spin">sync</span>';
+    const row = btn.closest('.group');
+    try {
+        const api = await import('./api.js');
+        await api.deleteDocument(documentId);
+        showToast('Document deleted');
+        if (row) {
+            row.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+            row.style.opacity = '0';
+            row.style.transform = 'translateX(8px)';
+            setTimeout(() => {
+                row.remove();
+                loadKBStats();
+            }, 210);
+        } else {
+            loadKBStats();
+        }
+    } catch (e) {
+        showToast(`Delete failed: ${e.message}`);
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-icons-outlined text-slate-400 hover:text-red-500 text-sm">delete</span>';
+    }
 }
 
 // -- File Upload (Step 3) --
@@ -595,18 +782,11 @@ async function handleFiles(files) {
         try {
             const api = await import('./api.js');
             const result = await api.uploadDocument(file);
-            const badge = row.querySelector('.upload-status');
-            badge.className = 'upload-status px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700 rounded-full';
-            badge.textContent = 'Indexed';
-
-            if (result && result.document_id) {
-                const previewBtn = document.createElement('button');
-                previewBtn.className = 'p-1 rounded hover:bg-brand-100 transition';
-                previewBtn.title = 'Preview';
-                previewBtn.innerHTML = '<span class="material-icons-outlined text-brand-600 text-sm">visibility</span>';
-                previewBtn.onclick = () => openDocPreview(result.document_id, file.name);
-                badge.parentElement.appendChild(previewBtn);
-            }
+            loadKBStats();
+            row.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            row.style.opacity = '0';
+            row.style.transform = 'translateY(-4px)';
+            setTimeout(() => row.remove(), 310);
         } catch (e) {
             const badge = row.querySelector('.upload-status');
             badge.className = 'upload-status px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700 rounded-full';
@@ -708,10 +888,10 @@ async function sendChat() {
     api.streamChat(
         query,
         {
-            model: document.getElementById('model-select')?.value || 'gpt-4o',
+            model: document.getElementById('model-select')?.value || savedModel || 'gpt-5',
             provider: selectedProvider || 'openai',
-            temperature: parseInt(document.getElementById('temp-slider')?.value || '30') / 100,
-            system_prompt: document.querySelector('.code-editor')?.value || null,
+            temperature: parseInt(document.getElementById('temp-slider')?.value ?? String(Math.round(savedTemperature * 100))) / 100,
+            system_prompt: document.querySelector('.code-editor')?.value || savedSystemPrompt || null,
         },
         // onChunk
         (chunk) => {
@@ -1015,7 +1195,7 @@ function escapeHtml(text) {
 
 // -- Login --
 
-let currentUser = { email: 'thibaud.ishacian@presight.ai', name: 'Thibaud Ishacian', role: 'Admin' };
+let currentUser = { email: 'thibaud.ishacian@datategy.net', name: 'Thibaud Ishacian', role: 'Admin' };
 
 function selectAccount(btn) {
     document.querySelectorAll('.account-btn').forEach(b => {
@@ -1030,7 +1210,7 @@ function selectAccount(btn) {
 function handleLogin() {
     const pwd = document.getElementById('login-password');
     const err = document.getElementById('login-error');
-    if (!pwd || pwd.value !== 'Presight2026!') {
+    if (!pwd || pwd.value !== 'Datategy2026!') {
         if (err) { err.classList.remove('hidden'); }
         if (pwd) { pwd.classList.add('border-red-300'); pwd.focus(); }
         return;

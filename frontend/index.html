@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Orchestration Platform</title>
+    <title>OmniRAG</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
@@ -90,11 +90,11 @@
     <div id="login-screen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:#181e2a;">
         <div class="w-full max-w-sm mx-4">
             <div class="text-center mb-6">
-                <div class="w-11 h-11 rounded-lg bg-brand-500 flex items-center justify-center mx-auto mb-3">
-                    <span class="material-icons-outlined text-white text-2xl">hub</span>
+                <div class="flex items-center justify-center mx-auto mb-3">
+                    <img src="image/logo.png" alt="OmniRAG" class="h-12 w-auto">
                 </div>
-                <h1 class="text-lg font-semibold text-white tracking-tight">AI Orchestration Platform</h1>
-                <p class="text-xs text-slate-500 mt-0.5">Enterprise Agent Management</p>
+                <h1 class="text-lg font-semibold text-white tracking-tight">OmniRAG</h1>
+                <p class="text-xs text-slate-500 mt-0.5">Intelligent Agent Platform</p>
             </div>
 
             <div class="bg-white rounded-lg border border-slate-200 p-6">
@@ -102,36 +102,44 @@
                 <p class="text-[11px] text-slate-400 mb-4">Select an account to continue</p>
 
                 <div class="space-y-1.5" id="account-list">
-                    <button onclick="selectAccount(this)" data-email="thibaud.ishacian@presight.ai" data-name="Thibaud Ishacian" data-role=""
+                    <button onclick="selectAccount(this)" data-email="thibaud.ishacian@datategy.net" data-name="Thibaud Ishacian" data-role=""
                         class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-brand-500 bg-brand-50 text-left transition-all">
                         <div class="w-8 h-8 rounded-md bg-brand-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">TI</div>
                         <div class="min-w-0 flex-1">
                             <p class="text-[13px] font-medium text-slate-900 truncate">Thibaud Ishacian</p>
-                            <p class="text-[10px] text-slate-500 truncate">thibaud.ishacian@presight.ai</p>
+                            <p class="text-[10px] text-slate-500 truncate">thibaud.ishacian@datategy.net</p>
                         </div>
                     </button>
-                    <button onclick="selectAccount(this)" data-email="eric.chau@presight.ai" data-name="Eric Chau" data-role=""
+                    <button onclick="selectAccount(this)" data-email="eric.chau@datategy.net" data-name="Eric Chau" data-role=""
                         class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
                         <div class="w-8 h-8 rounded-md bg-emerald-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">EC</div>
                         <div class="min-w-0 flex-1">
                             <p class="text-[13px] font-medium text-slate-900 truncate">Eric Chau</p>
-                            <p class="text-[10px] text-slate-500 truncate">eric.chau@presight.ai</p>
+                            <p class="text-[10px] text-slate-500 truncate">eric.chau@datategy.net</p>
                         </div>
                     </button>
-                    <button onclick="selectAccount(this)" data-email="mehdi.chouiten@presight.ai" data-name="Mehdi Chouiten" data-role=""
+                    <button onclick="selectAccount(this)" data-email="mehdi.chouiten@datategy.net" data-name="Mehdi Chouiten" data-role=""
                         class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
                         <div class="w-8 h-8 rounded-md bg-violet-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">MC</div>
                         <div class="min-w-0 flex-1">
                             <p class="text-[13px] font-medium text-slate-900 truncate">Mehdi Chouiten</p>
-                            <p class="text-[10px] text-slate-500 truncate">mehdi.chouiten@presight.ai</p>
+                            <p class="text-[10px] text-slate-500 truncate">mehdi.chouiten@datategy.net</p>
                         </div>
                     </button>
-                    <button onclick="selectAccount(this)" data-email="hermann.kuetat@presight.ai" data-name="Hermann Kuetat" data-role=""
+                    <button onclick="selectAccount(this)" data-email="hermann.kuetat@datategy.net" data-name="Hermann Kuetat" data-role=""
                         class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
                         <div class="w-8 h-8 rounded-md bg-amber-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">HK</div>
                         <div class="min-w-0 flex-1">
                             <p class="text-[13px] font-medium text-slate-900 truncate">Hermann Kuetat</p>
-                            <p class="text-[10px] text-slate-500 truncate">hermann.kuetat@presight.ai</p>
+                            <p class="text-[10px] text-slate-500 truncate">hermann.kuetat@datategy.net</p>
+                        </div>
+                    </button>
+                    <button onclick="selectAccount(this)" data-email="enzo.damion@datategy.net" data-name="Enzo Damion" data-role=""
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
+                        <div class="w-8 h-8 rounded-md bg-indigo-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">ED</div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-[13px] font-medium text-slate-900 truncate">Enzo Damion</p>
+                            <p class="text-[10px] text-slate-500 truncate">enzo.damion@datategy.net</p>
                         </div>
                     </button>
                 </div>
@@ -154,7 +162,36 @@
                 </div>
             </div>
 
-            <p class="text-center text-[10px] text-slate-600 mt-4">papAI &middot; Internal Platform</p>
+            <p class="text-center text-[10px] text-slate-600 mt-4">OmniRAG &middot; Powered by papAI</p>
+        </div>
+    </div>
+
+    <!-- Reset KB Confirmation Modal -->
+    <div id="reset-kb-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;">
+        <div onclick="closeResetKBModal()" style="position:absolute;inset:0;background:rgba(0,0,0,0.45);"></div>
+        <div style="position:relative;width:360px;background:#fff;border-radius:10px;border:1px solid #e2e8f0;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.15);">
+            <div class="px-5 pt-5 pb-4">
+                <div class="flex items-start gap-3 mb-3">
+                    <div class="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                        <span class="material-icons-outlined text-red-600 text-lg">delete_forever</span>
+                    </div>
+                    <div>
+                        <h3 class="text-[14px] font-semibold text-slate-900">Reset Knowledge Base</h3>
+                        <p class="text-[12px] text-slate-500 mt-0.5">This will permanently delete all indexed documents and chunks. This action cannot be undone.</p>
+                    </div>
+                </div>
+                <div class="bg-red-50 border border-red-200 rounded-md px-3 py-2 flex items-center gap-2">
+                    <span class="material-icons-outlined text-red-500 text-sm">warning</span>
+                    <p class="text-[11px] text-red-700 font-medium">All vector embeddings and metadata will be erased.</p>
+                </div>
+            </div>
+            <div class="flex items-center justify-end gap-2 px-5 py-3 bg-slate-50 border-t border-slate-200">
+                <button onclick="closeResetKBModal()" class="px-3 py-1.5 text-[12px] font-medium text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors">Cancel</button>
+                <button id="reset-kb-confirm-btn" onclick="doResetKB()" class="px-3 py-1.5 text-[12px] font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors flex items-center gap-1.5">
+                    <span class="material-icons-outlined text-sm">delete_forever</span>
+                    Reset Knowledge Base
+                </button>
+            </div>
         </div>
     </div>
 
@@ -179,12 +216,10 @@
     <aside id="app-sidebar" class="w-[240px] flex flex-col bg-sidebar-bg text-slate-300 flex-shrink-0 h-full border-r border-sidebar-border opacity-0 transition-opacity duration-500">
         <div class="h-12 flex items-center px-4 border-b border-sidebar-border">
             <div class="flex items-center gap-2.5">
-                <div class="w-7 h-7 rounded-md bg-brand-500 flex items-center justify-center">
-                    <span class="material-icons-outlined text-white text-base">hub</span>
-                </div>
+                <img src="image/logo.png" alt="OmniRAG" class="h-7 w-auto">
                 <div class="flex flex-col">
-                    <span class="font-semibold text-white text-[13px] leading-tight tracking-tight">AI Platform</span>
-                    <span class="text-[9px] text-slate-500 font-mono">v3.2</span>
+                    <span class="font-semibold text-white text-[13px] leading-tight tracking-tight">OmniRAG</span>
+                    <span class="text-[9px] text-slate-500 font-mono">v1.0</span>
                 </div>
             </div>
         </div>
@@ -207,7 +242,7 @@
                 </button>
                 <button onclick="goToStep(4)" data-step="4" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
                     <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">4</span>
-                    <span>Rules & Tools</span>
+                    <span>Tools</span>
                 </button>
                 <button onclick="goToStep(5)" data-step="5" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
                     <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">5</span>
@@ -217,14 +252,18 @@
                     <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">6</span>
                     <span>Execution</span>
                 </button>
+                <button onclick="goToStep(7)" data-step="7" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                    <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">7</span>
+                    <span>Save Agent</span>
+                </button>
             </div>
         </div>
 
         <!-- Sidebar Nav -->
         <nav class="flex-1 overflow-y-auto sidebar-scroll px-3 space-y-0.5 border-t border-sidebar-border pt-3">
-            <div class="pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest text-slate-600">Build</span></div>
-            <a onclick="goToPage('agents')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-white bg-sidebar-active border-l-2 border-brand-400 rounded-md cursor-pointer" data-page="agents">
-                <span class="material-icons-outlined mr-2.5 text-lg text-brand-400">smart_toy</span>Agents
+            <div class="pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest text-slate-600">Library</span></div>
+            <a onclick="goToPage('agents')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-md cursor-pointer" data-page="agents">
+                <span class="material-icons-outlined mr-2.5 text-lg">smart_toy</span>Agents
             </a>
             <div class="pt-3 pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest text-slate-600">Data</span></div>
             <a onclick="goToPage('knowledge')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-md cursor-pointer" data-page="knowledge">
@@ -240,7 +279,7 @@
         </nav>
 
         <div class="px-3 py-2 border-t border-sidebar-border text-[9px] text-slate-600 text-center">
-            Internal workspace &middot; v3.2
+            OmniRAG &middot; v1.0
         </div>
     </aside>
 
@@ -301,7 +340,7 @@
 
         <!-- Environment banner -->
         <div class="bg-white border-t border-slate-200 px-5 py-1 text-center">
-            <p class="text-[10px] text-slate-400">Preview environment &middot; Procurement workspace</p>
+            <p class="text-[10px] text-slate-400">Preview environment &middot; OmniRAG</p>
         </div>
     </div>
 

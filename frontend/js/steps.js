@@ -20,26 +20,24 @@ export function step1_agentCreation() {
                 <div class="grid grid-cols-5 gap-2.5">
                     <div class="col-span-3">
                         <label class="text-[11px] font-medium text-slate-500 mb-1 block">Agent Name</label>
-                        <input id="agent-name" type="text" value="Vendor Compliance Agent" class="w-full px-3 py-1.5 border border-slate-200 rounded-md text-sm focus:ring-1 focus:ring-brand-500 focus:border-brand-500">
+                        <input id="agent-name" type="text" value="" placeholder="My Agent" class="w-full px-3 py-1.5 border border-slate-200 rounded-md text-sm focus:ring-1 focus:ring-brand-500 focus:border-brand-500">
                     </div>
                     <div class="col-span-2">
                         <label class="text-[11px] font-medium text-slate-500 mb-1 block">Type</label>
                         <select id="agent-type" class="w-full px-3 py-1.5 border border-slate-200 rounded-md text-sm bg-white focus:ring-1 focus:ring-brand-500">
-                            <option selected>Procurement</option>
+                            <option selected>Default</option>
+                            <option>Finance</option>
+                            <option>Legal</option>
+                            <option>HR</option>
+                            <option>Operations</option>
                             <option>Customer Support</option>
-                            <option>Data Analysis</option>
                             <option>Custom</option>
                         </select>
                     </div>
                 </div>
                 <div>
                     <label class="text-[11px] font-medium text-slate-500 mb-1 block">System Prompt</label>
-                    <textarea class="code-editor w-full px-3 py-2 border border-slate-200 rounded-md text-[12px] h-20 focus:ring-1 focus:ring-brand-500">You are a Vendor Compliance Validation Agent operating within an enterprise procurement platform.
-
-Your role is to validate vendor document submissions against compliance checklists.
-You check for: trade licenses, insurance certificates, financial statements, regulatory certifications, and NDAs.
-
-Be precise, professional, and always reference the compliance policy when available.</textarea>
+                    <textarea class="code-editor w-full px-3 py-2 border border-slate-200 rounded-md text-[12px] h-20 focus:ring-1 focus:ring-brand-500" placeholder="Describe your agent's role, behavior, and any specific instructions…"></textarea>
                 </div>
             </div>
         </div>
@@ -101,21 +99,21 @@ export function step2_modelSelection() {
                         <span class="material-icons-outlined text-white text-[9px]">check</span>
                     </span>
                     <p class="text-[13px] font-semibold text-slate-900">OpenAI</p>
-                    <p class="text-[10px] text-slate-500 mt-0.5">GPT-4o, GPT-4o-mini</p>
+                    <p class="text-[10px] text-slate-500 mt-0.5">GPT-5, GPT-4.5, GPT-4o-mini</p>
                 </div>
                 <div class="provider-card p-2.5 border border-slate-200 rounded-md cursor-pointer hover:border-slate-300 transition-all relative" data-provider="anthropic" onclick="selectProvider(this)">
                     <span class="provider-check hidden absolute top-1.5 right-1.5 w-3.5 h-3.5 rounded-full bg-brand-500 flex items-center justify-center">
                         <span class="material-icons-outlined text-white text-[9px]">check</span>
                     </span>
                     <p class="text-[13px] font-semibold text-slate-900">Anthropic</p>
-                    <p class="text-[10px] text-slate-500 mt-0.5">Claude 3.5 Sonnet</p>
+                    <p class="text-[10px] text-slate-500 mt-0.5">Opus 4.6, Sonnet 4.6, Haiku 4.5</p>
                 </div>
                 <div class="provider-card p-2.5 border border-slate-200 rounded-md cursor-pointer hover:border-slate-300 transition-all relative" data-provider="selfhosted" onclick="selectProvider(this)">
                     <span class="provider-check hidden absolute top-1.5 right-1.5 w-3.5 h-3.5 rounded-full bg-brand-500 flex items-center justify-center">
                         <span class="material-icons-outlined text-white text-[9px]">check</span>
                     </span>
                     <p class="text-[13px] font-semibold text-slate-900">Self-hosted</p>
-                    <p class="text-[10px] text-slate-500 mt-0.5">Ollama, vLLM</p>
+                    <p class="text-[10px] text-slate-500 mt-0.5">Mistral 3, Gemma 4, Llama 3.1, Phi-4…</p>
                 </div>
             </div>
 
@@ -123,7 +121,8 @@ export function step2_modelSelection() {
                 <div>
                     <label class="text-[11px] font-medium text-slate-500 mb-1 block">Model</label>
                     <select id="model-select" class="w-full px-3 py-1.5 border border-slate-200 rounded-md text-sm bg-white focus:ring-1 focus:ring-brand-500">
-                        <option value="gpt-4o" selected>GPT-4o</option>
+                        <option value="gpt-5" selected>GPT-5</option>
+                        <option value="gpt-4.5">GPT-4.5</option>
                         <option value="gpt-4o-mini">GPT-4o-mini</option>
                     </select>
                 </div>
@@ -201,8 +200,13 @@ export function step3_knowledgeUpload() {
 
             <div id="uploaded-files" class="mt-3 space-y-1.5"></div>
 
+            <button onclick="confirmResetKB()" class="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-md transition-colors">
+                <span class="material-icons-outlined text-sm">delete_forever</span>
+                Reset Knowledge Base
+            </button>
+
             <div class="mt-3 pt-3 border-t border-slate-100">
-                <h4 class="text-[12px] font-semibold text-slate-600 mb-2">Pre-loaded Knowledge Base</h4>
+                <h4 class="text-[12px] font-semibold text-slate-600 mb-2">Knowledge Base</h4>
                 <div class="space-y-1.5" id="preloaded-docs">
                     <p class="text-[11px] text-slate-400">Loading…</p>
                 </div>
@@ -227,121 +231,68 @@ export function step3_knowledgeUpload() {
 }
 
 export function step4_rulesTools() {
+    const tools = [
+        { icon: 'travel_explore', color: 'blue',    name: 'Web Search',        desc: 'Search the internet for real-time information and news' },
+        { icon: 'code',           color: 'violet',  name: 'Code Interpreter',  desc: 'Execute Python scripts and analyze data programmatically' },
+        { icon: 'table_chart',    color: 'emerald', name: 'SQL Query',         desc: 'Query structured databases and export results' },
+        { icon: 'api',            color: 'orange',  name: 'API Connector',     desc: 'Call external REST APIs with custom authentication' },
+        { icon: 'mail',           color: 'rose',    name: 'Email Sender',      desc: 'Draft and send emails from agent workflows' },
+        { icon: 'picture_as_pdf', color: 'red',     name: 'File Generator',    desc: 'Export agent output as PDF, Excel, or CSV' },
+        { icon: 'calendar_today', color: 'amber',   name: 'Calendar Access',   desc: 'Read and write calendar events and schedules' },
+        { icon: 'memory',         color: 'indigo',  name: 'Persistent Memory', desc: 'Store and retrieve context across sessions' },
+    ];
+    const colorMap = {
+        blue:   { bg: 'bg-blue-100',   icon: 'text-blue-600'   },
+        violet: { bg: 'bg-violet-100', icon: 'text-violet-600' },
+        emerald:{ bg: 'bg-emerald-100',icon: 'text-emerald-600'},
+        orange: { bg: 'bg-orange-100', icon: 'text-orange-600' },
+        rose:   { bg: 'bg-rose-100',   icon: 'text-rose-600'   },
+        red:    { bg: 'bg-red-100',    icon: 'text-red-600'    },
+        amber:  { bg: 'bg-amber-100',  icon: 'text-amber-600'  },
+        indigo: { bg: 'bg-indigo-100', icon: 'text-indigo-600' },
+    };
+    const toolCards = tools.map(t => {
+        const c = colorMap[t.color];
+        return `
+        <div class="relative bg-white rounded-lg border border-slate-200 p-3.5 flex items-start gap-3 opacity-60 cursor-not-allowed select-none">
+            <div class="w-8 h-8 rounded-md ${c.bg} flex items-center justify-center shrink-0">
+                <span class="material-icons-outlined ${c.icon} text-lg">${t.icon}</span>
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-0.5">
+                    <p class="text-[13px] font-semibold text-slate-700">${t.name}</p>
+                    <span class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 rounded">Coming soon</span>
+                </div>
+                <p class="text-[11px] text-slate-400 leading-snug">${t.desc}</p>
+            </div>
+            <div class="shrink-0 w-8 h-5 rounded-full bg-slate-200 relative" title="Not yet available">
+                <div class="w-4 h-4 rounded-full bg-white shadow-sm absolute top-0.5 left-0.5"></div>
+            </div>
+        </div>`;
+    }).join('');
+
     return `
-    <div class="max-w-3xl mx-auto space-y-3">
-        <div class="bg-white rounded-lg border border-slate-200 p-4">
-            <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-2.5">
-                    <div class="w-7 h-7 rounded-md bg-amber-100 flex items-center justify-center">
-                        <span class="material-icons-outlined text-amber-600 text-lg">rule</span>
-                    </div>
-                    <div>
-                        <h3 class="text-sm font-semibold text-slate-900">Validation Rules</h3>
-                        <p class="text-[11px] text-slate-500">Extracted from your knowledge base</p>
-                    </div>
-                </div>
-                <button id="edit-rules-btn" onclick="toggleEditRules()" class="px-2.5 py-1 text-[11px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors flex items-center gap-1">
-                    <span class="material-icons-outlined text-sm">edit</span>
-                    Edit rules
-                </button>
+    <div class="max-w-3xl mx-auto space-y-4">
+        <div class="flex items-center gap-2.5">
+            <div class="flex-1">
+                <h2 class="text-sm font-semibold text-slate-900">Tools</h2>
+                <p class="text-[11px] text-slate-500 mt-0.5">Extend your agent with external capabilities. Select the tools it can use during execution.</p>
             </div>
-
-            <div class="bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2 mb-3 flex items-center gap-2">
-                <span class="material-icons-outlined text-emerald-600 text-base">auto_awesome</span>
-                <p class="text-[11px] text-emerald-800"><span class="font-semibold">5 rules auto-extracted</span> from 3 knowledge base documents &middot; Severity levels assigned by document analysis</p>
-            </div>
-
-            <div class="space-y-1.5" id="rules-list">
-                <div class="rule-row flex items-center justify-between p-2.5 border border-slate-200 rounded-md cursor-pointer hover:bg-slate-50 transition-colors" data-doc-id="77cb9af2-6006-51ed-bd01-adc548a7e2be" data-doc-title="vendor_qualification_policy.md" onclick="openRuleSource(this)">
-                    <div class="flex items-center gap-2.5">
-                        <span class="w-1 h-6 rounded-sm bg-red-500"></span>
-                        <div>
-                            <p class="text-[13px] font-medium text-slate-800 rule-name">Trade License</p>
-                            <p class="text-[10px] text-slate-500 rule-desc">Must be valid, renewed within 12 months</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="rule-actions hidden"></span>
-                        <span class="text-[9px] text-slate-400 italic rule-source">vendor_qualification_policy.md</span>
-                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-red-100 text-red-700 rounded rule-severity">CRITICAL</span>
-                    </div>
-                </div>
-                <div class="rule-row flex items-center justify-between p-2.5 border border-slate-200 rounded-md cursor-pointer hover:bg-slate-50 transition-colors" data-doc-id="77cb9af2-6006-51ed-bd01-adc548a7e2be" data-doc-title="vendor_qualification_policy.md" onclick="openRuleSource(this)">
-                    <div class="flex items-center gap-2.5">
-                        <span class="w-1 h-6 rounded-sm bg-red-500"></span>
-                        <div>
-                            <p class="text-[13px] font-medium text-slate-800 rule-name">Insurance Certificate</p>
-                            <p class="text-[10px] text-slate-500 rule-desc">Liability &amp; professional indemnity, min $2M coverage</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="rule-actions hidden"></span>
-                        <span class="text-[9px] text-slate-400 italic rule-source">vendor_qualification_policy.md</span>
-                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-red-100 text-red-700 rounded rule-severity">CRITICAL</span>
-                    </div>
-                </div>
-                <div class="rule-row flex items-center justify-between p-2.5 border border-slate-200 rounded-md cursor-pointer hover:bg-slate-50 transition-colors" data-doc-id="77cb9af2-6006-51ed-bd01-adc548a7e2be" data-doc-title="vendor_qualification_policy.md" onclick="openRuleSource(this)">
-                    <div class="flex items-center gap-2.5">
-                        <span class="w-1 h-6 rounded-sm bg-amber-500"></span>
-                        <div>
-                            <p class="text-[13px] font-medium text-slate-800 rule-name">Financial Statements</p>
-                            <p class="text-[10px] text-slate-500 rule-desc">Audited, last 2 fiscal years</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="rule-actions hidden"></span>
-                        <span class="text-[9px] text-slate-400 italic rule-source">vendor_qualification_policy.md</span>
-                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-amber-100 text-amber-700 rounded rule-severity">MAJOR</span>
-                    </div>
-                </div>
-                <div class="rule-row flex items-center justify-between p-2.5 border border-slate-200 rounded-md cursor-pointer hover:bg-slate-50 transition-colors" data-doc-id="0076badc-01f0-59a6-be24-efad5dc6f336" data-doc-title="iso9001_compliance_checklist.md" onclick="openRuleSource(this)">
-                    <div class="flex items-center gap-2.5">
-                        <span class="w-1 h-6 rounded-sm bg-amber-500"></span>
-                        <div>
-                            <p class="text-[13px] font-medium text-slate-800 rule-name">Regulatory Certifications</p>
-                            <p class="text-[10px] text-slate-500 rule-desc">ISO 9001, ISO 27001, industry-specific</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="rule-actions hidden"></span>
-                        <span class="text-[9px] text-slate-400 italic rule-source">iso9001_compliance_checklist.md</span>
-                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-amber-100 text-amber-700 rounded rule-severity">MAJOR</span>
-                    </div>
-                </div>
-                <div class="rule-row flex items-center justify-between p-2.5 border border-slate-200 rounded-md cursor-pointer hover:bg-slate-50 transition-colors" data-doc-id="c32d0cbe-9946-5cc1-a0d0-87553b0cca00" data-doc-title="nda_template.md" onclick="openRuleSource(this)">
-                    <div class="flex items-center gap-2.5">
-                        <span class="w-1 h-6 rounded-sm bg-blue-500"></span>
-                        <div>
-                            <p class="text-[13px] font-medium text-slate-800 rule-name">Non-Disclosure Agreement</p>
-                            <p class="text-[10px] text-slate-500 rule-desc">Signed NDA using company template</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="rule-actions hidden"></span>
-                        <span class="text-[9px] text-slate-400 italic rule-source">nda_template.md</span>
-                        <span class="px-1.5 py-0.5 text-[9px] font-bold bg-blue-100 text-blue-700 rounded rule-severity">MINOR</span>
-                    </div>
-                </div>
+            <div class="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg shrink-0">
+                <span class="material-icons-outlined text-amber-500 text-sm">construction</span>
+                <span class="text-[11px] font-medium text-amber-700">In development</span>
             </div>
         </div>
 
-        <div class="bg-white rounded-lg border border-slate-200 p-4">
-            <h3 class="text-[13px] font-semibold text-slate-900 mb-2.5">Tools Available</h3>
-            <div class="grid grid-cols-2 gap-2">
-                <div class="p-2.5 bg-slate-50 rounded-md flex items-start gap-2.5 border border-slate-100">
-                    <span class="material-icons-outlined text-brand-500 text-lg mt-0.5">search</span>
-                    <div>
-                        <p class="text-[13px] font-medium text-slate-800">Knowledge Search</p>
-                        <p class="text-[11px] text-slate-500">Hybrid BM25 + vector retrieval</p>
-                    </div>
-                </div>
-                <div class="p-2.5 bg-slate-50 rounded-md flex items-start gap-2.5 border border-slate-100">
-                    <span class="material-icons-outlined text-brand-500 text-lg mt-0.5">checklist</span>
-                    <div>
-                        <p class="text-[13px] font-medium text-slate-800">Rule Engine</p>
-                        <p class="text-[11px] text-slate-500">Auto-extracted rule validation</p>
-                    </div>
-                </div>
+        <div class="grid grid-cols-2 gap-2.5">
+            ${toolCards}
+        </div>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 flex items-start gap-3">
+            <span class="material-icons-outlined text-slate-400 text-lg mt-0.5">info</span>
+            <div>
+                <p class="text-[12px] font-medium text-slate-700">Tool integrations are coming in the next release</p>
+                <p class="text-[11px] text-slate-500 mt-0.5">Opt-in tools let your agent reach beyond the knowledge base — searching the web, running code, calling APIs, and more. Each tool will be individually toggled per agent.</p>
             </div>
         </div>
     </div>`;
@@ -427,7 +378,7 @@ export function page_knowledgeBase() {
                     <p class="text-[10px] text-slate-500">Chunks</p>
                 </div>
                 <div class="p-2.5 bg-purple-50 border border-purple-200 rounded-md text-center">
-                    <p class="text-lg font-bold text-purple-700">1536</p>
+                    <p class="text-lg font-bold text-purple-700" id="kb-vector-dim">—</p>
                     <p class="text-[10px] text-slate-500">Vector dims</p>
                 </div>
             </div>
@@ -439,6 +390,11 @@ export function page_knowledgeBase() {
                 <input id="file-input" type="file" class="hidden" accept=".pdf,.docx,.txt,.md" multiple>
             </div>
             <div id="uploaded-files" class="space-y-1.5"></div>
+
+            <button onclick="confirmResetKB()" class="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-md transition-colors">
+                <span class="material-icons-outlined text-sm">delete_forever</span>
+                Reset Knowledge Base
+            </button>
 
             <div class="pt-3 border-t border-slate-100">
                 <h4 class="text-[11px] font-semibold text-slate-500 mb-2">Indexed Documents</h4>
@@ -467,10 +423,11 @@ export function page_knowledgeBase() {
 
 export function page_accessRoles() {
     const users = [
-        { initials: 'TI', name: 'Thibaud Ishacian', email: 'thibaud.ishacian@presight.ai', color: 'brand', role: 'Admin' },
-        { initials: 'EC', name: 'Eric Chau', email: 'eric.chau@presight.ai', color: 'emerald', role: 'Admin' },
-        { initials: 'MC', name: 'Mehdi Chouiten', email: 'mehdi.chouiten@presight.ai', color: 'violet', role: 'Admin' },
-        { initials: 'HK', name: 'Hermann Kuetat', email: 'hermann.kuetat@presight.ai', color: 'amber', role: 'User' },
+        { initials: 'TI', name: 'Thibaud Ishacian', email: 'thibaud.ishacian@datategy.net', color: 'brand', role: 'Admin' },
+        { initials: 'EC', name: 'Eric Chau', email: 'eric.chau@datategy.net', color: 'emerald', role: 'Admin' },
+        { initials: 'MC', name: 'Mehdi Chouiten', email: 'mehdi.chouiten@datategy.net', color: 'violet', role: 'Admin' },
+        { initials: 'HK', name: 'Hermann Kuetat', email: 'hermann.kuetat@datategy.net', color: 'amber', role: 'User' },
+        { initials: 'ED', name: 'Enzo Damion', email: 'enzo.damion@datategy.net', color: 'indigo', role: 'Admin' },
     ];
 
     const currentEmail = (typeof currentUser !== 'undefined') ? currentUser.email : '';
@@ -538,7 +495,7 @@ export function page_accessRoles() {
                 <div class="grid grid-cols-2 gap-2 text-[11px]">
                     <div><span class="text-slate-500">Provider:</span> <span class="font-medium text-slate-800">Keycloak 24.x</span></div>
                     <div><span class="text-slate-500">Protocol:</span> <span class="font-medium text-slate-800">OIDC / OAuth 2.0</span></div>
-                    <div><span class="text-slate-500">Realm:</span> <span class="font-medium text-slate-800">presight-ai</span></div>
+                    <div><span class="text-slate-500">Realm:</span> <span class="font-medium text-slate-800">datategy</span></div>
                     <div><span class="text-slate-500">SSO:</span> <span class="font-medium text-emerald-700">Enabled</span></div>
                 </div>
             </div>
@@ -553,7 +510,7 @@ export function page_accessRoles() {
                             <p class="text-[10px] text-slate-500">Full platform access, agent management, user management</p>
                         </div>
                     </div>
-                    <span class="px-1.5 py-0.5 text-[9px] font-medium bg-emerald-100 text-emerald-700 rounded">3 users</span>
+                    <span class="px-1.5 py-0.5 text-[9px] font-medium bg-emerald-100 text-emerald-700 rounded">4 users</span>
                 </div>
                 <div class="flex items-center justify-between p-2 border border-slate-200 rounded-md">
                     <div class="flex items-center gap-2">
@@ -570,7 +527,7 @@ export function page_accessRoles() {
             <div class="pt-3 border-t border-slate-100">
                 <div class="flex items-center justify-between mb-2">
                     <h4 class="text-[11px] font-semibold text-slate-500">Workspace Members</h4>
-                    <span class="text-[10px] text-slate-400">4 members</span>
+                    <span class="text-[10px] text-slate-400">5 members</span>
                 </div>
                 <div class="space-y-1.5">
                     ${sessionRows}
@@ -621,18 +578,22 @@ export function page_auditLogs() {
 }
 
 export function step6_execution() {
-    const agentName = (typeof savedAgentName !== 'undefined' && savedAgentName) ? savedAgentName : 'Vendor Compliance Agent';
-    const agentType = (typeof savedAgentType !== 'undefined' && savedAgentType) ? savedAgentType : 'Procurement';
+    const agentName = (typeof savedAgentName !== 'undefined' && savedAgentName) ? savedAgentName : 'My Agent';
+    const agentType = (typeof savedAgentType !== 'undefined' && savedAgentType) ? savedAgentType : 'Custom';
 
     const descMap = {
-        'Procurement': 'Describe a submission to validate against your configured rules…',
+        'Finance': 'Ask a financial question or submit a document to analyze…',
+        'Legal': 'Ask a legal question or submit a contract to review…',
+        'HR': 'Ask an HR question or submit a document to process…',
+        'Operations': 'Describe an operational request or document to analyze…',
         'Customer Support': 'Describe a customer request to process…',
-        'Data Analysis': 'Describe a dataset or question to analyze…',
     };
     const welcomeMap = {
-        'Procurement': 'Submit a dossier and the agent will validate it against the compliance rules and knowledge base you configured. Each orchestration step is shown in real time.',
+        'Finance': 'Ask financial questions or submit documents. The agent will retrieve relevant context from your knowledge base and generate a precise answer.',
+        'Legal': 'Ask legal questions or submit contracts for review. The agent will cross-reference your knowledge base and provide structured analysis.',
+        'HR': 'Ask HR-related questions or submit documents. The agent will retrieve relevant policies and generate a clear response.',
+        'Operations': 'Submit operational requests or documents. The agent will process them against your configured knowledge base.',
         'Customer Support': 'Describe a customer issue and the agent will process it using the knowledge base and tools configured above.',
-        'Data Analysis': 'Ask a question or describe a dataset. The agent will analyze it using the configured pipeline.',
     };
     const placeholder = descMap[agentType] || 'Send a message to test your agent…';
     const welcome = welcomeMap[agentType] || 'Test your agent with a real query. Each orchestration step will be shown in real time.';
@@ -660,13 +621,10 @@ export function step6_execution() {
                         </div>
                         <div class="space-y-1.5" id="suggestion-cards">
                             <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] text-slate-500 bg-white border border-slate-200 hover:border-brand-400 hover:text-slate-700 rounded-md px-3 py-2 transition-colors">
-                                <span class="font-medium text-slate-700">TechCorp Solutions</span> — Trade license OK, insurance OK, missing financial statements 2024-2025, ISO 27001 valid, NDA not submitted
+                                <span class="font-medium text-slate-700">Summarize</span> — What are the key points in the uploaded documents?
                             </button>
                             <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] text-slate-500 bg-white border border-slate-200 hover:border-brand-400 hover:text-slate-700 rounded-md px-3 py-2 transition-colors">
-                                <span class="font-medium text-slate-700">GreenBuild Materials</span> — All documents submitted: trade license, insurance, financials 2024-2025, ISO 14001, NDA signed
-                            </button>
-                            <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] text-slate-500 bg-white border border-slate-200 hover:border-brand-400 hover:text-slate-700 rounded-md px-3 py-2 transition-colors">
-                                What documents are required for vendor qualification under our procurement policy?
+                                What criteria does the agent use to evaluate a request?
                             </button>
                         </div>
                     </div>
@@ -685,6 +643,102 @@ export function step6_execution() {
                     </button>
                 </div>
                 <p class="text-[10px] text-slate-400 mt-1 text-center">Enter to send &middot; Shift+Enter for new line</p>
+            </div>
+        </div>
+    </div>`;
+}
+
+export function step7_save() {
+    const name = (typeof savedAgentName !== 'undefined' && savedAgentName) ? savedAgentName : 'My Agent';
+    const type = (typeof savedAgentType !== 'undefined' && savedAgentType) ? savedAgentType : 'Default';
+    const model = (typeof savedModel !== 'undefined' && savedModel) ? savedModel : 'gpt-5';
+    const provider = (typeof selectedProvider !== 'undefined' && selectedProvider) ? selectedProvider : 'openai';
+    const temp = (typeof savedTemperature !== 'undefined') ? savedTemperature : 0.3;
+    const prompt = (typeof savedSystemPrompt !== 'undefined') ? savedSystemPrompt : '';
+    const providerLabel = { openai: 'OpenAI', anthropic: 'Anthropic', 'self-hosted': 'Self-hosted' }[provider] || provider;
+
+    return `
+    <div class="max-w-3xl mx-auto space-y-4">
+        <div class="bg-white rounded-lg border border-slate-200 p-5">
+            <div class="flex items-center gap-2.5 mb-5">
+                <div class="w-8 h-8 rounded-md bg-brand-100 flex items-center justify-center">
+                    <span class="material-icons-outlined text-brand-600 text-lg">smart_toy</span>
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-900">Review & Save</h3>
+                    <p class="text-[11px] text-slate-500">Confirm your agent configuration before saving</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mb-5">
+                <div class="p-3 bg-slate-50 rounded-md border border-slate-100">
+                    <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Agent Name</p>
+                    <p class="text-[13px] font-medium text-slate-800">${name}</p>
+                </div>
+                <div class="p-3 bg-slate-50 rounded-md border border-slate-100">
+                    <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Type</p>
+                    <p class="text-[13px] font-medium text-slate-800">${type}</p>
+                </div>
+                <div class="p-3 bg-slate-50 rounded-md border border-slate-100">
+                    <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Model</p>
+                    <p class="text-[13px] font-medium text-slate-800">${model}</p>
+                </div>
+                <div class="p-3 bg-slate-50 rounded-md border border-slate-100">
+                    <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Provider</p>
+                    <p class="text-[13px] font-medium text-slate-800">${providerLabel}</p>
+                </div>
+                <div class="p-3 bg-slate-50 rounded-md border border-slate-100 col-span-2">
+                    <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Temperature</p>
+                    <div class="flex items-center gap-3">
+                        <div class="flex-1 bg-slate-200 rounded-full h-1.5">
+                            <div class="bg-brand-500 rounded-full h-1.5" style="width:${Math.round(temp * 100)}%"></div>
+                        </div>
+                        <span class="text-[12px] font-mono text-slate-700 shrink-0">${temp.toFixed(2)}</span>
+                    </div>
+                </div>
+                ${prompt ? `
+                <div class="p-3 bg-slate-50 rounded-md border border-slate-100 col-span-2">
+                    <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">System Prompt</p>
+                    <p class="text-[12px] text-slate-600 font-mono leading-relaxed line-clamp-3">${prompt.slice(0, 220)}${prompt.length > 220 ? '…' : ''}</p>
+                </div>` : ''}
+            </div>
+
+            <div id="step7-actions">
+                <button onclick="saveCurrentAgent()" class="w-full py-2.5 px-4 bg-brand-600 hover:bg-brand-700 text-white text-[13px] font-semibold rounded-md transition-colors flex items-center justify-center gap-2">
+                    <span class="material-icons-outlined text-base">save</span>
+                    Save Agent
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 flex items-start gap-2.5">
+            <span class="material-icons-outlined text-slate-400 text-base mt-0.5">info</span>
+            <p class="text-[11px] text-slate-500">Saved agents appear in the <strong class="text-slate-700">Agents</strong> section. Click <strong class="text-slate-700">Chat</strong> on any agent to start a new session with its configuration.</p>
+        </div>
+    </div>`;
+}
+
+export function page_agents() {
+    return `
+    <div class="max-w-3xl mx-auto space-y-3">
+        <div class="bg-white rounded-lg border border-slate-200 p-4">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded-md bg-brand-100 flex items-center justify-center">
+                        <span class="material-icons-outlined text-brand-600 text-lg">smart_toy</span>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-semibold text-slate-900">My Agents</h3>
+                        <p class="text-[11px] text-slate-500">Your saved agent configurations</p>
+                    </div>
+                </div>
+                <button onclick="goToStep(1)" class="px-2.5 py-1.5 text-[11px] font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-md transition-colors flex items-center gap-1">
+                    <span class="material-icons-outlined text-sm">add</span>
+                    New Agent
+                </button>
+            </div>
+            <div id="agents-list" class="space-y-2">
+                <p class="text-[12px] text-slate-400 text-center py-4">Loading…</p>
             </div>
         </div>
     </div>`;

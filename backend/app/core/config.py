@@ -1,6 +1,8 @@
 """Application configuration"""
-from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from typing import Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -13,7 +15,7 @@ class Settings(BaseSettings):
     # LLM -- OpenAI-first for demo, LLM SDK supports 20+ providers
     openai_api_key: str = ""
     default_provider: str = "openai"
-    default_model: str = "gpt-4o"
+    default_model: str = "gpt-5"
 
     # Ollama fallback
     ollama_base_url: str = "http://localhost:11434"

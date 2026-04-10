@@ -40,6 +40,24 @@ export async function previewDocument(documentId) {
     return fetchJSON(`/documents/preview/${documentId}`);
 }
 
+export async function clearAllDocuments() {
+    const res = await fetch(`${API_BASE}/documents/clear`, { method: 'DELETE' });
+    if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`${res.status}: ${body}`);
+    }
+    return res.json();
+}
+
+export async function deleteDocument(documentId) {
+    const res = await fetch(`${API_BASE}/documents/${documentId}`, { method: 'DELETE' });
+    if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`${res.status}: ${body}`);
+    }
+    return res.json();
+}
+
 export async function uploadDocument(file) {
     const formData = new FormData();
     formData.append('file', file);
@@ -66,9 +84,9 @@ export function streamChat(query, opts, onChunk, onDone, onError) {
         temperature: opts.temperature ?? 0.3,
         system_prompt: opts.system_prompt || null,
         agent_preferences: {
-            preferred_agents: ['procurement'],
+            preferred_agents: [],
             model_preferences: {
-                model: opts.model || 'gpt-4o',
+                model: opts.model || 'gpt-5',
                 provider: opts.provider || 'openai',
             },
         },
