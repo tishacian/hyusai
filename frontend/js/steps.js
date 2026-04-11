@@ -613,11 +613,7 @@ export function step6_execution() {
                 <div id="chat-welcome" class="flex flex-col items-center justify-center h-full">
                     <div class="w-full max-w-lg">
                         <div class="mb-5">
-                            <div class="flex items-center gap-2 mb-1.5">
-                                <span class="block w-1 h-5 rounded-sm" style="background:var(--accent);"></span>
-                                <h2 class="font-semibold text-[15px]" style="color:var(--text-primary);">${agentName}</h2>
-                            </div>
-                            <p class="text-[13px] ml-3" style="color:var(--text-muted);">${welcome}</p>
+                            <p class="text-[13px]" style="color:var(--text-muted);">${welcome}</p>
                         </div>
                         <div class="space-y-1.5" id="suggestion-cards">
                             <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] rounded-lg px-3 py-2.5 transition-all" style="color:var(--text-secondary);background:var(--bg-elevated);border:1px solid var(--border-default);">
