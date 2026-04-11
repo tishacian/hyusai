@@ -199,7 +199,16 @@ async function goToPage(page) {
     currentPage = page;
     updateSidebarActive(page);
 
+    // #region agent log
+    fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage',message:'goToPage called',data:{page},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+
     const mod = await loadStepModules();
+
+    // #region agent log
+    fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:mod',message:'module loaded, checking exports',data:{page,hasPageWorkspace:typeof mod.page_workspace,hasPageQuality:typeof mod.page_agentQuality,hasPageIntel:typeof mod.page_intelligence},timestamp:Date.now(),hypothesisId:'H1,H4'})}).catch(()=>{});
+    // #endregion
+
     const content = document.getElementById('step-content');
     const cfg = pageConfig[page] || { title: page, breadcrumb: page };
     const title = document.getElementById('header-title');
@@ -236,10 +245,22 @@ async function goToPage(page) {
         content.innerHTML = mod.page_workspace();
         loadWorkspace();
     } else if (page === 'quality') {
+        // #region agent log
+        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:quality',message:'entering quality branch',data:{fnType:typeof mod.page_agentQuality},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
         content.innerHTML = mod.page_agentQuality();
+        // #region agent log
+        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:quality:rendered',message:'quality page HTML set',data:{contentLength:content.innerHTML.length},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
         loadQualityPage();
     } else if (page === 'intelligence') {
+        // #region agent log
+        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:intelligence',message:'entering intelligence branch',data:{fnType:typeof mod.page_intelligence},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
         content.innerHTML = mod.page_intelligence();
+        // #region agent log
+        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:intelligence:rendered',message:'intelligence page HTML set',data:{contentLength:content.innerHTML.length},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
         loadIntelligenceDashboard();
     }
 
@@ -2274,14 +2295,27 @@ async function submitTask() {
 var qualityChart = null;
 
 async function loadQualityPage() {
+    // #region agent log
+    fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadQualityPage',message:'loadQualityPage called',data:{},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
     try {
         const api = await import('./api.js');
         const data = await api.getLatestEval();
+        // #region agent log
+        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadQualityPage:data',message:'getLatestEval response',data:{evalData:data},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
         if (data.evaluation) renderQualityScores(data.evaluation);
 
         const hist = await api.getEvalHistory(null, 10);
+        // #region agent log
+        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadQualityPage:history',message:'getEvalHistory response',data:{histData:hist},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
         renderEvalHistory(hist.evaluations || []);
-    } catch (_) {}
+    } catch (err) {
+        // #region agent log
+        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadQualityPage:error',message:'loadQualityPage CATCH',data:{error:err.message,stack:err.stack},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+    }
 }
 
 function renderQualityScores(evaluation) {
@@ -2379,9 +2413,15 @@ var sentimentChart = null;
 var entityChart = null;
 
 async function loadIntelligenceDashboard() {
+    // #region agent log
+    fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadIntelligenceDashboard',message:'loadIntelligenceDashboard called',data:{},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
     try {
         const api = await import('./api.js');
         const data = await api.getIntelDashboard();
+        // #region agent log
+        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadIntelligenceDashboard:data',message:'getIntelDashboard response',data:{dashboard:data},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
         const kpis = data.kpis || {};
         const el = (id) => document.getElementById(id);
         if (el('intel-total-articles')) el('intel-total-articles').textContent = kpis.total_articles || 0;
@@ -2392,7 +2432,11 @@ async function loadIntelligenceDashboard() {
         renderSentimentChart(data.sentiment || {});
         renderEntityChart(data.top_entities || []);
         renderArticles(data.articles || []);
-    } catch (_) {}
+    } catch (err) {
+        // #region agent log
+        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadIntelligenceDashboard:error',message:'loadIntelligenceDashboard CATCH',data:{error:err.message,stack:err.stack},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+    }
 }
 
 function renderSentimentChart(sentiment) {
