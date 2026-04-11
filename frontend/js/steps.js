@@ -887,6 +887,12 @@ export function page_orchestration() {
             { type: 'io_output', icon: 'output', name: 'Agent Output', meta: 'response' },
             { type: 'io_webhook', icon: 'webhook', name: 'Webhook', meta: 'trigger' },
         ]},
+        { cat: 'Intelligence', items: [
+            { type: 'rss_ingest', icon: 'rss_feed', name: 'RSS Ingestion', meta: 'feeds' },
+            { type: 'semantic_filter', icon: 'filter_center_focus', name: 'Semantic Filter', meta: 'target' },
+            { type: 'safety_check', icon: 'shield', name: 'Safety Check', meta: 'rules' },
+            { type: 'bi_aggregator', icon: 'insights', name: 'BI Aggregator', meta: 'dashboard' },
+        ]},
         { cat: 'Infrastructure', items: [
             { type: 'infra_fastapi', icon: 'dns', name: 'FastAPI', meta: 'gateway' },
             { type: 'infra_celery', icon: 'schedule', name: 'Celery', meta: 'workers' },
@@ -953,6 +959,310 @@ export function page_orchestration() {
                     <button onclick="wfDeleteNode()" class="w-full py-1.5 text-[10px] font-medium text-red-500 flex items-center justify-center gap-1" style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:var(--radius-sm);">
                         <span class="material-icons-outlined text-xs">delete</span>Remove Node
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+}
+
+// =========================================================================
+// WORKSPACE PAGE — Autonomous task delegation
+// =========================================================================
+export function page_workspace() {
+    return `
+    <div class="max-w-6xl mx-auto space-y-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Agent Workspace</h2>
+                <p class="text-[11px]" style="color:var(--text-muted);">Delegate missions to autonomous agents. Track progress in real-time.</p>
+            </div>
+            <button onclick="openTaskModal()" class="px-3 py-1.5 text-[11px] font-medium text-white flex items-center gap-1.5" style="background:var(--accent);border-radius:var(--radius-sm);">
+                <span class="material-icons-outlined text-sm">add</span>New Mission
+            </button>
+        </div>
+
+        <!-- KPIs -->
+        <div class="grid grid-cols-4 gap-2">
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Active</p>
+                <p class="text-[18px] font-bold" style="color:var(--accent);" id="ws-active-count">0</p>
+            </div>
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Completed</p>
+                <p class="text-[18px] font-bold" style="color:var(--success);" id="ws-completed-count">0</p>
+            </div>
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Total Steps</p>
+                <p class="text-[18px] font-bold" style="color:var(--text-primary);" id="ws-steps-count">0</p>
+            </div>
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Avg. Duration</p>
+                <p class="text-[18px] font-bold font-mono" style="color:var(--text-primary);" id="ws-avg-duration">—</p>
+            </div>
+        </div>
+
+        <!-- Main area: task list + detail -->
+        <div class="grid grid-cols-3 gap-3" style="min-height:400px;">
+            <!-- Task list -->
+            <div class="col-span-1 space-y-1.5" id="ws-task-list">
+                <p class="text-[10px] text-center py-8" style="color:var(--text-muted);">No missions yet. Create one above.</p>
+            </div>
+            <!-- Task detail -->
+            <div class="col-span-2 t-card p-4" style="border-radius:var(--radius);" id="ws-task-detail">
+                <div class="flex flex-col items-center justify-center h-full text-center py-12">
+                    <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">work</span>
+                    <p class="text-[12px] font-medium" style="color:var(--text-secondary);">Select a mission to view details</p>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Or create a new mission to delegate to the agent</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task creation modal -->
+    <div id="task-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;">
+        <div onclick="closeTaskModal()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(3px);"></div>
+        <div class="absolute top-1/2 left-1/2" style="transform:translate(-50%,-50%);width:440px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div class="px-4 py-3" style="border-bottom:1px solid var(--border-default);">
+                <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">New Mission</h3>
+                <p class="text-[10px]" style="color:var(--text-muted);">Describe what the agent should accomplish autonomously</p>
+            </div>
+            <div class="px-4 py-3 space-y-2.5">
+                <div class="wf-config-field">
+                    <label>Mission Title</label>
+                    <input id="task-title" placeholder="e.g., Daily competitor analysis briefing">
+                </div>
+                <div class="wf-config-field">
+                    <label>Description</label>
+                    <textarea id="task-desc" rows="4" placeholder="Describe the mission in detail. The agent will plan and execute steps autonomously..." style="resize:none;"></textarea>
+                </div>
+            </div>
+            <div class="px-4 py-3 flex items-center justify-end gap-2" style="border-top:1px solid var(--border-default);">
+                <button onclick="closeTaskModal()" class="px-3 py-1.5 text-[11px] font-medium" style="color:var(--text-secondary);border:1px solid var(--border-default);border-radius:var(--radius-sm);">Cancel</button>
+                <button onclick="submitTask()" class="px-3 py-1.5 text-[11px] font-medium text-white flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-xs">play_arrow</span>Launch Mission
+                </button>
+            </div>
+        </div>
+    </div>`;
+}
+
+// =========================================================================
+// AGENT QUALITY PAGE — ProofAgent-inspired evaluation
+// =========================================================================
+export function page_agentQuality() {
+    const dimensions = [
+        { key: 'task_success', label: 'Task Success', desc: 'Did the agent progress toward the goal?' },
+        { key: 'relevance', label: 'Relevance', desc: 'Was the answer on-topic and context-aware?' },
+        { key: 'instruction_following', label: 'Instruction Following', desc: 'Did it follow constraints?' },
+        { key: 'coherence', label: 'Coherence', desc: 'Clear and internally consistent?' },
+        { key: 'hallucination', label: 'Hallucination', desc: 'Were claims factual and supported?' },
+        { key: 'tone', label: 'Tone', desc: 'Was it appropriate for the domain?' },
+        { key: 'conciseness', label: 'Conciseness', desc: 'Clear and non-redundant?' },
+        { key: 'safety', label: 'Safety', desc: 'No harmful or unsafe behavior?' },
+        { key: 'policy', label: 'Policy', desc: 'Aligned with configured rules?' },
+        { key: 'drift', label: 'Drift / Memory Stability', desc: 'Did it stay consistent across turns?' },
+        { key: 'manipulation', label: 'Manipulation', desc: 'Resisted adversarial input?' },
+        { key: 'tool_use', label: 'Tool Use', desc: 'Correct tool selection and execution?' },
+    ];
+
+    const leftDims = dimensions.slice(0, 6);
+    const rightDims = dimensions.slice(6);
+
+    return `
+    <div class="max-w-6xl mx-auto space-y-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Agent Quality Score</h2>
+                <p class="text-[11px]" style="color:var(--text-muted);">LLM-as-Judge evaluation across 12 critical dimensions. Real-time scoring via GPT-4o.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="triggerManualEval()" class="px-2.5 py-1.5 text-[10px] font-medium flex items-center gap-1" style="background:var(--accent-subtle);border:1px solid var(--border-active);color:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-xs">play_arrow</span>Run Evaluation
+                </button>
+            </div>
+        </div>
+
+        <!-- Composite Score + Radar -->
+        <div class="grid grid-cols-4 gap-3">
+            <!-- Left dimensions -->
+            <div class="col-span-1 space-y-1.5">
+                ${leftDims.map(d => `
+                <div class="t-card p-2.5" style="border-radius:var(--radius);">
+                    <p class="text-[11px] font-semibold" style="color:var(--text-primary);">${d.label}</p>
+                    <p class="text-[9px]" style="color:var(--text-muted);">${d.desc}</p>
+                    <div class="flex items-center gap-1.5 mt-1">
+                        <div class="flex-1 h-1 rounded-full" style="background:var(--border-default);">
+                            <div class="h-full rounded-full" style="background:var(--accent);width:0%;" data-quality-bar="${d.key}"></div>
+                        </div>
+                        <span class="text-[9px] font-mono font-bold" style="color:var(--accent);" data-quality-score="${d.key}">—</span>
+                    </div>
+                </div>`).join('')}
+            </div>
+
+            <!-- Radar Chart -->
+            <div class="col-span-2 t-card p-4 flex flex-col items-center justify-center" style="border-radius:var(--radius);">
+                <div class="relative" style="width:320px;height:320px;">
+                    <canvas id="quality-radar" width="320" height="320"></canvas>
+                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div class="text-center">
+                            <p class="text-[28px] font-bold" style="color:var(--accent);" id="quality-composite">—</p>
+                            <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Overall</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right dimensions -->
+            <div class="col-span-1 space-y-1.5">
+                ${rightDims.map(d => `
+                <div class="t-card p-2.5" style="border-radius:var(--radius);">
+                    <p class="text-[11px] font-semibold" style="color:var(--text-primary);">${d.label}</p>
+                    <p class="text-[9px]" style="color:var(--text-muted);">${d.desc}</p>
+                    <div class="flex items-center gap-1.5 mt-1">
+                        <div class="flex-1 h-1 rounded-full" style="background:var(--border-default);">
+                            <div class="h-full rounded-full" style="background:var(--accent);width:0%;" data-quality-bar="${d.key}"></div>
+                        </div>
+                        <span class="text-[9px] font-mono font-bold" style="color:var(--accent);" data-quality-score="${d.key}">—</span>
+                    </div>
+                </div>`).join('')}
+            </div>
+        </div>
+
+        <!-- Hallucination & Drift tracking -->
+        <div class="grid grid-cols-2 gap-3">
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-icons-outlined text-sm" style="color:var(--warning);">fact_check</span>
+                    <h3 class="text-[12px] font-semibold" style="color:var(--text-primary);">Claim Audit</h3>
+                </div>
+                <div id="quality-claims" class="space-y-1">
+                    <p class="text-[10px]" style="color:var(--text-muted);">Run an evaluation to see claim audit results.</p>
+                </div>
+            </div>
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-icons-outlined text-sm" style="color:var(--accent);">timeline</span>
+                    <h3 class="text-[12px] font-semibold" style="color:var(--text-primary);">Evaluation History</h3>
+                </div>
+                <div id="quality-history" class="space-y-1">
+                    <p class="text-[10px]" style="color:var(--text-muted);">No evaluations recorded yet.</p>
+                </div>
+            </div>
+        </div>
+    </div>`;
+}
+
+// =========================================================================
+// INTELLIGENCE DASHBOARD PAGE
+// =========================================================================
+export function page_intelligence() {
+    return `
+    <div class="max-w-6xl mx-auto space-y-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Intelligence Dashboard</h2>
+                <p class="text-[11px]" style="color:var(--text-muted);">Automated RSS analysis with semantic targeting and safety filters.</p>
+            </div>
+            <div class="flex items-center gap-1.5">
+                <button onclick="openIntelConfig()" class="px-2.5 py-1.5 text-[10px] font-medium flex items-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-xs">settings</span>Configure
+                </button>
+                <button onclick="runBatchAnalysis()" class="px-2.5 py-1.5 text-[10px] font-medium text-white flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-xs">play_arrow</span>Run Analysis
+                </button>
+            </div>
+        </div>
+
+        <!-- KPIs -->
+        <div class="grid grid-cols-4 gap-2">
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Articles</p>
+                <p class="text-[18px] font-bold" style="color:var(--text-primary);" id="intel-total-articles">0</p>
+            </div>
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Active Feeds</p>
+                <p class="text-[18px] font-bold" style="color:var(--accent);" id="intel-active-feeds">0</p>
+            </div>
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">High Risk</p>
+                <p class="text-[18px] font-bold" style="color:var(--warning);" id="intel-high-risk">0</p>
+            </div>
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Analyzed</p>
+                <p class="text-[18px] font-bold" style="color:var(--success);" id="intel-analyzed">0</p>
+            </div>
+        </div>
+
+        <!-- Charts row -->
+        <div class="grid grid-cols-2 gap-3">
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <h3 class="text-[11px] font-semibold mb-2" style="color:var(--text-primary);">Sentiment Distribution</h3>
+                <canvas id="intel-sentiment-chart" height="160"></canvas>
+            </div>
+            <div class="t-card p-3" style="border-radius:var(--radius);">
+                <h3 class="text-[11px] font-semibold mb-2" style="color:var(--text-primary);">Top Entities</h3>
+                <canvas id="intel-entity-chart" height="160"></canvas>
+            </div>
+        </div>
+
+        <!-- Batch progress bar (hidden by default) -->
+        <div id="intel-batch-bar" class="hidden t-card p-3" style="border-radius:var(--radius);">
+            <div class="flex items-center gap-2 mb-1.5">
+                <span class="material-icons-outlined text-sm tool-running" style="color:var(--accent);">sync</span>
+                <span class="text-[11px] font-medium" style="color:var(--text-primary);" id="intel-batch-status">Analyzing...</span>
+            </div>
+            <div class="w-full h-1.5 rounded-full" style="background:var(--border-default);">
+                <div class="h-full rounded-full transition-all" style="background:var(--accent);width:0%;" id="intel-batch-progress"></div>
+            </div>
+        </div>
+
+        <!-- Article Feed -->
+        <div class="t-card p-3" style="border-radius:var(--radius);">
+            <h3 class="text-[11px] font-semibold mb-2" style="color:var(--text-primary);">Recent Articles</h3>
+            <div id="intel-articles" class="space-y-1.5">
+                <p class="text-[10px] text-center py-4" style="color:var(--text-muted);">No articles analyzed yet. Add RSS feeds and run analysis.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Intel Config Modal -->
+    <div id="intel-config-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;">
+        <div onclick="closeIntelConfig()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(3px);"></div>
+        <div style="position:absolute;top:0;bottom:0;right:0;width:420px;background:var(--bg-card);border-left:1px solid var(--border-default);display:flex;flex-direction:column;box-shadow:-8px 0 32px rgba(0,0,0,0.2);">
+            <div class="flex items-center justify-between px-4 py-3 shrink-0" style="border-bottom:1px solid var(--border-default);">
+                <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">Intelligence Configuration</h3>
+                <button onclick="closeIntelConfig()" class="w-6 h-6 flex items-center justify-center" style="color:var(--text-muted);"><span class="material-icons-outlined text-base">close</span></button>
+            </div>
+            <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4" id="intel-config-body">
+                <!-- RSS Feeds -->
+                <div>
+                    <h4 class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-muted);">RSS Feeds</h4>
+                    <div id="intel-feeds-list" class="space-y-1"></div>
+                    <div class="flex gap-1.5 mt-1.5">
+                        <input id="intel-feed-name" placeholder="Feed name" class="flex-1 px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);">
+                        <input id="intel-feed-url" placeholder="RSS URL" class="flex-[2] px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);">
+                        <button onclick="addFeed()" class="px-2 py-1 text-[9px] font-medium text-white" style="background:var(--accent);border-radius:var(--radius-sm);">Add</button>
+                    </div>
+                </div>
+                <!-- Semantic Targets -->
+                <div>
+                    <h4 class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-muted);">Semantic Targets</h4>
+                    <div id="intel-targets-list" class="space-y-1"></div>
+                    <div class="space-y-1 mt-1.5">
+                        <input id="intel-target-name" placeholder="Target name" class="w-full px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);">
+                        <textarea id="intel-target-desc" placeholder="Semantic scope description (e.g., 'Hormuz Strait during Iran/USA/Israel tensions')" rows="2" class="w-full px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);resize:none;"></textarea>
+                        <button onclick="addTarget()" class="px-2 py-1 text-[9px] font-medium text-white" style="background:var(--accent);border-radius:var(--radius-sm);">Add Target</button>
+                    </div>
+                </div>
+                <!-- Safety Filters -->
+                <div>
+                    <h4 class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-muted);">Safety Filters</h4>
+                    <div id="intel-filters-list" class="space-y-1"></div>
+                    <div class="space-y-1 mt-1.5">
+                        <input id="intel-filter-name" placeholder="Filter name (e.g., UAE Alignment)" class="w-full px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);">
+                        <textarea id="intel-filter-prompt" placeholder="Safety prompt (e.g., 'Ensure analysis is coherent with UAE geopolitical positioning...')" rows="3" class="w-full px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);resize:none;"></textarea>
+                        <button onclick="addSafetyFilter()" class="px-2 py-1 text-[9px] font-medium text-white" style="background:var(--accent);border-radius:var(--radius-sm);">Add Filter</button>
+                    </div>
                 </div>
             </div>
         </div>

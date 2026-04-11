@@ -90,6 +90,113 @@ export async function synthesizeSpeech(text, voice = 'nova') {
     return res.blob();
 }
 
+// ── Tasks ──
+export async function createTask(data) {
+    return fetchJSON('/tasks', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function listTasks(limit = 20) {
+    return fetchJSON(`/tasks?limit=${limit}`);
+}
+export async function getTask(taskId) {
+    return fetchJSON(`/tasks/${taskId}`);
+}
+export function streamTaskRun(taskId, onChunk, onDone, onError) {
+    fetch(`${API_BASE}/tasks/${taskId}/run`, { method: 'POST' })
+        .then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            function read() {
+                reader.read().then(({ done, value }) => {
+                    if (done) { onDone && onDone(); return; }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6).trim();
+                            if (data === '[DONE]') { onDone && onDone(); return; }
+                            try { onChunk(JSON.parse(data)); } catch (_) {}
+                        }
+                    }
+                    read();
+                }).catch(err => onError && onError(err));
+            }
+            read();
+        }).catch(err => onError && onError(err));
+}
+
+// ── Evaluation ──
+export async function evaluateResponse(data) {
+    return fetchJSON('/evaluation/score', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function getEvalHistory(agentId, limit = 20) {
+    const q = agentId ? `?agent_id=${agentId}&limit=${limit}` : `?limit=${limit}`;
+    return fetchJSON(`/evaluation/history${q}`);
+}
+export async function getEvalDimensions() {
+    return fetchJSON('/evaluation/dimensions');
+}
+export async function getLatestEval(agentId) {
+    const q = agentId ? `?agent_id=${agentId}` : '';
+    return fetchJSON(`/evaluation/latest${q}`);
+}
+
+// ── Intelligence ──
+export async function createFeed(data) {
+    return fetchJSON('/intelligence/feeds', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function listFeeds() {
+    return fetchJSON('/intelligence/feeds');
+}
+export async function deleteFeed(feedId) {
+    return fetchJSON(`/intelligence/feeds/${feedId}`, { method: 'DELETE' });
+}
+export async function createTarget(data) {
+    return fetchJSON('/intelligence/targets', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function listTargets() {
+    return fetchJSON('/intelligence/targets');
+}
+export async function createSafetyFilter(data) {
+    return fetchJSON('/intelligence/filters', { method: 'POST', body: JSON.stringify(data) });
+}
+export async function listSafetyFilters() {
+    return fetchJSON('/intelligence/filters');
+}
+export async function getIntelDashboard() {
+    return fetchJSON('/intelligence/dashboard');
+}
+export async function listArticles(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return fetchJSON(`/intelligence/articles?${q}`);
+}
+export function streamBatchAnalysis(onChunk, onDone, onError) {
+    fetch(`${API_BASE}/intelligence/analyze`, { method: 'POST' })
+        .then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            function read() {
+                reader.read().then(({ done, value }) => {
+                    if (done) { onDone && onDone(); return; }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6).trim();
+                            if (data === '[DONE]') { onDone && onDone(); return; }
+                            try { onChunk(JSON.parse(data)); } catch (_) {}
+                        }
+                    }
+                    read();
+                }).catch(err => onError && onError(err));
+            }
+            read();
+        }).catch(err => onError && onError(err));
+}
+
 /**
  * Stream a chat completion via SSE.
  * @param {string} query

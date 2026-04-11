@@ -229,6 +229,15 @@ async function goToPage(page) {
     } else if (page === 'audit') {
         content.innerHTML = mod.page_auditLogs();
         loadAuditPage();
+    } else if (page === 'workspace') {
+        content.innerHTML = mod.page_workspace();
+        loadWorkspace();
+    } else if (page === 'quality') {
+        content.innerHTML = mod.page_agentQuality();
+        loadQualityPage();
+    } else if (page === 'intelligence') {
+        content.innerHTML = mod.page_intelligence();
+        loadIntelligenceDashboard();
     }
 
     document.querySelectorAll('.step-btn').forEach(btn => {
@@ -1895,6 +1904,437 @@ function addConnectorToWorkflow() {
     wfEditor.addNode('conn_' + currentConnectorId, 1, 1, 200, 200, '', {type: 'conn_' + currentConnectorId}, wfNodeHtml(cfg.icon, cfg.name, 'connector'));
     showToast(cfg.name + ' added to workflow');
     closeConnectorConfig();
+}
+
+// =========================================================================
+// WORKSPACE (Task delegation)
+// =========================================================================
+
+var currentTaskId = null;
+
+async function loadWorkspace() {
+    try {
+        const api = await import('./api.js');
+        const data = await api.listTasks(30);
+        const tasks = data.tasks || [];
+        const list = document.getElementById('ws-task-list');
+        const activeEl = document.getElementById('ws-active-count');
+        const compEl = document.getElementById('ws-completed-count');
+        if (activeEl) activeEl.textContent = tasks.filter(t => t.status === 'running' || t.status === 'planning').length;
+        if (compEl) compEl.textContent = tasks.filter(t => t.status === 'completed').length;
+
+        if (!list || tasks.length === 0) return;
+        list.innerHTML = tasks.map(t => {
+            const statusColors = { pending: 'var(--text-muted)', planning: 'var(--warning)', running: 'var(--accent)', completed: 'var(--success)', failed: '#ef4444' };
+            return `<div class="t-card p-2.5 cursor-pointer" style="border-radius:var(--radius);" onclick="selectTask('${t.id}')">
+                <div class="flex items-center justify-between mb-0.5">
+                    <p class="text-[11px] font-semibold truncate" style="color:var(--text-primary);max-width:180px;">${escapeHtml(t.title)}</p>
+                    <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${statusColors[t.status] || 'var(--text-muted)'};"></span>
+                </div>
+                <p class="text-[9px] truncate" style="color:var(--text-muted);">${escapeHtml(t.description)}</p>
+                ${t.progress > 0 && t.progress < 100 ? `<div class="w-full h-1 rounded-full mt-1" style="background:var(--border-default);"><div class="h-full rounded-full" style="background:var(--accent);width:${t.progress}%;"></div></div>` : ''}
+            </div>`;
+        }).join('');
+    } catch (_) {}
+}
+
+async function selectTask(taskId) {
+    currentTaskId = taskId;
+    try {
+        const api = await import('./api.js');
+        const task = await api.getTask(taskId);
+        const detail = document.getElementById('ws-task-detail');
+        if (!detail) return;
+
+        const steps = task.steps || [];
+        const statusColors = { pending: 'var(--text-muted)', running: 'var(--accent)', completed: 'var(--success)', failed: '#ef4444' };
+        const statusIcons = { pending: 'schedule', running: 'sync', completed: 'check_circle', failed: 'error' };
+
+        detail.innerHTML = `
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">${escapeHtml(task.title)}</h3>
+                    <p class="text-[10px]" style="color:var(--text-muted);">${escapeHtml(task.description)}</p>
+                </div>
+                ${task.status === 'pending' ? `<button onclick="runTask('${taskId}')" class="px-2.5 py-1.5 text-[10px] font-medium text-white flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);"><span class="material-icons-outlined text-xs">play_arrow</span>Execute</button>` : ''}
+            </div>
+            <div class="space-y-1.5" id="ws-steps-timeline">
+                ${steps.length ? steps.map(s => `
+                    <div class="flex items-start gap-2 p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                        <span class="material-icons-outlined text-sm mt-0.5 ${s.status === 'running' ? 'tool-running' : ''}" style="color:${statusColors[s.status] || 'var(--text-muted)'};">${statusIcons[s.status] || 'schedule'}</span>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-[11px] font-medium" style="color:var(--text-primary);">${escapeHtml(s.title)}</p>
+                            ${s.result ? `<p class="text-[9px] mt-0.5 line-clamp-3" style="color:var(--text-muted);">${escapeHtml(s.result.substring(0, 200))}...</p>` : ''}
+                            ${s.duration_ms ? `<span class="text-[8px] font-mono" style="color:var(--text-muted);">${s.duration_ms}ms</span>` : ''}
+                        </div>
+                    </div>
+                `).join('') : '<p class="text-[10px] text-center py-4" style="color:var(--text-muted);">Task not yet executed</p>'}
+            </div>
+            ${task.artifacts && task.artifacts.report ? `
+                <div class="mt-3 p-3" style="background:var(--bg-elevated);border-radius:var(--radius);border:1px solid var(--border-default);">
+                    <h4 class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-muted);">Final Report</h4>
+                    <div class="prose-chat text-[11px]" style="color:var(--text-secondary);">${renderMarkdown(task.artifacts.report)}</div>
+                </div>` : ''}`;
+    } catch (_) {}
+}
+
+async function runTask(taskId) {
+    const api = await import('./api.js');
+    const timeline = document.getElementById('ws-steps-timeline');
+
+    api.streamTaskRun(taskId,
+        (event) => {
+            if (!timeline) return;
+            if (event.type === 'task_plan') {
+                const steps = event.steps || [];
+                timeline.innerHTML = steps.map(s => `
+                    <div class="flex items-start gap-2 p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);" id="ws-step-${s.id}">
+                        <span class="material-icons-outlined text-sm mt-0.5" style="color:var(--text-muted);">schedule</span>
+                        <div class="flex-1"><p class="text-[11px] font-medium" style="color:var(--text-primary);">${escapeHtml(s.title)}</p></div>
+                    </div>`).join('');
+            } else if (event.type === 'task_step') {
+                const el = document.getElementById('ws-step-' + event.step.id);
+                if (el) {
+                    const icon = el.querySelector('.material-icons-outlined');
+                    icon.textContent = 'sync';
+                    icon.classList.add('tool-running');
+                    icon.style.color = 'var(--accent)';
+                }
+            } else if (event.type === 'task_step_complete') {
+                const el = document.getElementById('ws-step-' + event.step.id);
+                if (el) {
+                    const icon = el.querySelector('.material-icons-outlined');
+                    icon.textContent = event.step.status === 'completed' ? 'check_circle' : 'error';
+                    icon.classList.remove('tool-running');
+                    icon.style.color = event.step.status === 'completed' ? 'var(--success)' : '#ef4444';
+                    const div = el.querySelector('.flex-1');
+                    div.innerHTML += `<p class="text-[9px] mt-0.5" style="color:var(--text-muted);">${escapeHtml((event.step.result || '').substring(0, 200))}</p><span class="text-[8px] font-mono" style="color:var(--text-muted);">${event.step.duration_ms}ms</span>`;
+                }
+            } else if (event.type === 'task_complete') {
+                showToast('Mission completed');
+                selectTask(taskId);
+                loadWorkspace();
+            }
+        },
+        () => {},
+        (err) => showToast('Task error: ' + err.message)
+    );
+}
+
+function openTaskModal() {
+    document.getElementById('task-modal').classList.remove('hidden');
+}
+function closeTaskModal() {
+    document.getElementById('task-modal').classList.add('hidden');
+}
+
+async function submitTask() {
+    const title = document.getElementById('task-title').value.trim();
+    const desc = document.getElementById('task-desc').value.trim();
+    if (!desc) { showToast('Please describe the mission'); return; }
+    try {
+        const api = await import('./api.js');
+        const task = await api.createTask({ title, description: desc });
+        closeTaskModal();
+        showToast('Mission created');
+        loadWorkspace();
+        runTask(task.id);
+    } catch (e) { showToast('Error: ' + e.message); }
+}
+
+// =========================================================================
+// AGENT QUALITY (ProofAgent-style evaluation)
+// =========================================================================
+
+var qualityChart = null;
+
+async function loadQualityPage() {
+    try {
+        const api = await import('./api.js');
+        const data = await api.getLatestEval();
+        if (data.evaluation) renderQualityScores(data.evaluation);
+
+        const hist = await api.getEvalHistory(null, 10);
+        renderEvalHistory(hist.evaluations || []);
+    } catch (_) {}
+}
+
+function renderQualityScores(evaluation) {
+    const scores = evaluation.scores || {};
+    const dims = ['task_success','relevance','instruction_following','coherence','hallucination','tone','conciseness','safety','policy','drift','manipulation','tool_use'];
+
+    dims.forEach(d => {
+        const bar = document.querySelector(`[data-quality-bar="${d}"]`);
+        const label = document.querySelector(`[data-quality-score="${d}"]`);
+        if (bar) bar.style.width = (scores[d] || 0) + '%';
+        if (label) label.textContent = (scores[d] || 0);
+    });
+
+    const compositeEl = document.getElementById('quality-composite');
+    if (compositeEl) compositeEl.textContent = evaluation.composite_score?.toFixed(1) || '—';
+
+    renderRadarChart(scores);
+
+    if (evaluation.claim_audit) {
+        const claimsEl = document.getElementById('quality-claims');
+        if (claimsEl) {
+            const claims = evaluation.claim_audit.claims || [];
+            claimsEl.innerHTML = claims.map(c => `
+                <div class="flex items-start gap-1.5 p-1.5" style="background:var(--bg-elevated);border-radius:var(--radius-xs);">
+                    <span class="material-icons-outlined text-xs mt-0.5" style="color:${c.supported ? 'var(--success)' : 'var(--warning)'};">${c.supported ? 'check_circle' : 'warning'}</span>
+                    <p class="text-[9px]" style="color:var(--text-secondary);">${escapeHtml(c.claim)}</p>
+                </div>
+            `).join('') || '<p class="text-[10px]" style="color:var(--text-muted);">No claims extracted</p>';
+        }
+    }
+}
+
+function renderRadarChart(scores) {
+    const canvas = document.getElementById('quality-radar');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    const labels = ['Task Success','Relevance','Instruct.','Coherence','Halluc.','Tone','Concise.','Safety','Policy','Drift','Manip.','Tool Use'];
+    const dims = ['task_success','relevance','instruction_following','coherence','hallucination','tone','conciseness','safety','policy','drift','manipulation','tool_use'];
+    const values = dims.map(d => scores[d] || 0);
+
+    if (qualityChart) qualityChart.destroy();
+
+    const accentRgb = '0, 188, 212';
+    qualityChart = new Chart(canvas, {
+        type: 'radar',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                backgroundColor: `rgba(${accentRgb}, 0.15)`,
+                borderColor: `rgba(${accentRgb}, 0.8)`,
+                pointBackgroundColor: `rgba(${accentRgb}, 1)`,
+                pointRadius: 3,
+                pointHoverRadius: 5,
+                borderWidth: 1.5,
+            }]
+        },
+        options: {
+            responsive: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                r: {
+                    beginAtZero: true,
+                    max: 100,
+                    ticks: { display: false, stepSize: 25 },
+                    grid: { color: 'rgba(255,255,255,0.06)' },
+                    angleLines: { color: 'rgba(255,255,255,0.06)' },
+                    pointLabels: { color: 'rgba(255,255,255,0.5)', font: { size: 9, family: 'Inter' } },
+                }
+            }
+        }
+    });
+}
+
+function renderEvalHistory(evaluations) {
+    const el = document.getElementById('quality-history');
+    if (!el || !evaluations.length) return;
+    el.innerHTML = evaluations.map(e => `
+        <div class="flex items-center justify-between p-1.5" style="background:var(--bg-elevated);border-radius:var(--radius-xs);">
+            <span class="text-[9px] font-mono" style="color:var(--text-muted);">${e.created_at ? new Date(e.created_at).toLocaleString() : '—'}</span>
+            <span class="text-[10px] font-bold" style="color:var(--accent);">${e.composite_score?.toFixed(1)}</span>
+        </div>
+    `).join('');
+}
+
+async function triggerManualEval() {
+    showToast('Running evaluation...');
+}
+
+// =========================================================================
+// INTELLIGENCE DASHBOARD
+// =========================================================================
+
+var sentimentChart = null;
+var entityChart = null;
+
+async function loadIntelligenceDashboard() {
+    try {
+        const api = await import('./api.js');
+        const data = await api.getIntelDashboard();
+        const kpis = data.kpis || {};
+        const el = (id) => document.getElementById(id);
+        if (el('intel-total-articles')) el('intel-total-articles').textContent = kpis.total_articles || 0;
+        if (el('intel-active-feeds')) el('intel-active-feeds').textContent = kpis.active_feeds || 0;
+        if (el('intel-high-risk')) el('intel-high-risk').textContent = kpis.high_risk || 0;
+        if (el('intel-analyzed')) el('intel-analyzed').textContent = kpis.analyzed || 0;
+
+        renderSentimentChart(data.sentiment || {});
+        renderEntityChart(data.top_entities || []);
+        renderArticles(data.articles || []);
+    } catch (_) {}
+}
+
+function renderSentimentChart(sentiment) {
+    const canvas = document.getElementById('intel-sentiment-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    if (sentimentChart) sentimentChart.destroy();
+    sentimentChart = new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels: ['Positive', 'Negative', 'Neutral', 'Mixed'],
+            datasets: [{
+                data: [sentiment.positive || 0, sentiment.negative || 0, sentiment.neutral || 0, sentiment.mixed || 0],
+                backgroundColor: ['rgba(16,185,129,0.7)', 'rgba(239,68,68,0.7)', 'rgba(148,163,184,0.5)', 'rgba(245,158,11,0.7)'],
+                borderWidth: 0,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'right', labels: { color: 'rgba(255,255,255,0.5)', font: { size: 10 }, boxWidth: 12 } } },
+            cutout: '55%',
+        }
+    });
+}
+
+function renderEntityChart(entities) {
+    const canvas = document.getElementById('intel-entity-chart');
+    if (!canvas || typeof Chart === 'undefined' || !entities.length) return;
+    if (entityChart) entityChart.destroy();
+    entityChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: entities.slice(0, 10).map(e => e.name),
+            datasets: [{
+                data: entities.slice(0, 10).map(e => e.count),
+                backgroundColor: 'rgba(0,188,212,0.6)',
+                borderRadius: 3,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 9 } } },
+                y: { grid: { display: false }, ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 9 } } },
+            }
+        }
+    });
+}
+
+function renderArticles(articles) {
+    const el = document.getElementById('intel-articles');
+    if (!el || !articles.length) return;
+    const riskColors = { low: 'var(--success)', medium: 'var(--warning)', high: '#ef4444', critical: '#dc2626' };
+    const sentColors = { positive: 'var(--success)', negative: '#ef4444', neutral: 'var(--text-muted)', mixed: 'var(--warning)' };
+    el.innerHTML = articles.map(a => `
+        <div class="flex items-start gap-2.5 p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5 mb-0.5">
+                    <a href="${a.url}" target="_blank" class="text-[11px] font-medium truncate" style="color:var(--text-primary);">${escapeHtml(a.title)}</a>
+                </div>
+                ${a.summary ? `<p class="text-[9px] line-clamp-2" style="color:var(--text-muted);">${escapeHtml(a.summary)}</p>` : ''}
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+                <span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:${sentColors[a.sentiment] || 'var(--text-muted)'}15;color:${sentColors[a.sentiment] || 'var(--text-muted)'};border-radius:var(--radius-xs);">${a.sentiment || 'n/a'}</span>
+                <span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:${riskColors[a.risk_level] || 'var(--text-muted)'}15;color:${riskColors[a.risk_level] || 'var(--text-muted)'};border-radius:var(--radius-xs);">${a.risk_level || 'n/a'}</span>
+                ${a.safety_flag !== 'clear' ? `<span class="material-icons-outlined text-xs" style="color:var(--warning);">shield</span>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+async function runBatchAnalysis() {
+    const bar = document.getElementById('intel-batch-bar');
+    const progress = document.getElementById('intel-batch-progress');
+    const status = document.getElementById('intel-batch-status');
+    if (bar) bar.classList.remove('hidden');
+
+    const api = await import('./api.js');
+    api.streamBatchAnalysis(
+        (event) => {
+            if (progress) progress.style.width = (event.progress || 0) + '%';
+            if (status) status.textContent = event.type === 'batch_complete' ? 'Complete' : `${event.type.replace('batch_', '')}...`;
+            if (event.type === 'batch_complete') {
+                setTimeout(() => { if (bar) bar.classList.add('hidden'); loadIntelligenceDashboard(); }, 1500);
+            }
+        },
+        () => {},
+        (err) => { showToast('Batch error: ' + err.message); if (bar) bar.classList.add('hidden'); }
+    );
+}
+
+function openIntelConfig() {
+    document.getElementById('intel-config-modal').classList.remove('hidden');
+    loadIntelConfigData();
+}
+function closeIntelConfig() {
+    document.getElementById('intel-config-modal').classList.add('hidden');
+}
+
+async function loadIntelConfigData() {
+    try {
+        const api = await import('./api.js');
+        const [feeds, targets, filters] = await Promise.all([api.listFeeds(), api.listTargets(), api.listSafetyFilters()]);
+
+        const feedsList = document.getElementById('intel-feeds-list');
+        if (feedsList) feedsList.innerHTML = (feeds.feeds || []).map(f => `
+            <div class="flex items-center justify-between p-1.5" style="background:var(--bg-elevated);border-radius:var(--radius-xs);">
+                <div><p class="text-[10px] font-medium" style="color:var(--text-primary);">${escapeHtml(f.name)}</p><p class="text-[8px] font-mono truncate" style="color:var(--text-muted);max-width:250px;">${escapeHtml(f.url)}</p></div>
+                <span class="w-1.5 h-1.5 rounded-full" style="background:${f.active ? 'var(--success)' : 'var(--text-muted)'};"></span>
+            </div>`).join('') || '<p class="text-[9px]" style="color:var(--text-muted);">No feeds configured</p>';
+
+        const targetsList = document.getElementById('intel-targets-list');
+        if (targetsList) targetsList.innerHTML = (targets.targets || []).map(t => `
+            <div class="p-1.5" style="background:var(--bg-elevated);border-radius:var(--radius-xs);">
+                <p class="text-[10px] font-medium" style="color:var(--text-primary);">${escapeHtml(t.name)}</p>
+                <p class="text-[8px]" style="color:var(--text-muted);">${escapeHtml(t.description).substring(0, 100)}</p>
+            </div>`).join('') || '<p class="text-[9px]" style="color:var(--text-muted);">No targets configured</p>';
+
+        const filtersList = document.getElementById('intel-filters-list');
+        if (filtersList) filtersList.innerHTML = (filters.filters || []).map(f => `
+            <div class="p-1.5" style="background:var(--bg-elevated);border-radius:var(--radius-xs);">
+                <p class="text-[10px] font-medium" style="color:var(--text-primary);">${escapeHtml(f.name)}</p>
+                <p class="text-[8px]" style="color:var(--text-muted);">${escapeHtml(f.prompt_template).substring(0, 80)}</p>
+            </div>`).join('') || '<p class="text-[9px]" style="color:var(--text-muted);">No filters configured</p>';
+    } catch (_) {}
+}
+
+async function addFeed() {
+    const name = document.getElementById('intel-feed-name').value.trim();
+    const url = document.getElementById('intel-feed-url').value.trim();
+    if (!name || !url) { showToast('Name and URL required'); return; }
+    try {
+        const api = await import('./api.js');
+        await api.createFeed({ name, url });
+        showToast('Feed added');
+        document.getElementById('intel-feed-name').value = '';
+        document.getElementById('intel-feed-url').value = '';
+        loadIntelConfigData();
+    } catch (e) { showToast('Error: ' + e.message); }
+}
+
+async function addTarget() {
+    const name = document.getElementById('intel-target-name').value.trim();
+    const desc = document.getElementById('intel-target-desc').value.trim();
+    if (!name || !desc) { showToast('Name and description required'); return; }
+    try {
+        const api = await import('./api.js');
+        await api.createTarget({ name, description: desc });
+        showToast('Target added');
+        document.getElementById('intel-target-name').value = '';
+        document.getElementById('intel-target-desc').value = '';
+        loadIntelConfigData();
+    } catch (e) { showToast('Error: ' + e.message); }
+}
+
+async function addSafetyFilter() {
+    const name = document.getElementById('intel-filter-name').value.trim();
+    const prompt = document.getElementById('intel-filter-prompt').value.trim();
+    if (!name || !prompt) { showToast('Name and prompt required'); return; }
+    try {
+        const api = await import('./api.js');
+        await api.createSafetyFilter({ name, prompt_template: prompt });
+        showToast('Safety filter added');
+        document.getElementById('intel-filter-name').value = '';
+        document.getElementById('intel-filter-prompt').value = '';
+        loadIntelConfigData();
+    } catch (e) { showToast('Error: ' + e.message); }
 }
 
 // Initialize - wait for login, don't render content yet
