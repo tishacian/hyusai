@@ -412,8 +412,8 @@ function showToast(msg) {
     if (existing) existing.remove();
     const toast = document.createElement('div');
     toast.id = 'toast-msg';
-    toast.className = 'fixed bottom-4 right-4 z-[9999] px-3.5 py-2.5 text-[12px] rounded-xl flex items-center gap-2 animate-slideUp';
-    toast.style.cssText = 'background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-default);box-shadow:0 8px 32px rgba(0,0,0,0.3);';
+    toast.className = 'fixed bottom-4 right-4 z-[9999] px-3 py-2 text-[11px] flex items-center gap-2 animate-slideUp';
+    toast.style.cssText = 'background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-default);box-shadow:0 4px 16px rgba(0,0,0,0.2);border-radius:var(--radius-sm);';
     toast.innerHTML = `<span class="material-icons-outlined text-sm" style="color:var(--accent);">info</span>${msg}`;
     document.body.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 2500);
@@ -694,26 +694,26 @@ function loadAgentsPage() {
         const date = new Date(agent.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         const pc = providerColors[agent.provider] || 'slate';
         return `
-        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 hover:border-brand-200 hover:bg-brand-50 transition-colors group">
-            <div class="flex items-center gap-3 min-w-0">
-                <div class="w-8 h-8 rounded-md bg-brand-100 flex items-center justify-center shrink-0">
-                    <span class="material-icons-outlined text-brand-600 text-base">smart_toy</span>
+        <div class="flex items-center justify-between p-2.5 transition-colors group" style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:var(--radius);">
+            <div class="flex items-center gap-2.5 min-w-0">
+                <div class="w-7 h-7 flex items-center justify-center shrink-0" style="background:var(--accent-subtle);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-base" style="color:var(--accent);">smart_toy</span>
                 </div>
                 <div class="min-w-0">
-                    <p class="text-[13px] font-semibold text-slate-800 truncate">${escapeHtml(agent.name)}</p>
+                    <p class="text-[12px] font-semibold truncate" style="color:var(--text-primary);">${escapeHtml(agent.name)}</p>
                     <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                        <span class="px-1.5 py-0.5 text-[9px] font-medium bg-slate-200 text-slate-600 rounded">${escapeHtml(agent.type)}</span>
-                        <span class="px-1.5 py-0.5 text-[9px] font-medium bg-${pc}-100 text-${pc}-700 rounded">${escapeHtml(agent.model)}</span>
-                        <span class="text-[10px] text-slate-400">${date}</span>
+                        <span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:var(--bg-card);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-xs);">${escapeHtml(agent.type)}</span>
+                        <span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:var(--accent-subtle);color:var(--accent);border-radius:var(--radius-xs);">${escapeHtml(agent.model)}</span>
+                        <span class="text-[9px] font-mono" style="color:var(--text-muted);">${date}</span>
                     </div>
                 </div>
             </div>
-            <div class="flex items-center gap-2 shrink-0">
-                <button onclick="chatWithAgent('${agent.id}')" class="px-2.5 py-1.5 text-[11px] font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors flex items-center gap-1">
-                    <span class="material-icons-outlined text-sm">chat</span>Chat
+            <div class="flex items-center gap-1.5 shrink-0">
+                <button onclick="chatWithAgent('${agent.id}')" class="px-2 py-1 text-[10px] font-medium text-white transition-colors flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-xs">chat</span>Chat
                 </button>
-                <button onclick="deleteAgent('${agent.id}')" class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
-                    <span class="material-icons-outlined text-slate-400 hover:text-red-500 text-sm">delete</span>
+                <button onclick="deleteAgent('${agent.id}')" class="w-6 h-6 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100" style="border-radius:var(--radius-xs);">
+                    <span class="material-icons-outlined text-sm" style="color:var(--text-muted);">delete</span>
                 </button>
             </div>
         </div>`;
@@ -765,20 +765,20 @@ async function loadHubAgents() {
     prebuilt.forEach(a => {
         html += `
         <div class="agent-hub-card group" onclick="launchPrebuiltAgent('${a.id}')">
-            <div class="flex items-start justify-between mb-3">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:${a.color}20;">
-                    <span class="material-icons-outlined text-xl" style="color:${a.color};">${a.icon}</span>
+            <div class="flex items-start justify-between mb-2.5">
+                <div class="w-8 h-8 flex items-center justify-center" style="background:${a.color}15;border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-lg" style="color:${a.color};">${a.icon}</span>
                 </div>
-                <div class="flex items-center gap-1.5">
-                    <span class="w-2 h-2 rounded-full" style="background:var(--success);"></span>
-                    <span class="text-[10px] font-medium" style="color:var(--success);">Ready</span>
+                <div class="flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full" style="background:var(--success);"></span>
+                    <span class="text-[9px] font-medium" style="color:var(--success);">Ready</span>
                 </div>
             </div>
-            <h3 class="text-[14px] font-semibold mb-1" style="color:var(--text-primary);">${a.name}</h3>
-            <p class="text-[11px] leading-relaxed mb-3" style="color:var(--text-muted);">${a.desc}</p>
-            <div class="flex items-center gap-2">
-                <span class="px-2 py-0.5 text-[9px] font-medium rounded-md" style="background:var(--accent-subtle);color:var(--accent);">${a.model}</span>
-                <span class="px-2 py-0.5 text-[9px] font-medium rounded-md" style="background:var(--bg-elevated);color:var(--text-muted);">${a.type}</span>
+            <h3 class="text-[13px] font-semibold mb-0.5" style="color:var(--text-primary);">${a.name}</h3>
+            <p class="text-[10px] leading-relaxed mb-2.5" style="color:var(--text-muted);">${a.desc}</p>
+            <div class="flex items-center gap-1.5">
+                <span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:var(--accent-subtle);color:var(--accent);border-radius:var(--radius-xs);">${a.model}</span>
+                <span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:var(--bg-elevated);color:var(--text-muted);border-radius:var(--radius-xs);">${a.type}</span>
             </div>
         </div>`;
     });
@@ -786,25 +786,25 @@ async function loadHubAgents() {
     savedAgents.forEach(a => {
         html += `
         <div class="agent-hub-card group" onclick="chatWithAgent('${a.id}')">
-            <div class="flex items-start justify-between mb-3">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:var(--accent-subtle);">
-                    <span class="material-icons-outlined text-xl" style="color:var(--accent);">smart_toy</span>
+            <div class="flex items-start justify-between mb-2.5">
+                <div class="w-8 h-8 flex items-center justify-center" style="background:var(--accent-subtle);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-lg" style="color:var(--accent);">smart_toy</span>
                 </div>
-                <span class="text-[10px] font-mono" style="color:var(--text-muted);">Custom</span>
+                <span class="text-[9px] font-mono" style="color:var(--text-muted);">Custom</span>
             </div>
-            <h3 class="text-[14px] font-semibold mb-1" style="color:var(--text-primary);">${escapeHtml(a.name)}</h3>
-            <p class="text-[11px] mb-3" style="color:var(--text-muted);">Custom agent &middot; ${escapeHtml(a.type)}</p>
-            <div class="flex items-center gap-2">
-                <span class="px-2 py-0.5 text-[9px] font-medium rounded-md" style="background:var(--accent-subtle);color:var(--accent);">${escapeHtml(a.model)}</span>
+            <h3 class="text-[13px] font-semibold mb-0.5" style="color:var(--text-primary);">${escapeHtml(a.name)}</h3>
+            <p class="text-[10px] mb-2.5" style="color:var(--text-muted);">Custom agent &middot; ${escapeHtml(a.type)}</p>
+            <div class="flex items-center gap-1.5">
+                <span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:var(--accent-subtle);color:var(--accent);border-radius:var(--radius-xs);">${escapeHtml(a.model)}</span>
             </div>
         </div>`;
     });
 
     html += `
-    <div class="agent-hub-card agent-hub-create flex flex-col items-center justify-center text-center" onclick="goToStep(1)" style="min-height:180px;">
-        <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">add_circle_outline</span>
-        <p class="text-[13px] font-semibold" style="color:var(--text-secondary);">Create Agent</p>
-        <p class="text-[11px] mt-0.5" style="color:var(--text-muted);">Build from scratch</p>
+    <div class="agent-hub-card agent-hub-create flex flex-col items-center justify-center text-center" onclick="goToStep(1)" style="min-height:160px;">
+        <span class="material-icons-outlined text-2xl mb-1.5" style="color:var(--text-muted);">add</span>
+        <p class="text-[12px] font-semibold" style="color:var(--text-secondary);">Create Agent</p>
+        <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Build from scratch</p>
     </div>`;
 
     grid.innerHTML = html;
@@ -889,19 +889,20 @@ async function handleFiles(files) {
     const container = document.getElementById('uploaded-files');
     for (const file of files) {
         const row = document.createElement('div');
-        row.className = 'flex items-center justify-between p-3 bg-brand-50 border border-brand-200 rounded-lg';
+        row.className = 'flex items-center justify-between p-2.5';
+        row.style.cssText = 'background:var(--accent-subtle);border:1px solid var(--border-active);border-radius:var(--radius-sm);';
         const isPdf = file.name.toLowerCase().endsWith('.pdf');
         const icon = isPdf ? 'picture_as_pdf' : 'upload_file';
         row.innerHTML = `
-            <div class="flex items-center gap-3">
-                <span class="material-icons-outlined ${isPdf ? 'text-red-500' : 'text-brand-500'}">${icon}</span>
+            <div class="flex items-center gap-2.5">
+                <span class="material-icons-outlined text-base" style="color:${isPdf ? 'var(--error)' : 'var(--accent)'};">${icon}</span>
                 <div>
-                    <p class="text-sm font-medium text-slate-800">${escapeHtml(file.name)}</p>
-                    <p class="text-xs text-slate-500">${(file.size / 1024).toFixed(1)} KB</p>
+                    <p class="text-[12px] font-medium" style="color:var(--text-primary);">${escapeHtml(file.name)}</p>
+                    <p class="text-[10px]" style="color:var(--text-muted);">${(file.size / 1024).toFixed(1)} KB</p>
                 </div>
             </div>
             <div class="flex items-center gap-2">
-                <span class="upload-status px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">Uploading...</span>
+                <span class="upload-status px-1.5 py-0.5 text-[9px] font-medium" style="background:rgba(245,158,11,0.12);color:var(--warning);border-radius:var(--radius-xs);">Uploading...</span>
             </div>
         `;
         container.appendChild(row);
@@ -916,7 +917,8 @@ async function handleFiles(files) {
             setTimeout(() => row.remove(), 310);
         } catch (e) {
             const badge = row.querySelector('.upload-status');
-            badge.className = 'upload-status px-2 py-0.5 text-xs font-medium bg-red-100 text-red-700 rounded-full';
+            badge.className = 'upload-status px-1.5 py-0.5 text-[9px] font-medium';
+            badge.style.cssText = 'background:rgba(239,68,68,0.12);color:var(--error);border-radius:var(--radius-xs);';
             badge.textContent = 'Error';
         }
     }
