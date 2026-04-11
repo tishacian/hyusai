@@ -427,7 +427,7 @@ export function page_accessRoles() {
         { initials: 'EC', name: 'Eric Chau', email: 'eric.chau@presight.ai', color: 'emerald', role: 'Admin' },
         { initials: 'MC', name: 'Mehdi Chouiten', email: 'mehdi.chouiten@presight.ai', color: 'violet', role: 'Admin' },
         { initials: 'HK', name: 'Hermann Kuetat', email: 'hermann.kuetat@presight.ai', color: 'amber', role: 'User' },
-        { initials: 'ED', name: 'Enzo Damion', email: 'enzo.damion@datategy.net', color: 'indigo', role: 'Admin' },
+        { initials: 'ED', name: 'Enzo Damion', email: 'enzo.damion@presight.ai', color: 'indigo', role: 'Admin' },
     ];
 
     const currentEmail = (typeof currentUser !== 'undefined') ? currentUser.email : '';
@@ -495,7 +495,7 @@ export function page_accessRoles() {
                 <div class="grid grid-cols-2 gap-2 text-[11px]">
                     <div><span class="text-slate-500">Provider:</span> <span class="font-medium text-slate-800">Keycloak 24.x</span></div>
                     <div><span class="text-slate-500">Protocol:</span> <span class="font-medium text-slate-800">OIDC / OAuth 2.0</span></div>
-                    <div><span class="text-slate-500">Realm:</span> <span class="font-medium text-slate-800">datategy</span></div>
+                    <div><span class="text-slate-500">Realm:</span> <span class="font-medium text-slate-800">enterprise</span></div>
                     <div><span class="text-slate-500">SSO:</span> <span class="font-medium text-emerald-700">Enabled</span></div>
                 </div>
             </div>

@@ -38,7 +38,7 @@ function toggleTheme() {
     const html = document.documentElement;
     const isDark = html.getAttribute('data-theme') === 'dark';
     html.setAttribute('data-theme', isDark ? 'light' : 'dark');
-    localStorage.setItem('omnirag_theme', isDark ? 'light' : 'dark');
+    localStorage.setItem('aip_theme', isDark ? 'light' : 'dark');
     const icon = document.getElementById('theme-icon');
     if (icon) icon.textContent = isDark ? 'dark_mode' : 'light_mode';
 }
@@ -55,7 +55,7 @@ function toggleBuilderNav() {
 }
 
 (function initTheme() {
-    const saved = localStorage.getItem('omnirag_theme');
+    const saved = localStorage.getItem('aip_theme');
     if (saved) document.documentElement.setAttribute('data-theme', saved);
     const icon = document.getElementById('theme-icon');
     if (icon) icon.textContent = (saved || 'dark') === 'dark' ? 'light_mode' : 'dark_mode';
@@ -648,9 +648,9 @@ function saveCurrentAgent() {
         systemPrompt: savedSystemPrompt || '',
         createdAt: new Date().toISOString(),
     };
-    const agents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
+    const agents = JSON.parse(localStorage.getItem('aip_agents') || '[]');
     agents.unshift(agent);
-    localStorage.setItem('omnirag_agents', JSON.stringify(agents));
+    localStorage.setItem('aip_agents', JSON.stringify(agents));
 
     const actionsEl = document.getElementById('step7-actions');
     if (actionsEl) {
@@ -676,7 +676,7 @@ function saveCurrentAgent() {
 function loadAgentsPage() {
     const container = document.getElementById('agents-list');
     if (!container) return;
-    const agents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
+    const agents = JSON.parse(localStorage.getItem('aip_agents') || '[]');
     if (!agents.length) {
         container.innerHTML = `
             <div class="flex flex-col items-center py-10 text-center">
@@ -721,7 +721,7 @@ function loadAgentsPage() {
 }
 
 function chatWithAgent(agentId) {
-    const agents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
+    const agents = JSON.parse(localStorage.getItem('aip_agents') || '[]');
     const agent = agents.find(a => a.id === agentId);
     if (!agent) return;
     savedAgentName = agent.name;
@@ -735,8 +735,8 @@ function chatWithAgent(agentId) {
 }
 
 function deleteAgent(agentId) {
-    const agents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
-    localStorage.setItem('omnirag_agents', JSON.stringify(agents.filter(a => a.id !== agentId)));
+    const agents = JSON.parse(localStorage.getItem('aip_agents') || '[]');
+    localStorage.setItem('aip_agents', JSON.stringify(agents.filter(a => a.id !== agentId)));
     loadAgentsPage();
     showToast('Agent deleted');
 }
@@ -759,7 +759,7 @@ async function loadHubAgents() {
         { id: 'finance', name: 'Financial Analyst', type: 'Finance', icon: 'account_balance', color: '#10b981', desc: 'Financial statement analysis, budget tracking, forecasting, and expense validation.', model: 'gpt-4o' },
     ];
 
-    const savedAgents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
+    const savedAgents = JSON.parse(localStorage.getItem('aip_agents') || '[]');
 
     let html = '';
     prebuilt.forEach(a => {

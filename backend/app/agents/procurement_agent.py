@@ -1,4 +1,4 @@
-"""OmniRAG Agent -- Generic RAG pipeline
+"""RAG Agent -- Generic RAG pipeline
 
 Full execution streaming pipeline with real-time SSE decision_step events.
 """
@@ -13,7 +13,7 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-SYSTEM_PROMPT = """You are OmniRAG, an intelligent assistant with access to a curated knowledge base.
+SYSTEM_PROMPT = """You are an intelligent assistant with access to a curated knowledge base.
 
 Answer questions accurately and concisely using the retrieved context.
 When the context contains relevant information, cite it specifically.
@@ -26,7 +26,7 @@ class OmniRAGAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             agent_id="rag",
-            name="OmniRAG Agent",
+            name="RAG Agent",
             agent_type="rag",
         )
         self._llm = None

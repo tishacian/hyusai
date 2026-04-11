@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniRAG</title>
+    <title>AI Orchestration Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
@@ -154,9 +154,11 @@
         <div class="w-full max-w-sm mx-4" style="position:relative;z-index:1;">
             <div class="text-center mb-6">
                 <div class="flex items-center justify-center mx-auto mb-3">
-                    <img src="image/logo.png" alt="OmniRAG" class="h-12 w-auto">
+                    <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:var(--accent-subtle);border:1px solid var(--border-active);">
+                        <span class="material-icons-outlined text-2xl" style="color:var(--accent);">hub</span>
+                    </div>
                 </div>
-                <h1 class="text-lg font-semibold tracking-tight" style="color:var(--text-primary);">OmniRAG</h1>
+                <h1 class="text-lg font-semibold tracking-tight" style="color:var(--text-primary);">AI Orchestration Platform</h1>
                 <p class="text-xs mt-0.5" style="color:var(--text-muted);">Intelligent Agent Platform</p>
             </div>
 
@@ -197,12 +199,12 @@
                             <p class="text-[10px] truncate" style="color:var(--text-muted);">hermann.kuetat@presight.ai</p>
                         </div>
                     </button>
-                    <button onclick="selectAccount(this)" data-email="enzo.damion@datategy.net" data-name="Enzo Damion" data-role=""
+                    <button onclick="selectAccount(this)" data-email="enzo.damion@presight.ai" data-name="Enzo Damion" data-role=""
                         class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-transparent text-left transition-all" style="background:transparent;">
                         <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">ED</div>
                         <div class="min-w-0 flex-1">
                             <p class="text-[13px] font-medium truncate" style="color:var(--text-primary);">Enzo Damion</p>
-                            <p class="text-[10px] truncate" style="color:var(--text-muted);">enzo.damion@datategy.net</p>
+                            <p class="text-[10px] truncate" style="color:var(--text-muted);">enzo.damion@presight.ai</p>
                         </div>
                     </button>
                 </div>
@@ -225,7 +227,7 @@
                 </div>
             </div>
 
-            <p class="text-center text-[10px] mt-4" style="color:var(--text-muted);">OmniRAG &middot; Powered by papAI</p>
+            <p class="text-center text-[10px] mt-4" style="color:var(--text-muted);">Secured workspace &middot; Enterprise-grade</p>
         </div>
     </div>
 
@@ -275,9 +277,9 @@
     <aside id="app-sidebar" class="w-[240px] flex flex-col flex-shrink-0 h-full opacity-0 transition-opacity duration-500" style="background:var(--bg-sidebar);border-right:1px solid var(--border-sidebar);">
         <div class="h-12 flex items-center px-4" style="border-bottom:1px solid var(--border-sidebar);">
             <div class="flex items-center gap-2.5 flex-1">
-                <img src="image/logo.png" alt="OmniRAG" class="h-7 w-auto">
+                <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:var(--accent);"><span class="material-icons-outlined text-white text-base">hub</span></div>
                 <div class="flex flex-col">
-                    <span class="font-semibold text-white text-[13px] leading-tight tracking-tight">OmniRAG</span>
+                    <span class="font-semibold text-white text-[13px] leading-tight tracking-tight">Agent Platform</span>
                     <span class="text-[9px] font-mono" style="color:var(--text-muted);">v2.4</span>
                 </div>
             </div>
@@ -352,7 +354,7 @@
         </nav>
 
         <div class="px-3 py-2 text-[9px] text-center" style="border-top:1px solid var(--border-sidebar);color:var(--text-muted);">
-            papAI &middot; Internal Platform
+            AI Orchestration &middot; Internal Platform
         </div>
     </aside>
 
@@ -412,8 +414,8 @@
         </div>
     </div>
 
-    <script src="js/api.js?v=7" type="module"></script>
-    <script src="js/steps.js?v=7" type="module"></script>
-    <script src="js/app.js?v=7"></script>
+    <script src="js/api.js?v=8" type="module"></script>
+    <script src="js/steps.js?v=8" type="module"></script>
+    <script src="js/app.js?v=8"></script>
 </body>
 </html>
