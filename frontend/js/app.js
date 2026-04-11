@@ -266,19 +266,19 @@ function renderDocList(container, docs) {
         const displayName = name.charAt(0).toUpperCase() + name.slice(1);
         const icon = isPdf ? 'picture_as_pdf' : 'description';
         const iconColor = isPdf ? 'text-red-500' : 'text-brand-500';
-        return `<div onclick="openDocPreview('${doc.document_id}', '${escapeHtml(fname)}')" class="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg hover:bg-brand-50 hover:border-brand-200 border border-transparent cursor-pointer transition-colors group">
+        return `<div onclick="openDocPreview('${doc.document_id}', '${escapeHtml(fname)}')" class="flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-all group" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
             <div class="flex items-center gap-2.5 min-w-0">
                 <span class="material-icons-outlined ${iconColor} text-lg">${icon}</span>
                 <div class="min-w-0">
-                    <p class="text-sm font-medium text-slate-800 truncate group-hover:text-brand-700">${escapeHtml(displayName)}</p>
-                    <p class="text-[11px] text-slate-400">${isPdf ? 'PDF' : escapeHtml(doc.document_type || 'document')}</p>
+                    <p class="text-sm font-medium truncate" style="color:var(--text-primary);">${escapeHtml(displayName)}</p>
+                    <p class="text-[11px]" style="color:var(--text-muted);">${isPdf ? 'PDF' : escapeHtml(doc.document_type || 'document')}</p>
                 </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-                <span class="px-2 py-0.5 text-[10px] font-medium bg-emerald-100 text-emerald-700 rounded-full">Indexed</span>
-                <span class="material-icons-outlined text-slate-300 text-sm group-hover:text-brand-400">visibility</span>
-                <button onclick="event.stopPropagation(); deleteIndexedDoc('${doc.document_id}', this)" class="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
-                    <span class="material-icons-outlined text-slate-400 hover:text-red-500 text-sm">delete</span>
+                <span class="px-2 py-0.5 text-[10px] font-medium rounded-full" style="background:rgba(16,185,129,0.15);color:#34d399;">Indexed</span>
+                <span class="material-icons-outlined text-sm" style="color:var(--text-muted);">visibility</span>
+                <button onclick="event.stopPropagation(); deleteIndexedDoc('${doc.document_id}', this)" class="w-6 h-6 flex items-center justify-center rounded transition-colors opacity-0 group-hover:opacity-100">
+                    <span class="material-icons-outlined text-red-500 text-sm">delete</span>
                 </button>
             </div>
         </div>`;

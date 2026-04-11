@@ -82,96 +82,96 @@ export function step1_agentCreation() {
 export function step2_modelSelection() {
     return `
     <div class="max-w-3xl mx-auto space-y-3">
-        <div class="bg-white rounded-lg border border-slate-200 p-4">
+        <div class="t-card rounded-xl p-4">
             <div class="flex items-center gap-2.5 mb-3">
-                <div class="w-7 h-7 rounded-md bg-purple-100 flex items-center justify-center">
-                    <span class="material-icons-outlined text-purple-600 text-lg">model_training</span>
+                <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:rgba(139,92,246,0.15);">
+                    <span class="material-icons-outlined text-purple-500 text-lg">model_training</span>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-slate-900">Connect to a Model</h3>
-                    <p class="text-[11px] text-slate-500">Select the LLM provider and model</p>
+                    <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Connect to a Model</h3>
+                    <p class="text-[11px]" style="color:var(--text-muted);">Select the LLM provider and model</p>
                 </div>
             </div>
 
             <div class="grid grid-cols-3 gap-2 mb-4">
-                <div class="provider-card p-2.5 border-2 border-brand-500 bg-brand-50 rounded-md cursor-pointer relative transition-all" data-provider="openai" onclick="selectProvider(this)">
+                <div class="provider-card p-2.5 border-2 border-brand-500 rounded-lg cursor-pointer relative transition-all" style="background:var(--accent-subtle);" data-provider="openai" onclick="selectProvider(this)">
                     <span class="provider-check absolute top-1.5 right-1.5 w-3.5 h-3.5 rounded-full bg-brand-500 flex items-center justify-center">
                         <span class="material-icons-outlined text-white text-[9px]">check</span>
                     </span>
-                    <p class="text-[13px] font-semibold text-slate-900">OpenAI</p>
-                    <p class="text-[10px] text-slate-500 mt-0.5">GPT-5, GPT-4.5, GPT-4o-mini</p>
+                    <p class="text-[13px] font-semibold" style="color:var(--text-primary);">OpenAI</p>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">GPT-5, GPT-4.5, GPT-4o-mini</p>
                 </div>
-                <div class="provider-card p-2.5 border border-slate-200 rounded-md cursor-pointer hover:border-slate-300 transition-all relative" data-provider="anthropic" onclick="selectProvider(this)">
+                <div class="provider-card p-2.5 rounded-lg cursor-pointer transition-all relative" style="border:1px solid var(--border-default);" data-provider="anthropic" onclick="selectProvider(this)">
                     <span class="provider-check hidden absolute top-1.5 right-1.5 w-3.5 h-3.5 rounded-full bg-brand-500 flex items-center justify-center">
                         <span class="material-icons-outlined text-white text-[9px]">check</span>
                     </span>
-                    <p class="text-[13px] font-semibold text-slate-900">Anthropic</p>
-                    <p class="text-[10px] text-slate-500 mt-0.5">Opus 4.6, Sonnet 4.6, Haiku 4.5</p>
+                    <p class="text-[13px] font-semibold" style="color:var(--text-primary);">Anthropic</p>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Opus 4.6, Sonnet 4.6, Haiku 4.5</p>
                 </div>
-                <div class="provider-card p-2.5 border border-slate-200 rounded-md cursor-pointer hover:border-slate-300 transition-all relative" data-provider="selfhosted" onclick="selectProvider(this)">
+                <div class="provider-card p-2.5 rounded-lg cursor-pointer transition-all relative" style="border:1px solid var(--border-default);" data-provider="selfhosted" onclick="selectProvider(this)">
                     <span class="provider-check hidden absolute top-1.5 right-1.5 w-3.5 h-3.5 rounded-full bg-brand-500 flex items-center justify-center">
                         <span class="material-icons-outlined text-white text-[9px]">check</span>
                     </span>
-                    <p class="text-[13px] font-semibold text-slate-900">Self-hosted</p>
-                    <p class="text-[10px] text-slate-500 mt-0.5">Mistral 3, Gemma 4, Llama 3.1, Phi-4…</p>
+                    <p class="text-[13px] font-semibold" style="color:var(--text-primary);">Self-hosted</p>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Mistral 3, Gemma 4, Llama 3.1, Phi-4…</p>
                 </div>
             </div>
 
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="text-[11px] font-medium text-slate-500 mb-1 block">Model</label>
-                    <select id="model-select" class="w-full px-3 py-1.5 border border-slate-200 rounded-md text-sm bg-white focus:ring-1 focus:ring-brand-500">
+                    <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Model</label>
+                    <select id="model-select" class="t-input w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-1 focus:ring-brand-500">
                         <option value="gpt-5" selected>GPT-5</option>
                         <option value="gpt-4.5">GPT-4.5</option>
                         <option value="gpt-4o-mini">GPT-4o-mini</option>
                     </select>
                 </div>
                 <div>
-                    <label class="text-[11px] font-medium text-slate-500 mb-1 block">Temperature</label>
+                    <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Temperature</label>
                     <input id="temp-slider" type="range" min="0" max="100" value="30" class="w-full" oninput="updateTempLabel(this)">
-                    <p id="temp-label" class="text-[10px] text-slate-500 mt-0.5">0.3 — Precise and deterministic</p>
+                    <p id="temp-label" class="text-[10px] mt-0.5" style="color:var(--text-muted);">0.3 — Precise and deterministic</p>
                 </div>
             </div>
         </div>
 
-        <div class="bg-white rounded-lg border border-slate-200 p-4">
+        <div class="t-card rounded-xl p-4">
             <div class="flex items-center justify-between mb-2.5">
-                <h4 class="text-[13px] font-semibold text-slate-900 flex items-center gap-1.5">
+                <h4 class="text-[13px] font-semibold flex items-center gap-1.5" style="color:var(--text-primary);">
                     <span class="material-icons-outlined text-brand-500 text-base">tune</span>
                     Retrieval Settings
                 </h4>
-                <button id="save-rag-settings" onclick="saveRAGSettings()" class="px-2 py-1 text-[10px] font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-md transition-colors flex items-center gap-1">
+                <button id="save-rag-settings" onclick="saveRAGSettings()" class="px-2 py-1 text-[10px] font-medium rounded-lg transition-colors flex items-center gap-1" style="color:var(--accent);background:var(--accent-subtle);">
                     <span class="material-icons-outlined text-[11px]">save</span>
                     Save
                 </button>
             </div>
             <div class="grid grid-cols-3 gap-3">
                 <div>
-                    <label class="text-[11px] font-medium text-slate-500 mb-1 block">Top-K results</label>
+                    <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Top-K results</label>
                     <input id="rag-topk" type="range" min="1" max="20" value="5" class="w-full" oninput="document.getElementById('rag-topk-val').textContent=this.value">
-                    <p class="text-[10px] text-slate-500 mt-0.5">Chunks: <span id="rag-topk-val">5</span></p>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Chunks: <span id="rag-topk-val">5</span></p>
                 </div>
                 <div>
-                    <label class="text-[11px] font-medium text-slate-500 mb-1 block">Vector weight</label>
+                    <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Vector weight</label>
                     <input id="rag-vweight" type="range" min="0" max="100" value="70" class="w-full" oninput="document.getElementById('rag-vweight-val').textContent=(this.value/100).toFixed(1)">
-                    <p class="text-[10px] text-slate-500 mt-0.5">Weight: <span id="rag-vweight-val">0.7</span></p>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Weight: <span id="rag-vweight-val">0.7</span></p>
                 </div>
                 <div>
-                    <label class="text-[11px] font-medium text-slate-500 mb-1 block">Similarity threshold</label>
+                    <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Similarity threshold</label>
                     <input id="rag-threshold" type="range" min="0" max="100" value="20" class="w-full" oninput="document.getElementById('rag-threshold-val').textContent=(this.value/100).toFixed(2)">
-                    <p class="text-[10px] text-slate-500 mt-0.5">Min: <span id="rag-threshold-val">0.20</span></p>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Min: <span id="rag-threshold-val">0.20</span></p>
                 </div>
             </div>
         </div>
 
-        <div class="bg-white rounded-lg border border-slate-200 p-3">
-            <h4 class="text-[11px] font-semibold text-slate-500 mb-2">Platform Capabilities</h4>
+        <div class="t-card rounded-xl p-3" style="background:var(--bg-elevated);">
+            <h4 class="text-[11px] font-semibold mb-2" style="color:var(--text-muted);">Platform Capabilities</h4>
             <div class="flex flex-wrap gap-1">
-                <span class="px-2 py-0.5 text-[10px] font-medium bg-brand-50 text-brand-700 rounded">Multi-provider routing</span>
-                <span class="px-2 py-0.5 text-[10px] font-medium bg-purple-50 text-purple-700 rounded">Streaming (SSE)</span>
-                <span class="px-2 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-700 rounded">Structured output</span>
-                <span class="px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 rounded">Query rewriting</span>
-                <span class="px-2 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 rounded">Hybrid retrieval</span>
+                <span class="px-2 py-0.5 text-[10px] font-medium rounded-md" style="background:var(--accent-subtle);color:var(--accent);">Multi-provider routing</span>
+                <span class="px-2 py-0.5 text-[10px] font-medium rounded-md" style="background:rgba(139,92,246,0.12);color:#a78bfa;">Streaming (SSE)</span>
+                <span class="px-2 py-0.5 text-[10px] font-medium rounded-md" style="background:rgba(16,185,129,0.12);color:#34d399;">Structured output</span>
+                <span class="px-2 py-0.5 text-[10px] font-medium rounded-md" style="background:rgba(245,158,11,0.12);color:#fbbf24;">Query rewriting</span>
+                <span class="px-2 py-0.5 text-[10px] font-medium rounded-md" style="background:var(--bg-elevated);color:var(--text-muted);border:1px solid var(--border-default);">Hybrid retrieval</span>
             </div>
         </div>
     </div>`;
@@ -180,51 +180,51 @@ export function step2_modelSelection() {
 export function step3_knowledgeUpload() {
     return `
     <div class="max-w-3xl mx-auto space-y-3">
-        <div class="bg-white rounded-lg border border-slate-200 p-4">
+        <div class="t-card rounded-xl p-4">
             <div class="flex items-center gap-2.5 mb-3">
-                <div class="w-7 h-7 rounded-md bg-emerald-100 flex items-center justify-center">
-                    <span class="material-icons-outlined text-emerald-600 text-lg">library_books</span>
+                <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:rgba(16,185,129,0.15);">
+                    <span class="material-icons-outlined text-emerald-500 text-lg">library_books</span>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-slate-900">Knowledge Base</h3>
-                    <p class="text-[11px] text-slate-500">Upload documents for RAG retrieval</p>
+                    <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Knowledge Base</h3>
+                    <p class="text-[11px]" style="color:var(--text-muted);">Upload documents for RAG retrieval</p>
                 </div>
             </div>
 
-            <div id="upload-zone" class="border border-dashed border-slate-300 rounded-md p-6 text-center hover:border-brand-400 transition-colors cursor-pointer">
-                <span class="material-icons-outlined text-3xl text-slate-400 mb-1">cloud_upload</span>
-                <p class="text-[13px] font-medium text-slate-700">Drag & drop documents or click to browse</p>
-                <p class="text-[11px] text-slate-400 mt-0.5">PDF, DOCX, TXT, Markdown &middot; Max 10 MB</p>
+            <div id="upload-zone" class="border border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors" style="border-color:var(--border-default);">
+                <span class="material-icons-outlined text-3xl mb-1" style="color:var(--text-muted);">cloud_upload</span>
+                <p class="text-[13px] font-medium" style="color:var(--text-primary);">Drag & drop documents or click to browse</p>
+                <p class="text-[11px] mt-0.5" style="color:var(--text-muted);">PDF, DOCX, TXT, Markdown &middot; Max 10 MB</p>
                 <input id="file-input" type="file" class="hidden" accept=".pdf,.docx,.txt,.md" multiple>
             </div>
 
             <div id="uploaded-files" class="mt-3 space-y-1.5"></div>
 
-            <button onclick="confirmResetKB()" class="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-md transition-colors">
+            <button onclick="confirmResetKB()" class="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-red-500 rounded-lg transition-colors" style="border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);">
                 <span class="material-icons-outlined text-sm">delete_forever</span>
                 Reset Knowledge Base
             </button>
 
-            <div class="mt-3 pt-3 border-t border-slate-100">
-                <h4 class="text-[12px] font-semibold text-slate-600 mb-2">Knowledge Base</h4>
+            <div class="mt-3 pt-3" style="border-top:1px solid var(--border-default);">
+                <h4 class="text-[12px] font-semibold mb-2" style="color:var(--text-secondary);">Knowledge Base</h4>
                 <div class="space-y-1.5" id="preloaded-docs">
-                    <p class="text-[11px] text-slate-400">Loading…</p>
+                    <p class="text-[11px]" style="color:var(--text-muted);">Loading…</p>
                 </div>
             </div>
         </div>
 
-        <div class="bg-white rounded-lg border border-slate-200 p-3">
-            <h4 class="text-[11px] font-semibold text-slate-500 mb-2">RAG Pipeline</h4>
+        <div class="t-card rounded-xl p-3" style="background:var(--bg-elevated);">
+            <h4 class="text-[11px] font-semibold mb-2" style="color:var(--text-muted);">RAG Pipeline</h4>
             <div class="flex items-center gap-1.5 text-[10px] flex-wrap">
-                <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded font-mono">Parse</span>
-                <span class="material-icons-outlined text-slate-300 text-[10px]">arrow_forward</span>
-                <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded font-mono">Chunk</span>
-                <span class="material-icons-outlined text-slate-300 text-[10px]">arrow_forward</span>
-                <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded font-mono">Embed</span>
-                <span class="material-icons-outlined text-slate-300 text-[10px]">arrow_forward</span>
-                <span class="px-2 py-0.5 bg-brand-50 text-brand-700 rounded font-mono">FAISS</span>
-                <span class="material-icons-outlined text-slate-300 text-[10px]">arrow_forward</span>
-                <span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded font-mono">Hybrid Retrieval</span>
+                <span class="px-2 py-0.5 rounded-md font-mono" style="background:var(--bg-card);border:1px solid var(--border-default);color:var(--text-secondary);">Parse</span>
+                <span class="material-icons-outlined text-[10px]" style="color:var(--text-muted);">arrow_forward</span>
+                <span class="px-2 py-0.5 rounded-md font-mono" style="background:var(--bg-card);border:1px solid var(--border-default);color:var(--text-secondary);">Chunk</span>
+                <span class="material-icons-outlined text-[10px]" style="color:var(--text-muted);">arrow_forward</span>
+                <span class="px-2 py-0.5 rounded-md font-mono" style="background:var(--bg-card);border:1px solid var(--border-default);color:var(--text-secondary);">Embed</span>
+                <span class="material-icons-outlined text-[10px]" style="color:var(--text-muted);">arrow_forward</span>
+                <span class="px-2 py-0.5 rounded-md font-mono" style="background:var(--accent-subtle);color:var(--accent);">FAISS</span>
+                <span class="material-icons-outlined text-[10px]" style="color:var(--text-muted);">arrow_forward</span>
+                <span class="px-2 py-0.5 rounded-md font-mono" style="background:rgba(16,185,129,0.12);color:#34d399;">Hybrid Retrieval</span>
             </div>
         </div>
     </div>`;
@@ -301,45 +301,45 @@ export function step4_rulesTools() {
 export function step5_governance() {
     return `
     <div class="max-w-3xl mx-auto space-y-3">
-        <div class="bg-white rounded-lg border border-slate-200 p-4">
+        <div class="t-card rounded-xl p-4">
             <div class="flex items-center gap-2.5 mb-3">
-                <div class="w-7 h-7 rounded-md bg-indigo-100 flex items-center justify-center">
-                    <span class="material-icons-outlined text-indigo-600 text-lg">security</span>
+                <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:rgba(99,102,241,0.15);">
+                    <span class="material-icons-outlined text-indigo-400 text-lg">security</span>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-slate-900">Governance & Audit</h3>
-                    <p class="text-[11px] text-slate-500">Every action is logged, traceable, and auditable</p>
+                    <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Governance & Audit</h3>
+                    <p class="text-[11px]" style="color:var(--text-muted);">Every action is logged, traceable, and auditable</p>
                 </div>
             </div>
 
             <div class="grid grid-cols-3 gap-2 mb-4">
-                <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-md">
-                    <span class="material-icons-outlined text-indigo-500 text-lg mb-1">group</span>
-                    <h4 class="text-[11px] font-semibold text-slate-900">Access Control</h4>
-                    <p class="text-[10px] text-slate-500 mt-0.5">OIDC / SSO (Keycloak)</p>
+                <div class="p-2.5 rounded-lg" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
+                    <span class="material-icons-outlined text-indigo-400 text-lg mb-1">group</span>
+                    <h4 class="text-[11px] font-semibold" style="color:var(--text-primary);">Access Control</h4>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">OIDC / SSO (Keycloak)</p>
                     <div class="mt-1.5 flex gap-2">
-                        <span class="flex items-center gap-1 text-[9px] text-slate-500"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Admin</span>
-                        <span class="flex items-center gap-1 text-[9px] text-slate-500"><span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>User</span>
+                        <span class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Admin</span>
+                        <span class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="w-1.5 h-1.5 rounded-full" style="background:var(--text-muted);"></span>User</span>
                     </div>
                 </div>
-                <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-md">
+                <div class="p-2.5 rounded-lg" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
                     <span class="material-icons-outlined text-amber-500 text-lg mb-1">receipt_long</span>
-                    <h4 class="text-[11px] font-semibold text-slate-900">Audit Trail</h4>
-                    <p class="text-[10px] text-slate-500 mt-0.5">Full execution logging</p>
-                    <p class="text-[10px] text-amber-700 font-mono mt-1.5" id="audit-count">Loading...</p>
+                    <h4 class="text-[11px] font-semibold" style="color:var(--text-primary);">Audit Trail</h4>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Full execution logging</p>
+                    <p class="text-[10px] text-amber-500 font-mono mt-1.5" id="audit-count">Loading...</p>
                 </div>
-                <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-md">
+                <div class="p-2.5 rounded-lg" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
                     <span class="material-icons-outlined text-emerald-500 text-lg mb-1">visibility</span>
-                    <h4 class="text-[11px] font-semibold text-slate-900">Execution Tracing</h4>
-                    <p class="text-[10px] text-slate-500 mt-0.5">Pipeline steps with timing</p>
-                    <p class="text-[10px] text-emerald-700 font-mono mt-1.5">Real-time SSE</p>
+                    <h4 class="text-[11px] font-semibold" style="color:var(--text-primary);">Execution Tracing</h4>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Pipeline steps with timing</p>
+                    <p class="text-[10px] text-emerald-500 font-mono mt-1.5">Real-time SSE</p>
                 </div>
             </div>
 
-            <div class="bg-slate-50 rounded-md border border-slate-100 p-3">
-                <h4 class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Recent Audit Events</h4>
-                <div id="audit-logs" class="space-y-1.5 text-[11px] font-mono text-slate-600">
-                    <p class="text-slate-400">No events yet. Execute the agent to generate audit entries.</p>
+            <div class="p-3 rounded-lg" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
+                <h4 class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Recent Audit Events</h4>
+                <div id="audit-logs" class="space-y-1.5 text-[11px] font-mono" style="color:var(--text-secondary);">
+                    <p style="color:var(--text-muted);">No events yet. Execute the agent to generate audit entries.</p>
                 </div>
             </div>
         </div>
