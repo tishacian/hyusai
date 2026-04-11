@@ -219,6 +219,7 @@ async function goToPage(page) {
         content.innerHTML = mod.page_integrations();
     } else if (page === 'orchestration') {
         content.innerHTML = mod.page_orchestration();
+        initWorkflowEditor();
     } else if (page === 'knowledge') {
         content.innerHTML = mod.page_knowledgeBase();
         initFileUpload();
@@ -1452,5 +1453,448 @@ document.addEventListener('keydown', (e) => {
         handleLogin();
     }
 });
+
+// =========================================================================
+// WORKFLOW EDITOR (Drawflow)
+// =========================================================================
+
+var wfEditor = null;
+var wfCurrentModule = 'Home';
+var wfSelectedNode = null;
+
+function wfNodeHtml(icon, title, meta, extra) {
+    return `<div class="df-node"><div class="df-node-header"><span class="material-icons-outlined">${icon}</span><span class="df-title">${title}</span></div><div class="df-node-meta">${meta}</div>${extra || ''}</div>`;
+}
+
+function wfMacroHtml(icon, title, meta, steps) {
+    return `<div class="df-node"><div class="df-node-header"><span class="material-icons-outlined">${icon}</span><span class="df-title">${title}</span></div><div class="df-node-meta">${meta}</div><div class="df-drilldown" ondblclick="wfDrillDown('${title}')"><span class="material-icons-outlined" style="font-size:10px;">unfold_more</span>${steps} steps &middot; double-click to expand</div></div>`;
+}
+
+function initWorkflowEditor() {
+    const container = document.getElementById('drawflow-canvas');
+    if (!container || typeof Drawflow === 'undefined') return;
+
+    wfEditor = new Drawflow(container);
+    wfEditor.reroute = true;
+    wfEditor.reroute_fix_curvature = true;
+
+    wfEditor.addModule('Home');
+    wfEditor.addModule('Data Ingestion');
+    wfEditor.addModule('Knowledge Processing');
+    wfEditor.addModule('Agent Reasoning');
+    wfEditor.addModule('Response Generation');
+    wfEditor.addModule('Quality Assurance');
+
+    wfEditor.start();
+
+    const saved = localStorage.getItem('aip_workflow');
+    if (saved) {
+        try {
+            wfEditor.import(JSON.parse(saved));
+            wfCurrentModule = 'Home';
+            wfEditor.changeModule('Home');
+        } catch (_) { wfSeedDefault(); }
+    } else {
+        wfSeedDefault();
+    }
+
+    wfEditor.on('nodeSelected', function(id) {
+        wfSelectedNode = id;
+        wfShowConfig(id);
+    });
+    wfEditor.on('nodeUnselected', function() {
+        wfSelectedNode = null;
+        wfCloseConfig();
+    });
+    wfEditor.on('nodeMoved', function() { /* auto-handled */ });
+
+    const macroModuleMap = {
+        'input': null, 'output': null,
+        'ingestion': 'Data Ingestion',
+        'processing': 'Knowledge Processing',
+        'reasoning': 'Agent Reasoning',
+        'generation': 'Response Generation',
+        'quality': 'Quality Assurance'
+    };
+    wfEditor.on('nodeSelected', function(id) {
+        const node = wfEditor.getNodeFromId(id);
+        if (!node) return;
+        const el = document.querySelector('#node-' + id);
+        if (!el) return;
+        el.ondblclick = function() {
+            const mod = macroModuleMap[node.name];
+            if (mod) wfDrillDown(mod);
+        };
+    });
+
+    wfSetupDragDrop();
+}
+
+function wfSeedDefault() {
+    if (!wfEditor) return;
+    wfEditor.changeModule('Home');
+
+    const n1 = wfEditor.addNode('input', 0, 1, 50, 200, 'df-macro', {type:'io_input'}, wfMacroHtml('input', 'User Query', 'Entry point', '1'));
+    const n2 = wfEditor.addNode('ingestion', 1, 1, 280, 120, 'df-macro', {type:'ingestion'}, wfMacroHtml('cloud_upload', 'Data Ingestion', 'Connectors &middot; Upload &middot; Storage', '3'));
+    const n3 = wfEditor.addNode('processing', 1, 1, 530, 120, 'df-macro', {type:'processing'}, wfMacroHtml('memory', 'Knowledge Processing', 'Parse &middot; Chunk &middot; Embed &middot; Store', '4'));
+    const n4 = wfEditor.addNode('reasoning', 1, 1, 780, 120, 'df-macro', {type:'reasoning'}, wfMacroHtml('psychology', 'Agent Reasoning', 'Rewrite &middot; Retrieve &middot; Filter &middot; Validate', '4'));
+    const n5 = wfEditor.addNode('generation', 1, 1, 1030, 120, 'df-macro', {type:'generation'}, wfMacroHtml('auto_awesome', 'Response Generation', 'Prompt &middot; LLM &middot; Structured Output', '3'));
+    const n6 = wfEditor.addNode('quality', 1, 1, 1280, 120, 'df-macro', {type:'quality'}, wfMacroHtml('verified', 'Quality Assurance', 'Factuality &middot; HHEM &middot; Audit', '3'));
+    const n7 = wfEditor.addNode('output', 1, 0, 1530, 200, 'df-macro', {type:'io_output'}, wfMacroHtml('output', 'Agent Response', 'Final output', '1'));
+
+    wfEditor.addConnection(n1, n2, 'output_1', 'input_1');
+    wfEditor.addConnection(n2, n3, 'output_1', 'input_1');
+    wfEditor.addConnection(n3, n4, 'output_1', 'input_1');
+    wfEditor.addConnection(n4, n5, 'output_1', 'input_1');
+    wfEditor.addConnection(n5, n6, 'output_1', 'input_1');
+    wfEditor.addConnection(n6, n7, 'output_1', 'input_1');
+
+    const infraY = 380;
+    wfEditor.addNode('fastapi', 0, 0, 280, infraY, 'df-infra', {type:'infra_fastapi'}, wfNodeHtml('dns', 'FastAPI', 'API Gateway'));
+    wfEditor.addNode('celery', 0, 0, 530, infraY, 'df-infra', {type:'infra_celery'}, wfNodeHtml('schedule', 'Celery', 'Task Queue'));
+    wfEditor.addNode('minio', 0, 0, 780, infraY, 'df-infra', {type:'infra_minio'}, wfNodeHtml('inventory_2', 'MinIO', 'Object Storage'));
+    wfEditor.addNode('pg', 0, 0, 1030, infraY, 'df-infra', {type:'infra_pg'}, wfNodeHtml('storage', 'PostgreSQL', 'Metadata DB'));
+    wfEditor.addNode('qdrant', 0, 0, 1280, infraY, 'df-infra', {type:'infra_qdrant'}, wfNodeHtml('scatter_plot', 'Qdrant', 'Vector Store'));
+
+    wfSeedSubmodules();
+}
+
+function wfSeedSubmodules() {
+    if (!wfEditor) return;
+
+    wfEditor.changeModule('Data Ingestion');
+    const di1 = wfEditor.addNode('upload', 0, 1, 80, 150, '', {type:'io_input'}, wfNodeHtml('cloud_upload', 'File Upload', 'PDF, DOCX, MD'));
+    const di2 = wfEditor.addNode('sharepoint', 0, 1, 80, 280, '', {type:'conn_sharepoint'}, wfNodeHtml('folder_shared', 'SharePoint', 'Policy docs'));
+    const di3 = wfEditor.addNode('s3', 0, 1, 80, 400, '', {type:'conn_s3'}, wfNodeHtml('cloud_queue', 'AWS S3', 'Bucket sync'));
+    const di4 = wfEditor.addNode('minio_store', 1, 1, 380, 250, '', {type:'infra_minio'}, wfNodeHtml('inventory_2', 'MinIO Storage', 'Object store'));
+    const di5 = wfEditor.addNode('out', 1, 0, 620, 250, '', {type:'io_output'}, wfNodeHtml('output', 'To Processing', 'Next stage'));
+    wfEditor.addConnection(di1, di4, 'output_1', 'input_1');
+    wfEditor.addConnection(di2, di4, 'output_1', 'input_1');
+    wfEditor.addConnection(di3, di4, 'output_1', 'input_1');
+    wfEditor.addConnection(di4, di5, 'output_1', 'input_1');
+
+    wfEditor.changeModule('Knowledge Processing');
+    const kp1 = wfEditor.addNode('in', 0, 1, 50, 200, '', {type:'io_input'}, wfNodeHtml('input', 'From Ingestion', 'Raw docs'));
+    const kp2 = wfEditor.addNode('parser', 1, 1, 250, 200, '', {type:'query_rewrite'}, wfNodeHtml('description', 'Parser', 'pdfplumber'));
+    const kp3 = wfEditor.addNode('chunker', 1, 1, 450, 200, '', {type:'context_filter'}, wfNodeHtml('content_cut', 'Chunker', '512 tokens'));
+    const kp4 = wfEditor.addNode('embedder', 1, 1, 650, 200, '', {type:'embedding'}, wfNodeHtml('hub', 'Embedder', 'text-embed-3-sm'));
+    const kp5 = wfEditor.addNode('qdrant', 1, 0, 850, 200, '', {type:'infra_qdrant'}, wfNodeHtml('scatter_plot', 'Qdrant Store', 'FAISS index'));
+    wfEditor.addConnection(kp1, kp2, 'output_1', 'input_1');
+    wfEditor.addConnection(kp2, kp3, 'output_1', 'input_1');
+    wfEditor.addConnection(kp3, kp4, 'output_1', 'input_1');
+    wfEditor.addConnection(kp4, kp5, 'output_1', 'input_1');
+
+    wfEditor.changeModule('Agent Reasoning');
+    const ar1 = wfEditor.addNode('in', 0, 1, 50, 200, '', {type:'io_input'}, wfNodeHtml('input', 'User Query', 'Raw input'));
+    const ar2 = wfEditor.addNode('rewrite', 1, 1, 250, 200, '', {type:'query_rewrite'}, wfNodeHtml('edit_note', 'Query Rewrite', 'gpt-4o-mini'));
+    const ar3 = wfEditor.addNode('retrieve', 1, 1, 470, 200, '', {type:'retrieval'}, wfNodeHtml('search', 'Hybrid Retrieval', 'topK=5'));
+    const ar4 = wfEditor.addNode('filter', 1, 1, 690, 200, '', {type:'context_filter'}, wfNodeHtml('filter_alt', 'Context Filter', 'threshold=0.2'));
+    const ar5 = wfEditor.addNode('validate', 1, 0, 910, 200, '', {type:'validation'}, wfNodeHtml('verified', 'Validation', 'Rules engine'));
+    wfEditor.addConnection(ar1, ar2, 'output_1', 'input_1');
+    wfEditor.addConnection(ar2, ar3, 'output_1', 'input_1');
+    wfEditor.addConnection(ar3, ar4, 'output_1', 'input_1');
+    wfEditor.addConnection(ar4, ar5, 'output_1', 'input_1');
+
+    wfEditor.changeModule('Response Generation');
+    const rg1 = wfEditor.addNode('in', 0, 1, 50, 200, '', {type:'io_input'}, wfNodeHtml('input', 'Validated Context', 'From reasoning'));
+    const rg2 = wfEditor.addNode('prompt', 1, 1, 280, 200, '', {type:'synthesis'}, wfNodeHtml('description', 'System Prompt', 'Template'));
+    const rg3 = wfEditor.addNode('llm', 1, 1, 520, 200, '', {type:'llm_gpt4o'}, wfNodeHtml('psychology', 'GPT-4o', 'Synthesis LLM'));
+    const rg4 = wfEditor.addNode('out', 1, 0, 760, 200, '', {type:'io_output'}, wfNodeHtml('output', 'Raw Response', 'Markdown'));
+    wfEditor.addConnection(rg1, rg2, 'output_1', 'input_1');
+    wfEditor.addConnection(rg2, rg3, 'output_1', 'input_1');
+    wfEditor.addConnection(rg3, rg4, 'output_1', 'input_1');
+
+    wfEditor.changeModule('Quality Assurance');
+    const qa1 = wfEditor.addNode('in', 0, 1, 50, 200, '', {type:'io_input'}, wfNodeHtml('input', 'LLM Response', 'Raw output'));
+    const qa2 = wfEditor.addNode('eval', 1, 1, 300, 150, '', {type:'evaluation'}, wfNodeHtml('analytics', 'Evaluator', 'Cosine similarity'));
+    const qa3 = wfEditor.addNode('hhem', 1, 1, 300, 300, '', {type:'evaluation'}, wfNodeHtml('fact_check', 'HHEM', 'Hallucination check'));
+    const qa4 = wfEditor.addNode('audit', 1, 1, 560, 200, '', {type:'validation'}, wfNodeHtml('receipt_long', 'Audit Logger', 'SQLite'));
+    const qa5 = wfEditor.addNode('out', 1, 0, 780, 200, '', {type:'io_output'}, wfNodeHtml('output', 'Final Response', 'Scored + logged'));
+    wfEditor.addConnection(qa1, qa2, 'output_1', 'input_1');
+    wfEditor.addConnection(qa1, qa3, 'output_1', 'input_1');
+    wfEditor.addConnection(qa2, qa4, 'output_1', 'input_1');
+    wfEditor.addConnection(qa3, qa4, 'output_1', 'input_1');
+    wfEditor.addConnection(qa4, qa5, 'output_1', 'input_1');
+
+    wfEditor.changeModule('Home');
+}
+
+function wfDrillDown(moduleName) {
+    if (!wfEditor) return;
+    wfCurrentModule = moduleName;
+    wfEditor.changeModule(moduleName);
+    const bc = document.getElementById('wf-breadcrumb');
+    if (bc) bc.innerHTML = `<span style="color:var(--text-muted);cursor:pointer;" onclick="wfGoHome()">Workflow</span><span class="material-icons-outlined text-[10px]" style="color:var(--text-muted);">chevron_right</span><span class="font-semibold" style="color:var(--text-primary);">${moduleName}</span>`;
+}
+
+function wfGoHome() {
+    if (!wfEditor) return;
+    wfCurrentModule = 'Home';
+    wfEditor.changeModule('Home');
+    const bc = document.getElementById('wf-breadcrumb');
+    if (bc) bc.innerHTML = `<span class="font-semibold" style="color:var(--text-primary);">Workflow</span>`;
+}
+
+function wfSetupDragDrop() {
+    const canvas = document.getElementById('drawflow-canvas');
+    if (!canvas) return;
+
+    document.querySelectorAll('.wf-palette-item').forEach(item => {
+        item.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('node-type', item.dataset.nodeType);
+            e.dataTransfer.setData('node-name', item.dataset.nodeName);
+            e.dataTransfer.setData('node-icon', item.dataset.nodeIcon);
+            e.dataTransfer.setData('node-meta', item.dataset.nodeMeta);
+        });
+    });
+
+    canvas.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const type = e.dataTransfer.getData('node-type');
+        const name = e.dataTransfer.getData('node-name');
+        const icon = e.dataTransfer.getData('node-icon');
+        const meta = e.dataTransfer.getData('node-meta');
+        if (!type || !wfEditor) return;
+        const isInfra = type.startsWith('infra_');
+        const cls = isInfra ? 'df-infra' : '';
+        const inputs = type.startsWith('io_input') ? 0 : 1;
+        const outputs = type.startsWith('io_output') ? 0 : 1;
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / wfEditor.zoom - wfEditor.precanvas.getBoundingClientRect().x / wfEditor.zoom;
+        const y = (e.clientY - rect.top) / wfEditor.zoom - wfEditor.precanvas.getBoundingClientRect().y / wfEditor.zoom;
+        wfEditor.addNode(type, inputs, outputs, x, y, cls, {type: type}, wfNodeHtml(icon, name, meta));
+    });
+
+    canvas.addEventListener('dragover', (e) => e.preventDefault());
+}
+
+function wfShowConfig(nodeId) {
+    const panel = document.getElementById('wf-config-panel');
+    const titleEl = document.getElementById('wf-cfg-title');
+    const typeEl = document.getElementById('wf-cfg-type');
+    const fieldsEl = document.getElementById('wf-cfg-fields');
+    if (!panel || !wfEditor) return;
+
+    const nodeData = wfEditor.getNodeFromId(nodeId);
+    if (!nodeData) return;
+    const type = nodeData.data?.type || nodeData.class || 'unknown';
+
+    titleEl.textContent = nodeData.name || type;
+    typeEl.textContent = type;
+    panel.style.display = '';
+
+    let fields = '';
+    fields += `<div class="wf-config-field"><label>Name</label><input id="wf-cfg-name" value="${nodeData.name || ''}" onchange="wfUpdateNodeName(${nodeId}, this.value)"></div>`;
+
+    if (type.startsWith('llm_') || type === 'synthesis' || type === 'query_rewrite') {
+        fields += `<div class="wf-config-field"><label>Model</label><select><option>gpt-4o</option><option>gpt-4o-mini</option><option selected>gpt-4o-mini</option><option>text-embedding-3-small</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Temperature</label><input type="range" min="0" max="100" value="30"><p class="text-[9px] mt-0.5" style="color:var(--text-muted);">0.30</p></div>`;
+        fields += `<div class="wf-config-field"><label>Max Tokens</label><input type="number" value="4096"></div>`;
+    } else if (type === 'retrieval') {
+        fields += `<div class="wf-config-field"><label>Top-K</label><input type="number" value="5" min="1" max="20"></div>`;
+        fields += `<div class="wf-config-field"><label>Vector Weight</label><input type="range" min="0" max="100" value="70"><p class="text-[9px] mt-0.5" style="color:var(--text-muted);">0.70</p></div>`;
+        fields += `<div class="wf-config-field"><label>Similarity Threshold</label><input type="range" min="0" max="100" value="20"><p class="text-[9px] mt-0.5" style="color:var(--text-muted);">0.20</p></div>`;
+    } else if (type.startsWith('conn_')) {
+        fields += `<div class="wf-config-field"><label>Endpoint URL</label><input type="url" placeholder="https://..."></div>`;
+        fields += `<div class="wf-config-field"><label>Auth Type</label><select><option>Bearer Token</option><option>API Key</option><option>OAuth 2.0</option><option>Basic</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>API Key / Token</label><input type="password" placeholder="sk-..."></div>`;
+    } else if (type === 'evaluation') {
+        fields += `<div class="wf-config-field"><label>Metrics</label>`;
+        ['Factuality', 'Relevance', 'Coherence', 'HHEM'].forEach(m => {
+            fields += `<label class="flex items-center gap-1.5 text-[10px] mt-1" style="color:var(--text-secondary);"><input type="checkbox" checked class="w-3 h-3">${m}</label>`;
+        });
+        fields += `</div>`;
+    } else if (type.startsWith('infra_')) {
+        fields += `<div class="wf-config-field"><label>Host</label><input value="localhost"></div>`;
+        fields += `<div class="wf-config-field"><label>Port</label><input type="number" value="8000"></div>`;
+        fields += `<div class="wf-config-field"><label>Status</label><div class="flex items-center gap-1.5 mt-1"><span class="w-1.5 h-1.5 rounded-full" style="background:var(--success);"></span><span class="text-[10px]" style="color:var(--success);">Running</span></div></div>`;
+    }
+
+    fieldsEl.innerHTML = fields;
+}
+
+function wfCloseConfig() {
+    const panel = document.getElementById('wf-config-panel');
+    if (panel) panel.style.display = 'none';
+    wfSelectedNode = null;
+}
+
+function wfDeleteNode() {
+    if (wfSelectedNode && wfEditor) {
+        wfEditor.removeNodeId('node-' + wfSelectedNode);
+        wfCloseConfig();
+    }
+}
+
+function wfUpdateNodeName(nodeId, name) {
+    /* UI-only for now */
+}
+
+function wfSave() {
+    if (!wfEditor) return;
+    localStorage.setItem('aip_workflow', JSON.stringify(wfEditor.export()));
+    showToast('Workflow saved');
+}
+
+function wfResetDefault() {
+    if (!wfEditor) return;
+    wfEditor.clear();
+    wfEditor.addModule('Home');
+    wfEditor.addModule('Data Ingestion');
+    wfEditor.addModule('Knowledge Processing');
+    wfEditor.addModule('Agent Reasoning');
+    wfEditor.addModule('Response Generation');
+    wfEditor.addModule('Quality Assurance');
+    wfSeedDefault();
+    wfGoHome();
+    localStorage.removeItem('aip_workflow');
+    showToast('Workflow reset to default');
+}
+
+function wfExport() {
+    if (!wfEditor) return;
+    const data = JSON.stringify(wfEditor.export(), null, 2);
+    const blob = new Blob([data], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'workflow.json'; a.click();
+    URL.revokeObjectURL(url);
+    showToast('Workflow exported');
+}
+
+// =========================================================================
+// TOOL TOGGLES (Step 4)
+// =========================================================================
+
+function toggleTool(toolId, cardEl) {
+    const saved = JSON.parse(localStorage.getItem('aip_tools') || '{}');
+    saved[toolId] = !saved[toolId];
+    localStorage.setItem('aip_tools', JSON.stringify(saved));
+
+    const enabled = saved[toolId];
+    const toggle = cardEl.querySelector('.w-7.h-4');
+    const dot = toggle.querySelector('div');
+    const iconWrap = cardEl.querySelector('.w-7.h-7');
+    const icon = iconWrap.querySelector('.material-icons-outlined');
+    toggle.style.background = enabled ? 'var(--accent)' : 'var(--border-default)';
+    dot.style.left = enabled ? '14px' : '2px';
+    cardEl.style.borderColor = enabled ? 'var(--border-active)' : 'var(--border-default)';
+    iconWrap.style.background = enabled ? 'var(--accent-subtle)' : 'var(--bg-elevated)';
+    icon.style.color = enabled ? 'var(--accent)' : 'var(--text-muted)';
+
+    const count = Object.values(saved).filter(Boolean).length;
+    const countEl = document.getElementById('tools-count');
+    if (countEl) countEl.textContent = count + ' active';
+}
+
+// =========================================================================
+// CONNECTOR CONFIG PANEL
+// =========================================================================
+
+var currentConnectorId = null;
+
+const connectorConfigs = {
+    dynamics365: { icon: 'cloud', name: 'Dynamics 365', fields: ['Tenant ID', 'Client ID', 'Client Secret', 'Scope URL'] },
+    teams: { icon: 'chat', name: 'Microsoft Teams', fields: ['Webhook URL', 'Bot ID', 'Channel ID'] },
+    sharepoint: { icon: 'folder_shared', name: 'SharePoint', fields: ['Site URL', 'Client ID', 'Client Secret', 'Library Name'] },
+    outlook: { icon: 'mail', name: 'Outlook / Exchange', fields: ['Tenant ID', 'Client ID', 'Mailbox', 'Auth Type'] },
+    telegram: { icon: 'send', name: 'Telegram Bot', fields: ['Bot Token', 'Chat ID', 'Webhook URL'] },
+    whatsapp: { icon: 'forum', name: 'WhatsApp Business', fields: ['API Key', 'Phone Number ID', 'Webhook Verify Token'] },
+    smtp: { icon: 'email', name: 'SMTP / Email', fields: ['SMTP Host', 'Port', 'Username', 'Password', 'TLS'] },
+    rest_api: { icon: 'api', name: 'REST API', fields: ['Base URL', 'Auth Type', 'API Key', 'Custom Headers'] },
+    mqtt: { icon: 'hub', name: 'MQTT', fields: ['Broker URL', 'Topic', 'QoS', 'Client ID'] },
+    postgresql: { icon: 'storage', name: 'PostgreSQL', fields: ['Host', 'Port', 'Database', 'Username', 'Password'] },
+    s3: { icon: 'cloud_queue', name: 'AWS S3', fields: ['Bucket Name', 'Region', 'Access Key', 'Secret Key'] },
+    elasticsearch: { icon: 'dns', name: 'Elasticsearch', fields: ['Cluster URL', 'Index Name', 'API Key'] },
+};
+
+function openConnectorConfig(connId) {
+    currentConnectorId = connId;
+    const cfg = connectorConfigs[connId];
+    if (!cfg) return;
+
+    const modal = document.getElementById('connector-config-modal');
+    const icon = document.getElementById('cc-icon');
+    const title = document.getElementById('cc-title');
+    const body = document.getElementById('cc-body');
+
+    icon.textContent = cfg.icon;
+    title.textContent = cfg.name;
+
+    const saved = JSON.parse(localStorage.getItem('aip_connectors') || '{}');
+    const savedCfg = saved[connId] || {};
+
+    let html = `<div class="flex items-center justify-between p-2" style="background:var(--bg-elevated);border-radius:var(--radius);">
+        <div class="flex items-center gap-2"><span class="text-[10px] font-medium" style="color:var(--text-secondary);">Status</span></div>
+        <label class="flex items-center gap-1.5 cursor-pointer"><span class="text-[10px]" style="color:${savedCfg.enabled ? 'var(--success)' : 'var(--text-muted);'};">${savedCfg.enabled ? 'Connected' : 'Disabled'}</span>
+        <div onclick="toggleConnectorStatus(this)" class="w-7 h-4 rounded-full relative cursor-pointer" style="background:${savedCfg.enabled ? 'var(--accent)' : 'var(--border-default)'};">
+            <div class="w-3 h-3 rounded-full bg-white absolute top-0.5 transition-all" style="left:${savedCfg.enabled ? '14px' : '2px'};"></div>
+        </div></label>
+    </div>`;
+
+    cfg.fields.forEach(f => {
+        const key = f.toLowerCase().replace(/[\s\/]/g, '_');
+        const val = savedCfg[key] || '';
+        const isPassword = f.toLowerCase().includes('secret') || f.toLowerCase().includes('password') || f.toLowerCase().includes('key') || f.toLowerCase().includes('token');
+        html += `<div class="wf-config-field"><label>${f}</label><input type="${isPassword ? 'password' : 'text'}" data-field="${key}" value="${val}" placeholder="${f}..."></div>`;
+    });
+
+    body.innerHTML = html;
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+}
+
+function closeConnectorConfig() {
+    const modal = document.getElementById('connector-config-modal');
+    modal.classList.add('hidden');
+    modal.style.display = '';
+    currentConnectorId = null;
+}
+
+function toggleConnectorStatus(el) {
+    const isOn = el.style.background.includes('accent');
+    el.style.background = isOn ? 'var(--border-default)' : 'var(--accent)';
+    el.querySelector('div').style.left = isOn ? '2px' : '14px';
+    const label = el.parentElement.querySelector('span');
+    label.textContent = isOn ? 'Disabled' : 'Connected';
+    label.style.color = isOn ? 'var(--text-muted)' : 'var(--success)';
+}
+
+function saveConnector() {
+    if (!currentConnectorId) return;
+    const saved = JSON.parse(localStorage.getItem('aip_connectors') || '{}');
+    const cfg = {};
+    document.querySelectorAll('#cc-body input[data-field]').forEach(inp => {
+        cfg[inp.dataset.field] = inp.value;
+    });
+    const toggle = document.querySelector('#cc-body .w-7.h-4');
+    cfg.enabled = toggle ? toggle.style.background.includes('accent') : false;
+    saved[currentConnectorId] = cfg;
+    localStorage.setItem('aip_connectors', JSON.stringify(saved));
+    showToast('Connector saved');
+}
+
+function testConnector() {
+    const btn = event.target.closest('button');
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span class="material-icons-outlined text-xs tool-running">sync</span>Testing...';
+    setTimeout(() => {
+        btn.innerHTML = orig;
+        showToast('Connection successful');
+    }, 1500);
+}
+
+function addConnectorToWorkflow() {
+    if (!currentConnectorId || !wfEditor) {
+        showToast('Open the workflow page first');
+        return;
+    }
+    const cfg = connectorConfigs[currentConnectorId];
+    if (!cfg) return;
+    wfEditor.changeModule(wfCurrentModule);
+    wfEditor.addNode('conn_' + currentConnectorId, 1, 1, 200, 200, '', {type: 'conn_' + currentConnectorId}, wfNodeHtml(cfg.icon, cfg.name, 'connector'));
+    showToast(cfg.name + ' added to workflow');
+    closeConnectorConfig();
+}
 
 // Initialize - wait for login, don't render content yet

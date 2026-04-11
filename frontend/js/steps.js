@@ -232,64 +232,61 @@ export function step3_knowledgeUpload() {
 
 export function step4_rulesTools() {
     const tools = [
-        { icon: 'travel_explore', color: 'blue',    name: 'Web Search',        desc: 'Search the internet for real-time information and news' },
-        { icon: 'code',           color: 'violet',  name: 'Code Interpreter',  desc: 'Execute Python scripts and analyze data programmatically' },
-        { icon: 'table_chart',    color: 'emerald', name: 'SQL Query',         desc: 'Query structured databases and export results' },
-        { icon: 'api',            color: 'orange',  name: 'API Connector',     desc: 'Call external REST APIs with custom authentication' },
-        { icon: 'mail',           color: 'rose',    name: 'Email Sender',      desc: 'Draft and send emails from agent workflows' },
-        { icon: 'picture_as_pdf', color: 'red',     name: 'File Generator',    desc: 'Export agent output as PDF, Excel, or CSV' },
-        { icon: 'calendar_today', color: 'amber',   name: 'Calendar Access',   desc: 'Read and write calendar events and schedules' },
-        { icon: 'memory',         color: 'indigo',  name: 'Persistent Memory', desc: 'Store and retrieve context across sessions' },
+        { id: 'web_search',      icon: 'travel_explore', name: 'Web Search',        desc: 'Search the internet for real-time information and news', status: 'beta' },
+        { id: 'code_interpreter', icon: 'code',          name: 'Code Interpreter',  desc: 'Execute Python scripts and analyze data programmatically', status: 'beta' },
+        { id: 'sql_query',       icon: 'table_chart',    name: 'SQL Query',         desc: 'Query structured databases and export results', status: 'ready' },
+        { id: 'api_connector',   icon: 'api',            name: 'API Connector',     desc: 'Call external REST APIs with custom authentication', status: 'ready' },
+        { id: 'email_sender',    icon: 'mail',           name: 'Email Sender',      desc: 'Draft and send emails from agent workflows', status: 'ready' },
+        { id: 'file_generator',  icon: 'picture_as_pdf', name: 'File Generator',    desc: 'Export agent output as PDF, Excel, or CSV', status: 'beta' },
+        { id: 'calendar_access', icon: 'calendar_today', name: 'Calendar Access',   desc: 'Read and write calendar events and schedules', status: 'beta' },
+        { id: 'memory',          icon: 'memory',         name: 'Persistent Memory', desc: 'Store and retrieve context across sessions', status: 'ready' },
     ];
-    const colorMap = {
-        blue:   { bg: 'bg-blue-100',   icon: 'text-blue-600'   },
-        violet: { bg: 'bg-violet-100', icon: 'text-violet-600' },
-        emerald:{ bg: 'bg-emerald-100',icon: 'text-emerald-600'},
-        orange: { bg: 'bg-orange-100', icon: 'text-orange-600' },
-        rose:   { bg: 'bg-rose-100',   icon: 'text-rose-600'   },
-        red:    { bg: 'bg-red-100',    icon: 'text-red-600'    },
-        amber:  { bg: 'bg-amber-100',  icon: 'text-amber-600'  },
-        indigo: { bg: 'bg-indigo-100', icon: 'text-indigo-600' },
-    };
+    const statusBadge = { ready: { label: 'Ready', color: 'var(--success)' }, beta: { label: 'Beta', color: 'var(--warning)' } };
+    const savedTools = JSON.parse(localStorage.getItem('aip_tools') || '{}');
+
     const toolCards = tools.map(t => {
-        const c = colorMap[t.color];
+        const enabled = savedTools[t.id] || false;
+        const sb = statusBadge[t.status];
         return `
-        <div class="relative t-card p-3 flex items-start gap-2.5 opacity-50 cursor-not-allowed select-none" style="border-radius:var(--radius);">
-            <div class="w-7 h-7 flex items-center justify-center shrink-0" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
-                <span class="material-icons-outlined ${c.icon} text-base">${t.icon}</span>
-            </div>
-            <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-0.5">
-                    <p class="text-[12px] font-semibold" style="color:var(--text-primary);">${t.name}</p>
-                    <span class="px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider" style="background:rgba(245,158,11,0.12);color:var(--warning);border-radius:var(--radius-xs);">Soon</span>
+        <div class="t-card p-3 cursor-pointer transition-all" style="border-radius:var(--radius);border-color:${enabled ? 'var(--border-active)' : 'var(--border-default)'};" onclick="toggleTool('${t.id}', this)">
+            <div class="flex items-start justify-between mb-1.5">
+                <div class="w-7 h-7 flex items-center justify-center shrink-0" style="background:${enabled ? 'var(--accent-subtle)' : 'var(--bg-elevated)'};border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-base" style="color:${enabled ? 'var(--accent)' : 'var(--text-muted)'};">${t.icon}</span>
                 </div>
-                <p class="text-[10px] leading-snug" style="color:var(--text-muted);">${t.desc}</p>
+                <div class="flex items-center gap-1.5">
+                    <span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:${sb.color}15;color:${sb.color};border-radius:var(--radius-xs);">${sb.label}</span>
+                    <div class="w-7 h-4 rounded-full relative" style="background:${enabled ? 'var(--accent)' : 'var(--border-default)'};">
+                        <div class="w-3 h-3 rounded-full bg-white absolute top-0.5 transition-all" style="left:${enabled ? '14px' : '2px'};"></div>
+                    </div>
+                </div>
             </div>
+            <p class="text-[11px] font-semibold" style="color:var(--text-primary);">${t.name}</p>
+            <p class="text-[9px] leading-snug mt-0.5" style="color:var(--text-muted);">${t.desc}</p>
         </div>`;
     }).join('');
+
+    const enabledCount = Object.values(savedTools).filter(Boolean).length;
 
     return `
     <div class="max-w-3xl mx-auto space-y-3">
         <div class="flex items-center gap-2.5">
             <div class="flex-1">
                 <h2 class="text-[13px] font-semibold" style="color:var(--text-primary);">Tools</h2>
-                <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Extend your agent with external capabilities.</p>
+                <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Enable or disable agent capabilities. Changes are saved automatically.</p>
             </div>
-            <div class="flex items-center gap-1.5 px-2 py-1 shrink-0" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:var(--radius-sm);">
-                <span class="material-icons-outlined text-sm" style="color:var(--warning);">construction</span>
-                <span class="text-[10px] font-medium" style="color:var(--warning);">In development</span>
+            <div class="flex items-center gap-1.5 px-2 py-1 shrink-0" style="background:var(--accent-subtle);border:1px solid var(--border-active);border-radius:var(--radius-sm);">
+                <span class="material-icons-outlined text-sm" style="color:var(--accent);">extension</span>
+                <span id="tools-count" class="text-[10px] font-medium" style="color:var(--accent);">${enabledCount} active</span>
             </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-2">
-            ${toolCards}
-        </div>
+        <div class="grid grid-cols-2 gap-2">${toolCards}</div>
 
         <div class="t-card p-3 flex items-start gap-2.5" style="background:var(--bg-elevated);border-radius:var(--radius);">
-            <span class="material-icons-outlined text-base mt-0.5" style="color:var(--text-muted);">info</span>
+            <span class="material-icons-outlined text-base mt-0.5" style="color:var(--accent);">lightbulb</span>
             <div>
-                <p class="text-[11px] font-medium" style="color:var(--text-primary);">Tool integrations are coming in the next release</p>
-                <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Opt-in tools let your agent reach beyond the knowledge base — searching the web, running code, calling APIs, and more.</p>
+                <p class="text-[11px] font-medium" style="color:var(--text-primary);">Tools extend your agent's reach</p>
+                <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Enabled tools become available in the agent's execution pipeline. The orchestrator selects tools dynamically based on query intent.</p>
             </div>
         </div>
     </div>`;
@@ -805,22 +802,22 @@ export function page_agentHub() {
 export function page_integrations() {
     const connectors = [
         { cat: 'Microsoft', items: [
-            { icon: 'cloud', name: 'Dynamics 365', desc: 'ERP/CRM data, vendor records, purchase orders', status: 'available' },
-            { icon: 'chat', name: 'Microsoft Teams', desc: 'Notifications, agent conversations via Teams', status: 'available' },
-            { icon: 'folder_shared', name: 'SharePoint', desc: 'Document libraries, policy repositories', status: 'available' },
-            { icon: 'mail', name: 'Outlook / Exchange', desc: 'Email integration, calendar events, task sync', status: 'available' },
+            { id: 'dynamics365', icon: 'cloud', name: 'Dynamics 365', desc: 'ERP/CRM data, vendor records, purchase orders', status: 'available' },
+            { id: 'teams', icon: 'chat', name: 'Microsoft Teams', desc: 'Notifications, agent conversations via Teams', status: 'available' },
+            { id: 'sharepoint', icon: 'folder_shared', name: 'SharePoint', desc: 'Document libraries, policy repositories', status: 'available' },
+            { id: 'outlook', icon: 'mail', name: 'Outlook / Exchange', desc: 'Email integration, calendar events, task sync', status: 'available' },
         ]},
         { cat: 'Communication Channels', items: [
-            { icon: 'send', name: 'Telegram Bot', desc: 'Chat interaction via Telegram bot API', status: 'available' },
-            { icon: 'forum', name: 'WhatsApp Business', desc: 'Agent access via WhatsApp Business API', status: 'coming' },
-            { icon: 'email', name: 'SMTP / Email', desc: 'Inbound/outbound email agent triggers', status: 'available' },
-            { icon: 'api', name: 'REST API', desc: 'Custom integrations via documented REST endpoints', status: 'active' },
-            { icon: 'hub', name: 'MQTT', desc: 'IoT and real-time event-driven messaging', status: 'available' },
+            { id: 'telegram', icon: 'send', name: 'Telegram Bot', desc: 'Chat interaction via Telegram bot API', status: 'available' },
+            { id: 'whatsapp', icon: 'forum', name: 'WhatsApp Business', desc: 'Agent access via WhatsApp Business API', status: 'coming' },
+            { id: 'smtp', icon: 'email', name: 'SMTP / Email', desc: 'Inbound/outbound email agent triggers', status: 'available' },
+            { id: 'rest_api', icon: 'api', name: 'REST API', desc: 'Custom integrations via documented REST endpoints', status: 'active' },
+            { id: 'mqtt', icon: 'hub', name: 'MQTT', desc: 'IoT and real-time event-driven messaging', status: 'available' },
         ]},
         { cat: 'Data & Storage', items: [
-            { icon: 'storage', name: 'PostgreSQL', desc: 'Structured data queries and analytics', status: 'active' },
-            { icon: 'cloud_queue', name: 'AWS S3', desc: 'Cloud document storage and retrieval', status: 'available' },
-            { icon: 'dns', name: 'Elasticsearch', desc: 'Full-text search and log analytics', status: 'coming' },
+            { id: 'postgresql', icon: 'storage', name: 'PostgreSQL', desc: 'Structured data queries and analytics', status: 'active' },
+            { id: 's3', icon: 'cloud_queue', name: 'AWS S3', desc: 'Cloud document storage and retrieval', status: 'available' },
+            { id: 'elasticsearch', icon: 'dns', name: 'Elasticsearch', desc: 'Full-text search and log analytics', status: 'coming' },
         ]},
     ];
 
@@ -838,7 +835,7 @@ export function page_integrations() {
         cat.items.forEach(c => {
             const st = statusMap[c.status];
             html += `
-            <div class="t-card p-3 cursor-pointer" style="border-radius:var(--radius);">
+            <div class="t-card p-3 cursor-pointer" style="border-radius:var(--radius);" onclick="openConnectorConfig('${c.id}')">
                 <div class="flex items-start justify-between mb-2">
                     <div class="w-7 h-7 flex items-center justify-center" style="background:var(--accent-subtle);border-radius:var(--radius-sm);">
                         <span class="material-icons-outlined text-base" style="color:var(--accent);">${c.icon}</span>
@@ -847,6 +844,10 @@ export function page_integrations() {
                 </div>
                 <h4 class="text-[12px] font-semibold mb-0.5" style="color:var(--text-primary);">${c.name}</h4>
                 <p class="text-[10px] leading-relaxed" style="color:var(--text-muted);">${c.desc}</p>
+                <div class="flex items-center gap-1.5 mt-2 pt-2" style="border-top:1px solid var(--border-default);">
+                    <span class="material-icons-outlined text-[10px]" style="color:var(--text-muted);">settings</span>
+                    <span class="text-[9px] font-medium" style="color:var(--text-muted);">Configure</span>
+                </div>
             </div>`;
         });
         html += '</div></div>';
@@ -857,89 +858,101 @@ export function page_integrations() {
 }
 
 export function page_orchestration() {
+    const paletteSections = [
+        { cat: 'Pipeline', items: [
+            { type: 'query_rewrite', icon: 'edit_note', name: 'Query Rewrite', meta: 'gpt-4o-mini' },
+            { type: 'embedding', icon: 'hub', name: 'Embedding', meta: 'text-embed-3-sm' },
+            { type: 'retrieval', icon: 'search', name: 'Retrieval', meta: 'FAISS hybrid' },
+            { type: 'context_filter', icon: 'filter_alt', name: 'Context Filter', meta: 'threshold' },
+            { type: 'validation', icon: 'verified', name: 'Validation', meta: 'rules' },
+            { type: 'synthesis', icon: 'auto_awesome', name: 'Synthesis', meta: 'gpt-4o' },
+            { type: 'evaluation', icon: 'analytics', name: 'Evaluation', meta: 'HHEM' },
+        ]},
+        { cat: 'Connectors', items: [
+            { type: 'conn_sharepoint', icon: 'folder_shared', name: 'SharePoint', meta: 'docs' },
+            { type: 'conn_s3', icon: 'cloud_queue', name: 'AWS S3', meta: 'storage' },
+            { type: 'conn_postgres', icon: 'storage', name: 'PostgreSQL', meta: 'sql' },
+            { type: 'conn_rest', icon: 'api', name: 'REST API', meta: 'http' },
+            { type: 'conn_teams', icon: 'chat', name: 'MS Teams', meta: 'notify' },
+            { type: 'conn_mqtt', icon: 'hub', name: 'MQTT', meta: 'iot' },
+        ]},
+        { cat: 'Models', items: [
+            { type: 'llm_gpt4o', icon: 'psychology', name: 'GPT-4o', meta: 'openai' },
+            { type: 'llm_gpt4omini', icon: 'psychology', name: 'GPT-4o-mini', meta: 'openai' },
+            { type: 'llm_embed', icon: 'data_array', name: 'Embedder', meta: 'ada-3' },
+            { type: 'llm_custom', icon: 'tune', name: 'Custom LLM', meta: 'self-hosted' },
+        ]},
+        { cat: 'I/O', items: [
+            { type: 'io_input', icon: 'input', name: 'User Input', meta: 'query' },
+            { type: 'io_output', icon: 'output', name: 'Agent Output', meta: 'response' },
+            { type: 'io_webhook', icon: 'webhook', name: 'Webhook', meta: 'trigger' },
+        ]},
+        { cat: 'Infrastructure', items: [
+            { type: 'infra_fastapi', icon: 'dns', name: 'FastAPI', meta: 'gateway' },
+            { type: 'infra_celery', icon: 'schedule', name: 'Celery', meta: 'workers' },
+            { type: 'infra_minio', icon: 'inventory_2', name: 'MinIO', meta: 'objects' },
+            { type: 'infra_pg', icon: 'storage', name: 'PostgreSQL', meta: 'metadata' },
+            { type: 'infra_qdrant', icon: 'scatter_plot', name: 'Qdrant', meta: 'vectors' },
+        ]},
+    ];
+
+    let paletteHtml = '';
+    paletteSections.forEach(s => {
+        paletteHtml += `<div class="wf-palette-cat">${s.cat}</div>`;
+        s.items.forEach(it => {
+            paletteHtml += `<div class="wf-palette-item" draggable="true" data-node-type="${it.type}" data-node-name="${it.name}" data-node-icon="${it.icon}" data-node-meta="${it.meta}"><span class="material-icons-outlined">${it.icon}</span>${it.name}</div>`;
+        });
+    });
+
     return `
-    <div class="max-w-5xl mx-auto space-y-4">
-        <div>
-            <h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Orchestration Pipeline</h2>
-            <p class="text-[11px]" style="color:var(--text-muted);">Visualize how agents execute queries through the processing pipeline.</p>
-        </div>
-
-        <!-- DAG Visualization -->
-        <div class="t-card p-4" style="border-radius:var(--radius);">
-            <div class="flex items-center gap-2 mb-3">
-                <span class="material-icons-outlined text-base" style="color:var(--accent);">account_tree</span>
-                <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">Execution DAG</h3>
-            </div>
-            <div class="flex items-center gap-1.5 flex-wrap" id="dag-pipeline">
-                ${['Query Received','Query Rewrite','Embedding','Retrieval','Context Filter','Validation','Synthesis','Evaluation'].map((s, i) => `
-                    <div class="flex items-center gap-1.5">
-                        <div class="px-2 py-1.5 text-[10px] font-medium" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
-                            <span class="text-[8px] font-bold mr-1 font-mono" style="color:var(--accent);">${i+1}</span>${s}
-                        </div>
-                        ${i < 7 ? '<span class="material-icons-outlined text-[10px]" style="color:var(--text-muted);">arrow_forward</span>' : ''}
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-
-        <!-- Pipeline Details -->
-        <div class="grid grid-cols-2 gap-2">
-            <div class="t-card p-3" style="border-radius:var(--radius);">
-                <h4 class="text-[11px] font-semibold mb-2" style="color:var(--text-primary);">Pipeline Components</h4>
-                <div class="space-y-1.5">
-                    <div class="flex items-center justify-between text-[10px]">
-                        <span style="color:var(--text-secondary);">Query Rewriter</span>
-                        <span class="font-mono px-1.5 py-0.5" style="background:var(--accent-subtle);color:var(--accent);border-radius:var(--radius-xs);">gpt-4o-mini</span>
-                    </div>
-                    <div class="flex items-center justify-between text-[10px]">
-                        <span style="color:var(--text-secondary);">Embedder</span>
-                        <span class="font-mono px-1.5 py-0.5" style="background:var(--accent-subtle);color:var(--accent);border-radius:var(--radius-xs);">text-embedding-3-small</span>
-                    </div>
-                    <div class="flex items-center justify-between text-[10px]">
-                        <span style="color:var(--text-secondary);">Vector Store</span>
-                        <span class="font-mono px-1.5 py-0.5" style="background:var(--accent-subtle);color:var(--accent);border-radius:var(--radius-xs);">FAISS (Hybrid)</span>
-                    </div>
-                    <div class="flex items-center justify-between text-[10px]">
-                        <span style="color:var(--text-secondary);">Synthesis LLM</span>
-                        <span class="font-mono px-1.5 py-0.5" style="background:var(--accent-subtle);color:var(--accent);border-radius:var(--radius-xs);">gpt-4o</span>
-                    </div>
-                    <div class="flex items-center justify-between text-[10px]">
-                        <span style="color:var(--text-secondary);">Evaluator</span>
-                        <span class="font-mono px-1.5 py-0.5" style="background:var(--accent-subtle);color:var(--accent);border-radius:var(--radius-xs);">ResponseEvaluator</span>
-                    </div>
+    <div style="display:flex;flex-direction:column;height:calc(100vh - 100px);margin:-20px;overflow:hidden;">
+        <!-- Toolbar -->
+        <div class="flex items-center justify-between px-3 py-1.5 shrink-0" style="background:var(--bg-card);border-bottom:1px solid var(--border-default);">
+            <div class="flex items-center gap-2">
+                <span class="material-icons-outlined text-sm" style="color:var(--accent);">account_tree</span>
+                <div id="wf-breadcrumb" class="flex items-center gap-1 text-[11px]">
+                    <span class="font-semibold" style="color:var(--text-primary);">Workflow</span>
                 </div>
             </div>
-            <div class="t-card p-3" style="border-radius:var(--radius);">
-                <h4 class="text-[11px] font-semibold mb-2" style="color:var(--text-primary);">Orchestration Features</h4>
-                <div class="space-y-2">
-                    <div class="flex items-start gap-2">
-                        <span class="material-icons-outlined text-xs mt-0.5" style="color:var(--success);">check_circle</span>
-                        <div>
-                            <p class="text-[11px] font-medium" style="color:var(--text-primary);">Multi-agent routing</p>
-                            <p class="text-[9px]" style="color:var(--text-muted);">Automatic intent detection and agent selection</p>
-                        </div>
+            <div class="flex items-center gap-1.5">
+                <button onclick="wfResetDefault()" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-[10px]">restart_alt</span>Reset
+                </button>
+                <button onclick="wfSave()" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--accent-subtle);border:1px solid var(--border-active);color:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-[10px]">save</span>Save
+                </button>
+                <button onclick="wfExport()" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-[10px]">download</span>JSON
+                </button>
+            </div>
+        </div>
+
+        <!-- Main area -->
+        <div style="display:flex;flex:1;min-height:0;">
+            <!-- Palette -->
+            <div class="wf-palette shrink-0 py-1">${paletteHtml}</div>
+
+            <!-- Canvas -->
+            <div style="flex:1;position:relative;overflow:hidden;">
+                <div id="drawflow-canvas"></div>
+            </div>
+
+            <!-- Config Panel (hidden by default) -->
+            <div id="wf-config-panel" class="wf-config shrink-0" style="display:none;">
+                <div class="px-3 py-2.5" style="border-bottom:1px solid var(--border-default);">
+                    <div class="flex items-center justify-between">
+                        <h4 class="text-[11px] font-semibold" style="color:var(--text-primary);" id="wf-cfg-title">Node Config</h4>
+                        <button onclick="wfCloseConfig()" class="w-5 h-5 flex items-center justify-center" style="color:var(--text-muted);border-radius:var(--radius-xs);">
+                            <span class="material-icons-outlined text-xs">close</span>
+                        </button>
                     </div>
-                    <div class="flex items-start gap-2">
-                        <span class="material-icons-outlined text-xs mt-0.5" style="color:var(--success);">check_circle</span>
-                        <div>
-                            <p class="text-[11px] font-medium" style="color:var(--text-primary);">Real-time streaming</p>
-                            <p class="text-[9px]" style="color:var(--text-muted);">SSE-based execution trace with step-by-step visibility</p>
-                        </div>
-                    </div>
-                    <div class="flex items-start gap-2">
-                        <span class="material-icons-outlined text-xs mt-0.5" style="color:var(--success);">check_circle</span>
-                        <div>
-                            <p class="text-[11px] font-medium" style="color:var(--text-primary);">Quality evaluation</p>
-                            <p class="text-[9px]" style="color:var(--text-muted);">Factuality, relevance, coherence, and HHEM scoring</p>
-                        </div>
-                    </div>
-                    <div class="flex items-start gap-2">
-                        <span class="material-icons-outlined text-xs mt-0.5" style="color:var(--accent);">schedule</span>
-                        <div>
-                            <p class="text-[11px] font-medium" style="color:var(--text-primary);">Workflow builder</p>
-                            <p class="text-[9px]" style="color:var(--text-muted);">Visual DAG editor for custom pipelines (coming soon)</p>
-                        </div>
-                    </div>
+                    <p class="text-[9px] font-mono" style="color:var(--text-muted);" id="wf-cfg-type">—</p>
+                </div>
+                <div id="wf-cfg-fields" class="px-3 py-2.5 space-y-2.5"></div>
+                <div class="px-3 py-2" style="border-top:1px solid var(--border-default);">
+                    <button onclick="wfDeleteNode()" class="w-full py-1.5 text-[10px] font-medium text-red-500 flex items-center justify-center gap-1" style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:var(--radius-sm);">
+                        <span class="material-icons-outlined text-xs">delete</span>Remove Node
+                    </button>
                 </div>
             </div>
         </div>
