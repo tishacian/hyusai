@@ -937,6 +937,80 @@ async function loadAuditData() {
     }
 }
 
+// -- Voice --
+
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let ttsEnabled = false;
+
+async function toggleMic() {
+    if (isRecording) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+}
+
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        audioChunks = [];
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+        mediaRecorder.onstop = async () => {
+            stream.getTracks().forEach(t => t.stop());
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            const micBtn = document.getElementById('mic-btn');
+            if (micBtn) { micBtn.innerHTML = '<span class="material-icons-outlined text-sm animate-spin">sync</span>'; }
+            try {
+                const api = await import('./api.js');
+                const result = await api.transcribeAudio(blob);
+                const input = document.getElementById('chat-input');
+                if (input && result.text) { input.value = result.text; input.focus(); }
+            } catch (e) {
+                showToast('Transcription failed: ' + e.message);
+            } finally {
+                if (micBtn) { micBtn.innerHTML = '<span class="material-icons-outlined text-sm">mic</span>'; }
+            }
+        };
+        mediaRecorder.start();
+        isRecording = true;
+        const micBtn = document.getElementById('mic-btn');
+        if (micBtn) { micBtn.innerHTML = '<span class="material-icons-outlined text-sm text-red-500 pulse-ring">stop</span>'; }
+    } catch (e) {
+        showToast('Microphone access denied');
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    isRecording = false;
+}
+
+function toggleTTS() {
+    ttsEnabled = !ttsEnabled;
+    const btn = document.getElementById('tts-btn');
+    if (btn) {
+        btn.style.color = ttsEnabled ? 'var(--accent)' : 'var(--text-muted)';
+        btn.title = ttsEnabled ? 'Speaker on' : 'Speaker off';
+    }
+    showToast(ttsEnabled ? 'Voice output enabled' : 'Voice output disabled');
+}
+
+async function playTTS(text) {
+    if (!ttsEnabled || !text) return;
+    try {
+        const api = await import('./api.js');
+        const clean = text.replace(/[#*_`\[\]|]/g, '').substring(0, 2000);
+        const blob = await api.synthesizeSpeech(clean);
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.play();
+        audio.onended = () => URL.revokeObjectURL(url);
+    } catch (e) { /* non-blocking */ }
+}
+
 // -- Chat / Execution (Step 6) --
 
 function initChat() {
@@ -950,7 +1024,6 @@ function initChat() {
         }
     });
 
-    // Auto-resize textarea
     input.addEventListener('input', () => {
         input.style.height = 'auto';
         input.style.height = Math.min(input.scrollHeight, 120) + 'px';
@@ -1050,6 +1123,7 @@ async function sendChat() {
             if (dots) dots.remove();
 
             logAuditEvent(api, query, accumulatedText);
+            playTTS(accumulatedText);
             input.focus();
         },
         // onError

@@ -11,6 +11,7 @@ from app.api.v1.endpoints import (
     settings,
     traces,
     audit,
+    voice,
 )
 
 api_router = APIRouter()
@@ -25,3 +26,4 @@ api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
 api_router.include_router(traces.router, prefix="/traces", tags=["traces"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
+api_router.include_router(voice.router, prefix="/voice", tags=["voice"])

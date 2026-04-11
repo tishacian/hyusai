@@ -69,6 +69,27 @@ export async function uploadDocument(file) {
     return res.json();
 }
 
+export async function transcribeAudio(blob) {
+    const formData = new FormData();
+    formData.append('file', blob, 'recording.webm');
+    const res = await fetch(`${API_BASE}/voice/transcribe`, {
+        method: 'POST',
+        body: formData,
+    });
+    if (!res.ok) throw new Error(`Transcription failed: ${res.status}`);
+    return res.json();
+}
+
+export async function synthesizeSpeech(text, voice = 'nova') {
+    const res = await fetch(`${API_BASE}/voice/synthesize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice }),
+    });
+    if (!res.ok) throw new Error(`Speech synthesis failed: ${res.status}`);
+    return res.blob();
+}
+
 /**
  * Stream a chat completion via SSE.
  * @param {string} query

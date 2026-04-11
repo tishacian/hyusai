@@ -633,16 +633,22 @@ export function step6_execution() {
 
             <!-- Input bar -->
             <div class="px-4 py-3 shrink-0" style="border-top:1px solid var(--border-default);">
-                <div class="flex items-end gap-2.5 px-3 py-2 rounded-lg transition-colors" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
+                <div class="flex items-end gap-2 px-3 py-2 rounded-lg transition-colors" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
+                    <button id="mic-btn" onclick="toggleMic()" class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors" style="color:var(--text-muted);" title="Voice input">
+                        <span class="material-icons-outlined text-sm">mic</span>
+                    </button>
                     <textarea id="chat-input" rows="1" placeholder="${placeholder}"
                         class="flex-1 resize-none bg-transparent text-[13px] focus:outline-none disabled:opacity-50 leading-relaxed"
                         style="max-height:100px;color:var(--text-primary);"></textarea>
+                    <button id="tts-btn" onclick="toggleTTS()" class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors" style="color:var(--text-muted);" title="Toggle voice output">
+                        <span class="material-icons-outlined text-sm">volume_up</span>
+                    </button>
                     <button id="chat-send" onclick="sendChat()"
                         class="shrink-0 w-7 h-7 rounded-lg text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center" style="background:var(--accent);">
                         <span class="material-icons-outlined text-base">arrow_forward</span>
                     </button>
                 </div>
-                <p class="text-[10px] mt-1 text-center" style="color:var(--text-muted);">Enter to send &middot; Shift+Enter for new line</p>
+                <p class="text-[10px] mt-1 text-center" style="color:var(--text-muted);">Enter to send &middot; Mic for voice &middot; Speaker for TTS</p>
             </div>
         </div>
     </div>`;
