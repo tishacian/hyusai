@@ -1155,6 +1155,14 @@ async function sendChat() {
             if (dots) dots.remove();
 
             logAuditEvent(api, query, accumulatedText);
+            try {
+                const aid = currentAgentId || 'rag';
+                localStorage.setItem('aip_last_eval_context', JSON.stringify({
+                    agent_id: aid,
+                    query,
+                    response: accumulatedText,
+                }));
+            } catch (_) { /* non-blocking */ }
             playTTS(accumulatedText);
             input.focus();
         },
@@ -2273,13 +2281,64 @@ async function submitTask() {
 
 var qualityChart = null;
 
+function populateQualityAgentSelect() {
+    const sel = document.getElementById('quality-agent-select');
+    if (!sel) return;
+    const saved = localStorage.getItem('aip_quality_agent_id') || 'rag';
+    const prebuilt = [
+        { id: 'rag', name: 'Platform RAG (default)' },
+        { id: 'procurement', name: 'Procurement Agent' },
+        { id: 'legal', name: 'Legal Review' },
+        { id: 'hr', name: 'HR Assistant' },
+        { id: 'finance', name: 'Financial Analyst' },
+    ];
+    const custom = JSON.parse(localStorage.getItem('aip_agents') || '[]');
+    let html = '';
+    prebuilt.forEach(a => {
+        html += `<option value="${a.id}">${escapeHtml(a.name)}</option>`;
+    });
+    custom.forEach(a => {
+        html += `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)} · custom</option>`;
+    });
+    sel.innerHTML = html;
+    const ok = [...sel.options].some(o => o.value === saved);
+    sel.value = ok ? saved : 'rag';
+}
+
+function getQualityAgentId() {
+    const sel = document.getElementById('quality-agent-select');
+    if (sel && sel.value) return sel.value;
+    return localStorage.getItem('aip_quality_agent_id') || 'rag';
+}
+
+function onQualityAgentChange() {
+    const sel = document.getElementById('quality-agent-select');
+    if (sel) localStorage.setItem('aip_quality_agent_id', sel.value);
+    loadQualityPage();
+}
+
 async function loadQualityPage() {
+    populateQualityAgentSelect();
     try {
         const api = await import('./api.js');
-        const data = await api.getLatestEval();
+        const aid = getQualityAgentId();
+        const data = await api.getLatestEval(aid);
         if (data.evaluation) renderQualityScores(data.evaluation);
+        else {
+            const compositeEl = document.getElementById('quality-composite');
+            if (compositeEl) compositeEl.textContent = '—';
+            ['task_success','relevance','instruction_following','coherence','hallucination','tone','conciseness','safety','policy','drift','manipulation','tool_use'].forEach(d => {
+                const bar = document.querySelector(`[data-quality-bar="${d}"]`);
+                const label = document.querySelector(`[data-quality-score="${d}"]`);
+                if (bar) bar.style.width = '0%';
+                if (label) label.textContent = '—';
+            });
+            if (qualityChart) { qualityChart.destroy(); qualityChart = null; }
+            const claimsEl = document.getElementById('quality-claims');
+            if (claimsEl) claimsEl.innerHTML = '<p class="text-[10px]" style="color:var(--text-muted);">Run an evaluation to see claim audit results.</p>';
+        }
 
-        const hist = await api.getEvalHistory(null, 10);
+        const hist = await api.getEvalHistory(aid, 10);
         renderEvalHistory(hist.evaluations || []);
     } catch (_) {}
 }
@@ -2358,17 +2417,43 @@ function renderRadarChart(scores) {
 
 function renderEvalHistory(evaluations) {
     const el = document.getElementById('quality-history');
-    if (!el || !evaluations.length) return;
+    if (!el) return;
+    if (!evaluations.length) {
+        el.innerHTML = '<p class="text-[10px]" style="color:var(--text-muted);">No evaluations recorded yet for this agent.</p>';
+        return;
+    }
     el.innerHTML = evaluations.map(e => `
         <div class="flex items-center justify-between p-1.5" style="background:var(--bg-elevated);border-radius:var(--radius-xs);">
             <span class="text-[9px] font-mono" style="color:var(--text-muted);">${e.created_at ? new Date(e.created_at).toLocaleString() : '—'}</span>
-            <span class="text-[10px] font-bold" style="color:var(--accent);">${e.composite_score?.toFixed(1)}</span>
+            <span class="text-[10px] font-bold" style="color:var(--accent);">${e.composite_score != null ? Number(e.composite_score).toFixed(1) : '—'}</span>
         </div>
     `).join('');
 }
 
 async function triggerManualEval() {
+    const api = await import('./api.js');
+    const agentId = getQualityAgentId();
+    let ctx = null;
+    try {
+        ctx = JSON.parse(localStorage.getItem('aip_last_eval_context') || 'null');
+    } catch (_) {}
+    if (!ctx || !ctx.query || !ctx.response) {
+        showToast('Chat with an agent first (Execution step), then open Agent Quality and run evaluation.');
+        return;
+    }
     showToast('Running evaluation...');
+    try {
+        await api.evaluateResponse({
+            query: ctx.query,
+            response: ctx.response,
+            agent_id: agentId,
+            system_prompt: savedSystemPrompt || '',
+        });
+        showToast('Evaluation complete');
+        await loadQualityPage();
+    } catch (e) {
+        showToast('Evaluation failed: ' + (e.message || e));
+    }
 }
 
 // =========================================================================

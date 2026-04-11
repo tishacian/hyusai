@@ -1134,13 +1134,17 @@ export function page_agentQuality() {
 
     return `
     <div class="max-w-6xl mx-auto space-y-4">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
             <div>
                 <h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Agent Quality Score</h2>
-                <p class="text-[11px]" style="color:var(--text-muted);">LLM-as-Judge evaluation across 12 critical dimensions. Real-time scoring via GPT-4o.</p>
+                <p class="text-[11px]" style="color:var(--text-muted);">LLM-as-Judge (GPT-4o) on the <strong>last chat reply</strong> for the agent you select below. Chat with an agent in Execution first, then run evaluation here.</p>
             </div>
-            <div class="flex items-center gap-2">
-                <button onclick="triggerManualEval()" class="px-2.5 py-1.5 text-[10px] font-medium flex items-center gap-1" style="background:var(--accent-subtle);border:1px solid var(--border-active);color:var(--accent);border-radius:var(--radius-sm);">
+            <div class="flex flex-col items-stretch sm:items-end gap-2 shrink-0">
+                <div class="flex items-center gap-2">
+                    <label class="text-[10px] font-medium whitespace-nowrap" style="color:var(--text-muted);">Agent to audit</label>
+                    <select id="quality-agent-select" onchange="onQualityAgentChange()" class="t-input px-2 py-1 text-[11px] min-w-[200px]" style="border-radius:var(--radius-sm);max-width:280px;"></select>
+                </div>
+                <button onclick="triggerManualEval()" class="px-2.5 py-1.5 text-[10px] font-medium flex items-center justify-center gap-1" style="background:var(--accent-subtle);border:1px solid var(--border-active);color:var(--accent);border-radius:var(--radius-sm);">
                     <span class="material-icons-outlined text-xs">play_arrow</span>Run Evaluation
                 </button>
             </div>
