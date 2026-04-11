@@ -54,9 +54,23 @@ async def lifespan(app: FastAPI):
 
     logger.info("Application started", agents_count=len(orchestrator.agents))
 
+    # Start intelligence RSS scheduler (1h interval, daemon thread)
+    try:
+        from app.services.intelligence.scheduler import start_scheduler
+        start_scheduler(interval_seconds=3600)
+    except Exception as e:
+        logger.warning("Intelligence scheduler failed to start (non-blocking)", error=str(e))
+
     yield
 
     logger.info("Shutting down application")
+
+    try:
+        from app.services.intelligence.scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception:
+        pass
+
     if orchestrator:
         for agent in orchestrator.agents.values():
             await agent.cleanup()

@@ -1349,7 +1349,7 @@ export function page_intelligence() {
                     <div class="p-2" style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:var(--radius-sm);">
                         <div class="wf-config-field"><label>Filter Name</label><input id="intel-filter-name" placeholder="e.g., Geopolitical Alignment (UAE)"></div>
                         <div class="wf-config-field"><label>Filter Prompt</label><textarea id="intel-filter-prompt" placeholder="Ensure analysis is aligned with UAE geopolitical positioning. Flag content that takes sides in regional conflicts. Avoid amplifying sanctioned entity narratives." rows="3" style="resize:none;"></textarea></div>
-                        <div class="wf-config-field"><label>Severity</label><select><option selected>Flag for review</option><option>Warn only</option><option>Block content</option></select></div>
+                        <div class="wf-config-field"><label>Severity</label><select id="intel-filter-severity"><option value="flag" selected>Flag for review</option><option value="warn">Warn only</option><option value="block">Block content</option></select></div>
                         <button onclick="addSafetyFilter()" class="w-full py-1 text-[9px] font-medium text-white flex items-center justify-center gap-1 mt-1" style="background:var(--accent);border-radius:var(--radius-sm);">
                             <span class="material-icons-outlined text-[10px]">add</span>Add Filter
                         </button>

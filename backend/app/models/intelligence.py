@@ -30,7 +30,7 @@ class FeedArticle(Base):
     published_at = Column(DateTime, nullable=True)
     fetched_at = Column(DateTime, default=datetime.utcnow)
     embedded = Column(Boolean, default=False)
-    analysis = Column(JSON, default=dict)  # entities, sentiment, risk, findings
+    analysis = Column(JSON, nullable=True, default=None)
     relevance_score = Column(Float, default=0.0)
     safety_flag = Column(String(20), default="clear")  # clear, flagged, blocked
 

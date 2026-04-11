@@ -155,3 +155,11 @@ async def trigger_batch():
 @router.get("/dashboard")
 async def dashboard(db: DBSession = Depends(get_db)):
     return get_dashboard_data(db)
+
+
+# ── Scheduler ──
+
+@router.get("/scheduler")
+async def scheduler_status():
+    from app.services.intelligence.scheduler import is_running
+    return {"running": is_running(), "interval_seconds": 3600}

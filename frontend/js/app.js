@@ -199,16 +199,7 @@ async function goToPage(page) {
     currentPage = page;
     updateSidebarActive(page);
 
-    // #region agent log
-    fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage',message:'goToPage called',data:{page},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
-
     const mod = await loadStepModules();
-
-    // #region agent log
-    fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:mod',message:'module loaded, checking exports',data:{page,hasPageWorkspace:typeof mod.page_workspace,hasPageQuality:typeof mod.page_agentQuality,hasPageIntel:typeof mod.page_intelligence},timestamp:Date.now(),hypothesisId:'H1,H4'})}).catch(()=>{});
-    // #endregion
-
     const content = document.getElementById('step-content');
     const cfg = pageConfig[page] || { title: page, breadcrumb: page };
     const title = document.getElementById('header-title');
@@ -245,22 +236,10 @@ async function goToPage(page) {
         content.innerHTML = mod.page_workspace();
         loadWorkspace();
     } else if (page === 'quality') {
-        // #region agent log
-        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:quality',message:'entering quality branch',data:{fnType:typeof mod.page_agentQuality},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-        // #endregion
         content.innerHTML = mod.page_agentQuality();
-        // #region agent log
-        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:quality:rendered',message:'quality page HTML set',data:{contentLength:content.innerHTML.length},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-        // #endregion
         loadQualityPage();
     } else if (page === 'intelligence') {
-        // #region agent log
-        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:intelligence',message:'entering intelligence branch',data:{fnType:typeof mod.page_intelligence},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-        // #endregion
         content.innerHTML = mod.page_intelligence();
-        // #region agent log
-        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:goToPage:intelligence:rendered',message:'intelligence page HTML set',data:{contentLength:content.innerHTML.length},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-        // #endregion
         loadIntelligenceDashboard();
     }
 
@@ -2295,27 +2274,14 @@ async function submitTask() {
 var qualityChart = null;
 
 async function loadQualityPage() {
-    // #region agent log
-    fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadQualityPage',message:'loadQualityPage called',data:{},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-    // #endregion
     try {
         const api = await import('./api.js');
         const data = await api.getLatestEval();
-        // #region agent log
-        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadQualityPage:data',message:'getLatestEval response',data:{evalData:data},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
         if (data.evaluation) renderQualityScores(data.evaluation);
 
         const hist = await api.getEvalHistory(null, 10);
-        // #region agent log
-        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadQualityPage:history',message:'getEvalHistory response',data:{histData:hist},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
         renderEvalHistory(hist.evaluations || []);
-    } catch (err) {
-        // #region agent log
-        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadQualityPage:error',message:'loadQualityPage CATCH',data:{error:err.message,stack:err.stack},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
-    }
+    } catch (_) {}
 }
 
 function renderQualityScores(evaluation) {
@@ -2413,15 +2379,9 @@ var sentimentChart = null;
 var entityChart = null;
 
 async function loadIntelligenceDashboard() {
-    // #region agent log
-    fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadIntelligenceDashboard',message:'loadIntelligenceDashboard called',data:{},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-    // #endregion
     try {
         const api = await import('./api.js');
         const data = await api.getIntelDashboard();
-        // #region agent log
-        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadIntelligenceDashboard:data',message:'getIntelDashboard response',data:{dashboard:data},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
         const kpis = data.kpis || {};
         const el = (id) => document.getElementById(id);
         if (el('intel-total-articles')) el('intel-total-articles').textContent = kpis.total_articles || 0;
@@ -2432,11 +2392,7 @@ async function loadIntelligenceDashboard() {
         renderSentimentChart(data.sentiment || {});
         renderEntityChart(data.top_entities || []);
         renderArticles(data.articles || []);
-    } catch (err) {
-        // #region agent log
-        fetch('http://127.0.0.1:7436/ingest/47f34762-91b0-4ee3-ac96-3f6619683281',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f92e7'},body:JSON.stringify({sessionId:'6f92e7',location:'app.js:loadIntelligenceDashboard:error',message:'loadIntelligenceDashboard CATCH',data:{error:err.message,stack:err.stack},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
-    }
+    } catch (_) {}
 }
 
 function renderSentimentChart(sentiment) {
@@ -2544,8 +2500,12 @@ async function loadIntelConfigData() {
         const feedsList = document.getElementById('intel-feeds-list');
         if (feedsList) feedsList.innerHTML = (feeds.feeds || []).map(f => `
             <div class="flex items-center justify-between p-1.5" style="background:var(--bg-elevated);border-radius:var(--radius-xs);">
-                <div><p class="text-[10px] font-medium" style="color:var(--text-primary);">${escapeHtml(f.name)}</p><p class="text-[8px] font-mono truncate" style="color:var(--text-muted);max-width:250px;">${escapeHtml(f.url)}</p></div>
-                <span class="w-1.5 h-1.5 rounded-full" style="background:${f.active ? 'var(--success)' : 'var(--text-muted)'};"></span>
+                <div class="flex-1 min-w-0 mr-2"><p class="text-[10px] font-medium" style="color:var(--text-primary);">${escapeHtml(f.name)}</p><p class="text-[8px] font-mono truncate" style="color:var(--text-muted);max-width:280px;">${escapeHtml(f.url)}</p></div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                    <span class="text-[8px] font-mono" style="color:var(--text-muted);">${f.article_count || 0} art.</span>
+                    <span class="w-1.5 h-1.5 rounded-full" style="background:${f.active ? 'var(--success)' : 'var(--text-muted)'};"></span>
+                    <button onclick="removeIntelFeed('${f.id}')" class="w-4 h-4 flex items-center justify-center" style="color:var(--text-muted);border-radius:var(--radius-xs);" title="Remove feed"><span class="material-icons-outlined text-[10px]">close</span></button>
+                </div>
             </div>`).join('') || '<p class="text-[9px]" style="color:var(--text-muted);">No feeds configured</p>';
 
         const targetsList = document.getElementById('intel-targets-list');
@@ -2595,13 +2555,25 @@ async function addTarget() {
 async function addSafetyFilter() {
     const name = document.getElementById('intel-filter-name').value.trim();
     const prompt = document.getElementById('intel-filter-prompt').value.trim();
+    const severityEl = document.getElementById('intel-filter-severity');
+    const severity = severityEl ? severityEl.value : 'flag';
     if (!name || !prompt) { showToast('Name and prompt required'); return; }
     try {
         const api = await import('./api.js');
-        await api.createSafetyFilter({ name, prompt_template: prompt });
+        await api.createSafetyFilter({ name, prompt_template: prompt, severity });
         showToast('Safety filter added');
         document.getElementById('intel-filter-name').value = '';
         document.getElementById('intel-filter-prompt').value = '';
+        if (severityEl) severityEl.selectedIndex = 0;
+        loadIntelConfigData();
+    } catch (e) { showToast('Error: ' + e.message); }
+}
+
+async function removeIntelFeed(feedId) {
+    try {
+        const api = await import('./api.js');
+        await api.deleteFeed(feedId);
+        showToast('Feed removed');
         loadIntelConfigData();
     } catch (e) { showToast('Error: ' + e.message); }
 }

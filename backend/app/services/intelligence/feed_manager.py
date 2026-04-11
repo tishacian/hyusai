@@ -52,11 +52,12 @@ async def fetch_feed(url: str) -> list[dict]:
     return articles
 
 
-def save_articles(source_id: str, articles: list[dict]):
-    """Persist articles to database."""
+def save_articles(source_id: str, articles: list[dict]) -> int:
+    """Persist articles to database. Returns count of newly inserted articles."""
     from app.models.intelligence import FeedArticle
 
     db = SessionLocal()
+    inserted = 0
     try:
         for art in articles:
             existing = db.query(FeedArticle).filter(FeedArticle.url == art["url"]).first()
@@ -72,12 +73,14 @@ def save_articles(source_id: str, articles: list[dict]):
                 fetched_at=datetime.utcnow(),
             )
             db.add(row)
+            inserted += 1
         db.commit()
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to save articles: {e}")
     finally:
         db.close()
+    return inserted
 
 
 def get_articles(

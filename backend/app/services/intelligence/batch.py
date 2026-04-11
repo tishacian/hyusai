@@ -39,6 +39,8 @@ async def run_batch(target_id: str = None) -> AsyncGenerator[dict, None]:
 
         yield {"type": "batch_start", "batch_id": batch_id, "sources": total_sources, "targets": len(targets)}
 
+        relevance_threshold = min((t.relevance_threshold for t in targets), default=0.2)
+
         for si, source in enumerate(sources):
             yield {
                 "type": "batch_fetch",
@@ -48,31 +50,32 @@ async def run_batch(target_id: str = None) -> AsyncGenerator[dict, None]:
             }
 
             articles = await fetch_feed(source.url)
-            save_articles(source.id, articles)
+            inserted = save_articles(source.id, articles)
 
             source.last_fetched = datetime.utcnow()
-            source.article_count = (source.article_count or 0) + len(articles)
+            source.article_count = (source.article_count or 0) + inserted
             db.commit()
 
-            total_articles += len(articles)
+            total_articles += inserted
 
         yield {"type": "batch_fetch_done", "batch_id": batch_id, "total_articles": total_articles}
 
         unanalyzed = db.query(FeedArticle).filter(
-            FeedArticle.analysis == None  # noqa: E711
+            FeedArticle.analysis.is_(None)
         ).order_by(FeedArticle.fetched_at.desc()).limit(100).all()
 
         for ai, article in enumerate(unanalyzed):
             relevance = await analyzer.compute_relevance(
-                f"{article.title} {article.content[:500]}", target_desc
+                f"{article.title} {(article.content or '')[:500]}", target_desc
             )
             article.relevance_score = relevance
 
-            if relevance >= 0.2:
+            if relevance >= relevance_threshold:
                 analysis = await analyzer.analyze_article(
                     article.title, article.content or "", target_desc
                 )
                 article.analysis = analysis
+                article.embedded = True
 
                 safety = await analyzer.check_safety(
                     f"{article.title}: {analysis.get('key_findings', [])}",
@@ -80,21 +83,19 @@ async def run_batch(target_id: str = None) -> AsyncGenerator[dict, None]:
                 )
                 article.safety_flag = safety.get("flag", "clear")
                 article.summary = "; ".join(analysis.get("key_findings", []))
+                analyzed += 1
             else:
                 article.analysis = {"skipped": True, "reason": "below relevance threshold"}
                 article.safety_flag = "clear"
 
-            article.embedded = True
-            analyzed += 1
-
-            if analyzed % 5 == 0:
+            if (ai + 1) % 5 == 0:
                 db.commit()
                 yield {
                     "type": "batch_analyze",
                     "batch_id": batch_id,
                     "analyzed": analyzed,
                     "total": len(unanalyzed),
-                    "progress": int(30 + (analyzed / max(1, len(unanalyzed))) * 60),
+                    "progress": int(30 + ((ai + 1) / max(1, len(unanalyzed))) * 60),
                 }
 
         db.commit()
@@ -121,10 +122,13 @@ def get_dashboard_data(db) -> dict:
 
     sources = db.query(FeedSource).filter(FeedSource.active == True).all()
     total_articles = db.query(func.count(FeedArticle.id)).scalar() or 0
-    analyzed_count = db.query(func.count(FeedArticle.id)).filter(FeedArticle.embedded == True).scalar() or 0
+    analyzed_count = db.query(func.count(FeedArticle.id)).filter(
+        FeedArticle.embedded == True
+    ).scalar() or 0
 
     recent = db.query(FeedArticle).filter(
-        FeedArticle.analysis != None  # noqa: E711
+        FeedArticle.analysis.isnot(None),
+        FeedArticle.embedded == True,
     ).order_by(FeedArticle.fetched_at.desc()).limit(30).all()
 
     sentiment_counts = {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0}
