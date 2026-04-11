@@ -119,8 +119,8 @@ function updateHeader(step) {
     const title = document.getElementById('header-title');
     const sub = document.getElementById('step-title');
     const btn = document.getElementById('next-btn');
-    if (title) title.textContent = stepTitles[step];
-    if (sub) sub.textContent = step === 6 ? `Run ${getAgentName()}` : headerSubtitles[step];
+    if (title) title.textContent = `Step ${step}`;
+    if (sub) sub.textContent = step === 6 ? getAgentName() : headerSubtitles[step];
     if (btn) {
         if (step === 7) {
             btn.innerHTML = '<span class="material-icons-outlined text-base">save</span> Save Agent';
@@ -148,6 +148,10 @@ function goToStep(step) {
 
     if (!builderExpanded) toggleBuilderNav();
     updateSidebarActive(null);
+
+    const content = document.getElementById('step-content');
+    if (content) content.scrollTop = 0;
+    window.scrollTo(0, 0);
 }
 
 function nextStep() {
@@ -231,6 +235,9 @@ async function goToPage(page) {
         ind.classList.remove('step-active');
         if (!ind.classList.contains('step-completed')) ind.classList.add('step-pending');
     });
+
+    if (content) content.scrollTop = 0;
+    window.scrollTo(0, 0);
 }
 
 async function loadKBStats() {
@@ -738,6 +745,13 @@ async function loadHubAgents() {
     const grid = document.getElementById('hub-agents-grid');
     if (!grid) return;
 
+    try {
+        const api = await import('./api.js');
+        const stats = await api.getDocumentStats();
+        const kbEl = document.getElementById('hub-kb-count');
+        if (kbEl) kbEl.textContent = stats.total_chunks ? `${stats.total_chunks}` : '0';
+    } catch (_) { /* non-blocking */ }
+
     const prebuilt = [
         { id: 'procurement', name: 'Procurement Agent', type: 'Procurement', icon: 'verified_user', color: '#00bcd4', desc: 'Vendor qualification, compliance validation, and document verification against procurement policies.', model: 'gpt-4o' },
         { id: 'legal', name: 'Legal Review', type: 'Legal', icon: 'gavel', color: '#8b5cf6', desc: 'Contract analysis, clause extraction, risk assessment, and regulatory compliance review.', model: 'gpt-4o' },
@@ -809,6 +823,9 @@ function launchPrebuiltAgent(agentId) {
     savedAgentType = cfg.type;
     currentAgentId = agentId;
     goToStep(6);
+    const content = document.getElementById('step-content');
+    if (content) content.scrollTop = 0;
+    window.scrollTo(0, 0);
 }
 
 function closeDocPreview() {
