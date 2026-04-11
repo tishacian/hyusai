@@ -802,51 +802,65 @@ export function page_agentHub() {
 export function page_integrations() {
     const connectors = [
         { cat: 'Microsoft', items: [
-            { id: 'dynamics365', icon: 'cloud', name: 'Dynamics 365', desc: 'ERP/CRM data, vendor records, purchase orders', status: 'available' },
-            { id: 'teams', icon: 'chat', name: 'Microsoft Teams', desc: 'Notifications, agent conversations via Teams', status: 'available' },
-            { id: 'sharepoint', icon: 'folder_shared', name: 'SharePoint', desc: 'Document libraries, policy repositories', status: 'available' },
-            { id: 'outlook', icon: 'mail', name: 'Outlook / Exchange', desc: 'Email integration, calendar events, task sync', status: 'available' },
+            { id: 'dynamics365', icon: 'cloud', name: 'Dynamics 365', desc: 'ERP/CRM data, vendor records, purchase orders', status: 'available', ver: 'v9.2' },
+            { id: 'teams', icon: 'chat', name: 'Microsoft Teams', desc: 'Notifications, agent conversations via Teams', status: 'available', ver: 'Graph API v1.0' },
+            { id: 'sharepoint', icon: 'folder_shared', name: 'SharePoint', desc: 'Document libraries, policy repositories', status: 'available', ver: 'REST API v2' },
+            { id: 'outlook', icon: 'mail', name: 'Outlook / Exchange', desc: 'Email integration, calendar events, task sync', status: 'available', ver: 'EWS / Graph' },
         ]},
         { cat: 'Communication Channels', items: [
-            { id: 'telegram', icon: 'send', name: 'Telegram Bot', desc: 'Chat interaction via Telegram bot API', status: 'available' },
-            { id: 'whatsapp', icon: 'forum', name: 'WhatsApp Business', desc: 'Agent access via WhatsApp Business API', status: 'coming' },
-            { id: 'smtp', icon: 'email', name: 'SMTP / Email', desc: 'Inbound/outbound email agent triggers', status: 'available' },
-            { id: 'rest_api', icon: 'api', name: 'REST API', desc: 'Custom integrations via documented REST endpoints', status: 'active' },
-            { id: 'mqtt', icon: 'hub', name: 'MQTT', desc: 'IoT and real-time event-driven messaging', status: 'available' },
+            { id: 'telegram', icon: 'send', name: 'Telegram Bot', desc: 'Chat interaction via Telegram bot API', status: 'available', ver: 'Bot API 7.x' },
+            { id: 'whatsapp', icon: 'forum', name: 'WhatsApp Business', desc: 'Agent access via WhatsApp Business API', status: 'coming', ver: 'Cloud API v18' },
+            { id: 'smtp', icon: 'email', name: 'SMTP / Email', desc: 'Inbound/outbound email agent triggers', status: 'available', ver: 'SMTP / IMAP' },
+            { id: 'rest_api', icon: 'api', name: 'REST API', desc: 'Custom integrations via documented REST endpoints', status: 'active', ver: 'OpenAPI 3.1' },
+            { id: 'mqtt', icon: 'hub', name: 'MQTT', desc: 'IoT and real-time event-driven messaging', status: 'available', ver: 'MQTT v5.0' },
         ]},
         { cat: 'Data & Storage', items: [
-            { id: 'postgresql', icon: 'storage', name: 'PostgreSQL', desc: 'Structured data queries and analytics', status: 'active' },
-            { id: 's3', icon: 'cloud_queue', name: 'AWS S3', desc: 'Cloud document storage and retrieval', status: 'available' },
-            { id: 'elasticsearch', icon: 'dns', name: 'Elasticsearch', desc: 'Full-text search and log analytics', status: 'coming' },
+            { id: 'postgresql', icon: 'storage', name: 'PostgreSQL', desc: 'Structured data queries and analytics', status: 'active', ver: 'v16' },
+            { id: 's3', icon: 'cloud_queue', name: 'AWS S3', desc: 'Cloud document storage and retrieval', status: 'available', ver: 'SDK v3' },
+            { id: 'elasticsearch', icon: 'dns', name: 'Elasticsearch', desc: 'Full-text search and log analytics', status: 'coming', ver: 'v8.x' },
         ]},
     ];
 
     const statusMap = {
-        active: { label: 'Connected', color: 'var(--success)', bg: 'rgba(16,185,129,0.15)' },
-        available: { label: 'Available', color: 'var(--accent)', bg: 'var(--accent-subtle)' },
-        coming: { label: 'Coming soon', color: 'var(--warning)', bg: 'rgba(245,158,11,0.15)' },
+        active: { label: 'Connected', icon: 'check_circle', color: 'var(--success)', bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.25)' },
+        available: { label: 'Available', icon: 'radio_button_unchecked', color: 'var(--accent)', bg: 'var(--accent-subtle)', border: 'var(--border-active)' },
+        coming: { label: 'Coming soon', icon: 'schedule', color: 'var(--warning)', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.25)' },
     };
 
+    const totalConnectors = connectors.reduce((sum, cat) => sum + cat.items.length, 0);
+    const activeCount = connectors.reduce((sum, cat) => sum + cat.items.filter(c => c.status === 'active').length, 0);
+    const availableCount = connectors.reduce((sum, cat) => sum + cat.items.filter(c => c.status === 'available').length, 0);
+
     let html = '<div class="max-w-5xl mx-auto space-y-5">';
-    html += '<div><h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Integrations & Connectors</h2><p class="text-[11px]" style="color:var(--text-muted);">Connect your agents to enterprise systems and communication channels.</p></div>';
+    html += `<div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Integrations & Connectors</h2>
+            <p class="text-[11px]" style="color:var(--text-muted);">Connect agents to enterprise systems, data sources, and communication channels.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:var(--success);"></span><span class="text-[10px] font-medium" style="color:var(--text-secondary);">${activeCount} active</span></div>
+            <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:var(--accent);"></span><span class="text-[10px] font-medium" style="color:var(--text-secondary);">${availableCount} available</span></div>
+            <span class="text-[10px] font-mono" style="color:var(--text-muted);">${totalConnectors} total</span>
+        </div>
+    </div>`;
 
     connectors.forEach(cat => {
-        html += `<div><h3 class="text-[10px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">${cat.cat}</h3><div class="grid grid-cols-3 gap-2">`;
+        html += `<div><h3 class="text-[10px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-2" style="color:var(--text-muted);">${cat.cat}<span class="text-[8px] font-mono px-1.5 py-0.5" style="background:var(--bg-elevated);border-radius:var(--radius-xs);">${cat.items.length}</span></h3><div class="grid grid-cols-3 gap-2">`;
         cat.items.forEach(c => {
             const st = statusMap[c.status];
             html += `
-            <div class="t-card p-3 cursor-pointer" style="border-radius:var(--radius);" onclick="openConnectorConfig('${c.id}')">
+            <div class="t-card p-3 cursor-pointer group" style="border-radius:var(--radius);transition:border-color .15s;" onclick="openConnectorConfig('${c.id}')" onmouseenter="this.style.borderColor='var(--border-active)'" onmouseleave="this.style.borderColor=''">
                 <div class="flex items-start justify-between mb-2">
-                    <div class="w-7 h-7 flex items-center justify-center" style="background:var(--accent-subtle);border-radius:var(--radius-sm);">
-                        <span class="material-icons-outlined text-base" style="color:var(--accent);">${c.icon}</span>
+                    <div class="w-8 h-8 flex items-center justify-center" style="background:var(--accent-subtle);border-radius:var(--radius-sm);">
+                        <span class="material-icons-outlined text-lg" style="color:var(--accent);">${c.icon}</span>
                     </div>
-                    <span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:${st.bg};color:${st.color};border-radius:var(--radius-xs);">${st.label}</span>
+                    <span class="flex items-center gap-1 px-1.5 py-0.5 text-[8px] font-medium" style="background:${st.bg};color:${st.color};border:1px solid ${st.border};border-radius:var(--radius-xs);"><span class="material-icons-outlined text-[8px]">${st.icon}</span>${st.label}</span>
                 </div>
                 <h4 class="text-[12px] font-semibold mb-0.5" style="color:var(--text-primary);">${c.name}</h4>
-                <p class="text-[10px] leading-relaxed" style="color:var(--text-muted);">${c.desc}</p>
-                <div class="flex items-center gap-1.5 mt-2 pt-2" style="border-top:1px solid var(--border-default);">
-                    <span class="material-icons-outlined text-[10px]" style="color:var(--text-muted);">settings</span>
-                    <span class="text-[9px] font-medium" style="color:var(--text-muted);">Configure</span>
+                <p class="text-[10px] leading-relaxed mb-1" style="color:var(--text-muted);">${c.desc}</p>
+                <div class="flex items-center justify-between mt-2 pt-2" style="border-top:1px solid var(--border-default);">
+                    <span class="text-[8px] font-mono" style="color:var(--text-muted);">${c.ver || ''}</span>
+                    <span class="text-[9px] font-medium flex items-center gap-1" style="color:var(--accent);"><span class="material-icons-outlined text-[10px]">arrow_forward</span>Configure</span>
                 </div>
             </div>`;
         });
@@ -902,11 +916,11 @@ export function page_orchestration() {
         ]},
     ];
 
-    let paletteHtml = '';
+    let paletteHtml = `<div class="wf-palette-search"><div style="position:relative;"><span class="material-icons-outlined" style="position:absolute;left:6px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--text-muted);">search</span><input type="text" placeholder="Search nodes..." oninput="wfFilterPalette(this.value)"></div></div>`;
     paletteSections.forEach(s => {
-        paletteHtml += `<div class="wf-palette-cat">${s.cat}</div>`;
+        paletteHtml += `<div class="wf-palette-cat" data-wf-cat="${s.cat}">${s.cat}<span class="wf-cat-count">${s.items.length}</span></div>`;
         s.items.forEach(it => {
-            paletteHtml += `<div class="wf-palette-item" draggable="true" data-node-type="${it.type}" data-node-name="${it.name}" data-node-icon="${it.icon}" data-node-meta="${it.meta}"><span class="material-icons-outlined">${it.icon}</span>${it.name}</div>`;
+            paletteHtml += `<div class="wf-palette-item" draggable="true" data-node-type="${it.type}" data-node-name="${it.name}" data-node-icon="${it.icon}" data-node-meta="${it.meta}" data-wf-cat="${s.cat}"><span class="material-icons-outlined">${it.icon}</span><span>${it.name}</span><span class="wf-item-meta">${it.meta}</span></div>`;
         });
     });
 
@@ -921,6 +935,20 @@ export function page_orchestration() {
                 </div>
             </div>
             <div class="flex items-center gap-1.5">
+                <span id="wf-node-count" class="text-[9px] font-mono px-2 py-1" style="color:var(--text-muted);">0 nodes</span>
+                <div class="flex items-center" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);overflow:hidden;">
+                    <button onclick="wfZoom('out')" class="px-1.5 py-1 text-[10px]" style="background:var(--bg-elevated);color:var(--text-secondary);border-right:1px solid var(--border-default);" title="Zoom out">
+                        <span class="material-icons-outlined text-[11px]">remove</span>
+                    </button>
+                    <span id="wf-zoom-level" class="px-1.5 py-1 text-[9px] font-mono" style="background:var(--bg-elevated);color:var(--text-muted);min-width:36px;text-align:center;">100%</span>
+                    <button onclick="wfZoom('in')" class="px-1.5 py-1 text-[10px]" style="background:var(--bg-elevated);color:var(--text-secondary);border-left:1px solid var(--border-default);" title="Zoom in">
+                        <span class="material-icons-outlined text-[11px]">add</span>
+                    </button>
+                    <button onclick="wfZoom('fit')" class="px-1.5 py-1 text-[10px]" style="background:var(--bg-elevated);color:var(--text-secondary);border-left:1px solid var(--border-default);" title="Fit to view">
+                        <span class="material-icons-outlined text-[11px]">fit_screen</span>
+                    </button>
+                </div>
+                <div style="width:1px;height:16px;background:var(--border-default);"></div>
                 <button onclick="wfResetDefault()" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
                     <span class="material-icons-outlined text-[10px]">restart_alt</span>Reset
                 </button>
@@ -945,17 +973,23 @@ export function page_orchestration() {
 
             <!-- Config Panel (hidden by default) -->
             <div id="wf-config-panel" class="wf-config shrink-0" style="display:none;">
-                <div class="px-3 py-2.5" style="border-bottom:1px solid var(--border-default);">
-                    <div class="flex items-center justify-between">
-                        <h4 class="text-[11px] font-semibold" style="color:var(--text-primary);" id="wf-cfg-title">Node Config</h4>
-                        <button onclick="wfCloseConfig()" class="w-5 h-5 flex items-center justify-center" style="color:var(--text-muted);border-radius:var(--radius-xs);">
+                <div class="px-3 py-2.5" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);">
+                    <div class="flex items-center justify-between mb-0.5">
+                        <div class="flex items-center gap-1.5">
+                            <span class="material-icons-outlined text-xs" style="color:var(--accent);">settings</span>
+                            <h4 class="text-[11px] font-semibold" style="color:var(--text-primary);" id="wf-cfg-title">Node Config</h4>
+                        </div>
+                        <button onclick="wfCloseConfig()" class="w-5 h-5 flex items-center justify-center hover:bg-opacity-10" style="color:var(--text-muted);border-radius:var(--radius-xs);">
                             <span class="material-icons-outlined text-xs">close</span>
                         </button>
                     </div>
                     <p class="text-[9px] font-mono" style="color:var(--text-muted);" id="wf-cfg-type">—</p>
                 </div>
-                <div id="wf-cfg-fields" class="px-3 py-2.5 space-y-2.5"></div>
-                <div class="px-3 py-2" style="border-top:1px solid var(--border-default);">
+                <div id="wf-cfg-fields" class="px-3 py-2.5 space-y-1" style="max-height:calc(100vh - 240px);overflow-y:auto;"></div>
+                <div class="px-3 py-2 space-y-1.5" style="border-top:1px solid var(--border-default);margin-top:auto;">
+                    <button onclick="wfSave(); showToast('Node configuration applied')" class="w-full py-1.5 text-[10px] font-medium flex items-center justify-center gap-1" style="background:var(--accent-subtle);border:1px solid var(--border-active);color:var(--accent);border-radius:var(--radius-sm);">
+                        <span class="material-icons-outlined text-xs">check</span>Apply Changes
+                    </button>
                     <button onclick="wfDeleteNode()" class="w-full py-1.5 text-[10px] font-medium text-red-500 flex items-center justify-center gap-1" style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:var(--radius-sm);">
                         <span class="material-icons-outlined text-xs">delete</span>Remove Node
                     </button>
@@ -1021,25 +1055,55 @@ export function page_workspace() {
     <!-- Task creation modal -->
     <div id="task-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;">
         <div onclick="closeTaskModal()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(3px);"></div>
-        <div class="absolute top-1/2 left-1/2" style="transform:translate(-50%,-50%);width:440px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-            <div class="px-4 py-3" style="border-bottom:1px solid var(--border-default);">
-                <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">New Mission</h3>
-                <p class="text-[10px]" style="color:var(--text-muted);">Describe what the agent should accomplish autonomously</p>
+        <div class="absolute top-1/2 left-1/2" style="transform:translate(-50%,-50%);width:480px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div class="px-4 py-3" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);border-radius:var(--radius) var(--radius) 0 0;">
+                <div class="flex items-center gap-2">
+                    <span class="material-icons-outlined text-sm" style="color:var(--accent);">rocket_launch</span>
+                    <div>
+                        <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">New Mission</h3>
+                        <p class="text-[10px]" style="color:var(--text-muted);">The agent will plan, decompose, and execute steps autonomously</p>
+                    </div>
+                </div>
             </div>
             <div class="px-4 py-3 space-y-2.5">
                 <div class="wf-config-field">
                     <label>Mission Title</label>
-                    <input id="task-title" placeholder="e.g., Daily competitor analysis briefing">
+                    <input id="task-title" placeholder="e.g., Quarterly vendor compliance audit">
                 </div>
                 <div class="wf-config-field">
-                    <label>Description</label>
-                    <textarea id="task-desc" rows="4" placeholder="Describe the mission in detail. The agent will plan and execute steps autonomously..." style="resize:none;"></textarea>
+                    <label>Objective</label>
+                    <textarea id="task-desc" rows="4" placeholder="Describe in detail what the agent should accomplish. Be specific about:&#10;- Expected outputs (report, analysis, data)&#10;- Scope and constraints&#10;- Success criteria" style="resize:none;"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="wf-config-field">
+                        <label>Assigned Agent</label>
+                        <select id="task-agent">
+                            <option value="">Auto-select (best fit)</option>
+                            <option value="procurement">Procurement Agent</option>
+                            <option value="research">Research Agent</option>
+                            <option value="general">General Assistant</option>
+                        </select>
+                    </div>
+                    <div class="wf-config-field">
+                        <label>Priority</label>
+                        <select id="task-priority">
+                            <option value="normal" selected>Normal</option>
+                            <option value="high">High</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <p class="text-[9px]" style="color:var(--text-muted);">
+                        <span class="material-icons-outlined text-[10px] align-middle mr-0.5" style="color:var(--accent);">info</span>
+                        The agent will first create an execution plan, then proceed step by step. You can monitor progress in real-time.
+                    </p>
                 </div>
             </div>
             <div class="px-4 py-3 flex items-center justify-end gap-2" style="border-top:1px solid var(--border-default);">
                 <button onclick="closeTaskModal()" class="px-3 py-1.5 text-[11px] font-medium" style="color:var(--text-secondary);border:1px solid var(--border-default);border-radius:var(--radius-sm);">Cancel</button>
                 <button onclick="submitTask()" class="px-3 py-1.5 text-[11px] font-medium text-white flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
-                    <span class="material-icons-outlined text-xs">play_arrow</span>Launch Mission
+                    <span class="material-icons-outlined text-xs">rocket_launch</span>Launch Mission
                 </button>
             </div>
         </div>
@@ -1228,40 +1292,67 @@ export function page_intelligence() {
     <!-- Intel Config Modal -->
     <div id="intel-config-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;">
         <div onclick="closeIntelConfig()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(3px);"></div>
-        <div style="position:absolute;top:0;bottom:0;right:0;width:420px;background:var(--bg-card);border-left:1px solid var(--border-default);display:flex;flex-direction:column;box-shadow:-8px 0 32px rgba(0,0,0,0.2);">
-            <div class="flex items-center justify-between px-4 py-3 shrink-0" style="border-bottom:1px solid var(--border-default);">
-                <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">Intelligence Configuration</h3>
-                <button onclick="closeIntelConfig()" class="w-6 h-6 flex items-center justify-center" style="color:var(--text-muted);"><span class="material-icons-outlined text-base">close</span></button>
+        <div style="position:absolute;top:0;bottom:0;right:0;width:460px;background:var(--bg-card);border-left:1px solid var(--border-default);display:flex;flex-direction:column;box-shadow:-8px 0 32px rgba(0,0,0,0.2);">
+            <div class="px-4 py-3 shrink-0" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="material-icons-outlined text-sm" style="color:var(--accent);">rss_feed</span>
+                        <div>
+                            <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">Intelligence Configuration</h3>
+                            <p class="text-[9px]" style="color:var(--text-muted);">Manage data sources, semantic targets, and safety filters</p>
+                        </div>
+                    </div>
+                    <button onclick="closeIntelConfig()" class="w-6 h-6 flex items-center justify-center" style="color:var(--text-muted);"><span class="material-icons-outlined text-base">close</span></button>
+                </div>
             </div>
             <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4" id="intel-config-body">
                 <!-- RSS Feeds -->
                 <div>
-                    <h4 class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-muted);">RSS Feeds</h4>
-                    <div id="intel-feeds-list" class="space-y-1"></div>
-                    <div class="flex gap-1.5 mt-1.5">
-                        <input id="intel-feed-name" placeholder="Feed name" class="flex-1 px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);">
-                        <input id="intel-feed-url" placeholder="RSS URL" class="flex-[2] px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);">
-                        <button onclick="addFeed()" class="px-2 py-1 text-[9px] font-medium text-white" style="background:var(--accent);border-radius:var(--radius-sm);">Add</button>
+                    <div class="flex items-center gap-1.5 mb-1.5">
+                        <span class="material-icons-outlined text-xs" style="color:var(--accent);">dynamic_feed</span>
+                        <h4 class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">RSS / Atom Feeds</h4>
+                    </div>
+                    <p class="text-[9px] mb-2" style="color:var(--text-muted);">Add news feeds to monitor. Articles are fetched and analyzed during each batch run.</p>
+                    <div id="intel-feeds-list" class="space-y-1 mb-2"></div>
+                    <div class="p-2" style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:var(--radius-sm);">
+                        <div class="wf-config-field"><label>Feed Name</label><input id="intel-feed-name" placeholder="e.g., Reuters World News"></div>
+                        <div class="wf-config-field"><label>Feed URL</label><input id="intel-feed-url" placeholder="https://feeds.reuters.com/reuters/topNews" type="url"></div>
+                        <button onclick="addFeed()" class="w-full py-1 text-[9px] font-medium text-white flex items-center justify-center gap-1 mt-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                            <span class="material-icons-outlined text-[10px]">add</span>Add Feed
+                        </button>
                     </div>
                 </div>
                 <!-- Semantic Targets -->
                 <div>
-                    <h4 class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-muted);">Semantic Targets</h4>
-                    <div id="intel-targets-list" class="space-y-1"></div>
-                    <div class="space-y-1 mt-1.5">
-                        <input id="intel-target-name" placeholder="Target name" class="w-full px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);">
-                        <textarea id="intel-target-desc" placeholder="Semantic scope description (e.g., 'Hormuz Strait during Iran/USA/Israel tensions')" rows="2" class="w-full px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);resize:none;"></textarea>
-                        <button onclick="addTarget()" class="px-2 py-1 text-[9px] font-medium text-white" style="background:var(--accent);border-radius:var(--radius-sm);">Add Target</button>
+                    <div class="flex items-center gap-1.5 mb-1.5">
+                        <span class="material-icons-outlined text-xs" style="color:var(--accent);">filter_center_focus</span>
+                        <h4 class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Semantic Targets</h4>
+                    </div>
+                    <p class="text-[9px] mb-2" style="color:var(--text-muted);">Define topics of interest. Articles are scored for relevance against these targets using embeddings.</p>
+                    <div id="intel-targets-list" class="space-y-1 mb-2"></div>
+                    <div class="p-2" style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:var(--radius-sm);">
+                        <div class="wf-config-field"><label>Target Name</label><input id="intel-target-name" placeholder="e.g., Energy Supply Chain Disruptions"></div>
+                        <div class="wf-config-field"><label>Semantic Scope</label><textarea id="intel-target-desc" placeholder="Hormuz Strait tensions, oil pipeline sanctions, OPEC+ production cuts, LNG supply disruptions, Red Sea shipping route threats" rows="2" style="resize:none;"></textarea></div>
+                        <button onclick="addTarget()" class="w-full py-1 text-[9px] font-medium text-white flex items-center justify-center gap-1 mt-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                            <span class="material-icons-outlined text-[10px]">add</span>Add Target
+                        </button>
                     </div>
                 </div>
                 <!-- Safety Filters -->
                 <div>
-                    <h4 class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-muted);">Safety Filters</h4>
-                    <div id="intel-filters-list" class="space-y-1"></div>
-                    <div class="space-y-1 mt-1.5">
-                        <input id="intel-filter-name" placeholder="Filter name (e.g., UAE Alignment)" class="w-full px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);">
-                        <textarea id="intel-filter-prompt" placeholder="Safety prompt (e.g., 'Ensure analysis is coherent with UAE geopolitical positioning...')" rows="3" class="w-full px-2 py-1 text-[10px]" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-primary);resize:none;"></textarea>
-                        <button onclick="addSafetyFilter()" class="px-2 py-1 text-[9px] font-medium text-white" style="background:var(--accent);border-radius:var(--radius-sm);">Add Filter</button>
+                    <div class="flex items-center gap-1.5 mb-1.5">
+                        <span class="material-icons-outlined text-xs" style="color:var(--warning);">shield</span>
+                        <h4 class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Safety Filters</h4>
+                    </div>
+                    <p class="text-[9px] mb-2" style="color:var(--text-muted);">Define governance rules to filter or flag sensitive content during analysis.</p>
+                    <div id="intel-filters-list" class="space-y-1 mb-2"></div>
+                    <div class="p-2" style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:var(--radius-sm);">
+                        <div class="wf-config-field"><label>Filter Name</label><input id="intel-filter-name" placeholder="e.g., Geopolitical Alignment (UAE)"></div>
+                        <div class="wf-config-field"><label>Filter Prompt</label><textarea id="intel-filter-prompt" placeholder="Ensure analysis is aligned with UAE geopolitical positioning. Flag content that takes sides in regional conflicts. Avoid amplifying sanctioned entity narratives." rows="3" style="resize:none;"></textarea></div>
+                        <div class="wf-config-field"><label>Severity</label><select><option selected>Flag for review</option><option>Warn only</option><option>Block content</option></select></div>
+                        <button onclick="addSafetyFilter()" class="w-full py-1 text-[9px] font-medium text-white flex items-center justify-center gap-1 mt-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                            <span class="material-icons-outlined text-[10px]">add</span>Add Filter
+                        </button>
                     </div>
                 </div>
             </div>

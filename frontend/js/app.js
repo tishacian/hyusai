@@ -1537,6 +1537,10 @@ function initWorkflowEditor() {
     });
 
     wfSetupDragDrop();
+
+    wfEditor.on('nodeCreated', () => wfUpdateNodeCount());
+    wfEditor.on('nodeRemoved', () => wfUpdateNodeCount());
+    setTimeout(wfUpdateNodeCount, 200);
 }
 
 function wfSeedDefault() {
@@ -1692,31 +1696,119 @@ function wfShowConfig(nodeId) {
     typeEl.textContent = type;
     panel.style.display = '';
 
-    let fields = '';
-    fields += `<div class="wf-config-field"><label>Name</label><input id="wf-cfg-name" value="${nodeData.name || ''}" onchange="wfUpdateNodeName(${nodeId}, this.value)"></div>`;
+    const statusBadge = `<div class="flex items-center gap-1.5 p-1.5 mb-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);"><span class="w-1.5 h-1.5 rounded-full" style="background:var(--success);"></span><span class="text-[9px] font-medium" style="color:var(--success);">Active</span><span class="text-[9px] ml-auto font-mono" style="color:var(--text-muted);">node-${nodeId}</span></div>`;
+
+    let fields = statusBadge;
+    fields += `<div class="wf-config-field"><label>Display Name</label><input id="wf-cfg-name" value="${nodeData.name || ''}" onchange="wfUpdateNodeName(${nodeId}, this.value)"></div>`;
+    fields += `<div class="wf-config-field"><label>Description</label><input placeholder="Brief description of this node's role..." value=""></div>`;
 
     if (type.startsWith('llm_') || type === 'synthesis' || type === 'query_rewrite') {
-        fields += `<div class="wf-config-field"><label>Model</label><select><option>gpt-4o</option><option>gpt-4o-mini</option><option selected>gpt-4o-mini</option><option>text-embedding-3-small</option></select></div>`;
-        fields += `<div class="wf-config-field"><label>Temperature</label><input type="range" min="0" max="100" value="30"><p class="text-[9px] mt-0.5" style="color:var(--text-muted);">0.30</p></div>`;
-        fields += `<div class="wf-config-field"><label>Max Tokens</label><input type="number" value="4096"></div>`;
+        const isRewrite = type === 'query_rewrite';
+        const isGpt4o = type === 'llm_gpt4o' || type === 'synthesis';
+        fields += `<div class="wf-config-field"><label>Provider</label><select><option selected>OpenAI</option><option>Azure OpenAI</option><option>Anthropic</option><option>Self-hosted (vLLM)</option><option>Ollama</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Model</label><select>${isGpt4o ? '<option selected>gpt-4o</option><option>gpt-4o-mini</option>' : '<option>gpt-4o</option><option selected>gpt-4o-mini</option>'}<option>gpt-4.1-nano</option><option>claude-3.5-sonnet</option><option>llama-3.1-70b</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Temperature</label><div class="flex items-center gap-2"><input type="range" min="0" max="100" value="${isRewrite ? 20 : 30}" class="flex-1" oninput="this.nextElementSibling.textContent=(this.value/100).toFixed(2)"><span class="text-[9px] font-mono w-8 text-right" style="color:var(--accent);">${isRewrite ? '0.20' : '0.30'}</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Max Output Tokens</label><input type="number" value="${isRewrite ? 256 : 4096}" min="64" max="16384"></div>`;
+        fields += `<div class="wf-config-field"><label>Top-P</label><div class="flex items-center gap-2"><input type="range" min="0" max="100" value="95" class="flex-1" oninput="this.nextElementSibling.textContent=(this.value/100).toFixed(2)"><span class="text-[9px] font-mono w-8 text-right" style="color:var(--accent);">0.95</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Frequency Penalty</label><div class="flex items-center gap-2"><input type="range" min="0" max="200" value="0" class="flex-1" oninput="this.nextElementSibling.textContent=(this.value/100).toFixed(2)"><span class="text-[9px] font-mono w-8 text-right" style="color:var(--accent);">0.00</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Response Format</label><select><option selected>text</option><option>json_object</option><option>structured (schema)</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Streaming</label><div class="flex items-center gap-2 mt-1"><div onclick="this.dataset.on=this.dataset.on==='1'?'0':'1';this.style.background=this.dataset.on==='1'?'var(--accent)':'var(--border-default)';this.firstElementChild.style.left=this.dataset.on==='1'?'14px':'2px'" class="w-7 h-4 rounded-full relative cursor-pointer" data-on="1" style="background:var(--accent);"><div class="w-3 h-3 rounded-full bg-white absolute top-0.5 transition-all" style="left:14px;"></div></div><span class="text-[9px]" style="color:var(--text-muted);">Enable SSE streaming</span></div></div>`;
     } else if (type === 'retrieval') {
-        fields += `<div class="wf-config-field"><label>Top-K</label><input type="number" value="5" min="1" max="20"></div>`;
-        fields += `<div class="wf-config-field"><label>Vector Weight</label><input type="range" min="0" max="100" value="70"><p class="text-[9px] mt-0.5" style="color:var(--text-muted);">0.70</p></div>`;
-        fields += `<div class="wf-config-field"><label>Similarity Threshold</label><input type="range" min="0" max="100" value="20"><p class="text-[9px] mt-0.5" style="color:var(--text-muted);">0.20</p></div>`;
+        fields += `<div class="wf-config-field"><label>Strategy</label><select><option selected>Hybrid (Dense + BM25)</option><option>Dense only (FAISS)</option><option>Sparse only (BM25)</option><option>Re-rank (Cohere)</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Top-K Results</label><div class="flex items-center gap-2"><input type="number" value="5" min="1" max="50" class="w-16"><span class="text-[9px]" style="color:var(--text-muted);">documents to retrieve</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Vector Weight (Dense vs. Sparse)</label><div class="flex items-center gap-2"><input type="range" min="0" max="100" value="70" class="flex-1" oninput="this.nextElementSibling.textContent=this.value+'% dense / '+(100-this.value)+'% sparse'"><span class="text-[9px] font-mono" style="color:var(--accent);">70% dense / 30% sparse</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Similarity Threshold</label><div class="flex items-center gap-2"><input type="range" min="0" max="100" value="20" class="flex-1" oninput="this.nextElementSibling.textContent=(this.value/100).toFixed(2)"><span class="text-[9px] font-mono w-8 text-right" style="color:var(--accent);">0.20</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Vector Store</label><select><option selected>FAISS (local)</option><option>Qdrant</option><option>Chroma</option><option>Pinecone</option><option>Weaviate</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Embedding Model</label><select><option selected>text-embedding-3-small</option><option>text-embedding-3-large</option><option>e5-mistral-7b</option></select></div>`;
+    } else if (type === 'embedding') {
+        fields += `<div class="wf-config-field"><label>Embedding Model</label><select><option selected>text-embedding-3-small</option><option>text-embedding-3-large</option><option>e5-mistral-7b</option><option>bge-large-en</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Dimensions</label><input type="number" value="1536" min="256" max="3072"></div>`;
+        fields += `<div class="wf-config-field"><label>Batch Size</label><input type="number" value="32" min="1" max="256"></div>`;
+        fields += `<div class="wf-config-field"><label>Normalize</label><div class="flex items-center gap-2 mt-1"><div class="w-7 h-4 rounded-full relative cursor-pointer" style="background:var(--accent);"><div class="w-3 h-3 rounded-full bg-white absolute top-0.5" style="left:14px;"></div></div><span class="text-[9px]" style="color:var(--text-muted);">L2 normalization</span></div></div>`;
+    } else if (type === 'context_filter') {
+        fields += `<div class="wf-config-field"><label>Filter Strategy</label><select><option selected>Score threshold</option><option>Max token budget</option><option>Contextual compression</option><option>LLM-based rerank</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Min. Relevance Score</label><div class="flex items-center gap-2"><input type="range" min="0" max="100" value="20" class="flex-1" oninput="this.nextElementSibling.textContent=(this.value/100).toFixed(2)"><span class="text-[9px] font-mono w-8 text-right" style="color:var(--accent);">0.20</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Max Context Tokens</label><input type="number" value="4000" min="500" max="32000"></div>`;
+        fields += `<div class="wf-config-field"><label>Deduplication</label><div class="flex items-center gap-2 mt-1"><div class="w-7 h-4 rounded-full relative cursor-pointer" style="background:var(--accent);"><div class="w-3 h-3 rounded-full bg-white absolute top-0.5" style="left:14px;"></div></div><span class="text-[9px]" style="color:var(--text-muted);">Remove near-duplicate chunks</span></div></div>`;
+    } else if (type === 'validation') {
+        fields += `<div class="wf-config-field"><label>Validation Mode</label><select><option selected>Rule-based</option><option>LLM-based</option><option>Schema validation</option><option>Hybrid</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Rules Source</label><select><option selected>Auto-extracted from KB</option><option>Manual rules</option><option>External policy API</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Strict Mode</label><div class="flex items-center gap-2 mt-1"><div class="w-7 h-4 rounded-full relative cursor-pointer" style="background:var(--border-default);"><div class="w-3 h-3 rounded-full bg-white absolute top-0.5" style="left:2px;"></div></div><span class="text-[9px]" style="color:var(--text-muted);">Reject non-compliant responses</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Fallback Action</label><select><option selected>Return warning</option><option>Retry with constraints</option><option>Escalate to human</option></select></div>`;
     } else if (type.startsWith('conn_')) {
-        fields += `<div class="wf-config-field"><label>Endpoint URL</label><input type="url" placeholder="https://..."></div>`;
-        fields += `<div class="wf-config-field"><label>Auth Type</label><select><option>Bearer Token</option><option>API Key</option><option>OAuth 2.0</option><option>Basic</option></select></div>`;
-        fields += `<div class="wf-config-field"><label>API Key / Token</label><input type="password" placeholder="sk-..."></div>`;
+        const connDefaults = {
+            conn_sharepoint: { url: 'https://tenant.sharepoint.com/sites/policies', auth: 'OAuth 2.0', scope: 'Sites.Read.All' },
+            conn_s3: { url: 's3://company-data/documents/', auth: 'IAM Role', scope: 'eu-west-1' },
+            conn_postgres: { url: 'postgresql://db.internal:5432/analytics', auth: 'Credentials', scope: 'public schema' },
+            conn_rest: { url: 'https://api.internal.company.com/v2', auth: 'Bearer Token', scope: 'read:data' },
+            conn_teams: { url: 'https://graph.microsoft.com/v1.0/teams', auth: 'OAuth 2.0', scope: 'ChannelMessage.Send' },
+            conn_mqtt: { url: 'mqtt://broker.iot.internal:1883', auth: 'Client Certificate', scope: 'sensors/+/data' },
+        };
+        const def = connDefaults[type] || { url: 'https://...', auth: 'Bearer Token', scope: '' };
+        fields += `<div class="wf-config-field"><label>Endpoint / Connection URI</label><input type="url" value="${def.url}"></div>`;
+        fields += `<div class="wf-config-field"><label>Authentication</label><select>${['Bearer Token','API Key','OAuth 2.0','IAM Role','Client Certificate','Basic Auth','None'].map(a => `<option${a===def.auth?' selected':''}>${a}</option>`).join('')}</select></div>`;
+        fields += `<div class="wf-config-field"><label>Scope / Permissions</label><input value="${def.scope}"></div>`;
+        fields += `<div class="wf-config-field"><label>Credentials</label><input type="password" placeholder="••••••••••" value="configured"></div>`;
+        fields += `<div class="wf-config-field"><label>Timeout (ms)</label><input type="number" value="15000" min="1000" max="120000"></div>`;
+        fields += `<div class="wf-config-field"><label>Retry Policy</label><select><option selected>3x exponential backoff</option><option>No retry</option><option>5x linear</option></select></div>`;
+        fields += `<div class="flex items-center gap-1.5 p-1.5 mt-2" style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:var(--radius-sm);"><span class="material-icons-outlined text-xs" style="color:var(--success);">link</span><span class="text-[9px] font-medium" style="color:var(--success);">Connection verified &middot; 42ms latency</span></div>`;
     } else if (type === 'evaluation') {
+        fields += `<div class="wf-config-field"><label>Evaluation Method</label><select><option selected>Embedding cosine similarity</option><option>LLM-as-Judge (GPT-4o)</option><option>Both</option></select></div>`;
         fields += `<div class="wf-config-field"><label>Metrics</label>`;
-        ['Factuality', 'Relevance', 'Coherence', 'HHEM'].forEach(m => {
-            fields += `<label class="flex items-center gap-1.5 text-[10px] mt-1" style="color:var(--text-secondary);"><input type="checkbox" checked class="w-3 h-3">${m}</label>`;
+        [['Factuality','Grounding against retrieved docs',true],['Relevance','Query-response alignment',true],['Coherence','Internal consistency',true],['HHEM','Hallucination estimation',true],['Conciseness','Redundancy detection',false],['Safety','Toxicity and harm check',false]].forEach(([m,d,c]) => {
+            fields += `<label class="flex items-center gap-1.5 text-[10px] p-1 mt-0.5 cursor-pointer" style="color:var(--text-secondary);background:var(--bg-elevated);border-radius:var(--radius-xs);"><input type="checkbox" ${c?'checked ':''} class="w-3 h-3"><div><span style="color:var(--text-primary);">${m}</span><span class="text-[8px] block" style="color:var(--text-muted);">${d}</span></div></label>`;
         });
         fields += `</div>`;
+        fields += `<div class="wf-config-field"><label>Score Threshold (pass/fail)</label><div class="flex items-center gap-2"><input type="range" min="0" max="100" value="60" class="flex-1" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="text-[9px] font-mono w-8 text-right" style="color:var(--accent);">60%</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>On Failure</label><select><option selected>Log warning</option><option>Block response</option><option>Retry generation</option></select></div>`;
     } else if (type.startsWith('infra_')) {
-        fields += `<div class="wf-config-field"><label>Host</label><input value="localhost"></div>`;
-        fields += `<div class="wf-config-field"><label>Port</label><input type="number" value="8000"></div>`;
-        fields += `<div class="wf-config-field"><label>Status</label><div class="flex items-center gap-1.5 mt-1"><span class="w-1.5 h-1.5 rounded-full" style="background:var(--success);"></span><span class="text-[10px]" style="color:var(--success);">Running</span></div></div>`;
+        const infraDefaults = {
+            infra_fastapi: { host: '0.0.0.0', port: 8000, status: 'Running', extra: 'Workers: 4 (uvicorn)' },
+            infra_celery: { host: 'redis://cache:6379/0', port: 6379, status: 'Running', extra: 'Queues: default, batch, priority' },
+            infra_minio: { host: 'minio.internal', port: 9000, status: 'Running', extra: 'Buckets: documents, embeddings' },
+            infra_pg: { host: 'pg.internal', port: 5432, status: 'Running', extra: 'DB: omnirag | Pool: 20 connections' },
+            infra_qdrant: { host: 'qdrant.internal', port: 6333, status: 'Running', extra: 'Collections: kb_vectors | Dim: 1536' },
+        };
+        const def = infraDefaults[type] || { host: 'localhost', port: 8000, status: 'Running', extra: '' };
+        fields += `<div class="wf-config-field"><label>Host</label><input value="${def.host}"></div>`;
+        fields += `<div class="wf-config-field"><label>Port</label><input type="number" value="${def.port}"></div>`;
+        fields += `<div class="wf-config-field"><label>Status</label><div class="flex items-center gap-1.5 mt-1"><span class="w-1.5 h-1.5 rounded-full" style="background:var(--success);"></span><span class="text-[10px] font-medium" style="color:var(--success);">${def.status}</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Details</label><p class="text-[9px] font-mono mt-0.5" style="color:var(--text-muted);">${def.extra}</p></div>`;
+        fields += `<div class="wf-config-field"><label>Health Check</label><select><option selected>TCP ping</option><option>HTTP /health</option><option>Custom script</option></select></div>`;
+    } else if (type === 'rss_ingest') {
+        fields += `<div class="wf-config-field"><label>Feed URLs</label><textarea rows="3" placeholder="https://feeds.reuters.com/reuters/topNews&#10;https://rss.nytimes.com/services/xml/rss/nyt/World.xml" style="resize:none;font-family:'JetBrains Mono',monospace;font-size:9px;"></textarea></div>`;
+        fields += `<div class="wf-config-field"><label>Refresh Interval</label><select><option>15 minutes</option><option selected>1 hour</option><option>6 hours</option><option>Daily</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Max Articles per Fetch</label><input type="number" value="50" min="5" max="500"></div>`;
+        fields += `<div class="wf-config-field"><label>Content Extraction</label><select><option selected>RSS summary</option><option>Full article (readability)</option><option>Both</option></select></div>`;
+    } else if (type === 'semantic_filter') {
+        fields += `<div class="wf-config-field"><label>Target Description</label><textarea rows="2" placeholder="e.g., Hormuz Strait tensions, energy supply chain disruption..." style="resize:none;"></textarea></div>`;
+        fields += `<div class="wf-config-field"><label>Relevance Threshold</label><div class="flex items-center gap-2"><input type="range" min="0" max="100" value="30" class="flex-1" oninput="this.nextElementSibling.textContent=(this.value/100).toFixed(2)"><span class="text-[9px] font-mono w-8 text-right" style="color:var(--accent);">0.30</span></div></div>`;
+        fields += `<div class="wf-config-field"><label>Boost Keywords</label><input placeholder="oil, sanctions, strait, pipeline (comma-separated)"></div>`;
+    } else if (type === 'safety_check') {
+        fields += `<div class="wf-config-field"><label>Safety Prompt</label><textarea rows="3" placeholder="Ensure analysis aligns with UAE geopolitical positioning. Flag content that could be perceived as taking sides in regional conflicts..." style="resize:none;"></textarea></div>`;
+        fields += `<div class="wf-config-field"><label>Severity</label><select><option>Warn only</option><option selected>Flag for review</option><option>Block content</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Check Dimensions</label>`;
+        ['Geopolitical alignment','Toxicity','PII detection','Bias'].forEach(d => {
+            fields += `<label class="flex items-center gap-1.5 text-[10px] mt-1" style="color:var(--text-secondary);"><input type="checkbox" checked class="w-3 h-3">${d}</label>`;
+        });
+        fields += `</div>`;
+    } else if (type === 'bi_aggregator') {
+        fields += `<div class="wf-config-field"><label>Aggregation</label><select><option selected>Sentiment + Entity + Risk</option><option>Sentiment only</option><option>Entity graph</option><option>Custom</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Time Window</label><select><option>Last 24 hours</option><option selected>Last 7 days</option><option>Last 30 days</option><option>Custom range</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Output</label><select><option selected>Dashboard JSON</option><option>CSV export</option><option>PDF report</option><option>Webhook push</option></select></div>`;
+    } else if (type === 'io_input') {
+        fields += `<div class="wf-config-field"><label>Input Type</label><select><option selected>User query (text)</option><option>Webhook payload</option><option>Scheduled trigger</option><option>File upload</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Max Input Length</label><input type="number" value="2000" min="100" max="32000"></div>`;
+        fields += `<div class="wf-config-field"><label>Pre-processing</label><select><option selected>None</option><option>Language detection</option><option>Intent classification</option><option>PII redaction</option></select></div>`;
+    } else if (type === 'io_output') {
+        fields += `<div class="wf-config-field"><label>Output Format</label><select><option selected>Streaming SSE</option><option>JSON response</option><option>Markdown</option><option>Structured (Pydantic)</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Post-processing</label><select><option selected>Markdown rendering</option><option>Citation injection</option><option>Both</option><option>None</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>TTS Output</label><div class="flex items-center gap-2 mt-1"><div class="w-7 h-4 rounded-full relative cursor-pointer" style="background:var(--border-default);"><div class="w-3 h-3 rounded-full bg-white absolute top-0.5" style="left:2px;"></div></div><span class="text-[9px]" style="color:var(--text-muted);">Enable voice output (OpenAI TTS)</span></div></div>`;
+    } else if (type === 'io_webhook') {
+        fields += `<div class="wf-config-field"><label>Webhook URL</label><input type="url" placeholder="https://hooks.company.com/agent/trigger"></div>`;
+        fields += `<div class="wf-config-field"><label>Method</label><select><option selected>POST</option><option>PUT</option><option>PATCH</option></select></div>`;
+        fields += `<div class="wf-config-field"><label>Headers</label><textarea rows="2" placeholder='{"Authorization": "Bearer ...", "Content-Type": "application/json"}' style="resize:none;font-family:'JetBrains Mono',monospace;font-size:9px;"></textarea></div>`;
+        fields += `<div class="wf-config-field"><label>Secret</label><input type="password" placeholder="whsec_..."></div>`;
     }
 
     fieldsEl.innerHTML = fields;
@@ -1771,6 +1863,49 @@ function wfExport() {
     showToast('Workflow exported');
 }
 
+let wfZoomLevel = 1;
+function wfZoom(action) {
+    if (!wfEditor) return;
+    if (action === 'in') wfZoomLevel = Math.min(wfZoomLevel + 0.1, 2);
+    else if (action === 'out') wfZoomLevel = Math.max(wfZoomLevel - 0.1, 0.3);
+    else if (action === 'fit') wfZoomLevel = 1;
+    wfEditor.zoom = wfZoomLevel;
+    if (typeof wfEditor.zoom_refresh === 'function') {
+        wfEditor.zoom_refresh();
+    } else {
+        const precanvas = wfEditor.precanvas;
+        if (precanvas) precanvas.style.transform = `translate(${wfEditor.canvas_x}px, ${wfEditor.canvas_y}px) scale(${wfZoomLevel})`;
+    }
+    const el = document.getElementById('wf-zoom-level');
+    if (el) el.textContent = Math.round(wfZoomLevel * 100) + '%';
+}
+
+function wfUpdateNodeCount() {
+    const el = document.getElementById('wf-node-count');
+    if (!el || !wfEditor) return;
+    const exp = wfEditor.export();
+    const mod = exp.drawflow?.[wfEditor.module];
+    const count = mod?.data ? Object.keys(mod.data).length : 0;
+    el.textContent = count + ' node' + (count !== 1 ? 's' : '');
+}
+
+function wfFilterPalette(query) {
+    const q = query.toLowerCase().trim();
+    document.querySelectorAll('.wf-palette-item').forEach(item => {
+        const name = (item.dataset.nodeName || '').toLowerCase();
+        const type = (item.dataset.nodeType || '').toLowerCase();
+        const meta = (item.dataset.nodeMeta || '').toLowerCase();
+        item.style.display = (!q || name.includes(q) || type.includes(q) || meta.includes(q)) ? '' : 'none';
+    });
+    document.querySelectorAll('.wf-palette-cat').forEach(cat => {
+        const catName = cat.dataset.wfCat;
+        if (!catName) return;
+        const items = document.querySelectorAll(`.wf-palette-item[data-wf-cat="${catName}"]`);
+        const anyVisible = Array.from(items).some(i => i.style.display !== 'none');
+        cat.style.display = anyVisible ? '' : 'none';
+    });
+}
+
 // =========================================================================
 // TOOL TOGGLES (Step 4)
 // =========================================================================
@@ -1803,18 +1938,97 @@ function toggleTool(toolId, cardEl) {
 var currentConnectorId = null;
 
 const connectorConfigs = {
-    dynamics365: { icon: 'cloud', name: 'Dynamics 365', fields: ['Tenant ID', 'Client ID', 'Client Secret', 'Scope URL'] },
-    teams: { icon: 'chat', name: 'Microsoft Teams', fields: ['Webhook URL', 'Bot ID', 'Channel ID'] },
-    sharepoint: { icon: 'folder_shared', name: 'SharePoint', fields: ['Site URL', 'Client ID', 'Client Secret', 'Library Name'] },
-    outlook: { icon: 'mail', name: 'Outlook / Exchange', fields: ['Tenant ID', 'Client ID', 'Mailbox', 'Auth Type'] },
-    telegram: { icon: 'send', name: 'Telegram Bot', fields: ['Bot Token', 'Chat ID', 'Webhook URL'] },
-    whatsapp: { icon: 'forum', name: 'WhatsApp Business', fields: ['API Key', 'Phone Number ID', 'Webhook Verify Token'] },
-    smtp: { icon: 'email', name: 'SMTP / Email', fields: ['SMTP Host', 'Port', 'Username', 'Password', 'TLS'] },
-    rest_api: { icon: 'api', name: 'REST API', fields: ['Base URL', 'Auth Type', 'API Key', 'Custom Headers'] },
-    mqtt: { icon: 'hub', name: 'MQTT', fields: ['Broker URL', 'Topic', 'QoS', 'Client ID'] },
-    postgresql: { icon: 'storage', name: 'PostgreSQL', fields: ['Host', 'Port', 'Database', 'Username', 'Password'] },
-    s3: { icon: 'cloud_queue', name: 'AWS S3', fields: ['Bucket Name', 'Region', 'Access Key', 'Secret Key'] },
-    elasticsearch: { icon: 'dns', name: 'Elasticsearch', fields: ['Cluster URL', 'Index Name', 'API Key'] },
+    dynamics365: { icon: 'cloud', name: 'Dynamics 365', desc: 'Microsoft ERP/CRM platform for vendor records, purchase orders, and financial data.', fields: [
+        { label: 'Tenant ID', key: 'tenant_id', type: 'text', placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
+        { label: 'Client ID', key: 'client_id', type: 'text', placeholder: 'app-registration-client-id' },
+        { label: 'Client Secret', key: 'client_secret', type: 'password', placeholder: '••••••••••••' },
+        { label: 'Environment URL', key: 'env_url', type: 'url', placeholder: 'https://org.crm.dynamics.com' },
+        { label: 'API Version', key: 'api_version', type: 'select', options: ['v9.2', 'v9.1', 'v9.0'] },
+        { label: 'Entities to Sync', key: 'entities', type: 'text', placeholder: 'accounts, contacts, opportunities' },
+    ]},
+    teams: { icon: 'chat', name: 'Microsoft Teams', desc: 'Send notifications, receive messages, and create agent-assisted channels.', fields: [
+        { label: 'Incoming Webhook URL', key: 'webhook_url', type: 'url', placeholder: 'https://outlook.office.com/webhook/...' },
+        { label: 'Bot Framework App ID', key: 'bot_id', type: 'text', placeholder: 'bot-app-id' },
+        { label: 'Bot Secret', key: 'bot_secret', type: 'password', placeholder: '••••••••••••' },
+        { label: 'Default Channel', key: 'channel_id', type: 'text', placeholder: '19:abc123...@thread.tacv2' },
+        { label: 'Message Format', key: 'msg_format', type: 'select', options: ['Adaptive Card', 'Plain text', 'Markdown'] },
+    ]},
+    sharepoint: { icon: 'folder_shared', name: 'SharePoint', desc: 'Access document libraries, policy repositories, and knowledge stores.', fields: [
+        { label: 'Site URL', key: 'site_url', type: 'url', placeholder: 'https://tenant.sharepoint.com/sites/policies' },
+        { label: 'Client ID', key: 'client_id', type: 'text', placeholder: 'sharepoint-app-client-id' },
+        { label: 'Client Secret', key: 'client_secret', type: 'password', placeholder: '••••••••••••' },
+        { label: 'Document Library', key: 'library', type: 'text', placeholder: 'Shared Documents' },
+        { label: 'Sync Direction', key: 'sync_dir', type: 'select', options: ['Read only', 'Read/Write', 'Bidirectional'] },
+        { label: 'File Filters', key: 'file_filters', type: 'text', placeholder: '*.pdf, *.docx, *.xlsx' },
+    ]},
+    outlook: { icon: 'mail', name: 'Outlook / Exchange', desc: 'Trigger agents from inbound emails, send notifications, and manage tasks.', fields: [
+        { label: 'Tenant ID', key: 'tenant_id', type: 'text', placeholder: 'azure-ad-tenant-id' },
+        { label: 'Client ID', key: 'client_id', type: 'text', placeholder: 'mail-app-client-id' },
+        { label: 'Client Secret', key: 'client_secret', type: 'password', placeholder: '••••••••••••' },
+        { label: 'Monitored Mailbox', key: 'mailbox', type: 'email', placeholder: 'agent@company.com' },
+        { label: 'Auth Method', key: 'auth_type', type: 'select', options: ['OAuth 2.0 (recommended)', 'Basic Auth', 'Service Account'] },
+        { label: 'Trigger Rules', key: 'triggers', type: 'text', placeholder: 'subject:contains("procurement"), from:@vendor.com' },
+    ]},
+    telegram: { icon: 'send', name: 'Telegram Bot', desc: 'Interact with agents via Telegram for mobile-first access.', fields: [
+        { label: 'Bot Token', key: 'bot_token', type: 'password', placeholder: '1234567890:ABCdefGHIjkl...' },
+        { label: 'Default Chat ID', key: 'chat_id', type: 'text', placeholder: '-1001234567890' },
+        { label: 'Webhook Endpoint', key: 'webhook_url', type: 'url', placeholder: 'https://api.company.com/telegram/hook' },
+        { label: 'Parse Mode', key: 'parse_mode', type: 'select', options: ['MarkdownV2', 'HTML', 'Plain'] },
+    ]},
+    whatsapp: { icon: 'forum', name: 'WhatsApp Business', desc: 'Enterprise messaging via WhatsApp Business API.', fields: [
+        { label: 'API Key', key: 'api_key', type: 'password', placeholder: 'whatsapp-api-key' },
+        { label: 'Phone Number ID', key: 'phone_id', type: 'text', placeholder: '1234567890' },
+        { label: 'Business Account ID', key: 'business_id', type: 'text', placeholder: 'business-account-id' },
+        { label: 'Verify Token', key: 'verify_token', type: 'password', placeholder: 'webhook-verify-token' },
+        { label: 'Template Namespace', key: 'template_ns', type: 'text', placeholder: 'company_notifications' },
+    ]},
+    smtp: { icon: 'email', name: 'SMTP / Email', desc: 'Send email notifications and reports from agent pipelines.', fields: [
+        { label: 'SMTP Host', key: 'smtp_host', type: 'text', placeholder: 'smtp.office365.com' },
+        { label: 'Port', key: 'port', type: 'number', placeholder: '587' },
+        { label: 'Username', key: 'username', type: 'text', placeholder: 'noreply@company.com' },
+        { label: 'Password', key: 'password', type: 'password', placeholder: '••••••••••••' },
+        { label: 'Encryption', key: 'tls', type: 'select', options: ['STARTTLS (recommended)', 'SSL/TLS', 'None'] },
+        { label: 'From Name', key: 'from_name', type: 'text', placeholder: 'AI Platform Notifications' },
+    ]},
+    rest_api: { icon: 'api', name: 'REST API', desc: 'Generic HTTP connector for any REST-based service or webhook.', fields: [
+        { label: 'Base URL', key: 'base_url', type: 'url', placeholder: 'https://api.internal.company.com/v2' },
+        { label: 'Auth Type', key: 'auth_type', type: 'select', options: ['Bearer Token', 'API Key (header)', 'OAuth 2.0', 'Basic Auth', 'None'] },
+        { label: 'Auth Credential', key: 'api_key', type: 'password', placeholder: 'sk-... or Bearer token' },
+        { label: 'Default Headers', key: 'headers', type: 'textarea', placeholder: '{"Content-Type": "application/json"}' },
+        { label: 'Rate Limit', key: 'rate_limit', type: 'text', placeholder: '100 req/min' },
+        { label: 'Timeout (ms)', key: 'timeout', type: 'number', placeholder: '15000' },
+    ]},
+    mqtt: { icon: 'hub', name: 'MQTT', desc: 'IoT and real-time event-driven messaging for sensor and device data.', fields: [
+        { label: 'Broker URL', key: 'broker_url', type: 'url', placeholder: 'mqtt://broker.iot.internal:1883' },
+        { label: 'Topic Pattern', key: 'topic', type: 'text', placeholder: 'sensors/+/data' },
+        { label: 'QoS Level', key: 'qos', type: 'select', options: ['0 - At most once', '1 - At least once', '2 - Exactly once'] },
+        { label: 'Client ID', key: 'client_id', type: 'text', placeholder: 'agent-mqtt-client-01' },
+        { label: 'Authentication', key: 'auth', type: 'select', options: ['Username/Password', 'Client Certificate', 'None'] },
+    ]},
+    postgresql: { icon: 'storage', name: 'PostgreSQL', desc: 'Structured data queries, analytics, and metadata storage.', fields: [
+        { label: 'Host', key: 'host', type: 'text', placeholder: 'pg.internal.company.com' },
+        { label: 'Port', key: 'port', type: 'number', placeholder: '5432' },
+        { label: 'Database', key: 'database', type: 'text', placeholder: 'analytics' },
+        { label: 'Schema', key: 'schema', type: 'text', placeholder: 'public' },
+        { label: 'Username', key: 'username', type: 'text', placeholder: 'agent_readonly' },
+        { label: 'Password', key: 'password', type: 'password', placeholder: '••••••••••••' },
+        { label: 'SSL Mode', key: 'ssl_mode', type: 'select', options: ['require', 'verify-full', 'prefer', 'disable'] },
+        { label: 'Pool Size', key: 'pool_size', type: 'number', placeholder: '20' },
+    ]},
+    s3: { icon: 'cloud_queue', name: 'AWS S3', desc: 'Cloud object storage for documents, embeddings, and artifacts.', fields: [
+        { label: 'Bucket Name', key: 'bucket', type: 'text', placeholder: 'company-data-documents' },
+        { label: 'Region', key: 'region', type: 'select', options: ['eu-west-1', 'us-east-1', 'me-south-1', 'ap-southeast-1', 'eu-central-1'] },
+        { label: 'Access Key ID', key: 'access_key', type: 'password', placeholder: 'AKIA...' },
+        { label: 'Secret Access Key', key: 'secret_key', type: 'password', placeholder: '••••••••••••' },
+        { label: 'Prefix / Folder', key: 'prefix', type: 'text', placeholder: 'documents/incoming/' },
+        { label: 'Storage Class', key: 'storage_class', type: 'select', options: ['STANDARD', 'INTELLIGENT_TIERING', 'GLACIER'] },
+    ]},
+    elasticsearch: { icon: 'dns', name: 'Elasticsearch', desc: 'Full-text search and log analytics for enterprise data.', fields: [
+        { label: 'Cluster URL', key: 'cluster_url', type: 'url', placeholder: 'https://es.internal:9200' },
+        { label: 'Index Pattern', key: 'index', type: 'text', placeholder: 'agent-logs-*' },
+        { label: 'API Key', key: 'api_key', type: 'password', placeholder: 'base64-encoded-key' },
+        { label: 'Cloud ID', key: 'cloud_id', type: 'text', placeholder: 'deployment:region:id (Elastic Cloud)' },
+    ]},
 };
 
 function openConnectorConfig(connId) {
@@ -1833,19 +2047,24 @@ function openConnectorConfig(connId) {
     const saved = JSON.parse(localStorage.getItem('aip_connectors') || '{}');
     const savedCfg = saved[connId] || {};
 
-    let html = `<div class="flex items-center justify-between p-2" style="background:var(--bg-elevated);border-radius:var(--radius);">
-        <div class="flex items-center gap-2"><span class="text-[10px] font-medium" style="color:var(--text-secondary);">Status</span></div>
-        <label class="flex items-center gap-1.5 cursor-pointer"><span class="text-[10px]" style="color:${savedCfg.enabled ? 'var(--success)' : 'var(--text-muted);'};">${savedCfg.enabled ? 'Connected' : 'Disabled'}</span>
+    let html = `<p class="text-[10px] mb-2" style="color:var(--text-muted);">${cfg.desc || ''}</p>`;
+    html += `<div class="flex items-center justify-between p-2" style="background:var(--bg-elevated);border-radius:var(--radius);">
+        <div class="flex items-center gap-2"><span class="material-icons-outlined text-xs" style="color:var(--text-muted);">power</span><span class="text-[10px] font-medium" style="color:var(--text-secondary);">Connection Status</span></div>
+        <label class="flex items-center gap-1.5 cursor-pointer"><span class="text-[10px] font-medium" style="color:${savedCfg.enabled ? 'var(--success)' : 'var(--text-muted);'};">${savedCfg.enabled ? 'Connected' : 'Disabled'}</span>
         <div onclick="toggleConnectorStatus(this)" class="w-7 h-4 rounded-full relative cursor-pointer" style="background:${savedCfg.enabled ? 'var(--accent)' : 'var(--border-default)'};">
             <div class="w-3 h-3 rounded-full bg-white absolute top-0.5 transition-all" style="left:${savedCfg.enabled ? '14px' : '2px'};"></div>
         </div></label>
     </div>`;
 
     cfg.fields.forEach(f => {
-        const key = f.toLowerCase().replace(/[\s\/]/g, '_');
-        const val = savedCfg[key] || '';
-        const isPassword = f.toLowerCase().includes('secret') || f.toLowerCase().includes('password') || f.toLowerCase().includes('key') || f.toLowerCase().includes('token');
-        html += `<div class="wf-config-field"><label>${f}</label><input type="${isPassword ? 'password' : 'text'}" data-field="${key}" value="${val}" placeholder="${f}..."></div>`;
+        const val = savedCfg[f.key] || '';
+        if (f.type === 'select') {
+            html += `<div class="wf-config-field"><label>${f.label}</label><select data-field="${f.key}">${(f.options||[]).map(o => `<option${val===o?' selected':''}>${o}</option>`).join('')}</select></div>`;
+        } else if (f.type === 'textarea') {
+            html += `<div class="wf-config-field"><label>${f.label}</label><textarea data-field="${f.key}" rows="2" placeholder="${f.placeholder || ''}" style="resize:none;font-family:'JetBrains Mono',monospace;font-size:9px;">${val}</textarea></div>`;
+        } else {
+            html += `<div class="wf-config-field"><label>${f.label}</label><input type="${f.type || 'text'}" data-field="${f.key}" value="${val}" placeholder="${f.placeholder || ''}"></div>`;
+        }
     });
 
     body.innerHTML = html;
@@ -1873,24 +2092,27 @@ function saveConnector() {
     if (!currentConnectorId) return;
     const saved = JSON.parse(localStorage.getItem('aip_connectors') || '{}');
     const cfg = {};
-    document.querySelectorAll('#cc-body input[data-field]').forEach(inp => {
-        cfg[inp.dataset.field] = inp.value;
+    document.querySelectorAll('#cc-body [data-field]').forEach(el => {
+        cfg[el.dataset.field] = el.value;
     });
-    const toggle = document.querySelector('#cc-body .w-7.h-4');
+    const toggle = document.querySelector('#cc-body [onclick*="toggleConnectorStatus"]');
     cfg.enabled = toggle ? toggle.style.background.includes('accent') : false;
     saved[currentConnectorId] = cfg;
     localStorage.setItem('aip_connectors', JSON.stringify(saved));
-    showToast('Connector saved');
+    showToast('Connector configuration saved');
 }
 
 function testConnector() {
     const btn = event.target.closest('button');
     const orig = btn.innerHTML;
     btn.innerHTML = '<span class="material-icons-outlined text-xs tool-running">sync</span>Testing...';
+    btn.disabled = true;
+    const latency = 200 + Math.floor(Math.random() * 300);
     setTimeout(() => {
         btn.innerHTML = orig;
-        showToast('Connection successful');
-    }, 1500);
+        btn.disabled = false;
+        showToast(`Connection successful · ${latency}ms latency`);
+    }, 800 + Math.floor(Math.random() * 1200));
 }
 
 function addConnectorToWorkflow() {

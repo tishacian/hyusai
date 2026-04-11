@@ -176,18 +176,32 @@
         .drawflow-node.df-infra .df-node-header .material-icons-outlined { color:var(--text-muted); }
 
         /* ── Workflow palette ── */
-        .wf-palette { width:200px; overflow-y:auto; border-right:1px solid var(--border-default); background:var(--bg-card); }
-        .wf-palette-cat { padding:4px 10px; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-top:8px; }
-        .wf-palette-item { display:flex; align-items:center; gap:6px; padding:5px 10px; cursor:grab; font-size:10px; font-weight:500; color:var(--text-secondary); transition:background .1s; border-radius:var(--radius-xs); margin:1px 6px; }
-        .wf-palette-item:hover { background:var(--accent-subtle); color:var(--text-primary); }
-        .wf-palette-item .material-icons-outlined { font-size:14px; color:var(--accent); }
-        .wf-palette-item:active { cursor:grabbing; }
+        .wf-palette { width:210px; overflow-y:auto; border-right:1px solid var(--border-default); background:var(--bg-card); }
+        .wf-palette-search { padding:6px 8px; border-bottom:1px solid var(--border-default); }
+        .wf-palette-search input { width:100%; padding:4px 8px 4px 26px; font-size:10px; background:var(--bg-input); border:1px solid var(--border-default); border-radius:var(--radius-sm); color:var(--text-primary); outline:none; }
+        .wf-palette-search input:focus { border-color:var(--border-active); }
+        .wf-palette-search input::placeholder { color:var(--text-muted); }
+        .wf-palette-cat { padding:6px 10px 3px; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); margin-top:4px; display:flex; align-items:center; justify-content:space-between; }
+        .wf-palette-cat .wf-cat-count { font-size:8px; font-weight:500; background:var(--bg-elevated); color:var(--text-muted); padding:0 4px; border-radius:6px; line-height:14px; }
+        .wf-palette-item { display:flex; align-items:center; gap:6px; padding:5px 10px; cursor:grab; font-size:10px; font-weight:500; color:var(--text-secondary); transition:all .12s ease; border-radius:var(--radius-xs); margin:1px 6px; }
+        .wf-palette-item:hover { background:var(--accent-subtle); color:var(--text-primary); transform:translateX(2px); }
+        .wf-palette-item .material-icons-outlined { font-size:14px; color:var(--accent); opacity:0.8; }
+        .wf-palette-item:hover .material-icons-outlined { opacity:1; }
+        .wf-palette-item .wf-item-meta { font-size:8px; margin-left:auto; color:var(--text-muted); font-family:'JetBrains Mono',monospace; }
+        .wf-palette-item:active { cursor:grabbing; opacity:0.7; }
 
         /* ── Config panel ── */
-        .wf-config { width:260px; border-left:1px solid var(--border-default); background:var(--bg-card); overflow-y:auto; }
+        .wf-config { width:300px; border-left:1px solid var(--border-default); background:var(--bg-card); overflow-y:auto; }
+        .wf-config-field { margin-bottom:6px; }
         .wf-config-field label { display:block; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted); margin-bottom:3px; }
-        .wf-config-field input, .wf-config-field select, .wf-config-field textarea { width:100%; padding:4px 8px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-default); border-radius:var(--radius-sm); color:var(--text-primary); outline:none; }
-        .wf-config-field input:focus, .wf-config-field select:focus, .wf-config-field textarea:focus { border-color:var(--border-active); }
+        .wf-config-field input, .wf-config-field select, .wf-config-field textarea { width:100%; padding:5px 8px; font-size:11px; background:var(--bg-input); border:1px solid var(--border-default); border-radius:var(--radius-sm); color:var(--text-primary); outline:none; transition:border-color .15s; }
+        .wf-config-field input:focus, .wf-config-field select:focus, .wf-config-field textarea:focus { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent-glow); }
+        .wf-config-field input[type="range"] { padding:0; border:none; background:transparent; box-shadow:none; height:6px; -webkit-appearance:none; appearance:none; border-radius:3px; }
+        .wf-config-field input[type="range"]::-webkit-slider-track { background:var(--border-default); height:4px; border-radius:2px; }
+        .wf-config-field input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; background:var(--accent); border-radius:50%; border:2px solid var(--bg-card); margin-top:-5px; cursor:pointer; box-shadow:0 0 0 1px var(--accent-glow); }
+        .wf-config-field input[type="range"]:focus { box-shadow:none; }
+        .wf-config-field select { cursor:pointer; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 8px center; padding-right:24px; }
+        .wf-config-field textarea { resize:none; font-family:inherit; line-height:1.4; }
     </style>
 </head>
 <body class="h-screen flex overflow-hidden" style="background:var(--bg-deepest);color:var(--text-primary);">
@@ -319,26 +333,35 @@
     <!-- Connector Config Modal -->
     <div id="connector-config-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;">
         <div onclick="closeConnectorConfig()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(3px);"></div>
-        <div style="position:absolute;top:0;bottom:0;right:0;width:380px;background:var(--bg-card);border-left:1px solid var(--border-default);display:flex;flex-direction:column;box-shadow:-8px 0 32px rgba(0,0,0,0.2);">
-            <div class="flex items-center justify-between px-4 py-3 shrink-0" style="border-bottom:1px solid var(--border-default);">
-                <div class="flex items-center gap-2">
-                    <span id="cc-icon" class="material-icons-outlined text-base" style="color:var(--accent);">cable</span>
-                    <h3 id="cc-title" class="text-[13px] font-semibold" style="color:var(--text-primary);">Connector</h3>
+        <div style="position:absolute;top:0;bottom:0;right:0;width:420px;background:var(--bg-card);border-left:1px solid var(--border-default);display:flex;flex-direction:column;box-shadow:-8px 0 32px rgba(0,0,0,0.2);">
+            <div class="px-4 py-3 shrink-0" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="w-7 h-7 flex items-center justify-center" style="background:var(--accent-subtle);border-radius:var(--radius-sm);">
+                            <span id="cc-icon" class="material-icons-outlined text-sm" style="color:var(--accent);">cable</span>
+                        </div>
+                        <div>
+                            <h3 id="cc-title" class="text-[13px] font-semibold" style="color:var(--text-primary);">Connector</h3>
+                            <p class="text-[9px] font-mono" style="color:var(--text-muted);">Integration Configuration</p>
+                        </div>
+                    </div>
+                    <button onclick="closeConnectorConfig()" class="w-6 h-6 flex items-center justify-center" style="color:var(--text-muted);border-radius:var(--radius-xs);">
+                        <span class="material-icons-outlined text-base">close</span>
+                    </button>
                 </div>
-                <button onclick="closeConnectorConfig()" class="w-6 h-6 flex items-center justify-center" style="color:var(--text-muted);border-radius:var(--radius-xs);">
-                    <span class="material-icons-outlined text-base">close</span>
-                </button>
             </div>
-            <div id="cc-body" class="flex-1 overflow-y-auto px-4 py-3 space-y-3"></div>
-            <div class="px-4 py-3 flex items-center gap-2 shrink-0" style="border-top:1px solid var(--border-default);">
-                <button onclick="testConnector()" class="flex-1 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
-                    <span class="material-icons-outlined text-xs">play_arrow</span>Test
-                </button>
-                <button onclick="saveConnector()" class="flex-1 py-1.5 text-[11px] font-medium text-white flex items-center justify-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
-                    <span class="material-icons-outlined text-xs">save</span>Save
-                </button>
-                <button onclick="addConnectorToWorkflow()" class="flex-1 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1" style="background:var(--accent-subtle);color:var(--accent);border:1px solid var(--border-active);border-radius:var(--radius-sm);">
-                    <span class="material-icons-outlined text-xs">add</span>Workflow
+            <div id="cc-body" class="flex-1 overflow-y-auto px-4 py-3 space-y-2"></div>
+            <div class="px-4 py-3 space-y-2 shrink-0" style="border-top:1px solid var(--border-default);">
+                <div class="flex items-center gap-2">
+                    <button onclick="testConnector()" class="flex-1 py-1.5 text-[11px] font-medium flex items-center justify-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
+                        <span class="material-icons-outlined text-xs">play_arrow</span>Test Connection
+                    </button>
+                    <button onclick="saveConnector()" class="flex-1 py-1.5 text-[11px] font-medium text-white flex items-center justify-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                        <span class="material-icons-outlined text-xs">save</span>Save
+                    </button>
+                </div>
+                <button onclick="addConnectorToWorkflow()" class="w-full py-1.5 text-[11px] font-medium flex items-center justify-center gap-1" style="background:var(--accent-subtle);color:var(--accent);border:1px solid var(--border-active);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-xs">account_tree</span>Add to Workflow
                 </button>
             </div>
         </div>
@@ -496,8 +519,8 @@
         </div>
     </div>
 
-    <script src="js/api.js?v=11" type="module"></script>
-    <script src="js/steps.js?v=11" type="module"></script>
-    <script src="js/app.js?v=11"></script>
+    <script src="js/api.js?v=12" type="module"></script>
+    <script src="js/steps.js?v=12" type="module"></script>
+    <script src="js/app.js?v=12"></script>
 </body>
 </html>
