@@ -13,6 +13,7 @@ let savedModel = 'gpt-5';
 let savedTemperature = 0.3;
 let savedSystemPrompt = '';
 let currentAgentId = null;
+let builderExpanded = false;
 
 const stepTitles = {
     1: 'Agent Creation',
@@ -32,6 +33,33 @@ const headerSubtitles = {
     6: 'Run the Agent',
     7: 'Review & Save Configuration',
 };
+
+function toggleTheme() {
+    const html = document.documentElement;
+    const isDark = html.getAttribute('data-theme') === 'dark';
+    html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    localStorage.setItem('omnirag_theme', isDark ? 'light' : 'dark');
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.textContent = isDark ? 'dark_mode' : 'light_mode';
+}
+
+function toggleBuilderNav() {
+    builderExpanded = !builderExpanded;
+    const nav = document.getElementById('step-nav');
+    const chev = document.getElementById('builder-chevron');
+    if (nav) {
+        nav.style.maxHeight = builderExpanded ? '400px' : '0';
+        nav.style.opacity = builderExpanded ? '1' : '0';
+    }
+    if (chev) chev.style.transform = builderExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+(function initTheme() {
+    const saved = localStorage.getItem('omnirag_theme');
+    if (saved) document.documentElement.setAttribute('data-theme', saved);
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.textContent = (saved || 'dark') === 'dark' ? 'light_mode' : 'dark_mode';
+})();
 
 async function loadStepModules() {
     const mod = await import('./steps.js');
@@ -110,28 +138,16 @@ function goToStep(step) {
     if (step < 1 || step > TOTAL_STEPS) return;
     persistAgentConfig();
     currentStep = step;
-    currentPage = 'agents';
+    currentPage = 'builder';
     updateStepIndicators(step);
     updateHeader(step);
     renderStep(step);
 
-    // Restore Next/Restart button visibility
     const btn = document.getElementById('next-btn');
     if (btn) btn.style.display = '';
 
-    // Reset sidebar active to Agents
-    document.querySelectorAll('.sidebar-link').forEach(link => {
-        const p = link.dataset.page;
-        if (p === 'agents') {
-            link.className = 'sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-slate-400/10 to-transparent border-l-[3px] border-brand-400 rounded-lg cursor-pointer';
-            const icon = link.querySelector('.material-icons-outlined');
-            if (icon) icon.classList.add('text-brand-400');
-        } else {
-            link.className = 'sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-lg cursor-pointer';
-            const icon = link.querySelector('.material-icons-outlined');
-            if (icon) icon.classList.remove('text-brand-400');
-        }
-    });
+    if (!builderExpanded) toggleBuilderNav();
+    updateSidebarActive(null);
 }
 
 function nextStep() {
@@ -141,33 +157,41 @@ function nextStep() {
 
 // -- Sidebar Page Navigation --
 
-let currentPage = 'agents';
+let currentPage = 'hub';
 
 const pageConfig = {
-    agents:    { title: 'My Agents',       breadcrumb: 'Agents' },
-    knowledge: { title: 'Knowledge Base',  breadcrumb: 'Knowledge Base' },
-    access:    { title: 'Access & Roles',  breadcrumb: 'Access & Roles' },
-    audit:     { title: 'Audit Logs',      breadcrumb: 'Audit Logs' },
+    hub:           { title: 'Agent Hub',       breadcrumb: 'Agent Hub' },
+    agents:        { title: 'My Agents',       breadcrumb: 'Agents' },
+    integrations:  { title: 'Integrations',    breadcrumb: 'Integrations' },
+    orchestration: { title: 'Orchestration',   breadcrumb: 'Orchestration' },
+    knowledge:     { title: 'Knowledge Base',  breadcrumb: 'Knowledge Base' },
+    access:        { title: 'Access & Roles',  breadcrumb: 'Access & Roles' },
+    audit:         { title: 'Audit Logs',      breadcrumb: 'Audit Logs' },
 };
 
-async function goToPage(page) {
-    currentPage = page;
-
-    // Update sidebar active state
+function updateSidebarActive(page) {
     document.querySelectorAll('.sidebar-link').forEach(link => {
         const p = link.dataset.page;
         if (p === page) {
-            link.className = 'sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-slate-400/10 to-transparent border-l-[3px] border-brand-400 rounded-lg cursor-pointer';
+            link.style.background = 'linear-gradient(90deg,rgba(0,188,212,0.12),transparent)';
+            link.style.borderLeft = '3px solid var(--accent)';
+            link.style.color = '#fff';
             const icon = link.querySelector('.material-icons-outlined');
             if (icon) icon.classList.add('text-brand-400');
         } else {
-            link.className = 'sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-lg cursor-pointer';
+            link.style.background = 'transparent';
+            link.style.borderLeft = '3px solid transparent';
+            link.style.color = 'var(--text-muted)';
             const icon = link.querySelector('.material-icons-outlined');
             if (icon) icon.classList.remove('text-brand-400');
         }
     });
+}
 
-    // Render page content
+async function goToPage(page) {
+    currentPage = page;
+    updateSidebarActive(page);
+
     const mod = await loadStepModules();
     const content = document.getElementById('step-content');
     const cfg = pageConfig[page];
@@ -179,9 +203,18 @@ async function goToPage(page) {
     if (sub) sub.textContent = cfg.title;
     if (btn) btn.style.display = 'none';
 
-    if (page === 'agents') {
+    content.className = 'flex-1 overflow-y-auto p-5 page-enter';
+
+    if (page === 'hub') {
+        content.innerHTML = mod.page_agentHub();
+        loadHubAgents();
+    } else if (page === 'agents') {
         content.innerHTML = mod.page_agents();
         loadAgentsPage();
+    } else if (page === 'integrations') {
+        content.innerHTML = mod.page_integrations();
+    } else if (page === 'orchestration') {
+        content.innerHTML = mod.page_orchestration();
     } else if (page === 'knowledge') {
         content.innerHTML = mod.page_knowledgeBase();
         initFileUpload();
@@ -193,7 +226,6 @@ async function goToPage(page) {
         loadAuditPage();
     }
 
-    // Deactivate step indicators
     document.querySelectorAll('.step-btn').forEach(btn => {
         const ind = btn.querySelector('.step-indicator');
         ind.classList.remove('step-active');
@@ -373,8 +405,9 @@ function showToast(msg) {
     if (existing) existing.remove();
     const toast = document.createElement('div');
     toast.id = 'toast-msg';
-    toast.className = 'fixed bottom-4 right-4 z-[9999] px-3.5 py-2.5 bg-[#181e2a] text-white text-[12px] rounded-md border border-slate-700 flex items-center gap-2 animate-slideUp';
-    toast.innerHTML = `<span class="material-icons-outlined text-sm">info</span>${msg}`;
+    toast.className = 'fixed bottom-4 right-4 z-[9999] px-3.5 py-2.5 text-[12px] rounded-xl flex items-center gap-2 animate-slideUp';
+    toast.style.cssText = 'background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-default);box-shadow:0 8px 32px rgba(0,0,0,0.3);';
+    toast.innerHTML = `<span class="material-icons-outlined text-sm" style="color:var(--accent);">info</span>${msg}`;
     document.body.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 2500);
 }
@@ -701,6 +734,83 @@ function deleteAgent(agentId) {
     showToast('Agent deleted');
 }
 
+async function loadHubAgents() {
+    const grid = document.getElementById('hub-agents-grid');
+    if (!grid) return;
+
+    const prebuilt = [
+        { id: 'procurement', name: 'Procurement Agent', type: 'Procurement', icon: 'verified_user', color: '#00bcd4', desc: 'Vendor qualification, compliance validation, and document verification against procurement policies.', model: 'gpt-4o' },
+        { id: 'legal', name: 'Legal Review', type: 'Legal', icon: 'gavel', color: '#8b5cf6', desc: 'Contract analysis, clause extraction, risk assessment, and regulatory compliance review.', model: 'gpt-4o' },
+        { id: 'hr', name: 'HR Assistant', type: 'HR', icon: 'people', color: '#f59e0b', desc: 'Policy Q&A, onboarding support, leave management, and employee handbook queries.', model: 'gpt-4o-mini' },
+        { id: 'finance', name: 'Financial Analyst', type: 'Finance', icon: 'account_balance', color: '#10b981', desc: 'Financial statement analysis, budget tracking, forecasting, and expense validation.', model: 'gpt-4o' },
+    ];
+
+    const savedAgents = JSON.parse(localStorage.getItem('omnirag_agents') || '[]');
+
+    let html = '';
+    prebuilt.forEach(a => {
+        html += `
+        <div class="agent-hub-card group" onclick="launchPrebuiltAgent('${a.id}')">
+            <div class="flex items-start justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:${a.color}20;">
+                    <span class="material-icons-outlined text-xl" style="color:${a.color};">${a.icon}</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full" style="background:var(--success);"></span>
+                    <span class="text-[10px] font-medium" style="color:var(--success);">Ready</span>
+                </div>
+            </div>
+            <h3 class="text-[14px] font-semibold mb-1" style="color:var(--text-primary);">${a.name}</h3>
+            <p class="text-[11px] leading-relaxed mb-3" style="color:var(--text-muted);">${a.desc}</p>
+            <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 text-[9px] font-medium rounded-md" style="background:var(--accent-subtle);color:var(--accent);">${a.model}</span>
+                <span class="px-2 py-0.5 text-[9px] font-medium rounded-md" style="background:var(--bg-elevated);color:var(--text-muted);">${a.type}</span>
+            </div>
+        </div>`;
+    });
+
+    savedAgents.forEach(a => {
+        html += `
+        <div class="agent-hub-card group" onclick="chatWithAgent('${a.id}')">
+            <div class="flex items-start justify-between mb-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:var(--accent-subtle);">
+                    <span class="material-icons-outlined text-xl" style="color:var(--accent);">smart_toy</span>
+                </div>
+                <span class="text-[10px] font-mono" style="color:var(--text-muted);">Custom</span>
+            </div>
+            <h3 class="text-[14px] font-semibold mb-1" style="color:var(--text-primary);">${escapeHtml(a.name)}</h3>
+            <p class="text-[11px] mb-3" style="color:var(--text-muted);">Custom agent &middot; ${escapeHtml(a.type)}</p>
+            <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 text-[9px] font-medium rounded-md" style="background:var(--accent-subtle);color:var(--accent);">${escapeHtml(a.model)}</span>
+            </div>
+        </div>`;
+    });
+
+    html += `
+    <div class="agent-hub-card agent-hub-create flex flex-col items-center justify-center text-center" onclick="goToStep(1)" style="min-height:180px;">
+        <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">add_circle_outline</span>
+        <p class="text-[13px] font-semibold" style="color:var(--text-secondary);">Create Agent</p>
+        <p class="text-[11px] mt-0.5" style="color:var(--text-muted);">Build from scratch</p>
+    </div>`;
+
+    grid.innerHTML = html;
+}
+
+function launchPrebuiltAgent(agentId) {
+    const configs = {
+        procurement: { name: 'Procurement Agent', type: 'Procurement' },
+        legal: { name: 'Legal Review', type: 'Legal' },
+        hr: { name: 'HR Assistant', type: 'HR' },
+        finance: { name: 'Financial Analyst', type: 'Finance' },
+    };
+    const cfg = configs[agentId];
+    if (!cfg) return;
+    savedAgentName = cfg.name;
+    savedAgentType = cfg.type;
+    currentAgentId = agentId;
+    goToStep(6);
+}
+
 function closeDocPreview() {
     const modal = document.getElementById('doc-preview-modal');
     if (modal) modal.classList.add('hidden');
@@ -928,11 +1038,10 @@ async function sendChat() {
             const blink = textContainer.querySelector('.cursor-blink');
             if (blink) blink.classList.remove('cursor-blink');
 
-            // Finalize all running tool cards
             toolsContainer.querySelectorAll('.tool-card-running').forEach(el => {
                 el.classList.remove('tool-card-running');
-                el.style.borderColor = '#d1fae5';
-                el.style.background = '#f8fafc';
+                el.style.borderColor = 'rgba(16,185,129,0.2)';
+                el.style.background = 'var(--bg-elevated)';
             });
             toolsContainer.querySelectorAll('.tool-status-label').forEach(el => el.remove());
 
@@ -959,7 +1068,7 @@ function appendUserMessage(container, text) {
     const div = document.createElement('div');
     div.className = 'flex justify-end';
     div.innerHTML = `
-        <div class="max-w-[75%] rounded-md px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap bg-brand-600 text-white">
+        <div class="max-w-[75%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap text-white" style="background:var(--accent);">
             ${escapeHtml(text)}
         </div>
     `;
@@ -971,16 +1080,16 @@ function appendAssistantShell(container) {
     div.className = 'flex flex-col gap-1.5 assistant-msg';
     div.innerHTML = `
         <div class="flex items-center gap-1.5">
-            <span class="block w-0.5 h-3 rounded-sm bg-brand-500"></span>
-            <span class="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">Agent</span>
-            <span class="agent-processing text-[10px] text-slate-400 ml-1">— processing…</span>
+            <span class="block w-0.5 h-3 rounded-sm" style="background:var(--accent);"></span>
+            <span class="text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Agent</span>
+            <span class="agent-processing text-[10px] ml-1" style="color:var(--text-muted);">— processing…</span>
         </div>
         <div class="ml-2.5 space-y-1 tools-container"></div>
-        <div class="text-container ml-2.5 rounded-md border border-slate-200 bg-white px-4 py-3 hidden"></div>
+        <div class="text-container ml-2.5 rounded-xl px-4 py-3 hidden" style="background:var(--bg-elevated);border:1px solid var(--border-default);"></div>
         <div class="loading-dots ml-2.5 flex gap-1 items-center h-4">
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-300 dot-bounce" style="animation-delay:0ms"></span>
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-300 dot-bounce" style="animation-delay:150ms"></span>
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-300 dot-bounce" style="animation-delay:300ms"></span>
+            <span class="w-1.5 h-1.5 rounded-full dot-bounce" style="background:var(--text-muted);animation-delay:0ms"></span>
+            <span class="w-1.5 h-1.5 rounded-full dot-bounce" style="background:var(--text-muted);animation-delay:150ms"></span>
+            <span class="w-1.5 h-1.5 rounded-full dot-bounce" style="background:var(--text-muted);animation-delay:300ms"></span>
         </div>
     `;
     container.appendChild(div);
@@ -999,36 +1108,37 @@ function renderToolCallCard(container, step) {
     const isRunning = step.status === 'active';
     const isDone = step.status === 'completed';
     const isError = step.status === 'error';
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
 
-    const iconColor = isRunning ? '#00838f' : isError ? '#dc2626' : isDone ? '#059669' : '#94a3b8';
-    const titleColor = isRunning ? '#0e1726' : isDone ? '#334155' : '#64748b';
-    const borderColor = isRunning ? '#b2ebf2' : isError ? '#fecaca' : isDone ? '#d1fae5' : '#e2e8f0';
-    const bgColor = isRunning ? '#f0fdfa' : isError ? '#fef2f2' : '#f8fafc';
+    const iconColor = isRunning ? 'var(--accent)' : isError ? 'var(--error)' : isDone ? 'var(--success)' : 'var(--text-muted)';
+    const titleColor = isRunning ? 'var(--text-primary)' : isDone ? 'var(--text-secondary)' : 'var(--text-muted)';
+    const borderColor = isRunning ? 'var(--border-active)' : isError ? 'rgba(239,68,68,0.3)' : isDone ? 'rgba(16,185,129,0.2)' : 'var(--border-default)';
+    const bgColor = isRunning ? (isDark ? 'rgba(0,188,212,0.06)' : '#f0fdfa') : isError ? (isDark ? 'rgba(239,68,68,0.06)' : '#fef2f2') : 'var(--bg-elevated)';
     const iconName = STEP_ICONS[step.type] || STEP_ICONS.default;
 
     const statusHtml = isRunning
-        ? `<span class="tool-status-label text-[10px] ml-auto font-medium" style="color:#00838f">running…</span>`
+        ? `<span class="tool-status-label text-[10px] ml-auto font-medium" style="color:var(--accent)">running…</span>`
         : '';
     const durationHtml = isDone && step.duration
-        ? `<span class="text-[10px] font-mono text-slate-400 ml-auto">${step.duration}ms</span>`
+        ? `<span class="text-[10px] font-mono ml-auto" style="color:var(--text-muted);">${step.duration}ms</span>`
         : '';
 
     const metricsHtml = (step.metrics && isDone) ? renderMetricsGauges(step.metrics) : '';
 
     const descLines = (step.description || '').split('\n').filter(l => l.trim());
     const descHtml = !metricsHtml && descLines.length > 0
-        ? `<div class="mt-0.5 space-y-0">${descLines.map(l => `<p class="text-[10px] text-slate-500 leading-tight">${escapeHtml(l)}</p>`).join('')}</div>`
+        ? `<div class="mt-0.5 space-y-0">${descLines.map(l => `<p class="text-[10px] leading-tight" style="color:var(--text-muted);">${escapeHtml(l)}</p>`).join('')}</div>`
         : '';
 
     const html = `
-        <div id="tool-${step.id}" class="rounded-md border px-3 py-2 transition-all ${isRunning ? 'tool-card-running' : ''}" style="background:${bgColor};border-color:${borderColor}">
+        <div id="tool-${step.id}" class="rounded-lg border px-3 py-2 transition-all ${isRunning ? 'tool-card-running' : ''}" style="background:${bgColor};border-color:${borderColor}">
             <div class="flex items-center gap-2 mb-0.5">
                 <span class="material-icons-outlined shrink-0" style="font-size:15px;color:${iconColor}">${iconName}</span>
                 <span class="text-[12px] font-mono font-semibold" style="color:${titleColor}">${escapeHtml(step.component)}</span>
                 ${statusHtml}
                 ${durationHtml}
             </div>
-            <div class="flex items-center gap-1.5 text-[10px] text-slate-400 mb-0.5 pl-6">
+            <div class="flex items-center gap-1.5 text-[10px] mb-0.5 pl-6" style="color:var(--text-muted);">
                 <span>${escapeHtml(step.title)}</span>
                 <span>&middot;</span>
                 <span class="font-mono">${escapeHtml(step.model || '')}</span>
@@ -1072,8 +1182,8 @@ function renderMetricsGauges(metrics) {
         const label = scoreLabels[key] || key;
         bars += `
             <div class="flex items-center gap-1.5" style="margin-bottom:2px">
-                <span style="font-size:10px;color:#64748b;width:64px;flex-shrink:0;font-family:'Inter',sans-serif">${label}</span>
-                <div style="flex:1;height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden">
+                <span style="font-size:10px;color:var(--text-muted);width:64px;flex-shrink:0;font-family:'Inter',sans-serif">${label}</span>
+                <div style="flex:1;height:4px;background:var(--border-default);border-radius:2px;overflow:hidden">
                     <div style="width:${pct}%;height:100%;background:${color};border-radius:2px;transition:width 0.5s ease"></div>
                 </div>
                 <span style="font-size:10px;font-family:'JetBrains Mono',monospace;color:${color};width:32px;text-align:right;font-weight:600">${val.toFixed(2)}</span>
@@ -1083,7 +1193,7 @@ function renderMetricsGauges(metrics) {
 
     const hasLatency = metrics.llm_latency != null || metrics.total_latency != null;
     if (hasLatency) {
-        bars += `<div style="border-top:1px solid #e2e8f0;margin:4px 0 2px"></div>`;
+        bars += `<div style="border-top:1px solid var(--border-default);margin:4px 0 2px"></div>`;
         for (const [key, label] of Object.entries(latencyKeys)) {
             const ms = metrics[key];
             if (ms == null) continue;
@@ -1091,7 +1201,7 @@ function renderMetricsGauges(metrics) {
             const display = ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms';
             bars += `
                 <div class="flex items-center gap-1.5" style="margin-bottom:2px">
-                    <span style="font-size:10px;color:#64748b;width:64px;flex-shrink:0;font-family:'Inter',sans-serif">${label}</span>
+                    <span style="font-size:10px;color:var(--text-muted);width:64px;flex-shrink:0;font-family:'Inter',sans-serif">${label}</span>
                     <div style="flex:1"></div>
                     <span style="font-size:10px;font-family:'JetBrains Mono',monospace;color:${color};font-weight:600">${display}</span>
                 </div>
@@ -1195,7 +1305,7 @@ function escapeHtml(text) {
 
 // -- Login --
 
-let currentUser = { email: 'thibaud.ishacian@datategy.net', name: 'Thibaud Ishacian', role: 'Admin' };
+let currentUser = { email: 'thibaud.ishacian@presight.ai', name: 'Thibaud Ishacian', role: 'Admin' };
 
 function selectAccount(btn) {
     document.querySelectorAll('.account-btn').forEach(b => {
@@ -1210,7 +1320,7 @@ function selectAccount(btn) {
 function handleLogin() {
     const pwd = document.getElementById('login-password');
     const err = document.getElementById('login-error');
-    if (!pwd || pwd.value !== 'Datategy2026!') {
+    if (!pwd || pwd.value !== 'Presight2026!') {
         if (err) { err.classList.remove('hidden'); }
         if (pwd) { pwd.classList.add('border-red-300'); pwd.focus(); }
         return;
@@ -1232,11 +1342,12 @@ function handleLogin() {
         const userEl = document.getElementById('user-badge');
         if (userEl) {
             const initials = currentUser.name.split(' ').map(n => n[0]).join('');
-            userEl.innerHTML = `<div class="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-white text-[10px] font-bold">${initials}</div>
-                <span class="text-xs text-slate-600 font-medium truncate">${escapeHtml(currentUser.name)}</span>
-                <span class="material-icons-outlined text-slate-400 text-sm">expand_more</span>`;
+            userEl.innerHTML = `<div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style="background:var(--accent);">${initials}</div>
+                <span class="text-xs font-medium truncate" style="color:var(--text-secondary);">${escapeHtml(currentUser.name)}</span>
+                <span class="material-icons-outlined text-sm" style="color:var(--text-muted);">expand_more</span>`;
         }
 
+        goToPage('hub');
         setTimeout(() => screen.remove(), 500);
     }, 800);
 }
@@ -1249,5 +1360,4 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Initialize (after login)
-goToStep(1);
+// Initialize - wait for login, don't render content yet

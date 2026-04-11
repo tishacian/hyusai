@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en" class="h-full" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -33,163 +33,222 @@
         }
     </script>
     <style>
-        body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-        .sidebar-scroll::-webkit-scrollbar { width: 2px; }
-        .sidebar-scroll::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.06); border-radius: 2px; }
-        .code-editor { font-family: 'JetBrains Mono', monospace; resize: none; line-height: 1.6; }
-        .chat-bubble { max-width: 85%; }
+        /* ── Dual-Theme System (CSS Variables) ── */
+        :root {
+            --bg-deepest: #f0f2f5; --bg-main: #ffffff; --bg-card: #ffffff;
+            --bg-elevated: #f8fafc; --bg-sidebar: #181e2a; --bg-sidebar-hover: #232b3b;
+            --bg-sidebar-active: #2a3548; --bg-input: #ffffff;
+            --text-primary: #0f172a; --text-secondary: #475569; --text-muted: #94a3b8;
+            --text-inverse: #f1f5f9;
+            --border-default: #e2e8f0; --border-active: rgba(0,188,212,0.4); --border-sidebar: #2a3548;
+            --accent: #00bcd4; --accent-hover: #0097a7; --accent-glow: rgba(0,188,212,0.15);
+            --accent-subtle: rgba(0,188,212,0.08);
+            --success: #10b981; --warning: #f59e0b; --error: #ef4444; --info: #6366f1;
+            --card-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            --card-hover-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            --glass-bg: rgba(255,255,255,0.7); --glass-border: rgba(0,0,0,0.06);
+            --prose-text: #334155; --prose-heading: #1e293b; --prose-code-bg: #f1f5f9;
+            --prose-code-text: #475569; --prose-table-even: #f8fafc; --prose-td-border: #e2e8f0;
+        }
+        [data-theme="dark"] {
+            --bg-deepest: #0a0f1a; --bg-main: #0d1117; --bg-card: #151b27;
+            --bg-elevated: #1c2333; --bg-sidebar: #0a0f1a; --bg-sidebar-hover: #151b27;
+            --bg-sidebar-active: #1c2333; --bg-input: #151b27;
+            --text-primary: #f1f5f9; --text-secondary: #94a3b8; --text-muted: #64748b;
+            --text-inverse: #0f172a;
+            --border-default: #1e293b; --border-active: rgba(0,188,212,0.4); --border-sidebar: #1e293b;
+            --accent: #00bcd4; --accent-hover: #22ced9; --accent-glow: rgba(0,188,212,0.2);
+            --accent-subtle: rgba(0,188,212,0.1);
+            --card-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            --card-hover-shadow: 0 0 20px rgba(0,188,212,0.12);
+            --glass-bg: rgba(255,255,255,0.04); --glass-border: rgba(255,255,255,0.08);
+            --prose-text: #cbd5e1; --prose-heading: #f1f5f9; --prose-code-bg: #1e293b;
+            --prose-code-text: #94a3b8; --prose-table-even: #1c2333; --prose-td-border: #1e293b;
+        }
 
-        .step-active { background: #00bcd4; color: white; }
-        .step-completed { background: #10b981; color: white; }
-        .step-pending { background: #2a3548; color: #64748b; }
+        /* ── Base ── */
+        body { font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased; background:var(--bg-deepest); color:var(--text-primary); transition:background .3s,color .3s; }
+        .sidebar-scroll::-webkit-scrollbar { width:2px; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background-color:rgba(255,255,255,0.06); border-radius:2px; }
+        .code-editor { font-family:'JetBrains Mono',monospace; resize:none; line-height:1.6; background:var(--bg-input); color:var(--text-primary); border-color:var(--border-default); }
+        .chat-bubble { max-width:85%; }
 
+        /* ── Themed utility classes ── */
+        .t-card { background:var(--bg-card); border:1px solid var(--border-default); box-shadow:var(--card-shadow); transition:all .3s; }
+        .t-card:hover { box-shadow:var(--card-hover-shadow); }
+        .t-elevated { background:var(--bg-elevated); }
+        .t-input { background:var(--bg-input); border-color:var(--border-default); color:var(--text-primary); }
+        .t-text { color:var(--text-primary); }
+        .t-text-2 { color:var(--text-secondary); }
+        .t-text-m { color:var(--text-muted); }
+        .t-border { border-color:var(--border-default); }
+        .t-bg { background:var(--bg-main); }
+
+        /* ── Glass effect (dark mode primarily) ── */
+        .glass { background:var(--glass-bg); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid var(--glass-border); border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.2); transition:all .3s; }
+        .glass:hover { border-color:var(--border-active); box-shadow:var(--card-hover-shadow); transform:translateY(-2px); }
+
+        /* ── Aurora background ── */
+        .aurora { position:relative; overflow:hidden; }
+        .aurora::before { content:''; position:absolute; inset:-50%; background:radial-gradient(ellipse at 20% 50%,rgba(0,188,212,0.1),transparent 50%),radial-gradient(ellipse at 80% 20%,rgba(99,102,241,0.07),transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(0,151,167,0.05),transparent 50%); animation:aurora-shift 15s ease-in-out infinite alternate; pointer-events:none; }
+        @keyframes aurora-shift { 0%{transform:translate(0,0) rotate(0deg)} 100%{transform:translate(-5%,3%) rotate(3deg)} }
+
+        /* ── Step indicators ── */
+        .step-active { background:var(--accent); color:white; }
+        .step-completed { background:var(--success); color:white; }
+        .step-pending { background:var(--bg-sidebar-active); color:var(--text-muted); }
+
+        /* ── Animations ── */
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-        .cursor-blink::after { content:"▋"; color:#00bcd4; margin-left:2px; font-size:0.75em; animation:blink 1s step-start infinite; }
-
+        .cursor-blink::after { content:"▋"; color:var(--accent); margin-left:2px; font-size:0.75em; animation:blink 1s step-start infinite; }
         @keyframes pulse-dot { 0%,100%{opacity:.4} 50%{opacity:1} }
         .tool-running { animation:pulse-dot 1.6s ease-in-out infinite; }
-
         @keyframes bounce-dot { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
         .dot-bounce { animation:bounce-dot .6s ease-in-out infinite; }
-
         @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
         .animate-slideUp { animation:slideUp .25s ease-out; }
+        @keyframes pulse-glow { 0%,100%{box-shadow:0 0 0 0 rgba(0,188,212,0.4)} 50%{box-shadow:0 0 0 6px rgba(0,188,212,0)} }
+        .pulse-ring { animation:pulse-glow 1.5s ease-in-out infinite; }
+        @keyframes page-enter { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .page-enter { animation:page-enter .2s ease-out; }
 
-        /* Prose styling for markdown chat responses */
-        .prose-chat { color:#334155; font-size:13px; line-height:1.65; }
+        /* ── Prose (themed) ── */
+        .prose-chat { color:var(--prose-text); font-size:13px; line-height:1.65; }
         .prose-chat p { margin-bottom:.5rem; }
         .prose-chat p:last-child { margin-bottom:0; }
-        .prose-chat strong { font-weight:600; color:#1e293b; }
+        .prose-chat strong { font-weight:600; color:var(--prose-heading); }
         .prose-chat em { font-style:italic; }
         .prose-chat ul { list-style:disc; padding-left:1.2rem; margin-bottom:.5rem; }
         .prose-chat ol { list-style:decimal; padding-left:1.2rem; margin-bottom:.5rem; }
         .prose-chat li { margin-bottom:.15rem; }
-        .prose-chat code { background:#f1f5f9; color:#475569; padding:1px 5px; border-radius:3px; font-size:12px; font-family:'JetBrains Mono',monospace; }
+        .prose-chat code { background:var(--prose-code-bg); color:var(--prose-code-text); padding:1px 5px; border-radius:3px; font-size:12px; font-family:'JetBrains Mono',monospace; }
         .prose-chat pre { background:#0f172a; color:#e2e8f0; border-radius:6px; padding:.75rem 1rem; overflow-x:auto; margin-bottom:.6rem; }
         .prose-chat pre code { background:none; padding:0; color:inherit; }
-        .prose-chat blockquote { border-left:2px solid #00bcd4; padding-left:.75rem; color:#64748b; font-style:italic; margin:.6rem 0; }
-        .prose-chat h1 { font-size:1rem; font-weight:700; color:#1e293b; margin:1rem 0 .4rem; }
-        .prose-chat h2 { font-size:.95rem; font-weight:600; color:#1e293b; margin:.8rem 0 .35rem; }
-        .prose-chat h3 { font-size:.875rem; font-weight:600; color:#334155; margin:.6rem 0 .25rem; }
-        .prose-chat h4 { font-size:.8125rem; font-weight:600; color:#334155; margin:.4rem 0 .2rem; }
+        .prose-chat blockquote { border-left:2px solid var(--accent); padding-left:.75rem; color:var(--text-muted); font-style:italic; margin:.6rem 0; }
+        .prose-chat h1 { font-size:1rem; font-weight:700; color:var(--prose-heading); margin:1rem 0 .4rem; }
+        .prose-chat h2 { font-size:.95rem; font-weight:600; color:var(--prose-heading); margin:.8rem 0 .35rem; }
+        .prose-chat h3 { font-size:.875rem; font-weight:600; color:var(--prose-text); margin:.6rem 0 .25rem; }
+        .prose-chat h4 { font-size:.8125rem; font-weight:600; color:var(--prose-text); margin:.4rem 0 .2rem; }
         .prose-chat table { width:100%; border-collapse:collapse; font-size:12px; margin:.6rem 0; }
         .prose-chat th { text-align:left; padding:5px 10px; background:#181e2a; color:#e2e8f0; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
-        .prose-chat td { padding:5px 10px; border-bottom:1px solid #e2e8f0; color:#334155; }
+        .prose-chat td { padding:5px 10px; border-bottom:1px solid var(--prose-td-border); color:var(--prose-text); }
         .prose-chat tr:last-child td { border-bottom:none; }
-        .prose-chat tr:nth-child(even) td { background:#f8fafc; }
-        .prose-chat hr { border:none; border-top:1px solid #e2e8f0; margin:.75rem 0; }
+        .prose-chat tr:nth-child(even) td { background:var(--prose-table-even); }
+        .prose-chat hr { border:none; border-top:1px solid var(--border-default); margin:.75rem 0; }
 
-        /* Range slider styling */
-        input[type="range"] { -webkit-appearance:none; height:4px; background:#cbd5e1; border-radius:2px; outline:none; }
-        input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#00bcd4; cursor:pointer; border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.1); }
+        /* ── Range slider ── */
+        input[type="range"] { -webkit-appearance:none; height:4px; background:var(--border-default); border-radius:2px; outline:none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent); cursor:pointer; border:2px solid var(--bg-card); box-shadow:0 0 0 1px rgba(0,0,0,.1); }
+
+        /* ── Agent Hub cards ── */
+        .agent-hub-card { background:var(--bg-card); border:1px solid var(--border-default); border-radius:12px; padding:1.25rem; transition:all .3s ease; cursor:pointer; }
+        .agent-hub-card:hover { border-color:var(--border-active); box-shadow:var(--card-hover-shadow); transform:translateY(-2px); }
+        .agent-hub-create { border:2px dashed var(--border-default); background:transparent; }
+        .agent-hub-create:hover { border-color:var(--accent); background:var(--accent-subtle); }
     </style>
 </head>
-<body class="bg-[#f0f2f5] text-slate-800 h-screen flex overflow-hidden">
+<body class="h-screen flex overflow-hidden" style="background:var(--bg-deepest);color:var(--text-primary);">
 
     <!-- Login Screen -->
-    <div id="login-screen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:#181e2a;">
-        <div class="w-full max-w-sm mx-4">
+    <div id="login-screen" class="fixed inset-0 z-50 flex items-center justify-center aurora" style="background:var(--bg-deepest);">
+        <div class="w-full max-w-sm mx-4" style="position:relative;z-index:1;">
             <div class="text-center mb-6">
                 <div class="flex items-center justify-center mx-auto mb-3">
                     <img src="image/logo.png" alt="OmniRAG" class="h-12 w-auto">
                 </div>
-                <h1 class="text-lg font-semibold text-white tracking-tight">OmniRAG</h1>
-                <p class="text-xs text-slate-500 mt-0.5">Intelligent Agent Platform</p>
+                <h1 class="text-lg font-semibold tracking-tight" style="color:var(--text-primary);">OmniRAG</h1>
+                <p class="text-xs mt-0.5" style="color:var(--text-muted);">Intelligent Agent Platform</p>
             </div>
 
-            <div class="bg-white rounded-lg border border-slate-200 p-6">
-                <h2 class="text-sm font-semibold text-slate-900 mb-0.5">Sign in to your workspace</h2>
-                <p class="text-[11px] text-slate-400 mb-4">Select an account to continue</p>
+            <div class="glass rounded-xl p-6" style="backdrop-filter:blur(20px);">
+                <h2 class="text-sm font-semibold mb-0.5" style="color:var(--text-primary);">Sign in to your workspace</h2>
+                <p class="text-[11px] mb-4" style="color:var(--text-muted);">Select an account to continue</p>
 
                 <div class="space-y-1.5" id="account-list">
-                    <button onclick="selectAccount(this)" data-email="thibaud.ishacian@datategy.net" data-name="Thibaud Ishacian" data-role=""
-                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-brand-500 bg-brand-50 text-left transition-all">
-                        <div class="w-8 h-8 rounded-md bg-brand-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">TI</div>
+                    <button onclick="selectAccount(this)" data-email="thibaud.ishacian@presight.ai" data-name="Thibaud Ishacian" data-role=""
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-brand-500 text-left transition-all" style="background:var(--accent-subtle);">
+                        <div class="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">TI</div>
                         <div class="min-w-0 flex-1">
-                            <p class="text-[13px] font-medium text-slate-900 truncate">Thibaud Ishacian</p>
-                            <p class="text-[10px] text-slate-500 truncate">thibaud.ishacian@datategy.net</p>
+                            <p class="text-[13px] font-medium truncate" style="color:var(--text-primary);">Thibaud Ishacian</p>
+                            <p class="text-[10px] truncate" style="color:var(--text-muted);">thibaud.ishacian@presight.ai</p>
                         </div>
                     </button>
-                    <button onclick="selectAccount(this)" data-email="eric.chau@datategy.net" data-name="Eric Chau" data-role=""
-                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
-                        <div class="w-8 h-8 rounded-md bg-emerald-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">EC</div>
+                    <button onclick="selectAccount(this)" data-email="eric.chau@presight.ai" data-name="Eric Chau" data-role=""
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-transparent text-left transition-all" style="background:transparent;">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">EC</div>
                         <div class="min-w-0 flex-1">
-                            <p class="text-[13px] font-medium text-slate-900 truncate">Eric Chau</p>
-                            <p class="text-[10px] text-slate-500 truncate">eric.chau@datategy.net</p>
+                            <p class="text-[13px] font-medium truncate" style="color:var(--text-primary);">Eric Chau</p>
+                            <p class="text-[10px] truncate" style="color:var(--text-muted);">eric.chau@presight.ai</p>
                         </div>
                     </button>
-                    <button onclick="selectAccount(this)" data-email="mehdi.chouiten@datategy.net" data-name="Mehdi Chouiten" data-role=""
-                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
-                        <div class="w-8 h-8 rounded-md bg-violet-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">MC</div>
+                    <button onclick="selectAccount(this)" data-email="mehdi.chouiten@presight.ai" data-name="Mehdi Chouiten" data-role=""
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-transparent text-left transition-all" style="background:transparent;">
+                        <div class="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">MC</div>
                         <div class="min-w-0 flex-1">
-                            <p class="text-[13px] font-medium text-slate-900 truncate">Mehdi Chouiten</p>
-                            <p class="text-[10px] text-slate-500 truncate">mehdi.chouiten@datategy.net</p>
+                            <p class="text-[13px] font-medium truncate" style="color:var(--text-primary);">Mehdi Chouiten</p>
+                            <p class="text-[10px] truncate" style="color:var(--text-muted);">mehdi.chouiten@presight.ai</p>
                         </div>
                     </button>
-                    <button onclick="selectAccount(this)" data-email="hermann.kuetat@datategy.net" data-name="Hermann Kuetat" data-role=""
-                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
-                        <div class="w-8 h-8 rounded-md bg-amber-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">HK</div>
+                    <button onclick="selectAccount(this)" data-email="hermann.kuetat@presight.ai" data-name="Hermann Kuetat" data-role=""
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-transparent text-left transition-all" style="background:transparent;">
+                        <div class="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">HK</div>
                         <div class="min-w-0 flex-1">
-                            <p class="text-[13px] font-medium text-slate-900 truncate">Hermann Kuetat</p>
-                            <p class="text-[10px] text-slate-500 truncate">hermann.kuetat@datategy.net</p>
+                            <p class="text-[13px] font-medium truncate" style="color:var(--text-primary);">Hermann Kuetat</p>
+                            <p class="text-[10px] truncate" style="color:var(--text-muted);">hermann.kuetat@presight.ai</p>
                         </div>
                     </button>
                     <button onclick="selectAccount(this)" data-email="enzo.damion@datategy.net" data-name="Enzo Damion" data-role=""
-                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-md border-2 border-transparent hover:border-slate-200 hover:bg-slate-50 text-left transition-all">
-                        <div class="w-8 h-8 rounded-md bg-indigo-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">ED</div>
+                        class="account-btn w-full flex items-center gap-2.5 p-2.5 rounded-lg border-2 border-transparent text-left transition-all" style="background:transparent;">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">ED</div>
                         <div class="min-w-0 flex-1">
-                            <p class="text-[13px] font-medium text-slate-900 truncate">Enzo Damion</p>
-                            <p class="text-[10px] text-slate-500 truncate">enzo.damion@datategy.net</p>
+                            <p class="text-[13px] font-medium truncate" style="color:var(--text-primary);">Enzo Damion</p>
+                            <p class="text-[10px] truncate" style="color:var(--text-muted);">enzo.damion@datategy.net</p>
                         </div>
                     </button>
                 </div>
 
                 <div class="mt-3">
-                    <label class="text-[11px] font-medium text-slate-500 mb-1 block">Password</label>
+                    <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Password</label>
                     <input id="login-password" type="password" placeholder="Enter workspace password"
-                        class="w-full px-3 py-2 border border-slate-200 rounded-md text-sm bg-white text-slate-700 focus:ring-1 focus:ring-brand-500 focus:border-brand-500 outline-none">
+                        class="t-input w-full px-3 py-2 border rounded-lg text-sm focus:ring-1 focus:ring-brand-500 focus:border-brand-500 outline-none">
                     <p id="login-error" class="text-[11px] text-red-500 mt-1 hidden">Incorrect password</p>
                 </div>
 
-                <button id="login-btn" onclick="handleLogin()" class="w-full mt-4 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors flex items-center justify-center gap-1.5">
+                <button id="login-btn" onclick="handleLogin()" class="w-full mt-4 px-4 py-2.5 text-sm font-medium text-white rounded-lg transition-all flex items-center justify-center gap-1.5" style="background:var(--accent);">
                     Sign In
                     <span class="material-icons-outlined text-base">arrow_forward</span>
                 </button>
 
-                <div class="mt-3 pt-3 border-t border-slate-100 flex items-center justify-center gap-1.5">
-                    <span class="material-icons-outlined text-slate-300 text-xs">lock</span>
-                    <span class="text-[10px] text-slate-400">Secured workspace &middot; Role-based access control</span>
+                <div class="mt-3 pt-3 flex items-center justify-center gap-1.5" style="border-top:1px solid var(--border-default);">
+                    <span class="material-icons-outlined text-xs" style="color:var(--text-muted);">lock</span>
+                    <span class="text-[10px]" style="color:var(--text-muted);">Secured workspace &middot; Role-based access control</span>
                 </div>
             </div>
 
-            <p class="text-center text-[10px] text-slate-600 mt-4">OmniRAG &middot; Powered by papAI</p>
+            <p class="text-center text-[10px] mt-4" style="color:var(--text-muted);">OmniRAG &middot; Powered by papAI</p>
         </div>
     </div>
 
     <!-- Reset KB Confirmation Modal -->
     <div id="reset-kb-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;">
-        <div onclick="closeResetKBModal()" style="position:absolute;inset:0;background:rgba(0,0,0,0.45);"></div>
-        <div style="position:relative;width:360px;background:#fff;border-radius:10px;border:1px solid #e2e8f0;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.15);">
+        <div onclick="closeResetKBModal()" style="position:absolute;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);"></div>
+        <div class="glass" style="position:relative;width:360px;overflow:hidden;">
             <div class="px-5 pt-5 pb-4">
                 <div class="flex items-start gap-3 mb-3">
-                    <div class="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                        <span class="material-icons-outlined text-red-600 text-lg">delete_forever</span>
+                    <div class="w-9 h-9 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+                        <span class="material-icons-outlined text-red-500 text-lg">delete_forever</span>
                     </div>
                     <div>
-                        <h3 class="text-[14px] font-semibold text-slate-900">Reset Knowledge Base</h3>
-                        <p class="text-[12px] text-slate-500 mt-0.5">This will permanently delete all indexed documents and chunks. This action cannot be undone.</p>
+                        <h3 class="text-[14px] font-semibold" style="color:var(--text-primary);">Reset Knowledge Base</h3>
+                        <p class="text-[12px] mt-0.5" style="color:var(--text-secondary);">This will permanently delete all indexed documents. This cannot be undone.</p>
                     </div>
                 </div>
-                <div class="bg-red-50 border border-red-200 rounded-md px-3 py-2 flex items-center gap-2">
-                    <span class="material-icons-outlined text-red-500 text-sm">warning</span>
-                    <p class="text-[11px] text-red-700 font-medium">All vector embeddings and metadata will be erased.</p>
-                </div>
             </div>
-            <div class="flex items-center justify-end gap-2 px-5 py-3 bg-slate-50 border-t border-slate-200">
-                <button onclick="closeResetKBModal()" class="px-3 py-1.5 text-[12px] font-medium text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors">Cancel</button>
+            <div class="flex items-center justify-end gap-2 px-5 py-3" style="border-top:1px solid var(--border-default);">
+                <button onclick="closeResetKBModal()" class="px-3 py-1.5 text-[12px] font-medium rounded-md transition-colors" style="color:var(--text-secondary);background:var(--bg-elevated);border:1px solid var(--border-default);">Cancel</button>
                 <button id="reset-kb-confirm-btn" onclick="doResetKB()" class="px-3 py-1.5 text-[12px] font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors flex items-center gap-1.5">
                     <span class="material-icons-outlined text-sm">delete_forever</span>
-                    Reset Knowledge Base
+                    Reset
                 </button>
             </div>
         </div>
@@ -197,15 +256,15 @@
 
     <!-- Document Preview Modal -->
     <div id="doc-preview-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;">
-        <div onclick="closeDocPreview()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);"></div>
-        <div style="position:absolute;top:12px;bottom:12px;right:12px;width:540px;max-width:calc(100vw - 320px);background:#fff;border-radius:8px;border:1px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden;">
-            <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 shrink-0 bg-slate-50">
+        <div onclick="closeDocPreview()" style="position:absolute;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);"></div>
+        <div style="position:absolute;top:12px;bottom:12px;right:12px;width:540px;max-width:calc(100vw - 320px);background:var(--bg-card);border-radius:12px;border:1px solid var(--border-default);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+            <div class="flex items-center justify-between px-4 py-2.5 shrink-0" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);">
                 <div class="flex items-center gap-2 min-w-0">
                     <span class="material-icons-outlined text-brand-500 text-lg">description</span>
-                    <h3 id="doc-preview-title" class="text-[13px] font-semibold text-slate-900 truncate">Document</h3>
+                    <h3 id="doc-preview-title" class="text-[13px] font-semibold truncate" style="color:var(--text-primary);">Document</h3>
                 </div>
-                <button onclick="closeDocPreview()" class="w-6 h-6 rounded flex items-center justify-center hover:bg-slate-200 transition-colors">
-                    <span class="material-icons-outlined text-slate-400 text-base">close</span>
+                <button onclick="closeDocPreview()" class="w-6 h-6 rounded flex items-center justify-center transition-colors" style="color:var(--text-muted);">
+                    <span class="material-icons-outlined text-base">close</span>
                 </button>
             </div>
             <div id="doc-preview-body" class="flex-1 overflow-y-auto px-5 py-4 prose-chat text-[13px] leading-relaxed"></div>
@@ -213,120 +272,134 @@
     </div>
 
     <!-- Sidebar -->
-    <aside id="app-sidebar" class="w-[240px] flex flex-col bg-sidebar-bg text-slate-300 flex-shrink-0 h-full border-r border-sidebar-border opacity-0 transition-opacity duration-500">
-        <div class="h-12 flex items-center px-4 border-b border-sidebar-border">
-            <div class="flex items-center gap-2.5">
+    <aside id="app-sidebar" class="w-[240px] flex flex-col flex-shrink-0 h-full opacity-0 transition-opacity duration-500" style="background:var(--bg-sidebar);border-right:1px solid var(--border-sidebar);">
+        <div class="h-12 flex items-center px-4" style="border-bottom:1px solid var(--border-sidebar);">
+            <div class="flex items-center gap-2.5 flex-1">
                 <img src="image/logo.png" alt="OmniRAG" class="h-7 w-auto">
                 <div class="flex flex-col">
                     <span class="font-semibold text-white text-[13px] leading-tight tracking-tight">OmniRAG</span>
-                    <span class="text-[9px] text-slate-500 font-mono">v1.0</span>
+                    <span class="text-[9px] font-mono" style="color:var(--text-muted);">v2.4</span>
                 </div>
             </div>
+            <button onclick="toggleTheme()" class="w-6 h-6 rounded-md flex items-center justify-center transition-colors" style="color:var(--text-muted);" title="Toggle theme">
+                <span class="material-icons-outlined text-sm" id="theme-icon">light_mode</span>
+            </button>
         </div>
 
-        <!-- Agent Builder Steps -->
-        <div class="px-3 py-3">
-            <p class="text-[9px] font-semibold uppercase tracking-widest text-slate-600 mb-2 px-2">Agent Builder</p>
-            <div class="space-y-0.5" id="step-nav">
-                <button onclick="goToStep(1)" data-step="1" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
-                    <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-active">1</span>
+        <!-- Primary Nav -->
+        <nav class="flex-1 overflow-y-auto sidebar-scroll px-3 py-3 space-y-0.5">
+            <div class="pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Platform</span></div>
+            <a onclick="goToPage('hub')" class="sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium text-white rounded-lg cursor-pointer" style="background:linear-gradient(90deg,rgba(0,188,212,0.12),transparent);border-left:3px solid var(--accent);" data-page="hub">
+                <span class="material-icons-outlined mr-2.5 text-lg text-brand-400">hub</span>Agent Hub
+            </a>
+            <a onclick="goToPage('integrations')" class="sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg cursor-pointer" style="color:var(--text-muted);" data-page="integrations">
+                <span class="material-icons-outlined mr-2.5 text-lg">cable</span>Integrations
+            </a>
+            <a onclick="goToPage('orchestration')" class="sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg cursor-pointer" style="color:var(--text-muted);" data-page="orchestration">
+                <span class="material-icons-outlined mr-2.5 text-lg">account_tree</span>Orchestration
+            </a>
+
+            <div class="pt-4 pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Data</span></div>
+            <a onclick="goToPage('knowledge')" class="sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg cursor-pointer" style="color:var(--text-muted);" data-page="knowledge">
+                <span class="material-icons-outlined mr-2.5 text-lg">library_books</span>Knowledge Base
+            </a>
+
+            <div class="pt-4 pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Governance</span></div>
+            <a onclick="goToPage('access')" class="sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg cursor-pointer" style="color:var(--text-muted);" data-page="access">
+                <span class="material-icons-outlined mr-2.5 text-lg">group</span>Access & Roles
+            </a>
+            <a onclick="goToPage('audit')" class="sidebar-link group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg cursor-pointer" style="color:var(--text-muted);" data-page="audit">
+                <span class="material-icons-outlined mr-2.5 text-lg">receipt_long</span>Audit Logs
+            </a>
+
+            <!-- Agent Builder (collapsible) -->
+            <div class="pt-4 pb-1.5">
+                <button onclick="toggleBuilderNav()" class="flex items-center justify-between w-full px-2 group">
+                    <span class="text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Agent Builder</span>
+                    <span class="material-icons-outlined text-xs transition-transform" id="builder-chevron" style="color:var(--text-muted);transform:rotate(0deg);">expand_more</span>
+                </button>
+            </div>
+            <div id="step-nav" class="space-y-0.5 overflow-hidden transition-all" style="max-height:0;opacity:0;">
+                <button onclick="goToStep(1)" data-step="1" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all text-[12px]" style="color:var(--text-muted);">
+                    <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">1</span>
                     <span>Agent Creation</span>
                 </button>
-                <button onclick="goToStep(2)" data-step="2" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                <button onclick="goToStep(2)" data-step="2" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all text-[12px]" style="color:var(--text-muted);">
                     <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">2</span>
                     <span>Model Selection</span>
                 </button>
-                <button onclick="goToStep(3)" data-step="3" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                <button onclick="goToStep(3)" data-step="3" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all text-[12px]" style="color:var(--text-muted);">
                     <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">3</span>
                     <span>Knowledge Upload</span>
                 </button>
-                <button onclick="goToStep(4)" data-step="4" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                <button onclick="goToStep(4)" data-step="4" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all text-[12px]" style="color:var(--text-muted);">
                     <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">4</span>
                     <span>Tools</span>
                 </button>
-                <button onclick="goToStep(5)" data-step="5" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                <button onclick="goToStep(5)" data-step="5" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all text-[12px]" style="color:var(--text-muted);">
                     <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">5</span>
                     <span>Governance</span>
                 </button>
-                <button onclick="goToStep(6)" data-step="6" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                <button onclick="goToStep(6)" data-step="6" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all text-[12px]" style="color:var(--text-muted);">
                     <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">6</span>
                     <span>Execution</span>
                 </button>
-                <button onclick="goToStep(7)" data-step="7" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md transition-all text-[13px]">
+                <button onclick="goToStep(7)" data-step="7" class="step-btn w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-all text-[12px]" style="color:var(--text-muted);">
                     <span class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold step-indicator step-pending">7</span>
                     <span>Save Agent</span>
                 </button>
             </div>
-        </div>
-
-        <!-- Sidebar Nav -->
-        <nav class="flex-1 overflow-y-auto sidebar-scroll px-3 space-y-0.5 border-t border-sidebar-border pt-3">
-            <div class="pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest text-slate-600">Library</span></div>
-            <a onclick="goToPage('agents')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-md cursor-pointer" data-page="agents">
-                <span class="material-icons-outlined mr-2.5 text-lg">smart_toy</span>Agents
-            </a>
-            <div class="pt-3 pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest text-slate-600">Data</span></div>
-            <a onclick="goToPage('knowledge')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-md cursor-pointer" data-page="knowledge">
-                <span class="material-icons-outlined mr-2.5 text-lg">library_books</span>Knowledge Base
-            </a>
-            <div class="pt-3 pb-1.5"><span class="px-2 text-[9px] font-semibold uppercase tracking-widest text-slate-600">Governance</span></div>
-            <a onclick="goToPage('access')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-md cursor-pointer" data-page="access">
-                <span class="material-icons-outlined mr-2.5 text-lg">group</span>Access & Roles
-            </a>
-            <a onclick="goToPage('audit')" class="sidebar-link group flex items-center px-2.5 py-2 text-[13px] font-medium text-slate-400 hover:text-white hover:bg-sidebar-hover rounded-md cursor-pointer" data-page="audit">
-                <span class="material-icons-outlined mr-2.5 text-lg">receipt_long</span>Audit Logs
-            </a>
         </nav>
 
-        <div class="px-3 py-2 border-t border-sidebar-border text-[9px] text-slate-600 text-center">
-            OmniRAG &middot; v1.0
+        <div class="px-3 py-2 text-[9px] text-center" style="border-top:1px solid var(--border-sidebar);color:var(--text-muted);">
+            papAI &middot; Internal Platform
         </div>
     </aside>
 
     <!-- Main Content -->
     <div id="app-main" class="flex-1 flex flex-col overflow-hidden opacity-0 transition-opacity duration-500">
         <!-- Header -->
-        <header class="bg-white border-b border-slate-200 px-5 py-2.5 flex-shrink-0">
+        <header class="px-5 py-2.5 flex-shrink-0" style="background:var(--bg-card);border-bottom:1px solid var(--border-default);">
             <div class="flex items-center justify-between gap-4 min-w-0">
                 <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-1 text-[11px] text-slate-400 mb-0 whitespace-nowrap overflow-hidden">
-                        <span>Agents</span>
+                    <div class="flex items-center gap-1 text-[11px] mb-0 whitespace-nowrap overflow-hidden" style="color:var(--text-muted);">
+                        <span>Platform</span>
                         <span class="material-icons-outlined text-[11px]">chevron_right</span>
-                        <span class="text-slate-600 font-medium truncate" id="header-title">Agent Creation</span>
+                        <span class="font-medium truncate" id="header-title" style="color:var(--text-secondary);">Agent Hub</span>
                     </div>
-                    <h1 class="text-[15px] font-semibold text-slate-900 truncate" id="step-title">Create Your Agent</h1>
+                    <h1 class="text-[15px] font-semibold truncate" id="step-title" style="color:var(--text-primary);">Agent Hub</h1>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
                     <div class="relative">
-                        <div id="user-badge" onclick="toggleUserDropdown()" class="hidden sm:flex items-center gap-2 px-2 py-1 bg-slate-50 rounded-md border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
-                            <div class="w-6 h-6 rounded-md bg-slate-300 flex items-center justify-center text-white text-[9px] font-bold">?</div>
-                            <span class="text-[11px] text-slate-600 font-medium truncate max-w-[100px]">—</span>
-                            <span class="material-icons-outlined text-slate-400 text-xs">expand_more</span>
+                        <div id="user-badge" onclick="toggleUserDropdown()" class="hidden sm:flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-colors" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
+                            <div class="w-6 h-6 rounded-md flex items-center justify-center text-white text-[9px] font-bold" style="background:var(--accent);">?</div>
+                            <span class="text-[11px] font-medium truncate max-w-[100px]" style="color:var(--text-secondary);">—</span>
+                            <span class="material-icons-outlined text-xs" style="color:var(--text-muted);">expand_more</span>
                         </div>
-                        <div id="user-dropdown" class="hidden absolute right-0 top-full mt-1 w-52 bg-white rounded-lg border border-slate-200 z-50 overflow-hidden shadow-lg">
-                            <div class="px-3 py-2.5 border-b border-slate-100">
-                                <p id="dd-name" class="text-[13px] font-semibold text-slate-900">—</p>
-                                <p id="dd-email" class="text-[10px] text-slate-500 truncate">—</p>
+                        <div id="user-dropdown" class="hidden absolute right-0 top-full mt-1 w-52 rounded-xl z-50 overflow-hidden" style="background:var(--bg-card);border:1px solid var(--border-default);box-shadow:0 12px 40px rgba(0,0,0,0.3);">
+                            <div class="px-3 py-2.5" style="border-bottom:1px solid var(--border-default);">
+                                <p id="dd-name" class="text-[13px] font-semibold" style="color:var(--text-primary);">—</p>
+                                <p id="dd-email" class="text-[10px] truncate" style="color:var(--text-muted);">—</p>
                                 <p id="dd-role" class="text-[10px] text-brand-600 font-medium mt-0.5">—</p>
                             </div>
                             <div class="py-0.5">
-                                <button onclick="showToast('Profile settings coming soon')" class="w-full text-left px-3 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors">
-                                    <span class="material-icons-outlined text-slate-400 text-sm">settings</span>
+                                <button onclick="showToast('Profile settings coming soon')" class="w-full text-left px-3 py-1.5 text-[12px] flex items-center gap-2 transition-colors" style="color:var(--text-secondary);">
+                                    <span class="material-icons-outlined text-sm" style="color:var(--text-muted);">settings</span>
                                     Account settings
                                 </button>
-                                <button onclick="showToast('Notifications coming soon')" class="w-full text-left px-3 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors">
-                                    <span class="material-icons-outlined text-slate-400 text-sm">notifications</span>
+                                <button onclick="showToast('Notifications coming soon')" class="w-full text-left px-3 py-1.5 text-[12px] flex items-center gap-2 transition-colors" style="color:var(--text-secondary);">
+                                    <span class="material-icons-outlined text-sm" style="color:var(--text-muted);">notifications</span>
                                     Notifications
                                 </button>
-                                <div class="border-t border-slate-100 my-0.5"></div>
-                                <button onclick="signOut()" class="w-full text-left px-3 py-1.5 text-[12px] text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors">
+                                <div class="my-0.5" style="border-top:1px solid var(--border-default);"></div>
+                                <button onclick="signOut()" class="w-full text-left px-3 py-1.5 text-[12px] text-red-500 flex items-center gap-2 transition-colors">
                                     <span class="material-icons-outlined text-red-500 text-sm">logout</span>
                                     Sign out
                                 </button>
                             </div>
                         </div>
                     </div>
-                    <button id="next-btn" onclick="nextStep()" class="px-3 py-1.5 text-[13px] font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-md transition-colors flex items-center gap-1 whitespace-nowrap">
+                    <button id="next-btn" onclick="nextStep()" class="px-3 py-1.5 text-[13px] font-medium text-white rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap" style="background:var(--accent);display:none;">
                         Next Step
                         <span class="material-icons-outlined text-sm">arrow_forward</span>
                     </button>
@@ -335,17 +408,12 @@
         </header>
 
         <!-- Step Content Area -->
-        <div class="flex-1 overflow-y-auto p-5" id="step-content">
-        </div>
-
-        <!-- Environment banner -->
-        <div class="bg-white border-t border-slate-200 px-5 py-1 text-center">
-            <p class="text-[10px] text-slate-400">Preview environment &middot; OmniRAG</p>
+        <div class="flex-1 overflow-y-auto p-5 page-enter" id="step-content">
         </div>
     </div>
 
-    <script src="js/api.js?v=5" type="module"></script>
-    <script src="js/steps.js?v=5" type="module"></script>
-    <script src="js/app.js?v=5"></script>
+    <script src="js/api.js?v=6" type="module"></script>
+    <script src="js/steps.js?v=6" type="module"></script>
+    <script src="js/app.js?v=6"></script>
 </body>
 </html>

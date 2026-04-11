@@ -6,25 +6,25 @@
 export function step1_agentCreation() {
     return `
     <div class="max-w-3xl mx-auto space-y-3">
-        <div class="bg-white rounded-lg border border-slate-200 p-4">
+        <div class="t-card rounded-xl p-4">
             <div class="flex items-center gap-2.5 mb-3">
-                <div class="w-7 h-7 rounded-md bg-brand-100 flex items-center justify-center">
-                    <span class="material-icons-outlined text-brand-600 text-lg">smart_toy</span>
+                <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:var(--accent-subtle);">
+                    <span class="material-icons-outlined text-brand-500 text-lg">smart_toy</span>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-slate-900">Define Your Agent</h3>
-                    <p class="text-[11px] text-slate-500">Configure the agent's identity and capabilities</p>
+                    <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Define Your Agent</h3>
+                    <p class="text-[11px]" style="color:var(--text-muted);">Configure the agent's identity and capabilities</p>
                 </div>
             </div>
             <div class="space-y-2.5">
                 <div class="grid grid-cols-5 gap-2.5">
                     <div class="col-span-3">
-                        <label class="text-[11px] font-medium text-slate-500 mb-1 block">Agent Name</label>
-                        <input id="agent-name" type="text" value="" placeholder="My Agent" class="w-full px-3 py-1.5 border border-slate-200 rounded-md text-sm focus:ring-1 focus:ring-brand-500 focus:border-brand-500">
+                        <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Agent Name</label>
+                        <input id="agent-name" type="text" value="" placeholder="My Agent" class="t-input w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-1 focus:ring-brand-500">
                     </div>
                     <div class="col-span-2">
-                        <label class="text-[11px] font-medium text-slate-500 mb-1 block">Type</label>
-                        <select id="agent-type" class="w-full px-3 py-1.5 border border-slate-200 rounded-md text-sm bg-white focus:ring-1 focus:ring-brand-500">
+                        <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Type</label>
+                        <select id="agent-type" class="t-input w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-1 focus:ring-brand-500">
                             <option selected>Default</option>
                             <option>Finance</option>
                             <option>Legal</option>
@@ -36,43 +36,43 @@ export function step1_agentCreation() {
                     </div>
                 </div>
                 <div>
-                    <label class="text-[11px] font-medium text-slate-500 mb-1 block">System Prompt</label>
-                    <textarea class="code-editor w-full px-3 py-2 border border-slate-200 rounded-md text-[12px] h-20 focus:ring-1 focus:ring-brand-500" placeholder="Describe your agent's role, behavior, and any specific instructions…"></textarea>
+                    <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">System Prompt</label>
+                    <textarea class="code-editor w-full px-3 py-2 border rounded-lg text-[12px] h-20 focus:ring-1 focus:ring-brand-500" placeholder="Describe your agent's role, behavior, and any specific instructions…"></textarea>
                 </div>
             </div>
         </div>
 
-        <div class="bg-white rounded-lg border border-slate-200 p-4">
-            <h3 class="text-[13px] font-semibold text-slate-900 mb-2.5 flex items-center gap-1.5">
-                <span class="material-icons-outlined text-slate-400 text-base">tune</span>
+        <div class="t-card rounded-xl p-4">
+            <h3 class="text-[13px] font-semibold mb-2.5 flex items-center gap-1.5" style="color:var(--text-primary);">
+                <span class="material-icons-outlined text-base" style="color:var(--text-muted);">tune</span>
                 Capabilities
             </h3>
             <div class="flex flex-wrap gap-1.5">
-                <label class="cap-label flex items-center gap-1.5 px-2.5 py-1.5 bg-brand-50 border border-brand-200 rounded-md cursor-pointer transition-colors" onclick="toggleCap(this)">
+                <label class="cap-label flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors" style="background:var(--accent-subtle);border:1px solid var(--border-active);" onclick="toggleCap(this)">
                     <input type="checkbox" checked class="w-3.5 h-3.5 text-brand-600 rounded">
-                    <span class="text-[12px] font-medium text-slate-700">RAG Retrieval</span>
+                    <span class="text-[12px] font-medium" style="color:var(--text-primary);">RAG Retrieval</span>
                 </label>
-                <label class="cap-label flex items-center gap-1.5 px-2.5 py-1.5 bg-brand-50 border border-brand-200 rounded-md cursor-pointer transition-colors" onclick="toggleCap(this)">
+                <label class="cap-label flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors" style="background:var(--accent-subtle);border:1px solid var(--border-active);" onclick="toggleCap(this)">
                     <input type="checkbox" checked class="w-3.5 h-3.5 text-brand-600 rounded">
-                    <span class="text-[12px] font-medium text-slate-700">Document Parsing</span>
+                    <span class="text-[12px] font-medium" style="color:var(--text-primary);">Document Parsing</span>
                 </label>
-                <label class="cap-label flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md cursor-pointer transition-colors" onclick="toggleCap(this)">
+                <label class="cap-label flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors" style="background:var(--bg-elevated);border:1px solid var(--border-default);" onclick="toggleCap(this)">
                     <input type="checkbox" class="w-3.5 h-3.5 text-brand-600 rounded">
-                    <span class="text-[12px] font-medium text-slate-700">External API</span>
+                    <span class="text-[12px] font-medium" style="color:var(--text-secondary);">External API</span>
                 </label>
-                <label class="cap-label flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md cursor-pointer transition-colors" onclick="toggleCap(this)">
+                <label class="cap-label flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors" style="background:var(--bg-elevated);border:1px solid var(--border-default);" onclick="toggleCap(this)">
                     <input type="checkbox" class="w-3.5 h-3.5 text-brand-600 rounded">
-                    <span class="text-[12px] font-medium text-slate-700">Structured Output</span>
+                    <span class="text-[12px] font-medium" style="color:var(--text-secondary);">Structured Output</span>
                 </label>
             </div>
         </div>
 
-        <div class="bg-slate-50 rounded-lg border border-slate-200 p-3">
+        <div class="t-card rounded-xl p-3" style="background:var(--bg-elevated);">
             <div class="flex items-start gap-2.5">
                 <span class="material-icons-outlined text-brand-500 text-base mt-0.5">info</span>
-                <div class="text-[12px] text-slate-600">
-                    <p class="font-medium text-slate-800 mb-0.5">What you see as a single agent is actually an orchestrated execution of multiple steps under the hood.</p>
-                    <p class="text-[11px] text-slate-500">The platform is both the <strong>Agent interface</strong> (facade) and the <strong>Orchestrator</strong> (engine). At Step 6, you'll see the full pipeline unfold.</p>
+                <div class="text-[12px]" style="color:var(--text-secondary);">
+                    <p class="font-medium mb-0.5" style="color:var(--text-primary);">What you see as a single agent is actually an orchestrated execution of multiple steps under the hood.</p>
+                    <p class="text-[11px]" style="color:var(--text-muted);">The platform is both the <strong>Agent interface</strong> (facade) and the <strong>Orchestrator</strong> (engine). At Step 6, you'll see the full pipeline unfold.</p>
                 </div>
             </div>
         </div>
@@ -423,10 +423,10 @@ export function page_knowledgeBase() {
 
 export function page_accessRoles() {
     const users = [
-        { initials: 'TI', name: 'Thibaud Ishacian', email: 'thibaud.ishacian@datategy.net', color: 'brand', role: 'Admin' },
-        { initials: 'EC', name: 'Eric Chau', email: 'eric.chau@datategy.net', color: 'emerald', role: 'Admin' },
-        { initials: 'MC', name: 'Mehdi Chouiten', email: 'mehdi.chouiten@datategy.net', color: 'violet', role: 'Admin' },
-        { initials: 'HK', name: 'Hermann Kuetat', email: 'hermann.kuetat@datategy.net', color: 'amber', role: 'User' },
+        { initials: 'TI', name: 'Thibaud Ishacian', email: 'thibaud.ishacian@presight.ai', color: 'brand', role: 'Admin' },
+        { initials: 'EC', name: 'Eric Chau', email: 'eric.chau@presight.ai', color: 'emerald', role: 'Admin' },
+        { initials: 'MC', name: 'Mehdi Chouiten', email: 'mehdi.chouiten@presight.ai', color: 'violet', role: 'Admin' },
+        { initials: 'HK', name: 'Hermann Kuetat', email: 'hermann.kuetat@presight.ai', color: 'amber', role: 'User' },
         { initials: 'ED', name: 'Enzo Damion', email: 'enzo.damion@datategy.net', color: 'indigo', role: 'Admin' },
     ];
 
@@ -599,13 +599,13 @@ export function step6_execution() {
     const welcome = welcomeMap[agentType] || 'Test your agent with a real query. Each orchestration step will be shown in real time.';
 
     return `
-    <div class="max-w-3xl mx-auto flex flex-col" style="height:calc(100vh - 230px);">
-        <div class="bg-white rounded-lg border border-slate-200 flex flex-col flex-1 min-h-0">
+    <div class="max-w-3xl mx-auto flex flex-col" style="height:calc(100vh - 180px);">
+        <div class="t-card rounded-xl flex flex-col flex-1 min-h-0 overflow-hidden">
             <!-- Header -->
-            <div class="px-4 py-2.5 border-b border-slate-200 flex items-center gap-2 shrink-0 bg-slate-50">
-                <div class="w-1 h-4 rounded-sm bg-brand-500"></div>
-                <h3 class="text-[13px] font-semibold text-slate-900">${agentName}</h3>
-                <span id="chat-status" class="text-[11px] text-slate-400 ml-auto"></span>
+            <div class="px-4 py-2.5 flex items-center gap-2 shrink-0" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);">
+                <div class="w-1 h-4 rounded-sm" style="background:var(--accent);"></div>
+                <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">${agentName}</h3>
+                <span id="chat-status" class="text-[11px] ml-auto" style="color:var(--text-muted);"></span>
             </div>
 
             <!-- Messages -->
@@ -614,16 +614,16 @@ export function step6_execution() {
                     <div class="w-full max-w-lg">
                         <div class="mb-5">
                             <div class="flex items-center gap-2 mb-1.5">
-                                <span class="block w-1 h-5 rounded-sm bg-brand-500"></span>
-                                <h2 class="font-semibold text-[15px] text-slate-900">${agentName}</h2>
+                                <span class="block w-1 h-5 rounded-sm" style="background:var(--accent);"></span>
+                                <h2 class="font-semibold text-[15px]" style="color:var(--text-primary);">${agentName}</h2>
                             </div>
-                            <p class="text-[13px] text-slate-500 ml-3">${welcome}</p>
+                            <p class="text-[13px] ml-3" style="color:var(--text-muted);">${welcome}</p>
                         </div>
                         <div class="space-y-1.5" id="suggestion-cards">
-                            <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] text-slate-500 bg-white border border-slate-200 hover:border-brand-400 hover:text-slate-700 rounded-md px-3 py-2 transition-colors">
-                                <span class="font-medium text-slate-700">Summarize</span> — What are the key points in the uploaded documents?
+                            <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] rounded-lg px-3 py-2.5 transition-all" style="color:var(--text-secondary);background:var(--bg-elevated);border:1px solid var(--border-default);">
+                                <span class="font-medium" style="color:var(--text-primary);">Summarize</span> — What are the key points in the uploaded documents?
                             </button>
-                            <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] text-slate-500 bg-white border border-slate-200 hover:border-brand-400 hover:text-slate-700 rounded-md px-3 py-2 transition-colors">
+                            <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] rounded-lg px-3 py-2.5 transition-all" style="color:var(--text-secondary);background:var(--bg-elevated);border:1px solid var(--border-default);">
                                 What criteria does the agent use to evaluate a request?
                             </button>
                         </div>
@@ -632,17 +632,17 @@ export function step6_execution() {
             </div>
 
             <!-- Input bar -->
-            <div class="border-t border-slate-200 px-4 py-3 shrink-0">
-                <div class="flex items-end gap-2.5 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 focus-within:border-brand-400 transition-colors">
+            <div class="px-4 py-3 shrink-0" style="border-top:1px solid var(--border-default);">
+                <div class="flex items-end gap-2.5 px-3 py-2 rounded-lg transition-colors" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
                     <textarea id="chat-input" rows="1" placeholder="${placeholder}"
-                        class="flex-1 resize-none bg-transparent text-[13px] text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50 leading-relaxed"
-                        style="max-height:100px;"></textarea>
+                        class="flex-1 resize-none bg-transparent text-[13px] focus:outline-none disabled:opacity-50 leading-relaxed"
+                        style="max-height:100px;color:var(--text-primary);"></textarea>
                     <button id="chat-send" onclick="sendChat()"
-                        class="shrink-0 w-7 h-7 rounded-md bg-brand-600 text-white hover:bg-brand-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center">
+                        class="shrink-0 w-7 h-7 rounded-lg text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center" style="background:var(--accent);">
                         <span class="material-icons-outlined text-base">arrow_forward</span>
                     </button>
                 </div>
-                <p class="text-[10px] text-slate-400 mt-1 text-center">Enter to send &middot; Shift+Enter for new line</p>
+                <p class="text-[10px] mt-1 text-center" style="color:var(--text-muted);">Enter to send &middot; Shift+Enter for new line</p>
             </div>
         </div>
     </div>`;
@@ -721,24 +721,229 @@ export function step7_save() {
 export function page_agents() {
     return `
     <div class="max-w-3xl mx-auto space-y-3">
-        <div class="bg-white rounded-lg border border-slate-200 p-4">
+        <div class="t-card rounded-xl p-4">
             <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center gap-2.5">
-                    <div class="w-7 h-7 rounded-md bg-brand-100 flex items-center justify-center">
-                        <span class="material-icons-outlined text-brand-600 text-lg">smart_toy</span>
+                    <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:var(--accent-subtle);">
+                        <span class="material-icons-outlined text-brand-500 text-lg">smart_toy</span>
                     </div>
                     <div>
-                        <h3 class="text-sm font-semibold text-slate-900">My Agents</h3>
-                        <p class="text-[11px] text-slate-500">Your saved agent configurations</p>
+                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">My Agents</h3>
+                        <p class="text-[11px]" style="color:var(--text-muted);">Your saved agent configurations</p>
                     </div>
                 </div>
-                <button onclick="goToStep(1)" class="px-2.5 py-1.5 text-[11px] font-medium text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-md transition-colors flex items-center gap-1">
+                <button onclick="goToStep(1)" class="px-2.5 py-1.5 text-[11px] font-medium rounded-lg transition-colors flex items-center gap-1" style="color:var(--accent);background:var(--accent-subtle);">
                     <span class="material-icons-outlined text-sm">add</span>
                     New Agent
                 </button>
             </div>
             <div id="agents-list" class="space-y-2">
-                <p class="text-[12px] text-slate-400 text-center py-4">Loading…</p>
+                <p class="text-[12px] text-center py-4" style="color:var(--text-muted);">Loading…</p>
+            </div>
+        </div>
+    </div>`;
+}
+
+export function page_agentHub() {
+    return `
+    <div class="max-w-5xl mx-auto">
+        <!-- KPI Row -->
+        <div class="grid grid-cols-4 gap-3 mb-6">
+            <div class="t-card rounded-xl p-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-icons-outlined text-lg" style="color:var(--accent);">hub</span>
+                    <span class="text-[11px] font-medium" style="color:var(--text-muted);">Active Agents</span>
+                </div>
+                <p class="text-2xl font-bold" style="color:var(--text-primary);">4</p>
+                <p class="text-[10px] mt-0.5" style="color:var(--success);">All operational</p>
+            </div>
+            <div class="t-card rounded-xl p-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-icons-outlined text-lg" style="color:var(--info);">library_books</span>
+                    <span class="text-[11px] font-medium" style="color:var(--text-muted);">Knowledge Docs</span>
+                </div>
+                <p class="text-2xl font-bold" id="hub-kb-count" style="color:var(--text-primary);">—</p>
+                <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Indexed</p>
+            </div>
+            <div class="t-card rounded-xl p-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-icons-outlined text-lg" style="color:var(--warning);">cable</span>
+                    <span class="text-[11px] font-medium" style="color:var(--text-muted);">Integrations</span>
+                </div>
+                <p class="text-2xl font-bold" style="color:var(--text-primary);">12</p>
+                <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Connectors available</p>
+            </div>
+            <div class="t-card rounded-xl p-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-icons-outlined text-lg" style="color:var(--success);">speed</span>
+                    <span class="text-[11px] font-medium" style="color:var(--text-muted);">Avg. Latency</span>
+                </div>
+                <p class="text-2xl font-bold" style="color:var(--text-primary);">2.4s</p>
+                <p class="text-[10px] mt-0.5" style="color:var(--success);">Within SLA</p>
+            </div>
+        </div>
+
+        <!-- Agent Cards -->
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-base font-semibold" style="color:var(--text-primary);">Agents</h2>
+                <p class="text-[12px]" style="color:var(--text-muted);">Select an agent to start a conversation, or create a new one.</p>
+            </div>
+            <button onclick="goToStep(1)" class="px-3 py-1.5 text-[12px] font-medium text-white rounded-lg transition-all flex items-center gap-1.5" style="background:var(--accent);">
+                <span class="material-icons-outlined text-sm">add</span>
+                New Agent
+            </button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3" id="hub-agents-grid">
+            <div class="t-card rounded-xl p-5 flex items-center justify-center" style="min-height:180px;">
+                <span class="text-[12px]" style="color:var(--text-muted);">Loading agents…</span>
+            </div>
+        </div>
+    </div>`;
+}
+
+export function page_integrations() {
+    const connectors = [
+        { cat: 'Microsoft', items: [
+            { icon: 'cloud', name: 'Dynamics 365', desc: 'ERP/CRM data, vendor records, purchase orders', status: 'available' },
+            { icon: 'chat', name: 'Microsoft Teams', desc: 'Notifications, agent conversations via Teams', status: 'available' },
+            { icon: 'folder_shared', name: 'SharePoint', desc: 'Document libraries, policy repositories', status: 'available' },
+            { icon: 'mail', name: 'Outlook / Exchange', desc: 'Email integration, calendar events, task sync', status: 'available' },
+        ]},
+        { cat: 'Communication Channels', items: [
+            { icon: 'send', name: 'Telegram Bot', desc: 'Chat interaction via Telegram bot API', status: 'available' },
+            { icon: 'forum', name: 'WhatsApp Business', desc: 'Agent access via WhatsApp Business API', status: 'coming' },
+            { icon: 'email', name: 'SMTP / Email', desc: 'Inbound/outbound email agent triggers', status: 'available' },
+            { icon: 'api', name: 'REST API', desc: 'Custom integrations via documented REST endpoints', status: 'active' },
+            { icon: 'hub', name: 'MQTT', desc: 'IoT and real-time event-driven messaging', status: 'available' },
+        ]},
+        { cat: 'Data & Storage', items: [
+            { icon: 'storage', name: 'PostgreSQL', desc: 'Structured data queries and analytics', status: 'active' },
+            { icon: 'cloud_queue', name: 'AWS S3', desc: 'Cloud document storage and retrieval', status: 'available' },
+            { icon: 'dns', name: 'Elasticsearch', desc: 'Full-text search and log analytics', status: 'coming' },
+        ]},
+    ];
+
+    const statusMap = {
+        active: { label: 'Connected', color: 'var(--success)', bg: 'rgba(16,185,129,0.15)' },
+        available: { label: 'Available', color: 'var(--accent)', bg: 'var(--accent-subtle)' },
+        coming: { label: 'Coming soon', color: 'var(--warning)', bg: 'rgba(245,158,11,0.15)' },
+    };
+
+    let html = '<div class="max-w-5xl mx-auto space-y-6">';
+    html += '<div class="flex items-center justify-between"><div><h2 class="text-base font-semibold" style="color:var(--text-primary);">Integrations & Connectors</h2><p class="text-[12px]" style="color:var(--text-muted);">Connect your agents to enterprise systems and communication channels.</p></div></div>';
+
+    connectors.forEach(cat => {
+        html += `<div><h3 class="text-[12px] font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">${cat.cat}</h3><div class="grid grid-cols-3 gap-3">`;
+        cat.items.forEach(c => {
+            const st = statusMap[c.status];
+            html += `
+            <div class="t-card rounded-xl p-4 transition-all cursor-pointer group">
+                <div class="flex items-start justify-between mb-3">
+                    <div class="w-9 h-9 rounded-lg flex items-center justify-center" style="background:var(--accent-subtle);">
+                        <span class="material-icons-outlined text-lg" style="color:var(--accent);">${c.icon}</span>
+                    </div>
+                    <span class="px-2 py-0.5 text-[9px] font-medium rounded-md" style="background:${st.bg};color:${st.color};">${st.label}</span>
+                </div>
+                <h4 class="text-[13px] font-semibold mb-1" style="color:var(--text-primary);">${c.name}</h4>
+                <p class="text-[11px] leading-relaxed" style="color:var(--text-muted);">${c.desc}</p>
+            </div>`;
+        });
+        html += '</div></div>';
+    });
+
+    html += '</div>';
+    return html;
+}
+
+export function page_orchestration() {
+    return `
+    <div class="max-w-5xl mx-auto space-y-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-base font-semibold" style="color:var(--text-primary);">Orchestration Pipeline</h2>
+                <p class="text-[12px]" style="color:var(--text-muted);">Visualize how agents execute queries through the processing pipeline.</p>
+            </div>
+        </div>
+
+        <!-- DAG Visualization -->
+        <div class="t-card rounded-xl p-6">
+            <div class="flex items-center gap-2 mb-4">
+                <span class="material-icons-outlined text-lg" style="color:var(--accent);">account_tree</span>
+                <h3 class="text-[14px] font-semibold" style="color:var(--text-primary);">Execution DAG</h3>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap" id="dag-pipeline">
+                ${['Query Received','Query Rewrite','Embedding','Retrieval','Context Filter','Validation','Synthesis','Evaluation'].map((s, i) => `
+                    <div class="flex items-center gap-2">
+                        <div class="px-3 py-2 rounded-lg text-[11px] font-medium transition-all" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);">
+                            <span class="text-[9px] font-bold mr-1.5" style="color:var(--accent);">${i+1}</span>${s}
+                        </div>
+                        ${i < 7 ? '<span class="material-icons-outlined text-xs" style="color:var(--text-muted);">arrow_forward</span>' : ''}
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+
+        <!-- Pipeline Details -->
+        <div class="grid grid-cols-2 gap-3">
+            <div class="t-card rounded-xl p-4">
+                <h4 class="text-[12px] font-semibold mb-3" style="color:var(--text-primary);">Pipeline Components</h4>
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between text-[11px]">
+                        <span style="color:var(--text-secondary);">Query Rewriter</span>
+                        <span class="font-mono px-2 py-0.5 rounded" style="background:var(--accent-subtle);color:var(--accent);">gpt-4o-mini</span>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px]">
+                        <span style="color:var(--text-secondary);">Embedder</span>
+                        <span class="font-mono px-2 py-0.5 rounded" style="background:var(--accent-subtle);color:var(--accent);">text-embedding-3-small</span>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px]">
+                        <span style="color:var(--text-secondary);">Vector Store</span>
+                        <span class="font-mono px-2 py-0.5 rounded" style="background:var(--accent-subtle);color:var(--accent);">FAISS (Hybrid)</span>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px]">
+                        <span style="color:var(--text-secondary);">Synthesis LLM</span>
+                        <span class="font-mono px-2 py-0.5 rounded" style="background:var(--accent-subtle);color:var(--accent);">gpt-4o</span>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px]">
+                        <span style="color:var(--text-secondary);">Evaluator</span>
+                        <span class="font-mono px-2 py-0.5 rounded" style="background:var(--accent-subtle);color:var(--accent);">ResponseEvaluator</span>
+                    </div>
+                </div>
+            </div>
+            <div class="t-card rounded-xl p-4">
+                <h4 class="text-[12px] font-semibold mb-3" style="color:var(--text-primary);">Orchestration Features</h4>
+                <div class="space-y-2.5">
+                    <div class="flex items-start gap-2.5">
+                        <span class="material-icons-outlined text-sm mt-0.5" style="color:var(--success);">check_circle</span>
+                        <div>
+                            <p class="text-[12px] font-medium" style="color:var(--text-primary);">Multi-agent routing</p>
+                            <p class="text-[10px]" style="color:var(--text-muted);">Automatic intent detection and agent selection</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-2.5">
+                        <span class="material-icons-outlined text-sm mt-0.5" style="color:var(--success);">check_circle</span>
+                        <div>
+                            <p class="text-[12px] font-medium" style="color:var(--text-primary);">Real-time streaming</p>
+                            <p class="text-[10px]" style="color:var(--text-muted);">SSE-based execution trace with step-by-step visibility</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-2.5">
+                        <span class="material-icons-outlined text-sm mt-0.5" style="color:var(--success);">check_circle</span>
+                        <div>
+                            <p class="text-[12px] font-medium" style="color:var(--text-primary);">Quality evaluation</p>
+                            <p class="text-[10px]" style="color:var(--text-muted);">Factuality, relevance, coherence, and HHEM scoring</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-2.5">
+                        <span class="material-icons-outlined text-sm mt-0.5" style="color:var(--accent);">schedule</span>
+                        <div>
+                            <p class="text-[12px] font-medium" style="color:var(--text-primary);">Workflow builder</p>
+                            <p class="text-[10px]" style="color:var(--text-muted);">Visual DAG editor for custom pipelines (coming soon)</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>`;
