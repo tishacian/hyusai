@@ -164,13 +164,16 @@ function nextStep() {
 let currentPage = 'hub';
 
 const pageConfig = {
-    hub:           { title: 'Agent Hub',       breadcrumb: 'Agent Hub' },
-    agents:        { title: 'My Agents',       breadcrumb: 'Agents' },
-    integrations:  { title: 'Integrations',    breadcrumb: 'Integrations' },
-    orchestration: { title: 'Orchestration',   breadcrumb: 'Orchestration' },
-    knowledge:     { title: 'Knowledge Base',  breadcrumb: 'Knowledge Base' },
-    access:        { title: 'Access & Roles',  breadcrumb: 'Access & Roles' },
-    audit:         { title: 'Audit Logs',      breadcrumb: 'Audit Logs' },
+    hub:           { title: 'Agent Hub',            breadcrumb: 'Agent Hub' },
+    agents:        { title: 'My Agents',            breadcrumb: 'Agents' },
+    integrations:  { title: 'Integrations',         breadcrumb: 'Integrations' },
+    orchestration: { title: 'Orchestration',        breadcrumb: 'Orchestration' },
+    workspace:     { title: 'Agent Workspace',      breadcrumb: 'Workspace' },
+    knowledge:     { title: 'Knowledge Base',       breadcrumb: 'Knowledge Base' },
+    access:        { title: 'Access & Roles',       breadcrumb: 'Access & Roles' },
+    audit:         { title: 'Audit Logs',           breadcrumb: 'Audit Logs' },
+    quality:       { title: 'Agent Quality',        breadcrumb: 'Quality' },
+    intelligence:  { title: 'Intelligence',         breadcrumb: 'Intelligence' },
 };
 
 function updateSidebarActive(page) {
@@ -198,7 +201,7 @@ async function goToPage(page) {
 
     const mod = await loadStepModules();
     const content = document.getElementById('step-content');
-    const cfg = pageConfig[page];
+    const cfg = pageConfig[page] || { title: page, breadcrumb: page };
     const title = document.getElementById('header-title');
     const sub = document.getElementById('step-title');
     const btn = document.getElementById('next-btn');
