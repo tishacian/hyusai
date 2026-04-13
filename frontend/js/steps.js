@@ -145,6 +145,17 @@ export function step2_modelSelection() {
                     Save
                 </button>
             </div>
+            <div class="mb-3">
+                <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">RAG pipeline mode</label>
+                <select id="rag-pipeline-mode" class="t-input w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-1 focus:ring-brand-500" onchange="localStorage.setItem('aip_rag_pipeline_mode', this.value)">
+                    <option value="auto" selected>Auto (index size + query length)</option>
+                    <option value="naive">Naive — dense vectors only</option>
+                    <option value="hybrid">Hybrid — FAISS + BM25 + RRF</option>
+                    <option value="hah">HAH — two-pass hybrid + RRF (API)</option>
+                    <option value="chah">C-HAH — parallel hybrid + RRF (API)</option>
+                </select>
+                <p class="text-[10px] mt-1" style="color:var(--text-muted);">API: <code class="text-[9px]">pipeline_retrieval.py</code>. Full legacy <code class="text-[9px]">CustomLLMChain</code> still in Streamlit (<code class="text-[9px]">src/customchain*.py</code>).</p>
+            </div>
             <div class="grid grid-cols-3 gap-3">
                 <div>
                     <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Top-K results</label>
@@ -301,40 +312,36 @@ export function step5_governance() {
                     <span class="material-icons-outlined text-indigo-400 text-lg">security</span>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Governance & Audit</h3>
+                    <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Governance Summary</h3>
                     <p class="text-[11px]" style="color:var(--text-muted);">Every action is logged, traceable, and auditable</p>
                 </div>
             </div>
 
             <div class="grid grid-cols-3 gap-2 mb-4">
-                <div class="p-2.5 rounded-lg" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
+                <div class="p-2.5 rounded-lg text-center" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
                     <span class="material-icons-outlined text-indigo-400 text-lg mb-1">group</span>
-                    <h4 class="text-[11px] font-semibold" style="color:var(--text-primary);">Access Control</h4>
-                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">OIDC / SSO (Keycloak)</p>
-                    <div class="mt-1.5 flex gap-2">
-                        <span class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Admin</span>
-                        <span class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="w-1.5 h-1.5 rounded-full" style="background:var(--text-muted);"></span>User</span>
-                    </div>
+                    <p class="text-[18px] font-bold" style="color:var(--text-primary);">3</p>
+                    <p class="text-[9px] uppercase tracking-wider" style="color:var(--text-muted);">Active Roles</p>
                 </div>
-                <div class="p-2.5 rounded-lg" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
+                <div class="p-2.5 rounded-lg text-center" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
                     <span class="material-icons-outlined text-amber-500 text-lg mb-1">receipt_long</span>
-                    <h4 class="text-[11px] font-semibold" style="color:var(--text-primary);">Audit Trail</h4>
-                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Full execution logging</p>
-                    <p class="text-[10px] text-amber-500 font-mono mt-1.5" id="audit-count">Loading...</p>
+                    <p class="text-[18px] font-bold" id="audit-count" style="color:var(--text-primary);">—</p>
+                    <p class="text-[9px] uppercase tracking-wider" style="color:var(--text-muted);">Audit Events</p>
                 </div>
-                <div class="p-2.5 rounded-lg" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
-                    <span class="material-icons-outlined text-emerald-500 text-lg mb-1">visibility</span>
-                    <h4 class="text-[11px] font-semibold" style="color:var(--text-primary);">Execution Tracing</h4>
-                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Pipeline steps with timing</p>
-                    <p class="text-[10px] text-emerald-500 font-mono mt-1.5">Real-time SSE</p>
+                <div class="p-2.5 rounded-lg text-center" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
+                    <span class="material-icons-outlined text-emerald-500 text-lg mb-1">verified</span>
+                    <p class="text-[18px] font-bold" style="color:var(--success);">100%</p>
+                    <p class="text-[9px] uppercase tracking-wider" style="color:var(--text-muted);">Compliance</p>
                 </div>
             </div>
 
-            <div class="p-3 rounded-lg" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
-                <h4 class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Recent Audit Events</h4>
-                <div id="audit-logs" class="space-y-1.5 text-[11px] font-mono" style="color:var(--text-secondary);">
-                    <p style="color:var(--text-muted);">No events yet. Execute the agent to generate audit entries.</p>
-                </div>
+            <div class="flex items-center gap-2">
+                <button onclick="goToPage('audit')" class="flex-1 py-2 text-[11px] font-medium flex items-center justify-center gap-1.5" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-sm">receipt_long</span>View Full Audit Logs
+                </button>
+                <button onclick="goToPage('access')" class="flex-1 py-2 text-[11px] font-medium flex items-center justify-center gap-1.5" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-sm">group</span>Manage Access & Roles
+                </button>
             </div>
         </div>
     </div>`;
@@ -741,8 +748,34 @@ export function page_agents() {
 }
 
 export function page_agentHub() {
+    const tpls = [
+        { id: 'contracts', icon: 'gavel', label: 'Analyze contracts', sub: 'Risk, clauses, compliance' },
+        { id: 'delays', icon: 'trending_up', label: 'Predict delays', sub: 'Budget overruns, timeline' },
+        { id: 'docreview', icon: 'description', label: 'Document review', sub: 'Extract, classify, summarize' },
+        { id: 'riskscore', icon: 'shield', label: 'Risk scoring', sub: 'Multi-dimensional assessment' },
+    ];
     return `
     <div class="max-w-5xl mx-auto">
+
+        <!-- Quick Start Hero -->
+        <div class="t-card p-5 mb-5" style="border-radius:var(--radius);border-left:3px solid var(--accent);background:linear-gradient(135deg, var(--bg-card) 0%, var(--accent-subtle) 100%);">
+            <h2 class="text-[16px] font-bold gradient-title mb-1">What do you want to achieve?</h2>
+            <p class="text-[11px] mb-3" style="color:var(--text-muted);">Describe your objective and an agent will be created automatically.</p>
+            <div class="flex items-stretch gap-2 mb-3">
+                <input id="hub-objective-input" type="text" placeholder="e.g. Analyze supplier contracts for compliance risks..."
+                    class="t-input flex-1 px-3 py-2 text-[13px] focus:ring-1 focus:ring-brand-500 outline-none" style="border-radius:var(--radius-sm);border:1px solid var(--border-default);"
+                    onkeydown="if(event.key==='Enter'){event.preventDefault();launchFromObjective(this.value)}">
+                <button onclick="launchFromObjective(document.getElementById('hub-objective-input').value)"
+                    class="px-4 py-2 text-[12px] font-medium text-white flex items-center gap-1.5 shrink-0" style="background:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-sm">bolt</span>Go
+                </button>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-[10px] font-medium" style="color:var(--text-muted);">Templates:</span>
+                ${tpls.map(t => `<button onclick="launchFromTemplate('${t.id}')" class="px-2.5 py-1 text-[10px] font-medium flex items-center gap-1 transition-all" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);" onmouseenter="this.style.borderColor='var(--border-active)'" onmouseleave="this.style.borderColor=''"><span class="material-icons-outlined text-[12px]" style="color:var(--accent);">${t.icon}</span>${t.label}</button>`).join('')}
+            </div>
+        </div>
+
         <!-- KPI Row -->
         <div class="grid grid-cols-4 gap-2 mb-5">
             <div class="t-card p-3" style="border-radius:var(--radius);">
@@ -753,7 +786,7 @@ export function page_agentHub() {
                 <p class="text-lg font-bold" style="color:var(--text-primary);">4</p>
                 <p class="text-[9px] mt-0.5" style="color:var(--success);">All operational</p>
             </div>
-            <div class="t-card p-3" style="border-radius:var(--radius);">
+            <div class="t-card p-3 cursor-pointer" style="border-radius:var(--radius);" onclick="goToStep(3)">
                 <div class="flex items-center justify-between mb-1.5">
                     <span class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Knowledge</span>
                     <span class="material-icons-outlined text-sm" style="color:var(--info);">library_books</span>
@@ -777,6 +810,13 @@ export function page_agentHub() {
                 <p class="text-lg font-bold" style="color:var(--text-primary);">2.4s</p>
                 <p class="text-[9px] mt-0.5" style="color:var(--success);">Within SLA</p>
             </div>
+        </div>
+
+        <!-- Separator -->
+        <div class="flex items-center gap-3 mb-4">
+            <div class="flex-1 h-px" style="background:var(--border-default);"></div>
+            <span class="text-[10px] font-medium uppercase tracking-wider" style="color:var(--text-muted);">or pick an existing agent</span>
+            <div class="flex-1 h-px" style="background:var(--border-default);"></div>
         </div>
 
         <!-- Agent Cards -->
@@ -872,7 +912,14 @@ export function page_integrations() {
 }
 
 export function page_orchestration() {
+    const agentItems = (typeof _getAgentPaletteItems === 'function') ? _getAgentPaletteItems() : [
+        { type: 'agent_procurement', icon: 'verified_user', name: 'Procurement Agent', meta: 'gpt-4o' },
+        { type: 'agent_legal', icon: 'gavel', name: 'Legal Review', meta: 'gpt-4o' },
+        { type: 'agent_hr', icon: 'people', name: 'HR Assistant', meta: 'gpt-4o-mini' },
+        { type: 'agent_finance', icon: 'account_balance', name: 'Financial Analyst', meta: 'gpt-4o' },
+    ];
     const paletteSections = [
+        { cat: 'Agents', items: agentItems },
         { cat: 'Pipeline', items: [
             { type: 'query_rewrite', icon: 'edit_note', name: 'Query Rewrite', meta: 'gpt-4o-mini' },
             { type: 'embedding', icon: 'hub', name: 'Embedding', meta: 'text-embed-3-sm' },
@@ -958,6 +1005,10 @@ export function page_orchestration() {
                 <button onclick="wfExport()" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
                     <span class="material-icons-outlined text-[10px]">download</span>JSON
                 </button>
+                <div style="width:1px;height:16px;background:var(--border-default);"></div>
+                <button onclick="wfRunWorkflow()" class="px-2.5 py-1 text-[9px] font-medium flex items-center gap-1 text-white" style="background:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-[10px]">play_arrow</span>Run Workflow
+                </button>
             </div>
         </div>
 
@@ -1000,19 +1051,52 @@ export function page_orchestration() {
 }
 
 // =========================================================================
-// WORKSPACE PAGE — Autonomous task delegation
+// MISSIONS PAGE — Autonomous multi-step agent delegation
 // =========================================================================
 export function page_workspace() {
+    const templates = [
+        { icon: 'search', title: 'Market Analysis', desc: 'Research competitors and market trends in a target sector', objective: 'Conduct a comprehensive market analysis for [sector]. Identify top 5 competitors, current trends, SWOT analysis, and provide a strategic recommendation report.' },
+        { icon: 'gavel', title: 'Compliance Audit', desc: 'Verify regulatory compliance across procurement documents', objective: 'Review all recent procurement documents and contracts for compliance with ISO 27001 and GDPR requirements. Flag any non-conformities and produce a remediation report.' },
+        { icon: 'analytics', title: 'Data Quality Report', desc: 'Analyze and report on knowledge base data quality', objective: 'Scan the indexed knowledge base. Evaluate document quality, identify duplicates, check embedding coverage, and produce a data quality scorecard with improvement recommendations.' },
+        { icon: 'summarize', title: 'Executive Briefing', desc: 'Synthesize recent intelligence into a C-level summary', objective: 'Compile the latest intelligence feed analysis into a concise executive briefing. Cover key geopolitical risks, market signals, and recommended actions for leadership review.' },
+    ];
+
     return `
     <div class="max-w-6xl mx-auto space-y-4">
         <div class="flex items-center justify-between">
             <div>
-                <h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Agent Workspace</h2>
-                <p class="text-[11px]" style="color:var(--text-muted);">Delegate missions to autonomous agents. Track progress in real-time.</p>
+                <h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Autonomous Missions</h2>
+                <p class="text-[11px]" style="color:var(--text-muted);">Delegate complex, multi-step objectives to an agent. It will autonomously plan, decompose into steps, execute each one, and deliver a final report.</p>
             </div>
             <button onclick="openTaskModal()" class="px-3 py-1.5 text-[11px] font-medium text-white flex items-center gap-1.5" style="background:var(--accent);border-radius:var(--radius-sm);">
                 <span class="material-icons-outlined text-sm">add</span>New Mission
             </button>
+        </div>
+
+        <!-- How it works -->
+        <div class="t-card p-3" style="border-radius:var(--radius);border-left:3px solid var(--accent);" id="ws-howto">
+            <div class="flex items-start gap-3">
+                <span class="material-icons-outlined text-lg shrink-0" style="color:var(--accent);margin-top:1px;">auto_awesome</span>
+                <div class="flex-1 min-w-0">
+                    <p class="text-[11px] font-semibold mb-1" style="color:var(--text-primary);">How Missions differ from Chat</p>
+                    <p class="text-[10px] leading-relaxed" style="color:var(--text-secondary);">
+                        <strong>Chat (Execution tab)</strong> is interactive: you ask, the agent answers turn by turn.<br>
+                        <strong>Missions</strong> are autonomous: you describe an objective, the agent creates a multi-step plan (3–7 steps), executes them sequentially using RAG retrieval, analysis, and synthesis, then delivers a structured report — no back-and-forth required.
+                    </p>
+                    <div class="flex items-center gap-4 mt-2">
+                        <div class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="material-icons-outlined text-[12px]" style="color:var(--accent);">psychology</span> Plan</div>
+                        <span class="text-[9px]" style="color:var(--border-active);">→</span>
+                        <div class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="material-icons-outlined text-[12px]" style="color:var(--warning);">search</span> Research</div>
+                        <span class="text-[9px]" style="color:var(--border-active);">→</span>
+                        <div class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="material-icons-outlined text-[12px]" style="color:var(--accent);">analytics</span> Analyze</div>
+                        <span class="text-[9px]" style="color:var(--border-active);">→</span>
+                        <div class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="material-icons-outlined text-[12px]" style="color:var(--success);">description</span> Report</div>
+                    </div>
+                </div>
+                <button onclick="document.getElementById('ws-howto').style.display='none'" class="text-[10px] shrink-0" style="color:var(--text-muted);">
+                    <span class="material-icons-outlined text-sm">close</span>
+                </button>
+            </div>
         </div>
 
         <!-- KPIs -->
@@ -1039,14 +1123,28 @@ export function page_workspace() {
         <div class="grid grid-cols-3 gap-3" style="min-height:400px;">
             <!-- Task list -->
             <div class="col-span-1 space-y-1.5" id="ws-task-list">
-                <p class="text-[10px] text-center py-8" style="color:var(--text-muted);">No missions yet. Create one above.</p>
+                <div class="text-center py-6 space-y-3" id="ws-empty-state">
+                    <span class="material-icons-outlined text-2xl" style="color:var(--text-muted);">inbox</span>
+                    <p class="text-[10px]" style="color:var(--text-muted);">No missions yet</p>
+                    <p class="text-[9px]" style="color:var(--text-muted);">Try a template below or click <strong>New Mission</strong></p>
+                    <div class="space-y-1.5 text-left mt-3">
+                        ${templates.map((t,i) => `
+                        <button onclick="prefillMission(${i})" class="t-card w-full p-2 text-left" style="border-radius:var(--radius-sm);cursor:pointer;" title="${t.desc}">
+                            <div class="flex items-center gap-1.5">
+                                <span class="material-icons-outlined text-[13px]" style="color:var(--accent);">${t.icon}</span>
+                                <span class="text-[10px] font-medium" style="color:var(--text-primary);">${t.title}</span>
+                            </div>
+                            <p class="text-[9px] mt-0.5 truncate" style="color:var(--text-muted);">${t.desc}</p>
+                        </button>`).join('')}
+                    </div>
+                </div>
             </div>
             <!-- Task detail -->
             <div class="col-span-2 t-card p-4" style="border-radius:var(--radius);" id="ws-task-detail">
                 <div class="flex flex-col items-center justify-center h-full text-center py-12">
-                    <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">work</span>
-                    <p class="text-[12px] font-medium" style="color:var(--text-secondary);">Select a mission to view details</p>
-                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Or create a new mission to delegate to the agent</p>
+                    <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">rocket_launch</span>
+                    <p class="text-[12px] font-medium" style="color:var(--text-secondary);">Select a mission to view its execution trace</p>
+                    <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Or launch a new mission — the agent will plan and execute autonomously</p>
                 </div>
             </div>
         </div>
@@ -1055,33 +1153,30 @@ export function page_workspace() {
     <!-- Task creation modal -->
     <div id="task-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;">
         <div onclick="closeTaskModal()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(3px);"></div>
-        <div class="absolute top-1/2 left-1/2" style="transform:translate(-50%,-50%);width:480px;background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <div class="absolute top-1/2 left-1/2" style="transform:translate(-50%,-50%);width:520px;max-width:95%;background:var(--bg-card);border:1px solid var(--border-default);border-radius:var(--radius);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
             <div class="px-4 py-3" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);border-radius:var(--radius) var(--radius) 0 0;">
                 <div class="flex items-center gap-2">
                     <span class="material-icons-outlined text-sm" style="color:var(--accent);">rocket_launch</span>
                     <div>
-                        <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">New Mission</h3>
-                        <p class="text-[10px]" style="color:var(--text-muted);">The agent will plan, decompose, and execute steps autonomously</p>
+                        <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">New Autonomous Mission</h3>
+                        <p class="text-[10px]" style="color:var(--text-muted);">Describe the objective — the agent will plan (3-7 steps), execute, and deliver a report</p>
                     </div>
                 </div>
             </div>
             <div class="px-4 py-3 space-y-2.5">
                 <div class="wf-config-field">
                     <label>Mission Title</label>
-                    <input id="task-title" placeholder="e.g., Quarterly vendor compliance audit">
+                    <input id="task-title" placeholder="e.g., Q2 Vendor Compliance Audit">
                 </div>
                 <div class="wf-config-field">
                     <label>Objective</label>
-                    <textarea id="task-desc" rows="4" placeholder="Describe in detail what the agent should accomplish. Be specific about:&#10;- Expected outputs (report, analysis, data)&#10;- Scope and constraints&#10;- Success criteria" style="resize:none;"></textarea>
+                    <textarea id="task-desc" rows="5" placeholder="Describe in detail what the agent should accomplish:&#10;&#10;- What output do you expect? (report, analysis, data extraction)&#10;- What scope or constraints apply?&#10;- What does success look like?" style="resize:none;"></textarea>
                 </div>
                 <div class="grid grid-cols-2 gap-2">
                     <div class="wf-config-field">
                         <label>Assigned Agent</label>
                         <select id="task-agent">
                             <option value="">Auto-select (best fit)</option>
-                            <option value="procurement">Procurement Agent</option>
-                            <option value="research">Research Agent</option>
-                            <option value="general">General Assistant</option>
                         </select>
                     </div>
                     <div class="wf-config-field">
@@ -1094,10 +1189,13 @@ export function page_workspace() {
                     </div>
                 </div>
                 <div class="p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
-                    <p class="text-[9px]" style="color:var(--text-muted);">
-                        <span class="material-icons-outlined text-[10px] align-middle mr-0.5" style="color:var(--accent);">info</span>
-                        The agent will first create an execution plan, then proceed step by step. You can monitor progress in real-time.
-                    </p>
+                    <div class="flex items-start gap-1.5">
+                        <span class="material-icons-outlined text-[11px] mt-0.5" style="color:var(--accent);">info</span>
+                        <p class="text-[9px]" style="color:var(--text-muted);">
+                            The agent uses GPT-4o for synthesis and GPT-4o-mini for research steps. Each step is streamed in real-time.
+                            Average mission duration: 30–90 seconds depending on complexity.
+                        </p>
+                    </div>
                 </div>
             </div>
             <div class="px-4 py-3 flex items-center justify-end gap-2" style="border-top:1px solid var(--border-default);">
@@ -1137,15 +1235,40 @@ export function page_agentQuality() {
         <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
             <div>
                 <h2 class="text-[14px] font-semibold" style="color:var(--text-primary);">Agent Quality Score</h2>
-                <p class="text-[11px]" style="color:var(--text-muted);">LLM-as-Judge (GPT-4o) on the <strong>last chat reply</strong> for the agent you select below. Chat with an agent in Execution first, then run evaluation here.</p>
+                <p class="text-[11px]" style="color:var(--text-muted);">Evaluate agent responses across 12 quality dimensions using LLM-as-Judge (GPT-4o).</p>
             </div>
             <div class="flex flex-col items-stretch sm:items-end gap-2 shrink-0">
                 <div class="flex items-center gap-2">
                     <label class="text-[10px] font-medium whitespace-nowrap" style="color:var(--text-muted);">Agent to audit</label>
                     <select id="quality-agent-select" onchange="onQualityAgentChange()" class="t-input px-2 py-1 text-[11px] min-w-[200px]" style="border-radius:var(--radius-sm);max-width:280px;"></select>
                 </div>
-                <button onclick="triggerManualEval()" class="px-2.5 py-1.5 text-[10px] font-medium flex items-center justify-center gap-1" style="background:var(--accent-subtle);border:1px solid var(--border-active);color:var(--accent);border-radius:var(--radius-sm);">
+                <button onclick="triggerManualEval()" id="quality-run-btn" class="px-2.5 py-1.5 text-[10px] font-medium flex items-center justify-center gap-1" style="background:var(--accent-subtle);border:1px solid var(--border-active);color:var(--accent);border-radius:var(--radius-sm);">
                     <span class="material-icons-outlined text-xs">play_arrow</span>Run Evaluation
+                </button>
+            </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="t-card p-3" style="border-radius:var(--radius);border-left:3px solid var(--accent);" id="quality-howto">
+            <div class="flex items-start gap-3">
+                <span class="material-icons-outlined text-lg shrink-0" style="color:var(--accent);margin-top:1px;">verified</span>
+                <div class="flex-1 min-w-0">
+                    <p class="text-[11px] font-semibold mb-1" style="color:var(--text-primary);">How Quality Evaluation Works</p>
+                    <p class="text-[10px] leading-relaxed" style="color:var(--text-secondary);">
+                        Quality scoring uses GPT-4o as a "judge" to evaluate the agent's <strong>last chat response</strong> across 12 dimensions
+                        (relevance, hallucination, safety, coherence, etc.). It also extracts factual claims and verifies them.
+                    </p>
+                    <div class="flex items-center gap-4 mt-2">
+                        <div class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="material-icons-outlined text-[12px]" style="color:var(--accent);">chat</span> 1. Chat with agent</div>
+                        <span class="text-[9px]" style="color:var(--border-active);">→</span>
+                        <div class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="material-icons-outlined text-[12px]" style="color:var(--warning);">play_arrow</span> 2. Run Evaluation</div>
+                        <span class="text-[9px]" style="color:var(--border-active);">→</span>
+                        <div class="flex items-center gap-1 text-[9px]" style="color:var(--text-muted);"><span class="material-icons-outlined text-[12px]" style="color:var(--success);">insights</span> 3. View scores</div>
+                    </div>
+                    <div class="mt-2 p-1.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);" id="quality-context-status"></div>
+                </div>
+                <button onclick="document.getElementById('quality-howto').style.display='none'" class="text-[10px] shrink-0" style="color:var(--text-muted);">
+                    <span class="material-icons-outlined text-sm">close</span>
                 </button>
             </div>
         </div>
@@ -1168,10 +1291,10 @@ export function page_agentQuality() {
             </div>
 
             <!-- Radar Chart -->
-            <div class="col-span-2 t-card p-4 flex flex-col items-center justify-center" style="border-radius:var(--radius);">
+            <div class="col-span-2 t-card p-4 flex flex-col items-center justify-center" style="border-radius:var(--radius);" id="quality-radar-container">
                 <div class="relative" style="width:320px;height:320px;">
                     <canvas id="quality-radar" width="320" height="320"></canvas>
-                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none" id="quality-radar-overlay">
                         <div class="text-center">
                             <p class="text-[28px] font-bold" style="color:var(--accent);" id="quality-composite">—</p>
                             <p class="text-[9px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Overall</p>
@@ -1261,15 +1384,19 @@ export function page_intelligence() {
             </div>
         </div>
 
-        <!-- Charts row -->
+        <!-- Charts: inline height — Tailwind arbitrary classes in injected HTML are NOT reliably compiled by CDN -->
         <div class="grid grid-cols-2 gap-3">
-            <div class="t-card p-3" style="border-radius:var(--radius);">
+            <div class="t-card intel-chart-card p-3" style="border-radius:var(--radius);">
                 <h3 class="text-[11px] font-semibold mb-2" style="color:var(--text-primary);">Sentiment Distribution</h3>
-                <canvas id="intel-sentiment-chart" height="160"></canvas>
+                <div class="intel-chart-box">
+                    <canvas id="intel-sentiment-chart"></canvas>
+                </div>
             </div>
-            <div class="t-card p-3" style="border-radius:var(--radius);">
+            <div class="t-card intel-chart-card p-3" style="border-radius:var(--radius);">
                 <h3 class="text-[11px] font-semibold mb-2" style="color:var(--text-primary);">Top Entities</h3>
-                <canvas id="intel-entity-chart" height="160"></canvas>
+                <div class="intel-chart-box">
+                    <canvas id="intel-entity-chart"></canvas>
+                </div>
             </div>
         </div>
 
@@ -1296,8 +1423,8 @@ export function page_intelligence() {
     <!-- Intel Config Modal -->
     <div id="intel-config-modal" class="hidden" style="position:fixed;inset:0;z-index:9999;">
         <div onclick="closeIntelConfig()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(3px);"></div>
-        <div style="position:absolute;top:0;bottom:0;right:0;width:460px;background:var(--bg-card);border-left:1px solid var(--border-default);display:flex;flex-direction:column;box-shadow:-8px 0 32px rgba(0,0,0,0.2);">
-            <div class="px-4 py-3 shrink-0" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);">
+        <div style="position:absolute;top:48px;bottom:0;right:0;width:460px;max-width:100%;background:var(--bg-card);border-left:1px solid var(--border-default);display:flex;flex-direction:column;min-height:0;box-shadow:-8px 0 32px rgba(0,0,0,0.2);border-radius:8px 0 0 0;">
+            <div class="px-4 py-3 shrink-0" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);border-radius:8px 0 0 0;">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <span class="material-icons-outlined text-sm" style="color:var(--accent);">rss_feed</span>
@@ -1309,7 +1436,7 @@ export function page_intelligence() {
                     <button onclick="closeIntelConfig()" class="w-6 h-6 flex items-center justify-center" style="color:var(--text-muted);"><span class="material-icons-outlined text-base">close</span></button>
                 </div>
             </div>
-            <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4" id="intel-config-body">
+            <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-4" id="intel-config-body">
                 <!-- RSS Feeds -->
                 <div>
                     <div class="flex items-center gap-1.5 mb-1.5">

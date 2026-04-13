@@ -174,6 +174,11 @@ export async function listArticles(params = {}) {
 export function streamBatchAnalysis(onChunk, onDone, onError) {
     fetch(`${API_BASE}/intelligence/analyze`, { method: 'POST' })
         .then(response => {
+            if (!response.ok) {
+                return response.text().then((t) => {
+                    throw new Error(t || `HTTP ${response.status}`);
+                });
+            }
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
@@ -211,12 +216,14 @@ export function streamChat(query, opts, onChunk, onDone, onError) {
         stream: true,
         temperature: opts.temperature ?? 0.3,
         system_prompt: opts.system_prompt || null,
+        rag_pipeline_mode: opts.rag_pipeline_mode ?? 'auto',
         agent_preferences: {
             preferred_agents: [],
             model_preferences: {
                 model: opts.model || 'gpt-5',
                 provider: opts.provider || 'openai',
             },
+            enabled_tools: opts.enabled_tools || [],
         },
     };
 

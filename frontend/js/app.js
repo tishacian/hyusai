@@ -62,7 +62,7 @@ function toggleBuilderNav() {
 })();
 
 async function loadStepModules() {
-    const mod = await import('./steps.js');
+    const mod = await import('./steps.js?v=27');
     return mod;
 }
 
@@ -134,6 +134,20 @@ function updateHeader(step) {
     }
 }
 
+function updateValueLoopPhase(phase) {
+    document.querySelectorAll('.vl-phase').forEach(el => {
+        if (el.dataset.phase === phase) {
+            el.style.color = 'var(--accent)';
+            el.style.fontWeight = '600';
+            el.style.borderBottom = '2px solid var(--accent)';
+        } else {
+            el.style.color = 'var(--text-muted)';
+            el.style.fontWeight = '400';
+            el.style.borderBottom = '2px solid transparent';
+        }
+    });
+}
+
 function goToStep(step) {
     if (step < 1 || step > TOTAL_STEPS) return;
     persistAgentConfig();
@@ -148,6 +162,7 @@ function goToStep(step) {
 
     if (!builderExpanded) toggleBuilderNav();
     updateSidebarActive(null);
+    updateValueLoopPhase(step === 6 ? 'execute' : 'build');
 
     const content = document.getElementById('step-content');
     if (content) content.scrollTop = 0;
@@ -167,8 +182,8 @@ const pageConfig = {
     hub:           { title: 'Agent Hub',            breadcrumb: 'Agent Hub' },
     agents:        { title: 'My Agents',            breadcrumb: 'Agents' },
     integrations:  { title: 'Integrations',         breadcrumb: 'Integrations' },
-    orchestration: { title: 'Orchestration',        breadcrumb: 'Orchestration' },
-    workspace:     { title: 'Agent Workspace',      breadcrumb: 'Workspace' },
+    orchestration: { title: 'Workflows',             breadcrumb: 'Workflows' },
+    workspace:     { title: 'Autonomous Missions',   breadcrumb: 'Missions' },
     knowledge:     { title: 'Knowledge Base',       breadcrumb: 'Knowledge Base' },
     access:        { title: 'Access & Roles',       breadcrumb: 'Access & Roles' },
     audit:         { title: 'Audit Logs',           breadcrumb: 'Audit Logs' },
@@ -196,8 +211,15 @@ function updateSidebarActive(page) {
 }
 
 async function goToPage(page) {
+    if (page === 'knowledge') {
+        goToStep(3);
+        return;
+    }
     currentPage = page;
     updateSidebarActive(page);
+
+    const vlMap = { hub:'objective', agents:'objective', integrations:'optimize', orchestration:'optimize', workspace:'execute', knowledge:'build', access:'optimize', audit:'optimize', quality:'measure', intelligence:'measure' };
+    updateValueLoopPhase(vlMap[page] || 'objective');
 
     const mod = await loadStepModules();
     const content = document.getElementById('step-content');
@@ -210,7 +232,7 @@ async function goToPage(page) {
     if (sub) sub.textContent = cfg.title;
     if (btn) btn.style.display = 'none';
 
-    content.className = 'flex-1 overflow-y-auto p-5 page-enter';
+    content.className = 'min-h-0 flex-1 overflow-y-auto p-5 page-enter relative z-[1]';
 
     if (page === 'hub') {
         content.innerHTML = mod.page_agentHub();
@@ -223,10 +245,6 @@ async function goToPage(page) {
     } else if (page === 'orchestration') {
         content.innerHTML = mod.page_orchestration();
         initWorkflowEditor();
-    } else if (page === 'knowledge') {
-        content.innerHTML = mod.page_knowledgeBase();
-        initFileUpload();
-        loadKBStats();
     } else if (page === 'access') {
         content.innerHTML = mod.page_accessRoles();
     } else if (page === 'audit') {
@@ -417,6 +435,7 @@ function toggleUserDropdown() {
 }
 
 function signOut() {
+    _clearSession();
     location.reload();
 }
 
@@ -485,6 +504,11 @@ async function loadRAGSettings() {
         if (topk) { topk.value = s.ragTopK || 5; document.getElementById('rag-topk-val').textContent = topk.value; }
         if (vw) { vw.value = Math.round((s.ragVectorWeight || 0.7) * 100); document.getElementById('rag-vweight-val').textContent = (vw.value / 100).toFixed(1); }
         if (th) { th.value = Math.round((s.ragSimilarityThreshold || 0.2) * 100); document.getElementById('rag-threshold-val').textContent = (th.value / 100).toFixed(2); }
+        const rpm = document.getElementById('rag-pipeline-mode');
+        if (rpm) {
+            const v = localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
+            if ([...rpm.options].some((o) => o.value === v)) rpm.value = v;
+        }
     } catch (e) { /* non-blocking */ }
 }
 
@@ -841,6 +865,97 @@ function launchPrebuiltAgent(agentId) {
     window.scrollTo(0, 0);
 }
 
+// -- Agent palette items for workflow editor --
+
+function _getAgentPaletteItems() {
+    const prebuilt = [
+        { type: 'agent_procurement', icon: 'verified_user', name: 'Procurement Agent', meta: 'gpt-4o' },
+        { type: 'agent_legal', icon: 'gavel', name: 'Legal Review', meta: 'gpt-4o' },
+        { type: 'agent_hr', icon: 'people', name: 'HR Assistant', meta: 'gpt-4o-mini' },
+        { type: 'agent_finance', icon: 'account_balance', name: 'Financial Analyst', meta: 'gpt-4o' },
+    ];
+    try {
+        const saved = JSON.parse(localStorage.getItem('aip_agents') || '[]');
+        saved.forEach(a => {
+            prebuilt.push({ type: 'agent_' + a.id, icon: 'smart_toy', name: a.name || 'Custom Agent', meta: a.model || 'gpt-4o' });
+        });
+    } catch (_) {}
+    return prebuilt;
+}
+
+// -- Hub Quick Start: templates + objective-driven launch --
+
+var HUB_TEMPLATES = {
+    contracts: { name: 'Contract Analyzer', type: 'Legal', icon: 'gavel', model: 'gpt-4o',
+        prompt: 'You are an AI contract analyst. Analyze documents for risks, obligations, key clauses, and compliance issues. Always cite specific sections and provide structured risk assessments.',
+        suggestions: ['Analyze this contract for risks', 'Extract key obligations', 'Compare against compliance checklist'] },
+    delays: { name: 'Delay Predictor', type: 'Operations', icon: 'trending_up', model: 'gpt-4o',
+        prompt: 'You are a project risk analyst. Based on historical data and current indicators, predict potential delays and budget overruns. Quantify confidence levels and recommend mitigations.',
+        suggestions: ['Predict budget overrun risk', 'Which projects are most at risk?', 'Compare current vs baseline'] },
+    docreview: { name: 'Document Reviewer', type: 'Finance', icon: 'description', model: 'gpt-4o',
+        prompt: 'You are a document review specialist. Extract, classify, and summarize key information from uploaded documents. Flag anomalies and missing data.',
+        suggestions: ['Summarize this document', 'Extract financial figures', 'Flag compliance issues'] },
+    riskscore: { name: 'Risk Scorer', type: 'Operations', icon: 'shield', model: 'gpt-4o',
+        prompt: 'You are an enterprise risk scoring agent. Score risks across multiple dimensions (financial, operational, regulatory). Provide structured assessments with confidence levels.',
+        suggestions: ['Score overall risk', 'Identify top 3 risk factors', 'Recommend mitigations'] },
+};
+
+function launchFromObjective(text) {
+    if (!text || !text.trim()) { showToast('Please describe your objective'); return; }
+    const obj = text.trim();
+    const words = obj.split(/\s+/).slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    savedAgentName = words + ' Agent';
+    savedAgentType = 'Custom';
+    savedModel = 'gpt-4o';
+    savedSystemPrompt = 'You are an intelligent AI agent. Your objective: ' + obj + '. Analyze available data, provide structured insights, cite sources, and recommend actions. Be precise and business-oriented.';
+    currentAgentId = 'objective_' + Date.now();
+    _showGenerationOverlay(() => goToStep(6));
+}
+
+function launchFromTemplate(tplId) {
+    const tpl = HUB_TEMPLATES[tplId];
+    if (!tpl) return;
+    savedAgentName = tpl.name;
+    savedAgentType = tpl.type;
+    savedModel = tpl.model;
+    savedSystemPrompt = tpl.prompt;
+    currentAgentId = 'tpl_' + tplId;
+    _showGenerationOverlay(() => goToStep(6));
+}
+
+function _showGenerationOverlay(onComplete) {
+    const overlay = document.createElement('div');
+    overlay.id = 'gen-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:var(--bg-deepest);opacity:1;transition:opacity 0.4s ease;';
+    const steps = [
+        { icon: 'smart_toy', text: 'Creating agent...' },
+        { icon: 'library_books', text: 'Connecting knowledge base...' },
+        { icon: 'account_tree', text: 'Building reasoning pipeline...' },
+        { icon: 'check_circle', text: 'System ready' },
+    ];
+    overlay.innerHTML = `<div class="text-center"><div id="gen-steps" class="space-y-2"></div></div>`;
+    document.body.appendChild(overlay);
+    const container = overlay.querySelector('#gen-steps');
+    let i = 0;
+    function showNext() {
+        if (i >= steps.length) {
+            setTimeout(() => {
+                overlay.style.opacity = '0';
+                setTimeout(() => { overlay.remove(); onComplete(); }, 400);
+            }, 300);
+            return;
+        }
+        const s = steps[i];
+        const el = document.createElement('div');
+        el.className = 'flex items-center gap-2 animate-slideUp';
+        el.innerHTML = `<span class="material-icons-outlined text-sm" style="color:var(--accent);">${s.icon}</span><span class="text-[12px] font-medium" style="color:var(--text-primary);">${s.text}</span>`;
+        container.appendChild(el);
+        i++;
+        setTimeout(showNext, 400);
+    }
+    showNext();
+}
+
 function closeDocPreview() {
     const modal = document.getElementById('doc-preview-modal');
     if (modal) modal.classList.add('hidden');
@@ -1100,6 +1215,11 @@ async function sendChat() {
     let hasText = false;
 
     const api = await import('./api.js');
+    const ragMode =
+        document.getElementById('rag-pipeline-mode')?.value ||
+        localStorage.getItem('aip_rag_pipeline_mode') ||
+        'auto';
+    const enabledTools = Object.entries(JSON.parse(localStorage.getItem('aip_tools') || '{}')).filter(([_, v]) => v).map(([k]) => k);
     api.streamChat(
         query,
         {
@@ -1107,6 +1227,8 @@ async function sendChat() {
             provider: selectedProvider || 'openai',
             temperature: parseInt(document.getElementById('temp-slider')?.value ?? String(Math.round(savedTemperature * 100))) / 100,
             system_prompt: document.querySelector('.code-editor')?.value || savedSystemPrompt || null,
+            rag_pipeline_mode: ragMode,
+            enabled_tools: enabledTools,
         },
         // onChunk
         (chunk) => {
@@ -1163,6 +1285,8 @@ async function sendChat() {
                     response: accumulatedText,
                 }));
             } catch (_) { /* non-blocking */ }
+
+            _appendROISummaryCard(messagesDiv, accumulatedText);
             playTTS(accumulatedText);
             input.focus();
         },
@@ -1237,12 +1361,39 @@ function renderToolCallCard(container, step) {
         ? `<span class="text-[10px] font-mono ml-auto" style="color:var(--text-muted);">${step.duration}ms</span>`
         : '';
 
+    const descLines = (step.description || '').split('\n').filter(l => l.trim());
+    const narrativeLine = descLines.length > 0 ? descLines[0] : step.title;
+    const detailLines = descLines.slice(1);
+
     const metricsHtml = (step.metrics && isDone) ? renderMetricsGauges(step.metrics) : '';
 
-    const descLines = (step.description || '').split('\n').filter(l => l.trim());
-    const descHtml = !metricsHtml && descLines.length > 0
-        ? `<div class="mt-0.5 space-y-0">${descLines.map(l => `<p class="text-[10px] leading-tight" style="color:var(--text-muted);">${escapeHtml(l)}</p>`).join('')}</div>`
-        : '';
+    const hasL2 = isDone && (detailLines.length > 0 || metricsHtml);
+    const hasL3 = isDone && step.model;
+    const uid = step.id;
+
+    let l2Content = '';
+    if (hasL2) {
+        const detailText = detailLines.map(l => `<p class="text-[10px] leading-snug" style="color:var(--text-muted);">${escapeHtml(l)}</p>`).join('');
+        l2Content = `<div id="tool-l2-${uid}" class="reasoning-l2 pl-6 mt-1" style="max-height:0;overflow:hidden;transition:max-height .25s ease;">${metricsHtml}${detailText}</div>`;
+    }
+
+    let l3Content = '';
+    if (hasL3) {
+        const costEst = _estimateStepCost(step);
+        const promptPreview = step.prompt ? escapeHtml(step.prompt.substring(0, 200)) + (step.prompt.length > 200 ? '...' : '') : '(not exposed by backend)';
+        l3Content = `<div id="tool-l3-${uid}" class="reasoning-l3 pl-6 mt-1" style="max-height:0;overflow:hidden;transition:max-height .25s ease;">
+            <div class="p-2 mt-0.5 space-y-1" style="background:var(--bg-deepest);border-radius:var(--radius-sm);border:1px solid var(--border-default);">
+                <p class="text-[9px] font-mono" style="color:var(--text-muted);">Model: <strong style="color:var(--text-secondary);">${escapeHtml(step.model || '—')}</strong>${costEst ? ' &middot; Cost: ~$' + costEst : ''}</p>
+                <p class="text-[9px] font-mono" style="color:var(--text-muted);">Prompt: <span style="color:var(--text-secondary);">${promptPreview}</span></p>
+                <button onclick="navigator.clipboard.writeText(this.dataset.raw);showToast('Copied')" data-raw="${escapeHtml(JSON.stringify(step, null, 2))}" class="text-[9px] font-medium flex items-center gap-1" style="color:var(--accent);"><span class="material-icons-outlined text-[10px]">content_copy</span>Copy raw JSON</button>
+            </div>
+        </div>`;
+    }
+
+    const togglesHtml = (hasL2 || hasL3) && isDone ? `<div class="flex items-center gap-2 pl-6 mt-1">
+        ${hasL2 ? `<button onclick="_toggleReasoningLevel('tool-l2-${uid}')" class="text-[9px] font-medium flex items-center gap-0.5" style="color:var(--accent);"><span class="material-icons-outlined text-[10px]">unfold_more</span>Details</button>` : ''}
+        ${hasL3 ? `<button onclick="_toggleReasoningLevel('tool-l3-${uid}')" class="text-[9px] font-medium flex items-center gap-0.5" style="color:var(--text-muted);"><span class="material-icons-outlined text-[10px]">code</span>Inspect</button>` : ''}
+    </div>` : '';
 
     const html = `
         <div id="tool-${step.id}" class="rounded-lg border px-3 py-2 transition-all ${isRunning ? 'tool-card-running' : ''}" style="background:${bgColor};border-color:${borderColor}">
@@ -1252,12 +1403,8 @@ function renderToolCallCard(container, step) {
                 ${statusHtml}
                 ${durationHtml}
             </div>
-            <div class="flex items-center gap-1.5 text-[10px] mb-0.5 pl-6" style="color:var(--text-muted);">
-                <span>${escapeHtml(step.title)}</span>
-                <span>&middot;</span>
-                <span class="font-mono">${escapeHtml(step.model || '')}</span>
-            </div>
-            <div class="pl-6">${metricsHtml || descHtml}</div>
+            <div class="pl-6"><p class="text-[10px] leading-snug" style="color:var(--text-secondary);">${escapeHtml(narrativeLine)}</p></div>
+            ${l2Content}${l3Content}${togglesHtml}
         </div>
     `;
 
@@ -1266,6 +1413,54 @@ function renderToolCallCard(container, step) {
     } else {
         container.insertAdjacentHTML('beforeend', html);
     }
+}
+
+function _toggleReasoningLevel(elId) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (el.style.maxHeight && el.style.maxHeight !== '0px') {
+        el.style.maxHeight = '0px';
+    } else {
+        el.style.maxHeight = el.scrollHeight + 'px';
+    }
+}
+
+function _estimateStepCost(step) {
+    if (!step.model || !step.duration) return '';
+    const rates = { 'gpt-4o': 0.005, 'gpt-4o-mini': 0.0004, 'gpt-5': 0.008 };
+    const perCall = rates[step.model] || 0.003;
+    return perCall.toFixed(4);
+}
+
+function _appendROISummaryCard(container, responseText) {
+    const tokensEst = Math.round((responseText || '').length / 4);
+    const modelUsed = savedModel || 'gpt-4o';
+    const rates = { 'gpt-4o': 2.5, 'gpt-4o-mini': 0.15, 'gpt-5': 5.0 };
+    const ratePer1M = rates[modelUsed] || 2.5;
+    const costEst = ((tokensEst / 1000000) * ratePer1M * 3).toFixed(4);
+    const typeMap = { 'Legal': 'contract analysis', 'Finance': 'financial review', 'HR': 'HR policy lookup', 'Operations': 'operational assessment', 'Procurement': 'procurement verification' };
+    const taskType = typeMap[savedAgentType] || 'analysis task';
+
+    const card = document.createElement('div');
+    card.className = 'mt-3 ml-2.5 rounded-lg border px-4 py-3';
+    card.style.cssText = 'background:var(--bg-elevated);border-color:var(--border-default);';
+    card.innerHTML = `
+        <div class="flex items-center gap-2 mb-2">
+            <span class="material-icons-outlined text-sm" style="color:var(--accent);">insights</span>
+            <span class="text-[11px] font-semibold" style="color:var(--text-primary);">Task Summary</span>
+        </div>
+        <div class="flex items-center gap-4 mb-2 text-[10px]" style="color:var(--text-secondary);">
+            <span>Cost: ~$${costEst} (${tokensEst.toLocaleString()} tokens)</span>
+            <span>Model: ${escapeHtml(modelUsed)}</span>
+        </div>
+        <p class="text-[10px] mb-3" style="color:var(--text-muted);">Estimated value: ~30 min manual ${taskType} saved</p>
+        <div class="flex items-center gap-2 flex-wrap">
+            <button onclick="goToPage('quality')" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--accent-subtle);color:var(--accent);border:1px solid var(--border-active);border-radius:var(--radius-sm);"><span class="material-icons-outlined text-[10px]">verified</span>Run Quality Eval</button>
+            <button onclick="goToStep(2)" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--bg-elevated);color:var(--text-secondary);border:1px solid var(--border-default);border-radius:var(--radius-sm);"><span class="material-icons-outlined text-[10px]">tune</span>Optimize in Builder</button>
+            <button onclick="goToPage('hub')" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--bg-elevated);color:var(--text-secondary);border:1px solid var(--border-default);border-radius:var(--radius-sm);"><span class="material-icons-outlined text-[10px]">bolt</span>New Objective</button>
+        </div>
+    `;
+    container.appendChild(card);
 }
 
 function renderMetricsGauges(metrics) {
@@ -1419,7 +1614,27 @@ function escapeHtml(text) {
 
 // -- Login --
 
-let currentUser = { email: 'thibaud.ishacian@presight.ai', name: 'Thibaud Ishacian', role: 'Admin' };
+let currentUser = _loadSession() || { email: 'thibaud.ishacian@presight.ai', name: 'Thibaud Ishacian', role: 'Admin' };
+
+function _loadSession() {
+    try {
+        const raw = sessionStorage.getItem('aip_session');
+        if (!raw) return null;
+        const s = JSON.parse(raw);
+        if (s && s.email && s.name && s.authenticated) return s;
+    } catch (_) {}
+    return null;
+}
+
+function _saveSession(user) {
+    try {
+        sessionStorage.setItem('aip_session', JSON.stringify({ ...user, authenticated: true }));
+    } catch (_) {}
+}
+
+function _clearSession() {
+    try { sessionStorage.removeItem('aip_session'); } catch (_) {}
+}
 
 function selectAccount(btn) {
     document.querySelectorAll('.account-btn').forEach(b => {
@@ -1445,25 +1660,33 @@ function handleLogin() {
     btn.innerHTML = '<span class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span> Signing in…';
     btn.disabled = true;
 
+    _saveSession(currentUser);
+
     setTimeout(() => {
-        const screen = document.getElementById('login-screen');
+        _activateApp();
+    }, 800);
+}
+
+function _activateApp() {
+    const screen = document.getElementById('login-screen');
+    if (screen) {
         screen.style.opacity = '0';
         screen.style.transition = 'opacity 0.4s ease';
-
-        document.getElementById('app-sidebar').style.opacity = '1';
-        document.getElementById('app-main').style.opacity = '1';
-
-        const userEl = document.getElementById('user-badge');
-        if (userEl) {
-            const initials = currentUser.name.split(' ').map(n => n[0]).join('');
-            userEl.innerHTML = `<div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style="background:var(--accent);">${initials}</div>
-                <span class="text-xs font-medium truncate" style="color:var(--text-secondary);">${escapeHtml(currentUser.name)}</span>
-                <span class="material-icons-outlined text-sm" style="color:var(--text-muted);">expand_more</span>`;
-        }
-
-        goToPage('hub');
         setTimeout(() => screen.remove(), 500);
-    }, 800);
+    }
+
+    document.getElementById('app-sidebar').style.opacity = '1';
+    document.getElementById('app-main').style.opacity = '1';
+
+    const userEl = document.getElementById('user-badge');
+    if (userEl) {
+        const initials = currentUser.name.split(' ').map(n => n[0]).join('');
+        userEl.innerHTML = `<div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style="background:var(--accent);">${initials}</div>
+            <span class="text-xs font-medium truncate" style="color:var(--text-secondary);">${escapeHtml(currentUser.name)}</span>
+            <span class="material-icons-outlined text-sm" style="color:var(--text-muted);">expand_more</span>`;
+    }
+
+    goToPage('hub');
 }
 
 // Allow Enter key on login form
@@ -1713,7 +1936,16 @@ function wfShowConfig(nodeId) {
     fields += `<div class="wf-config-field"><label>Display Name</label><input id="wf-cfg-name" value="${nodeData.name || ''}" onchange="wfUpdateNodeName(${nodeId}, this.value)"></div>`;
     fields += `<div class="wf-config-field"><label>Description</label><input placeholder="Brief description of this node's role..." value=""></div>`;
 
-    if (type.startsWith('llm_') || type === 'synthesis' || type === 'query_rewrite') {
+    if (type.startsWith('agent_')) {
+        const agentId = type.replace('agent_', '');
+        const saved = JSON.parse(localStorage.getItem('aip_agents') || '[]');
+        const prebuiltMap = { procurement: { name:'Procurement Agent', type:'Procurement', model:'gpt-4o', prompt:'Enterprise procurement compliance agent.' }, legal: { name:'Legal Review', type:'Legal', model:'gpt-4o', prompt:'Contract analysis and risk assessment agent.' }, hr: { name:'HR Assistant', type:'HR', model:'gpt-4o-mini', prompt:'HR policy and onboarding assistant.' }, finance: { name:'Financial Analyst', type:'Finance', model:'gpt-4o', prompt:'Financial analysis and forecasting agent.' } };
+        const info = prebuiltMap[agentId] || saved.find(a => a.id === agentId) || { name: agentId, type: '—', model: '—', prompt: '' };
+        const promptSnip = (info.prompt || info.systemPrompt || '').substring(0, 120);
+        fields += `<div class="p-2 mb-2" style="background:var(--accent-subtle);border:1px solid var(--border-active);border-radius:var(--radius-sm);"><p class="text-[10px] font-semibold" style="color:var(--accent);">${escapeHtml(info.name || agentId)}</p><p class="text-[9px]" style="color:var(--text-muted);">${escapeHtml(info.type)} &middot; ${escapeHtml(info.model)}</p></div>`;
+        if (promptSnip) fields += `<div class="wf-config-field"><label>System Prompt</label><textarea rows="3" readonly style="font-size:9px;resize:none;opacity:0.8;">${escapeHtml(promptSnip)}${promptSnip.length >= 120 ? '...' : ''}</textarea></div>`;
+        fields += `<div class="flex gap-2 mt-2"><button onclick="launchPrebuiltAgent('${agentId}')" class="flex-1 py-1.5 text-[10px] font-medium flex items-center justify-center gap-1" style="background:var(--accent);color:white;border-radius:var(--radius-sm);"><span class="material-icons-outlined text-xs">chat</span>Open in Chat</button><button onclick="goToStep(1)" class="flex-1 py-1.5 text-[10px] font-medium flex items-center justify-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);"><span class="material-icons-outlined text-xs">edit</span>Edit in Builder</button></div>`;
+    } else if (type.startsWith('llm_') || type === 'synthesis' || type === 'query_rewrite') {
         const isRewrite = type === 'query_rewrite';
         const isGpt4o = type === 'llm_gpt4o' || type === 'synthesis';
         fields += `<div class="wf-config-field"><label>Provider</label><select><option selected>OpenAI</option><option>Azure OpenAI</option><option>Anthropic</option><option>Self-hosted (vLLM)</option><option>Ollama</option></select></div>`;
@@ -1839,7 +2071,38 @@ function wfDeleteNode() {
 }
 
 function wfUpdateNodeName(nodeId, name) {
-    /* UI-only for now */
+    if (!wfEditor) return;
+    try {
+        const nodeEl = document.getElementById('node-' + nodeId);
+        if (nodeEl) {
+            const titleEl = nodeEl.querySelector('.df-title');
+            if (titleEl) titleEl.textContent = name;
+        }
+        const node = wfEditor.getNodeFromId(nodeId);
+        if (node) {
+            node.name = name;
+            wfEditor.updateNodeDataFromId(nodeId, { ...node.data, displayName: name });
+        }
+    } catch (_) {}
+}
+
+function wfRunWorkflow() {
+    if (!wfEditor) { showToast('No workflow loaded'); return; }
+    const data = wfEditor.export();
+    const nodes = Object.values(data.drawflow?.Home?.data || {});
+    if (nodes.length < 2) { showToast('Add at least 2 nodes to run a workflow'); return; }
+    const agentNodes = nodes.filter(n => (n.data?.type || n.class || '').startsWith('agent_'));
+    let extra = '';
+    if (agentNodes.length > 0) {
+        const first = agentNodes[0];
+        const agentId = (first.data?.type || '').replace('agent_', '');
+        extra = `<div class="mt-3 pt-3" style="border-top:1px solid var(--border-default);"><p class="text-[10px] mb-2" style="color:var(--text-secondary);">Test individual agents via Chat:</p><button onclick="launchPrebuiltAgent('${agentId}');document.getElementById('wf-run-modal')?.remove()" class="px-3 py-1.5 text-[10px] font-medium flex items-center gap-1" style="background:var(--accent);color:white;border-radius:var(--radius-sm);"><span class="material-icons-outlined text-xs">chat</span>Chat with ${escapeHtml(first.name || agentId)}</button></div>`;
+    }
+    const modal = document.createElement('div');
+    modal.id = 'wf-run-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `<div onclick="this.parentElement.remove()" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(3px);"></div><div class="glass" style="position:relative;width:380px;padding:24px;"><div class="flex items-center gap-2 mb-2"><span class="material-icons-outlined text-lg" style="color:var(--accent);">play_circle</span><h3 class="text-[14px] font-semibold" style="color:var(--text-primary);">Run Workflow</h3></div><p class="text-[12px] mb-1" style="color:var(--text-secondary);">Workflow execution engine is coming in V2.</p><p class="text-[10px]" style="color:var(--text-muted);">Your graph has ${nodes.length} nodes. Backend execution, CRON scheduling, and checkpoint resume will be available in the next release.</p>${extra}<button onclick="this.closest('#wf-run-modal').remove()" class="mt-3 px-3 py-1.5 text-[10px] font-medium" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">Close</button></div>`;
+    document.body.appendChild(modal);
 }
 
 function wfSave() {
@@ -2145,6 +2408,38 @@ function addConnectorToWorkflow() {
 
 var currentTaskId = null;
 
+var _missionTemplates = [
+    { title: 'Market Analysis', objective: 'Conduct a comprehensive market analysis for [sector]. Identify top 5 competitors, current trends, SWOT analysis, and provide a strategic recommendation report.' },
+    { title: 'Compliance Audit', objective: 'Review all recent procurement documents and contracts for compliance with ISO 27001 and GDPR requirements. Flag any non-conformities and produce a remediation report.' },
+    { title: 'Data Quality Report', objective: 'Scan the indexed knowledge base. Evaluate document quality, identify duplicates, check embedding coverage, and produce a data quality scorecard with improvement recommendations.' },
+    { title: 'Executive Briefing', objective: 'Compile the latest intelligence feed analysis into a concise executive briefing. Cover key geopolitical risks, market signals, and recommended actions for leadership review.' },
+];
+
+function prefillMission(idx) {
+    const t = _missionTemplates[idx];
+    if (!t) return;
+    openTaskModal();
+    const titleEl = document.getElementById('task-title');
+    const descEl = document.getElementById('task-desc');
+    if (titleEl) titleEl.value = t.title;
+    if (descEl) descEl.value = t.objective;
+}
+
+function _populateTaskAgentSelect() {
+    const sel = document.getElementById('task-agent');
+    if (!sel) return;
+    const prebuilt = [
+        { id: '', name: 'Auto-select (best fit)' },
+        { id: 'procurement', name: 'Procurement Agent' },
+        { id: 'rag', name: 'RAG Agent (default)' },
+    ];
+    const custom = JSON.parse(localStorage.getItem('aip_agents') || '[]');
+    let html = '';
+    prebuilt.forEach(a => { html += `<option value="${a.id}">${escapeHtml(a.name)}</option>`; });
+    custom.forEach(a => { html += `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name)} · custom</option>`; });
+    sel.innerHTML = html;
+}
+
 async function loadWorkspace() {
     try {
         const api = await import('./api.js');
@@ -2153,22 +2448,47 @@ async function loadWorkspace() {
         const list = document.getElementById('ws-task-list');
         const activeEl = document.getElementById('ws-active-count');
         const compEl = document.getElementById('ws-completed-count');
-        if (activeEl) activeEl.textContent = tasks.filter(t => t.status === 'running' || t.status === 'planning').length;
-        if (compEl) compEl.textContent = tasks.filter(t => t.status === 'completed').length;
+        const stepsEl = document.getElementById('ws-steps-count');
+        const avgEl = document.getElementById('ws-avg-duration');
+
+        const active = tasks.filter(t => t.status === 'running' || t.status === 'planning');
+        const completed = tasks.filter(t => t.status === 'completed');
+        if (activeEl) activeEl.textContent = active.length;
+        if (compEl) compEl.textContent = completed.length;
+
+        const totalSteps = tasks.reduce((sum, t) => {
+            if (Array.isArray(t.steps)) return sum + t.steps.length;
+            return sum;
+        }, 0);
+        if (stepsEl) stepsEl.textContent = totalSteps;
+
+        const durations = completed.filter(t => t.total_duration_ms > 0).map(t => t.total_duration_ms);
+        if (avgEl) {
+            if (durations.length > 0) {
+                const avg = durations.reduce((a, b) => a + b, 0) / durations.length;
+                avgEl.textContent = avg < 1000 ? Math.round(avg) + 'ms' : (avg / 1000).toFixed(1) + 's';
+            } else {
+                avgEl.textContent = '—';
+            }
+        }
 
         if (!list || tasks.length === 0) return;
-        list.innerHTML = tasks.map(t => {
-            const statusColors = { pending: 'var(--text-muted)', planning: 'var(--warning)', running: 'var(--accent)', completed: 'var(--success)', failed: '#ef4444' };
-            return `<div class="t-card p-2.5 cursor-pointer" style="border-radius:var(--radius);" onclick="selectTask('${t.id}')">
+
+        const statusColors = { pending: 'var(--text-muted)', planning: 'var(--warning)', running: 'var(--accent)', completed: 'var(--success)', failed: '#ef4444' };
+        const statusLabels = { pending: 'Pending', planning: 'Planning…', running: 'Running…', completed: 'Done', failed: 'Failed' };
+        list.innerHTML = tasks.map(t => `
+            <div class="t-card p-2.5 cursor-pointer" style="border-radius:var(--radius);" onclick="selectTask('${t.id}')">
                 <div class="flex items-center justify-between mb-0.5">
                     <p class="text-[11px] font-semibold truncate" style="color:var(--text-primary);max-width:180px;">${escapeHtml(t.title)}</p>
-                    <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${statusColors[t.status] || 'var(--text-muted)'};"></span>
+                    <span class="text-[8px] font-medium px-1 py-0.5" style="color:${statusColors[t.status] || 'var(--text-muted)'};background:${statusColors[t.status] || 'var(--text-muted)'}15;border-radius:3px;">${statusLabels[t.status] || t.status}</span>
                 </div>
                 <p class="text-[9px] truncate" style="color:var(--text-muted);">${escapeHtml(t.description)}</p>
                 ${t.progress > 0 && t.progress < 100 ? `<div class="w-full h-1 rounded-full mt-1" style="background:var(--border-default);"><div class="h-full rounded-full" style="background:var(--accent);width:${t.progress}%;"></div></div>` : ''}
-            </div>`;
-        }).join('');
-    } catch (_) {}
+                ${t.created_at ? `<p class="text-[8px] mt-1 font-mono" style="color:var(--text-muted);">${new Date(t.created_at).toLocaleString()}</p>` : ''}
+            </div>`).join('');
+    } catch (e) {
+        console.error('loadWorkspace failed', e);
+    }
 }
 
 async function selectTask(taskId) {
@@ -2255,21 +2575,29 @@ async function runTask(taskId) {
 }
 
 function openTaskModal() {
-    document.getElementById('task-modal').classList.remove('hidden');
+    const modal = document.getElementById('task-modal');
+    if (!modal) return;
+    if (modal.parentElement !== document.body) document.body.appendChild(modal);
+    modal.classList.remove('hidden');
+    _populateTaskAgentSelect();
 }
 function closeTaskModal() {
-    document.getElementById('task-modal').classList.add('hidden');
+    const modal = document.getElementById('task-modal');
+    if (modal) modal.classList.add('hidden');
 }
 
 async function submitTask() {
     const title = document.getElementById('task-title').value.trim();
     const desc = document.getElementById('task-desc').value.trim();
-    if (!desc) { showToast('Please describe the mission'); return; }
+    const agentId = document.getElementById('task-agent')?.value || null;
+    if (!desc) { showToast('Please describe the mission objective'); return; }
     try {
         const api = await import('./api.js');
-        const task = await api.createTask({ title, description: desc });
+        const task = await api.createTask({ title: title || desc.substring(0, 80), description: desc, agent_id: agentId || undefined });
         closeTaskModal();
-        showToast('Mission created');
+        document.getElementById('task-title').value = '';
+        document.getElementById('task-desc').value = '';
+        showToast('Mission launched — planning in progress…');
         loadWorkspace();
         runTask(task.id);
     } catch (e) { showToast('Error: ' + e.message); }
@@ -2317,14 +2645,49 @@ function onQualityAgentChange() {
     loadQualityPage();
 }
 
+function _updateQualityContextStatus() {
+    const el = document.getElementById('quality-context-status');
+    if (!el) return;
+    let ctx = null;
+    try { ctx = JSON.parse(localStorage.getItem('aip_last_eval_context') || 'null'); } catch (_) {}
+    if (ctx && ctx.query && ctx.response) {
+        const preview = ctx.query.length > 60 ? ctx.query.substring(0, 60) + '…' : ctx.query;
+        el.innerHTML = `<p class="text-[9px]" style="color:var(--success);"><span class="material-icons-outlined text-[10px] align-middle mr-0.5">check_circle</span> Ready — last chat: "<em>${escapeHtml(preview)}</em>" (agent: ${escapeHtml(ctx.agent_id || 'rag')})</p>`;
+    } else {
+        el.innerHTML = '<p class="text-[9px]" style="color:var(--warning);"><span class="material-icons-outlined text-[10px] align-middle mr-0.5">warning</span> No chat context available. Go to <strong>Execution</strong> and chat with an agent first.</p>';
+    }
+}
+
+function _showEmptyRadar() {
+    const container = document.getElementById('quality-radar-container');
+    if (!container) return;
+    const canvas = document.getElementById('quality-radar');
+    if (canvas && typeof Chart !== 'undefined') {
+        const dims = ['task_success','relevance','instruction_following','coherence','hallucination','tone','conciseness','safety','policy','drift','manipulation','tool_use'];
+        const labels = ['Task','Relev.','Instr.','Coher.','Halluc.','Tone','Conc.','Safety','Policy','Drift','Manip.','Tool'];
+        if (qualityChart) qualityChart.destroy();
+        qualityChart = new Chart(canvas, {
+            type: 'radar',
+            data: { labels, datasets: [{ data: dims.map(() => 0), backgroundColor: 'rgba(0,188,212,0.05)', borderColor: 'rgba(0,188,212,0.15)', pointRadius: 0, borderWidth: 1 }] },
+            options: {
+                responsive: false,
+                plugins: { legend: { display: false } },
+                scales: { r: { beginAtZero: true, max: 100, ticks: { display: false, stepSize: 25 }, grid: { color: 'rgba(255,255,255,0.06)' }, angleLines: { color: 'rgba(255,255,255,0.06)' }, pointLabels: { color: 'rgba(255,255,255,0.25)', font: { size: 8, family: 'Inter' } } } }
+            }
+        });
+    }
+}
+
 async function loadQualityPage() {
     populateQualityAgentSelect();
+    _updateQualityContextStatus();
     try {
-        const api = await import('./api.js');
+        const api = await import('./api.js?v=25');
         const aid = getQualityAgentId();
         const data = await api.getLatestEval(aid);
-        if (data.evaluation) renderQualityScores(data.evaluation);
-        else {
+        if (data.evaluation) {
+            renderQualityScores(data.evaluation);
+        } else {
             const compositeEl = document.getElementById('quality-composite');
             if (compositeEl) compositeEl.textContent = '—';
             ['task_success','relevance','instruction_following','coherence','hallucination','tone','conciseness','safety','policy','drift','manipulation','tool_use'].forEach(d => {
@@ -2333,14 +2696,17 @@ async function loadQualityPage() {
                 if (bar) bar.style.width = '0%';
                 if (label) label.textContent = '—';
             });
-            if (qualityChart) { qualityChart.destroy(); qualityChart = null; }
+            _showEmptyRadar();
             const claimsEl = document.getElementById('quality-claims');
             if (claimsEl) claimsEl.innerHTML = '<p class="text-[10px]" style="color:var(--text-muted);">Run an evaluation to see claim audit results.</p>';
         }
 
         const hist = await api.getEvalHistory(aid, 10);
         renderEvalHistory(hist.evaluations || []);
-    } catch (_) {}
+    } catch (e) {
+        console.error('loadQualityPage failed', e);
+        _showEmptyRadar();
+    }
 }
 
 function renderQualityScores(evaluation) {
@@ -2431,17 +2797,18 @@ function renderEvalHistory(evaluations) {
 }
 
 async function triggerManualEval() {
-    const api = await import('./api.js');
+    const api = await import('./api.js?v=25');
     const agentId = getQualityAgentId();
     let ctx = null;
     try {
         ctx = JSON.parse(localStorage.getItem('aip_last_eval_context') || 'null');
     } catch (_) {}
     if (!ctx || !ctx.query || !ctx.response) {
-        showToast('Chat with an agent first (Execution step), then open Agent Quality and run evaluation.');
+        showToast('No chat to evaluate. Go to Execution (step 6), chat with an agent, then come back here.');
         return;
     }
-    showToast('Running evaluation...');
+    const btn = document.getElementById('quality-run-btn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-icons-outlined text-xs tool-running">sync</span> Evaluating…'; }
     try {
         await api.evaluateResponse({
             query: ctx.query,
@@ -2449,10 +2816,12 @@ async function triggerManualEval() {
             agent_id: agentId,
             system_prompt: savedSystemPrompt || '',
         });
-        showToast('Evaluation complete');
+        showToast('Evaluation complete — scores updated');
         await loadQualityPage();
     } catch (e) {
         showToast('Evaluation failed: ' + (e.message || e));
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons-outlined text-xs">play_arrow</span>Run Evaluation'; }
     }
 }
 
@@ -2474,28 +2843,57 @@ async function loadIntelligenceDashboard() {
         if (el('intel-high-risk')) el('intel-high-risk').textContent = kpis.high_risk || 0;
         if (el('intel-analyzed')) el('intel-analyzed').textContent = kpis.analyzed || 0;
 
-        renderSentimentChart(data.sentiment || {});
-        renderEntityChart(data.top_entities || []);
+        requestAnimationFrame(() => {
+            renderSentimentChart(data.sentiment || {});
+            renderEntityChart(data.top_entities || []);
+        });
         renderArticles(data.articles || []);
-    } catch (_) {}
+    } catch (e) {
+        console.error('Intelligence dashboard failed', e);
+        if (typeof showToast === 'function') {
+            showToast('Intelligence: impossible de charger le tableau de bord — ' + (e.message || 'erreur réseau'));
+        }
+    }
+}
+
+function _intelChartWidth(canvas) {
+    const box = canvas ? canvas.parentElement : null;
+    const raw = box ? box.clientWidth : 0;
+    return raw > 0 ? Math.max(160, raw) : 400;
 }
 
 function renderSentimentChart(sentiment) {
     const canvas = document.getElementById('intel-sentiment-chart');
     if (!canvas || typeof Chart === 'undefined') return;
     if (sentimentChart) sentimentChart.destroy();
+    sentimentChart = null;
+    canvas.removeAttribute('style');
+
+    const vals = [sentiment.positive || 0, sentiment.negative || 0, sentiment.neutral || 0, sentiment.mixed || 0];
+    const total = vals.reduce((a, b) => a + b, 0);
+    if (total === 0) {
+        const box = canvas.parentElement;
+        if (box) box.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><p style="color:var(--text-muted);font-size:10px;text-align:center;">No sentiment data yet.<br>Run analysis to populate.</p></div>';
+        return;
+    }
+
+    const w = _intelChartWidth(canvas);
+    canvas.width = w;
+    canvas.height = 200;
     sentimentChart = new Chart(canvas, {
         type: 'doughnut',
         data: {
             labels: ['Positive', 'Negative', 'Neutral', 'Mixed'],
             datasets: [{
-                data: [sentiment.positive || 0, sentiment.negative || 0, sentiment.neutral || 0, sentiment.mixed || 0],
+                data: vals,
                 backgroundColor: ['rgba(16,185,129,0.7)', 'rgba(239,68,68,0.7)', 'rgba(148,163,184,0.5)', 'rgba(245,158,11,0.7)'],
                 borderWidth: 0,
             }]
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
+            responsive: false,
+            maintainAspectRatio: false,
+            layout: { padding: 6 },
             plugins: { legend: { position: 'right', labels: { color: 'rgba(255,255,255,0.5)', font: { size: 10 }, boxWidth: 12 } } },
             cutout: '55%',
         }
@@ -2504,8 +2902,20 @@ function renderSentimentChart(sentiment) {
 
 function renderEntityChart(entities) {
     const canvas = document.getElementById('intel-entity-chart');
-    if (!canvas || typeof Chart === 'undefined' || !entities.length) return;
+    if (!canvas || typeof Chart === 'undefined') return;
     if (entityChart) entityChart.destroy();
+    entityChart = null;
+    canvas.removeAttribute('style');
+
+    if (!entities || !entities.length) {
+        const box = canvas.parentElement;
+        if (box) box.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"><p style="color:var(--text-muted);font-size:10px;text-align:center;">No entities extracted yet.<br>Run analysis to populate.</p></div>';
+        return;
+    }
+
+    const w = _intelChartWidth(canvas);
+    canvas.width = w;
+    canvas.height = 200;
     entityChart = new Chart(canvas, {
         type: 'bar',
         data: {
@@ -2517,7 +2927,10 @@ function renderEntityChart(entities) {
             }]
         },
         options: {
-            responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+            responsive: false,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            layout: { padding: 4 },
             plugins: { legend: { display: false } },
             scales: {
                 x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 9 } } },
@@ -2529,7 +2942,11 @@ function renderEntityChart(entities) {
 
 function renderArticles(articles) {
     const el = document.getElementById('intel-articles');
-    if (!el || !articles.length) return;
+    if (!el) return;
+    if (!articles || !articles.length) {
+        el.innerHTML = '<p class="text-[10px] text-center py-4" style="color:var(--text-muted);">No articles analyzed yet. Add RSS feeds and run analysis.</p>';
+        return;
+    }
     const riskColors = { low: 'var(--success)', medium: 'var(--warning)', high: '#ef4444', critical: '#dc2626' };
     const sentColors = { positive: 'var(--success)', negative: '#ef4444', neutral: 'var(--text-muted)', mixed: 'var(--warning)' };
     el.innerHTML = articles.map(a => `
@@ -2558,6 +2975,11 @@ async function runBatchAnalysis() {
     const api = await import('./api.js');
     api.streamBatchAnalysis(
         (event) => {
+            if (event.type === 'batch_error') {
+                showToast('Batch error: ' + (event.message || 'unknown'));
+                if (bar) bar.classList.add('hidden');
+                return;
+            }
             if (progress) progress.style.width = (event.progress || 0) + '%';
             if (status) status.textContent = event.type === 'batch_complete' ? 'Complete' : `${event.type.replace('batch_', '')}...`;
             if (event.type === 'batch_complete') {
@@ -2565,16 +2987,20 @@ async function runBatchAnalysis() {
             }
         },
         () => {},
-        (err) => { showToast('Batch error: ' + err.message); if (bar) bar.classList.add('hidden'); }
+        (err) => { showToast('Batch error: ' + (err.message || err)); if (bar) bar.classList.add('hidden'); }
     );
 }
 
 function openIntelConfig() {
-    document.getElementById('intel-config-modal').classList.remove('hidden');
+    const modal = document.getElementById('intel-config-modal');
+    if (!modal) return;
+    if (modal.parentElement !== document.body) document.body.appendChild(modal);
+    modal.classList.remove('hidden');
     loadIntelConfigData();
 }
 function closeIntelConfig() {
-    document.getElementById('intel-config-modal').classList.add('hidden');
+    const modal = document.getElementById('intel-config-modal');
+    if (modal) modal.classList.add('hidden');
 }
 
 async function loadIntelConfigData() {
@@ -2606,7 +3032,12 @@ async function loadIntelConfigData() {
                 <p class="text-[10px] font-medium" style="color:var(--text-primary);">${escapeHtml(f.name)}</p>
                 <p class="text-[8px]" style="color:var(--text-muted);">${escapeHtml(f.prompt_template).substring(0, 80)}</p>
             </div>`).join('') || '<p class="text-[9px]" style="color:var(--text-muted);">No filters configured</p>';
-    } catch (_) {}
+    } catch (e) {
+        console.error('Intelligence config load failed', e);
+        if (typeof showToast === 'function') {
+            showToast('Configuration: ' + (e.message || 'erreur de chargement'));
+        }
+    }
 }
 
 async function addFeed() {
@@ -2663,4 +3094,11 @@ async function removeIntelFeed(feedId) {
     } catch (e) { showToast('Error: ' + e.message); }
 }
 
-// Initialize - wait for login, don't render content yet
+// Initialize — auto-restore session if still valid
+(function _initSession() {
+    const session = _loadSession();
+    if (session) {
+        currentUser = session;
+        requestAnimationFrame(() => _activateApp());
+    }
+})();

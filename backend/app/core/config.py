@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
 
+    # RAG: HAH/C-HAH backend pipelines (multi-pass on DocumentService; see pipeline_retrieval.py)
+    rag_hah_chah_enabled: bool = True
+
     # Redis (optional, not required for demo)
     redis_url: str = "redis://localhost:6379/0"
 

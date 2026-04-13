@@ -32,6 +32,8 @@ class ChatRequest(BaseModel):
     top_k: Optional[int] = None
     similarity_threshold: Optional[float] = None
     system_prompt: Optional[str] = None
+    # RAG mode: auto | naive | hybrid | hah | chah — see docs/rag-rd-papai-mapping.md
+    rag_pipeline_mode: Optional[str] = None
 
 
 @router.post("/completion")

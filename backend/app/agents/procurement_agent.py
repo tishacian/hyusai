@@ -165,34 +165,85 @@ class OmniRAGAgent(BaseAgent):
             duration=self._ms_since(step_start),
         )
 
-        # ── Step 4: Knowledge Retrieval (FAISS + BM25 hybrid) ──
+        # ── Step 4: Knowledge Retrieval (naive / hybrid / HAH-like / C-HAH-like on DocumentService) ──
+        from app.core.config import settings
+        from app.services.rag.mode_selector import resolve_retrieval_mode
+        from app.services.rag.pipeline_retrieval import retrieve_for_mode
+
+        rag_mode = request.get("rag_pipeline_mode") or (
+            request.get("agent_preferences") or {}
+        ).get("rag_pipeline_mode")
+        doc_svc = self._get_document_service()
+        use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
+            doc_svc, rewritten, rag_mode
+        )
+        retriever_name = "HybridRetriever" if use_hybrid else "VectorRetriever"
+        retriever_title = (
+            "FAISS + BM25 (RRF)" if use_hybrid else "FAISS dense (naive)"
+        )
+        method_line = (
+            "Method: Reciprocal Rank Fusion · top_k: 5"
+            if use_hybrid
+            else "Method: dense vector similarity · top_k: 5"
+        )
+        if mode_label == "hah_backend":
+            retriever_name = "HAHBackendRetriever"
+            retriever_title = "Two-pass hybrid + RRF (HAH-like)"
+            method_line = "Method: pass1 hybrid → pseudo-document → pass2 hybrid → RRF merge · top_k: 5"
+        elif mode_label == "chah_backend":
+            retriever_name = "CHAHBackendRetriever"
+            retriever_title = "Parallel hybrid + RRF (C-HAH-like)"
+            method_line = "Method: parallel hybrid over query variants → RRF merge · top_k: 5"
+
         step_start = time.time()
         sid = f"kb-retrieval-{uid}"
         yield self._step(
             sid,
             "active",
             "retrieve",
-            "HybridRetriever",
-            "FAISS + BM25 (RRF)",
+            retriever_name,
+            retriever_title,
             "Searching knowledge base",
-            f'Method: Reciprocal Rank Fusion · top_k: 5\nQuery: "{rewritten[:80]}…"',
+            f"{mode_label} — {mode_reason}\n{method_line}\nQuery: \"{rewritten[:80]}…\"",
         )
 
-        retrieval_context = await self._retrieve_context(rewritten)
+        pr = await retrieve_for_mode(
+            doc_svc,
+            rewritten,
+            rag_mode,
+            top_k=5,
+            use_hybrid=use_hybrid,
+            hah_chah_enabled=settings.rag_hah_chah_enabled,
+        )
+        retrieval_context = {"chunks": pr.chunks, "scores": pr.scores}
         n_chunks = len(retrieval_context["chunks"])
         scores = retrieval_context.get("scores", [])
         top_score = f"{scores[0]:.3f}" if scores else "—"
+        if pr.pipeline == "hah_backend":
+            done_method = "HAH-like two-pass + RRF"
+        elif pr.pipeline == "chah_backend":
+            done_method = "C-HAH-like parallel + RRF"
+        else:
+            done_method = (
+                "RRF (Vector + BM25)" if use_hybrid else "Dense cosine similarity"
+            )
+
+        done_detail = (
+            f"Top score: {top_score} · {done_method}"
+            if n_chunks
+            else "No documents in knowledge base — using built-in rules"
+        )
+        if n_chunks and pr.detail:
+            done_detail = f"{done_detail}\n{pr.detail}"
 
         yield self._step(
             sid,
             "completed",
             "retrieve",
-            "HybridRetriever",
-            "FAISS + BM25 (RRF)",
+            retriever_name,
+            retriever_title,
             f"Retrieved {n_chunks} chunks",
-            f"Top score: {top_score} · Method: RRF (Vector + BM25)"
-            if n_chunks
-            else "No documents in knowledge base — using built-in rules",
+            done_detail,
             duration=self._ms_since(step_start),
             scores=scores[:5],
         )
@@ -397,12 +448,12 @@ Answer the user's question using the context above. If the context is not releva
 
     # ── Helpers ──
 
-    async def _retrieve_context(self, query: str) -> dict[str, Any]:
+    async def _retrieve_context(self, query: str, use_hybrid: bool = True) -> dict[str, Any]:
         doc_svc = self._get_document_service()
         if doc_svc is None:
             return {"chunks": [], "scores": []}
         try:
-            results = await doc_svc.search(query, top_k=5, use_hybrid=True)
+            results = await doc_svc.search(query, top_k=5, use_hybrid=use_hybrid)
             chunks, scores = [], []
             for r in results:
                 content = r.get("content") or r.get("metadata", {}).get("content", "")

@@ -86,6 +86,29 @@
         /* ── Themed utility classes ── */
         .t-card { background:var(--bg-card); border:1px solid var(--border-default); box-shadow:var(--card-shadow); transition:border-color .15s,box-shadow .15s; }
         .t-card:hover { border-color:var(--border-active); box-shadow:var(--card-hover-shadow); }
+
+        /* Intelligence dashboard charts — Chart.js must not grow canvas past this box (prevents runaway scroll) */
+        .intel-chart-box {
+            width: 100%;
+            height: 200px;
+            min-height: 200px;
+            max-height: 200px;
+            overflow: hidden;
+            position: relative;
+            box-sizing: border-box;
+            contain: strict;
+        }
+        .intel-chart-box canvas {
+            display: block !important;
+            max-width: 100% !important;
+            max-height: 200px !important;
+            vertical-align: top;
+        }
+        /* No hover translate on chart cards — transform can interact badly with Chart.js sizing */
+        .t-card.intel-chart-card,
+        .t-card.intel-chart-card:hover {
+            transform: none;
+        }
         .t-elevated { background:var(--bg-elevated); }
         .t-input { background:var(--bg-input); border-color:var(--border-default); color:var(--text-primary); }
         .t-text { color:var(--text-primary); }
@@ -101,6 +124,102 @@
         .aurora { position:relative; overflow:hidden; }
         .aurora::before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse at 30% 50%,rgba(0,188,212,0.04),transparent 60%),radial-gradient(ellipse at 70% 20%,rgba(99,102,241,0.03),transparent 60%); pointer-events:none; }
 
+        /* ── Disruptive layer: living mesh + grain (main shell only, no layout cost) ── */
+        .app-main-shell { position:relative; isolation:isolate; }
+        .app-main-shell::before {
+            content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
+            background:
+                radial-gradient(ellipse 80% 50% at 15% 10%, rgba(0,188,212,0.09), transparent 55%),
+                radial-gradient(ellipse 60% 45% at 85% 75%, rgba(99,102,241,0.07), transparent 50%),
+                radial-gradient(ellipse 50% 40% at 50% 100%, rgba(0,188,212,0.05), transparent 45%);
+            animation: mesh-drift 22s ease-in-out infinite alternate;
+        }
+        .app-main-shell::after {
+            content:''; position:absolute; inset:0; z-index:0; pointer-events:none; opacity:0.035;
+            background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            mix-blend-mode:overlay;
+        }
+        @keyframes mesh-drift {
+            0% { transform:translate(0,0) scale(1); }
+            100% { transform:translate(-2%, 1%) scale(1.03); }
+        }
+
+        /* ── Header: signal line + gradient title (first-read impact) ── */
+        header.app-chrome { position:relative; z-index:2; }
+        header.app-chrome::after {
+            content:''; position:absolute; left:0; right:0; bottom:0; height:1px;
+            background:linear-gradient(90deg, transparent 0%, rgba(0,188,212,0.5) 20%, rgba(99,102,241,0.45) 50%, rgba(0,188,212,0.5) 80%, transparent 100%);
+            background-size:200% 100%;
+            animation: signal-flow 10s linear infinite;
+        }
+        @keyframes signal-flow { 0% { background-position:0% 0; } 100% { background-position:200% 0; } }
+
+        .gradient-title {
+            background:linear-gradient(105deg, var(--text-primary) 0%, var(--text-primary) 35%, var(--accent) 72%, #818cf8 100%);
+            background-size:160% auto;
+            -webkit-background-clip:text; background-clip:text; color:transparent !important;
+            animation:title-shimmer 12s ease-in-out infinite alternate;
+        }
+        [data-theme="light"] .gradient-title {
+            background:linear-gradient(105deg, #0f172a 0%, #0f172a 40%, #0891b2 75%, #4f46e5 100%);
+            background-size:160% auto;
+            -webkit-background-clip:text; background-clip:text;
+        }
+        @keyframes title-shimmer { 0% { background-position:0% 50%; } 100% { background-position:100% 50%; } }
+
+        .status-pulse {
+            display:inline-flex; align-items:center; gap:5px;
+            padding:2px 8px 2px 6px; border-radius:999px;
+            font-size:9px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;
+            color:var(--accent); background:var(--accent-subtle); border:1px solid rgba(0,188,212,0.25);
+            box-shadow:0 0 16px rgba(0,188,212,0.08);
+        }
+        .status-dot {
+            width:6px; height:6px; border-radius:50%; background:var(--accent);
+            box-shadow:0 0 8px var(--accent);
+            animation:status-breathe 2.2s ease-in-out infinite;
+        }
+        @keyframes status-breathe { 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:0.65; transform:scale(0.92);} }
+
+        /* ── Sidebar brand: subtle orbital glow (DNA: cyan + indigo) ── */
+        .sidebar-brand-icon {
+            position:relative;
+            animation:brand-halo 4s ease-in-out infinite;
+        }
+        @keyframes brand-halo {
+            0%,100% { box-shadow:0 0 0 0 rgba(0,188,212,0.35), 0 0 20px rgba(99,102,241,0.12); }
+            50% { box-shadow:0 0 0 1px rgba(0,188,212,0.2), 0 0 28px rgba(99,102,241,0.2); }
+        }
+
+        /* ── Login hero: sharper first impression ── */
+        .login-hero-mark {
+            position:relative;
+            display:inline-flex; align-items:center; justify-content:center;
+        }
+        .login-hero-mark::before {
+            content:''; position:absolute; inset:-10px; border-radius:14px;
+            background:conic-gradient(from 210deg, rgba(0,188,212,0.5), rgba(99,102,241,0.35), rgba(0,188,212,0.15), rgba(0,188,212,0.5));
+            animation:login-spin 14s linear infinite;
+            opacity:0.55; filter:blur(10px); z-index:0;
+        }
+        .login-hero-inner { position:relative; z-index:1; }
+        @keyframes login-spin { to { transform:rotate(360deg); } }
+
+        /* ── Cards: micro-lift on hover (keeps existing border transition) ── */
+        .t-card { transform:translateZ(0); transition:border-color .15s, box-shadow .15s, transform .18s ease; }
+        .t-card:hover { transform:translateY(-1px); }
+
+        @media (prefers-reduced-motion: reduce) {
+            .app-main-shell::before, .app-main-shell::after,
+            header.app-chrome::after, .gradient-title, .status-dot,
+            .sidebar-brand-icon, .login-hero-mark::before {
+                animation:none !important;
+            }
+            .page-enter { animation:page-enter-static .15s ease-out forwards; }
+            @keyframes page-enter-static { from{opacity:0} to{opacity:1} }
+            .t-card:hover, .agent-hub-card:hover { transform:none; }
+        }
+
         /* ── Step indicators ── */
         .step-active { background:var(--accent); color:white; }
         .step-completed { background:var(--success); color:white; }
@@ -115,8 +234,9 @@
         .dot-bounce { animation:bounce-dot .6s ease-in-out infinite; }
         .animate-slideUp { animation:slideUp .15s ease-out; }
         @keyframes slideUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+        /* Opacity-only: any transform on #step-content breaks position:fixed modals (Intelligence config, etc.) */
         @keyframes page-enter { from{opacity:0} to{opacity:1} }
-        .page-enter { animation:page-enter .15s ease-out; }
+        .page-enter { animation:page-enter .28s cubic-bezier(0.22,1,0.36,1) forwards; }
 
         /* ── Prose (themed) ── */
         .prose-chat { color:var(--prose-text); font-size:13px; line-height:1.65; }
@@ -142,13 +262,16 @@
         .prose-chat tr:nth-child(even) td { background:var(--prose-table-even); }
         .prose-chat hr { border:none; border-top:1px solid var(--border-default); margin:.75rem 0; }
 
+        /* ── Reasoning disclosure levels ── */
+        .reasoning-l2, .reasoning-l3 { max-height:0; overflow:hidden; transition:max-height .25s ease; }
+
         /* ── Range slider ── */
         input[type="range"] { -webkit-appearance:none; height:3px; background:var(--border-default); border-radius:2px; outline:none; }
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--accent); cursor:pointer; border:2px solid var(--bg-card); }
 
         /* ── Agent Hub cards ── */
-        .agent-hub-card { background:var(--bg-card); border:1px solid var(--border-default); border-radius:var(--radius); padding:1rem 1.1rem; transition:border-color .15s,box-shadow .15s; cursor:pointer; }
-        .agent-hub-card:hover { border-color:var(--border-active); box-shadow:var(--card-hover-shadow); }
+        .agent-hub-card { background:var(--bg-card); border:1px solid var(--border-default); border-radius:var(--radius); padding:1rem 1.1rem; transition:border-color .15s,box-shadow .15s,transform .18s ease; cursor:pointer; }
+        .agent-hub-card:hover { border-color:var(--border-active); box-shadow:var(--card-hover-shadow); transform:translateY(-2px); }
         .agent-hub-create { border:1px dashed var(--border-default); background:transparent; }
         .agent-hub-create:hover { border-color:var(--accent); background:var(--accent-subtle); }
 
@@ -211,11 +334,13 @@
         <div class="w-full max-w-sm mx-4" style="position:relative;z-index:1;">
             <div class="text-center mb-5">
                 <div class="flex items-center justify-center mx-auto mb-2.5">
-                    <div class="w-9 h-9 flex items-center justify-center" style="background:var(--accent);border-radius:var(--radius);">
-                        <span class="material-icons-outlined text-lg text-white">hub</span>
+                    <div class="login-hero-mark">
+                        <div class="login-hero-inner w-9 h-9 flex items-center justify-center" style="background:var(--accent);border-radius:var(--radius);box-shadow:0 8px 32px rgba(0,188,212,0.25);">
+                            <span class="material-icons-outlined text-lg text-white">hub</span>
+                        </div>
                     </div>
                 </div>
-                <h1 class="text-[15px] font-semibold tracking-tight" style="color:var(--text-primary);">AI Orchestration Platform</h1>
+                <h1 class="text-[15px] font-semibold tracking-tight gradient-title" style="color:var(--text-primary);">AI Orchestration Platform</h1>
                 <p class="text-[10px] mt-0.5 tracking-wide uppercase font-medium" style="color:var(--text-muted);">Enterprise Agent Infrastructure</p>
             </div>
 
@@ -371,7 +496,7 @@
     <aside id="app-sidebar" class="w-[240px] flex flex-col flex-shrink-0 h-full opacity-0 transition-opacity duration-500" style="background:var(--bg-sidebar);border-right:1px solid var(--border-sidebar);">
         <div class="h-12 flex items-center px-4" style="border-bottom:1px solid var(--border-sidebar);">
             <div class="flex items-center gap-2.5 flex-1">
-                <div class="w-7 h-7 flex items-center justify-center" style="background:var(--accent);border-radius:var(--radius-sm);"><span class="material-icons-outlined text-white text-sm">hub</span></div>
+                <div class="sidebar-brand-icon w-7 h-7 flex items-center justify-center" style="background:var(--accent);border-radius:var(--radius-sm);"><span class="material-icons-outlined text-white text-sm">hub</span></div>
                 <div class="flex flex-col">
                     <span class="font-semibold text-white text-[13px] leading-tight tracking-tight">Agent Platform</span>
                     <span class="text-[9px] font-mono" style="color:var(--text-muted);">v2.4</span>
@@ -384,21 +509,26 @@
 
         <!-- Primary Nav -->
         <nav class="flex-1 overflow-y-auto sidebar-scroll px-2 py-3 space-y-0.5">
-            <div class="pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Platform</span></div>
+            <div class="pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Objective</span></div>
             <a onclick="goToPage('hub')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium text-white cursor-pointer" style="background:rgba(0,188,212,0.1);border-left:2px solid var(--accent);border-radius:var(--radius-xs);" data-page="hub">
                 <span class="material-icons-outlined mr-2 text-[16px] text-brand-400">hub</span>Agent Hub
             </a>
-            <a onclick="goToPage('integrations')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="integrations">
-                <span class="material-icons-outlined mr-2 text-[16px]">cable</span>Integrations
-            </a>
-            <a onclick="goToPage('orchestration')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="orchestration">
-                <span class="material-icons-outlined mr-2 text-[16px]">account_tree</span>Orchestration
-            </a>
-            <a onclick="goToPage('workspace')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="workspace">
-                <span class="material-icons-outlined mr-2 text-[16px]">work</span>Workspace
+
+            <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Build</span></div>
+            <!-- Agent Builder (collapsible) is below -->
+            <a onclick="goToPage('knowledge')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="knowledge">
+                <span class="material-icons-outlined mr-2 text-[16px]">library_books</span>Knowledge Base
             </a>
 
-            <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Intelligence</span></div>
+            <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Execute</span></div>
+            <a onclick="goToPage('orchestration')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="orchestration">
+                <span class="material-icons-outlined mr-2 text-[16px]">account_tree</span>Workflows
+            </a>
+            <a onclick="goToPage('workspace')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="workspace">
+                <span class="material-icons-outlined mr-2 text-[16px]">rocket_launch</span>Missions
+            </a>
+
+            <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Measure</span></div>
             <a onclick="goToPage('intelligence')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="intelligence">
                 <span class="material-icons-outlined mr-2 text-[16px]">rss_feed</span>Intelligence
             </a>
@@ -406,12 +536,10 @@
                 <span class="material-icons-outlined mr-2 text-[16px]">speed</span>Agent Quality
             </a>
 
-            <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Data</span></div>
-            <a onclick="goToPage('knowledge')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="knowledge">
-                <span class="material-icons-outlined mr-2 text-[16px]">library_books</span>Knowledge Base
+            <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Govern</span></div>
+            <a onclick="goToPage('integrations')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="integrations">
+                <span class="material-icons-outlined mr-2 text-[16px]">cable</span>Integrations
             </a>
-
-            <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Governance</span></div>
             <a onclick="goToPage('access')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="access">
                 <span class="material-icons-outlined mr-2 text-[16px]">group</span>Access & Roles
             </a>
@@ -464,17 +592,23 @@
     </aside>
 
     <!-- Main Content -->
-    <div id="app-main" class="flex-1 flex flex-col overflow-hidden opacity-0 transition-opacity duration-500">
+    <div id="app-main" class="app-main-shell flex min-h-0 flex-1 flex-col overflow-hidden opacity-0 transition-opacity duration-500">
         <!-- Header -->
-        <header class="px-5 py-2 flex-shrink-0" style="background:var(--bg-card);border-bottom:1px solid var(--border-default);">
+        <header class="app-chrome px-5 py-2 flex-shrink-0 border-b" style="background:var(--bg-card);border-color:var(--border-default);">
             <div class="flex items-center justify-between gap-3 min-w-0">
                 <div class="min-w-0" style="flex:1 1 0;min-width:200px;">
-                    <div class="flex items-center gap-1 text-[10px] mb-0 whitespace-nowrap overflow-hidden uppercase tracking-wider font-medium" style="color:var(--text-muted);">
-                        <span>Platform</span>
-                        <span class="material-icons-outlined text-[10px]">chevron_right</span>
-                        <span class="truncate" id="header-title" style="color:var(--text-secondary);">Agent Hub</span>
+                    <div class="flex items-center gap-2 flex-wrap text-[10px] mb-0.5 min-h-[18px]">
+                        <div class="flex items-center gap-1 whitespace-nowrap overflow-hidden uppercase tracking-wider font-medium" style="color:var(--text-muted);">
+                            <span>Platform</span>
+                            <span class="material-icons-outlined text-[10px]">chevron_right</span>
+                            <span class="truncate" id="header-title" style="color:var(--text-secondary);">Agent Hub</span>
+                        </div>
+                        <span class="status-pulse shrink-0 inline-flex" title="Orchestration layer active">
+                            <span class="status-dot" aria-hidden="true"></span>
+                            Live
+                        </span>
                     </div>
-                    <h1 class="text-[14px] font-semibold truncate" id="step-title" style="color:var(--text-primary);">Agent Hub</h1>
+                    <h1 class="text-[14px] font-semibold truncate gradient-title" id="step-title" style="color:var(--text-primary);">Agent Hub</h1>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
                     <div class="relative">
@@ -514,13 +648,27 @@
             </div>
         </header>
 
+        <!-- Value Loop Bar -->
+        <div id="value-loop-bar" class="flex items-center justify-center gap-0 px-5 py-1 shrink-0 relative z-[1]"
+             style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);font-size:10px;">
+            <span class="vl-phase" data-phase="objective" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Objective</span>
+            <span style="color:var(--text-muted);font-size:9px;margin:0 2px;">&#8594;</span>
+            <span class="vl-phase" data-phase="build" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Build</span>
+            <span style="color:var(--text-muted);font-size:9px;margin:0 2px;">&#8594;</span>
+            <span class="vl-phase" data-phase="execute" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Execute</span>
+            <span style="color:var(--text-muted);font-size:9px;margin:0 2px;">&#8594;</span>
+            <span class="vl-phase" data-phase="measure" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Measure</span>
+            <span style="color:var(--text-muted);font-size:9px;margin:0 2px;">&#8594;</span>
+            <span class="vl-phase" data-phase="optimize" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Optimize</span>
+        </div>
+
         <!-- Step Content Area -->
-        <div class="flex-1 overflow-y-auto p-5 page-enter" id="step-content">
+        <div class="min-h-0 flex-1 overflow-y-auto p-5 page-enter relative z-[1]" id="step-content">
         </div>
     </div>
 
-    <script src="js/api.js?v=16" type="module"></script>
-    <script src="js/steps.js?v=16" type="module"></script>
-    <script src="js/app.js?v=16"></script>
+    <script src="js/api.js?v=27" type="module"></script>
+    <script src="js/steps.js?v=27" type="module"></script>
+    <script src="js/app.js?v=27"></script>
 </body>
 </html>
