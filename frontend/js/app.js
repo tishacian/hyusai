@@ -152,7 +152,7 @@ function toggleBuilderNav() {
 })();
 
 async function loadStepModules() {
-    const mod = await import('./steps.js?v=31');
+    const mod = await import('./steps.js?v=32');
     return mod;
 }
 
@@ -339,6 +339,8 @@ async function goToPage(page, opts) {
         if (title) title.textContent = 'System';
         if (sub) sub.textContent = sys.name;
         content.innerHTML = mod.page_systemView(sys, activeSystemTab);
+        const tabC = document.getElementById('system-tab-content');
+        if (tabC) await _renderSystemTabContent(tabC, activeSystemTab, sys);
         _initSystemViewTab(activeSystemTab, sys);
     } else if (page === 'runs') {
         content.innerHTML = mod.page_globalRuns();
@@ -470,11 +472,16 @@ function filterSystems(query) {
 function createNewSystem() {
     const id = 'sys_' + Date.now();
     const sys = { id, name:'New System', objective:'', status:'draft', icon:'smart_toy', color:'var(--accent)',
-        agents:[], knowledge:{docs:0,chunks:0,lastSync:'—'}, skills:[], flow:null,
+        ragMode:'auto',
+        agents:[{ id:'agent_'+Date.now(), name:'New Agent', model:'gpt-4o', type:'Custom', prompt:'' }],
+        knowledge:{docs:0,chunks:0,lastSync:'—'}, skills:[], flow:null,
         runs:{total:0,lastRun:'—',successRate:0}, impact:{roi:'—',costPerRun:'—',timeSaved:'—'},
-        lastAction:'', lastActionTime:0 };
+        lastAction:'System created', lastActionTime:Date.now() };
     createSystem(sys);
-    openSystem(id);
+    activeSystemId = id;
+    activeSystemTab = 'settings';
+    goToPage('systemView', { systemId: id });
+    showToast('System created — configure it below');
 }
 
 function toggleSystemSkill(sysId, skillId, el) {
@@ -511,7 +518,7 @@ function deleteSystemAndReturn(sysId) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function _loadSystemOverview(sys) {
-    // Overview is static HTML from systemTab_overview, nothing async needed
+    // No async needed — overview is rendered from template with setup wizard
 }
 
 function loadSystemRuns(sys) {
@@ -1591,23 +1598,44 @@ function launchFromObjective(text) {
     if (!text || !text.trim()) { showToast('Please describe your objective'); return; }
     const obj = text.trim();
     const words = obj.split(/\s+/).slice(0, 4).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    savedAgentName = words + ' Agent';
-    savedAgentType = 'Custom';
+    const sysName = words + ' System';
+    const prompt = 'You are an intelligent AI agent. Your objective: ' + obj + '. Analyze available data, provide structured insights, cite sources, and recommend actions. Be precise and business-oriented.';
+    const id = 'sys_' + Date.now();
+    const sys = { id, name: sysName, objective: obj, status:'live', icon:'bolt', color:'var(--accent)', ragMode:'auto',
+        agents:[{ id:'agent_'+Date.now(), name: sysName.replace(' System','Agent'), model:'gpt-4o', type:'Custom', prompt }],
+        knowledge:{docs:0,chunks:0,lastSync:'—'}, skills:['web_search','doc_parser'], flow:null,
+        runs:{total:0,lastRun:'—',successRate:0}, impact:{roi:'—',costPerRun:'—',timeSaved:'—'},
+        lastAction:'System created from objective', lastActionTime:Date.now() };
+    createSystem(sys);
+    savedAgentName = sys.agents[0].name;
     savedModel = 'gpt-4o';
-    savedSystemPrompt = 'You are an intelligent AI agent. Your objective: ' + obj + '. Analyze available data, provide structured insights, cite sources, and recommend actions. Be precise and business-oriented.';
-    currentAgentId = 'objective_' + Date.now();
-    _showGenerationOverlay(() => goToStep(6));
+    savedSystemPrompt = prompt;
+    _showGenerationOverlay(() => {
+        activeSystemId = id;
+        activeSystemTab = 'runs';
+        goToPage('systemView', { systemId: id });
+    });
 }
 
 function launchFromTemplate(tplId) {
     const tpl = HUB_TEMPLATES[tplId];
     if (!tpl) return;
+    const id = 'sys_' + Date.now();
+    const sys = { id, name: tpl.name + ' System', objective: tpl.name, status:'live', icon:'bolt', color:'var(--accent)', ragMode:'auto',
+        agents:[{ id:'agent_'+Date.now(), name: tpl.name, model: tpl.model, type: tpl.type, prompt: tpl.prompt }],
+        knowledge:{docs:0,chunks:0,lastSync:'—'}, skills:['web_search','doc_parser'], flow:null,
+        runs:{total:0,lastRun:'—',successRate:0}, impact:{roi:'—',costPerRun:'—',timeSaved:'—'},
+        lastAction:'Created from template', lastActionTime:Date.now() };
+    createSystem(sys);
     savedAgentName = tpl.name;
     savedAgentType = tpl.type;
     savedModel = tpl.model;
     savedSystemPrompt = tpl.prompt;
-    currentAgentId = 'tpl_' + tplId;
-    _showGenerationOverlay(() => goToStep(6));
+    _showGenerationOverlay(() => {
+        activeSystemId = id;
+        activeSystemTab = 'runs';
+        goToPage('systemView', { systemId: id });
+    });
 }
 
 function _showGenerationOverlay(onComplete) {

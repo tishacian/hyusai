@@ -1615,15 +1615,54 @@ export function systemTab_overview(sys) {
         { label:'Time Saved', value: sys.impact?.timeSaved || '—', icon:'schedule', color:'var(--success)' },
         { label:'Knowledge', value: (sys.knowledge?.docs || 0)+' docs / '+(sys.knowledge?.chunks||0)+' chunks', icon:'library_books', color:'var(--info)' },
     ];
+    const isDraft = sys.status === 'draft' || (!sys.objective && !agent.prompt && !(sys.skills?.length));
+    const setupSteps = [
+        { done: !!sys.objective, label:'Set objective', action:"switchSystemTab('settings')", icon:'flag' },
+        { done: !!agent.prompt, label:'Configure reasoning engine', action:"switchSystemTab('settings')", icon:'psychology' },
+        { done: (sys.knowledge?.docs||0)>0, label:'Upload knowledge base', action:"switchSystemTab('design')", icon:'library_books' },
+        { done: (sys.skills?.length||0)>0, label:'Enable skills', action:"switchSystemTab('settings')", icon:'build_circle' },
+        { done: (sys.runs?.total||0)>0, label:'Run first query', action:"switchSystemTab('runs')", icon:'play_circle' },
+    ];
+    const doneCount = setupSteps.filter(s=>s.done).length;
+    const pct = Math.round(doneCount/setupSteps.length*100);
+
     return `
     <div class="space-y-4">
+        ${isDraft ? `
+        <!-- Setup Wizard -->
+        <div class="t-card p-4" style="border-radius:var(--radius);border-left:3px solid var(--warning);background:linear-gradient(135deg, var(--bg-card) 0%, rgba(245,158,11,0.06) 100%);">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="material-icons-outlined text-base" style="color:var(--warning);">rocket_launch</span>
+                    <span class="text-[12px] font-semibold" style="color:var(--text-primary);">Setup your system</span>
+                    <span class="text-[9px] px-1.5 py-0.5 font-medium" style="background:var(--bg-elevated);color:var(--text-muted);border-radius:var(--radius-xs);">${doneCount}/${setupSteps.length}</span>
+                </div>
+                <span class="text-[10px] font-medium" style="color:var(--warning);">${pct}% complete</span>
+            </div>
+            <div class="w-full h-1.5 rounded-full mb-3" style="background:var(--bg-elevated);">
+                <div class="h-full rounded-full transition-all" style="width:${pct}%;background:var(--warning);"></div>
+            </div>
+            <div class="space-y-1.5">
+                ${setupSteps.map(s => `
+                <div class="flex items-center gap-2 p-2 rounded-md cursor-pointer" style="background:${s.done?'rgba(16,185,129,0.06)':'var(--bg-elevated)'};" onclick="${s.action}">
+                    <span class="material-icons-outlined text-xs" style="color:${s.done?'var(--success)':'var(--text-muted)'};">${s.done?'check_circle':'radio_button_unchecked'}</span>
+                    <span class="material-icons-outlined text-xs" style="color:${s.done?'var(--text-muted)':'var(--accent)'};">${s.icon}</span>
+                    <span class="text-[11px] font-medium" style="color:${s.done?'var(--text-muted)':'var(--text-primary)'}; ${s.done?'text-decoration:line-through;':''}">${s.label}</span>
+                    ${!s.done ? '<span class="material-icons-outlined text-[10px] ml-auto" style="color:var(--accent);">chevron_right</span>' : ''}
+                </div>`).join('')}
+            </div>
+        </div>` : ''}
+
         <!-- Objective -->
         <div class="t-card p-4" style="border-radius:var(--radius);border-left:3px solid ${sys.color || 'var(--accent)'};">
             <div class="flex items-center gap-2 mb-1">
                 <span class="material-icons-outlined text-sm" style="color:var(--accent);">flag</span>
                 <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Objective</span>
             </div>
-            <p class="text-[13px]" style="color:var(--text-primary);">${sys.objective || 'No objective defined'}</p>
+            ${sys.objective
+                ? `<p class="text-[13px]" style="color:var(--text-primary);">${sys.objective}</p>`
+                : `<p class="text-[12px] italic" style="color:var(--text-muted);">No objective defined yet. <button onclick="switchSystemTab('settings')" class="font-medium" style="color:var(--accent);">Set one →</button></p>`
+            }
         </div>
 
         <!-- OmniRAG Capabilities Banner -->
@@ -1677,7 +1716,10 @@ export function systemTab_overview(sys) {
                     </div>
                     <div class="p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
                         <span class="text-[10px]" style="color:var(--text-muted);">System Prompt</span>
-                        <p class="text-[10px] mt-1 line-clamp-3" style="color:var(--text-secondary);font-family:'JetBrains Mono',monospace;">${agent.prompt ? agent.prompt.substring(0,180)+'…' : 'No prompt configured'}</p>
+                        ${agent.prompt
+                            ? `<p class="text-[10px] mt-1 line-clamp-3" style="color:var(--text-secondary);font-family:'JetBrains Mono',monospace;">${agent.prompt.substring(0,180)}…</p>`
+                            : `<p class="text-[10px] mt-1 italic" style="color:var(--text-muted);">Not configured. <button onclick="switchSystemTab('settings')" class="font-medium" style="color:var(--accent);">Configure →</button></p>`
+                        }
                     </div>
                 </div>
             </div>
