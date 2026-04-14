@@ -21,7 +21,7 @@ let activeSystemTab = 'overview';
 
 const PREBUILT_SYSTEMS = [
     { id:'sys_procurement', name:'Procurement Risk Analysis', objective:'Validate vendor compliance and assess procurement risks',
-      status:'live', icon:'verified_user', color:'#00bcd4',
+      status:'live', icon:'verified_user', color:'#00bcd4', ragMode:'hah',
       agents:[{id:'procurement',name:'Procurement Agent',model:'gpt-4o',type:'Procurement',
         prompt:'You are a procurement compliance agent. Validate vendor documents, check regulatory compliance, and flag risks.'}],
       knowledge:{docs:12,chunks:1240,lastSync:'2 min ago'}, skills:['sap_api','email','doc_parser'],
@@ -29,7 +29,7 @@ const PREBUILT_SYSTEMS = [
       impact:{roi:'+320%',costPerRun:'$0.18',timeSaved:'42%'},
       lastAction:'Retrieved 3 docs → Generated risk score', lastActionTime:Date.now()-120000 },
     { id:'sys_legal', name:'Contract Intelligence', objective:'Analyze contracts for risks, obligations, and compliance issues',
-      status:'live', icon:'gavel', color:'#8b5cf6',
+      status:'live', icon:'gavel', color:'#8b5cf6', ragMode:'chah',
       agents:[{id:'legal',name:'Legal Review',model:'gpt-4o',type:'Legal',
         prompt:'You are a contract analysis agent. Extract clauses, identify risks, and assess regulatory compliance.'}],
       knowledge:{docs:8,chunks:890,lastSync:'15 min ago'}, skills:['doc_parser','compliance_check'],
@@ -37,7 +37,7 @@ const PREBUILT_SYSTEMS = [
       impact:{roi:'+280%',costPerRun:'$0.22',timeSaved:'38%'},
       lastAction:'Analyzed contract → Flagged 2 risk clauses', lastActionTime:Date.now()-900000 },
     { id:'sys_hr', name:'HR Knowledge Assistant', objective:'Answer HR policy questions, support onboarding, manage leave requests',
-      status:'idle', icon:'people', color:'#f59e0b',
+      status:'idle', icon:'people', color:'#f59e0b', ragMode:'naive',
       agents:[{id:'hr',name:'HR Assistant',model:'gpt-4o-mini',type:'HR',
         prompt:'You are an HR assistant. Answer policy questions, help with onboarding, and manage leave queries.'}],
       knowledge:{docs:5,chunks:420,lastSync:'1 hour ago'}, skills:['email','calendar'],
@@ -45,7 +45,7 @@ const PREBUILT_SYSTEMS = [
       impact:{roi:'+150%',costPerRun:'$0.04',timeSaved:'25%'},
       lastAction:'Answered policy query → Leave balance retrieved', lastActionTime:Date.now()-3600000 },
     { id:'sys_finance', name:'Financial Analysis Engine', objective:'Analyze statements, track budgets, forecast expenses, validate invoices',
-      status:'live', icon:'account_balance', color:'#10b981',
+      status:'live', icon:'account_balance', color:'#10b981', ragMode:'hybrid',
       agents:[{id:'finance',name:'Financial Analyst',model:'gpt-4o',type:'Finance',
         prompt:'You are a financial analyst agent. Analyze statements, track budgets, create forecasts, and validate expenses.'}],
       knowledge:{docs:15,chunks:1800,lastSync:'5 min ago'}, skills:['sap_api','excel_parser','bi_connector'],
@@ -55,7 +55,23 @@ const PREBUILT_SYSTEMS = [
 ];
 
 function _initSystems() {
-    if (localStorage.getItem('aip_systems')) return;
+    const existing = localStorage.getItem('aip_systems');
+    if (existing) {
+        // Patch prebuilt systems with ragMode if missing
+        try {
+            const sys = JSON.parse(existing);
+            let patched = false;
+            PREBUILT_SYSTEMS.forEach(pb => {
+                const idx = sys.findIndex(s => s.id === pb.id);
+                if (idx >= 0 && !sys[idx].ragMode && pb.ragMode) {
+                    sys[idx].ragMode = pb.ragMode;
+                    patched = true;
+                }
+            });
+            if (patched) localStorage.setItem('aip_systems', JSON.stringify(sys));
+        } catch(_) {}
+        return;
+    }
     const legacy = JSON.parse(localStorage.getItem('aip_agents') || '[]');
     const migrated = legacy.map(a => ({
         id: 'sys_' + (a.id || Date.now()), name: a.name || 'Untitled System',
@@ -136,7 +152,7 @@ function toggleBuilderNav() {
 })();
 
 async function loadStepModules() {
-    const mod = await import('./steps.js?v=30');
+    const mod = await import('./steps.js?v=31');
     return mod;
 }
 
@@ -416,9 +432,12 @@ function _systemCard(s) {
                     <p class="text-[10px] line-clamp-1" style="color:var(--text-muted);">${s.objective || 'No objective'}</p>
                 </div>
             </div>
-            <div class="exec-pulse shrink-0">
-                <span class="pulse-dot ${s.status || 'draft'}" style="background:${statusDot};"></span>
-                <span class="text-[9px] capitalize">${s.status || 'draft'}</span>
+            <div class="flex items-center gap-1.5 shrink-0">
+                ${s.ragMode && s.ragMode !== 'auto' ? `<span class="px-1 py-0.5 text-[7px] font-bold uppercase" style="background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:3px;">${{naive:'NAIVE',hybrid:'HYBRID',hah:'HAH',chah:'C-HAH'}[s.ragMode]||s.ragMode}</span>` : ''}
+                <div class="exec-pulse">
+                    <span class="pulse-dot ${s.status || 'draft'}" style="background:${statusDot};"></span>
+                    <span class="text-[9px] capitalize">${s.status || 'draft'}</span>
+                </div>
             </div>
         </div>
         <div class="grid grid-cols-3 gap-2 mt-3 pt-3" style="border-top:1px solid var(--border-default);">
@@ -458,6 +477,28 @@ function createNewSystem() {
     openSystem(id);
 }
 
+function toggleSystemSkill(sysId, skillId, el) {
+    const sys = getSystem(sysId);
+    if (!sys) return;
+    const skills = sys.skills || [];
+    const idx = skills.indexOf(skillId);
+    if (idx >= 0) skills.splice(idx, 1);
+    else skills.push(skillId);
+    updateSystem(sysId, { skills });
+    // Visual toggle
+    const on = skills.includes(skillId);
+    if (el) {
+        el.style.background = on ? 'var(--accent-subtle)' : 'var(--bg-elevated)';
+        el.style.borderColor = on ? 'var(--border-active)' : 'var(--border-default)';
+        const icon = el.querySelector('.material-icons-outlined');
+        if (icon) icon.style.color = on ? 'var(--accent)' : 'var(--text-muted)';
+        const label = el.querySelector('span:nth-child(2)');
+        if (label) label.style.color = on ? 'var(--text-primary)' : 'var(--text-muted)';
+        const dot = el.querySelector('span:last-child');
+        if (dot) dot.style.background = on ? 'var(--accent)' : 'var(--border-default)';
+    }
+}
+
 function deleteSystemAndReturn(sysId) {
     const sys = listSystems().filter(s => s.id !== sysId);
     localStorage.setItem('aip_systems', JSON.stringify(sys));
@@ -474,11 +515,21 @@ function _loadSystemOverview(sys) {
 }
 
 function loadSystemRuns(sys) {
+    // Init the inline playground chat
+    const agent = sys.agents?.[0];
+    if (agent) {
+        savedAgentName = agent.name || sys.name;
+        savedModel = agent.model || 'gpt-4o';
+        savedSystemPrompt = agent.prompt || '';
+    }
+    requestAnimationFrame(() => initChat());
+
+    // Populate run history
     const container = document.getElementById('system-runs-list');
     if (!container) return;
     const runs = _getSimulatedRuns(sys);
     if (!runs.length) {
-        container.innerHTML = '<div class="text-center py-8"><span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">play_circle</span><p class="text-[12px] font-medium" style="color:var(--text-secondary);">No runs yet</p><p class="text-[11px]" style="color:var(--text-muted);">Click "New Run" to execute this system.</p></div>';
+        container.innerHTML = '<div class="text-center py-4"><span class="material-icons-outlined text-2xl mb-1" style="color:var(--text-muted);">play_circle</span><p class="text-[11px]" style="color:var(--text-muted);">Run history will appear here after your first query above.</p></div>';
         return;
     }
     container.innerHTML = runs.map((r, i) => `
@@ -509,23 +560,31 @@ function _getSimulatedRuns(sys) {
     return samples.slice(0, Math.min(5, sys.runs.total));
 }
 
-function loadSystemIntelligence(sys) {
-    // Placeholder: in-system intelligence view
+async function loadSystemIntelligence(sys) {
+    const container = document.getElementById('sys-quality-container');
+    if (!container) return;
+    const mod = await loadStepModules();
+    container.innerHTML = mod.page_agentQuality();
+    loadQualityPage();
 }
 
 function openSystemRun(sysId) {
     activeSystemId = sysId;
-    activeSystemTab = 'runs';
     const sys = getSystem(sysId);
     if (!sys) return;
-    // Switch to the Execution step (Step 6 = chat) with system context
     const agent = sys.agents?.[0];
     if (agent) {
         savedAgentName = agent.name || sys.name;
         savedModel = agent.model || 'gpt-4o';
         savedSystemPrompt = agent.prompt || '';
     }
-    goToStep(6);
+    // Stay in system view, switch to runs tab with inline playground
+    if (currentPage === 'systemView') {
+        switchSystemTab('runs');
+    } else {
+        activeSystemTab = 'runs';
+        goToPage('systemView', { systemId: sysId });
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -540,11 +599,11 @@ var canvasDragStart = { x:0, y:0 };
 var canvasShowTech = false;
 
 const CANVAS_BLOCKS = [
-    { id:'decision', label:'Decision Engine', alias:'LLM + Agents + Prompts', icon:'psychology', color:'#6366f1', x:300, y:30, steps:[1,2], initHooks:['loadRAGSettings'] },
-    { id:'knowledge', label:'Knowledge', alias:'RAG + Vector Store + Docs', icon:'library_books', color:'#00bcd4', x:80, y:160, steps:[3], initHooks:['initFileUpload','loadKBStats'] },
+    { id:'decision', label:'Decision Engine', alias:'LLM + Agents + Prompts + OmniRAG', icon:'psychology', color:'#6366f1', x:300, y:30, steps:[1,2], initHooks:['loadRAGSettings'] },
+    { id:'knowledge', label:'Knowledge', alias:'RAG Pipeline + Vector Store + Docs', icon:'library_books', color:'#00bcd4', x:80, y:160, steps:[3], initHooks:['initFileUpload','loadKBStats'] },
     { id:'skills', label:'Skills', alias:'Tools + APIs + Connectors', icon:'build_circle', color:'#f59e0b', x:520, y:160, steps:[4], initHooks:[] },
     { id:'guardrails', label:'Controls', alias:'Governance + Filters + RBAC', icon:'shield', color:'#ef4444', x:80, y:300, steps:[5], initHooks:[] },
-    { id:'output', label:'Execution', alias:'Chat + Streaming + TTS', icon:'terminal', color:'#10b981', x:520, y:300, steps:[6], initHooks:['initChat'] },
+    { id:'output', label:'Execution', alias:'Chat + Streaming + TTS + Playground', icon:'terminal', color:'#10b981', x:520, y:300, steps:[6], initHooks:['initChat'] },
     { id:'flow', label:'Flow', alias:'Drawflow Pipeline Editor', icon:'account_tree', color:'#8b5cf6', x:300, y:300, steps:['flow'], initHooks:['initWorkflowEditor'] },
 ];
 
@@ -568,11 +627,16 @@ function initDesignCanvas(sys) {
         div.id = 'cb-' + b.id;
         div.style.left = b.x + 'px';
         div.style.top = b.y + 'px';
+        const l2 = _getCanvasL2(b, sys);
+        const ragMode = sys.ragMode || localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
+        const ragBadge = (b.id === 'decision' || b.id === 'knowledge') ? `<span style="display:inline-block;margin-top:4px;padding:1px 5px;font-size:8px;font-weight:600;background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:4px;">${{auto:'AUTO',naive:'NAIVE',hybrid:'HYBRID',hah:'HAH',chah:'C-HAH'}[ragMode]||ragMode}</span>` : '';
         div.innerHTML = `
             <div class="cb-icon" style="background:${b.color}20;"><span class="material-icons-outlined" style="color:${b.color};">${b.icon}</span></div>
-            <div class="cb-label">${b.label}</div>
+            <div class="cb-label">${b.label}</div>${ragBadge}
             <div class="cb-alias">${b.alias}</div>
-            <div class="cb-status"><span style="width:5px;height:5px;border-radius:50%;background:var(--success);"></span> Active</div>`;
+            <div class="cb-l2" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid var(--border-default);font-size:9px;color:var(--text-secondary);line-height:1.5;">${l2}</div>
+            <div class="cb-status"><span style="width:5px;height:5px;border-radius:50%;background:var(--success);"></span> Active</div>
+            <div style="margin-top:4px;"><button onclick="event.stopPropagation();openDesignBlock(CANVAS_BLOCKS.find(x=>x.id==='${b.id}'),getSystem('${sys.id}'))" class="text-[8px] font-medium flex items-center gap-0.5" style="color:var(--accent);">Configure <span class="material-icons-outlined text-[9px]">open_in_new</span></button></div>`;
         div.ondblclick = (e) => { e.stopPropagation(); openDesignBlock(b, sys); };
         div.onclick = (e) => { e.stopPropagation(); _selectCanvasBlock(b.id); };
         world.appendChild(div);
@@ -631,15 +695,38 @@ function canvasToggleTech(show) {
     document.querySelectorAll('.cb-alias').forEach(el => el.style.display = show ? 'block' : '');
 }
 
+function _getCanvasL2(block, sys) {
+    const agent = sys.agents?.[0] || {};
+    const ragMode = sys.ragMode || localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
+    const ragLabels = { auto:'Auto-Select', naive:'Naive', hybrid:'Hybrid RRF', hah:'HAH', chah:'C-HAH' };
+    switch (block.id) {
+        case 'decision': return `<b>Model:</b> ${agent.model||'gpt-4o'}<br><b>Provider:</b> ${(agent.model||'').startsWith('gpt')?'OpenAI':'Auto'}<br><b>RAG:</b> ${ragLabels[ragMode]||ragMode}<br><b>Prompt:</b> ${agent.prompt ? agent.prompt.substring(0,60)+'…' : '—'}`;
+        case 'knowledge': return `<b>Documents:</b> ${sys.knowledge?.docs||0}<br><b>Chunks:</b> ${sys.knowledge?.chunks||0}<br><b>Last sync:</b> ${sys.knowledge?.lastSync||'—'}<br><b>Pipeline:</b> ${ragLabels[ragMode]}`;
+        case 'skills': return (sys.skills||[]).length ? `<b>Active (${sys.skills.length}):</b><br>${sys.skills.join(', ')}` : '<b>No skills enabled</b>';
+        case 'guardrails': return `<b>Compliance:</b> Active<br><b>Safety filters:</b> Configured<br><b>RBAC:</b> Enabled`;
+        case 'output': return `<b>Chat:</b> Streaming SSE<br><b>Voice:</b> TTS + Mic<br><b>Traces:</b> 3-level disclosure<br><b>ROI:</b> Post-run card`;
+        case 'flow': return sys.flow ? '<b>Pipeline:</b> Active flow configured' : '<b>No flow defined</b><br>Double-click to open editor';
+        default: return '';
+    }
+}
+
 function _selectCanvasBlock(blockId) {
     const wasActive = document.getElementById('cb-' + blockId)?.classList.contains('active');
-    document.querySelectorAll('.canvas-block').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.canvas-block').forEach(b => {
+        b.classList.remove('active');
+        const l2 = b.querySelector('.cb-l2');
+        if (l2) l2.style.display = 'none';
+    });
     const container = document.getElementById('design-canvas');
     if (wasActive) {
         if (container) container.classList.remove('focus-mode');
     } else {
         const el = document.getElementById('cb-' + blockId);
-        if (el) el.classList.add('active');
+        if (el) {
+            el.classList.add('active');
+            const l2 = el.querySelector('.cb-l2');
+            if (l2) l2.style.display = 'block';
+        }
         if (container) container.classList.add('focus-mode');
     }
 }

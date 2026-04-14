@@ -1598,13 +1598,22 @@ function _relativeTime(ts) {
 }
 
 export function systemTab_overview(sys) {
+    const agent = sys.agents?.[0] || {};
+    const ragMode = sys.ragMode || localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
+    const ragLabels = { auto:'Auto-Select', naive:'Naive RAG', hybrid:'Hybrid RRF', hah:'HAH (Hybrid Attention Hierarchical)', chah:'C-HAH (Composite HAH)' };
+    const ragColors = { auto:'var(--accent)', naive:'var(--text-muted)', hybrid:'var(--info)', hah:'#8b5cf6', chah:'#f59e0b' };
+    const ragDescs = { auto:'Automatically selects best pipeline based on index size and query complexity', naive:'Dense vector retrieval only — fast, single-pass', hybrid:'FAISS dense + BM25 sparse + Reciprocal Rank Fusion', hah:'Two-pass hybrid: hierarchical attention with cross-encoder reranking (OmniRAG R&D)', chah:'Parallel composite HAH: multi-path retrieval fused via weighted RRF (OmniRAG R&D)' };
+
+    const skillNames = { sap_api:'SAP API', email:'Email', doc_parser:'Doc Parser', compliance_check:'Compliance', calendar:'Calendar', excel_parser:'Excel', bi_connector:'BI Connector', web_search:'Web Search', code_interpreter:'Code Interpreter', sql_query:'SQL Query', api_connector:'API Connector', memory:'Memory' };
+    const skillIcons = { sap_api:'integration_instructions', email:'mail', doc_parser:'description', compliance_check:'verified', calendar:'calendar_today', excel_parser:'table_chart', bi_connector:'analytics', web_search:'travel_explore', code_interpreter:'code', sql_query:'table_chart', api_connector:'api', memory:'memory' };
+
     const kpis = [
         { label:'Total Runs', value: sys.runs?.total || 0, icon:'play_circle', color:'var(--accent)' },
         { label:'Success Rate', value: (sys.runs?.successRate || 0)+'%', icon:'check_circle', color:'var(--success)' },
         { label:'ROI Impact', value: sys.impact?.roi || '—', icon:'trending_up', color:'var(--info)' },
         { label:'Cost/Run', value: sys.impact?.costPerRun || '—', icon:'payments', color:'var(--warning)' },
         { label:'Time Saved', value: sys.impact?.timeSaved || '—', icon:'schedule', color:'var(--success)' },
-        { label:'Knowledge', value: (sys.knowledge?.docs || 0)+' docs', icon:'library_books', color:'var(--info)' },
+        { label:'Knowledge', value: (sys.knowledge?.docs || 0)+' docs / '+(sys.knowledge?.chunks||0)+' chunks', icon:'library_books', color:'var(--info)' },
     ];
     return `
     <div class="space-y-4">
@@ -1617,6 +1626,25 @@ export function systemTab_overview(sys) {
             <p class="text-[13px]" style="color:var(--text-primary);">${sys.objective || 'No objective defined'}</p>
         </div>
 
+        <!-- OmniRAG Capabilities Banner -->
+        <div class="t-card p-4" style="border-radius:var(--radius);background:linear-gradient(135deg, var(--bg-card) 0%, rgba(139,92,246,0.06) 100%);">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="material-icons-outlined text-base" style="color:#8b5cf6;">neurology</span>
+                    <span class="text-[11px] font-semibold" style="color:var(--text-primary);">OmniRAG Pipeline</span>
+                    <span class="px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider" style="background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:var(--radius-xs);">R&D</span>
+                </div>
+                <button onclick="switchSystemTab('settings')" class="text-[9px] font-medium flex items-center gap-0.5" style="color:var(--accent);">Configure <span class="material-icons-outlined text-[10px]">chevron_right</span></button>
+            </div>
+            <div class="flex items-center gap-2 mb-2">
+                <span class="px-2 py-1 text-[11px] font-semibold" style="background:${ragColors[ragMode]}20;color:${ragColors[ragMode]};border-radius:var(--radius-sm);border:1px solid ${ragColors[ragMode]}40;">${ragLabels[ragMode] || ragMode}</span>
+                <span class="text-[10px]" style="color:var(--text-muted);">${ragDescs[ragMode] || ''}</span>
+            </div>
+            <div class="flex gap-1.5 flex-wrap mt-2">
+                ${['auto','naive','hybrid','hah','chah'].map(m => `<span class="px-1.5 py-0.5 text-[8px] font-medium" style="background:${m===ragMode ? ragColors[m]+'20' : 'var(--bg-elevated)'};color:${m===ragMode ? ragColors[m] : 'var(--text-muted)'};border-radius:var(--radius-xs);border:1px solid ${m===ragMode ? ragColors[m]+'40' : 'var(--border-default)'};">${ragLabels[m]}</span>`).join('')}
+            </div>
+        </div>
+
         <!-- KPI Grid -->
         <div class="grid grid-cols-3 md:grid-cols-6 gap-2">
             ${kpis.map(k => `
@@ -1627,15 +1655,62 @@ export function systemTab_overview(sys) {
             </div>`).join('')}
         </div>
 
-        <!-- Execution Pulse + Last Actions -->
-        <div class="t-card p-4" style="border-radius:var(--radius);">
-            <div class="flex items-center gap-2 mb-3">
-                <span class="material-icons-outlined text-sm" style="color:var(--accent);">electric_bolt</span>
-                <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Last Actions</span>
+        <!-- Model + Reasoning Engine -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="t-card p-4" style="border-radius:var(--radius);">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="material-icons-outlined text-sm" style="color:#8b5cf6;">psychology</span>
+                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Reasoning Engine</span>
+                </div>
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                        <span class="text-[10px]" style="color:var(--text-muted);">Model</span>
+                        <span class="text-[11px] font-semibold" style="color:var(--text-primary);">${agent.model || 'gpt-4o'}</span>
+                    </div>
+                    <div class="flex items-center justify-between p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                        <span class="text-[10px]" style="color:var(--text-muted);">Provider</span>
+                        <span class="text-[11px] font-semibold" style="color:var(--text-primary);">${(agent.model||'').startsWith('gpt')?'OpenAI':(agent.model||'').startsWith('claude')?'Anthropic':'Auto'}</span>
+                    </div>
+                    <div class="flex items-center justify-between p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                        <span class="text-[10px]" style="color:var(--text-muted);">Type</span>
+                        <span class="text-[11px] font-semibold" style="color:var(--text-primary);">${agent.type || sys.agents?.[0]?.type || 'Custom'}</span>
+                    </div>
+                    <div class="p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                        <span class="text-[10px]" style="color:var(--text-muted);">System Prompt</span>
+                        <p class="text-[10px] mt-1 line-clamp-3" style="color:var(--text-secondary);font-family:'JetBrains Mono',monospace;">${agent.prompt ? agent.prompt.substring(0,180)+'…' : 'No prompt configured'}</p>
+                    </div>
+                </div>
             </div>
-            <div id="sys-last-actions" class="space-y-2">
+
+            <!-- Active Skills -->
+            <div class="t-card p-4" style="border-radius:var(--radius);">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="material-icons-outlined text-sm" style="color:var(--warning);">build_circle</span>
+                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Active Skills</span>
+                    <span class="text-[9px] px-1 py-0.5 font-medium" style="background:var(--bg-elevated);color:var(--text-muted);border-radius:var(--radius-xs);">${sys.skills?.length || 0}</span>
+                </div>
+                ${sys.skills?.length ? `<div class="grid grid-cols-2 gap-1.5">${sys.skills.map(sk => `
+                    <div class="flex items-center gap-1.5 p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                        <span class="material-icons-outlined text-xs" style="color:var(--accent);">${skillIcons[sk]||'extension'}</span>
+                        <span class="text-[10px] font-medium" style="color:var(--text-primary);">${skillNames[sk]||sk}</span>
+                    </div>`).join('')}</div>` : `<p class="text-[11px]" style="color:var(--text-muted);">No skills enabled. <button onclick="switchSystemTab('settings')" class="font-medium" style="color:var(--accent);">Configure →</button></p>`}
+            </div>
+        </div>
+
+        <!-- Execution Pulse + Last Actions + Quick Run -->
+        <div class="t-card p-4" style="border-radius:var(--radius);">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="material-icons-outlined text-sm" style="color:var(--accent);">electric_bolt</span>
+                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Activity & Playground</span>
+                </div>
+                <button onclick="switchSystemTab('runs')" class="px-2.5 py-1 text-[10px] font-medium text-white flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-[11px]">play_arrow</span>Open Playground
+                </button>
+            </div>
+            <div id="sys-last-actions" class="space-y-1.5">
                 <div class="flex items-center gap-2 p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
-                    <span class="pulse-dot ${sys.status || 'draft'}" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;"></span>
+                    <span class="pulse-dot ${sys.status || 'draft'}" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:${sys.status==='live'?'var(--success)':sys.status==='idle'?'var(--warning)':'var(--text-muted)'};"></span>
                     <span class="text-[11px]" style="color:var(--text-secondary);">${sys.lastAction || 'No recent activity'}</span>
                     <span class="text-[9px] ml-auto" style="color:var(--text-muted);">${_relativeTime(sys.lastActionTime)}</span>
                 </div>
@@ -1648,22 +1723,26 @@ export function systemTab_overview(sys) {
                 <span class="material-icons-outlined text-sm" style="color:var(--accent);">widgets</span>
                 <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">System Composition</span>
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+                <div class="p-2.5 cursor-pointer" style="background:var(--bg-elevated);border-radius:var(--radius-sm);" onclick="switchSystemTab('design')">
                     <p class="text-[10px] font-medium" style="color:var(--text-muted);">Agents</p>
                     <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.agents?.length || 0}</p>
                 </div>
-                <div class="p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                <div class="p-2.5 cursor-pointer" style="background:var(--bg-elevated);border-radius:var(--radius-sm);" onclick="switchSystemTab('settings')">
                     <p class="text-[10px] font-medium" style="color:var(--text-muted);">Skills</p>
                     <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.skills?.length || 0}</p>
                 </div>
-                <div class="p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                <div class="p-2.5 cursor-pointer" style="background:var(--bg-elevated);border-radius:var(--radius-sm);" onclick="switchSystemTab('design')">
                     <p class="text-[10px] font-medium" style="color:var(--text-muted);">Knowledge</p>
                     <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.knowledge?.docs || 0} docs</p>
                 </div>
-                <div class="p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                <div class="p-2.5 cursor-pointer" style="background:var(--bg-elevated);border-radius:var(--radius-sm);" onclick="switchSystemTab('design')">
                     <p class="text-[10px] font-medium" style="color:var(--text-muted);">Flow</p>
                     <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.flow ? 'Active' : 'None'}</p>
+                </div>
+                <div class="p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <p class="text-[10px] font-medium" style="color:var(--text-muted);">RAG Mode</p>
+                    <p class="text-[12px] font-bold" style="color:${ragColors[ragMode]};">${(ragLabels[ragMode]||ragMode).split(' ')[0]}</p>
                 </div>
             </div>
         </div>
@@ -1718,18 +1797,79 @@ export function systemTab_design(sys) {
 }
 
 export function systemTab_runs(sys) {
+    const agent = sys.agents?.[0] || {};
+    const agentName = agent.name || sys.name;
+    const ragMode = sys.ragMode || localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
+    const ragLabels = { auto:'Auto', naive:'Naive', hybrid:'Hybrid RRF', hah:'HAH', chah:'C-HAH' };
+
     return `
     <div class="space-y-4">
+        <!-- Inline Playground -->
+        <div class="t-card" style="border-radius:var(--radius);overflow:hidden;">
+            <div class="px-4 py-2.5 flex items-center gap-2 shrink-0" style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);">
+                <div class="w-1 h-4 rounded-sm" style="background:${sys.color || 'var(--accent)'};"></div>
+                <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">${agentName}</h3>
+                <span class="px-1.5 py-0.5 text-[8px] font-bold uppercase" style="background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:var(--radius-xs);">${ragLabels[ragMode]}</span>
+                <span class="text-[9px]" style="color:var(--text-muted);">${agent.model || 'gpt-4o'}</span>
+                <span id="chat-status" class="text-[11px] ml-auto" style="color:var(--text-muted);"></span>
+            </div>
+
+            <div id="chat-messages" class="overflow-y-auto px-4 py-5 space-y-4" style="height:380px;">
+                <div id="chat-welcome" class="flex flex-col items-center justify-center h-full">
+                    <div class="w-full max-w-lg">
+                        <div class="mb-3 text-center">
+                            <div class="w-10 h-10 rounded-lg flex items-center justify-center mx-auto mb-2" style="background:${sys.color || 'var(--accent)'};opacity:0.9;">
+                                <span class="material-icons-outlined text-white">${sys.icon || 'hub'}</span>
+                            </div>
+                            <p class="text-[13px] font-semibold" style="color:var(--text-primary);">${sys.name} Playground</p>
+                            <p class="text-[11px] mt-1" style="color:var(--text-muted);">${sys.objective || 'Query this system with a real question. Reasoning steps shown in real time.'}</p>
+                        </div>
+                        <div class="flex flex-wrap gap-1.5 mb-3 justify-center">
+                            <span class="px-2 py-0.5 text-[9px] font-medium" style="background:var(--bg-elevated);color:var(--text-muted);border:1px solid var(--border-default);border-radius:var(--radius-sm);">RAG: ${ragLabels[ragMode]}</span>
+                            <span class="px-2 py-0.5 text-[9px] font-medium" style="background:var(--bg-elevated);color:var(--text-muted);border:1px solid var(--border-default);border-radius:var(--radius-sm);">${agent.model || 'gpt-4o'}</span>
+                            <span class="px-2 py-0.5 text-[9px] font-medium" style="background:var(--bg-elevated);color:var(--text-muted);border:1px solid var(--border-default);border-radius:var(--radius-sm);">${sys.knowledge?.chunks||0} chunks</span>
+                            ${(sys.skills||[]).slice(0,3).map(sk => `<span class="px-2 py-0.5 text-[9px] font-medium" style="background:var(--accent-subtle);color:var(--accent);border-radius:var(--radius-sm);">${sk}</span>`).join('')}
+                        </div>
+                        <div class="space-y-1.5" id="suggestion-cards">
+                            <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] rounded-lg px-3 py-2.5 transition-all" style="color:var(--text-secondary);background:var(--bg-elevated);border:1px solid var(--border-default);">
+                                <span class="font-medium" style="color:var(--text-primary);">Summarize</span> — What are the key points in the uploaded documents?
+                            </button>
+                            <button onclick="sendSuggestion(this)" class="suggestion-card w-full text-left text-[12px] rounded-lg px-3 py-2.5 transition-all" style="color:var(--text-secondary);background:var(--bg-elevated);border:1px solid var(--border-default);">
+                                What criteria does the system use to evaluate a request?
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-4 py-3 shrink-0" style="border-top:1px solid var(--border-default);">
+                <div class="flex items-end gap-2 px-3 py-2 rounded-lg transition-colors" style="background:var(--bg-elevated);border:1px solid var(--border-default);">
+                    <button id="mic-btn" onclick="toggleMic()" class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors" style="color:var(--text-muted);" title="Voice input">
+                        <span class="material-icons-outlined text-sm">mic</span>
+                    </button>
+                    <textarea id="chat-input" rows="1" placeholder="Query this system..."
+                        class="flex-1 resize-none bg-transparent text-[13px] focus:outline-none disabled:opacity-50 leading-relaxed"
+                        style="max-height:100px;color:var(--text-primary);"></textarea>
+                    <button id="tts-btn" onclick="toggleTTS()" class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-colors" style="color:var(--text-muted);" title="Toggle voice output">
+                        <span class="material-icons-outlined text-sm">volume_up</span>
+                    </button>
+                    <button id="chat-send" onclick="sendChat()"
+                        class="shrink-0 w-7 h-7 rounded-lg text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center" style="background:var(--accent);">
+                        <span class="material-icons-outlined text-base">arrow_forward</span>
+                    </button>
+                </div>
+                <p class="text-[10px] mt-1 text-center" style="color:var(--text-muted);">Enter to send &middot; Reasoning trace shown in real time &middot; RAG mode: <strong>${ragLabels[ragMode]}</strong></p>
+            </div>
+        </div>
+
+        <!-- Run History -->
         <div class="flex items-center justify-between">
-            <span class="text-[11px] font-semibold" style="color:var(--text-primary);">Execution History</span>
-            <button onclick="openSystemRun('${sys.id}')" class="px-3 py-1.5 text-[11px] font-medium text-white flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
-                <span class="material-icons-outlined text-sm">play_arrow</span>New Run
-            </button>
+            <span class="text-[11px] font-semibold" style="color:var(--text-primary);">Run History</span>
         </div>
         <div id="system-runs-list" class="space-y-2">
-            <div class="text-center py-8">
-                <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">hourglass_empty</span>
-                <p class="text-[11px]" style="color:var(--text-muted);">Loading runs...</p>
+            <div class="text-center py-4">
+                <span class="material-icons-outlined text-2xl mb-1" style="color:var(--text-muted);">hourglass_empty</span>
+                <p class="text-[11px]" style="color:var(--text-muted);">Loading history...</p>
             </div>
         </div>
     </div>`;
@@ -1738,38 +1878,46 @@ export function systemTab_runs(sys) {
 export function systemTab_intelligence(sys) {
     return `
     <div class="space-y-4">
-        <div class="t-card p-4" style="border-radius:var(--radius);">
-            <div class="flex items-center gap-2 mb-3">
-                <span class="material-icons-outlined text-sm" style="color:var(--accent);">insights</span>
-                <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">System Quality</span>
-            </div>
-            <div id="sys-quality-content">
-                <p class="text-[11px]" style="color:var(--text-muted);">Quality metrics for this system will appear after runs are evaluated.</p>
-            </div>
-        </div>
+        <!-- Quality Evaluation (reuses full quality page) -->
+        <div id="sys-quality-container"></div>
     </div>`;
 }
 
 export function systemTab_settings(sys) {
     const agent = sys.agents?.[0] || {};
+    const ragMode = sys.ragMode || localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
+    const savedTools = JSON.parse(localStorage.getItem('aip_tools') || '{}');
+    const allSkills = [
+        { id:'web_search', icon:'travel_explore', name:'Web Search' },
+        { id:'code_interpreter', icon:'code', name:'Code Interpreter' },
+        { id:'sql_query', icon:'table_chart', name:'SQL Query' },
+        { id:'api_connector', icon:'api', name:'API Connector' },
+        { id:'email_sender', icon:'mail', name:'Email' },
+        { id:'file_generator', icon:'picture_as_pdf', name:'File Generator' },
+        { id:'calendar_access', icon:'calendar_today', name:'Calendar' },
+        { id:'memory', icon:'memory', name:'Memory' },
+        { id:'sap_api', icon:'integration_instructions', name:'SAP API' },
+        { id:'doc_parser', icon:'description', name:'Doc Parser' },
+        { id:'compliance_check', icon:'verified', name:'Compliance Check' },
+        { id:'excel_parser', icon:'table_chart', name:'Excel Parser' },
+        { id:'bi_connector', icon:'analytics', name:'BI Connector' },
+    ];
+    const activeSkills = sys.skills || [];
+
     return `
-    <div class="max-w-2xl space-y-4">
+    <div class="max-w-3xl space-y-4">
+        <!-- General -->
         <div class="t-card p-4" style="border-radius:var(--radius);">
-            <h3 class="text-[12px] font-semibold mb-3" style="color:var(--text-primary);">System Configuration</h3>
-            <div class="space-y-3">
+            <h3 class="text-[12px] font-semibold mb-3 flex items-center gap-1.5" style="color:var(--text-primary);"><span class="material-icons-outlined text-sm" style="color:var(--accent);">settings</span>General</h3>
+            <div class="grid grid-cols-2 gap-3">
                 <div>
                     <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">System Name</label>
                     <input type="text" value="${sys.name}" class="t-input w-full px-3 py-1.5 text-[12px]" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);"
                         onchange="updateSystem('${sys.id}',{name:this.value});document.getElementById('step-title').textContent=this.value">
                 </div>
                 <div>
-                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Objective</label>
-                    <textarea class="t-input w-full px-3 py-1.5 text-[12px]" rows="2" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);resize:none;"
-                        onchange="updateSystem('${sys.id}',{objective:this.value})">${sys.objective || ''}</textarea>
-                </div>
-                <div>
                     <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Status</label>
-                    <select class="t-input px-3 py-1.5 text-[12px]" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);"
+                    <select class="t-input w-full px-3 py-1.5 text-[12px]" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);"
                         onchange="updateSystem('${sys.id}',{status:this.value})">
                         <option value="live"${sys.status==='live'?' selected':''}>Live</option>
                         <option value="idle"${sys.status==='idle'?' selected':''}>Idle</option>
@@ -1777,15 +1925,132 @@ export function systemTab_settings(sys) {
                         <option value="error"${sys.status==='error'?' selected':''}>Error</option>
                     </select>
                 </div>
-                <div>
-                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Primary Model</label>
-                    <input type="text" value="${agent.model || 'gpt-4o'}" class="t-input w-full px-3 py-1.5 text-[12px]" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);" disabled>
+                <div class="col-span-2">
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Objective</label>
+                    <textarea class="t-input w-full px-3 py-1.5 text-[12px]" rows="2" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);resize:none;"
+                        onchange="updateSystem('${sys.id}',{objective:this.value})">${sys.objective || ''}</textarea>
                 </div>
             </div>
         </div>
+
+        <!-- Model & Provider -->
         <div class="t-card p-4" style="border-radius:var(--radius);">
-            <h3 class="text-[12px] font-semibold mb-2" style="color:var(--text-primary);">Danger Zone</h3>
-            <button onclick="if(confirm('Delete this system?')){deleteSystemAndReturn('${sys.id}')}" class="px-3 py-1.5 text-[11px] font-medium flex items-center gap-1" style="background:rgba(239,68,68,0.1);color:var(--error);border:1px solid rgba(239,68,68,0.3);border-radius:var(--radius-sm);">
+            <h3 class="text-[12px] font-semibold mb-3 flex items-center gap-1.5" style="color:var(--text-primary);"><span class="material-icons-outlined text-sm" style="color:#8b5cf6;">psychology</span>Reasoning Engine</h3>
+            <div class="grid grid-cols-3 gap-2 mb-3">
+                ${['openai','anthropic','self-hosted'].map(p => {
+                    const current = (agent.model||'').startsWith('gpt')?'openai':(agent.model||'').startsWith('claude')?'anthropic':'self-hosted';
+                    const labels = {openai:'OpenAI',anthropic:'Anthropic','self-hosted':'Self-hosted'};
+                    const models = {openai:'GPT-5, GPT-4o, GPT-4o-mini',anthropic:'Opus, Sonnet, Haiku','self-hosted':'Mistral, Llama, Phi'};
+                    return `<div class="p-2.5 rounded-lg cursor-pointer text-center" style="border:${p===current?'2px solid var(--accent)':'1px solid var(--border-default)'};background:${p===current?'var(--accent-subtle)':'transparent'};">
+                        <p class="text-[11px] font-semibold" style="color:var(--text-primary);">${labels[p]}</p>
+                        <p class="text-[9px]" style="color:var(--text-muted);">${models[p]}</p>
+                    </div>`;
+                }).join('')}
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Model</label>
+                    <select class="t-input w-full px-3 py-1.5 text-[12px]" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);">
+                        <option ${agent.model==='gpt-5'?'selected':''}>gpt-5</option>
+                        <option ${agent.model==='gpt-4o'?'selected':''}>gpt-4o</option>
+                        <option ${agent.model==='gpt-4o-mini'?'selected':''}>gpt-4o-mini</option>
+                        <option ${agent.model==='claude-3.5-sonnet'?'selected':''}>claude-3.5-sonnet</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Temperature</label>
+                    <input type="range" min="0" max="100" value="30" class="w-full">
+                    <p class="text-[9px]" style="color:var(--text-muted);">0.3 — Precise</p>
+                </div>
+            </div>
+            <div class="mt-3">
+                <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">System Prompt</label>
+                <textarea class="t-input w-full px-3 py-1.5 text-[11px] font-mono" rows="4" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);resize:vertical;">${agent.prompt || ''}</textarea>
+            </div>
+        </div>
+
+        <!-- RAG Pipeline Mode -->
+        <div class="t-card p-4" style="border-radius:var(--radius);background:linear-gradient(135deg, var(--bg-card) 0%, rgba(139,92,246,0.04) 100%);">
+            <h3 class="text-[12px] font-semibold mb-3 flex items-center gap-1.5" style="color:var(--text-primary);">
+                <span class="material-icons-outlined text-sm" style="color:#8b5cf6;">neurology</span>OmniRAG Pipeline
+                <span class="px-1.5 py-0.5 text-[8px] font-bold uppercase" style="background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:var(--radius-xs);">R&D</span>
+            </h3>
+            <div class="mb-3">
+                <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">RAG Pipeline Mode</label>
+                <select class="t-input w-full px-3 py-1.5 text-[12px]" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);"
+                    onchange="localStorage.setItem('aip_rag_pipeline_mode',this.value);updateSystem('${sys.id}',{ragMode:this.value})">
+                    <option value="auto"${ragMode==='auto'?' selected':''}>Auto — selects best pipeline by index size + query complexity</option>
+                    <option value="naive"${ragMode==='naive'?' selected':''}>Naive — dense vector retrieval only (fast, single-pass)</option>
+                    <option value="hybrid"${ragMode==='hybrid'?' selected':''}>Hybrid — FAISS dense + BM25 sparse + RRF fusion</option>
+                    <option value="hah"${ragMode==='hah'?' selected':''}>HAH — two-pass hybrid + hierarchical attention + reranking</option>
+                    <option value="chah"${ragMode==='chah'?' selected':''}>C-HAH — parallel composite HAH + weighted RRF (most advanced)</option>
+                </select>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Top-K chunks</label>
+                    <input type="range" min="1" max="20" value="5" class="w-full">
+                    <p class="text-[9px]" style="color:var(--text-muted);">5 chunks</p>
+                </div>
+                <div>
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Vector weight</label>
+                    <input type="range" min="0" max="100" value="70" class="w-full">
+                    <p class="text-[9px]" style="color:var(--text-muted);">0.70</p>
+                </div>
+                <div>
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Similarity threshold</label>
+                    <input type="range" min="0" max="100" value="20" class="w-full">
+                    <p class="text-[9px]" style="color:var(--text-muted);">0.20</p>
+                </div>
+            </div>
+            <p class="text-[9px] mt-2" style="color:var(--text-muted);">Backend: <code class="text-[9px]">pipeline_retrieval.py</code> · Modes: naive, hybrid_rrf, hah_backend, chah_backend · R&D papers: RAGGER, HAH, C-HAH, OmniRAGGER</p>
+        </div>
+
+        <!-- Skills Grid -->
+        <div class="t-card p-4" style="border-radius:var(--radius);">
+            <h3 class="text-[12px] font-semibold mb-3 flex items-center gap-1.5" style="color:var(--text-primary);">
+                <span class="material-icons-outlined text-sm" style="color:var(--warning);">build_circle</span>Skills
+                <span class="text-[9px] px-1 py-0.5 font-medium" style="background:var(--bg-elevated);color:var(--text-muted);border-radius:var(--radius-xs);">${activeSkills.length} active</span>
+            </h3>
+            <div class="grid grid-cols-3 gap-1.5">
+                ${allSkills.map(sk => {
+                    const on = activeSkills.includes(sk.id) || savedTools[sk.id];
+                    return `<div class="flex items-center gap-1.5 p-2 cursor-pointer" style="background:${on?'var(--accent-subtle)':'var(--bg-elevated)'};border:1px solid ${on?'var(--border-active)':'var(--border-default)'};border-radius:var(--radius-sm);"
+                        onclick="toggleSystemSkill('${sys.id}','${sk.id}',this)">
+                        <span class="material-icons-outlined text-xs" style="color:${on?'var(--accent)':'var(--text-muted)'};">${sk.icon}</span>
+                        <span class="text-[10px] font-medium" style="color:${on?'var(--text-primary)':'var(--text-muted)'};">${sk.name}</span>
+                        <span class="ml-auto w-3 h-3 rounded-full" style="background:${on?'var(--accent)':'var(--border-default)'};"></span>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>
+
+        <!-- Knowledge -->
+        <div class="t-card p-4" style="border-radius:var(--radius);">
+            <h3 class="text-[12px] font-semibold mb-3 flex items-center gap-1.5" style="color:var(--text-primary);"><span class="material-icons-outlined text-sm" style="color:var(--accent);">library_books</span>Knowledge Base</h3>
+            <div class="grid grid-cols-3 gap-2 mb-3">
+                <div class="p-2.5 text-center" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.knowledge?.docs||0}</p>
+                    <p class="text-[9px]" style="color:var(--text-muted);">Documents</p>
+                </div>
+                <div class="p-2.5 text-center" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.knowledge?.chunks||0}</p>
+                    <p class="text-[9px]" style="color:var(--text-muted);">Chunks</p>
+                </div>
+                <div class="p-2.5 text-center" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <p class="text-[10px] font-medium" style="color:var(--text-secondary);">${sys.knowledge?.lastSync||'—'}</p>
+                    <p class="text-[9px]" style="color:var(--text-muted);">Last Sync</p>
+                </div>
+            </div>
+            <button onclick="openDesignBlock(CANVAS_BLOCKS.find(b=>b.id==='knowledge'),getSystem('${sys.id}'))" class="w-full py-2 text-[11px] font-medium flex items-center justify-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
+                <span class="material-icons-outlined text-sm">upload_file</span>Manage Documents
+            </button>
+        </div>
+
+        <!-- Danger Zone -->
+        <div class="t-card p-4" style="border-radius:var(--radius);">
+            <h3 class="text-[12px] font-semibold mb-2 flex items-center gap-1.5" style="color:var(--error);"><span class="material-icons-outlined text-sm">warning</span>Danger Zone</h3>
+            <button onclick="if(confirm('Delete this system permanently?')){deleteSystemAndReturn('${sys.id}')}" class="px-3 py-1.5 text-[11px] font-medium flex items-center gap-1" style="background:rgba(239,68,68,0.1);color:var(--error);border:1px solid rgba(239,68,68,0.3);border-radius:var(--radius-sm);">
                 <span class="material-icons-outlined text-sm">delete</span>Delete System
             </button>
         </div>
