@@ -11,8 +11,10 @@ import numpy as np
 import torch
 
 from connections.database.system_prompts import SystemPrompts
+from connections.qdrant import qdrant_client
+from connections.storage import fs
 from src.cache import LRUCache
-from src.chunker import BM25Retriever, cache_chunker_embedding_chain
+from src.chunker import cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
 from src.embedding import EmbeddingModelLoader
@@ -22,7 +24,6 @@ from src.globalvariables import (
     EMBEDDING_NAME,
     LARGE_MODELS,
     MAX_MODEL_LEN,
-    VECTOR_STORE_PATH,
     ReasoningType,
 )
 from src.metrics import Evaluatrix
@@ -176,27 +177,27 @@ class CustomLLMChain:
 
         """
         try:
-            vector_store_path = VECTOR_STORE_PATH / self.vector_store_name
-            self.bm25_retriever = BM25Retriever.load_bm25(
-                vector_store_path / "bm25_retriever.pkl"
-            )
-            self.texts = []
-            # --
-            from qdrant_client import QdrantClient
+            import pickle
 
-            from configurations import Config
-
-            qdrant_cfg = Config.get().qdrant
-            self.dense_retriever = QdrantClient(
-                host=qdrant_cfg.host,
-                port=qdrant_cfg.port,
-                api_key=qdrant_cfg.api_key or None,
-            )
-            self.qdrant_collection_name = f"qdrant_{self.vector_store_name}"
-            self.texts = []
+            self.dense_retriever = qdrant_client
+            self.qdrant_collection_name = self.vector_store_name
             logging.info("Qdrant client initialized successfully.")
 
-            # -- intialize ensemble retriever
+            # -- load BM25 path from Qdrant point payload
+            results, _ = self.dense_retriever.scroll(
+                collection_name=self.qdrant_collection_name,
+                limit=1,
+                with_payload=True,
+            )
+            if not results:
+                raise ValueError(
+                    f"Qdrant collection '{self.qdrant_collection_name}' is empty."
+                )
+            bm25_path = results[0].payload["bm25_path"]
+            self.bm25_retriever = fs.loader(bm25_path, pickle.load)
+            self.texts = []
+
+            # -- initialize ensemble retriever
             self.ensemble_retriever = EnsembleRetriever(
                 bm25_retriever=self.bm25_retriever,
                 qdrant_client=self.dense_retriever,

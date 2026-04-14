@@ -37,9 +37,9 @@ def embedding_model_cache(func):
     """
 
     @wraps(func)
-    def wrapper(embedding_type: str, model_name: str, *args, **kwargs):
+    def wrapper(model_name: str, *args, **kwargs):
         try:
-            return func(embedding_type, model_name, *args, **kwargs)
+            return func(model_name, *args, **kwargs)
         except Exception as e:
             logging.error(f"🚩 Error loading embedding model: {e}")
             return None
@@ -59,14 +59,12 @@ class EmbeddingModelLoader:
     @staticmethod
     @lru_cache(maxsize=None)
     @embedding_model_cache
-    def load_embedding_model(embedding_type: str, model_name: str) -> Any:
+    def load_embedding_model(model_name: str) -> Any:
         """
-        Load and cache an embedding model based on the embedding type and model name.
+        Load and cache an embedding model by name.
 
         Parameters
         ----------
-        embedding_type : str
-            Type of embedding (used as cache key prefix, e.g. 'qdrant')
         model_name : str
             Name of the model to load
 
@@ -75,14 +73,11 @@ class EmbeddingModelLoader:
         Any
             The loaded embedding model
         """
-        logging.info(
-            f"Loading embedding model {model_name} for {embedding_type} on {device.type}"
-        )
+        logging.info(f"Loading embedding model {model_name} on {device.type}")
 
-        cache_key = f"{embedding_type}_{model_name}"
-        if cache_key in EmbeddingModelLoader._model_cache:
-            logging.info(f"Using cached model for {cache_key}")
-            return EmbeddingModelLoader._model_cache[cache_key]
+        if model_name in EmbeddingModelLoader._model_cache:
+            logging.info(f"Using cached model for {model_name}")
+            return EmbeddingModelLoader._model_cache[model_name]
 
         model = SentenceTransformer(model_name, device=device.type)
         sample_embedding = model.encode(
@@ -92,24 +87,21 @@ class EmbeddingModelLoader:
             device=device,
         )
         dimension = sample_embedding.shape[0]
-        EmbeddingModelLoader._dimension_cache[cache_key] = dimension
+        EmbeddingModelLoader._dimension_cache[model_name] = dimension
         logging.info(
             f"Model {model_name} produces embeddings with dimension {dimension}"
         )
 
-        # Store in class-level cache and return
-        EmbeddingModelLoader._model_cache[cache_key] = model
+        EmbeddingModelLoader._model_cache[model_name] = model
         return model
 
     @staticmethod
-    def get_embedding_dimension(embedding_type: str, model_name: str) -> int:
+    def get_embedding_dimension(model_name: str) -> int:
         """
         Get the dimension of embeddings for a specific model.
 
         Parameters
         ----------
-        embedding_type : str
-            Type of embedding (used as cache key prefix, e.g. 'qdrant')
         model_name : str
             Name of the model
 
@@ -118,12 +110,10 @@ class EmbeddingModelLoader:
         int
             The dimension of the embeddings
         """
-        cache_key = f"{embedding_type}_{model_name}"
-        if cache_key in EmbeddingModelLoader._dimension_cache:
-            return EmbeddingModelLoader._dimension_cache[cache_key]
+        if model_name in EmbeddingModelLoader._dimension_cache:
+            return EmbeddingModelLoader._dimension_cache[model_name]
 
-        # -- reload to get dimension
-        model = EmbeddingModelLoader.load_embedding_model(embedding_type, model_name)
+        model = EmbeddingModelLoader.load_embedding_model(model_name)
 
         sample_embedding = model.encode(
             "sample text for dimension detection",
@@ -132,18 +122,16 @@ class EmbeddingModelLoader:
             device=device,
         )
         dimension = sample_embedding.shape[0]
-        EmbeddingModelLoader._dimension_cache[cache_key] = dimension
+        EmbeddingModelLoader._dimension_cache[model_name] = dimension
         return dimension
 
     @staticmethod
-    async def load_embedding_model_async(embedding_type: str, model_name: str) -> Any:
+    async def load_embedding_model_async(model_name: str) -> Any:
         """
         Asynchronously load an embedding model.
 
         Parameters
         ----------
-        embedding_type : str
-            Type of embedding (used as cache key prefix, e.g. 'qdrant')
         model_name : str
             Name of the model to load
 
@@ -152,75 +140,50 @@ class EmbeddingModelLoader:
         Any
             The loaded embedding model
         """
-        # Use run_in_executor to run the synchronous method in a thread pool
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
             EmbeddingModelLoader.load_embedding_model,
-            embedding_type,
             model_name,
         )
 
     @staticmethod
-    async def load_multiple_models(model_configs: list) -> dict[str, Any]:
+    async def load_multiple_models(model_names: list[str]) -> dict[str, Any]:
         """
         Load multiple embedding models in parallel.
 
         Parameters
         ----------
-        model_configs : list
-            List of tuples containing (embedding_type, model_name)
+        model_names : list[str]
+            List of model names to load
 
         Returns
         -------
         Dict[str, Any]
-            Dictionary mapping model keys to loaded models
+            Dictionary mapping model names to loaded models
         """
-        tasks = []
-        for config in model_configs:
-            embedding_type, model_name = config
-            tasks.append(
-                EmbeddingModelLoader.load_embedding_model_async(
-                    embedding_type, model_name
-                )
-            )
-
+        tasks = [
+            EmbeddingModelLoader.load_embedding_model_async(name)
+            for name in model_names
+        ]
         models = await asyncio.gather(*tasks)
-        return {
-            f"{config[0]}_{config[1]}": model
-            for config, model in zip(model_configs, models)
-        }
+        return dict(zip(model_names, models))
 
     @staticmethod
-    def get_default_model(embedding_type: str) -> Any:
+    def get_default_model() -> Any:
         """
-        Get the default embedding model for a specific embedding type.
-
-        Parameters
-        ----------
-        embedding_type : str
-            Type of embedding (used as cache key prefix, e.g. 'qdrant')
+        Get the default embedding model.
 
         Returns
         -------
         Any
-            The default embedding model for the specified type
+            The default embedding model
         """
-        embedding_model_name = EMBEDDING_NAME
-        return EmbeddingModelLoader.load_embedding_model(
-            embedding_type, embedding_model_name
-        )
+        return EmbeddingModelLoader.load_embedding_model(EMBEDDING_NAME)
 
     @staticmethod
     def clear_cache() -> None:
-        """Clear the model cache to free memory.
-
-        Returns
-        -------
-        None
-            clear cache.
-
-        """
+        """Clear the model cache to free memory."""
         EmbeddingModelLoader._model_cache.clear()
         EmbeddingModelLoader._dimension_cache.clear()
         EmbeddingModelLoader.load_embedding_model.cache_clear()

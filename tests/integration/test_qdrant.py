@@ -12,7 +12,6 @@ Requires a running Qdrant instance on localhost:6333 (e.g. via docker compose).
 import uuid
 
 import pytest
-from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
     FieldCondition,
@@ -42,8 +41,9 @@ QUERY_VECTOR = [0.2, 0.1, 0.9, 0.7]
 
 
 @pytest.fixture(scope="module")
-def client():
-    return QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+def client(qdrant_authenticated_client):
+    """Reuse the session-scoped authenticated client from conftest."""
+    return qdrant_authenticated_client
 
 
 @pytest.fixture

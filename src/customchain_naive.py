@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import pickle
 import sys
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,11 +11,10 @@ import torch
 from sentence_transformers import SentenceTransformer
 
 from connections.database.system_prompts import SystemPrompts
-from src.chunker import BM25Retriever, cache_chunker_embedding_chain
-from src.globalvariables import (
-    EMBEDDING_NAME,
-    VECTOR_STORE_PATH,
-)
+from connections.qdrant import qdrant_client
+from connections.storage import fs
+from src.chunker import cache_chunker_embedding_chain
+from src.globalvariables import EMBEDDING_NAME
 from src.metrics import Evaluatrix
 from src.system_prompts import (
     ALL_SYSTEM_PROMPT_TEMPLATES,
@@ -104,23 +104,22 @@ class CustomLLMChain:
         self.assistant_role = add_leading_space_if_needed(self.assistant_role)
 
     def load_index(self):
-        # -- load BM25 retriever first
-        vector_store_path = VECTOR_STORE_PATH / self.vector_store_name
-        self.bm25_retriever = BM25Retriever.load_bm25(
-            vector_store_path / "bm25_retriever.pkl"
-        )
-        from qdrant_client import QdrantClient
-
-        from configurations import Config
-
-        qdrant_cfg = Config.get().qdrant
-        self.qdrant_client = QdrantClient(
-            host=qdrant_cfg.host,
-            port=qdrant_cfg.port,
-            api_key=qdrant_cfg.api_key or None,
-        )
-        self.qdrant_collection_name = f"qdrant_{self.vector_store_name}"
+        self.qdrant_client = qdrant_client
+        self.qdrant_collection_name = self.vector_store_name
         logging.info("Qdrant client initialized successfully.")
+
+        # -- load BM25 path from Qdrant point payload
+        results, _ = self.qdrant_client.scroll(
+            collection_name=self.qdrant_collection_name,
+            limit=1,
+            with_payload=True,
+        )
+        if not results:
+            raise ValueError(
+                f"Qdrant collection '{self.qdrant_collection_name}' is empty."
+            )
+        bm25_path = results[0].payload["bm25_path"]
+        self.bm25_retriever = fs.loader(bm25_path, pickle.load)
 
     def compute_mmr(
         self,

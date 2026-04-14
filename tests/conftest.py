@@ -18,6 +18,7 @@ def _create_mock_config():
     from common_config.fsspec_storage import FsspecStorageConfig
 
     from configurations.components.backend import BackendConfig
+    from configurations.components.qdrant import QdrantConfig
     from configurations.components.vlm import VLMConfig
 
     mock_config = MagicMock()
@@ -26,6 +27,9 @@ def _create_mock_config():
     mock_config.backend = BackendConfig()
     mock_config.vlm = VLMConfig()
     mock_config.storage = FsspecStorageConfig()
+    # Explicit QdrantConfig so that connections/qdrant/__init__.py receives
+    # typed values (host="localhost", port=6333) rather than auto-MagicMocks.
+    mock_config.qdrant = QdrantConfig()
 
     return mock_config
 

@@ -1,4 +1,3 @@
-import os
 import time
 import uuid
 from io import BytesIO
@@ -11,7 +10,7 @@ import torch
 from configurations import Config
 from connections.database.chats import Chats
 from connections.database.users import Users
-from connections.models.flow_operations import IngestDocumentsPayload
+from connections.qdrant import qdrant_client
 from connections.storage import fs
 from src.chunker import TextChunker
 from src.customchain import CustomLLMChain as HAHCustomLLMChain
@@ -24,15 +23,12 @@ from src.globalvariables import (
     DEFAULT_CPU_MODEL,
     EMBEDDING_NAME,
     GPU_MODEL_SET,
-    HELP,
     REPO_PATH,
-    VECTOR_STORE_PATH,
     ChunkingMethod,
     PipelineType,
 )
 from src.metrics import DUMMY_METRICS
 from src.modeltokenizer import load_model_and_tokenizer
-from src.services.ingest_documents import IngestDocumentsService
 from src.standalone_interface.assets import (
     AI_AVATAR,
     AI_AVATAR_B64,
@@ -235,35 +231,30 @@ def omnirag_page():
                             ),
                         )
 
+                existing_collections = [
+                    c.name for c in qdrant_client.get_collections().collections
+                ]
                 row_be = st.columns(4)
                 with row_be[0]:
-                    vector_store_list = ["<New>"] + os.listdir(VECTOR_STORE_PATH)
-                    vector_store_list = [
-                        file
-                        for file in vector_store_list
-                        if not file.startswith((".", "BM25"))
-                    ]
-                    current_vector_store = st.session_state.get("vector_store", "<New>")
-                    if current_vector_store not in vector_store_list:
-                        current_vector_store = "<New>"
-
-                    existing_vector_store = st.selectbox(
-                        "Select a document database",
-                        vector_store_list,
-                        index=vector_store_list.index(
-                            current_vector_store
-                        ),  # This will now be safe
-                        help="Which vector store to add the new documents. Choose <New> to create a new vector store.",
+                    new_collection_name = st.text_input(
+                        "Collection name",
+                        value=st.session_state.get("new_vs_name", ""),
+                        help="Name of the collection to create or update.",
                     )
 
                 with row_be[1]:
-                    new_vs_name = st.text_input(
-                        "New Vector Store Name",
-                        value=st.session_state.get(
-                            "new_vs_name", "New_vector_store_name"
+                    source_options = ["(none)"] + existing_collections
+                    source_collection_choice = st.selectbox(
+                        "Source collection (optional)",
+                        source_options,
+                        index=0,
+                        help=(
+                            "Leave as '(none)' to create a fresh collection. "
+                            "Select an existing collection to copy its points into the new one, "
+                            "or to update it (when the collection name above matches)."
                         ),
-                        help=HELP["new_vector_store"],
                     )
+
                 if not Config.get().interface.hide_rag_params_config:
                     with row_be[2]:
                         pipeline_type = st.selectbox(
@@ -292,42 +283,107 @@ def omnirag_page():
                     )
                 # --
                 if save_button:
-                    # Check whether to create new vector store --> Checking params
-                    create_new_vs = None
-                    if existing_vector_store == "<New>" and new_vs_name != "":
-                        # -- Create new embedding..
-                        create_new_vs = True
-                    elif existing_vector_store != "<New>" and new_vs_name != "":
-                        # -- Use existing embedding..
-                        create_new_vs = False
-                    else:
-                        st.error(
-                            "Check the 'Vector Store to Merge the Knowledge' and 'New Vector Store Name'"
-                        )
+                    target_collection = new_collection_name.strip()
+                    if not target_collection:
+                        st.error("Enter a name for the collection.")
+                        st.stop()
+
+                    source_collection = (
+                        None
+                        if source_collection_choice == "(none)"
+                        else source_collection_choice
+                    )
+
+                    # Guard: if the target already exists it can only be updated by
+                    # selecting it as its own source (name must match).
+                    if (
+                        target_collection in existing_collections
+                        and source_collection != target_collection
+                    ):
+                        if source_collection is None:
+                            st.error(
+                                f"Collection **{target_collection}** already exists. "
+                                "To update it, select it as the source collection."
+                            )
+                        else:
+                            st.error(
+                                f"Collection **{target_collection}** already exists and "
+                                f"does not match the selected source **{source_collection}**. "
+                                f"To update it, select **{target_collection}** as the source collection."
+                            )
+                        st.stop()
+
                     # -- check for uploaded document
                     if not uploaded_files:
                         st.error("No document uploaded...")
                         st.stop()
-                    knowledge_base_uuid = uuid.uuid4()
+
+                    # Updating an existing collection: reuse its kb_uuid so new files
+                    # are co-located with the existing ones in storage.
+                    if (
+                        source_collection == target_collection
+                        and target_collection in existing_collections
+                    ):
+                        try:
+                            first, _ = qdrant_client.scroll(
+                                collection_name=target_collection,
+                                limit=1,
+                                with_payload=True,
+                                with_vectors=False,
+                            )
+                            if first and "bm25_path" in first[0].payload:
+                                knowledge_base_uuid = (
+                                    first[0].payload["bm25_path"].split("/")[1]
+                                )
+                            else:
+                                knowledge_base_uuid = str(uuid.uuid4())
+                        except Exception:
+                            knowledge_base_uuid = str(uuid.uuid4())
+                    else:
+                        knowledge_base_uuid = str(uuid.uuid4())
+                        # Seeding from an existing collection: copy its storage files so
+                        # the new collection owns a full copy of the original documents.
+                        if source_collection:
+                            try:
+                                first, _ = qdrant_client.scroll(
+                                    collection_name=source_collection,
+                                    limit=1,
+                                    with_payload=True,
+                                    with_vectors=False,
+                                )
+                                if first and "bm25_path" in first[0].payload:
+                                    source_kb_uuid = (
+                                        first[0].payload["bm25_path"].split("/")[1]
+                                    )
+                                    source_kb_path = fs.joinpath(
+                                        "knowledge-bases", source_kb_uuid
+                                    )
+                                    dest_kb_path = fs.joinpath(
+                                        "knowledge-bases", knowledge_base_uuid
+                                    )
+                                    fs.filesystem.copy(
+                                        source_kb_path, dest_kb_path, recursive=True
+                                    )
+                            except Exception as e:
+                                logging.warning(
+                                    f"Could not copy storage files from '{source_collection}': {e}. "
+                                    "Proceeding with new documents only."
+                                )
+
                     uploaded_folder = fs.joinpath(
                         "knowledge-bases", str(knowledge_base_uuid), "uploaded"
                     )
+                    new_file_paths = []
                     for uploaded_file in uploaded_files:
-                        path = os.path.join(uploaded_folder, uploaded_file.name)
+                        path = fs.joinpath(uploaded_folder, uploaded_file.name)
                         fs.write_to_file(path, uploaded_file)
-                    # send to ingestion service
-                    payload = IngestDocumentsPayload(
-                        knowledge_base_uuid=knowledge_base_uuid
+                        new_file_paths.append(path)
+                    ingested_folder = fs.joinpath(
+                        "knowledge-bases", str(knowledge_base_uuid), "ingested"
                     )
-                    try:
-                        ingest_service = IngestDocumentsService()
-                        ingest_service.call(payload)
-                    except Exception as e:
-                        st.error(f"Unexpected error during document ingestion: {e}")
-                        st.stop()
-
-                    file_paths = fs.list_files(uploaded_folder)
-                    documents = ThreadMultiDocLoader(file_paths)
+                    documents = ThreadMultiDocLoader(
+                        new_file_paths, target_dir=ingested_folder
+                    )
                     text_chunker = TextChunker(
                         st.session_state.tokenizer, st.session_state.model
                     )
@@ -342,9 +398,9 @@ def omnirag_page():
                     embedding_vector = EmbeddingVectors(
                         st.session_state.tokenizer,
                         st.session_state.model,
-                        create_new_vs,
-                        existing_vector_store,
-                        new_vs_name,
+                        target_collection,
+                        knowledge_base_uuid,
+                        source_collection=source_collection,
                         embedding_model_name=EMBEDDING_NAME,
                     )
                     st.session_state.embedding_index = (
@@ -353,12 +409,8 @@ def omnirag_page():
                     st.success("PDF processed and embedding index created!")
                     st.session_state.model_name = model_name
                     st.session_state.chunking_method = chunking_method
-                    st.session_state.vector_store = (
-                        existing_vector_store
-                        if existing_vector_store != "<New>"
-                        else new_vs_name
-                    )
-                    st.session_state.new_vs_name = new_vs_name
+                    st.session_state.vector_store = target_collection
+                    st.session_state.new_vs_name = new_collection_name
                     st.rerun()
                 if custom_chain_button:
                     RaggerChain = (
@@ -371,11 +423,14 @@ def omnirag_page():
                         )
                     )
 
+                    chain_collection = (
+                        st.session_state.get("vector_store") or new_collection_name
+                    )
                     chain = RaggerChain(
                         st.session_state.tokenizer,
                         st.session_state.model,
                         model_name,
-                        existing_vector_store,
+                        chain_collection,
                         instruction_lang=instruction_lang,
                     )
                     st.session_state.chain = chain

@@ -75,6 +75,12 @@ services:
       minio:
         condition: service_started
     restart: "no"
+  qdrant-init:
+    image: busybox
+    command: ["sh", "-c", "chown -R 1000:1000 /qdrant/storage"]
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: "no"
   qdrant:
     image: qdrant/qdrant:v1.17.1-unprivileged
     ports:
@@ -84,6 +90,9 @@ services:
       - qdrant_data:/qdrant/storage
     env_file:
       - test_env_files/qdrant.env
+    depends_on:
+      qdrant-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
       interval: 10s

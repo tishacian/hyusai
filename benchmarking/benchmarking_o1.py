@@ -1,5 +1,6 @@
 import os
 import sys
+import uuid
 import torch
 import argparse
 from typing import Dict, List, Tuple, Optional, defaultdict
@@ -280,10 +281,8 @@ class O1RAGEvaluator:
             embedding_vectors = EmbeddingVectors(
                 self.tokenizer,
                 self.model,
-                create_new_vs=True,
-                existing_vector_store="",
-                new_vs_name=f"evaluation_store_o1_{dataset_name}",
-                embedding_type="faiss",
+                target_collection=f"evaluation_store_o1_{dataset_name}",
+                kb_uuid=uuid.uuid4(),
                 embedding_model_name="sentence-transformers/all-MiniLM-L6-v2",
             )
 

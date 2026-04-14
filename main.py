@@ -15,6 +15,7 @@ os.environ["PAPAILLM_CORE__BASE_HTTP_URL"] = "https://www.core.net/"
 os.environ["PAPAILLM_BROKER__URL"] = "https://www.broker.net/"
 os.environ["PAPAILLM_CELERY_DB__URL"] = "sqlite:///./omnirag_database.db"
 os.environ["PAPAILLM_DATABASE__ENGINE_URL"] = "sqlite:///./omnirag_database.db"
+os.environ.setdefault("PAPAILLM_QDRANT__API_KEY", "changeme")
 
 from connections.database import init_db
 from src.gpuselector import GPUSelector

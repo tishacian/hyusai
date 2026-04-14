@@ -45,7 +45,7 @@ rank-bm25~=0.2.1               # document indexer for retrival
 transformers                   # tokenizer, reranking model
 
 # vector database
-qdrant-client~=1.14
+qdrant-client==1.17.1
 
 # logging
 datategy-logging-utils~=0.6.1
