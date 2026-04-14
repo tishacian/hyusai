@@ -1921,9 +1921,18 @@ export function systemTab_runs(sys) {
 }
 
 export function systemTab_intelligence(sys) {
+    const hasRuns = (sys.runs?.total || 0) > 0;
     return `
     <div class="space-y-4">
-        <!-- Quality Evaluation (reuses full quality page) -->
+        ${!hasRuns ? `
+        <div class="t-card p-5 text-center" style="border-radius:var(--radius);">
+            <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">insights</span>
+            <h3 class="text-[13px] font-semibold mb-1" style="color:var(--text-primary);">No evaluation data yet</h3>
+            <p class="text-[11px] mb-3" style="color:var(--text-muted);">Run queries in the Playground to generate quality metrics. Each response is automatically evaluated on relevance, factuality, coherence, and hallucination detection.</p>
+            <button onclick="switchSystemTab('runs')" class="px-3 py-1.5 text-[11px] font-medium text-white inline-flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                <span class="material-icons-outlined text-sm">play_arrow</span>Open Playground
+            </button>
+        </div>` : ''}
         <div id="sys-quality-container"></div>
     </div>`;
 }
@@ -2147,31 +2156,49 @@ export function page_globalRuns() {
 
 // ── Unified Intelligence Page ──
 
-export function page_unifiedIntelligence() {
+export function page_observability() {
     return `
     <div class="max-w-5xl mx-auto">
         <div class="flex items-center justify-between mb-4">
             <div>
-                <h2 class="text-[15px] font-bold" style="color:var(--text-primary);">Intelligence</h2>
-                <p class="text-[11px]" style="color:var(--text-muted);">Quality evaluation, feeds analysis, and performance metrics</p>
+                <h2 class="text-[15px] font-bold" style="color:var(--text-primary);">Observability</h2>
+                <p class="text-[11px]" style="color:var(--text-muted);">System quality evaluation, LLM metrics, and performance monitoring</p>
             </div>
         </div>
 
-        <!-- Sub-tabs -->
         <div class="flex items-center gap-0 mb-4" style="border-bottom:1px solid var(--border-default);">
-            <button class="sys-tab active" data-subtab="quality" onclick="loadUnifiedIntelligence('quality')">
-                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">speed</span>Quality
+            <button class="sys-tab active" data-subtab="quality" onclick="loadObservabilitySub('quality')">
+                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">speed</span>Quality Eval
             </button>
-            <button class="sys-tab" data-subtab="feeds" onclick="loadUnifiedIntelligence('feeds')">
-                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">rss_feed</span>Feeds
-            </button>
-            <button class="sys-tab" data-subtab="performance" onclick="loadUnifiedIntelligence('performance')">
+            <button class="sys-tab" data-subtab="performance" onclick="loadObservabilitySub('performance')">
                 <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">analytics</span>Performance
             </button>
         </div>
 
-        <div id="intel-sub-content"></div>
+        <div id="obs-sub-content"></div>
     </div>`;
+}
+
+export function page_newsLab() {
+    return `
+    <div class="max-w-6xl mx-auto">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-[15px] font-bold" style="color:var(--text-primary);">News Lab</h2>
+                        <span class="text-[8px] font-bold uppercase px-1.5 py-0.5" style="background:rgba(245,158,11,0.15);color:#f59e0b;border-radius:var(--radius-xs);">POC</span>
+                    </div>
+                    <p class="text-[11px]" style="color:var(--text-muted);">Real-time news feed analysis — Sentiment, relevance scoring, and trend detection powered by OmniRAG NLP pipeline</p>
+                </div>
+            </div>
+        </div>
+        <div id="news-lab-content"></div>
+    </div>`;
+}
+
+export function page_unifiedIntelligence() {
+    return page_observability();
 }
 
 // ── Governance Page ──

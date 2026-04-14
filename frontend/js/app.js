@@ -152,7 +152,7 @@ function toggleBuilderNav() {
 })();
 
 async function loadStepModules() {
-    const mod = await import('./steps.js?v=33');
+    const mod = await import('./steps.js?v=34');
     return mod;
 }
 
@@ -272,10 +272,12 @@ const pageConfig = {
     systems:       { title: 'Systems',              breadcrumb: 'Systems' },
     systemView:    { title: 'System',               breadcrumb: 'System' },
     runs:          { title: 'Runs',                 breadcrumb: 'Runs' },
-    intelligence:  { title: 'Intelligence',         breadcrumb: 'Intelligence' },
+    observability: { title: 'Observability',        breadcrumb: 'Observability' },
+    newslab:       { title: 'News Lab',             breadcrumb: 'News Lab' },
     governance:    { title: 'Governance',            breadcrumb: 'Governance' },
     resources:     { title: 'Resources',            breadcrumb: 'Resources' },
-    // Legacy aliases for backwards compat
+    // Legacy aliases
+    intelligence:  { title: 'Observability',        breadcrumb: 'Observability' },
     hub:           { title: 'Systems',              breadcrumb: 'Systems' },
     agents:        { title: 'Systems',              breadcrumb: 'Systems' },
     integrations:  { title: 'Resources',            breadcrumb: 'Resources' },
@@ -308,7 +310,7 @@ function updateSidebarActive(page) {
 
 async function goToPage(page, opts) {
     // Legacy redirects
-    const redirects = { hub:'systems', agents:'systems', knowledge:'resources', workspace:'runs', quality:'intelligence', access:'governance', audit:'governance', integrations:'resources' };
+    const redirects = { hub:'systems', agents:'systems', knowledge:'resources', workspace:'runs', quality:'observability', intelligence:'observability', access:'governance', audit:'governance', integrations:'resources' };
     if (redirects[page]) page = redirects[page];
 
     currentPage = page;
@@ -345,9 +347,13 @@ async function goToPage(page, opts) {
     } else if (page === 'runs') {
         content.innerHTML = mod.page_globalRuns();
         loadGlobalRuns();
-    } else if (page === 'intelligence') {
-        content.innerHTML = mod.page_unifiedIntelligence();
-        loadUnifiedIntelligence('quality');
+    } else if (page === 'observability') {
+        content.innerHTML = mod.page_observability();
+        loadObservabilitySub('quality');
+    } else if (page === 'newslab') {
+        content.innerHTML = mod.page_newsLab();
+        const nlc = document.getElementById('news-lab-content');
+        if (nlc) { nlc.innerHTML = mod.page_intelligence(); loadIntelligenceDashboard(); }
     } else if (page === 'governance') {
         content.innerHTML = mod.page_governance();
         loadGovernanceSub('access');
@@ -889,28 +895,24 @@ function loadGlobalRuns() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// UNIFIED INTELLIGENCE (sub-tabs)
+// OBSERVABILITY (sub-tabs: Quality + Performance)
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function loadUnifiedIntelligence(sub) {
+async function loadObservabilitySub(sub) {
     document.querySelectorAll('[data-subtab]').forEach(t => t.classList.toggle('active', t.dataset.subtab === sub));
-    const container = document.getElementById('intel-sub-content');
+    const container = document.getElementById('obs-sub-content');
     if (!container) return;
 
     if (sub === 'quality') {
         const mod = await loadStepModules();
         container.innerHTML = mod.page_agentQuality();
         loadQualityPage();
-    } else if (sub === 'feeds') {
-        const mod = await loadStepModules();
-        container.innerHTML = mod.page_intelligence();
-        loadIntelligenceDashboard();
     } else if (sub === 'performance') {
         container.innerHTML = `
         <div class="t-card p-6 text-center" style="border-radius:var(--radius);">
             <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">analytics</span>
             <p class="text-[12px] font-medium" style="color:var(--text-secondary);">Performance Metrics</p>
-            <p class="text-[11px]" style="color:var(--text-muted);">Latency, throughput, drift detection, and cost optimization analytics coming soon.</p>
+            <p class="text-[11px]" style="color:var(--text-muted);">Latency, throughput, drift detection, and cost optimization analytics.</p>
         </div>`;
     }
 }
