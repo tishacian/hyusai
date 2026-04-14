@@ -166,7 +166,6 @@ class OmniRAGAgent(BaseAgent):
         )
 
         # ── Step 4: Knowledge Retrieval (naive / hybrid / HAH-like / C-HAH-like on DocumentService) ──
-        from app.core.config import settings
         from app.services.rag.mode_selector import resolve_retrieval_mode
         from app.services.rag.pipeline_retrieval import retrieve_for_mode
 
