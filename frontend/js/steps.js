@@ -1792,32 +1792,35 @@ export function systemTab_overview(sys) {
 }
 
 export function systemTab_design(sys) {
+    const ragMode = sys.ragMode || localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
+    const ragLabels = { auto:'Auto-Select', naive:'Naive', hybrid:'Hybrid RRF', hah:'HAH', chah:'C-HAH' };
     return `
-    <div class="space-y-0">
+    <div class="space-y-3">
         <!-- Canvas toolbar -->
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-                <span class="text-[11px] font-semibold" style="color:var(--text-primary);">System Design Canvas</span>
-                <span class="text-[9px] px-1.5 py-0.5" style="background:var(--bg-elevated);color:var(--text-muted);border-radius:var(--radius-sm);">Zoom: <span id="canvas-zoom-level">100</span>%</span>
+                <span class="material-icons-outlined text-sm" style="color:var(--accent);">architecture</span>
+                <span class="text-[11px] font-semibold" style="color:var(--text-primary);">System Architecture</span>
+                <span class="text-[9px] px-1.5 py-0.5" style="background:var(--bg-elevated);color:var(--text-muted);border-radius:var(--radius-sm);"><span id="canvas-zoom-level">100</span>%</span>
+                <span class="text-[8px] px-1.5 py-0.5 font-semibold" style="background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:var(--radius-xs);">RAG: ${ragLabels[ragMode]}</span>
             </div>
             <div class="flex items-center gap-1.5">
                 <button onclick="canvasResetView()" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
                     <span class="material-icons-outlined text-[10px]">fit_screen</span>Reset
                 </button>
-                <label class="flex items-center gap-1 text-[9px] cursor-pointer" style="color:var(--text-muted);">
-                    <input type="checkbox" id="canvas-tech-toggle" onchange="canvasToggleTech(this.checked)" style="width:12px;height:12px;">
-                    Technical view
-                </label>
             </div>
         </div>
 
         <!-- Canvas -->
-        <div id="design-canvas" class="canvas-container" style="height:420px;border:1px solid var(--border-default);">
+        <div id="design-canvas" class="canvas-container" style="height:440px;">
             <svg class="canvas-svg" id="canvas-svg"></svg>
             <div class="canvas-world" id="canvas-world"></div>
             <div class="canvas-zoom-controls">
                 <button class="canvas-zoom-btn" onclick="canvasZoom(0.15)">+</button>
                 <button class="canvas-zoom-btn" onclick="canvasZoom(-0.15)">−</button>
+            </div>
+            <div style="position:absolute;bottom:12px;left:16px;z-index:10;">
+                <p class="text-[9px]" style="color:var(--text-muted);opacity:0.6;">Hover to preview · Click to focus · Double-click to configure</p>
             </div>
         </div>
     </div>
@@ -1834,7 +1837,7 @@ export function systemTab_design(sys) {
             </div>
             <div id="design-panel-nav" class="flex items-center gap-1"></div>
         </div>
-        <div id="design-panel-body" class="p-4"></div>
+        <div id="design-panel-body" class="p-4 overflow-y-auto" style="max-height:calc(100vh - 60px);"></div>
     </div>`;
 }
 

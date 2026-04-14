@@ -239,20 +239,23 @@
         .page-enter { animation:page-enter .28s cubic-bezier(0.22,1,0.36,1) forwards; }
 
         /* ── Design Canvas ── */
-        .canvas-container { position:relative; width:100%; height:100%; overflow:hidden; cursor:grab; background:var(--bg-deepest); border-radius:var(--radius); }
+        .canvas-container { position:relative; width:100%; overflow:hidden; cursor:grab; background:var(--bg-deepest); border-radius:var(--radius); background-image:radial-gradient(circle,rgba(255,255,255,0.03) 1px,transparent 1px); background-size:24px 24px; }
         .canvas-container:active { cursor:grabbing; }
         .canvas-world { position:absolute; top:0; left:0; width:100%; height:100%; transform-origin:0 0; transition:transform 0.08s ease-out; }
-        .canvas-block { position:absolute; width:180px; padding:14px; border-radius:var(--radius); background:var(--bg-card); border:1px solid var(--border-default); cursor:pointer; transition:border-color .2s, box-shadow .2s, transform .2s; z-index:2; }
-        .canvas-block:hover { border-color:var(--border-active); box-shadow:0 4px 16px rgba(0,0,0,0.15); transform:translateY(-2px); }
-        .canvas-block.active { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-glow), 0 4px 16px rgba(0,0,0,0.15); }
-        .canvas-container.focus-mode .canvas-block:not(.active) { opacity:0.35; filter:grayscale(0.5); }
-        .canvas-block .cb-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; margin-bottom:8px; }
-        .canvas-block .cb-label { font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:2px; }
-        .canvas-block .cb-alias { font-size:9px; color:var(--text-muted); display:none; }
-        .canvas-block:hover .cb-alias { display:block; }
-        .canvas-block .cb-status { font-size:9px; color:var(--text-muted); margin-top:6px; display:flex; align-items:center; gap:4px; }
+        .canvas-block { position:absolute; width:200px; padding:12px 14px; border-radius:10px; background:var(--bg-card); border:1px solid var(--border-default); cursor:pointer; transition:all .25s ease; z-index:2; }
+        .canvas-block:hover { border-color:var(--border-active); box-shadow:0 8px 24px rgba(0,0,0,0.2); transform:translateY(-2px); }
+        .canvas-block.active { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-glow), 0 8px 24px rgba(0,0,0,0.2); }
+        .canvas-container.focus-mode .canvas-block:not(.active) { opacity:0.3; filter:grayscale(0.6); pointer-events:none; }
+        .canvas-block .cb-head { display:flex; align-items:center; gap:10px; }
+        .canvas-block .cb-icon { width:36px; height:36px; border-radius:9px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .canvas-block .cb-titles { flex:1; min-width:0; }
+        .canvas-block .cb-label { font-size:12px; font-weight:600; color:var(--text-primary); line-height:1.3; }
+        .canvas-block .cb-sub { font-size:9px; color:var(--text-muted); line-height:1.3; margin-top:1px; }
+        .canvas-block .cb-l2 { font-size:9px; color:var(--text-secondary); line-height:1.5; margin-top:8px; padding-top:8px; border-top:1px solid var(--border-default); max-height:0; overflow:hidden; opacity:0; transition:max-height .3s ease, opacity .3s ease, margin .3s ease, padding .3s ease; margin-top:0; padding-top:0; }
+        .canvas-block:hover .cb-l2, .canvas-block.active .cb-l2 { max-height:120px; opacity:1; margin-top:8px; padding-top:8px; }
+        .canvas-block .cb-rag-badge { font-size:8px; font-weight:700; padding:2px 6px; border-radius:4px; letter-spacing:0.5px; flex-shrink:0; }
         .canvas-svg { position:absolute; top:0; left:0; width:100%; height:100%; z-index:1; pointer-events:none; }
-        .canvas-connection { stroke:var(--border-default); stroke-width:1.5; fill:none; }
+        .canvas-connection { stroke:var(--border-active); stroke-width:1.5; fill:none; opacity:0.4; stroke-dasharray:6 4; }
         .canvas-zoom-controls { position:absolute; bottom:12px; right:12px; display:flex; flex-direction:column; gap:4px; z-index:10; }
         .canvas-zoom-btn { width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:6px; background:var(--bg-card); border:1px solid var(--border-default); color:var(--text-secondary); cursor:pointer; font-size:14px; }
         .canvas-zoom-btn:hover { border-color:var(--border-active); color:var(--text-primary); }
@@ -677,8 +680,8 @@
         </div>
     </div>
 
-    <script src="js/api.js?v=32" type="module"></script>
-    <script src="js/steps.js?v=32" type="module"></script>
-    <script src="js/app.js?v=32"></script>
+    <script src="js/api.js?v=33" type="module"></script>
+    <script src="js/steps.js?v=33" type="module"></script>
+    <script src="js/app.js?v=33"></script>
 </body>
 </html>

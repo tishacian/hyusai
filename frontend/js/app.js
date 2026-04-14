@@ -152,7 +152,7 @@ function toggleBuilderNav() {
 })();
 
 async function loadStepModules() {
-    const mod = await import('./steps.js?v=32');
+    const mod = await import('./steps.js?v=33');
     return mod;
 }
 
@@ -606,17 +606,19 @@ var canvasDragStart = { x:0, y:0 };
 var canvasShowTech = false;
 
 const CANVAS_BLOCKS = [
-    { id:'decision', label:'Decision Engine', alias:'LLM + Agents + Prompts + OmniRAG', icon:'psychology', color:'#6366f1', x:300, y:30, steps:[1,2], initHooks:['loadRAGSettings'] },
-    { id:'knowledge', label:'Knowledge', alias:'RAG Pipeline + Vector Store + Docs', icon:'library_books', color:'#00bcd4', x:80, y:160, steps:[3], initHooks:['initFileUpload','loadKBStats'] },
-    { id:'skills', label:'Skills', alias:'Tools + APIs + Connectors', icon:'build_circle', color:'#f59e0b', x:520, y:160, steps:[4], initHooks:[] },
-    { id:'guardrails', label:'Controls', alias:'Governance + Filters + RBAC', icon:'shield', color:'#ef4444', x:80, y:300, steps:[5], initHooks:[] },
-    { id:'output', label:'Execution', alias:'Chat + Streaming + TTS + Playground', icon:'terminal', color:'#10b981', x:520, y:300, steps:[6], initHooks:['initChat'] },
-    { id:'flow', label:'Flow', alias:'Drawflow Pipeline Editor', icon:'account_tree', color:'#8b5cf6', x:300, y:300, steps:['flow'], initHooks:['initWorkflowEditor'] },
+    { id:'decision', label:'Reasoning Engine', sub:'LLM · Prompt · OmniRAG', icon:'psychology', color:'#6366f1', col:1, row:0, steps:[1,2], initHooks:['loadRAGSettings'] },
+    { id:'knowledge', label:'Knowledge Base', sub:'Documents · Vectors · RAG', icon:'library_books', color:'#00bcd4', col:0, row:1, steps:[3], initHooks:['initFileUpload','loadKBStats'] },
+    { id:'skills', label:'Skills & Tools', sub:'APIs · Connectors · Actions', icon:'build_circle', color:'#f59e0b', col:2, row:1, steps:[4], initHooks:[] },
+    { id:'guardrails', label:'Guardrails', sub:'Safety · Compliance · RBAC', icon:'shield', color:'#ef4444', col:0, row:2, steps:[5], initHooks:[] },
+    { id:'flow', label:'Orchestration', sub:'Visual Pipeline Editor', icon:'account_tree', color:'#8b5cf6', col:1, row:2, steps:['flow'], initHooks:['initWorkflowEditor'] },
+    { id:'output', label:'Execution', sub:'Chat · Streaming · Playground', icon:'terminal', color:'#10b981', col:2, row:2, steps:[6], initHooks:['initChat'] },
 ];
 
 const CANVAS_CONNECTIONS = [
-    ['knowledge','decision'], ['decision','skills'], ['decision','flow'],
-    ['guardrails','decision'], ['guardrails','output'], ['flow','output'], ['skills','output']
+    ['knowledge','decision'], ['skills','decision'],
+    ['decision','flow'], ['decision','output'],
+    ['guardrails','flow'], ['guardrails','output'],
+    ['flow','output']
 ];
 
 function initDesignCanvas(sys) {
@@ -625,31 +627,39 @@ function initDesignCanvas(sys) {
     const container = document.getElementById('design-canvas');
     if (!world || !svg || !container) return;
 
-    canvasScale = 1; canvasPanX = 40; canvasPanY = 20;
+    const colW = 220, rowH = 140, padX = 60, padY = 30;
+    canvasScale = 1; canvasPanX = padX; canvasPanY = padY;
     world.innerHTML = '';
+
+    const ragMode = sys.ragMode || localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
+    const ragLabels = {auto:'AUTO',naive:'NAIVE',hybrid:'HYBRID',hah:'HAH',chah:'C-HAH'};
 
     CANVAS_BLOCKS.forEach(b => {
         const div = document.createElement('div');
         div.className = 'canvas-block';
         div.id = 'cb-' + b.id;
-        div.style.left = b.x + 'px';
-        div.style.top = b.y + 'px';
+        const x = b.col * colW;
+        const y = b.row * rowH;
+        div.style.left = x + 'px';
+        div.style.top = y + 'px';
         const l2 = _getCanvasL2(b, sys);
-        const ragMode = sys.ragMode || localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
-        const ragBadge = (b.id === 'decision' || b.id === 'knowledge') ? `<span style="display:inline-block;margin-top:4px;padding:1px 5px;font-size:8px;font-weight:600;background:rgba(139,92,246,0.15);color:#8b5cf6;border-radius:4px;">${{auto:'AUTO',naive:'NAIVE',hybrid:'HYBRID',hah:'HAH',chah:'C-HAH'}[ragMode]||ragMode}</span>` : '';
+        const showRag = b.id === 'decision';
         div.innerHTML = `
-            <div class="cb-icon" style="background:${b.color}20;"><span class="material-icons-outlined" style="color:${b.color};">${b.icon}</span></div>
-            <div class="cb-label">${b.label}</div>${ragBadge}
-            <div class="cb-alias">${b.alias}</div>
-            <div class="cb-l2" style="display:none;margin-top:6px;padding-top:6px;border-top:1px solid var(--border-default);font-size:9px;color:var(--text-secondary);line-height:1.5;">${l2}</div>
-            <div class="cb-status"><span style="width:5px;height:5px;border-radius:50%;background:var(--success);"></span> Active</div>
-            <div style="margin-top:4px;"><button onclick="event.stopPropagation();openDesignBlock(CANVAS_BLOCKS.find(x=>x.id==='${b.id}'),getSystem('${sys.id}'))" class="text-[8px] font-medium flex items-center gap-0.5" style="color:var(--accent);">Configure <span class="material-icons-outlined text-[9px]">open_in_new</span></button></div>`;
+            <div class="cb-head">
+                <div class="cb-icon" style="background:${b.color}18;border:1px solid ${b.color}30;"><span class="material-icons-outlined" style="color:${b.color};font-size:18px;">${b.icon}</span></div>
+                <div class="cb-titles">
+                    <div class="cb-label">${b.label}</div>
+                    <div class="cb-sub">${b.sub}</div>
+                </div>
+                ${showRag ? `<span class="cb-rag-badge" style="background:${ragMode==='hah'||ragMode==='chah'?'rgba(139,92,246,0.2)':'rgba(0,188,212,0.15)'};color:${ragMode==='hah'||ragMode==='chah'?'#a78bfa':'#00bcd4'};">${ragLabels[ragMode]||ragMode}</span>` : ''}
+            </div>
+            <div class="cb-l2">${l2}</div>`;
         div.ondblclick = (e) => { e.stopPropagation(); openDesignBlock(b, sys); };
         div.onclick = (e) => { e.stopPropagation(); _selectCanvasBlock(b.id); };
         world.appendChild(div);
     });
 
-    _drawCanvasConnections(svg);
+    _drawCanvasConnections(svg, colW, rowH);
     _applyCanvasTransform();
 
     container.onwheel = (e) => { e.preventDefault(); canvasZoom(e.deltaY > 0 ? -0.08 : 0.08); };
@@ -659,21 +669,31 @@ function initDesignCanvas(sys) {
     container.onmouseleave = () => canvasDragging = false;
 }
 
-function _drawCanvasConnections(svg) {
+function _drawCanvasConnections(svg, colW, rowH) {
     svg.innerHTML = '';
+    const bw = 200, bh = 90;
     CANVAS_CONNECTIONS.forEach(([fromId, toId]) => {
-        const from = document.getElementById('cb-' + fromId);
-        const to = document.getElementById('cb-' + toId);
-        if (!from || !to) return;
-        const fx = parseFloat(from.style.left) + 90;
-        const fy = parseFloat(from.style.top) + 60;
-        const tx = parseFloat(to.style.left) + 90;
-        const ty = parseFloat(to.style.top) + 10;
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        const my = (fy + ty) / 2;
-        path.setAttribute('d', `M${fx},${fy} C${fx},${my} ${tx},${my} ${tx},${ty}`);
-        path.setAttribute('class', 'canvas-connection');
-        svg.appendChild(path);
+        const fb = CANVAS_BLOCKS.find(b => b.id === fromId);
+        const tb = CANVAS_BLOCKS.find(b => b.id === toId);
+        if (!fb || !tb) return;
+        const fx = fb.col * colW + bw / 2;
+        const fy = fb.row * rowH + bh;
+        const tx = tb.col * colW + bw / 2;
+        const ty = tb.row * rowH;
+        if (fb.row === tb.row) {
+            const mx = (fx + tx) / 2;
+            const cy = fy - 30;
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', `M${fx},${fy - bh/2} C${fx},${cy} ${tx},${cy} ${tx},${ty + bh/2}`);
+            path.setAttribute('class', 'canvas-connection');
+            svg.appendChild(path);
+        } else {
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const my = (fy + ty) / 2;
+            path.setAttribute('d', `M${fx},${fy} C${fx},${my} ${tx},${my} ${tx},${ty}`);
+            path.setAttribute('class', 'canvas-connection');
+            svg.appendChild(path);
+        }
     });
 }
 
@@ -705,35 +725,27 @@ function canvasToggleTech(show) {
 function _getCanvasL2(block, sys) {
     const agent = sys.agents?.[0] || {};
     const ragMode = sys.ragMode || localStorage.getItem('aip_rag_pipeline_mode') || 'auto';
-    const ragLabels = { auto:'Auto-Select', naive:'Naive', hybrid:'Hybrid RRF', hah:'HAH', chah:'C-HAH' };
+    const ragLabels = { auto:'Auto', naive:'Naive', hybrid:'Hybrid', hah:'HAH', chah:'C-HAH' };
     switch (block.id) {
-        case 'decision': return `<b>Model:</b> ${agent.model||'gpt-4o'}<br><b>Provider:</b> ${(agent.model||'').startsWith('gpt')?'OpenAI':'Auto'}<br><b>RAG:</b> ${ragLabels[ragMode]||ragMode}<br><b>Prompt:</b> ${agent.prompt ? agent.prompt.substring(0,60)+'…' : '—'}`;
-        case 'knowledge': return `<b>Documents:</b> ${sys.knowledge?.docs||0}<br><b>Chunks:</b> ${sys.knowledge?.chunks||0}<br><b>Last sync:</b> ${sys.knowledge?.lastSync||'—'}<br><b>Pipeline:</b> ${ragLabels[ragMode]}`;
-        case 'skills': return (sys.skills||[]).length ? `<b>Active (${sys.skills.length}):</b><br>${sys.skills.join(', ')}` : '<b>No skills enabled</b>';
-        case 'guardrails': return `<b>Compliance:</b> Active<br><b>Safety filters:</b> Configured<br><b>RBAC:</b> Enabled`;
-        case 'output': return `<b>Chat:</b> Streaming SSE<br><b>Voice:</b> TTS + Mic<br><b>Traces:</b> 3-level disclosure<br><b>ROI:</b> Post-run card`;
-        case 'flow': return sys.flow ? '<b>Pipeline:</b> Active flow configured' : '<b>No flow defined</b><br>Double-click to open editor';
+        case 'decision': return `${agent.model||'gpt-4o'} · ${(agent.model||'').startsWith('gpt')?'OpenAI':(agent.model||'').startsWith('claude')?'Anthropic':'Auto'}<br>RAG: ${ragLabels[ragMode]}`;
+        case 'knowledge': return `${sys.knowledge?.docs||0} docs · ${sys.knowledge?.chunks||0} chunks`;
+        case 'skills': return (sys.skills||[]).length ? `${sys.skills.length} active: ${sys.skills.slice(0,3).join(', ')}${sys.skills.length>3?' +':''}` : 'No skills enabled';
+        case 'guardrails': return 'Safety · Compliance · RBAC';
+        case 'output': return 'Streaming SSE · Voice · Traces';
+        case 'flow': return sys.flow ? 'Pipeline configured' : 'No flow — double-click to create';
         default: return '';
     }
 }
 
 function _selectCanvasBlock(blockId) {
     const wasActive = document.getElementById('cb-' + blockId)?.classList.contains('active');
-    document.querySelectorAll('.canvas-block').forEach(b => {
-        b.classList.remove('active');
-        const l2 = b.querySelector('.cb-l2');
-        if (l2) l2.style.display = 'none';
-    });
+    document.querySelectorAll('.canvas-block').forEach(b => b.classList.remove('active'));
     const container = document.getElementById('design-canvas');
     if (wasActive) {
         if (container) container.classList.remove('focus-mode');
     } else {
         const el = document.getElementById('cb-' + blockId);
-        if (el) {
-            el.classList.add('active');
-            const l2 = el.querySelector('.cb-l2');
-            if (l2) l2.style.display = 'block';
-        }
+        if (el) el.classList.add('active');
         if (container) container.classList.add('focus-mode');
     }
 }
