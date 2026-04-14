@@ -14,23 +14,97 @@ let savedTemperature = 0.3;
 let savedSystemPrompt = '';
 let currentAgentId = null;
 let builderExpanded = false;
+let activeSystemId = null;
+let activeSystemTab = 'overview';
+
+// ── System Data Model ──
+
+const PREBUILT_SYSTEMS = [
+    { id:'sys_procurement', name:'Procurement Risk Analysis', objective:'Validate vendor compliance and assess procurement risks',
+      status:'live', icon:'verified_user', color:'#00bcd4',
+      agents:[{id:'procurement',name:'Procurement Agent',model:'gpt-4o',type:'Procurement',
+        prompt:'You are a procurement compliance agent. Validate vendor documents, check regulatory compliance, and flag risks.'}],
+      knowledge:{docs:12,chunks:1240,lastSync:'2 min ago'}, skills:['sap_api','email','doc_parser'],
+      flow:null, runs:{total:1240,lastRun:'2 min ago',successRate:97},
+      impact:{roi:'+320%',costPerRun:'$0.18',timeSaved:'42%'},
+      lastAction:'Retrieved 3 docs → Generated risk score', lastActionTime:Date.now()-120000 },
+    { id:'sys_legal', name:'Contract Intelligence', objective:'Analyze contracts for risks, obligations, and compliance issues',
+      status:'live', icon:'gavel', color:'#8b5cf6',
+      agents:[{id:'legal',name:'Legal Review',model:'gpt-4o',type:'Legal',
+        prompt:'You are a contract analysis agent. Extract clauses, identify risks, and assess regulatory compliance.'}],
+      knowledge:{docs:8,chunks:890,lastSync:'15 min ago'}, skills:['doc_parser','compliance_check'],
+      flow:null, runs:{total:856,lastRun:'15 min ago',successRate:94},
+      impact:{roi:'+280%',costPerRun:'$0.22',timeSaved:'38%'},
+      lastAction:'Analyzed contract → Flagged 2 risk clauses', lastActionTime:Date.now()-900000 },
+    { id:'sys_hr', name:'HR Knowledge Assistant', objective:'Answer HR policy questions, support onboarding, manage leave requests',
+      status:'idle', icon:'people', color:'#f59e0b',
+      agents:[{id:'hr',name:'HR Assistant',model:'gpt-4o-mini',type:'HR',
+        prompt:'You are an HR assistant. Answer policy questions, help with onboarding, and manage leave queries.'}],
+      knowledge:{docs:5,chunks:420,lastSync:'1 hour ago'}, skills:['email','calendar'],
+      flow:null, runs:{total:340,lastRun:'1 hour ago',successRate:99},
+      impact:{roi:'+150%',costPerRun:'$0.04',timeSaved:'25%'},
+      lastAction:'Answered policy query → Leave balance retrieved', lastActionTime:Date.now()-3600000 },
+    { id:'sys_finance', name:'Financial Analysis Engine', objective:'Analyze statements, track budgets, forecast expenses, validate invoices',
+      status:'live', icon:'account_balance', color:'#10b981',
+      agents:[{id:'finance',name:'Financial Analyst',model:'gpt-4o',type:'Finance',
+        prompt:'You are a financial analyst agent. Analyze statements, track budgets, create forecasts, and validate expenses.'}],
+      knowledge:{docs:15,chunks:1800,lastSync:'5 min ago'}, skills:['sap_api','excel_parser','bi_connector'],
+      flow:null, runs:{total:2100,lastRun:'5 min ago',successRate:96},
+      impact:{roi:'+410%',costPerRun:'$0.15',timeSaved:'55%'},
+      lastAction:'Parsed Q1 report → Budget variance flagged', lastActionTime:Date.now()-300000 },
+];
+
+function _initSystems() {
+    if (localStorage.getItem('aip_systems')) return;
+    const legacy = JSON.parse(localStorage.getItem('aip_agents') || '[]');
+    const migrated = legacy.map(a => ({
+        id: 'sys_' + (a.id || Date.now()), name: a.name || 'Untitled System',
+        objective: '', status: 'draft', icon: 'smart_toy', color: 'var(--accent)',
+        agents: [{ id: a.id, name: a.name, model: a.model || 'gpt-4o', type: a.type || 'Custom', prompt: a.systemPrompt || '' }],
+        knowledge: { docs: 0, chunks: 0, lastSync: '—' }, skills: [],
+        flow: null, runs: { total: 0, lastRun: '—', successRate: 0 },
+        impact: { roi: '—', costPerRun: '—', timeSaved: '—' },
+        lastAction: '', lastActionTime: 0,
+    }));
+    const all = [...PREBUILT_SYSTEMS, ...migrated];
+    localStorage.setItem('aip_systems', JSON.stringify(all));
+}
+
+function listSystems() {
+    _initSystems();
+    return JSON.parse(localStorage.getItem('aip_systems') || '[]');
+}
+function getSystem(id) { return listSystems().find(s => s.id === id) || null; }
+function updateSystem(id, patch) {
+    const sys = listSystems();
+    const idx = sys.findIndex(s => s.id === id);
+    if (idx < 0) return;
+    sys[idx] = { ...sys[idx], ...patch };
+    localStorage.setItem('aip_systems', JSON.stringify(sys));
+}
+function createSystem(obj) {
+    const sys = listSystems();
+    sys.push(obj);
+    localStorage.setItem('aip_systems', JSON.stringify(sys));
+    return obj;
+}
 
 const stepTitles = {
-    1: 'Agent Creation',
-    2: 'Model Selection',
-    3: 'Knowledge Upload',
-    4: 'Tools',
-    5: 'Governance',
+    1: 'Reasoning',
+    2: 'Model Config',
+    3: 'Knowledge',
+    4: 'Skills',
+    5: 'Controls',
     6: 'Execution',
-    7: 'Save Agent',
+    7: 'Save System',
 };
 const headerSubtitles = {
-    1: 'Create Your Agent',
+    1: 'Define Reasoning Engine',
     2: 'Connect to a Model',
     3: 'Upload Knowledge Documents',
-    4: 'Configure Tools',
-    5: 'Review Governance Controls',
-    6: 'Run the Agent',
+    4: 'Configure Skills',
+    5: 'Review Controls & Guardrails',
+    6: 'Run the System',
     7: 'Review & Save Configuration',
 };
 
@@ -62,7 +136,7 @@ function toggleBuilderNav() {
 })();
 
 async function loadStepModules() {
-    const mod = await import('./steps.js?v=27');
+    const mod = await import('./steps.js?v=30');
     return mod;
 }
 
@@ -123,7 +197,7 @@ function updateHeader(step) {
     if (sub) sub.textContent = step === 6 ? getAgentName() : headerSubtitles[step];
     if (btn) {
         if (step === 7) {
-            btn.innerHTML = '<span class="material-icons-outlined text-base">save</span> Save Agent';
+            btn.innerHTML = '<span class="material-icons-outlined text-base">save</span> Save System';
             btn.onclick = saveCurrentAgent;
             btn.style.display = '';
         } else {
@@ -176,19 +250,25 @@ function nextStep() {
 
 // -- Sidebar Page Navigation --
 
-let currentPage = 'hub';
+let currentPage = 'systems';
 
 const pageConfig = {
-    hub:           { title: 'Agent Hub',            breadcrumb: 'Agent Hub' },
-    agents:        { title: 'My Agents',            breadcrumb: 'Agents' },
-    integrations:  { title: 'Integrations',         breadcrumb: 'Integrations' },
-    orchestration: { title: 'Workflows',             breadcrumb: 'Workflows' },
-    workspace:     { title: 'Autonomous Missions',   breadcrumb: 'Missions' },
-    knowledge:     { title: 'Knowledge Base',       breadcrumb: 'Knowledge Base' },
-    access:        { title: 'Access & Roles',       breadcrumb: 'Access & Roles' },
-    audit:         { title: 'Audit Logs',           breadcrumb: 'Audit Logs' },
-    quality:       { title: 'Agent Quality',        breadcrumb: 'Quality' },
+    systems:       { title: 'Systems',              breadcrumb: 'Systems' },
+    systemView:    { title: 'System',               breadcrumb: 'System' },
+    runs:          { title: 'Runs',                 breadcrumb: 'Runs' },
     intelligence:  { title: 'Intelligence',         breadcrumb: 'Intelligence' },
+    governance:    { title: 'Governance',            breadcrumb: 'Governance' },
+    resources:     { title: 'Resources',            breadcrumb: 'Resources' },
+    // Legacy aliases for backwards compat
+    hub:           { title: 'Systems',              breadcrumb: 'Systems' },
+    agents:        { title: 'Systems',              breadcrumb: 'Systems' },
+    integrations:  { title: 'Resources',            breadcrumb: 'Resources' },
+    orchestration: { title: 'System Design',        breadcrumb: 'Flow Editor' },
+    workspace:     { title: 'Runs',                 breadcrumb: 'Runs' },
+    knowledge:     { title: 'Resources',            breadcrumb: 'Knowledge' },
+    access:        { title: 'Governance',           breadcrumb: 'Access' },
+    audit:         { title: 'Governance',           breadcrumb: 'Audit' },
+    quality:       { title: 'Intelligence',         breadcrumb: 'Quality' },
 };
 
 function updateSidebarActive(page) {
@@ -210,16 +290,13 @@ function updateSidebarActive(page) {
     });
 }
 
-async function goToPage(page) {
-    if (page === 'knowledge') {
-        goToStep(3);
-        return;
-    }
+async function goToPage(page, opts) {
+    // Legacy redirects
+    const redirects = { hub:'systems', agents:'systems', knowledge:'resources', workspace:'runs', quality:'intelligence', access:'governance', audit:'governance', integrations:'resources' };
+    if (redirects[page]) page = redirects[page];
+
     currentPage = page;
     updateSidebarActive(page);
-
-    const vlMap = { hub:'objective', agents:'objective', integrations:'optimize', orchestration:'optimize', workspace:'execute', knowledge:'build', access:'optimize', audit:'optimize', quality:'measure', intelligence:'measure' };
-    updateValueLoopPhase(vlMap[page] || 'objective');
 
     const mod = await loadStepModules();
     const content = document.getElementById('step-content');
@@ -234,31 +311,34 @@ async function goToPage(page) {
 
     content.className = 'min-h-0 flex-1 overflow-y-auto p-5 page-enter relative z-[1]';
 
-    if (page === 'hub') {
-        content.innerHTML = mod.page_agentHub();
-        loadHubAgents();
-    } else if (page === 'agents') {
-        content.innerHTML = mod.page_agents();
-        loadAgentsPage();
-    } else if (page === 'integrations') {
-        content.innerHTML = mod.page_integrations();
+    if (page === 'systems') {
+        content.innerHTML = mod.page_systems();
+        loadSystems();
+    } else if (page === 'systemView') {
+        const sysId = (opts && opts.systemId) || activeSystemId;
+        if (!sysId) { goToPage('systems'); return; }
+        activeSystemId = sysId;
+        const sys = getSystem(sysId);
+        if (!sys) { goToPage('systems'); return; }
+        if (title) title.textContent = 'System';
+        if (sub) sub.textContent = sys.name;
+        content.innerHTML = mod.page_systemView(sys, activeSystemTab);
+        _initSystemViewTab(activeSystemTab, sys);
+    } else if (page === 'runs') {
+        content.innerHTML = mod.page_globalRuns();
+        loadGlobalRuns();
+    } else if (page === 'intelligence') {
+        content.innerHTML = mod.page_unifiedIntelligence();
+        loadUnifiedIntelligence('quality');
+    } else if (page === 'governance') {
+        content.innerHTML = mod.page_governance();
+        loadGovernanceSub('access');
+    } else if (page === 'resources') {
+        content.innerHTML = mod.page_resources();
+        loadResourcesSub('integrations');
     } else if (page === 'orchestration') {
         content.innerHTML = mod.page_orchestration();
         initWorkflowEditor();
-    } else if (page === 'access') {
-        content.innerHTML = mod.page_accessRoles();
-    } else if (page === 'audit') {
-        content.innerHTML = mod.page_auditLogs();
-        loadAuditPage();
-    } else if (page === 'workspace') {
-        content.innerHTML = mod.page_workspace();
-        loadWorkspace();
-    } else if (page === 'quality') {
-        content.innerHTML = mod.page_agentQuality();
-        loadQualityPage();
-    } else if (page === 'intelligence') {
-        content.innerHTML = mod.page_intelligence();
-        loadIntelligenceDashboard();
     }
 
     document.querySelectorAll('.step-btn').forEach(btn => {
@@ -269,6 +349,526 @@ async function goToPage(page) {
 
     if (content) content.scrollTop = 0;
     window.scrollTo(0, 0);
+}
+
+function openSystem(sysId) {
+    activeSystemId = sysId;
+    activeSystemTab = 'overview';
+    goToPage('systemView', { systemId: sysId });
+}
+
+function switchSystemTab(tab) {
+    activeSystemTab = tab;
+    const sys = getSystem(activeSystemId);
+    if (!sys) return;
+    document.querySelectorAll('.sys-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    const tabContent = document.getElementById('system-tab-content');
+    if (!tabContent) return;
+    _renderSystemTabContent(tabContent, tab, sys);
+    _initSystemViewTab(tab, sys);
+}
+
+async function _renderSystemTabContent(container, tab, sys) {
+    const mod = await loadStepModules();
+    if (tab === 'overview') container.innerHTML = mod.systemTab_overview(sys);
+    else if (tab === 'design') container.innerHTML = mod.systemTab_design(sys);
+    else if (tab === 'runs') container.innerHTML = mod.systemTab_runs(sys);
+    else if (tab === 'intelligence') container.innerHTML = mod.systemTab_intelligence(sys);
+    else if (tab === 'settings') container.innerHTML = mod.systemTab_settings(sys);
+}
+
+async function _initSystemViewTab(tab, sys) {
+    if (tab === 'overview') _loadSystemOverview(sys);
+    else if (tab === 'design') setTimeout(() => initDesignCanvas(sys), 100);
+    else if (tab === 'runs') loadSystemRuns(sys);
+    else if (tab === 'intelligence') loadSystemIntelligence(sys);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SYSTEMS LIST
+// ══════════════════════════════════════════════════════════════════════════════
+
+function loadSystems() {
+    const systems = listSystems();
+    const grid = document.getElementById('systems-grid');
+    const countEl = document.getElementById('systems-count');
+    if (countEl) countEl.textContent = systems.length;
+    if (!grid) return;
+    if (!systems.length) {
+        grid.innerHTML = '<div class="col-span-2 text-center py-12"><span class="material-icons-outlined text-4xl mb-2" style="color:var(--text-muted);">hub</span><p class="text-[12px] font-medium" style="color:var(--text-secondary);">No systems yet</p><p class="text-[11px]" style="color:var(--text-muted);">Use the Quick Start above or click New System.</p></div>';
+        return;
+    }
+    grid.innerHTML = systems.map(s => _systemCard(s)).join('');
+}
+
+function _systemCard(s) {
+    const statusColors = { live:'var(--success)', idle:'var(--warning)', error:'var(--error)', draft:'var(--text-muted)' };
+    const statusDot = statusColors[s.status] || statusColors.draft;
+    return `
+    <div class="t-card p-4 cursor-pointer transition-all" style="border-radius:var(--radius);" onclick="openSystem('${s.id}')" onmouseenter="this.style.borderColor='var(--border-active)'" onmouseleave="this.style.borderColor=''">
+        <div class="flex items-start justify-between mb-2">
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:${s.color || 'var(--accent)'};opacity:0.9;">
+                    <span class="material-icons-outlined text-white text-base">${s.icon || 'hub'}</span>
+                </div>
+                <div>
+                    <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">${s.name}</h3>
+                    <p class="text-[10px] line-clamp-1" style="color:var(--text-muted);">${s.objective || 'No objective'}</p>
+                </div>
+            </div>
+            <div class="exec-pulse shrink-0">
+                <span class="pulse-dot ${s.status || 'draft'}" style="background:${statusDot};"></span>
+                <span class="text-[9px] capitalize">${s.status || 'draft'}</span>
+            </div>
+        </div>
+        <div class="grid grid-cols-3 gap-2 mt-3 pt-3" style="border-top:1px solid var(--border-default);">
+            <div class="text-center">
+                <p class="text-[13px] font-bold" style="color:var(--text-primary);">${s.runs?.total || 0}</p>
+                <p class="text-[8px] uppercase tracking-wider" style="color:var(--text-muted);">Runs</p>
+            </div>
+            <div class="text-center">
+                <p class="text-[13px] font-bold" style="color:var(--success);">${s.impact?.roi || '—'}</p>
+                <p class="text-[8px] uppercase tracking-wider" style="color:var(--text-muted);">ROI</p>
+            </div>
+            <div class="text-center">
+                <p class="text-[13px] font-bold" style="color:var(--accent);">${s.impact?.timeSaved || '—'}</p>
+                <p class="text-[8px] uppercase tracking-wider" style="color:var(--text-muted);">Time Saved</p>
+            </div>
+        </div>
+        ${s.lastAction ? `<div class="exec-pulse mt-2 pt-2" style="border-top:1px solid var(--border-default);"><span class="pulse-dot ${s.status}" style="background:${statusDot};width:4px;height:4px;"></span><span class="text-[9px] truncate" style="max-width:250px;">${s.lastAction}</span></div>` : ''}
+    </div>`;
+}
+
+function filterSystems(query) {
+    const systems = listSystems();
+    const grid = document.getElementById('systems-grid');
+    if (!grid) return;
+    const q = (query || '').toLowerCase();
+    const filtered = q ? systems.filter(s => s.name.toLowerCase().includes(q) || (s.objective||'').toLowerCase().includes(q)) : systems;
+    grid.innerHTML = filtered.map(s => _systemCard(s)).join('');
+}
+
+function createNewSystem() {
+    const id = 'sys_' + Date.now();
+    const sys = { id, name:'New System', objective:'', status:'draft', icon:'smart_toy', color:'var(--accent)',
+        agents:[], knowledge:{docs:0,chunks:0,lastSync:'—'}, skills:[], flow:null,
+        runs:{total:0,lastRun:'—',successRate:0}, impact:{roi:'—',costPerRun:'—',timeSaved:'—'},
+        lastAction:'', lastActionTime:0 };
+    createSystem(sys);
+    openSystem(id);
+}
+
+function deleteSystemAndReturn(sysId) {
+    const sys = listSystems().filter(s => s.id !== sysId);
+    localStorage.setItem('aip_systems', JSON.stringify(sys));
+    goToPage('systems');
+    showToast('System deleted');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SYSTEM VIEW HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
+
+function _loadSystemOverview(sys) {
+    // Overview is static HTML from systemTab_overview, nothing async needed
+}
+
+function loadSystemRuns(sys) {
+    const container = document.getElementById('system-runs-list');
+    if (!container) return;
+    const runs = _getSimulatedRuns(sys);
+    if (!runs.length) {
+        container.innerHTML = '<div class="text-center py-8"><span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">play_circle</span><p class="text-[12px] font-medium" style="color:var(--text-secondary);">No runs yet</p><p class="text-[11px]" style="color:var(--text-muted);">Click "New Run" to execute this system.</p></div>';
+        return;
+    }
+    container.innerHTML = runs.map((r, i) => `
+    <div class="t-card p-3 flex items-center gap-3" style="border-radius:var(--radius);">
+        <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:${r.success ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'};">
+            <span class="material-icons-outlined text-sm" style="color:${r.success ? 'var(--success)' : 'var(--error)'};">${r.success ? 'check_circle' : 'error'}</span>
+        </div>
+        <div class="flex-1 min-w-0">
+            <p class="text-[11px] font-medium truncate" style="color:var(--text-primary);">${r.label}</p>
+            <p class="text-[9px]" style="color:var(--text-muted);">${r.time}</p>
+        </div>
+        <div class="text-right shrink-0">
+            <p class="text-[10px] font-medium" style="color:var(--text-secondary);">${r.cost}</p>
+            <p class="text-[9px]" style="color:var(--text-muted);">${r.duration}</p>
+        </div>
+    </div>`).join('');
+}
+
+function _getSimulatedRuns(sys) {
+    if (!sys.runs?.total) return [];
+    const samples = [
+        { label:'Query: compliance check', success:true, cost:'$0.12', duration:'2.4s', time:'2 min ago' },
+        { label:'Query: vendor validation', success:true, cost:'$0.18', duration:'3.1s', time:'15 min ago' },
+        { label:'Batch: document analysis', success:true, cost:'$0.45', duration:'8.2s', time:'1 hour ago' },
+        { label:'Query: risk assessment', success:false, cost:'$0.08', duration:'1.2s', time:'2 hours ago' },
+        { label:'Query: contract review', success:true, cost:'$0.22', duration:'4.5s', time:'3 hours ago' },
+    ];
+    return samples.slice(0, Math.min(5, sys.runs.total));
+}
+
+function loadSystemIntelligence(sys) {
+    // Placeholder: in-system intelligence view
+}
+
+function openSystemRun(sysId) {
+    activeSystemId = sysId;
+    activeSystemTab = 'runs';
+    const sys = getSystem(sysId);
+    if (!sys) return;
+    // Switch to the Execution step (Step 6 = chat) with system context
+    const agent = sys.agents?.[0];
+    if (agent) {
+        savedAgentName = agent.name || sys.name;
+        savedModel = agent.model || 'gpt-4o';
+        savedSystemPrompt = agent.prompt || '';
+    }
+    goToStep(6);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DESIGN CANVAS (3-layer system)
+// ══════════════════════════════════════════════════════════════════════════════
+
+var canvasScale = 1;
+var canvasPanX = 0;
+var canvasPanY = 0;
+var canvasDragging = false;
+var canvasDragStart = { x:0, y:0 };
+var canvasShowTech = false;
+
+const CANVAS_BLOCKS = [
+    { id:'decision', label:'Decision Engine', alias:'LLM + Agents + Prompts', icon:'psychology', color:'#6366f1', x:300, y:30, steps:[1,2], initHooks:['loadRAGSettings'] },
+    { id:'knowledge', label:'Knowledge', alias:'RAG + Vector Store + Docs', icon:'library_books', color:'#00bcd4', x:80, y:160, steps:[3], initHooks:['initFileUpload','loadKBStats'] },
+    { id:'skills', label:'Skills', alias:'Tools + APIs + Connectors', icon:'build_circle', color:'#f59e0b', x:520, y:160, steps:[4], initHooks:[] },
+    { id:'guardrails', label:'Controls', alias:'Governance + Filters + RBAC', icon:'shield', color:'#ef4444', x:80, y:300, steps:[5], initHooks:[] },
+    { id:'output', label:'Execution', alias:'Chat + Streaming + TTS', icon:'terminal', color:'#10b981', x:520, y:300, steps:[6], initHooks:['initChat'] },
+    { id:'flow', label:'Flow', alias:'Drawflow Pipeline Editor', icon:'account_tree', color:'#8b5cf6', x:300, y:300, steps:['flow'], initHooks:['initWorkflowEditor'] },
+];
+
+const CANVAS_CONNECTIONS = [
+    ['knowledge','decision'], ['decision','skills'], ['decision','flow'],
+    ['guardrails','decision'], ['guardrails','output'], ['flow','output'], ['skills','output']
+];
+
+function initDesignCanvas(sys) {
+    const world = document.getElementById('canvas-world');
+    const svg = document.getElementById('canvas-svg');
+    const container = document.getElementById('design-canvas');
+    if (!world || !svg || !container) return;
+
+    canvasScale = 1; canvasPanX = 40; canvasPanY = 20;
+    world.innerHTML = '';
+
+    CANVAS_BLOCKS.forEach(b => {
+        const div = document.createElement('div');
+        div.className = 'canvas-block';
+        div.id = 'cb-' + b.id;
+        div.style.left = b.x + 'px';
+        div.style.top = b.y + 'px';
+        div.innerHTML = `
+            <div class="cb-icon" style="background:${b.color}20;"><span class="material-icons-outlined" style="color:${b.color};">${b.icon}</span></div>
+            <div class="cb-label">${b.label}</div>
+            <div class="cb-alias">${b.alias}</div>
+            <div class="cb-status"><span style="width:5px;height:5px;border-radius:50%;background:var(--success);"></span> Active</div>`;
+        div.ondblclick = (e) => { e.stopPropagation(); openDesignBlock(b, sys); };
+        div.onclick = (e) => { e.stopPropagation(); _selectCanvasBlock(b.id); };
+        world.appendChild(div);
+    });
+
+    _drawCanvasConnections(svg);
+    _applyCanvasTransform();
+
+    container.onwheel = (e) => { e.preventDefault(); canvasZoom(e.deltaY > 0 ? -0.08 : 0.08); };
+    container.onmousedown = (e) => { if (e.target === container || e.target === world || e.target === svg) { canvasDragging = true; canvasDragStart = { x:e.clientX - canvasPanX, y:e.clientY - canvasPanY }; } };
+    container.onmousemove = (e) => { if (canvasDragging) { canvasPanX = e.clientX - canvasDragStart.x; canvasPanY = e.clientY - canvasDragStart.y; _applyCanvasTransform(); } };
+    container.onmouseup = () => canvasDragging = false;
+    container.onmouseleave = () => canvasDragging = false;
+}
+
+function _drawCanvasConnections(svg) {
+    svg.innerHTML = '';
+    CANVAS_CONNECTIONS.forEach(([fromId, toId]) => {
+        const from = document.getElementById('cb-' + fromId);
+        const to = document.getElementById('cb-' + toId);
+        if (!from || !to) return;
+        const fx = parseFloat(from.style.left) + 90;
+        const fy = parseFloat(from.style.top) + 60;
+        const tx = parseFloat(to.style.left) + 90;
+        const ty = parseFloat(to.style.top) + 10;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const my = (fy + ty) / 2;
+        path.setAttribute('d', `M${fx},${fy} C${fx},${my} ${tx},${my} ${tx},${ty}`);
+        path.setAttribute('class', 'canvas-connection');
+        svg.appendChild(path);
+    });
+}
+
+function _applyCanvasTransform() {
+    const world = document.getElementById('canvas-world');
+    const svg = document.getElementById('canvas-svg');
+    const t = `translate(${canvasPanX}px, ${canvasPanY}px) scale(${canvasScale})`;
+    if (world) world.style.transform = t;
+    if (svg) svg.style.transform = t;
+    const zl = document.getElementById('canvas-zoom-level');
+    if (zl) zl.textContent = Math.round(canvasScale * 100);
+}
+
+function canvasZoom(delta) {
+    canvasScale = Math.max(0.4, Math.min(2.5, canvasScale + delta));
+    _applyCanvasTransform();
+}
+
+function canvasResetView() {
+    canvasScale = 1; canvasPanX = 40; canvasPanY = 20;
+    _applyCanvasTransform();
+}
+
+function canvasToggleTech(show) {
+    canvasShowTech = show;
+    document.querySelectorAll('.cb-alias').forEach(el => el.style.display = show ? 'block' : '');
+}
+
+function _selectCanvasBlock(blockId) {
+    const wasActive = document.getElementById('cb-' + blockId)?.classList.contains('active');
+    document.querySelectorAll('.canvas-block').forEach(b => b.classList.remove('active'));
+    const container = document.getElementById('design-canvas');
+    if (wasActive) {
+        if (container) container.classList.remove('focus-mode');
+    } else {
+        const el = document.getElementById('cb-' + blockId);
+        if (el) el.classList.add('active');
+        if (container) container.classList.add('focus-mode');
+    }
+}
+
+async function openDesignBlock(block, sys) {
+    const panel = document.getElementById('design-panel');
+    const backdrop = document.getElementById('design-backdrop');
+    const titleEl = document.getElementById('design-panel-title');
+    const body = document.getElementById('design-panel-body');
+    const nav = document.getElementById('design-panel-nav');
+    if (!panel || !body) return;
+
+    if (titleEl) titleEl.textContent = block.label;
+
+    if (block.steps[0] === 'flow') {
+        // Flow => inject Drawflow orchestration page
+        const mod = await loadStepModules();
+        body.innerHTML = mod.page_orchestration();
+        setTimeout(() => initWorkflowEditor(), 200);
+        if (nav) nav.innerHTML = '';
+    } else {
+        // Builder steps => inject the existing step forms
+        const mod = await loadStepModules();
+        const stepFns = {
+            1: () => mod.step1_agentCreation(),
+            2: () => mod.step2_modelSelection(),
+            3: () => mod.step3_knowledgeUpload(),
+            4: () => mod.step4_rulesTools(),
+            5: () => mod.step5_governance(),
+            6: () => mod.step6_execution(),
+            7: () => mod.step7_save(),
+        };
+        const steps = block.steps;
+        let html = '';
+        steps.forEach(s => { if (stepFns[s]) html += stepFns[s](); });
+        body.innerHTML = html;
+
+        // Nav arrows for multi-step blocks
+        if (nav) {
+            const allSteps = CANVAS_BLOCKS.reduce((a,b) => a.concat(b.steps.filter(s => s !== 'flow')), []);
+            nav.innerHTML = allSteps.map(s => `<button onclick="designPanelGoStep(${s})" class="px-1.5 py-0.5 text-[9px] font-medium" style="background:${steps.includes(s)?'var(--accent)':'var(--bg-elevated)'};color:${steps.includes(s)?'white':'var(--text-muted)'};border-radius:var(--radius-xs);">Step ${s}</button>`).join('');
+        }
+
+        // Run init hooks after DOM paint
+        requestAnimationFrame(() => {
+            block.initHooks.forEach(hook => {
+                if (typeof window[hook] === 'function') window[hook]();
+                else if (hook === 'loadRAGSettings' && typeof loadRAGSettings === 'function') loadRAGSettings();
+                else if (hook === 'initFileUpload' && typeof initFileUpload === 'function') initFileUpload();
+                else if (hook === 'loadKBStats' && typeof loadKBStats === 'function') loadKBStats();
+                else if (hook === 'initChat' && typeof initChat === 'function') initChat();
+            });
+            _restoreDesignPanelValues(sys);
+        });
+    }
+
+    backdrop.classList.add('open');
+    panel.classList.add('open');
+}
+
+async function designPanelGoStep(stepNum) {
+    const body = document.getElementById('design-panel-body');
+    if (!body) return;
+    const mod = await loadStepModules();
+    const stepFns = {
+        1: () => mod.step1_agentCreation(),
+        2: () => mod.step2_modelSelection(),
+        3: () => mod.step3_knowledgeUpload(),
+        4: () => mod.step4_rulesTools(),
+        5: () => mod.step5_governance(),
+        6: () => mod.step6_execution(),
+        7: () => mod.step7_save(),
+    };
+    if (stepFns[stepNum]) {
+        body.innerHTML = stepFns[stepNum]();
+        const block = CANVAS_BLOCKS.find(b => b.steps.includes(stepNum));
+        if (block) {
+            requestAnimationFrame(() => {
+                block.initHooks.forEach(hook => {
+                    if (typeof window[hook] === 'function') window[hook]();
+                });
+            });
+        }
+    }
+}
+
+function _restoreDesignPanelValues(sys) {
+    const agent = sys.agents?.[0];
+    if (!agent) return;
+    const nameEl = document.getElementById('agent-name');
+    if (nameEl) nameEl.value = agent.name || '';
+    const promptEl = document.querySelector('.code-editor');
+    if (promptEl) promptEl.value = agent.prompt || '';
+}
+
+function closeDesignPanel() {
+    const panel = document.getElementById('design-panel');
+    const backdrop = document.getElementById('design-backdrop');
+    if (panel) panel.classList.remove('open');
+    if (backdrop) backdrop.classList.remove('open');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GLOBAL RUNS
+// ══════════════════════════════════════════════════════════════════════════════
+
+function loadGlobalRuns() {
+    const systems = listSystems();
+    let totalRuns = 0, totalSuccess = 0;
+    systems.forEach(s => {
+        totalRuns += s.runs?.total || 0;
+        totalSuccess += (s.runs?.total || 0) * ((s.runs?.successRate || 0) / 100);
+    });
+    const el = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
+    el('runs-total', totalRuns);
+    el('runs-today', Math.floor(totalRuns * 0.05));
+    el('runs-success', totalRuns ? Math.round(totalSuccess/totalRuns) + '%' : '0%');
+    el('runs-cost', '$' + (totalRuns * 0.15).toFixed(0));
+
+    const list = document.getElementById('global-runs-list');
+    if (!list) return;
+    const allRuns = [];
+    systems.forEach(s => {
+        _getSimulatedRuns(s).forEach(r => allRuns.push({ ...r, systemName: s.name, systemColor: s.color, systemIcon: s.icon }));
+    });
+    if (!allRuns.length) return;
+    list.innerHTML = allRuns.map(r => `
+    <div class="t-card p-3 flex items-center gap-3" style="border-radius:var(--radius);">
+        <div class="w-7 h-7 rounded-md flex items-center justify-center" style="background:${r.success ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'};">
+            <span class="material-icons-outlined text-sm" style="color:${r.success ? 'var(--success)' : 'var(--error)'};">${r.success ? 'check_circle' : 'error'}</span>
+        </div>
+        <div class="flex-1 min-w-0">
+            <p class="text-[11px] font-medium truncate" style="color:var(--text-primary);">${r.label}</p>
+            <p class="text-[9px]" style="color:var(--text-muted);">${r.systemName} · ${r.time}</p>
+        </div>
+        <div class="text-right shrink-0">
+            <p class="text-[10px] font-medium" style="color:var(--text-secondary);">${r.cost}</p>
+            <p class="text-[9px]" style="color:var(--text-muted);">${r.duration}</p>
+        </div>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UNIFIED INTELLIGENCE (sub-tabs)
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadUnifiedIntelligence(sub) {
+    document.querySelectorAll('[data-subtab]').forEach(t => t.classList.toggle('active', t.dataset.subtab === sub));
+    const container = document.getElementById('intel-sub-content');
+    if (!container) return;
+
+    if (sub === 'quality') {
+        const mod = await loadStepModules();
+        container.innerHTML = mod.page_agentQuality();
+        loadQualityPage();
+    } else if (sub === 'feeds') {
+        const mod = await loadStepModules();
+        container.innerHTML = mod.page_intelligence();
+        loadIntelligenceDashboard();
+    } else if (sub === 'performance') {
+        container.innerHTML = `
+        <div class="t-card p-6 text-center" style="border-radius:var(--radius);">
+            <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">analytics</span>
+            <p class="text-[12px] font-medium" style="color:var(--text-secondary);">Performance Metrics</p>
+            <p class="text-[11px]" style="color:var(--text-muted);">Latency, throughput, drift detection, and cost optimization analytics coming soon.</p>
+        </div>`;
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GOVERNANCE (sub-tabs)
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadGovernanceSub(sub) {
+    document.querySelectorAll('[data-subtab]').forEach(t => t.classList.toggle('active', t.dataset.subtab === sub));
+    const container = document.getElementById('gov-sub-content');
+    if (!container) return;
+    const mod = await loadStepModules();
+
+    if (sub === 'access') {
+        container.innerHTML = mod.page_accessRoles();
+    } else if (sub === 'audit') {
+        container.innerHTML = mod.page_auditLogs();
+        loadAuditPage();
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RESOURCES (sub-tabs)
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadResourcesSub(sub) {
+    document.querySelectorAll('[data-subtab]').forEach(t => t.classList.toggle('active', t.dataset.subtab === sub));
+    const container = document.getElementById('res-sub-content');
+    if (!container) return;
+    const mod = await loadStepModules();
+
+    if (sub === 'integrations') {
+        container.innerHTML = mod.page_integrations();
+    } else if (sub === 'knowledge') {
+        container.innerHTML = mod.step3_knowledgeUpload();
+        requestAnimationFrame(() => {
+            if (typeof initFileUpload === 'function') initFileUpload();
+            loadKBStats();
+        });
+    } else if (sub === 'models') {
+        container.innerHTML = `
+        <div class="max-w-3xl mx-auto space-y-3">
+            <div class="t-card p-4" style="border-radius:var(--radius);">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="material-icons-outlined text-sm" style="color:var(--accent);">model_training</span>
+                    <h3 class="text-[12px] font-semibold" style="color:var(--text-primary);">Model Configuration</h3>
+                </div>
+                <div class="grid grid-cols-1 gap-2">
+                    ${[{name:'GPT-4o',provider:'OpenAI',status:'Active',cost:'$0.005/1K tokens'},{name:'GPT-4o-mini',provider:'OpenAI',status:'Active',cost:'$0.0002/1K tokens'},{name:'GPT-5',provider:'OpenAI',status:'Active',cost:'$0.01/1K tokens'},{name:'Claude 3.5 Sonnet',provider:'Anthropic',status:'Available',cost:'$0.003/1K tokens'}].map(m => `
+                    <div class="flex items-center justify-between p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                        <div class="flex items-center gap-2">
+                            <span class="material-icons-outlined text-sm" style="color:var(--accent);">smart_toy</span>
+                            <div>
+                                <p class="text-[11px] font-medium" style="color:var(--text-primary);">${m.name}</p>
+                                <p class="text-[9px]" style="color:var(--text-muted);">${m.provider} · ${m.cost}</p>
+                            </div>
+                        </div>
+                        <span class="text-[9px] px-1.5 py-0.5 font-medium" style="background:${m.status==='Active'?'rgba(16,185,129,0.15)':'var(--bg-elevated)'};color:${m.status==='Active'?'var(--success)':'var(--text-muted)'};border-radius:var(--radius-xs);">${m.status}</span>
+                    </div>`).join('')}
+                </div>
+            </div>
+        </div>`;
+    }
 }
 
 async function loadKBStats() {
@@ -1686,7 +2286,7 @@ function _activateApp() {
             <span class="material-icons-outlined text-sm" style="color:var(--text-muted);">expand_more</span>`;
     }
 
-    goToPage('hub');
+    goToPage('systems');
 }
 
 // Allow Enter key on login form

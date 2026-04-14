@@ -12,14 +12,14 @@ export function step1_agentCreation() {
                     <span class="material-icons-outlined text-brand-500 text-lg">smart_toy</span>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Define Your Agent</h3>
-                    <p class="text-[11px]" style="color:var(--text-muted);">Configure the agent's identity and capabilities</p>
+                    <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Define Reasoning Engine</h3>
+                    <p class="text-[11px]" style="color:var(--text-muted);">Configure the system's identity, reasoning, and capabilities</p>
                 </div>
             </div>
             <div class="space-y-2.5">
                 <div class="grid grid-cols-5 gap-2.5">
                     <div class="col-span-3">
-                        <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">Agent Name</label>
+                        <label class="text-[11px] font-medium mb-1 block" style="color:var(--text-muted);">System Name</label>
                         <input id="agent-name" type="text" value="" placeholder="My Agent" class="t-input w-full px-3 py-1.5 border rounded-lg text-sm focus:ring-1 focus:ring-brand-500">
                     </div>
                     <div class="col-span-2">
@@ -282,8 +282,8 @@ export function step4_rulesTools() {
     <div class="max-w-3xl mx-auto space-y-3">
         <div class="flex items-center gap-2.5">
             <div class="flex-1">
-                <h2 class="text-[13px] font-semibold" style="color:var(--text-primary);">Tools</h2>
-                <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Enable or disable agent capabilities. Changes are saved automatically.</p>
+                <h2 class="text-[13px] font-semibold" style="color:var(--text-primary);">Skills</h2>
+                <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Enable or disable system skills. Changes are saved automatically.</p>
             </div>
             <div class="flex items-center gap-1.5 px-2 py-1 shrink-0" style="background:var(--accent-subtle);border:1px solid var(--border-active);border-radius:var(--radius-sm);">
                 <span class="material-icons-outlined text-sm" style="color:var(--accent);">extension</span>
@@ -296,7 +296,7 @@ export function step4_rulesTools() {
         <div class="t-card p-3 flex items-start gap-2.5" style="background:var(--bg-elevated);border-radius:var(--radius);">
             <span class="material-icons-outlined text-base mt-0.5" style="color:var(--accent);">lightbulb</span>
             <div>
-                <p class="text-[11px] font-medium" style="color:var(--text-primary);">Tools extend your agent's reach</p>
+                <p class="text-[11px] font-medium" style="color:var(--text-primary);">Skills extend your system's reach</p>
                 <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Enabled tools become available in the agent's execution pipeline. The orchestrator selects tools dynamically based on query intent.</p>
             </div>
         </div>
@@ -669,7 +669,7 @@ export function step7_save() {
                 </div>
                 <div>
                     <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">Review & Save</h3>
-                    <p class="text-[10px]" style="color:var(--text-muted);">Confirm your agent configuration before saving</p>
+                    <p class="text-[10px]" style="color:var(--text-muted);">Confirm your system configuration before saving</p>
                 </div>
             </div>
 
@@ -1488,5 +1488,433 @@ export function page_intelligence() {
                 </div>
             </div>
         </div>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NEW SYSTEM-CENTRIC PAGES
+// ══════════════════════════════════════════════════════════════════════════════
+
+export function page_systems() {
+    const tpls = [
+        { id: 'contracts', icon: 'gavel', label: 'Analyze contracts' },
+        { id: 'delays', icon: 'trending_up', label: 'Predict delays' },
+        { id: 'docreview', icon: 'description', label: 'Document review' },
+        { id: 'riskscore', icon: 'shield', label: 'Risk scoring' },
+    ];
+    return `
+    <div class="max-w-5xl mx-auto">
+        <!-- Quick Start Hero -->
+        <div class="t-card p-5 mb-5" style="border-radius:var(--radius);border-left:3px solid var(--accent);background:linear-gradient(135deg, var(--bg-card) 0%, var(--accent-subtle) 100%);">
+            <h2 class="text-[16px] font-bold gradient-title mb-1">What do you want to achieve?</h2>
+            <p class="text-[11px] mb-3" style="color:var(--text-muted);">Describe your objective and a system will be created automatically.</p>
+            <div class="flex items-stretch gap-2 mb-3">
+                <input id="hub-objective-input" type="text" placeholder="e.g. Analyze supplier contracts for compliance risks..."
+                    class="t-input flex-1 px-3 py-2 text-[13px] focus:ring-1 focus:ring-brand-500 outline-none" style="border-radius:var(--radius-sm);border:1px solid var(--border-default);"
+                    onkeydown="if(event.key==='Enter'){event.preventDefault();launchFromObjective(this.value)}">
+                <button onclick="launchFromObjective(document.getElementById('hub-objective-input').value)"
+                    class="px-4 py-2 text-[12px] font-medium text-white flex items-center gap-1.5 shrink-0" style="background:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-sm">bolt</span>Go
+                </button>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-[10px] font-medium" style="color:var(--text-muted);">Templates:</span>
+                ${tpls.map(t => `<button onclick="launchFromTemplate('${t.id}')" class="px-2.5 py-1 text-[10px] font-medium flex items-center gap-1 transition-all" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);" onmouseenter="this.style.borderColor='var(--border-active)'" onmouseleave="this.style.borderColor=''"><span class="material-icons-outlined text-[12px]" style="color:var(--accent);">${t.icon}</span>${t.label}</button>`).join('')}
+            </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+                <h3 class="text-[13px] font-semibold" style="color:var(--text-primary);">Your Systems</h3>
+                <span id="systems-count" class="text-[10px] px-1.5 py-0.5 font-medium" style="background:var(--bg-elevated);color:var(--text-muted);border-radius:var(--radius-sm);">0</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <input id="systems-search" type="text" placeholder="Search systems..." class="t-input px-2.5 py-1 text-[11px]" style="width:180px;border-radius:var(--radius-sm);border:1px solid var(--border-default);" oninput="filterSystems(this.value)">
+                <button onclick="createNewSystem()" class="px-3 py-1.5 text-[11px] font-medium text-white flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-sm">add</span>New System
+                </button>
+            </div>
+        </div>
+
+        <!-- System cards grid -->
+        <div id="systems-grid" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+    </div>`;
+}
+
+export function page_systemView(sys, activeTab) {
+    const tab = activeTab || 'overview';
+    const tabs = [
+        { id:'overview', icon:'dashboard', label:'Overview' },
+        { id:'design', icon:'architecture', label:'Design' },
+        { id:'runs', icon:'play_circle', label:'Runs' },
+        { id:'intelligence', icon:'insights', label:'Intelligence' },
+        { id:'settings', icon:'settings', label:'Settings' },
+    ];
+    return `
+    <div class="max-w-6xl mx-auto">
+        <!-- System header -->
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+                <button onclick="goToPage('systems')" class="w-7 h-7 flex items-center justify-center" style="color:var(--text-muted);border:1px solid var(--border-default);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-sm">arrow_back</span>
+                </button>
+                <div class="w-9 h-9 rounded-lg flex items-center justify-center" style="background:${sys.color || 'var(--accent)'};opacity:0.9;">
+                    <span class="material-icons-outlined text-white text-lg">${sys.icon || 'hub'}</span>
+                </div>
+                <div>
+                    <h2 class="text-[15px] font-bold" style="color:var(--text-primary);">${sys.name}</h2>
+                    <div class="exec-pulse mt-0.5" id="sys-header-pulse">
+                        <span class="pulse-dot ${sys.status || 'draft'}"></span>
+                        <span>${sys.lastAction || 'No recent activity'}</span>
+                        <span style="color:var(--text-muted);font-size:9px;">${_relativeTime(sys.lastActionTime)}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="openSystemRun('${sys.id}')" class="px-3 py-1.5 text-[11px] font-medium text-white flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-sm">play_arrow</span>New Run
+                </button>
+            </div>
+        </div>
+
+        <!-- Tab bar -->
+        <div class="flex items-center gap-0 mb-4" style="border-bottom:1px solid var(--border-default);">
+            ${tabs.map(t => `<button class="sys-tab${t.id===tab?' active':''}" data-tab="${t.id}" onclick="switchSystemTab('${t.id}')"><span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">${t.icon}</span>${t.label}</button>`).join('')}
+        </div>
+
+        <!-- Tab content -->
+        <div id="system-tab-content"></div>
+    </div>`;
+}
+
+function _relativeTime(ts) {
+    if (!ts) return '';
+    const diff = Date.now() - ts;
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+    return Math.floor(diff/86400000) + 'd ago';
+}
+
+export function systemTab_overview(sys) {
+    const kpis = [
+        { label:'Total Runs', value: sys.runs?.total || 0, icon:'play_circle', color:'var(--accent)' },
+        { label:'Success Rate', value: (sys.runs?.successRate || 0)+'%', icon:'check_circle', color:'var(--success)' },
+        { label:'ROI Impact', value: sys.impact?.roi || '—', icon:'trending_up', color:'var(--info)' },
+        { label:'Cost/Run', value: sys.impact?.costPerRun || '—', icon:'payments', color:'var(--warning)' },
+        { label:'Time Saved', value: sys.impact?.timeSaved || '—', icon:'schedule', color:'var(--success)' },
+        { label:'Knowledge', value: (sys.knowledge?.docs || 0)+' docs', icon:'library_books', color:'var(--info)' },
+    ];
+    return `
+    <div class="space-y-4">
+        <!-- Objective -->
+        <div class="t-card p-4" style="border-radius:var(--radius);border-left:3px solid ${sys.color || 'var(--accent)'};">
+            <div class="flex items-center gap-2 mb-1">
+                <span class="material-icons-outlined text-sm" style="color:var(--accent);">flag</span>
+                <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Objective</span>
+            </div>
+            <p class="text-[13px]" style="color:var(--text-primary);">${sys.objective || 'No objective defined'}</p>
+        </div>
+
+        <!-- KPI Grid -->
+        <div class="grid grid-cols-3 md:grid-cols-6 gap-2">
+            ${kpis.map(k => `
+            <div class="t-card p-3 text-center" style="border-radius:var(--radius);">
+                <span class="material-icons-outlined text-lg mb-1" style="color:${k.color};">${k.icon}</span>
+                <p class="text-[16px] font-bold" style="color:var(--text-primary);">${k.value}</p>
+                <p class="text-[9px] uppercase tracking-wider mt-0.5" style="color:var(--text-muted);">${k.label}</p>
+            </div>`).join('')}
+        </div>
+
+        <!-- Execution Pulse + Last Actions -->
+        <div class="t-card p-4" style="border-radius:var(--radius);">
+            <div class="flex items-center gap-2 mb-3">
+                <span class="material-icons-outlined text-sm" style="color:var(--accent);">electric_bolt</span>
+                <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Last Actions</span>
+            </div>
+            <div id="sys-last-actions" class="space-y-2">
+                <div class="flex items-center gap-2 p-2" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <span class="pulse-dot ${sys.status || 'draft'}" style="width:6px;height:6px;border-radius:50%;flex-shrink:0;"></span>
+                    <span class="text-[11px]" style="color:var(--text-secondary);">${sys.lastAction || 'No recent activity'}</span>
+                    <span class="text-[9px] ml-auto" style="color:var(--text-muted);">${_relativeTime(sys.lastActionTime)}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Composition -->
+        <div class="t-card p-4" style="border-radius:var(--radius);">
+            <div class="flex items-center gap-2 mb-3">
+                <span class="material-icons-outlined text-sm" style="color:var(--accent);">widgets</span>
+                <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">System Composition</span>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <p class="text-[10px] font-medium" style="color:var(--text-muted);">Agents</p>
+                    <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.agents?.length || 0}</p>
+                </div>
+                <div class="p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <p class="text-[10px] font-medium" style="color:var(--text-muted);">Skills</p>
+                    <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.skills?.length || 0}</p>
+                </div>
+                <div class="p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <p class="text-[10px] font-medium" style="color:var(--text-muted);">Knowledge</p>
+                    <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.knowledge?.docs || 0} docs</p>
+                </div>
+                <div class="p-2.5" style="background:var(--bg-elevated);border-radius:var(--radius-sm);">
+                    <p class="text-[10px] font-medium" style="color:var(--text-muted);">Flow</p>
+                    <p class="text-[14px] font-bold" style="color:var(--text-primary);">${sys.flow ? 'Active' : 'None'}</p>
+                </div>
+            </div>
+        </div>
+    </div>`;
+}
+
+export function systemTab_design(sys) {
+    return `
+    <div class="space-y-0">
+        <!-- Canvas toolbar -->
+        <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+                <span class="text-[11px] font-semibold" style="color:var(--text-primary);">System Design Canvas</span>
+                <span class="text-[9px] px-1.5 py-0.5" style="background:var(--bg-elevated);color:var(--text-muted);border-radius:var(--radius-sm);">Zoom: <span id="canvas-zoom-level">100</span>%</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+                <button onclick="canvasResetView()" class="px-2 py-1 text-[9px] font-medium flex items-center gap-1" style="background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-[10px]">fit_screen</span>Reset
+                </button>
+                <label class="flex items-center gap-1 text-[9px] cursor-pointer" style="color:var(--text-muted);">
+                    <input type="checkbox" id="canvas-tech-toggle" onchange="canvasToggleTech(this.checked)" style="width:12px;height:12px;">
+                    Technical view
+                </label>
+            </div>
+        </div>
+
+        <!-- Canvas -->
+        <div id="design-canvas" class="canvas-container" style="height:420px;border:1px solid var(--border-default);">
+            <svg class="canvas-svg" id="canvas-svg"></svg>
+            <div class="canvas-world" id="canvas-world"></div>
+            <div class="canvas-zoom-controls">
+                <button class="canvas-zoom-btn" onclick="canvasZoom(0.15)">+</button>
+                <button class="canvas-zoom-btn" onclick="canvasZoom(-0.15)">−</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide-over panel backdrop + panel (for L3 drill-down) -->
+    <div id="design-backdrop" class="design-slideover-backdrop" onclick="closeDesignPanel()"></div>
+    <div id="design-panel" class="design-slideover">
+        <div class="flex items-center justify-between p-4" style="border-bottom:1px solid var(--border-default);">
+            <div class="flex items-center gap-2">
+                <button onclick="closeDesignPanel()" class="w-6 h-6 flex items-center justify-center" style="color:var(--text-muted);border:1px solid var(--border-default);border-radius:var(--radius-sm);">
+                    <span class="material-icons-outlined text-sm">close</span>
+                </button>
+                <h3 id="design-panel-title" class="text-[13px] font-semibold" style="color:var(--text-primary);">Configure</h3>
+            </div>
+            <div id="design-panel-nav" class="flex items-center gap-1"></div>
+        </div>
+        <div id="design-panel-body" class="p-4"></div>
+    </div>`;
+}
+
+export function systemTab_runs(sys) {
+    return `
+    <div class="space-y-4">
+        <div class="flex items-center justify-between">
+            <span class="text-[11px] font-semibold" style="color:var(--text-primary);">Execution History</span>
+            <button onclick="openSystemRun('${sys.id}')" class="px-3 py-1.5 text-[11px] font-medium text-white flex items-center gap-1" style="background:var(--accent);border-radius:var(--radius-sm);">
+                <span class="material-icons-outlined text-sm">play_arrow</span>New Run
+            </button>
+        </div>
+        <div id="system-runs-list" class="space-y-2">
+            <div class="text-center py-8">
+                <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">hourglass_empty</span>
+                <p class="text-[11px]" style="color:var(--text-muted);">Loading runs...</p>
+            </div>
+        </div>
+    </div>`;
+}
+
+export function systemTab_intelligence(sys) {
+    return `
+    <div class="space-y-4">
+        <div class="t-card p-4" style="border-radius:var(--radius);">
+            <div class="flex items-center gap-2 mb-3">
+                <span class="material-icons-outlined text-sm" style="color:var(--accent);">insights</span>
+                <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">System Quality</span>
+            </div>
+            <div id="sys-quality-content">
+                <p class="text-[11px]" style="color:var(--text-muted);">Quality metrics for this system will appear after runs are evaluated.</p>
+            </div>
+        </div>
+    </div>`;
+}
+
+export function systemTab_settings(sys) {
+    const agent = sys.agents?.[0] || {};
+    return `
+    <div class="max-w-2xl space-y-4">
+        <div class="t-card p-4" style="border-radius:var(--radius);">
+            <h3 class="text-[12px] font-semibold mb-3" style="color:var(--text-primary);">System Configuration</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">System Name</label>
+                    <input type="text" value="${sys.name}" class="t-input w-full px-3 py-1.5 text-[12px]" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);"
+                        onchange="updateSystem('${sys.id}',{name:this.value});document.getElementById('step-title').textContent=this.value">
+                </div>
+                <div>
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Objective</label>
+                    <textarea class="t-input w-full px-3 py-1.5 text-[12px]" rows="2" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);resize:none;"
+                        onchange="updateSystem('${sys.id}',{objective:this.value})">${sys.objective || ''}</textarea>
+                </div>
+                <div>
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Status</label>
+                    <select class="t-input px-3 py-1.5 text-[12px]" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);"
+                        onchange="updateSystem('${sys.id}',{status:this.value})">
+                        <option value="live"${sys.status==='live'?' selected':''}>Live</option>
+                        <option value="idle"${sys.status==='idle'?' selected':''}>Idle</option>
+                        <option value="draft"${sys.status==='draft'?' selected':''}>Draft</option>
+                        <option value="error"${sys.status==='error'?' selected':''}>Error</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-[10px] font-medium mb-1 block" style="color:var(--text-muted);">Primary Model</label>
+                    <input type="text" value="${agent.model || 'gpt-4o'}" class="t-input w-full px-3 py-1.5 text-[12px]" style="border:1px solid var(--border-default);border-radius:var(--radius-sm);" disabled>
+                </div>
+            </div>
+        </div>
+        <div class="t-card p-4" style="border-radius:var(--radius);">
+            <h3 class="text-[12px] font-semibold mb-2" style="color:var(--text-primary);">Danger Zone</h3>
+            <button onclick="if(confirm('Delete this system?')){deleteSystemAndReturn('${sys.id}')}" class="px-3 py-1.5 text-[11px] font-medium flex items-center gap-1" style="background:rgba(239,68,68,0.1);color:var(--error);border:1px solid rgba(239,68,68,0.3);border-radius:var(--radius-sm);">
+                <span class="material-icons-outlined text-sm">delete</span>Delete System
+            </button>
+        </div>
+    </div>`;
+}
+
+// ── Global Runs Page ──
+
+export function page_globalRuns() {
+    return `
+    <div class="max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-[15px] font-bold" style="color:var(--text-primary);">All Runs</h2>
+                <p class="text-[11px]" style="color:var(--text-muted);">Cross-system execution timeline</p>
+            </div>
+        </div>
+
+        <!-- Run stats -->
+        <div class="grid grid-cols-4 gap-2 mb-4">
+            <div class="t-card p-3 text-center" style="border-radius:var(--radius);">
+                <p class="text-[16px] font-bold" id="runs-total" style="color:var(--text-primary);">0</p>
+                <p class="text-[9px] uppercase tracking-wider" style="color:var(--text-muted);">Total Runs</p>
+            </div>
+            <div class="t-card p-3 text-center" style="border-radius:var(--radius);">
+                <p class="text-[16px] font-bold" id="runs-today" style="color:var(--accent);">0</p>
+                <p class="text-[9px] uppercase tracking-wider" style="color:var(--text-muted);">Today</p>
+            </div>
+            <div class="t-card p-3 text-center" style="border-radius:var(--radius);">
+                <p class="text-[16px] font-bold" id="runs-success" style="color:var(--success);">0%</p>
+                <p class="text-[9px] uppercase tracking-wider" style="color:var(--text-muted);">Success Rate</p>
+            </div>
+            <div class="t-card p-3 text-center" style="border-radius:var(--radius);">
+                <p class="text-[16px] font-bold" id="runs-cost" style="color:var(--warning);">$0</p>
+                <p class="text-[9px] uppercase tracking-wider" style="color:var(--text-muted);">Total Cost</p>
+            </div>
+        </div>
+
+        <!-- Runs list -->
+        <div id="global-runs-list" class="space-y-2">
+            <div class="text-center py-8">
+                <span class="material-icons-outlined text-3xl mb-2" style="color:var(--text-muted);">play_circle</span>
+                <p class="text-[12px] font-medium mb-1" style="color:var(--text-secondary);">No runs yet</p>
+                <p class="text-[11px]" style="color:var(--text-muted);">Open a system and start a run to see execution history here.</p>
+            </div>
+        </div>
+    </div>`;
+}
+
+// ── Unified Intelligence Page ──
+
+export function page_unifiedIntelligence() {
+    return `
+    <div class="max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-[15px] font-bold" style="color:var(--text-primary);">Intelligence</h2>
+                <p class="text-[11px]" style="color:var(--text-muted);">Quality evaluation, feeds analysis, and performance metrics</p>
+            </div>
+        </div>
+
+        <!-- Sub-tabs -->
+        <div class="flex items-center gap-0 mb-4" style="border-bottom:1px solid var(--border-default);">
+            <button class="sys-tab active" data-subtab="quality" onclick="loadUnifiedIntelligence('quality')">
+                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">speed</span>Quality
+            </button>
+            <button class="sys-tab" data-subtab="feeds" onclick="loadUnifiedIntelligence('feeds')">
+                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">rss_feed</span>Feeds
+            </button>
+            <button class="sys-tab" data-subtab="performance" onclick="loadUnifiedIntelligence('performance')">
+                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">analytics</span>Performance
+            </button>
+        </div>
+
+        <div id="intel-sub-content"></div>
+    </div>`;
+}
+
+// ── Governance Page ──
+
+export function page_governance() {
+    return `
+    <div class="max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-[15px] font-bold" style="color:var(--text-primary);">Governance</h2>
+                <p class="text-[11px]" style="color:var(--text-muted);">Access control, audit logs, and compliance</p>
+            </div>
+        </div>
+
+        <!-- Sub-tabs -->
+        <div class="flex items-center gap-0 mb-4" style="border-bottom:1px solid var(--border-default);">
+            <button class="sys-tab active" data-subtab="access" onclick="loadGovernanceSub('access')">
+                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">group</span>Access & Roles
+            </button>
+            <button class="sys-tab" data-subtab="audit" onclick="loadGovernanceSub('audit')">
+                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">receipt_long</span>Audit Logs
+            </button>
+        </div>
+
+        <div id="gov-sub-content"></div>
+    </div>`;
+}
+
+// ── Resources Page ──
+
+export function page_resources() {
+    return `
+    <div class="max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-[15px] font-bold" style="color:var(--text-primary);">Resources</h2>
+                <p class="text-[11px]" style="color:var(--text-muted);">Integrations, knowledge bases, and model configuration</p>
+            </div>
+        </div>
+
+        <!-- Sub-tabs -->
+        <div class="flex items-center gap-0 mb-4" style="border-bottom:1px solid var(--border-default);">
+            <button class="sys-tab active" data-subtab="integrations" onclick="loadResourcesSub('integrations')">
+                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">cable</span>Integrations
+            </button>
+            <button class="sys-tab" data-subtab="knowledge" onclick="loadResourcesSub('knowledge')">
+                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">library_books</span>Knowledge
+            </button>
+            <button class="sys-tab" data-subtab="models" onclick="loadResourcesSub('models')">
+                <span class="material-icons-outlined text-[14px] mr-1" style="vertical-align:-2px;">model_training</span>Models
+            </button>
+        </div>
+
+        <div id="res-sub-content"></div>
     </div>`;
 }

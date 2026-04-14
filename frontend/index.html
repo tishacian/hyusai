@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Orchestration Platform</title>
+    <title>Agentium — Intelligent Systems Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
@@ -238,6 +238,44 @@
         @keyframes page-enter { from{opacity:0} to{opacity:1} }
         .page-enter { animation:page-enter .28s cubic-bezier(0.22,1,0.36,1) forwards; }
 
+        /* ── Design Canvas ── */
+        .canvas-container { position:relative; width:100%; height:100%; overflow:hidden; cursor:grab; background:var(--bg-deepest); border-radius:var(--radius); }
+        .canvas-container:active { cursor:grabbing; }
+        .canvas-world { position:absolute; top:0; left:0; width:100%; height:100%; transform-origin:0 0; transition:transform 0.08s ease-out; }
+        .canvas-block { position:absolute; width:180px; padding:14px; border-radius:var(--radius); background:var(--bg-card); border:1px solid var(--border-default); cursor:pointer; transition:border-color .2s, box-shadow .2s, transform .2s; z-index:2; }
+        .canvas-block:hover { border-color:var(--border-active); box-shadow:0 4px 16px rgba(0,0,0,0.15); transform:translateY(-2px); }
+        .canvas-block.active { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-glow), 0 4px 16px rgba(0,0,0,0.15); }
+        .canvas-container.focus-mode .canvas-block:not(.active) { opacity:0.35; filter:grayscale(0.5); }
+        .canvas-block .cb-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; margin-bottom:8px; }
+        .canvas-block .cb-label { font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:2px; }
+        .canvas-block .cb-alias { font-size:9px; color:var(--text-muted); display:none; }
+        .canvas-block:hover .cb-alias { display:block; }
+        .canvas-block .cb-status { font-size:9px; color:var(--text-muted); margin-top:6px; display:flex; align-items:center; gap:4px; }
+        .canvas-svg { position:absolute; top:0; left:0; width:100%; height:100%; z-index:1; pointer-events:none; }
+        .canvas-connection { stroke:var(--border-default); stroke-width:1.5; fill:none; }
+        .canvas-zoom-controls { position:absolute; bottom:12px; right:12px; display:flex; flex-direction:column; gap:4px; z-index:10; }
+        .canvas-zoom-btn { width:28px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:6px; background:var(--bg-card); border:1px solid var(--border-default); color:var(--text-secondary); cursor:pointer; font-size:14px; }
+        .canvas-zoom-btn:hover { border-color:var(--border-active); color:var(--text-primary); }
+
+        /* Design slide-over panel (L3) */
+        .design-slideover { position:fixed; top:0; right:0; width:60%; max-width:800px; height:100vh; background:var(--bg-main); border-left:1px solid var(--border-default); box-shadow:-8px 0 32px rgba(0,0,0,0.2); z-index:100; transform:translateX(100%); transition:transform .3s cubic-bezier(0.22,1,0.36,1); overflow-y:auto; }
+        .design-slideover.open { transform:translateX(0); }
+        .design-slideover-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; opacity:0; transition:opacity .3s; pointer-events:none; }
+        .design-slideover-backdrop.open { opacity:1; pointer-events:auto; }
+
+        /* Execution Pulse */
+        .exec-pulse { display:inline-flex; align-items:center; gap:6px; font-size:10px; color:var(--text-muted); }
+        .exec-pulse .pulse-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+        .exec-pulse .pulse-dot.live { background:var(--success); animation:status-breathe 2s ease-in-out infinite; }
+        .exec-pulse .pulse-dot.idle { background:var(--warning); }
+        .exec-pulse .pulse-dot.error { background:var(--error); }
+        .exec-pulse .pulse-dot.draft { background:var(--text-muted); }
+
+        /* System tabs */
+        .sys-tab { padding:6px 16px; font-size:12px; font-weight:500; color:var(--text-muted); border-bottom:2px solid transparent; cursor:pointer; transition:all .2s; white-space:nowrap; }
+        .sys-tab:hover { color:var(--text-secondary); }
+        .sys-tab.active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+
         /* ── Prose (themed) ── */
         .prose-chat { color:var(--prose-text); font-size:13px; line-height:1.65; }
         .prose-chat p { margin-bottom:.5rem; }
@@ -340,7 +378,7 @@
                         </div>
                     </div>
                 </div>
-                <h1 class="text-[15px] font-semibold tracking-tight gradient-title" style="color:var(--text-primary);">AI Orchestration Platform</h1>
+                <h1 class="text-[15px] font-semibold tracking-tight gradient-title" style="color:var(--text-primary);">Agentium</h1>
                 <p class="text-[10px] mt-0.5 tracking-wide uppercase font-medium" style="color:var(--text-muted);">Enterprise Agent Infrastructure</p>
             </div>
 
@@ -498,8 +536,8 @@
             <div class="flex items-center gap-2.5 flex-1">
                 <div class="sidebar-brand-icon w-7 h-7 flex items-center justify-center" style="background:var(--accent);border-radius:var(--radius-sm);"><span class="material-icons-outlined text-white text-sm">hub</span></div>
                 <div class="flex flex-col">
-                    <span class="font-semibold text-white text-[13px] leading-tight tracking-tight">Agent Platform</span>
-                    <span class="text-[9px] font-mono" style="color:var(--text-muted);">v2.4</span>
+                    <span class="font-semibold text-white text-[13px] leading-tight tracking-tight">Agentium</span>
+                    <span class="text-[9px] font-mono" style="color:var(--text-muted);">v3.0</span>
                 </div>
             </div>
             <button onclick="toggleTheme()" class="w-6 h-6 rounded-md flex items-center justify-center transition-colors" style="color:var(--text-muted);" title="Toggle theme">
@@ -509,71 +547,57 @@
 
         <!-- Primary Nav -->
         <nav class="flex-1 overflow-y-auto sidebar-scroll px-2 py-3 space-y-0.5">
-            <div class="pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Objective</span></div>
-            <a onclick="goToPage('hub')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium text-white cursor-pointer" style="background:rgba(0,188,212,0.1);border-left:2px solid var(--accent);border-radius:var(--radius-xs);" data-page="hub">
-                <span class="material-icons-outlined mr-2 text-[16px] text-brand-400">hub</span>Agent Hub
-            </a>
-
-            <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Build</span></div>
-            <!-- Agent Builder (collapsible) is below -->
-            <a onclick="goToPage('knowledge')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="knowledge">
-                <span class="material-icons-outlined mr-2 text-[16px]">library_books</span>Knowledge Base
+            <a onclick="goToPage('systems')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium text-white cursor-pointer" style="background:rgba(0,188,212,0.1);border-left:3px solid var(--accent);border-radius:var(--radius-xs);" data-page="systems">
+                <span class="material-icons-outlined mr-2 text-[16px] text-brand-400">hub</span>Systems
             </a>
 
             <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Execute</span></div>
-            <a onclick="goToPage('orchestration')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="orchestration">
-                <span class="material-icons-outlined mr-2 text-[16px]">account_tree</span>Workflows
-            </a>
-            <a onclick="goToPage('workspace')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="workspace">
-                <span class="material-icons-outlined mr-2 text-[16px]">rocket_launch</span>Missions
+            <a onclick="goToPage('runs')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:3px solid transparent;border-radius:var(--radius-xs);" data-page="runs">
+                <span class="material-icons-outlined mr-2 text-[16px]">play_circle</span>Runs
             </a>
 
             <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Measure</span></div>
-            <a onclick="goToPage('intelligence')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="intelligence">
-                <span class="material-icons-outlined mr-2 text-[16px]">rss_feed</span>Intelligence
-            </a>
-            <a onclick="goToPage('quality')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="quality">
-                <span class="material-icons-outlined mr-2 text-[16px]">speed</span>Agent Quality
+            <a onclick="goToPage('intelligence')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:3px solid transparent;border-radius:var(--radius-xs);" data-page="intelligence">
+                <span class="material-icons-outlined mr-2 text-[16px]">insights</span>Intelligence
             </a>
 
             <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Govern</span></div>
-            <a onclick="goToPage('integrations')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="integrations">
-                <span class="material-icons-outlined mr-2 text-[16px]">cable</span>Integrations
-            </a>
-            <a onclick="goToPage('access')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="access">
-                <span class="material-icons-outlined mr-2 text-[16px]">group</span>Access & Roles
-            </a>
-            <a onclick="goToPage('audit')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:2px solid transparent;border-radius:var(--radius-xs);" data-page="audit">
-                <span class="material-icons-outlined mr-2 text-[16px]">receipt_long</span>Audit Logs
+            <a onclick="goToPage('governance')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:3px solid transparent;border-radius:var(--radius-xs);" data-page="governance">
+                <span class="material-icons-outlined mr-2 text-[16px]">shield</span>Governance
             </a>
 
-            <!-- Agent Builder (collapsible) -->
-            <div class="pt-3 pb-1">
+            <div class="pt-3 pb-1"><span class="px-2.5 text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Configure</span></div>
+            <a onclick="goToPage('resources')" class="sidebar-link group flex items-center px-2.5 py-1.5 text-[12px] font-medium cursor-pointer" style="color:var(--text-muted);border-left:3px solid transparent;border-radius:var(--radius-xs);" data-page="resources">
+                <span class="material-icons-outlined mr-2 text-[16px]">category</span>Resources
+            </a>
+
+            <!-- System Design (collapsible, hidden by default) -->
+            <div class="pt-3 pb-1" id="builder-section" style="display:none;">
                 <button onclick="toggleBuilderNav()" class="flex items-center justify-between w-full px-2.5 group">
-                    <span class="text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">Agent Builder</span>
+                    <span class="text-[9px] font-semibold uppercase tracking-widest" style="color:var(--text-muted);">System Design</span>
                     <span class="material-icons-outlined text-xs transition-transform" id="builder-chevron" style="color:var(--text-muted);transform:rotate(0deg);">expand_more</span>
                 </button>
             </div>
             <div id="step-nav" class="space-y-0.5 overflow-hidden transition-all" style="max-height:0;opacity:0;">
                 <button onclick="goToStep(1)" data-step="1" class="step-btn w-full flex items-center gap-2 px-2.5 py-1 transition-all text-[11px]" style="color:var(--text-muted);border-radius:var(--radius-xs);">
                     <span class="w-4 h-4 flex items-center justify-center text-[9px] font-bold step-indicator step-pending" style="border-radius:var(--radius-xs);">1</span>
-                    <span>Agent Creation</span>
+                    <span>Reasoning</span>
                 </button>
                 <button onclick="goToStep(2)" data-step="2" class="step-btn w-full flex items-center gap-2 px-2.5 py-1 transition-all text-[11px]" style="color:var(--text-muted);border-radius:var(--radius-xs);">
                     <span class="w-4 h-4 flex items-center justify-center text-[9px] font-bold step-indicator step-pending" style="border-radius:var(--radius-xs);">2</span>
-                    <span>Model Selection</span>
+                    <span>Model Config</span>
                 </button>
                 <button onclick="goToStep(3)" data-step="3" class="step-btn w-full flex items-center gap-2 px-2.5 py-1 transition-all text-[11px]" style="color:var(--text-muted);border-radius:var(--radius-xs);">
                     <span class="w-4 h-4 flex items-center justify-center text-[9px] font-bold step-indicator step-pending" style="border-radius:var(--radius-xs);">3</span>
-                    <span>Knowledge Upload</span>
+                    <span>Knowledge</span>
                 </button>
                 <button onclick="goToStep(4)" data-step="4" class="step-btn w-full flex items-center gap-2 px-2.5 py-1 transition-all text-[11px]" style="color:var(--text-muted);border-radius:var(--radius-xs);">
                     <span class="w-4 h-4 flex items-center justify-center text-[9px] font-bold step-indicator step-pending" style="border-radius:var(--radius-xs);">4</span>
-                    <span>Tools</span>
+                    <span>Skills</span>
                 </button>
                 <button onclick="goToStep(5)" data-step="5" class="step-btn w-full flex items-center gap-2 px-2.5 py-1 transition-all text-[11px]" style="color:var(--text-muted);border-radius:var(--radius-xs);">
                     <span class="w-4 h-4 flex items-center justify-center text-[9px] font-bold step-indicator step-pending" style="border-radius:var(--radius-xs);">5</span>
-                    <span>Governance</span>
+                    <span>Controls</span>
                 </button>
                 <button onclick="goToStep(6)" data-step="6" class="step-btn w-full flex items-center gap-2 px-2.5 py-1 transition-all text-[11px]" style="color:var(--text-muted);border-radius:var(--radius-xs);">
                     <span class="w-4 h-4 flex items-center justify-center text-[9px] font-bold step-indicator step-pending" style="border-radius:var(--radius-xs);">6</span>
@@ -581,13 +605,13 @@
                 </button>
                 <button onclick="goToStep(7)" data-step="7" class="step-btn w-full flex items-center gap-2 px-2.5 py-1 transition-all text-[11px]" style="color:var(--text-muted);border-radius:var(--radius-xs);">
                     <span class="w-4 h-4 flex items-center justify-center text-[9px] font-bold step-indicator step-pending" style="border-radius:var(--radius-xs);">7</span>
-                    <span>Save Agent</span>
+                    <span>Save</span>
                 </button>
             </div>
         </nav>
 
         <div class="px-3 py-2 text-[8px] text-center uppercase tracking-widest font-medium" style="border-top:1px solid var(--border-sidebar);color:var(--text-muted);">
-            AI Orchestration &middot; Internal
+            Agentium &middot; Systems
         </div>
     </aside>
 
@@ -601,14 +625,14 @@
                         <div class="flex items-center gap-1 whitespace-nowrap overflow-hidden uppercase tracking-wider font-medium" style="color:var(--text-muted);">
                             <span>Platform</span>
                             <span class="material-icons-outlined text-[10px]">chevron_right</span>
-                            <span class="truncate" id="header-title" style="color:var(--text-secondary);">Agent Hub</span>
+                            <span class="truncate" id="header-title" style="color:var(--text-secondary);">Systems</span>
                         </div>
                         <span class="status-pulse shrink-0 inline-flex" title="Orchestration layer active">
                             <span class="status-dot" aria-hidden="true"></span>
                             Live
                         </span>
                     </div>
-                    <h1 class="text-[14px] font-semibold truncate gradient-title" id="step-title" style="color:var(--text-primary);">Agent Hub</h1>
+                    <h1 class="text-[14px] font-semibold truncate gradient-title" id="step-title" style="color:var(--text-primary);">Systems</h1>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
                     <div class="relative">
@@ -648,27 +672,13 @@
             </div>
         </header>
 
-        <!-- Value Loop Bar -->
-        <div id="value-loop-bar" class="flex items-center justify-center gap-0 px-5 py-1 shrink-0 relative z-[1]"
-             style="border-bottom:1px solid var(--border-default);background:var(--bg-elevated);font-size:10px;">
-            <span class="vl-phase" data-phase="objective" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Objective</span>
-            <span style="color:var(--text-muted);font-size:9px;margin:0 2px;">&#8594;</span>
-            <span class="vl-phase" data-phase="build" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Build</span>
-            <span style="color:var(--text-muted);font-size:9px;margin:0 2px;">&#8594;</span>
-            <span class="vl-phase" data-phase="execute" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Execute</span>
-            <span style="color:var(--text-muted);font-size:9px;margin:0 2px;">&#8594;</span>
-            <span class="vl-phase" data-phase="measure" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Measure</span>
-            <span style="color:var(--text-muted);font-size:9px;margin:0 2px;">&#8594;</span>
-            <span class="vl-phase" data-phase="optimize" style="padding:2px 10px;font-weight:400;color:var(--text-muted);border-bottom:2px solid transparent;transition:all .2s;">Optimize</span>
-        </div>
-
         <!-- Step Content Area -->
         <div class="min-h-0 flex-1 overflow-y-auto p-5 page-enter relative z-[1]" id="step-content">
         </div>
     </div>
 
-    <script src="js/api.js?v=27" type="module"></script>
-    <script src="js/steps.js?v=27" type="module"></script>
-    <script src="js/app.js?v=27"></script>
+    <script src="js/api.js?v=30" type="module"></script>
+    <script src="js/steps.js?v=30" type="module"></script>
+    <script src="js/app.js?v=30"></script>
 </body>
 </html>
