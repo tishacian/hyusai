@@ -1,6 +1,6 @@
 """Application settings model"""
 from datetime import datetime
-from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, JSON
+from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 from app.db.base import Base
 
 
@@ -8,6 +8,7 @@ class AppSettings(Base):
     __tablename__ = "app_settings"
 
     id = Column(String(50), primary_key=True, default="default")
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
 
     default_model = Column(String(100), default="gpt-4o")
     default_provider = Column(String(50), default="openai")
@@ -53,3 +54,5 @@ class AppSettings(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("id", "workspace_id", name="uq_settings_workspace"),)

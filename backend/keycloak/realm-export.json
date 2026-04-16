@@ -1,18 +1,170 @@
- {
-   "realm": "papai-llm",
-   "enabled": true,
-   "clients": [
-     {
-       "clientId": "papai-llm-client",
-       "enabled": true,
-       "publicClient": true,
-       "redirectUris": [
-         "http://localhost:8501/*"
-       ],
-       "webOrigins": [
-         "http://localhost:8501"
-       ],
-       "protocol": "openid-connect"
-     }
-   ]
- }
+{
+  "realm": "papai-org",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "defaultSignatureAlgorithm": "RS512",
+  "accessTokenLifespan": 7200,
+  "ssoSessionIdleTimeout": 28800,
+  "ssoSessionMaxLifespan": 604800,
+  "offlineSessionIdleTimeout": 2592000,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "roles": {
+    "realm": [
+      { "name": "default-roles-papai-org", "composite": true, "composites": { "client": { "core-service": ["organization_member"] } } }
+    ],
+    "client": {
+      "core-service": [
+        { "name": "organization_admin", "description": "Full admin access to the organization" },
+        { "name": "organization_member", "description": "Standard member access" }
+      ]
+    }
+  },
+  "defaultRole": {
+    "name": "default-roles-papai-org"
+  },
+  "clients": [
+    {
+      "clientId": "core-service",
+      "name": "Core Service (Public)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "fullScopeAllowed": true,
+      "rootUrl": "",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://localhost:4200/*",
+        "http://localhost:8000/*",
+        "https://agentium.papai.ai/*"
+      ],
+      "webOrigins": [
+        "http://localhost:4200",
+        "http://localhost:8000",
+        "https://agentium.papai.ai"
+      ],
+      "protocolMappers": [
+        {
+          "name": "profile_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "profile_id",
+            "claim.name": "profile_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "phone_number",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "phone_number",
+            "claim.name": "phone_number",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "company",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "company",
+            "claim.name": "company",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "job_title",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "job_title",
+            "claim.name": "job_title",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "client-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "config": {
+            "multivalued": "true",
+            "claim.name": "resource_access.${client_id}.roles",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "core-resource-server",
+      "name": "Core Resource Server (Confidential)",
+      "enabled": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "secret": "change-me-in-production",
+      "authorizationSettings": {
+        "allowRemoteResourceManagement": true,
+        "policyEnforcementMode": "ENFORCING",
+        "decisionStrategy": "AFFIRMATIVE",
+        "resources": [],
+        "policies": [],
+        "scopes": [
+          { "name": "scopes:view-workspace" },
+          { "name": "scopes:edit-workspace" },
+          { "name": "scopes:all-workspace" },
+          { "name": "scopes:view-project" },
+          { "name": "scopes:edit-project" },
+          { "name": "scopes:all-project" }
+        ]
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "email": "admin@agentium.local",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Admin",
+      "lastName": "Agentium",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin",
+          "temporary": true
+        }
+      ],
+      "clientRoles": {
+        "core-service": ["organization_admin"]
+      }
+    }
+  ]
+}

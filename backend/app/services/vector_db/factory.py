@@ -18,9 +18,17 @@ class VectorDBFactory:
     _chroma_clients = {}  # Cache ChromaDB clients by persist directory
     _qdrant_clients: dict[Tuple[str, int, bool, str], Any] = {}
     
+    @staticmethod
+    def scoped_name(collection_name: str, workspace_slug: Optional[str] = None) -> str:
+        """Prefix collection name with workspace slug for isolation."""
+        if workspace_slug:
+            return f"{workspace_slug}__{collection_name}"
+        return collection_name
+
     @classmethod
-    def get_db(cls, collection_name: str = "documents", db_type: str = "faiss") -> VectorDBBase:
-        """Get vector database instance"""
+    def get_db(cls, collection_name: str = "documents", db_type: str = "faiss", workspace_slug: Optional[str] = None) -> VectorDBBase:
+        """Get vector database instance, scoped by workspace if provided."""
+        collection_name = cls.scoped_name(collection_name, workspace_slug)
         cache_key = f"{db_type}_{collection_name}"
         
         if cache_key not in cls._instances:
@@ -87,16 +95,17 @@ class VectorDBFactory:
         return cls._instances[cache_key]
     
     @classmethod
-    def clear_instance(cls, collection_name: str, db_type: str = "faiss"):
+    def clear_instance(cls, collection_name: str, db_type: str = "faiss", workspace_slug: Optional[str] = None):
         """Clear a cached instance (useful when deleting collections)"""
+        collection_name = cls.scoped_name(collection_name, workspace_slug)
         cache_key = f"{db_type}_{collection_name}"
         if cache_key in cls._instances:
             del cls._instances[cache_key]
             logger.info(f"Cleared cached instance for collection: {collection_name} (type: {db_type})")
     
     @classmethod
-    def list_collections(cls, db_type: str = "faiss") -> List[str]:
-        """List all collections for a given vector DB type"""
+    def list_collections(cls, db_type: str = "faiss", workspace_slug: Optional[str] = None) -> List[str]:
+        """List collections for a given vector DB type, filtered by workspace prefix."""
         import os
         from pathlib import Path
         
@@ -154,3 +163,11 @@ class VectorDBFactory:
         else:
             return []
 
+    @classmethod
+    def list_collections_for_workspace(cls, db_type: str = "faiss", workspace_slug: Optional[str] = None) -> List[str]:
+        """List collections scoped to a workspace, stripping the prefix from names."""
+        all_cols = cls.list_collections(db_type=db_type)
+        if not workspace_slug:
+            return all_cols
+        prefix = f"{workspace_slug}__"
+        return [c[len(prefix):] for c in all_cols if c.startswith(prefix)]

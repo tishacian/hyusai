@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     ollama_rope_scale: Optional[float] = None
     ollama_rope_alpha: Optional[float] = None
 
-    # Database
-    database_url: str = "sqlite:///./demo.db"
+    # Database (PostgreSQL recommended; SQLite fallback for dev-only)
+    database_url: str = "postgresql://agentium:agentium@localhost:5432/agentium"
 
     # Vector Store
     faiss_persist_directory: str = "./faiss_db"
@@ -44,6 +44,13 @@ class Settings(BaseSettings):
 
     # RAG: HAH/C-HAH backend pipelines (multi-pass on DocumentService; see pipeline_retrieval.py)
     rag_hah_chah_enabled: bool = True
+
+    # Keycloak OIDC (papai-org realm, core-service client)
+    keycloak_url: str = "http://localhost:8080"
+    keycloak_realm: str = "papai-org"
+    keycloak_client_id: str = "core-service"
+    keycloak_client_secret: Optional[str] = None
+    keycloak_resource_server_id: str = "core-resource-server"
 
     # Redis (optional, not required for demo)
     redis_url: str = "redis://localhost:6379/0"

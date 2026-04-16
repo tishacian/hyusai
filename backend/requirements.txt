@@ -7,6 +7,8 @@ python-multipart>=0.0.9
 
 # Database
 sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+alembic>=1.13.0
 
 # LLM (OpenAI-first, others optional)
 openai>=1.30.0
@@ -20,6 +22,9 @@ qdrant-client>=1.12.0
 
 # Document parsing
 pypdf>=4.0.0
+
+# Auth (Keycloak JWT)
+PyJWT[crypto]>=2.8.0
 
 # Logging
 structlog>=24.0.0
