@@ -350,7 +350,7 @@ class DocumentService:
                             loop = asyncio.get_event_loop()
                             
                             def _get_all():
-                                # Handle both ChromaDB and FAISS
+                                # Handle ChromaDB, FAISS, and Qdrant
                                 if hasattr(self.vector_db, 'collection'):
                                     # ChromaDB
                                     return self.vector_db.collection.get(ids=all_ids[:1000], include=['metadatas'])
@@ -360,6 +360,9 @@ class DocumentService:
                                     for vec_id in all_ids[:1000]:
                                         if vec_id in self.vector_db.metadatas:
                                             metadatas.append(self.vector_db.metadatas[vec_id])
+                                    return {'metadatas': metadatas}
+                                elif hasattr(self.vector_db, 'get_metadatas_for_chunk_ids'):
+                                    metadatas = self.vector_db.get_metadatas_for_chunk_ids(all_ids[:1000])
                                     return {'metadatas': metadatas}
                                 return None
                             

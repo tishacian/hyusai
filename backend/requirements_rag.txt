@@ -4,6 +4,7 @@
 # Vector Database
 chromadb>=0.4.0
 faiss-cpu>=1.7.4  # Default vector DB - Fast & Efficient
+qdrant-client>=1.12.0  # Optional remote vector DB (Agentium)
 # faiss-gpu>=1.7.4  # Uncomment if GPU available and using FAISS
 
 # Embeddings

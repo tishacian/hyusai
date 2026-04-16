@@ -4,6 +4,7 @@ volumes:
   minio_data:
   models:
   assets:
+  qdrant_data:
 services:
   # -----------------------
   # Infrastructure services
@@ -46,6 +47,31 @@ services:
     env_file:
       - ./test_env_files/minio.env
     command: server /data --console-address ":9001"
+  qdrant-init:
+    image: busybox
+    command: ["sh", "-c", "chown -R 1000:1000 /qdrant/storage"]
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: "no"
+  qdrant:
+    image: qdrant/qdrant:v1.12.5-unprivileged
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    env_file:
+      - ./test_env_files/qdrant.env
+    depends_on:
+      qdrant-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
   # ------------------------
   # Init / one-shot services
   # ------------------------

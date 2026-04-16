@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     chroma_persist_directory: str = "./chroma_db"
     default_vector_db_type: str = "faiss"
 
+    # Qdrant (optional; used when rag_vector_db_type / default_vector_db_type is "qdrant")
+    qdrant_host: str = "localhost"
+    qdrant_port: int = 6333
+    qdrant_api_key: Optional[str] = None
+    qdrant_https: bool = False
+
     # Embeddings
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"

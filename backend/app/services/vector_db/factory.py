@@ -1,10 +1,12 @@
 """Vector database factory"""
-from typing import Optional, List
+from typing import Any, List, Optional, Tuple
+
+from app.core.config import settings
+from app.core.logging import get_logger
 from app.services.vector_db.base import VectorDBBase
 from app.services.vector_db.chroma_db import ChromaVectorDB
 from app.services.vector_db.faiss_db import FAISSVectorDB
-from app.core.config import settings
-from app.core.logging import get_logger
+from app.services.vector_db.qdrant_db import QdrantVectorDB
 
 logger = get_logger(__name__)
 
@@ -14,6 +16,7 @@ class VectorDBFactory:
     
     _instances = {}
     _chroma_clients = {}  # Cache ChromaDB clients by persist directory
+    _qdrant_clients: dict[Tuple[str, int, bool, str], Any] = {}
     
     @classmethod
     def get_db(cls, collection_name: str = "documents", db_type: str = "faiss") -> VectorDBBase:
@@ -51,8 +54,35 @@ class VectorDBFactory:
                     collection_name=collection_name,
                     client=cls._chroma_clients[persist_dir]  # Pass shared client
                 )
+            elif db_type == "qdrant":
+                qkey = (
+                    settings.qdrant_host,
+                    settings.qdrant_port,
+                    settings.qdrant_https,
+                    settings.qdrant_api_key or "",
+                )
+                if qkey not in cls._qdrant_clients:
+                    from qdrant_client import QdrantClient
+
+                    cls._qdrant_clients[qkey] = QdrantClient(
+                        host=settings.qdrant_host,
+                        port=settings.qdrant_port,
+                        api_key=settings.qdrant_api_key or None,
+                        https=settings.qdrant_https,
+                    )
+                    logger.debug(
+                        "Created Qdrant client",
+                        host=settings.qdrant_host,
+                        port=settings.qdrant_port,
+                    )
+                cls._instances[cache_key] = QdrantVectorDB(
+                    collection_name=collection_name,
+                    client=cls._qdrant_clients[qkey],
+                )
             else:
-                raise ValueError(f"Unknown vector DB type: {db_type}. Supported: 'faiss', 'chroma'")
+                raise ValueError(
+                    f"Unknown vector DB type: {db_type}. Supported: 'faiss', 'chroma', 'qdrant'"
+                )
         
         return cls._instances[cache_key]
     
@@ -97,6 +127,29 @@ class VectorDBFactory:
                 return [col.name for col in collections if not col.name.startswith('_')]
             except Exception as e:
                 logger.error(f"Error listing ChromaDB collections: {e}")
+                return []
+        elif db_type == "qdrant":
+            try:
+                from qdrant_client import QdrantClient
+
+                qkey = (
+                    settings.qdrant_host,
+                    settings.qdrant_port,
+                    settings.qdrant_https,
+                    settings.qdrant_api_key or "",
+                )
+                if qkey not in cls._qdrant_clients:
+                    cls._qdrant_clients[qkey] = QdrantClient(
+                        host=settings.qdrant_host,
+                        port=settings.qdrant_port,
+                        api_key=settings.qdrant_api_key or None,
+                        https=settings.qdrant_https,
+                    )
+                client = cls._qdrant_clients[qkey]
+                cols = client.get_collections().collections
+                return sorted([c.name for c in cols if not c.name.startswith("_")])
+            except Exception as e:
+                logger.error(f"Error listing Qdrant collections: {e}")
                 return []
         else:
             return []

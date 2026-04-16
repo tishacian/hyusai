@@ -9,6 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_app_settings
 from app.services.rag.document_service import DocumentService
@@ -49,7 +50,7 @@ async def upload_document(
     """Upload and index a document"""
     try:
         app_settings = get_app_settings()
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
+        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         safe_name = file.filename.replace("/", "_").replace("\\", "_")
         tmp_dir = tempfile.mkdtemp()
@@ -90,7 +91,7 @@ async def upload_documents_batch(
     """Upload and index multiple documents"""
     # Get vector DB type from settings if not provided
     app_settings = get_app_settings()
-    db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
+    db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
     temp_files = []
 
@@ -134,7 +135,7 @@ async def search_documents(request: DocumentSearchRequest):
     try:
         # Get vector DB type from settings
         app_settings = get_app_settings()
-        db_type = app_settings.get("ragVectorDBType", "faiss")
+        db_type = app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         doc_service = DocumentService(
             collection_name=request.collection_name,
@@ -296,7 +297,7 @@ async def clear_all_documents(
     """Clear all documents from a collection"""
     try:
         app_settings = get_app_settings()
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
+        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
         success = await doc_service.clear_all_documents()
@@ -333,7 +334,7 @@ async def delete_document(
     try:
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
+        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
 
@@ -371,7 +372,7 @@ async def list_collections(vector_db_type: Optional[str] = Query(None)):
 
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
+        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         # List collections for the specified vector DB type
         collection_names = VectorDBFactory.list_collections(db_type=db_type)
@@ -391,7 +392,7 @@ async def list_collections(vector_db_type: Optional[str] = Query(None)):
         return {
             "collections": [],
             "default": None,
-            "vector_db_type": vector_db_type or "faiss",
+            "vector_db_type": vector_db_type or settings.default_vector_db_type,
         }
 
 
@@ -405,7 +406,7 @@ async def create_collection(
 
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
+        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         # Check if collection already exists
         existing_collections = VectorDBFactory.list_collections(db_type=db_type)
@@ -429,6 +430,11 @@ async def create_collection(
             # Save to disk immediately so it appears in listings
             if hasattr(vector_db, "_save"):
                 vector_db._save()
+        elif db_type == "qdrant":
+            from app.services.embedding.embedder import Embedder
+
+            dim = Embedder().get_dimension()
+            await vector_db.create_index(dim)
 
         count = await vector_db.get_count()
 
@@ -470,7 +476,7 @@ async def delete_collection(collection_name: str, vector_db_type: Optional[str] 
 
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
+        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         # Check if collection exists
         collections = VectorDBFactory.list_collections(db_type=db_type)
@@ -507,8 +513,6 @@ async def delete_collection(collection_name: str, vector_db_type: Optional[str] 
                 # FAISS collections are files, delete them
                 import os
 
-                from app.core.config import settings
-
                 persist_dir = getattr(settings, "faiss_persist_directory", "./faiss_db")
                 index_path = os.path.join(persist_dir, f"{collection_name}.index")
                 metadata_path = os.path.join(persist_dir, f"{collection_name}.metadata.pkl")
@@ -516,6 +520,9 @@ async def delete_collection(collection_name: str, vector_db_type: Optional[str] 
                     os.remove(index_path)
                 if os.path.exists(metadata_path):
                     os.remove(metadata_path)
+            elif db_type == "qdrant":
+                # Collection already removed by clear_collection on QdrantVectorDB
+                pass
 
             logger.info(f"Successfully deleted collection: {collection_name} (type: {db_type})")
             return {
@@ -560,7 +567,7 @@ async def list_documents(
     try:
         # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", "faiss")
+        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
         documents = await doc_service.list_documents()

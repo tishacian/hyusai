@@ -53,7 +53,7 @@ class OmniRAGAgent(BaseAgent):
 
                 self._document_service = DocumentService(
                     collection_name="documents",
-                    vector_db_type="faiss",
+                    vector_db_type=settings.default_vector_db_type,
                 )
             except Exception as e:
                 logger.warning("Document service init failed, RAG disabled", error=str(e))
