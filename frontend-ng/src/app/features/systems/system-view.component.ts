@@ -2,11 +2,12 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { MatTabsModule } from '@angular/material/tabs';
 import { ApiService } from '@app/core/api.service';
+import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 
 @Component({
   selector: 'app-system-view',
   standalone: true,
-  imports: [MatTabsModule],
+  imports: [MatTabsModule, ChatPanelComponent],
   template: `
     <div class="mb-4">
       <h1 class="text-2xl font-bold text-gray-900 dark:text-white">{{ agentName() }}</h1>
