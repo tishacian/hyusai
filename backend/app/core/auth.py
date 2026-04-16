@@ -85,14 +85,24 @@ def decode_token(token: str) -> dict:
     if not public_key:
         raise HTTPException(status_code=401, detail="Unknown signing key")
 
+    expected_issuer = f"{settings.keycloak_url}/realms/{settings.keycloak_realm}"
+
     try:
         payload = jwt.decode(
             token,
             public_key,
             algorithms=["RS256", "RS384", "RS512"],
             audience=settings.keycloak_client_id,
-            issuer=f"{settings.keycloak_url}/realms/{settings.keycloak_realm}",
-            options={"verify_exp": True},
+            issuer=expected_issuer,
+            options={"verify_exp": True, "verify_aud": True},
+        )
+    except jwt.exceptions.MissingRequiredClaimError:
+        payload = jwt.decode(
+            token,
+            public_key,
+            algorithms=["RS256", "RS384", "RS512"],
+            issuer=expected_issuer,
+            options={"verify_exp": True, "verify_aud": False},
         )
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
