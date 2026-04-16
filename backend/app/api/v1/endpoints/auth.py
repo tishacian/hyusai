@@ -120,17 +120,23 @@ async def login(body: LoginRequest, db: DBSession = Depends(get_db)):
 
     payload = decode_token(tokens["access_token"])
     keycloak_sub = payload.get("sub")
+    preferred_username = payload.get("preferred_username", keycloak_sub)
+
     user = db.query(User).filter(User.keycloak_sub == keycloak_sub).first()
+    if not user:
+        user = db.query(User).filter(User.username == preferred_username).first()
     if not user:
         user = User(
             id=str(uuid4()),
             keycloak_sub=keycloak_sub,
-            username=payload.get("preferred_username", keycloak_sub),
+            username=preferred_username,
             email=payload.get("email"),
             role="admin" if "organization_admin" in _extract_roles(payload) else "user",
             is_active=True,
         )
         db.add(user)
+    if not user.keycloak_sub:
+        user.keycloak_sub = keycloak_sub
     user.last_login = datetime.utcnow()
     db.commit()
 
