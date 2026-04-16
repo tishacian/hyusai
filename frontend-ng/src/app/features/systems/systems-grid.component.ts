@@ -50,8 +50,11 @@ export class SystemsGridComponent implements OnInit {
   agents = signal<SystemAgent[]>([]);
 
   ngOnInit(): void {
-    this.api.get<SystemAgent[]>('/agents').subscribe({
-      next: (list) => this.agents.set(list),
+    this.api.get<{ agents: SystemAgent[] } | SystemAgent[]>('/agents').subscribe({
+      next: (res) => {
+        const list = Array.isArray(res) ? res : (res?.agents ?? []);
+        this.agents.set(list.map((a) => ({ ...a, description: a.description ?? '' })));
+      },
       error: () => this.agents.set([]),
     });
   }
