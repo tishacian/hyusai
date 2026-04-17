@@ -6,8 +6,10 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
+from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.evaluation import EvaluationScore
+from app.models.workspace import Workspace
 from app.services.evaluation.judge import get_judge_service, DIMENSION_LABELS
 
 router = APIRouter()
@@ -24,7 +26,11 @@ class EvalRequest(BaseModel):
 
 
 @router.post("/score")
-async def score_response(req: EvalRequest, db: DBSession = Depends(get_db)):
+async def score_response(
+    req: EvalRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
     judge = get_judge_service()
     result = await judge.evaluate(
         query=req.query,
@@ -38,6 +44,7 @@ async def score_response(req: EvalRequest, db: DBSession = Depends(get_db)):
 
     row = EvaluationScore(
         id=result["id"],
+        workspace_id=workspace.id,
         session_id=result["session_id"],
         agent_id=result["agent_id"],
         turn_number=result["turn_number"],
@@ -56,9 +63,16 @@ async def score_response(req: EvalRequest, db: DBSession = Depends(get_db)):
 
 
 @router.get("/history")
-async def evaluation_history(agent_id: str = None, limit: int = 20, db: DBSession = Depends(get_db)):
+async def evaluation_history(
+    agent_id: str = None,
+    limit: int = 20,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
     judge = get_judge_service()
-    history = await judge.get_evaluation_history(db, agent_id=agent_id, limit=limit)
+    history = await judge.get_evaluation_history(
+        db, agent_id=agent_id, limit=limit, workspace_id=workspace.id
+    )
     return {"evaluations": history}
 
 
@@ -68,8 +82,14 @@ async def get_dimensions():
 
 
 @router.get("/latest")
-async def latest_evaluation(agent_id: str = None, db: DBSession = Depends(get_db)):
-    q = db.query(EvaluationScore).order_by(EvaluationScore.created_at.desc())
+async def latest_evaluation(
+    agent_id: str = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    q = db.query(EvaluationScore).filter(
+        EvaluationScore.workspace_id == workspace.id
+    ).order_by(EvaluationScore.created_at.desc())
     if agent_id:
         q = q.filter(EvaluationScore.agent_id == agent_id)
     row = q.first()

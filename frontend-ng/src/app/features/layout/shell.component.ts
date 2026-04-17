@@ -1,5 +1,6 @@
 import { Component, HostListener, inject, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { AuthApiService } from '@app/core/auth-api.service';
 import { ThemeService } from '@app/core/theme.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
@@ -15,7 +16,7 @@ interface NavItem {
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, FormsModule],
   template: `
     <div class="flex h-screen overflow-hidden">
       <!-- Sidebar -->
@@ -31,6 +32,101 @@ interface NavItem {
             <span class="text-white font-semibold tracking-tight">Agentium</span>
           }
         </div>
+
+        <!-- Workspace switcher (top) -->
+        @if (!collapsed()) {
+          <div class="px-3 pt-3 pb-2 border-b border-gray-800 relative" (click)="$event.stopPropagation()">
+            <div class="text-[10px] text-gray-500 uppercase tracking-wider px-1 mb-1">Workspace</div>
+            <button
+              type="button"
+              (click)="workspaceMenuOpen.set(!workspaceMenuOpen())"
+              class="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 transition text-left"
+            >
+              @if (workspaceService.current(); as current) {
+                <div class="w-7 h-7 rounded-md bg-brand-500 text-white flex items-center justify-center text-xs font-semibold shrink-0">
+                  {{ workspaceInitial(current.name) }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm text-white truncate">{{ current.name }}</div>
+                  <div class="text-[10px] text-gray-500 capitalize">{{ current.role }}</div>
+                </div>
+              } @else {
+                <div class="w-7 h-7 rounded-md bg-gray-700 text-gray-400 flex items-center justify-center text-xs shrink-0">?</div>
+                <div class="flex-1 text-sm text-gray-400 truncate">No workspace</div>
+              }
+              <span class="text-gray-500 text-xs">▾</span>
+            </button>
+
+            @if (workspaceMenuOpen()) {
+              <div class="absolute left-3 right-3 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-40 overflow-hidden">
+                <div class="px-3 py-2 text-[10px] text-gray-400 uppercase tracking-wider border-b border-gray-700">
+                  Switch workspace
+                </div>
+                <div class="max-h-60 overflow-y-auto">
+                  @for (ws of workspaceService.workspaces(); track ws.id) {
+                    <button
+                      type="button"
+                      (click)="selectWorkspace(ws.slug)"
+                      class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition"
+                    >
+                      <div class="w-6 h-6 rounded bg-brand-500 text-white flex items-center justify-center text-xs font-semibold shrink-0">
+                        {{ workspaceInitial(ws.name) }}
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="text-sm text-white truncate">{{ ws.name }}</div>
+                        <div class="text-[10px] text-gray-500 capitalize">{{ ws.role }}</div>
+                      </div>
+                      @if (ws.slug === workspaceService.currentSlug()) {
+                        <span class="text-brand-400 text-sm">✓</span>
+                      }
+                    </button>
+                  }
+                </div>
+                <div class="border-t border-gray-700">
+                  @if (!showCreateForm()) {
+                    <button
+                      type="button"
+                      (click)="showCreateForm.set(true)"
+                      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-brand-400 hover:bg-white/5 transition"
+                    >
+                      <span class="text-base leading-none">+</span> Create workspace
+                    </button>
+                  } @else {
+                    <form (ngSubmit)="createWorkspace()" class="p-2 space-y-2">
+                      <input
+                        #nameInput
+                        [(ngModel)]="newWorkspaceName"
+                        name="newWorkspaceName"
+                        placeholder="Workspace name"
+                        class="w-full px-2 py-1.5 text-sm bg-gray-900 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-brand-500"
+                        autocomplete="off"
+                      />
+                      <div class="flex gap-1">
+                        <button
+                          type="submit"
+                          [disabled]="!newWorkspaceName().trim() || creating()"
+                          class="flex-1 px-2 py-1 text-xs bg-brand-500 hover:bg-brand-600 text-white rounded disabled:opacity-50"
+                        >
+                          {{ creating() ? 'Creating…' : 'Create' }}
+                        </button>
+                        <button
+                          type="button"
+                          (click)="cancelCreate()"
+                          class="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 rounded"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      @if (createError()) {
+                        <div class="text-[11px] text-red-400">{{ createError() }}</div>
+                      }
+                    </form>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        }
 
         <!-- Nav -->
         <nav class="flex-1 py-4 space-y-1 overflow-y-auto">
@@ -48,14 +144,6 @@ interface NavItem {
             </a>
           }
         </nav>
-
-        <!-- Workspace picker -->
-        @if (!collapsed() && workspaceService.current()) {
-          <div class="px-4 py-3 border-t border-gray-800">
-            <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Workspace</div>
-            <div class="text-sm text-white truncate">{{ workspaceService.current()!.name }}</div>
-          </div>
-        }
 
         <!-- Bottom controls -->
         <div class="border-t border-gray-800 p-3 flex items-center justify-between">
@@ -107,13 +195,15 @@ interface NavItem {
                   >
                     <span>👤</span> My account
                   </a>
-                  <a
-                    routerLink="/workspace/settings"
-                    (click)="userMenuOpen.set(false)"
-                    class="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                  >
-                    <span>⚙️</span> Workspace settings
-                  </a>
+                  @if (workspaceService.current(); as current) {
+                    <a
+                      [routerLink]="['/workspace', current.slug, 'settings']"
+                      (click)="userMenuOpen.set(false)"
+                      class="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                    >
+                      <span>⚙️</span> Workspace settings
+                    </a>
+                  }
                   <button
                     type="button"
                     (click)="logout()"
@@ -145,10 +235,16 @@ export class ShellComponent {
 
   collapsed = signal(false);
   userMenuOpen = signal(false);
+  workspaceMenuOpen = signal(false);
+  showCreateForm = signal(false);
+  newWorkspaceName = signal('');
+  creating = signal(false);
+  createError = signal<string | null>(null);
 
   @HostListener('document:click')
-  closeUserMenu(): void {
+  closeMenus(): void {
     this.userMenuOpen.set(false);
+    this.workspaceMenuOpen.set(false);
   }
 
   initials(): string {
@@ -160,6 +256,14 @@ export class ShellComponent {
     return local.slice(0, 2).toUpperCase();
   }
 
+  workspaceInitial(name: string): string {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return '?';
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return trimmed.slice(0, 2).toUpperCase();
+  }
+
   navItems: NavItem[] = [
     { label: 'Systems', icon: '🤖', route: '/systems' },
     { label: 'Knowledge', icon: '📚', route: '/knowledge' },
@@ -167,11 +271,43 @@ export class ShellComponent {
     { label: 'Intelligence', icon: '📡', route: '/intelligence' },
     { label: 'Observability', icon: '📊', route: '/observability' },
     { label: 'Governance', icon: '🛡️', route: '/governance' },
-    { label: 'Workspace', icon: '⚙️', route: '/workspace' },
   ];
 
   constructor() {
-    this.workspaceService.loadWorkspaces();
+    this.workspaceService.loadWorkspaces().subscribe();
+  }
+
+  selectWorkspace(slug: string): void {
+    this.workspaceService.switchWorkspace(slug);
+    this.workspaceMenuOpen.set(false);
+    window.location.reload();
+  }
+
+  createWorkspace(): void {
+    const name = this.newWorkspaceName().trim();
+    if (!name) return;
+    this.creating.set(true);
+    this.createError.set(null);
+    this.workspaceService.createWorkspace(name).subscribe({
+      next: (ws) => {
+        this.creating.set(false);
+        this.newWorkspaceName.set('');
+        this.showCreateForm.set(false);
+        this.workspaceService.switchWorkspace(ws.slug);
+        this.workspaceMenuOpen.set(false);
+        this.router.navigate(['/workspace', ws.slug, 'settings']);
+      },
+      error: (err) => {
+        this.creating.set(false);
+        this.createError.set(err?.error?.detail || 'Failed to create workspace');
+      },
+    });
+  }
+
+  cancelCreate(): void {
+    this.showCreateForm.set(false);
+    this.newWorkspaceName.set('');
+    this.createError.set(null);
   }
 
   logout(): void {

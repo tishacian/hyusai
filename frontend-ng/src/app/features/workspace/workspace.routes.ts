@@ -3,12 +3,31 @@ import { Routes } from '@angular/router';
 export const workspaceRoutes: Routes = [
   {
     path: '',
+    pathMatch: 'full',
     loadComponent: () =>
-      import('./workspace-settings.component').then((m) => m.WorkspaceSettingsComponent),
+      import('./workspace-redirect.component').then((m) => m.WorkspaceRedirectComponent),
   },
   {
-    path: 'members',
+    path: ':slug',
     loadComponent: () =>
-      import('./workspace-members.component').then((m) => m.WorkspaceMembersComponent),
+      import('./workspace-shell.component').then((m) => m.WorkspaceShellComponent),
+    children: [
+      { path: '', redirectTo: 'settings', pathMatch: 'full' },
+      {
+        path: 'settings',
+        loadComponent: () =>
+          import('./general.component').then((m) => m.WorkspaceGeneralComponent),
+      },
+      {
+        path: 'members',
+        loadComponent: () =>
+          import('./members.component').then((m) => m.WorkspaceMembersComponent),
+      },
+      {
+        path: 'danger',
+        loadComponent: () =>
+          import('./danger.component').then((m) => m.WorkspaceDangerComponent),
+      },
+    ],
   },
 ];

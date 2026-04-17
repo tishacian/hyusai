@@ -141,9 +141,13 @@ class JudgeService:
             "created_at": datetime.utcnow().isoformat(),
         }
 
-    async def get_evaluation_history(self, db, agent_id: str = None, limit: int = 20) -> list[dict]:
+    async def get_evaluation_history(
+        self, db, agent_id: str = None, limit: int = 20, workspace_id: str = None
+    ) -> list[dict]:
         from app.models.evaluation import EvaluationScore
         query = db.query(EvaluationScore).order_by(EvaluationScore.created_at.desc())
+        if workspace_id:
+            query = query.filter(EvaluationScore.workspace_id == workspace_id)
         if agent_id:
             query = query.filter(EvaluationScore.agent_id == agent_id)
         rows = query.limit(limit).all()

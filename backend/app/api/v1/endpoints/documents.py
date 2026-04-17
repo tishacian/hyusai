@@ -5,13 +5,15 @@ import shutil
 import tempfile
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.core.auth import get_current_workspace
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_app_settings
+from app.models.workspace import Workspace
 from app.services.rag.document_service import DocumentService
 
 logger = get_logger(__name__)
@@ -46,6 +48,7 @@ async def upload_document(
     file: UploadFile = File(...),
     collection_name: str = Form("documents"),
     vector_db_type: Optional[str] = Form(None),
+    workspace: Workspace = Depends(get_current_workspace),
 ):
     """Upload and index a document"""
     try:
@@ -59,7 +62,11 @@ async def upload_document(
             with open(tmp_path, "wb") as f:
                 shutil.copyfileobj(file.file, f)
 
-            doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
+            doc_service = DocumentService(
+                collection_name=collection_name,
+                vector_db_type=db_type,
+                workspace_slug=workspace.slug,
+            )
             result = await doc_service.ingest_document(tmp_path)
             doc_id = result.get("document_id", "")
 
@@ -87,16 +94,15 @@ async def upload_documents_batch(
     files: list[UploadFile] = File(...),
     collection_name: str = Form("documents"),
     vector_db_type: Optional[str] = Form(None),
+    workspace: Workspace = Depends(get_current_workspace),
 ):
     """Upload and index multiple documents"""
-    # Get vector DB type from settings if not provided
     app_settings = get_app_settings()
     db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
     temp_files = []
 
     try:
-        # Save all files temporarily
         file_paths = []
         for file in files:
             tmp_file = tempfile.NamedTemporaryFile(
@@ -107,8 +113,11 @@ async def upload_documents_batch(
             temp_files.append(tmp_file.name)
             file_paths.append(tmp_file.name)
 
-        # Ingest documents with specified vector DB type
-        doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
         result = await doc_service.ingest_documents_batch(file_paths)
 
         return {
@@ -130,10 +139,12 @@ async def upload_documents_batch(
 
 
 @router.post("/search")
-async def search_documents(request: DocumentSearchRequest):
+async def search_documents(
+    request: DocumentSearchRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+):
     """Search documents"""
     try:
-        # Get vector DB type from settings
         app_settings = get_app_settings()
         db_type = app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
@@ -141,6 +152,7 @@ async def search_documents(request: DocumentSearchRequest):
             collection_name=request.collection_name,
             vector_db_type=db_type,
             use_hybrid=request.use_hybrid,
+            workspace_slug=workspace.slug,
         )
         results = await doc_service.search(
             query=request.query,
@@ -185,10 +197,14 @@ def _find_original_file(document_id: str, filename: str) -> Optional[str]:
 
 
 @router.get("/preview/{document_id}")
-async def preview_document(document_id: str, collection_name: str = Query("documents")):
+async def preview_document(
+    document_id: str,
+    collection_name: str = Query("documents"),
+    workspace: Workspace = Depends(get_current_workspace),
+):
     """Return raw content of a document for preview (text) or redirect info for binary files."""
     try:
-        doc_service = DocumentService(collection_name=collection_name)
+        doc_service = DocumentService(collection_name=collection_name, workspace_slug=workspace.slug)
         documents = await doc_service.list_documents()
         doc = next((d for d in documents if d.get("document_id") == document_id), None)
         if not doc:
@@ -228,10 +244,14 @@ async def preview_document(document_id: str, collection_name: str = Query("docum
 
 
 @router.get("/file/{document_id}")
-async def serve_document_file(document_id: str, collection_name: str = Query("documents")):
+async def serve_document_file(
+    document_id: str,
+    collection_name: str = Query("documents"),
+    workspace: Workspace = Depends(get_current_workspace),
+):
     """Serve the original uploaded file (PDF, DOCX, etc.) for in-browser viewing."""
     try:
-        doc_service = DocumentService(collection_name=collection_name)
+        doc_service = DocumentService(collection_name=collection_name, workspace_slug=workspace.slug)
         documents = await doc_service.list_documents()
         doc = next((d for d in documents if d.get("document_id") == document_id), None)
         if not doc:
@@ -265,10 +285,13 @@ async def serve_document_file(document_id: str, collection_name: str = Query("do
 
 
 @router.get("/stats")
-async def get_document_stats(collection_name: str = "documents"):
+async def get_document_stats(
+    collection_name: str = "documents",
+    workspace: Workspace = Depends(get_current_workspace),
+):
     """Get document statistics"""
     try:
-        doc_service = DocumentService(collection_name=collection_name)
+        doc_service = DocumentService(collection_name=collection_name, workspace_slug=workspace.slug)
         count = await doc_service.get_document_count()
 
         # Get cache stats if available
@@ -292,14 +315,18 @@ async def get_document_stats(collection_name: str = "documents"):
 
 @router.delete("/clear")
 async def clear_all_documents(
-    collection_name: str = Query("documents"), vector_db_type: Optional[str] = Query(None)
+    collection_name: str = Query("documents"),
+    vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
 ):
     """Clear all documents from a collection"""
     try:
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
-        doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
+        doc_service = DocumentService(
+            collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
+        )
         success = await doc_service.clear_all_documents()
 
         if success:
@@ -329,14 +356,16 @@ async def delete_document(
     document_id: str,
     collection_name: str = Query("documents"),
     vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
 ):
     """Delete a document and its chunks"""
     try:
-        # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
-        doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
+        doc_service = DocumentService(
+            collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
+        )
 
         success = await doc_service.delete_document(document_id)
 
@@ -365,19 +394,20 @@ async def delete_document(
 
 
 @router.get("/collections")
-async def list_collections(vector_db_type: Optional[str] = Query(None)):
-    """List all collections for a specific vector DB type"""
+async def list_collections(
+    vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """List collections for the current workspace."""
     try:
         from app.services.vector_db.factory import VectorDBFactory
 
-        # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
-        # List collections for the specified vector DB type
-        collection_names = VectorDBFactory.list_collections(db_type=db_type)
-
-        # Filter out system/internal collections
+        collection_names = VectorDBFactory.list_collections_for_workspace(
+            db_type=db_type, workspace_slug=workspace.slug
+        )
         collection_names = [name for name in collection_names if not name.startswith("_")]
 
         return {
@@ -398,20 +428,21 @@ async def list_collections(vector_db_type: Optional[str] = Query(None)):
 
 @router.post("/collections")
 async def create_collection(
-    collection_name: str = Query(...), vector_db_type: Optional[str] = Query(None)
+    collection_name: str = Query(...),
+    vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
 ):
-    """Create a new collection"""
+    """Create a new collection in the current workspace."""
     try:
         from app.services.vector_db.factory import VectorDBFactory
 
-        # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
-        # Check if collection already exists
+        scoped = VectorDBFactory.scoped_name(collection_name, workspace.slug)
         existing_collections = VectorDBFactory.list_collections(db_type=db_type)
-        if collection_name in existing_collections:
-            logger.info(f"Collection '{collection_name}' already exists in {db_type}")
+        if scoped in existing_collections:
+            logger.info(f"Collection '{collection_name}' already exists in workspace {workspace.slug}")
             return {
                 "status": "success",
                 "collection_name": collection_name,
@@ -420,8 +451,7 @@ async def create_collection(
                 "message": "Collection already exists",
             }
 
-        # Create collection by initializing the vector DB (will be empty initially)
-        vector_db = VectorDBFactory.get_db(collection_name, db_type=db_type)
+        vector_db = VectorDBFactory.get_db(collection_name, db_type=db_type, workspace_slug=workspace.slug)
 
         # For FAISS, ensure the index is created and saved so it shows up in listings
         if db_type == "faiss":
@@ -438,8 +468,9 @@ async def create_collection(
 
         count = await vector_db.get_count()
 
-        # Verify collection was created by listing again
-        updated_collections = VectorDBFactory.list_collections(db_type=db_type)
+        updated_collections = VectorDBFactory.list_collections_for_workspace(
+            db_type=db_type, workspace_slug=workspace.slug
+        )
         if collection_name not in updated_collections:
             logger.warning(f"Collection '{collection_name}' created but not found in listings")
 
@@ -448,7 +479,7 @@ async def create_collection(
             "collection_name": collection_name,
             "vector_db_type": db_type,
             "total_chunks": count,
-            "collections": updated_collections,  # Return updated list for frontend
+            "collections": updated_collections,
         }
 
     except Exception as e:
@@ -464,43 +495,46 @@ async def create_collection(
 
 
 @router.delete("/collections/{collection_name}")
-async def delete_collection(collection_name: str, vector_db_type: Optional[str] = Query(None)):
-    """Delete a collection"""
+async def delete_collection(
+    collection_name: str,
+    vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Delete a collection in the current workspace."""
     try:
         from urllib.parse import unquote
 
         from app.services.vector_db.factory import VectorDBFactory
 
-        # Decode URL-encoded collection name
         collection_name = unquote(collection_name)
 
-        # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
-        # Check if collection exists
+        scoped_coll = VectorDBFactory.scoped_name(collection_name, workspace.slug)
         collections = VectorDBFactory.list_collections(db_type=db_type)
-        collection_exists = collection_name in collections
+        collection_exists = scoped_coll in collections
 
         if not collection_exists:
             raise HTTPException(
                 status_code=404, detail=f"Collection '{collection_name}' not found in {db_type}"
             )
 
-        # Clear the collection first (delete all documents)
         try:
-            vector_db = VectorDBFactory.get_db(collection_name, db_type=db_type)
+            vector_db = VectorDBFactory.get_db(
+                collection_name, db_type=db_type, workspace_slug=workspace.slug
+            )
             await vector_db.clear_collection()
         except Exception as e:
             logger.warning(f"Error clearing collection before deletion: {e}")
 
-        # Clear cached instances
         try:
-            VectorDBFactory.clear_instance(collection_name, db_type=db_type)
+            VectorDBFactory.clear_instance(
+                collection_name, db_type=db_type, workspace_slug=workspace.slug
+            )
         except Exception as cache_error:
             logger.warning(f"Could not clear cached instance: {cache_error}")
 
-        # Delete the collection files
         try:
             if db_type == "chroma":
                 import chromadb
@@ -508,14 +542,13 @@ async def delete_collection(collection_name: str, vector_db_type: Optional[str] 
                 from app.core.config import settings
 
                 client = chromadb.PersistentClient(path=settings.chroma_persist_directory)
-                client.delete_collection(name=collection_name)
+                client.delete_collection(name=scoped_coll)
             elif db_type == "faiss":
-                # FAISS collections are files, delete them
                 import os
 
                 persist_dir = getattr(settings, "faiss_persist_directory", "./faiss_db")
-                index_path = os.path.join(persist_dir, f"{collection_name}.index")
-                metadata_path = os.path.join(persist_dir, f"{collection_name}.metadata.pkl")
+                index_path = os.path.join(persist_dir, f"{scoped_coll}.index")
+                metadata_path = os.path.join(persist_dir, f"{scoped_coll}.metadata.pkl")
                 if os.path.exists(index_path):
                     os.remove(index_path)
                 if os.path.exists(metadata_path):
@@ -561,15 +594,18 @@ async def delete_collection(collection_name: str, vector_db_type: Optional[str] 
 
 @router.get("/list")
 async def list_documents(
-    collection_name: str = Query("documents"), vector_db_type: Optional[str] = Query(None)
+    collection_name: str = Query("documents"),
+    vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
 ):
-    """List all documents in a collection"""
+    """List all documents in a collection (scoped to current workspace)."""
     try:
-        # Get vector DB type from settings if not provided
         app_settings = get_app_settings()
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
-        doc_service = DocumentService(collection_name=collection_name, vector_db_type=db_type)
+        doc_service = DocumentService(
+            collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
+        )
         documents = await doc_service.list_documents()
 
         # Filter out temporary files and system files

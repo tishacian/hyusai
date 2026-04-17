@@ -8,8 +8,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
+from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.task import Task
+from app.models.workspace import Workspace
 from app.services.tasks.engine import get_task_engine
 
 router = APIRouter()
@@ -22,7 +24,11 @@ class TaskCreate(BaseModel):
 
 
 @router.post("")
-async def create_task(req: TaskCreate, db: DBSession = Depends(get_db)):
+async def create_task(
+    req: TaskCreate,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
     task_id = str(uuid.uuid4())
     task = Task(
         id=task_id,
@@ -30,6 +36,7 @@ async def create_task(req: TaskCreate, db: DBSession = Depends(get_db)):
         description=req.description,
         status="pending",
         agent_id=req.agent_id,
+        workspace_id=workspace.id,
     )
     db.add(task)
     db.commit()
@@ -37,8 +44,18 @@ async def create_task(req: TaskCreate, db: DBSession = Depends(get_db)):
 
 
 @router.get("")
-async def list_tasks(limit: int = 20, db: DBSession = Depends(get_db)):
-    rows = db.query(Task).order_by(Task.created_at.desc()).limit(limit).all()
+async def list_tasks(
+    limit: int = 20,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    rows = (
+        db.query(Task)
+        .filter(Task.workspace_id == workspace.id)
+        .order_by(Task.created_at.desc())
+        .limit(limit)
+        .all()
+    )
     return {
         "tasks": [
             {
@@ -58,8 +75,15 @@ async def list_tasks(limit: int = 20, db: DBSession = Depends(get_db)):
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: str, db: DBSession = Depends(get_db)):
-    task = db.query(Task).filter(Task.id == task_id).first()
+async def get_task(
+    task_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.workspace_id == workspace.id,
+    ).first()
     if not task:
         return {"error": "Task not found"}
     return {
@@ -79,8 +103,15 @@ async def get_task(task_id: str, db: DBSession = Depends(get_db)):
 
 
 @router.post("/{task_id}/run")
-async def run_task(task_id: str, db: DBSession = Depends(get_db)):
-    task = db.query(Task).filter(Task.id == task_id).first()
+async def run_task(
+    task_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.workspace_id == workspace.id,
+    ).first()
     if not task:
         return {"error": "Task not found"}
 

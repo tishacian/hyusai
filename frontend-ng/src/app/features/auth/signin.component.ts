@@ -305,7 +305,7 @@ export class SigninComponent implements OnDestroy {
       email: this.email,
       role: 'user',
     });
-    this.workspaceService.loadWorkspaces();
+    this.workspaceService.loadWorkspaces().subscribe();
     const redirect = this.route.snapshot.queryParams['redirectURL'] || '/';
     this.router.navigateByUrl(redirect);
   }

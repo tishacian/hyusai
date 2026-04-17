@@ -55,12 +55,15 @@ class RAGAgent(BaseAgent):
         top_k = request.get("top_k", app_settings.get("ragTopK", 5))
         similarity_threshold = request.get("similarity_threshold", app_settings.get("ragSimilarityThreshold", 0.2))
         
-        # Get collection name and vector DB type from settings
         collection_name = app_settings.get("ragCollectionName", "documents")
         vector_db_type = app_settings.get("ragVectorDBType", "faiss")
-        
-        # Initialize document service with the selected collection and vector DB type
-        document_service = DocumentService(collection_name=collection_name, vector_db_type=vector_db_type)
+        workspace_slug = request.get("workspace_slug")
+
+        document_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=vector_db_type,
+            workspace_slug=workspace_slug,
+        )
         
         # Get conversation history from context (long-term memory)
         conversation_history = []

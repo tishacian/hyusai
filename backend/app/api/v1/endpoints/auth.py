@@ -131,6 +131,37 @@ class MemberUpdate(BaseModel):
     role: str
 
 
+class TransferOwnershipRequest(BaseModel):
+    new_owner_user_id: str
+
+
+class WorkspaceDeleteRequest(BaseModel):
+    confirm_name: str  # user must type the workspace name
+
+
+class WorkspaceDetail(BaseModel):
+    id: str
+    name: str
+    slug: str
+    role: str  # role of the current user
+    is_active: bool
+    member_count: int
+    created_at: datetime
+    deleted_at: Optional[datetime] = None
+    settings: dict = {}
+
+
+class MemberDetail(BaseModel):
+    user_id: str
+    email: Optional[str]
+    username: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    role: str
+    joined_at: datetime
+    is_current_user: bool
+
+
 # ---------------------------------------------------------------------------
 # Auth endpoints (proxy to Keycloak)
 # ---------------------------------------------------------------------------
@@ -649,7 +680,39 @@ def _slugify(name: str) -> str:
     return slug.strip("-")[:100]
 
 
-@router.post("/workspaces", status_code=201)
+def _resolve_workspace_and_role(db: DBSession, user: User, slug: str) -> tuple[Workspace, WorkspaceMember]:
+    """Fetch a workspace by slug (non-deleted) and ensure the caller is a member.
+
+    Returns (workspace, membership). Raises 404 if workspace missing, 403 if not a member.
+    """
+    workspace = db.query(Workspace).filter(
+        Workspace.slug == slug,
+        Workspace.deleted_at.is_(None),
+    ).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    membership = db.query(WorkspaceMember).filter(
+        WorkspaceMember.user_id == user.id,
+        WorkspaceMember.workspace_id == workspace.id,
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+
+    return workspace, membership
+
+
+def _require_admin(membership: WorkspaceMember) -> None:
+    if membership.role not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def _require_owner(membership: WorkspaceMember) -> None:
+    if membership.role != "owner":
+        raise HTTPException(status_code=403, detail="Owner access required")
+
+
+@router.post("/workspaces", status_code=201, response_model=WorkspaceDetail)
 async def create_workspace(
     body: WorkspaceCreate,
     user: User = Depends(get_current_user),
@@ -668,7 +731,16 @@ async def create_workspace(
 
     db.commit()
     db.refresh(workspace)
-    return {"id": workspace.id, "name": workspace.name, "slug": workspace.slug}
+    return WorkspaceDetail(
+        id=workspace.id,
+        name=workspace.name,
+        slug=workspace.slug,
+        role="owner",
+        is_active=workspace.is_active,
+        member_count=1,
+        created_at=workspace.created_at,
+        settings=workspace.settings or {},
+    )
 
 
 @router.get("/workspaces")
@@ -676,30 +748,58 @@ async def list_workspaces(user: User = Depends(get_current_user), db: DBSession 
     memberships = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).all()
     result = []
     for m in memberships:
-        ws = db.query(Workspace).filter(Workspace.id == m.workspace_id, Workspace.is_active == True).first()
+        ws = db.query(Workspace).filter(
+            Workspace.id == m.workspace_id,
+            Workspace.is_active == True,  # noqa: E712
+            Workspace.deleted_at.is_(None),
+        ).first()
         if ws:
-            result.append({"id": ws.id, "name": ws.name, "slug": ws.slug, "role": m.role})
+            member_count = db.query(WorkspaceMember).filter(
+                WorkspaceMember.workspace_id == ws.id
+            ).count()
+            result.append({
+                "id": ws.id,
+                "name": ws.name,
+                "slug": ws.slug,
+                "role": m.role,
+                "member_count": member_count,
+                "created_at": ws.created_at.isoformat() if ws.created_at else None,
+            })
     return result
 
 
-@router.patch("/workspaces/{slug}")
+@router.get("/workspaces/{slug}", response_model=WorkspaceDetail)
+async def get_workspace(
+    slug: str,
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    member_count = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace.id
+    ).count()
+    return WorkspaceDetail(
+        id=workspace.id,
+        name=workspace.name,
+        slug=workspace.slug,
+        role=membership.role,
+        is_active=workspace.is_active,
+        member_count=member_count,
+        created_at=workspace.created_at,
+        deleted_at=workspace.deleted_at,
+        settings=workspace.settings or {},
+    )
+
+
+@router.patch("/workspaces/{slug}", response_model=WorkspaceDetail)
 async def update_workspace(
     slug: str,
     body: WorkspaceUpdate,
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    workspace = db.query(Workspace).filter(Workspace.slug == slug).first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-
-    membership = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user.id,
-        WorkspaceMember.workspace_id == workspace.id,
-        WorkspaceMember.role.in_(["owner", "admin"]),
-    ).first()
-    if not membership:
-        raise HTTPException(status_code=403, detail="Admin access required")
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    _require_admin(membership)
 
     if body.name is not None:
         workspace.name = body.name
@@ -707,7 +807,159 @@ async def update_workspace(
         workspace.settings = body.settings
 
     db.commit()
-    return {"id": workspace.id, "name": workspace.name, "slug": workspace.slug}
+    db.refresh(workspace)
+    member_count = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace.id
+    ).count()
+    return WorkspaceDetail(
+        id=workspace.id,
+        name=workspace.name,
+        slug=workspace.slug,
+        role=membership.role,
+        is_active=workspace.is_active,
+        member_count=member_count,
+        created_at=workspace.created_at,
+        settings=workspace.settings or {},
+    )
+
+
+@router.delete("/workspaces/{slug}")
+async def delete_workspace(
+    slug: str,
+    body: WorkspaceDeleteRequest,
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Soft-delete a workspace. Only the owner can delete it.
+
+    The workspace name must match the provided confirm_name. The workspace is
+    marked deleted_at=now; data is preserved for 30 days and then hard-purged
+    by a scheduled task. Use /restore to undo within the grace period.
+    """
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    _require_owner(membership)
+
+    if body.confirm_name != workspace.name:
+        raise HTTPException(
+            status_code=400,
+            detail="Workspace name does not match. Delete cancelled.",
+        )
+
+    workspace.is_active = False
+    workspace.deleted_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "status": "ok",
+        "message": f"Workspace '{workspace.name}' archived. It will be permanently deleted in 30 days.",
+        "deleted_at": workspace.deleted_at.isoformat(),
+    }
+
+
+@router.post("/workspaces/{slug}/restore")
+async def restore_workspace(
+    slug: str,
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Restore a soft-deleted workspace (within the 30-day grace period)."""
+    workspace = db.query(Workspace).filter(Workspace.slug == slug).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    membership = db.query(WorkspaceMember).filter(
+        WorkspaceMember.user_id == user.id,
+        WorkspaceMember.workspace_id == workspace.id,
+        WorkspaceMember.role == "owner",
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=403, detail="Only the owner can restore")
+
+    if workspace.deleted_at is None:
+        return {"status": "ok", "message": "Workspace is already active"}
+
+    workspace.is_active = True
+    workspace.deleted_at = None
+    db.commit()
+    return {"status": "ok", "message": "Workspace restored"}
+
+
+@router.post("/workspaces/{slug}/transfer-ownership")
+async def transfer_ownership(
+    slug: str,
+    body: TransferOwnershipRequest,
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Transfer workspace ownership to another existing member."""
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    _require_owner(membership)
+
+    if body.new_owner_user_id == user.id:
+        raise HTTPException(status_code=400, detail="You are already the owner")
+
+    new_owner_membership = db.query(WorkspaceMember).filter(
+        WorkspaceMember.user_id == body.new_owner_user_id,
+        WorkspaceMember.workspace_id == workspace.id,
+    ).first()
+    if not new_owner_membership:
+        raise HTTPException(status_code=404, detail="Target user is not a member of this workspace")
+
+    new_owner_membership.role = "owner"
+    membership.role = "admin"
+    db.commit()
+    return {"status": "ok", "message": "Ownership transferred"}
+
+
+@router.post("/workspaces/{slug}/leave")
+async def leave_workspace(
+    slug: str,
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Leave a workspace. Owners must transfer ownership first."""
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    if membership.role == "owner":
+        raise HTTPException(
+            status_code=400,
+            detail="Owner cannot leave. Transfer ownership first, or delete the workspace.",
+        )
+
+    db.delete(membership)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.get("/workspaces/{slug}/members", response_model=list[MemberDetail])
+async def list_members(
+    slug: str,
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """List all members of a workspace (members can see this list)."""
+    workspace, _ = _resolve_workspace_and_role(db, user, slug)
+
+    members = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace.id
+    ).order_by(WorkspaceMember.joined_at.asc()).all()
+
+    result: list[MemberDetail] = []
+    for m in members:
+        u = db.query(User).filter(User.id == m.user_id).first()
+        if not u:
+            continue
+        kc_data = await _get_kc_user(u.keycloak_sub) if u.keycloak_sub else {}
+        result.append(MemberDetail(
+            user_id=u.id,
+            email=u.email,
+            username=u.username,
+            first_name=kc_data.get("firstName"),
+            last_name=kc_data.get("lastName"),
+            role=m.role,
+            joined_at=m.joined_at,
+            is_current_user=(u.id == user.id),
+        ))
+    return result
 
 
 @router.post("/workspaces/{slug}/members")
@@ -717,21 +969,15 @@ async def invite_member(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    workspace = db.query(Workspace).filter(Workspace.slug == slug).first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-
-    admin_check = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user.id,
-        WorkspaceMember.workspace_id == workspace.id,
-        WorkspaceMember.role.in_(["owner", "admin"]),
-    ).first()
-    if not admin_check:
-        raise HTTPException(status_code=403, detail="Admin access required")
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    _require_admin(membership)
 
     target_user = db.query(User).filter(User.email == body.email).first()
     if not target_user:
-        raise HTTPException(status_code=404, detail="User not found. They must sign up first.")
+        raise HTTPException(
+            status_code=404,
+            detail="User not found. They must sign up first. (Email invites coming soon.)",
+        )
 
     existing = db.query(WorkspaceMember).filter(
         WorkspaceMember.user_id == target_user.id,
@@ -740,8 +986,11 @@ async def invite_member(
     if existing:
         raise HTTPException(status_code=409, detail="User is already a member")
 
-    membership = WorkspaceMember(user_id=target_user.id, workspace_id=workspace.id, role=body.role)
-    db.add(membership)
+    if body.role not in ("admin", "member"):
+        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
+
+    new_member = WorkspaceMember(user_id=target_user.id, workspace_id=workspace.id, role=body.role)
+    db.add(new_member)
     db.commit()
     return {"status": "ok", "user_id": target_user.id, "role": body.role}
 
@@ -754,26 +1003,30 @@ async def update_member_role(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    workspace = db.query(Workspace).filter(Workspace.slug == slug).first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    _require_admin(membership)
 
-    admin_check = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user.id,
-        WorkspaceMember.workspace_id == workspace.id,
-        WorkspaceMember.role.in_(["owner", "admin"]),
-    ).first()
-    if not admin_check:
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    membership = db.query(WorkspaceMember).filter(
+    target = db.query(WorkspaceMember).filter(
         WorkspaceMember.user_id == user_id,
         WorkspaceMember.workspace_id == workspace.id,
     ).first()
-    if not membership:
+    if not target:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    membership.role = body.role
+    if target.role == "owner":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot change the owner's role. Transfer ownership first.",
+        )
+    if body.role == "owner":
+        raise HTTPException(
+            status_code=400,
+            detail="Use the transfer-ownership endpoint to promote someone to owner.",
+        )
+    if body.role not in ("admin", "member"):
+        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
+
+    target.role = body.role
     db.commit()
     return {"status": "ok"}
 
@@ -785,29 +1038,23 @@ async def remove_member(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    workspace = db.query(Workspace).filter(Workspace.slug == slug).first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-
-    admin_check = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user.id,
-        WorkspaceMember.workspace_id == workspace.id,
-        WorkspaceMember.role.in_(["owner", "admin"]),
-    ).first()
-    if not admin_check:
-        raise HTTPException(status_code=403, detail="Admin access required")
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    _require_admin(membership)
 
     if user_id == user.id:
-        raise HTTPException(status_code=400, detail="Cannot remove yourself")
+        raise HTTPException(status_code=400, detail="Cannot remove yourself. Use /leave instead.")
 
-    membership = db.query(WorkspaceMember).filter(
+    target = db.query(WorkspaceMember).filter(
         WorkspaceMember.user_id == user_id,
         WorkspaceMember.workspace_id == workspace.id,
     ).first()
-    if not membership:
+    if not target:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    db.delete(membership)
+    if target.role == "owner":
+        raise HTTPException(status_code=400, detail="Cannot remove the owner. Transfer ownership first.")
+
+    db.delete(target)
     db.commit()
     return {"status": "ok"}
 

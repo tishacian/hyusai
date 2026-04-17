@@ -3,12 +3,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
+from app.core.auth import get_current_workspace
 from app.core.logging import get_logger
 from app.core.validation import QueryValidator, ResponseValidator
 from app.core.errors import ValidationError
 from app.core.settings_manager import get_app_settings
 from app.db.base import get_db
 from app.models.user import Message
+from app.models.workspace import Workspace
 from app.api.v1.endpoints.agents import get_orchestrator
 from datetime import datetime
 import uuid
@@ -39,9 +41,10 @@ class ChatRequest(BaseModel):
 @router.post("/completion")
 async def chat_completion(
     request: ChatRequest,
-    db: Session = Depends(get_db)
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
 ):
-    """Non-streaming chat completion"""
+    """Non-streaming chat completion (scoped to current workspace)."""
     try:
         # Validate query
         try:
@@ -58,7 +61,9 @@ async def chat_completion(
         
         request_dict = request.model_dump()
         request_dict["query"] = validated_query
-        
+        request_dict["workspace_slug"] = workspace.slug
+        request_dict["workspace_id"] = workspace.id
+
         # Apply settings defaults if not provided
         if not request_dict.get("agent_preferences"):
             request_dict["agent_preferences"] = {}
@@ -172,23 +177,25 @@ async def chat_completion(
 @router.post("/stream")
 async def chat_stream(
     request: ChatRequest,
-    db: Session = Depends(get_db)
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
 ):
-    """Streaming chat completion"""
+    """Streaming chat completion (scoped to current workspace)."""
     from fastapi.responses import StreamingResponse
     import json
-    
+
     async def generate():
         try:
             orchestrator = get_orchestrator()
             if not orchestrator:
                 yield f"data: {json.dumps({'chunk_type': 'error', 'content': 'Orchestrator not initialized', 'is_final': True})}\n\n"
                 return
-            
-            # Load app settings for defaults
+
             app_settings = get_app_settings()
-            
+
             request_dict = request.model_dump()
+            request_dict["workspace_slug"] = workspace.slug
+            request_dict["workspace_id"] = workspace.id
             
             # Apply settings defaults if not provided
             if not request_dict.get("agent_preferences"):

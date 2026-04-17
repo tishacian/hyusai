@@ -135,6 +135,38 @@ def _extract_roles(payload: dict) -> list[str]:
     return client_roles.get("roles", [])
 
 
+def _ensure_personal_workspace(db: DBSession, user: User, display_name: Optional[str] = None) -> None:
+    """If the user has no workspace memberships, create a Personal workspace.
+
+    Idempotent: if the user already belongs to any workspace (even as member),
+    no new workspace is created.
+    """
+    has_any = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).first()
+    if has_any:
+        return
+
+    label = display_name or (user.email.split("@")[0] if user.email else user.username)
+    name = f"{label}'s workspace" if label else "Personal"
+    # Unique slug: personal-<first8 of user id>
+    slug = f"personal-{user.id[:8]}"
+
+    workspace = Workspace(
+        id=str(uuid4()),
+        name=name[:255],
+        slug=slug,
+        settings={"kind": "personal"},
+    )
+    db.add(workspace)
+    db.flush()
+
+    membership = WorkspaceMember(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role="owner",
+    )
+    db.add(membership)
+
+
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: DBSession = Depends(get_db),
@@ -164,6 +196,7 @@ async def get_current_user(
             is_active=True,
         )
         db.add(user)
+        db.flush()
 
     if not user.keycloak_sub:
         user.keycloak_sub = keycloak_sub
@@ -175,6 +208,10 @@ async def get_current_user(
     if "organization_admin" in roles:
         user.role = "admin"
 
+    # Auto-provision a personal workspace on first appearance
+    display_name = payload.get("given_name") or payload.get("preferred_username")
+    _ensure_personal_workspace(db, user, display_name)
+
     db.commit()
     db.refresh(user)
     return user
@@ -184,23 +221,70 @@ async def get_current_workspace(
     user: User = Depends(get_current_user),
     x_workspace_slug: Optional[str] = Header(None, alias="X-Workspace-Slug"),
     db: DBSession = Depends(get_db),
-) -> Optional[Workspace]:
-    """Resolve workspace from header and verify membership."""
-    if not x_workspace_slug:
-        return None
+) -> Workspace:
+    """Resolve the active workspace for the current user.
 
-    workspace = db.query(Workspace).filter(Workspace.slug == x_workspace_slug, Workspace.is_active == True).first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail=f"Workspace '{x_workspace_slug}' not found")
+    Policy:
+    - If ``X-Workspace-Slug`` header is set, it must point to an active
+      workspace the user is a member of (else 404/403).
+    - Otherwise, fall back to the user's first available workspace
+      (ordered by joined_at).
+    - If the user has no workspaces at all, 409 Conflict (auto-provisioning
+      should have created a personal workspace; absence means something went
+      wrong or the user was fully removed).
+    """
+    if x_workspace_slug:
+        workspace = db.query(Workspace).filter(
+            Workspace.slug == x_workspace_slug,
+            Workspace.is_active == True,  # noqa: E712
+            Workspace.deleted_at.is_(None),
+        ).first()
+        if not workspace:
+            raise HTTPException(status_code=404, detail=f"Workspace '{x_workspace_slug}' not found")
 
-    membership = db.query(WorkspaceMember).filter(
-        WorkspaceMember.user_id == user.id,
-        WorkspaceMember.workspace_id == workspace.id,
-    ).first()
+        membership = db.query(WorkspaceMember).filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        ).first()
+        if not membership:
+            raise HTTPException(status_code=403, detail="Not a member of this workspace")
+
+        return workspace
+
+    # Fallback: first workspace where the user is a member
+    membership = (
+        db.query(WorkspaceMember)
+        .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            Workspace.is_active == True,  # noqa: E712
+            Workspace.deleted_at.is_(None),
+        )
+        .order_by(WorkspaceMember.joined_at.asc())
+        .first()
+    )
     if not membership:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+        raise HTTPException(
+            status_code=409,
+            detail="No workspace available. Please create one.",
+        )
+    workspace = db.query(Workspace).filter(Workspace.id == membership.workspace_id).first()
+    return workspace  # type: ignore[return-value]
 
-    return workspace
+
+async def get_optional_workspace(
+    user: User = Depends(get_current_user),
+    x_workspace_slug: Optional[str] = Header(None, alias="X-Workspace-Slug"),
+    db: DBSession = Depends(get_db),
+) -> Optional[Workspace]:
+    """Same as get_current_workspace but returns None instead of raising when
+    no workspace is available (useful for read-mostly/cross-workspace endpoints)."""
+    try:
+        return await get_current_workspace(user=user, x_workspace_slug=x_workspace_slug, db=db)
+    except HTTPException as e:
+        if e.status_code == 409:
+            return None
+        raise
 
 
 async def get_optional_user(

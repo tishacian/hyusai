@@ -38,11 +38,15 @@ class DocumentService:
         vector_db_type: str = "faiss",
         fusion_method: FusionMethod = FusionMethod.SCORE_ADAPTIVE,
         use_reranker: bool = True,
+        workspace_slug: Optional[str] = None,
     ):
         self.collection_name = collection_name
         self.vector_db_type = vector_db_type
+        self.workspace_slug = workspace_slug
         self.embedder = Embedder()
-        self.vector_db = VectorDBFactory.get_db(collection_name, db_type=vector_db_type)
+        self.vector_db = VectorDBFactory.get_db(
+            collection_name, db_type=vector_db_type, workspace_slug=workspace_slug
+        )
         self.embedding_dimension = self.embedder.get_dimension()
         self.use_hybrid = use_hybrid
         self.use_reranker = use_reranker

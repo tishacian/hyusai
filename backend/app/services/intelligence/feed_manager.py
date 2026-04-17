@@ -88,10 +88,16 @@ def get_articles(
     source_id: str = None,
     min_relevance: float = 0.0,
     limit: int = 50,
+    workspace_id: str = None,
 ) -> list[dict]:
-    from app.models.intelligence import FeedArticle
+    from app.models.intelligence import FeedArticle, FeedSource
 
     q = db.query(FeedArticle).order_by(FeedArticle.fetched_at.desc())
+    if workspace_id:
+        # Filter articles whose source belongs to the workspace
+        q = q.join(FeedSource, FeedSource.id == FeedArticle.source_id).filter(
+            FeedSource.workspace_id == workspace_id
+        )
     if source_id:
         q = q.filter(FeedArticle.source_id == source_id)
     if min_relevance > 0:

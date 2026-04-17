@@ -14,6 +14,7 @@ class Workspace(Base):
     slug = Column(String(100), unique=True, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
+    deleted_at = Column(DateTime, nullable=True, index=True)
     settings = Column(JSON, default=dict)
 
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")

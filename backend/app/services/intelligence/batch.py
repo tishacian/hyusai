@@ -89,9 +89,10 @@ def ensure_intelligence_defaults(db) -> bool:
     return added
 
 
-async def run_batch(target_id: str = None) -> AsyncGenerator[dict, None]:
+async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGenerator[dict, None]:
     """Run a full intelligence batch: fetch feeds -> analyze -> score -> store.
-    Yields SSE-compatible progress events."""
+    Yields SSE-compatible progress events. When workspace_id is set, only feeds
+    and targets for that workspace are processed."""
     from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, SafetyFilter
     from app.services.intelligence.feed_manager import fetch_feed, save_articles
     from app.services.intelligence.analyzer import get_analyzer
@@ -102,9 +103,16 @@ async def run_batch(target_id: str = None) -> AsyncGenerator[dict, None]:
 
     try:
         ensure_intelligence_defaults(db)
-        sources = db.query(FeedSource).filter(FeedSource.active == True).all()
-        targets = db.query(SemanticTarget).filter(SemanticTarget.active == True).all()
-        filters = db.query(SafetyFilter).filter(SafetyFilter.active == True).all()
+        sources_q = db.query(FeedSource).filter(FeedSource.active == True)
+        targets_q = db.query(SemanticTarget).filter(SemanticTarget.active == True)
+        filters_q = db.query(SafetyFilter).filter(SafetyFilter.active == True)
+        if workspace_id:
+            sources_q = sources_q.filter(FeedSource.workspace_id == workspace_id)
+            targets_q = targets_q.filter(SemanticTarget.workspace_id == workspace_id)
+            filters_q = filters_q.filter(SafetyFilter.workspace_id == workspace_id)
+        sources = sources_q.all()
+        targets = targets_q.all()
+        filters = filters_q.all()
 
         if not sources:
             yield {
@@ -145,12 +153,17 @@ async def run_batch(target_id: str = None) -> AsyncGenerator[dict, None]:
         yield {"type": "batch_fetch_done", "batch_id": batch_id, "total_articles": total_articles}
 
         from sqlalchemy import or_, cast, String as SAString
-        unanalyzed = db.query(FeedArticle).filter(
+        unanalyzed_q = db.query(FeedArticle).filter(
             or_(
                 FeedArticle.analysis.is_(None),
                 cast(FeedArticle.analysis, SAString).contains('"skipped"'),
             )
-        ).order_by(FeedArticle.fetched_at.desc()).limit(100).all()
+        )
+        if workspace_id:
+            unanalyzed_q = unanalyzed_q.join(
+                FeedSource, FeedSource.id == FeedArticle.source_id
+            ).filter(FeedSource.workspace_id == workspace_id)
+        unanalyzed = unanalyzed_q.order_by(FeedArticle.fetched_at.desc()).limit(100).all()
 
         for ai, article in enumerate(unanalyzed):
             relevance = await analyzer.compute_relevance(
@@ -203,22 +216,40 @@ async def run_batch(target_id: str = None) -> AsyncGenerator[dict, None]:
         db.close()
 
 
-def get_dashboard_data(db) -> dict:
+def get_dashboard_data(db, workspace_id: str = None) -> dict:
     """Aggregate intelligence data for the BI dashboard."""
     from app.models.intelligence import FeedSource, FeedArticle
     from sqlalchemy import func
 
     ensure_intelligence_defaults(db)
-    sources = db.query(FeedSource).filter(FeedSource.active == True).all()
-    total_articles = db.query(func.count(FeedArticle.id)).scalar() or 0
-    analyzed_count = db.query(func.count(FeedArticle.id)).filter(
-        FeedArticle.embedded == True
-    ).scalar() or 0
+    sources_q = db.query(FeedSource).filter(FeedSource.active == True)
+    if workspace_id:
+        sources_q = sources_q.filter(FeedSource.workspace_id == workspace_id)
+    sources = sources_q.all()
 
-    recent = db.query(FeedArticle).filter(
+    articles_q = db.query(FeedArticle)
+    if workspace_id:
+        articles_q = articles_q.join(FeedSource, FeedSource.id == FeedArticle.source_id).filter(
+            FeedSource.workspace_id == workspace_id
+        )
+    total_articles = articles_q.count() or 0
+
+    analyzed_q = db.query(FeedArticle).filter(FeedArticle.embedded == True)
+    if workspace_id:
+        analyzed_q = analyzed_q.join(FeedSource, FeedSource.id == FeedArticle.source_id).filter(
+            FeedSource.workspace_id == workspace_id
+        )
+    analyzed_count = analyzed_q.count() or 0
+
+    recent_q = db.query(FeedArticle).filter(
         FeedArticle.analysis.isnot(None),
         FeedArticle.embedded == True,
-    ).order_by(FeedArticle.fetched_at.desc()).limit(30).all()
+    )
+    if workspace_id:
+        recent_q = recent_q.join(FeedSource, FeedSource.id == FeedArticle.source_id).filter(
+            FeedSource.workspace_id == workspace_id
+        )
+    recent = recent_q.order_by(FeedArticle.fetched_at.desc()).limit(30).all()
 
     sentiment_counts = {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0}
     risk_counts = {"low": 0, "medium": 0, "high": 0, "critical": 0}
