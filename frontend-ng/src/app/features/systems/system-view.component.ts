@@ -1,12 +1,12 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
-import { ActivatedRoute, Router } from '@angular/router';
-import { ApiService } from '@app/core/api.service';
+import { ActivatedRoute } from '@angular/router';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
+import { SystemsStore } from './systems.store';
 
 interface TabDef {
   id: 'overview' | 'design' | 'runs' | 'settings';
@@ -35,9 +35,10 @@ interface WizardStep {
       breadcrumb="Systems"
       [title]="agentName()"
       icon="bot"
-      subtitle="Configure, run and refine this AI system."
+      [subtitle]="agentDescription() || 'Configure, run and refine this AI system.'"
+      [pill]="isDraft() ? 'Draft' : ''"
     >
-      <app-status-pulse tone="success" label="Ready" />
+      <app-status-pulse [tone]="isDraft() ? 'warning' : 'success'" [label]="isDraft() ? 'Draft' : 'Ready'" />
     </app-section-header>
 
     <div class="flex items-center gap-1 border-b border-white/5 mb-6">
@@ -172,9 +173,24 @@ interface WizardStep {
 
     <!-- Runs -->
     @if (activeTab() === 'runs') {
-      <div class="t-card t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
-        <app-chat-panel [systemId]="systemId" />
-      </div>
+      @if (isDraft()) {
+        <div class="t-card t-elevated rounded-md p-6 flex items-start gap-3">
+          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/30 shrink-0">
+            <app-icon name="alert-triangle" [size]="18" />
+          </div>
+          <div>
+            <div class="text-base font-semibold text-white">Not deployed yet</div>
+            <p class="text-sm text-gray-400 mt-1 max-w-lg">
+              This system is still a draft. Finish the setup checklist and launch it to start running
+              conversations. The Runs tab will light up as soon as the system is active.
+            </p>
+          </div>
+        </div>
+      } @else {
+        <div class="t-card t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
+          <app-chat-panel [systemId]="systemId" />
+        </div>
+      }
     }
 
     <!-- Settings -->
@@ -221,10 +237,12 @@ interface WizardStep {
 })
 export class SystemViewComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
-  private readonly api = inject(ApiService);
+  private readonly store = inject(SystemsStore);
 
   systemId = '';
   agentName = signal('System');
+  agentDescription = signal('');
+  isDraft = signal(false);
   activeTab = signal<TabDef['id']>('overview');
 
   readonly tabs: TabDef[] = [
@@ -262,8 +280,20 @@ export class SystemViewComponent implements OnInit {
 
   ngOnInit(): void {
     this.systemId = this.route.snapshot.paramMap.get('systemId') ?? '';
-    this.api.get<{ id: string; name: string }>(`/agents/${this.systemId}`).subscribe({
-      next: (agent) => this.agentName.set(agent.name),
+    const local = this.store.findById(this.systemId);
+    if (local) {
+      this.agentName.set(local.name);
+      this.agentDescription.set(local.description || '');
+      this.isDraft.set(!!local.draft);
+      return;
+    }
+    this.store.getById(this.systemId).subscribe({
+      next: (agent) => {
+        if (!agent) return;
+        this.agentName.set(agent.name);
+        this.agentDescription.set(agent.description || '');
+        this.isDraft.set(!!agent.draft);
+      },
       error: () => {},
     });
   }

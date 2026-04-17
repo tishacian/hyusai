@@ -1,12 +1,11 @@
 import { Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 
 @Component({
   selector: 'app-auth-shell',
   standalone: true,
-  imports: [RouterOutlet, IconComponent, StatusPulseComponent],
+  imports: [RouterOutlet, StatusPulseComponent],
   template: `
     <div class="min-h-screen flex items-center justify-center relative overflow-hidden">
       <!-- Aurora blooms -->

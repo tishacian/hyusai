@@ -14,10 +14,8 @@ import { IconComponent } from './icon.component';
     <header class="header-underline pb-5 mb-6 flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0 flex-1">
         @if (breadcrumb) {
-          <div class="text-xs text-gray-500 dark:text-gray-400 mb-1 flex items-center gap-1 font-medium">
-            <span>Platform</span>
-            <app-icon name="chevron-right" [size]="12" class="opacity-60" />
-            <span>{{ breadcrumb }}</span>
+          <div class="text-[10px] uppercase tracking-[0.16em] text-brand-400/80 mb-1.5 font-semibold">
+            {{ breadcrumb }}
           </div>
         }
         <h1 class="gradient-title text-2xl md:text-[28px] font-semibold tracking-tight leading-tight flex items-center gap-3">

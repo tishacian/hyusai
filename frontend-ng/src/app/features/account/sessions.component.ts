@@ -56,7 +56,7 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
                 <div class="min-w-0">
                   <div class="text-sm font-medium text-white font-mono">
                     {{ s.ip_address }}
-                    @if (s.clients?.length) {
+                    @if (s.clients.length) {
                       <span class="text-xs text-gray-500 ml-2 font-sans">· {{ s.clients.join(', ') }}</span>
                     }
                   </div>

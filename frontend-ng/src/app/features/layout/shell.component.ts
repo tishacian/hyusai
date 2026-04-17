@@ -1,5 +1,13 @@
 import { Component, HostListener, computed, inject, signal } from '@angular/core';
-import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  NavigationEnd,
+  Router,
+  RouterLink,
+  RouterLinkActive,
+  RouterOutlet,
+} from '@angular/router';
+import { filter, map, startWith } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { AuthApiService } from '@app/core/auth-api.service';
@@ -19,6 +27,12 @@ interface NavItem {
 interface NavGroup {
   title: string;
   items: NavItem[];
+}
+
+interface Crumb {
+  label: string;
+  icon: string;
+  route?: string | any[];
 }
 
 @Component({
@@ -63,7 +77,7 @@ interface NavGroup {
             </div>
             <button
               type="button"
-              (click)="workspaceMenuOpen.set(!workspaceMenuOpen())"
+              (click)="toggleWorkspaceMenu($event)"
               class="w-full flex items-center gap-2 px-2 py-2 rounded-md hover:bg-white/5 transition text-left ring-1 ring-transparent hover:ring-white/10"
             >
               @if (workspaceService.current(); as current) {
@@ -197,7 +211,7 @@ interface NavGroup {
             class="p-2 rounded-md text-gray-400 hover:text-white hover:bg-white/5 transition"
             title="Toggle sidebar"
           >
-            <app-icon [name]="collapsed() ? 'panel-left' : 'panel-left'" [size]="16" />
+            <app-icon name="panel-left" [size]="16" />
           </button>
           <button
             (click)="logout()"
@@ -213,17 +227,39 @@ interface NavGroup {
       <main class="flex-1 flex flex-col overflow-hidden relative z-10">
         <!-- Header -->
         <header
-          class="header-underline flex items-center justify-between px-6 py-3 glass border-b border-white/5 shrink-0 z-10"
+          class="header-underline flex items-center justify-between px-6 py-3 glass border-b border-white/5 shrink-0 z-10 gap-4"
         >
-          <div class="flex items-center gap-3 min-w-0">
-            <div class="flex items-center gap-2 text-xs text-gray-400">
+          <!-- Breadcrumbs -->
+          <nav aria-label="Breadcrumbs" class="flex items-center gap-1.5 text-xs text-gray-400 min-w-0">
+            <a
+              routerLink="/"
+              class="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 hover:text-white transition"
+              title="Home"
+            >
               <app-icon name="layout-dashboard" [size]="14" class="text-brand-400" />
-              <span class="font-medium">Platform</span>
-              <app-icon name="chevron-right" [size]="12" class="opacity-50" />
-              <span class="text-gray-200">{{ currentAreaLabel() }}</span>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
+              <span class="font-medium hidden sm:inline">Platform</span>
+            </a>
+            @for (crumb of breadcrumbs(); track $index; let last = $last) {
+              <app-icon name="chevron-right" [size]="12" class="opacity-40 shrink-0" />
+              @if (crumb.route && !last) {
+                <a
+                  [routerLink]="crumb.route"
+                  class="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/5 hover:text-white transition truncate"
+                >
+                  <app-icon [name]="crumb.icon" [size]="13" class="text-brand-400 shrink-0" />
+                  <span class="truncate">{{ crumb.label }}</span>
+                </a>
+              } @else {
+                <span class="flex items-center gap-1.5 px-2 py-1 text-gray-100 font-medium truncate">
+                  <app-icon [name]="crumb.icon" [size]="13" class="text-brand-400 shrink-0" />
+                  <span class="truncate">{{ crumb.label }}</span>
+                </span>
+              }
+            }
+          </nav>
+
+          <!-- Right cluster -->
+          <div class="flex items-center gap-2 shrink-0">
             <button
               type="button"
               class="p-2 rounded-md text-gray-400 hover:text-white hover:bg-white/5 transition"
@@ -234,8 +270,9 @@ interface NavGroup {
             <div class="relative" (click)="$event.stopPropagation()">
               <button
                 type="button"
-                (click)="userMenuOpen.set(!userMenuOpen())"
+                (click)="toggleUserMenu($event)"
                 class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/5 transition"
+                [class.bg-white\\/5]="userMenuOpen()"
               >
                 <div
                   class="w-8 h-8 rounded-full text-white font-semibold flex items-center justify-center text-sm bg-gradient-to-br from-brand-500 to-violet-500 shadow-glow-sm"
@@ -243,32 +280,54 @@ interface NavGroup {
                   {{ initials() }}
                 </div>
                 @if (authStore.email()) {
-                  <span class="text-sm text-gray-200 hidden sm:inline">{{ authStore.email() }}</span>
+                  <span class="text-sm text-gray-200 hidden sm:inline max-w-[180px] truncate">
+                    {{ authStore.email() }}
+                  </span>
                 }
                 <app-icon name="chevron-down" [size]="14" class="text-gray-500" />
               </button>
 
               @if (userMenuOpen()) {
-                <div class="absolute right-0 mt-2 w-64 glass border border-white/10 rounded-md shadow-elevated z-50 overflow-hidden">
+                <div
+                  class="absolute right-0 mt-2 w-64 glass border border-white/10 rounded-md shadow-elevated z-50 overflow-hidden animate-fade-in"
+                >
                   <div class="px-4 py-3 border-b border-white/5">
-                    <div class="text-sm font-medium text-white truncate">{{ authStore.email() || 'User' }}</div>
-                    <div class="text-xs text-gray-400 capitalize">{{ authStore.role() || 'user' }}</div>
+                    <div class="text-sm font-medium text-white truncate">
+                      {{ authStore.email() || 'User' }}
+                    </div>
+                    <div class="text-xs text-gray-400 capitalize">
+                      {{ authStore.role() || 'user' }}
+                    </div>
                   </div>
-                  <a
-                    routerLink="/account"
-                    (click)="userMenuOpen.set(false)"
-                    class="flex items-center gap-2.5 px-4 py-2 text-sm text-gray-200 hover:bg-white/5 transition"
+                  <button
+                    type="button"
+                    (click)="navigate('/account/profile')"
+                    class="w-full text-left flex items-center gap-2.5 px-4 py-2 text-sm text-gray-200 hover:bg-white/5 transition"
                   >
-                    <app-icon name="user-round" [size]="15" class="text-gray-400" /> My account
-                  </a>
+                    <app-icon name="user-round" [size]="15" class="text-gray-400" /> My profile
+                  </button>
+                  <button
+                    type="button"
+                    (click)="navigate('/account/security')"
+                    class="w-full text-left flex items-center gap-2.5 px-4 py-2 text-sm text-gray-200 hover:bg-white/5 transition"
+                  >
+                    <app-icon name="shield" [size]="15" class="text-gray-400" /> Security
+                  </button>
+                  <button
+                    type="button"
+                    (click)="navigate('/account/sessions')"
+                    class="w-full text-left flex items-center gap-2.5 px-4 py-2 text-sm text-gray-200 hover:bg-white/5 transition"
+                  >
+                    <app-icon name="monitor" [size]="15" class="text-gray-400" /> Sessions
+                  </button>
                   @if (workspaceService.current(); as current) {
-                    <a
-                      [routerLink]="['/workspace', current.slug, 'settings']"
-                      (click)="userMenuOpen.set(false)"
-                      class="flex items-center gap-2.5 px-4 py-2 text-sm text-gray-200 hover:bg-white/5 transition"
+                    <button
+                      type="button"
+                      (click)="navigate(['/workspace', current.slug, 'settings'])"
+                      class="w-full text-left flex items-center gap-2.5 px-4 py-2 text-sm text-gray-200 hover:bg-white/5 transition border-t border-white/5"
                     >
                       <app-icon name="settings" [size]="15" class="text-gray-400" /> Workspace settings
-                    </a>
+                    </button>
                   }
                   <button
                     type="button"
@@ -307,11 +366,14 @@ export class ShellComponent {
   newWorkspaceName = '';
   creating = signal(false);
 
-  @HostListener('document:click')
-  closeMenus(): void {
-    this.userMenuOpen.set(false);
-    this.workspaceMenuOpen.set(false);
-  }
+  private readonly currentUrl = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map((e) => e.urlAfterRedirects),
+      startWith(this.router.url),
+    ),
+    { initialValue: this.router.url },
+  );
 
   readonly navGroups: NavGroup[] = [
     {
@@ -335,17 +397,107 @@ export class ShellComponent {
     },
   ];
 
-  readonly currentAreaLabel = computed(() => {
-    const url = this.router.url;
+  readonly breadcrumbs = computed<Crumb[]>(() => {
+    const url = this.currentUrl() || '/';
+    const cleanUrl = url.split('?')[0].split('#')[0];
+    const segments = cleanUrl.split('/').filter(Boolean);
+    if (segments.length === 0) {
+      return [{ label: 'Home', icon: 'home' }];
+    }
+
+    const first = segments[0];
+
+    // Nav-based areas
     for (const g of this.navGroups) {
       for (const it of g.items) {
-        if (url.startsWith(it.route)) return it.label;
+        if ('/' + first === it.route) {
+          const crumbs: Crumb[] = [{ label: it.label, icon: it.icon, route: it.route }];
+          if (segments.length > 1) {
+            const secondLabel = this.prettifySegment(segments[1]);
+            crumbs.push({ label: secondLabel, icon: 'chevron-right' });
+          }
+          return crumbs;
+        }
       }
     }
-    if (url.startsWith('/workspace')) return 'Workspace';
-    if (url.startsWith('/account')) return 'Account';
-    return 'Home';
+
+    if (first === 'workspace') {
+      const current = this.workspaceService.current();
+      const crumbs: Crumb[] = [
+        { label: current?.name || 'Workspace', icon: 'briefcase', route: current ? ['/workspace', current.slug, 'settings'] : '/systems' },
+      ];
+      if (segments.length >= 3) {
+        const tab = segments[2];
+        const tabMap: Record<string, { label: string; icon: string }> = {
+          settings: { label: 'Settings', icon: 'settings' },
+          members: { label: 'Members', icon: 'users' },
+          danger: { label: 'Danger zone', icon: 'shield-alert' },
+        };
+        const t = tabMap[tab] ?? { label: this.prettifySegment(tab), icon: 'chevron-right' };
+        crumbs.push({ label: t.label, icon: t.icon });
+      }
+      return crumbs;
+    }
+
+    if (first === 'account') {
+      const crumbs: Crumb[] = [{ label: 'My account', icon: 'user-round', route: '/account/profile' }];
+      if (segments.length >= 2) {
+        const tabMap: Record<string, { label: string; icon: string }> = {
+          profile: { label: 'Profile', icon: 'user-round' },
+          password: { label: 'Password', icon: 'key-round' },
+          security: { label: 'Security', icon: 'shield' },
+          sessions: { label: 'Sessions', icon: 'monitor' },
+          danger: { label: 'Danger zone', icon: 'shield-alert' },
+        };
+        const t = tabMap[segments[1]] ?? { label: this.prettifySegment(segments[1]), icon: 'chevron-right' };
+        crumbs.push({ label: t.label, icon: t.icon });
+      }
+      return crumbs;
+    }
+
+    return [{ label: this.prettifySegment(first), icon: 'chevron-right' }];
   });
+
+  private prettifySegment(seg: string): string {
+    if (!seg) return '';
+    if (seg.length > 24 && /^[0-9a-f-]+$/i.test(seg)) return seg.slice(0, 8) + '…';
+    return seg
+      .replace(/[-_]/g, ' ')
+      .split(' ')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+
+  @HostListener('document:click')
+  closeMenus(): void {
+    this.userMenuOpen.set(false);
+    this.workspaceMenuOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    this.userMenuOpen.set(false);
+    this.workspaceMenuOpen.set(false);
+  }
+
+  toggleUserMenu(ev: Event): void {
+    ev.stopPropagation();
+    this.workspaceMenuOpen.set(false);
+    this.userMenuOpen.update((v) => !v);
+  }
+
+  toggleWorkspaceMenu(ev: Event): void {
+    ev.stopPropagation();
+    this.userMenuOpen.set(false);
+    this.workspaceMenuOpen.update((v) => !v);
+  }
+
+  navigate(target: string | any[]): void {
+    this.userMenuOpen.set(false);
+    this.workspaceMenuOpen.set(false);
+    if (Array.isArray(target)) this.router.navigate(target);
+    else this.router.navigateByUrl(target);
+  }
 
   initials(): string {
     const email = this.authStore.email();
@@ -406,6 +558,7 @@ export class ShellComponent {
   }
 
   logout(): void {
+    this.userMenuOpen.set(false);
     const refresh = this.tokenStorage.getRefreshToken();
     if (refresh) {
       this.authApi.logout(refresh).subscribe({ complete: () => this.finishLogout() });

@@ -178,6 +178,8 @@ import {
   UserX,
   ScrollText,
   Edit3,
+  RotateCcw,
+  Maximize,
 } from 'lucide-angular';
 
 const ICONS = {
@@ -351,6 +353,8 @@ const ICONS = {
   UserX,
   ScrollText,
   Edit3,
+  RotateCcw,
+  Maximize,
 };
 
 /**
