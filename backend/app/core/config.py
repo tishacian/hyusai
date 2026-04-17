@@ -58,6 +58,20 @@ class Settings(BaseSettings):
     # Redis (optional, not required for demo)
     redis_url: str = "redis://localhost:6379/0"
 
+    # SMTP (for MFA email codes and account notifications)
+    smtp_host: Optional[str] = None
+    smtp_port: int = 465
+    smtp_ssl: bool = True
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from: Optional[str] = None
+    smtp_from_name: str = "Agentium"
+
+    # MFA (email OTP)
+    mfa_enabled_default: bool = False  # Can be overridden per user
+    mfa_code_ttl_seconds: int = 300
+    mfa_max_attempts: int = 5
+
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(

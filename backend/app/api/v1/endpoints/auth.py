@@ -1,18 +1,21 @@
 """Auth and workspace management endpoints — backend proxy to Keycloak"""
+import json
 import logging
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import (
     _get_token_url,
     _get_admin_url,
     _get_logout_url,
+    _kc_base_internal,
     decode_token,
     get_current_user,
     _extract_roles,
@@ -21,6 +24,8 @@ from app.core.config import settings
 from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.models.mfa import MfaChallenge
+from app.services.email import send_email, render_mfa_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -44,8 +49,38 @@ class TokenResponse(BaseModel):
     token_type: str = "Bearer"
 
 
+class MfaChallengeResponse(BaseModel):
+    mfa_required: bool = True
+    mfa_token: str
+    email_hint: str
+    ttl_seconds: int
+
+
+class VerifyMfaRequest(BaseModel):
+    mfa_token: str
+    code: str = Field(min_length=4, max_length=10)
+    remember_me: bool = False
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class ProfileUpdateRequest(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    company: Optional[str] = None
+    job_title: Optional[str] = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
+class MfaToggleRequest(BaseModel):
+    enabled: bool
 
 
 class SignupRequest(BaseModel):
@@ -68,6 +103,12 @@ class UserProfile(BaseModel):
     email: Optional[str]
     role: str
     is_active: bool
+    mfa_enabled: bool = False
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    company: Optional[str] = None
+    job_title: Optional[str] = None
     workspaces: list[dict] = []
 
 
@@ -95,29 +136,23 @@ class MemberUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: DBSession = Depends(get_db)):
-    """Proxy login to Keycloak direct access grant."""
-    data = {
-        "grant_type": "password",
-        "client_id": settings.keycloak_client_id,
-        "username": body.email,
-        "password": body.password,
-    }
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(_get_token_url(), data=data, timeout=15)
+def _mask_email(email: Optional[str]) -> str:
+    if not email or "@" not in email:
+        return "***"
+    local, domain = email.split("@", 1)
+    if len(local) <= 2:
+        visible = local[0]
+    else:
+        visible = local[0] + local[1]
+    return f"{visible}{'*' * max(3, len(local) - 2)}@{domain}"
 
-    if resp.status_code != 200:
-        detail = "Invalid credentials"
-        try:
-            err = resp.json()
-            detail = err.get("error_description", detail)
-        except Exception:
-            pass
-        raise HTTPException(status_code=401, detail=detail)
 
-    tokens = resp.json()
+def _smtp_configured() -> bool:
+    return bool(settings.smtp_host and settings.smtp_user and settings.smtp_password)
 
+
+async def _issue_tokens(tokens: dict, db: DBSession, remember_me: bool) -> TokenResponse:
+    """Provision/refresh local User row from KC token payload and return TokenResponse."""
     payload = decode_token(tokens["access_token"])
     keycloak_sub = payload.get("sub")
     preferred_username = payload.get("preferred_username", keycloak_sub)
@@ -142,9 +177,113 @@ async def login(body: LoginRequest, db: DBSession = Depends(get_db)):
 
     return TokenResponse(
         token=tokens["access_token"],
-        refresh_token=tokens.get("refresh_token") if body.remember_me else None,
+        refresh_token=tokens.get("refresh_token") if remember_me else None,
         expires_in=tokens.get("expires_in", 7200),
     )
+
+
+@router.post("/login")
+async def login(body: LoginRequest, db: DBSession = Depends(get_db)):
+    """Proxy login to Keycloak direct access grant.
+
+    If the user has MFA enabled and SMTP is configured, this returns an MFA
+    challenge instead of tokens. The client must call /verify-mfa with the
+    emailed code to obtain the actual tokens.
+    """
+    data = {
+        "grant_type": "password",
+        "client_id": settings.keycloak_client_id,
+        "username": body.email,
+        "password": body.password,
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(_get_token_url(), data=data, timeout=15)
+
+    if resp.status_code != 200:
+        detail = "Invalid credentials"
+        try:
+            err = resp.json()
+            detail = err.get("error_description", detail)
+        except Exception:
+            pass
+        raise HTTPException(status_code=401, detail=detail)
+
+    tokens = resp.json()
+
+    payload = decode_token(tokens["access_token"])
+    keycloak_sub = payload.get("sub")
+    preferred_username = payload.get("preferred_username", keycloak_sub)
+    email = payload.get("email")
+
+    user = db.query(User).filter(User.keycloak_sub == keycloak_sub).first()
+    if not user:
+        user = db.query(User).filter(User.username == preferred_username).first()
+
+    # MFA gate: only if user exists, has MFA enabled, has an email, and SMTP works
+    if user and user.mfa_enabled and email and _smtp_configured():
+        code = f"{random.randint(0, 999999):06d}"
+        challenge = MfaChallenge(
+            id=str(uuid4()),
+            user_id=user.id,
+            code=code,
+            expires_at=datetime.utcnow() + timedelta(seconds=settings.mfa_code_ttl_seconds),
+            kc_payload=json.dumps(tokens),
+        )
+        db.add(challenge)
+        db.commit()
+
+        full_name = " ".join(filter(None, [payload.get("given_name"), payload.get("family_name")]))
+        subject, html, text = render_mfa_email(
+            code=code,
+            full_name=full_name or None,
+            ttl_minutes=settings.mfa_code_ttl_seconds // 60,
+        )
+        sent = await send_email(email, subject, html, text)
+        if not sent:
+            db.delete(challenge)
+            db.commit()
+            logger.error("MFA email failed to send for user %s; falling back to direct login", user.id)
+            return await _issue_tokens(tokens, db, body.remember_me)
+
+        return MfaChallengeResponse(
+            mfa_token=challenge.id,
+            email_hint=_mask_email(email),
+            ttl_seconds=settings.mfa_code_ttl_seconds,
+        )
+
+    return await _issue_tokens(tokens, db, body.remember_me)
+
+
+@router.post("/verify-mfa", response_model=TokenResponse)
+async def verify_mfa(body: VerifyMfaRequest, db: DBSession = Depends(get_db)):
+    """Complete MFA challenge and release stored KC tokens."""
+    challenge = db.query(MfaChallenge).filter(MfaChallenge.id == body.mfa_token).first()
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+
+    if challenge.used_at is not None:
+        raise HTTPException(status_code=410, detail="Challenge already used")
+
+    if challenge.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=410, detail="Challenge expired")
+
+    if (challenge.attempts or 0) >= settings.mfa_max_attempts:
+        raise HTTPException(status_code=429, detail="Too many attempts")
+
+    if body.code.strip() != challenge.code:
+        challenge.attempts = (challenge.attempts or 0) + 1
+        db.commit()
+        raise HTTPException(status_code=401, detail="Invalid code")
+
+    try:
+        tokens = json.loads(challenge.kc_payload)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Corrupted challenge payload")
+
+    challenge.used_at = datetime.utcnow()
+    db.commit()
+
+    return await _issue_tokens(tokens, db, body.remember_me)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -271,7 +410,7 @@ async def password_reset(body: PasswordResetRequest):
 
 @router.get("/me", response_model=UserProfile)
 async def get_me(user: User = Depends(get_current_user), db: DBSession = Depends(get_db)):
-    """Get current user profile with workspaces."""
+    """Get current user profile with workspaces and Keycloak attributes."""
     memberships = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).all()
     workspaces = []
     for m in memberships:
@@ -279,14 +418,223 @@ async def get_me(user: User = Depends(get_current_user), db: DBSession = Depends
         if ws and ws.is_active:
             workspaces.append({"id": ws.id, "name": ws.name, "slug": ws.slug, "role": m.role})
 
+    kc_data = await _get_kc_user(user.keycloak_sub) if user.keycloak_sub else {}
+    attrs = kc_data.get("attributes") or {}
+
+    def _attr(key: str) -> Optional[str]:
+        v = attrs.get(key)
+        return v[0] if isinstance(v, list) and v else (v if isinstance(v, str) else None)
+
     return UserProfile(
         id=user.id,
         username=user.username,
         email=user.email,
         role=user.role,
         is_active=user.is_active,
+        mfa_enabled=user.mfa_enabled,
+        first_name=kc_data.get("firstName"),
+        last_name=kc_data.get("lastName"),
+        phone=_attr("phone_number"),
+        company=_attr("company"),
+        job_title=_attr("job_title"),
         workspaces=workspaces,
     )
+
+
+# ---------------------------------------------------------------------------
+# Account management endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.patch("/me")
+async def update_me(
+    body: ProfileUpdateRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update Keycloak user profile (firstName/lastName + custom attributes)."""
+    if not user.keycloak_sub:
+        raise HTTPException(status_code=400, detail="User has no Keycloak link")
+
+    admin_token = await _get_admin_token()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="Cannot reach Keycloak admin API")
+
+    existing = await _get_kc_user(user.keycloak_sub) or {}
+    existing_attrs = existing.get("attributes") or {}
+
+    def _set_attr(key: str, value: Optional[str]):
+        if value is None:
+            return
+        existing_attrs[key] = [value] if value else []
+
+    _set_attr("phone_number", body.phone)
+    _set_attr("company", body.company)
+    _set_attr("job_title", body.job_title)
+
+    update_body = {"attributes": existing_attrs}
+    if body.first_name is not None:
+        update_body["firstName"] = body.first_name
+    if body.last_name is not None:
+        update_body["lastName"] = body.last_name
+
+    headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            f"{_get_admin_url()}/users/{user.keycloak_sub}",
+            json=update_body,
+            headers=headers,
+            timeout=15,
+        )
+    if resp.status_code not in (200, 204):
+        logger.error("KC profile update failed: %s %s", resp.status_code, resp.text)
+        raise HTTPException(status_code=500, detail="Failed to update profile")
+
+    return {"status": "ok"}
+
+
+@router.post("/change-password")
+async def change_password(
+    body: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+):
+    """Validate current password against Keycloak, then reset to the new one."""
+    if not user.email:
+        raise HTTPException(status_code=400, detail="User has no email")
+
+    verify_data = {
+        "grant_type": "password",
+        "client_id": settings.keycloak_client_id,
+        "username": user.email,
+        "password": body.current_password,
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(_get_token_url(), data=verify_data, timeout=15)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    admin_token = await _get_admin_token()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="Cannot reach Keycloak admin API")
+
+    headers = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+    reset_body = {"type": "password", "value": body.new_password, "temporary": False}
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            f"{_get_admin_url()}/users/{user.keycloak_sub}/reset-password",
+            json=reset_body,
+            headers=headers,
+            timeout=15,
+        )
+    if resp.status_code not in (200, 204):
+        logger.error("KC reset-password failed: %s %s", resp.status_code, resp.text)
+        raise HTTPException(status_code=500, detail="Failed to update password")
+
+    return {"status": "ok"}
+
+
+@router.post("/logout-all")
+async def logout_everywhere(user: User = Depends(get_current_user)):
+    """Invalidate all Keycloak sessions for the current user."""
+    if not user.keycloak_sub:
+        raise HTTPException(status_code=400, detail="User has no Keycloak link")
+
+    admin_token = await _get_admin_token()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="Cannot reach Keycloak admin API")
+
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{_get_admin_url()}/users/{user.keycloak_sub}/logout",
+            headers=headers,
+            timeout=10,
+        )
+    if resp.status_code not in (200, 204):
+        logger.error("KC logout-all failed: %s %s", resp.status_code, resp.text)
+        raise HTTPException(status_code=500, detail="Failed to logout all sessions")
+
+    return {"status": "ok"}
+
+
+@router.get("/sessions")
+async def list_sessions(user: User = Depends(get_current_user)):
+    """List active Keycloak sessions for the current user."""
+    if not user.keycloak_sub:
+        return []
+
+    admin_token = await _get_admin_token()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="Cannot reach Keycloak admin API")
+
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{_get_admin_url()}/users/{user.keycloak_sub}/sessions",
+            headers=headers,
+            timeout=10,
+        )
+    if resp.status_code != 200:
+        return []
+
+    sessions = []
+    for s in resp.json():
+        sessions.append({
+            "id": s.get("id"),
+            "ip_address": s.get("ipAddress"),
+            "start": s.get("start"),
+            "last_access": s.get("lastAccess"),
+            "clients": list((s.get("clients") or {}).values()),
+        })
+    return sessions
+
+
+@router.delete("/me")
+async def delete_me(
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Delete the current user from Keycloak and the local DB."""
+    if not user.keycloak_sub:
+        raise HTTPException(status_code=400, detail="User has no Keycloak link")
+
+    admin_token = await _get_admin_token()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="Cannot reach Keycloak admin API")
+
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.delete(
+            f"{_get_admin_url()}/users/{user.keycloak_sub}",
+            headers=headers,
+            timeout=10,
+        )
+    if resp.status_code not in (200, 204, 404):
+        logger.error("KC user delete failed: %s %s", resp.status_code, resp.text)
+        raise HTTPException(status_code=500, detail="Failed to delete account")
+
+    db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).delete()
+    db.query(MfaChallenge).filter(MfaChallenge.user_id == user.id).delete()
+    db.delete(user)
+    db.commit()
+
+    return {"status": "ok"}
+
+
+@router.post("/mfa/toggle")
+async def toggle_mfa(
+    body: MfaToggleRequest,
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Enable or disable email-based 2FA for the current user."""
+    if body.enabled and not _smtp_configured():
+        raise HTTPException(status_code=503, detail="SMTP not configured on server")
+    if body.enabled and not user.email:
+        raise HTTPException(status_code=400, detail="Account has no email, cannot enable MFA")
+
+    user.mfa_enabled = body.enabled
+    db.commit()
+    return {"status": "ok", "mfa_enabled": user.mfa_enabled}
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +817,28 @@ async def remove_member(
 # ---------------------------------------------------------------------------
 
 
+async def _get_kc_user(kc_sub: Optional[str]) -> dict:
+    """Fetch the Keycloak user representation (for profile attributes)."""
+    if not kc_sub:
+        return {}
+    admin_token = await _get_admin_token()
+    if not admin_token:
+        return {}
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{_get_admin_url()}/users/{kc_sub}",
+                headers=headers,
+                timeout=10,
+            )
+        if resp.status_code == 200:
+            return resp.json() or {}
+    except Exception:
+        logger.exception("Failed to fetch KC user %s", kc_sub)
+    return {}
+
+
 async def _get_admin_token() -> Optional[str]:
     """Get a Keycloak admin token using the resource server client credentials."""
     if not settings.keycloak_client_secret:
@@ -478,7 +848,7 @@ async def _get_admin_token() -> Optional[str]:
             "username": "admin",
             "password": "admin",
         }
-        url = f"{settings.keycloak_url}/realms/master/protocol/openid-connect/token"
+        url = f"{_kc_base_internal()}/realms/master/protocol/openid-connect/token"
     else:
         data = {
             "grant_type": "client_credentials",

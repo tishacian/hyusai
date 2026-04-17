@@ -51,6 +51,11 @@ export const routes: Routes = [
         loadChildren: () =>
           import('./features/workspace/workspace.routes').then((m) => m.workspaceRoutes),
       },
+      {
+        path: 'account',
+        loadChildren: () =>
+          import('./features/account/account.routes').then((m) => m.accountRoutes),
+      },
     ],
   },
   { path: '**', redirectTo: '' },

@@ -15,6 +15,7 @@ class User(Base):
     keycloak_sub = Column(String(255), unique=True, nullable=True, index=True)
     role = Column(String(50), default="user")
     is_active = Column(Boolean, default=True)
+    mfa_enabled = Column(Boolean, default=False, nullable=False)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
