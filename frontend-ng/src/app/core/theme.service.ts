@@ -4,7 +4,7 @@ const THEME_KEY = 'agentium_theme';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-  readonly isDark = signal(localStorage.getItem(THEME_KEY) === 'dark');
+  readonly isDark = signal(this.readInitial());
 
   constructor() {
     effect(() => {
@@ -16,5 +16,11 @@ export class ThemeService {
 
   toggle(): void {
     this.isDark.update((v) => !v);
+  }
+
+  private readInitial(): boolean {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === 'light') return false;
+    return true;
   }
 }

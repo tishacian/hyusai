@@ -3,6 +3,9 @@ import { ActivatedRoute, RouterLink, RouterLinkActive, RouterOutlet } from '@ang
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 
 interface TabItem {
   path: string;
@@ -12,54 +15,47 @@ interface TabItem {
   ownerOnly?: boolean;
 }
 
-/**
- * Workspace admin shell — displays tabs (General / Members / Danger zone) and a sidebar.
- * Child routes render in the main area.
- */
 @Component({
   selector: 'app-workspace-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [
+    RouterOutlet,
+    RouterLink,
+    RouterLinkActive,
+    IconComponent,
+    SectionHeaderComponent,
+    StatusPulseComponent,
+  ],
   template: `
     <div class="max-w-6xl mx-auto">
-      <!-- Header -->
-      <header class="mb-8">
-        <div class="flex items-center gap-3 mb-2">
-          @if (workspaceService.current(); as current) {
-            <div class="w-12 h-12 rounded-lg bg-brand-500 text-white flex items-center justify-center text-lg font-semibold">
-              {{ initial(current.name) }}
-            </div>
-            <div>
-              <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">
-                {{ current.name }}
-              </h1>
-              <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                <span class="capitalize">{{ current.role }}</span>
-                <span>·</span>
-                <span class="font-mono text-xs">{{ current.slug }}</span>
-              </div>
-            </div>
-          }
-        </div>
-      </header>
+      @if (workspaceService.current(); as current) {
+        <app-section-header
+          breadcrumb="Workspace"
+          [title]="current.name"
+          icon="building-2"
+          [subtitle]="'Slug · ' + current.slug + ' · Your role · ' + current.role"
+        >
+          <app-status-pulse tone="success" label="Active" />
+        </app-section-header>
+      } @else {
+        <app-section-header breadcrumb="Workspace" title="Workspace" icon="building-2" />
+      }
 
-      <div class="grid grid-cols-[220px_1fr] gap-8">
-        <!-- Sidebar tabs -->
+      <div class="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-6 md:gap-8">
+        <!-- Tabs sidebar -->
         <aside class="space-y-1">
           @for (tab of visibleTabs(); track tab.path) {
             <a
               [routerLink]="tab.path"
-              routerLinkActive="bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-400 border-brand-500"
+              routerLinkActive="bg-brand-500/10 text-white ring-1 ring-brand-500/30 shadow-glow-sm"
               [routerLinkActiveOptions]="{ exact: false }"
-              class="block px-3 py-2.5 rounded-lg border-l-2 border-transparent text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+              class="block px-3 py-2.5 rounded-md border border-transparent text-sm text-gray-400 hover:text-white hover:bg-white/5 transition"
             >
-              <div class="flex items-center gap-2">
-                <span>{{ tab.icon }}</span>
+              <div class="flex items-center gap-2.5">
+                <app-icon [name]="tab.icon" [size]="16" class="text-brand-400" />
                 <span class="font-medium">{{ tab.label }}</span>
               </div>
-              <div class="text-xs text-gray-500 dark:text-gray-500 mt-0.5 pl-6">
-                {{ tab.description }}
-              </div>
+              <div class="text-xs text-gray-500 mt-0.5 pl-6">{{ tab.description }}</div>
             </a>
           }
         </aside>
@@ -99,12 +95,12 @@ export class WorkspaceShellComponent {
   }
 
   readonly allTabs = signal<TabItem[]>([
-    { path: 'settings', label: 'General', icon: '⚙️', description: 'Name, identity, metadata' },
-    { path: 'members', label: 'Members', icon: '👥', description: 'Invite, roles, remove' },
+    { path: 'settings', label: 'General', icon: 'settings', description: 'Name, identity, metadata' },
+    { path: 'members', label: 'Members', icon: 'users', description: 'Invite, roles, remove' },
     {
       path: 'danger',
       label: 'Danger zone',
-      icon: '⚠️',
+      icon: 'shield-alert',
       description: 'Leave, transfer, delete',
     },
   ]);
@@ -112,12 +108,4 @@ export class WorkspaceShellComponent {
   readonly visibleTabs = computed(() =>
     this.allTabs().filter((t) => !t.ownerOnly || this.workspaceService.isOwner())
   );
-
-  initial(name: string): string {
-    const trimmed = (name || '').trim();
-    if (!trimmed) return '?';
-    const parts = trimmed.split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-    return trimmed.slice(0, 2).toUpperCase();
-  }
 }

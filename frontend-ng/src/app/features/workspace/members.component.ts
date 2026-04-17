@@ -4,21 +4,40 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
+import { ToastrService } from 'ngx-toastr';
 import { WorkspaceMemberDetail, WorkspaceService } from '@app/core/workspace.service';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 
 @Component({
   selector: 'app-workspace-members',
   standalone: true,
-  imports: [FormsModule, DatePipe, NgClass],
+  imports: [
+    FormsModule,
+    DatePipe,
+    NgClass,
+    IconComponent,
+    SkeletonComponent,
+    EmptyStateComponent,
+    ConfirmDialogComponent,
+  ],
   template: `
     <div class="space-y-6">
-      <!-- Invite -->
       @if (canAdmin()) {
-        <section class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-6">
-          <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Invite member</h2>
-          <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            The person must already have signed up to Agentium. Email invites for new users coming soon.
-          </p>
+        <section class="t-card t-elevated rounded-md p-6">
+          <div class="flex items-start gap-3 mb-4">
+            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+              <app-icon name="user-plus" [size]="18" />
+            </div>
+            <div>
+              <h2 class="text-base font-semibold text-white">Invite member</h2>
+              <p class="text-sm text-gray-400 mt-0.5">
+                The person must already have an Agentium account. Email invites for new users coming soon.
+              </p>
+            </div>
+          </div>
           <form (ngSubmit)="invite()" class="flex flex-wrap gap-2">
             <input
               [(ngModel)]="inviteEmail"
@@ -26,12 +45,12 @@ import { WorkspaceMemberDetail, WorkspaceService } from '@app/core/workspace.ser
               type="email"
               placeholder="user@company.com"
               required
-              class="flex-1 min-w-[220px] px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+              class="flex-1 min-w-[220px] px-3 py-2 rounded bg-black/20 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 transition"
             />
             <select
               [(ngModel)]="inviteRole"
               name="role"
-              class="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+              class="px-3 py-2 rounded bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/60"
             >
               <option value="member">Member</option>
               <option value="admin">Admin</option>
@@ -39,46 +58,43 @@ import { WorkspaceMemberDetail, WorkspaceService } from '@app/core/workspace.ser
             <button
               type="submit"
               [disabled]="!inviteEmail.trim() || inviting()"
-              class="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition"
+              class="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white rounded text-sm font-medium transition shadow-glow-sm inline-flex items-center gap-1.5"
             >
+              <app-icon name="send" [size]="14" />
               {{ inviting() ? 'Inviting…' : 'Invite' }}
             </button>
           </form>
-          @if (inviteMessage(); as m) {
-            <div
-              class="mt-3 text-sm px-3 py-2 rounded"
-              [ngClass]="m.error
-                ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
-                : 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'"
-            >
-              {{ m.text }}
-            </div>
-          }
         </section>
       }
 
-      <!-- Members table -->
-      <section class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-            Members ({{ members().length }})
+      <section class="t-card t-elevated rounded-md overflow-hidden">
+        <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+          <h2 class="text-base font-semibold text-white flex items-center gap-2">
+            <app-icon name="users" [size]="16" class="text-brand-400" />
+            Members <span class="text-gray-500 font-normal">· {{ members().length }}</span>
           </h2>
         </div>
 
         @if (loading()) {
-          <div class="p-8 text-center text-gray-500">Loading…</div>
+          <div class="p-6 space-y-3">
+            <app-skeleton height="56px" />
+            <app-skeleton height="56px" />
+            <app-skeleton height="56px" />
+          </div>
         } @else if (members().length === 0) {
-          <div class="p-8 text-center text-gray-500">No members yet.</div>
+          <app-empty-state icon="users" title="No members yet" description="Invite teammates to get started." />
         } @else {
-          <div class="divide-y divide-gray-200 dark:divide-gray-800">
+          <div class="divide-y divide-white/5">
             @for (m of members(); track m.user_id) {
               <div class="px-6 py-4 flex items-center gap-4">
-                <div class="w-10 h-10 rounded-full bg-brand-500 text-white flex items-center justify-center text-sm font-semibold shrink-0">
+                <div
+                  class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 text-white bg-gradient-to-br from-brand-500 to-violet-500"
+                >
                   {{ initial(m) }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="font-medium text-gray-900 dark:text-white truncate">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-medium text-white truncate">
                       @if (m.first_name || m.last_name) {
                         {{ m.first_name }} {{ m.last_name }}
                       } @else {
@@ -86,49 +102,55 @@ import { WorkspaceMemberDetail, WorkspaceService } from '@app/core/workspace.ser
                       }
                     </span>
                     @if (m.is_current_user) {
-                      <span class="text-[10px] px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded uppercase tracking-wide">
+                      <span class="text-[9px] px-1.5 py-0.5 bg-white/10 text-gray-300 rounded uppercase tracking-wider font-semibold">
                         You
                       </span>
                     }
                   </div>
-                  <div class="text-sm text-gray-500 dark:text-gray-400 truncate">{{ m.email }}</div>
-                  <div class="text-xs text-gray-400 mt-0.5">
-                    Joined {{ m.joined_at | date:'mediumDate' }}
+                  <div class="text-sm text-gray-400 truncate">{{ m.email }}</div>
+                  <div class="text-xs text-gray-500 mt-0.5 inline-flex items-center gap-1">
+                    <app-icon name="clock" [size]="11" />
+                    Joined {{ m.joined_at | date: 'mediumDate' }}
                   </div>
                 </div>
 
-                <!-- Role -->
                 <div class="text-sm">
                   @if (canAdmin() && m.role !== 'owner' && !m.is_current_user) {
                     <select
                       [value]="m.role"
                       (change)="changeRole(m, $event)"
                       [disabled]="savingMember() === m.user_id"
-                      class="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                      class="px-2 py-1 rounded bg-black/20 border border-white/10 text-white text-sm"
                     >
                       <option value="admin">Admin</option>
                       <option value="member">Member</option>
                     </select>
                   } @else {
                     <span
-                      class="inline-block px-2 py-0.5 text-xs rounded-full capitalize"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full capitalize font-medium"
                       [ngClass]="roleBadgeClass(m.role)"
                     >
+                      @if (m.role === 'owner') {
+                        <app-icon name="crown" [size]="11" />
+                      } @else if (m.role === 'admin') {
+                        <app-icon name="shield-check" [size]="11" />
+                      } @else {
+                        <app-icon name="user-round" [size]="11" />
+                      }
                       {{ m.role }}
                     </span>
                   }
                 </div>
 
-                <!-- Actions -->
                 @if (canAdmin() && m.role !== 'owner' && !m.is_current_user) {
                   <button
                     type="button"
-                    (click)="removeMember(m)"
+                    (click)="requestRemove(m)"
                     [disabled]="savingMember() === m.user_id"
-                    class="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-2 py-1 rounded text-sm transition"
+                    class="text-red-400 hover:bg-red-500/10 p-2 rounded transition"
                     title="Remove member"
                   >
-                    Remove
+                    <app-icon name="trash-2" [size]="14" />
                   </button>
                 }
               </div>
@@ -136,23 +158,24 @@ import { WorkspaceMemberDetail, WorkspaceService } from '@app/core/workspace.ser
           </div>
         }
       </section>
-
-      @if (rowMessage(); as m) {
-        <div
-          class="px-4 py-3 rounded-lg text-sm"
-          [ngClass]="m.error
-            ? 'bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-300'
-            : 'bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-300'"
-        >
-          {{ m.text }}
-        </div>
-      }
     </div>
+
+    <app-confirm-dialog
+      [open]="!!pendingRemove()"
+      title="Remove member?"
+      [description]="pendingRemove() ? 'Remove ' + (pendingRemove()?.email || pendingRemove()?.username) + ' from this workspace? They will lose access to all data.' : ''"
+      confirmLabel="Remove member"
+      tone="danger"
+      icon="trash-2"
+      (cancel)="pendingRemove.set(null)"
+      (confirm)="confirmRemove()"
+    />
   `,
 })
 export class WorkspaceMembersComponent {
   protected readonly workspaceService = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
+  private readonly toastr = inject(ToastrService);
 
   private readonly routeSlug = toSignal(
     this.route.parent!.paramMap.pipe(map((p) => p.get('slug') ?? null)),
@@ -163,8 +186,7 @@ export class WorkspaceMembersComponent {
   readonly loading = signal(true);
   readonly inviting = signal(false);
   readonly savingMember = signal<string | null>(null);
-  readonly inviteMessage = signal<{ text: string; error: boolean } | null>(null);
-  readonly rowMessage = signal<{ text: string; error: boolean } | null>(null);
+  readonly pendingRemove = signal<WorkspaceMemberDetail | null>(null);
 
   inviteEmail = '';
   inviteRole: 'admin' | 'member' = 'member';
@@ -201,21 +223,16 @@ export class WorkspaceMembersComponent {
     const email = this.inviteEmail.trim();
     if (!email) return;
     this.inviting.set(true);
-    this.inviteMessage.set(null);
     this.workspaceService.inviteMember(slug, email, this.inviteRole).subscribe({
       next: () => {
         this.inviting.set(false);
-        this.inviteMessage.set({ text: `Invited ${email} as ${this.inviteRole}`, error: false });
+        this.toastr.success(`Invited ${email} as ${this.inviteRole}`, 'Member added');
         this.inviteEmail = '';
         this.load(slug);
-        setTimeout(() => this.inviteMessage.set(null), 3000);
       },
       error: (err) => {
         this.inviting.set(false);
-        this.inviteMessage.set({
-          text: err?.error?.detail || 'Failed to invite',
-          error: true,
-        });
+        this.toastr.error(err?.error?.detail || 'Failed to invite', 'Error');
       },
     });
   }
@@ -226,50 +243,39 @@ export class WorkspaceMembersComponent {
     const newRole = (ev.target as HTMLSelectElement).value as 'admin' | 'member';
     if (newRole === member.role) return;
     this.savingMember.set(member.user_id);
-    this.rowMessage.set(null);
     this.workspaceService.updateMemberRole(slug, member.user_id, newRole).subscribe({
       next: () => {
         this.savingMember.set(null);
-        this.rowMessage.set({
-          text: `${member.email || member.username} is now ${newRole}`,
-          error: false,
-        });
+        this.toastr.success(`${member.email || member.username} is now ${newRole}`, 'Role updated');
         this.load(slug);
-        setTimeout(() => this.rowMessage.set(null), 3000);
       },
       error: (err) => {
         this.savingMember.set(null);
-        this.rowMessage.set({
-          text: err?.error?.detail || 'Failed to update role',
-          error: true,
-        });
+        this.toastr.error(err?.error?.detail || 'Failed to update role', 'Error');
       },
     });
   }
 
-  removeMember(member: WorkspaceMemberDetail): void {
+  requestRemove(member: WorkspaceMemberDetail): void {
+    this.pendingRemove.set(member);
+  }
+
+  confirmRemove(): void {
+    const member = this.pendingRemove();
     const slug = this.routeSlug();
-    if (!slug) return;
+    if (!member || !slug) return;
+    this.pendingRemove.set(null);
     const label = member.email || member.username;
-    const ok = confirm(
-      `Remove ${label} from this workspace?\n\nThey will lose access to all data in this workspace. This action cannot be undone.`
-    );
-    if (!ok) return;
     this.savingMember.set(member.user_id);
-    this.rowMessage.set(null);
     this.workspaceService.removeMember(slug, member.user_id).subscribe({
       next: () => {
         this.savingMember.set(null);
-        this.rowMessage.set({ text: `${label} removed`, error: false });
+        this.toastr.success(`${label} removed`, 'Member removed');
         this.load(slug);
-        setTimeout(() => this.rowMessage.set(null), 3000);
       },
       error: (err) => {
         this.savingMember.set(null);
-        this.rowMessage.set({
-          text: err?.error?.detail || 'Failed to remove member',
-          error: true,
-        });
+        this.toastr.error(err?.error?.detail || 'Failed to remove member', 'Error');
       },
     });
   }
@@ -283,11 +289,11 @@ export class WorkspaceMembersComponent {
   roleBadgeClass(role: string): string {
     switch (role) {
       case 'owner':
-        return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+        return 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
       case 'admin':
-        return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
+        return 'bg-brand-500/15 text-brand-400 border border-brand-500/30';
       default:
-        return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+        return 'bg-white/5 text-gray-300 border border-white/10';
     }
   }
 }

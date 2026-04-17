@@ -2,17 +2,20 @@ import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthApiService } from '@app/core/auth-api.service';
+import { IconComponent } from '@app/shared/ui/icon.component';
 
 const PASSWORD_REGEX = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9])(?=\S+$).{8,}$/;
 
 @Component({
   selector: 'app-signup',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, IconComponent],
   template: `
     @if (success()) {
       <div class="text-center space-y-4">
-        <div class="text-4xl">✉️</div>
+        <div class="mx-auto w-12 h-12 rounded-full bg-brand-500/15 ring-1 ring-brand-500/30 flex items-center justify-center text-brand-400">
+          <app-icon name="mail" [size]="22" />
+        </div>
         <h2 class="text-xl font-semibold text-white">Check your email</h2>
         <p class="text-brand-200 text-sm">We've sent a confirmation link. Please verify your email to continue.</p>
         <a routerLink="/auth/signin" class="inline-block mt-4 text-brand-300 hover:text-white underline">Back to sign in</a>

@@ -1,105 +1,100 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ToastrService } from 'ngx-toastr';
 import { AuthApiService, UserProfile } from '@app/core/auth-api.service';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
+
+const FIELD_CLASS =
+  'w-full px-3 py-2 rounded bg-black/20 dark:bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/40 transition';
 
 @Component({
   selector: 'app-account-profile',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, IconComponent, SkeletonComponent],
   template: `
-    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Profile</h2>
-    <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
-      Your profile is stored in Keycloak and visible to your workspace members.
-    </p>
-
-    @if (loading()) {
-      <p class="text-sm text-gray-500">Loading…</p>
-    } @else if (profile(); as p) {
-      <form (ngSubmit)="save()" class="space-y-4 max-w-xl">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">First name</label>
-            <input
-              [(ngModel)]="firstName"
-              name="firstName"
-              class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Last name</label>
-            <input
-              [(ngModel)]="lastName"
-              name="lastName"
-              class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
-          </div>
+    <div class="t-card t-elevated rounded-md p-6">
+      <div class="flex items-start gap-3 mb-5">
+        <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+          <app-icon name="user-round" [size]="18" />
         </div>
-
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-          <input
-            [value]="p.email"
-            disabled
-            class="w-full px-3 py-2 border rounded-lg bg-gray-100 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 text-gray-500 cursor-not-allowed"
-          />
-          <p class="text-xs text-gray-500 mt-1">Contact an administrator to change your email.</p>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
-            <input
-              [(ngModel)]="phone"
-              name="phone"
-              class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Company</label>
-            <input
-              [(ngModel)]="company"
-              name="company"
-              class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Job title</label>
-          <input
-            [(ngModel)]="jobTitle"
-            name="jobTitle"
-            class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
-
-        @if (message()) {
-          <p class="text-sm" [class.text-green-600]="!error()" [class.text-red-600]="error()">
-            {{ message() }}
+          <h2 class="text-base font-semibold text-white">Profile</h2>
+          <p class="text-sm text-gray-400 mt-0.5">
+            Your identity across Agentium, shared with workspace members.
           </p>
-        }
-
-        <div class="flex gap-3 pt-2">
-          <button
-            type="submit"
-            [disabled]="saving()"
-            class="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-medium rounded-lg transition"
-          >
-            @if (saving()) { Saving… } @else { Save changes }
-          </button>
         </div>
-      </form>
-    }
+      </div>
+
+      @if (loading()) {
+        <div class="space-y-3">
+          <app-skeleton height="40px" />
+          <app-skeleton height="40px" />
+          <app-skeleton height="40px" width="60%" />
+        </div>
+      } @else if (profile(); as p) {
+        <form (ngSubmit)="save()" class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">First name</label>
+              <input [(ngModel)]="firstName" name="firstName" [class]="field" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Last name</label>
+              <input [(ngModel)]="lastName" name="lastName" [class]="field" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Email</label>
+            <input
+              [value]="p.email"
+              disabled
+              class="w-full px-3 py-2 rounded bg-black/40 border border-white/5 text-gray-500 cursor-not-allowed"
+            />
+            <p class="text-xs text-gray-500 mt-1">Contact an administrator to change your email.</p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Phone</label>
+              <input [(ngModel)]="phone" name="phone" [class]="field" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Company</label>
+              <input [(ngModel)]="company" name="company" [class]="field" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">Job title</label>
+            <input [(ngModel)]="jobTitle" name="jobTitle" [class]="field" />
+          </div>
+
+          <div class="flex gap-3 pt-2">
+            <button
+              type="submit"
+              [disabled]="saving()"
+              class="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-medium rounded transition shadow-glow-sm"
+            >
+              <app-icon name="save" [size]="14" />
+              @if (saving()) { Saving… } @else { Save changes }
+            </button>
+          </div>
+        </form>
+      }
+    </div>
   `,
 })
 export class ProfileComponent {
   private readonly api = inject(AuthApiService);
+  private readonly toastr = inject(ToastrService);
+
+  protected readonly field = FIELD_CLASS;
 
   loading = signal(true);
   saving = signal(false);
   profile = signal<UserProfile | null>(null);
-  message = signal<string | null>(null);
-  error = signal(false);
 
   firstName = '';
   lastName = '';
@@ -129,8 +124,6 @@ export class ProfileComponent {
 
   save(): void {
     this.saving.set(true);
-    this.message.set(null);
-    this.error.set(false);
     this.api
       .updateProfile({
         first_name: this.firstName,
@@ -142,12 +135,11 @@ export class ProfileComponent {
       .subscribe({
         next: () => {
           this.saving.set(false);
-          this.message.set('Profile updated successfully');
+          this.toastr.success('Profile updated', 'Saved');
         },
         error: (err) => {
           this.saving.set(false);
-          this.error.set(true);
-          this.message.set(err.error?.detail || 'Failed to update profile');
+          this.toastr.error(err.error?.detail || 'Failed to update profile', 'Error');
         },
       });
   }

@@ -1,105 +1,120 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
-import { NgClass } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
+import { ToastrService } from 'ngx-toastr';
 import { WorkspaceDetail, WorkspaceService } from '@app/core/workspace.service';
+import { IconComponent } from '@app/shared/ui/icon.component';
+import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 
 @Component({
   selector: 'app-workspace-danger',
   standalone: true,
-  imports: [FormsModule, NgClass],
+  imports: [IconComponent, ConfirmDialogComponent],
   template: `
     <div class="space-y-6">
-      <!-- Leave -->
-      <section class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-6">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Leave workspace</h2>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          Leave this workspace. You will lose access to all of its data, but other members will keep working normally.
-          @if (isOwner()) {
-            <br /><span class="text-amber-600 dark:text-amber-400">As the owner, you must first transfer ownership before you can leave.</span>
-          }
-        </p>
+      <section class="t-card t-elevated rounded-md p-6">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/30">
+            <app-icon name="log-out" [size]="18" />
+          </div>
+          <div>
+            <h2 class="text-base font-semibold text-white">Leave workspace</h2>
+            <p class="text-sm text-gray-400 mt-0.5 max-w-xl">
+              You will lose access to all data in this workspace. Other members keep working normally.
+            </p>
+            @if (isOwner()) {
+              <p class="text-xs text-amber-400 mt-1.5">
+                As owner you must transfer ownership before leaving.
+              </p>
+            }
+          </div>
+        </div>
         <button
           type="button"
-          (click)="leave()"
+          (click)="leaveOpen.set(true)"
           [disabled]="isOwner() || leaving()"
-          class="px-4 py-2 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
+          class="inline-flex items-center gap-1.5 px-4 py-2 border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 rounded text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
         >
+          <app-icon name="log-out" [size]="14" />
           {{ leaving() ? 'Leaving…' : 'Leave workspace' }}
         </button>
       </section>
 
-      <!-- Delete -->
-      <section class="bg-white dark:bg-gray-900 rounded-xl border-2 border-red-300 dark:border-red-800 p-6">
-        <h2 class="text-lg font-semibold text-red-700 dark:text-red-400 mb-1">Delete workspace</h2>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-          Deleting the workspace archives it and removes it from every member's sidebar.
-          You can restore it within <strong>30 days</strong> by contacting an administrator.
-          After this grace period, all data (documents, sessions, knowledge) will be permanently removed.
-        </p>
+      <section class="t-card t-elevated rounded-md p-6 border-red-500/30">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-red-500/10 text-red-400 ring-1 ring-red-500/30">
+            <app-icon name="shield-alert" [size]="18" />
+          </div>
+          <div>
+            <h2 class="text-base font-semibold text-red-400">Delete workspace</h2>
+            <p class="text-sm text-gray-400 mt-0.5 max-w-xl">
+              Archives it and removes it from every member's sidebar. Restore it within
+              <strong class="text-white">30 days</strong>. After that, all data is permanently purged.
+            </p>
+          </div>
+        </div>
 
         @if (!isOwner()) {
-          <div class="text-sm text-gray-500 dark:text-gray-400 italic">
-            Only the workspace owner can delete this workspace.
-          </div>
+          <p class="text-sm text-gray-500 italic">Only the workspace owner can delete this workspace.</p>
         } @else if (detail()?.deleted_at) {
-          <div class="flex items-center gap-3">
-            <span class="px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs rounded">
-              Archived
+          <div class="flex items-center gap-3 flex-wrap">
+            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-medium">
+              <app-icon name="archive" [size]="11" /> Archived
             </span>
             <button
               type="button"
               (click)="restore()"
               [disabled]="restoring()"
-              class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-medium transition disabled:opacity-40"
+              class="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded text-sm font-medium transition disabled:opacity-40 shadow-glow-sm"
             >
+              <app-icon name="archive-restore" [size]="14" />
               {{ restoring() ? 'Restoring…' : 'Restore workspace' }}
             </button>
           </div>
         } @else {
-          <div class="space-y-3">
-            <label class="block text-sm text-gray-700 dark:text-gray-300">
-              Type the workspace name
-              <strong class="font-mono text-red-600 dark:text-red-400">{{ detail()?.name }}</strong>
-              to confirm:
-            </label>
-            <input
-              [(ngModel)]="confirmName"
-              type="text"
-              [placeholder]="detail()?.name || ''"
-              class="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <button
-              type="button"
-              (click)="remove()"
-              [disabled]="!canDelete() || deleting()"
-              class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {{ deleting() ? 'Deleting…' : 'Delete workspace permanently' }}
-            </button>
-          </div>
-        }
-
-        @if (message(); as m) {
-          <div
-            class="mt-4 px-3 py-2 rounded text-sm"
-            [ngClass]="m.error
-              ? 'bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-300'
-              : 'bg-green-50 dark:bg-green-900/30 text-green-800 dark:text-green-300'"
+          <button
+            type="button"
+            (click)="deleteOpen.set(true)"
+            [disabled]="deleting()"
+            class="inline-flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm font-medium transition disabled:opacity-40"
           >
-            {{ m.text }}
-          </div>
+            <app-icon name="trash-2" [size]="14" />
+            Delete workspace permanently
+          </button>
         }
       </section>
     </div>
+
+    <app-confirm-dialog
+      [open]="leaveOpen()"
+      title="Leave this workspace?"
+      description="You will lose access to its data."
+      confirmLabel="Leave"
+      tone="danger"
+      icon="log-out"
+      (cancel)="leaveOpen.set(false)"
+      (confirm)="leave()"
+    />
+
+    <app-confirm-dialog
+      [open]="deleteOpen()"
+      title="Delete this workspace?"
+      description="This archives the workspace for 30 days before permanent deletion. Type the workspace name to confirm."
+      confirmLabel="Delete workspace"
+      [confirmPhrase]="detail()?.name || ''"
+      tone="danger"
+      icon="trash-2"
+      (cancel)="deleteOpen.set(false)"
+      (confirm)="remove()"
+    />
   `,
 })
 export class WorkspaceDangerComponent {
   protected readonly workspaceService = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly toastr = inject(ToastrService);
 
   private readonly routeSlug = toSignal(
     this.route.parent!.paramMap.pipe(map((p) => p.get('slug') ?? null)),
@@ -110,15 +125,10 @@ export class WorkspaceDangerComponent {
   readonly leaving = signal(false);
   readonly deleting = signal(false);
   readonly restoring = signal(false);
-  readonly message = signal<{ text: string; error: boolean } | null>(null);
-
-  confirmName = '';
+  readonly leaveOpen = signal(false);
+  readonly deleteOpen = signal(false);
 
   readonly isOwner = computed(() => this.detail()?.role === 'owner');
-  readonly canDelete = computed(() => {
-    const d = this.detail();
-    return !!d && this.confirmName.trim() === d.name;
-  });
 
   constructor() {
     effect(() => {
@@ -137,17 +147,17 @@ export class WorkspaceDangerComponent {
   leave(): void {
     const slug = this.routeSlug();
     if (!slug) return;
-    const ok = confirm('Leave this workspace? You will lose access to its data.');
-    if (!ok) return;
+    this.leaveOpen.set(false);
     this.leaving.set(true);
     this.workspaceService.leaveWorkspace(slug).subscribe({
       next: () => {
         this.leaving.set(false);
+        this.toastr.success('You left the workspace', 'Left');
         this.router.navigate(['/workspace']);
       },
       error: (err) => {
         this.leaving.set(false);
-        this.message.set({ text: err?.error?.detail || 'Failed to leave', error: true });
+        this.toastr.error(err?.error?.detail || 'Failed to leave', 'Error');
       },
     });
   }
@@ -156,19 +166,17 @@ export class WorkspaceDangerComponent {
     const slug = this.routeSlug();
     const d = this.detail();
     if (!slug || !d) return;
+    this.deleteOpen.set(false);
     this.deleting.set(true);
-    this.message.set(null);
-    this.workspaceService.deleteWorkspace(slug, this.confirmName.trim()).subscribe({
+    this.workspaceService.deleteWorkspace(slug, d.name).subscribe({
       next: () => {
         this.deleting.set(false);
+        this.toastr.success(`"${d.name}" archived`, 'Deleted');
         this.router.navigate(['/workspace']);
       },
       error: (err) => {
         this.deleting.set(false);
-        this.message.set({
-          text: err?.error?.detail || 'Failed to delete',
-          error: true,
-        });
+        this.toastr.error(err?.error?.detail || 'Failed to delete', 'Error');
       },
     });
   }
@@ -182,14 +190,11 @@ export class WorkspaceDangerComponent {
         this.restoring.set(false);
         this.load(slug);
         this.workspaceService.loadWorkspaces().subscribe();
-        this.message.set({ text: 'Workspace restored', error: false });
+        this.toastr.success('Workspace restored', 'Restored');
       },
       error: (err) => {
         this.restoring.set(false);
-        this.message.set({
-          text: err?.error?.detail || 'Failed to restore',
-          error: true,
-        });
+        this.toastr.error(err?.error?.detail || 'Failed to restore', 'Error');
       },
     });
   }

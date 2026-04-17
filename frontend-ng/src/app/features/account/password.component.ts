@@ -1,6 +1,8 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ToastrService } from 'ngx-toastr';
 import { AuthApiService } from '@app/core/auth-api.service';
+import { IconComponent } from '@app/shared/ui/icon.component';
 
 interface Rule {
   label: string;
@@ -10,12 +12,20 @@ interface Rule {
 @Component({
   selector: 'app-account-password',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, IconComponent],
   template: `
-    <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">Change password</h2>
-    <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
-      Choose a strong password. You'll be signed out of other sessions afterwards if needed.
-    </p>
+    <div class="t-card t-elevated rounded-md p-6">
+      <div class="flex items-start gap-3 mb-5">
+        <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+          <app-icon name="key-round" [size]="18" />
+        </div>
+        <div>
+          <h2 class="text-base font-semibold text-white">Change password</h2>
+          <p class="text-sm text-gray-400 mt-0.5">
+            Choose a strong password. Other sessions may be signed out afterwards.
+          </p>
+        </div>
+      </div>
 
     <form (ngSubmit)="submit()" class="space-y-4 max-w-md">
       <div>
@@ -58,13 +68,15 @@ interface Rule {
         }
       </div>
 
-      <div class="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 space-y-1">
+      <div class="bg-black/20 rounded-md p-3 space-y-1.5 border border-white/5">
         @for (r of rules; track r.label) {
           <div class="flex items-center gap-2 text-xs">
-            <span [class.text-green-500]="r.test(newPwdValue())" [class.text-gray-400]="!r.test(newPwdValue())">
-              {{ r.test(newPwdValue()) ? '✓' : '○' }}
-            </span>
-            <span class="text-gray-600 dark:text-gray-300">{{ r.label }}</span>
+            <app-icon
+              [name]="r.test(newPwdValue()) ? 'check-circle-2' : 'circle'"
+              [size]="12"
+              [class]="r.test(newPwdValue()) ? 'text-emerald-400' : 'text-gray-500'"
+            />
+            <span class="text-gray-300">{{ r.label }}</span>
           </div>
         }
       </div>
@@ -76,15 +88,18 @@ interface Rule {
       <button
         type="submit"
         [disabled]="!canSubmit() || saving()"
-        class="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-medium rounded-lg transition"
+        class="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-medium rounded transition shadow-glow-sm"
       >
+        <app-icon name="save" [size]="14" />
         @if (saving()) { Updating… } @else { Update password }
       </button>
     </form>
+    </div>
   `,
 })
 export class PasswordComponent {
   private readonly api = inject(AuthApiService);
+  private readonly toastr = inject(ToastrService);
 
   currentPwd = '';
   newPwd = '';
@@ -122,16 +137,16 @@ export class PasswordComponent {
       .subscribe({
         next: () => {
           this.saving.set(false);
-          this.message.set('Password updated successfully');
           this.currentPwd = '';
           this.newPwd = '';
           this.confirmPwd = '';
           this.newPwdValue.set('');
+          this.toastr.success('Password updated', 'Done');
         },
         error: (err) => {
           this.saving.set(false);
           this.error.set(true);
-          this.message.set(err.error?.detail || 'Failed to update password');
+          this.toastr.error(err.error?.detail || 'Failed to update password', 'Error');
         },
       });
   }

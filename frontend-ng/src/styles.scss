@@ -4,22 +4,435 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body {
+/* ============================================================================
+   Design tokens (CSS vars) — mirror the legacy Agentium palette
+   ============================================================================ */
+:root {
+  --accent: #00bcd4;
+  --accent-soft: rgba(0, 188, 212, 0.12);
+  --accent-violet: #8b5cf6;
+  --accent-indigo: #6366f1;
+
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* light surface tokens */
+  --bg-app: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-muted: #f1f5f9;
+  --bg-raised: #ffffff;
+  --border-default: rgba(15, 23, 42, 0.08);
+  --border-active: rgba(0, 188, 212, 0.45);
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+}
+
+.dark {
+  --bg-app: #0a0e1a;
+  --bg-card: #111827;
+  --bg-muted: #0f1420;
+  --bg-raised: #1a1f2e;
+  --border-default: rgba(255, 255, 255, 0.06);
+  --border-active: rgba(0, 188, 212, 0.55);
+  --text-primary: #e2e8f0;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+}
+
+/* ============================================================================
+   Base
+   ============================================================================ */
+html,
+body {
   height: 100%;
   margin: 0;
 }
 
-// Scrollbar styling
-::-webkit-scrollbar {
-  width: 6px;
+html {
+  background: var(--bg-app);
+  color: var(--text-primary);
 }
+
+body {
+  position: relative;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ============================================================================
+   Mesh gradient background — animated, subtle
+   ============================================================================ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(at 20% 10%, rgba(0, 188, 212, 0.18) 0px, transparent 45%),
+    radial-gradient(at 80% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 40%),
+    radial-gradient(at 10% 80%, rgba(99, 102, 241, 0.12) 0px, transparent 45%),
+    radial-gradient(at 85% 85%, rgba(0, 188, 212, 0.1) 0px, transparent 40%);
+  background-size: 200% 200%;
+  animation: gradient-shift 24s ease infinite;
+  opacity: 0.85;
+}
+
+.dark body::before {
+  opacity: 1;
+}
+
+/* Film grain overlay — barely perceptible */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.35 0'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.6'/></svg>");
+  mix-blend-mode: overlay;
+  opacity: 0.035;
+}
+
+app-root {
+  position: relative;
+  z-index: 1;
+  display: block;
+  min-height: 100vh;
+}
+
+@keyframes gradient-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* ============================================================================
+   Scrollbar
+   ============================================================================ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: theme('colors.gray.400');
+  background: rgba(100, 116, 139, 0.35);
   border-radius: 3px;
+  transition: background 0.2s;
 }
-.dark ::-webkit-scrollbar-thumb {
-  background: theme('colors.gray.600');
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 188, 212, 0.5);
+}
+
+/* ============================================================================
+   Utility classes — the soul of the Agentium chrome
+   ============================================================================ */
+
+/* Gradient clipped title — use on h1/h2 for heroes */
+.gradient-title {
+  background: linear-gradient(135deg, #00bcd4 0%, #6366f1 50%, #8b5cf6 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background-size: 200% 200%;
+  animation: gradient-shift 10s ease infinite;
+}
+
+/* Glass panel — blur + border + translucent */
+.glass {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.dark .glass {
+  background: rgba(17, 24, 39, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* Surface card — token-driven */
+.t-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.t-card:hover {
+  border-color: var(--border-active);
+}
+.t-card.t-elevated {
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.04);
+}
+.dark .t-card.t-elevated {
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5), 0 2px 8px -2px rgba(0, 0, 0, 0.3);
+}
+
+/* Pulse dot — indicates live/active states */
+.pulse-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: #00bcd4;
+  box-shadow: 0 0 0 0 rgba(0, 188, 212, 0.55);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+.pulse-dot.success {
+  background: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+}
+.pulse-dot.warning {
+  background: #f59e0b;
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55);
+}
+.pulse-dot.danger {
+  background: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 188, 212, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(0, 188, 212, 0);
+  }
+}
+
+/* Animated header underline */
+.header-underline {
+  position: relative;
+  overflow: hidden;
+}
+.header-underline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 188, 212, 0.6) 30%,
+    rgba(139, 92, 246, 0.6) 70%,
+    transparent 100%
+  );
+  animation: underline-flow 6s ease-in-out infinite;
+  transform-origin: left;
+}
+
+@keyframes underline-flow {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateX(-10%) scaleX(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(10%) scaleX(1);
+  }
+}
+
+/* Focus ring — cyan */
+.focus-ring:focus-visible,
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px rgba(0, 188, 212, 0.45);
+}
+
+/* Skeleton shimmer */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.12) 0%,
+    rgba(148, 163, 184, 0.24) 50%,
+    rgba(148, 163, 184, 0.12) 100%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.8s linear infinite;
+  border-radius: var(--radius-sm);
+}
+.dark .skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 400px 100%;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+/* Section header breadcrumb / slash */
+.crumb-slash {
+  color: var(--text-muted);
+  margin: 0 0.5rem;
+  font-weight: 300;
+}
+
+/* Lucide icons sizing helper — ensures consistent rendering */
+lucide-angular,
+lucide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+lucide-angular svg,
+lucide-icon svg {
+  width: 1em;
+  height: 1em;
+  stroke-width: 1.75;
+}
+
+/* ============================================================================
+   Toastr cyan theme overrides
+   ============================================================================ */
+.toast-container .ngx-toastr {
+  background: rgba(17, 24, 39, 0.92);
+  color: #e2e8f0;
+  border: 1px solid rgba(0, 188, 212, 0.3);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5), 0 0 24px rgba(0, 188, 212, 0.2);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 12px 16px 12px 44px;
+  background-image: none;
+}
+.toast-container .toast-success {
+  border-color: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5), 0 0 24px rgba(16, 185, 129, 0.25);
+}
+.toast-container .toast-error {
+  border-color: rgba(239, 68, 68, 0.45);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5), 0 0 24px rgba(239, 68, 68, 0.25);
+}
+.toast-container .toast-warning {
+  border-color: rgba(245, 158, 11, 0.45);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5), 0 0 24px rgba(245, 158, 11, 0.25);
+}
+.toast-container .toast-info {
+  border-color: rgba(0, 188, 212, 0.45);
+}
+.toast-container .ngx-toastr .toast-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.toast-container .ngx-toastr .toast-message {
+  font-size: 13px;
+  color: #cbd5e1;
+}
+.toast-container .ngx-toastr .toast-close-button {
+  color: #94a3b8;
+  opacity: 0.7;
+}
+
+/* ============================================================================
+   Drawflow overrides (dark/glass theme for the workflow editor)
+   ============================================================================ */
+.drawflow {
+  background:
+    radial-gradient(circle at 2px 2px, rgba(148, 163, 184, 0.14) 1px, transparent 0) 0 0 / 18px 18px,
+    var(--bg-muted);
+}
+.drawflow .drawflow-node {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.25);
+  padding: 10px 14px;
+}
+.drawflow .drawflow-node.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(0, 188, 212, 0.35), 0 4px 12px -4px rgba(0, 0, 0, 0.35);
+}
+.drawflow .connection .main-path {
+  stroke: rgba(0, 188, 212, 0.6);
+  stroke-width: 2px;
+}
+.drawflow .connection .main-path:hover {
+  stroke: #00bcd4;
+}
+.drawflow .drawflow-node .input,
+.drawflow .drawflow-node .output {
+  background: var(--bg-raised);
+  border: 2px solid var(--accent);
+}
+
+/* Custom node markup injected by WorkflowEditorComponent */
+.df-node {
+  min-width: 160px;
+}
+.df-node-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.df-node-body {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.df-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+  box-shadow: 0 0 8px currentColor;
+}
+.df-dot.df-brand { background: #00bcd4; color: #00bcd4; }
+.df-dot.df-violet { background: #8b5cf6; color: #8b5cf6; }
+.df-dot.df-emerald { background: #10b981; color: #10b981; }
+.df-dot.df-amber { background: #f59e0b; color: #f59e0b; }
+
+/* ============================================================================
+   Prose (chat markdown) — tuned for glass cards
+   ============================================================================ */
+.prose-chat {
+  color: var(--text-primary);
+}
+.prose-chat code {
+  background: rgba(0, 188, 212, 0.1);
+  color: var(--accent);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 0.9em;
+}
+.prose-chat pre {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  padding: 12px;
 }

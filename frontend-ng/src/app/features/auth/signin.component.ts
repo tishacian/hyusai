@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, ActivatedRoute } from '@angular/router';
+import { IconComponent } from '@app/shared/ui/icon.component';
 import {
   AuthApiService,
   LoginResponse,
@@ -26,7 +27,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
 @Component({
   selector: 'app-signin',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, IconComponent],
   template: `
     @if (!mfaChallenge()) {
       <h2 class="text-xl font-semibold text-white mb-6">Sign in</h2>
@@ -62,7 +63,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
               (click)="showPassword.set(!showPassword())"
               class="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
             >
-              {{ showPassword() ? '🙈' : '👁' }}
+              <app-icon [name]="showPassword() ? 'eye-off' : 'eye'" [size]="16" />
             </button>
           </div>
         </div>
@@ -102,7 +103,9 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
       </div>
     } @else {
       <div class="text-center mb-2">
-        <div class="mx-auto w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-2xl">🔐</div>
+        <div class="mx-auto w-12 h-12 rounded-full bg-brand-500/15 ring-1 ring-brand-500/30 flex items-center justify-center text-brand-400">
+          <app-icon name="shield-check" [size]="22" />
+        </div>
         <h2 class="text-xl font-semibold text-white mt-4">Two-factor authentication</h2>
         <p class="text-sm text-brand-200 mt-2">
           We sent a 6-digit code to <span class="text-white font-medium">{{ mfaChallenge()!.email_hint }}</span>
