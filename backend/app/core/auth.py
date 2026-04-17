@@ -25,20 +25,30 @@ _jwks_cache_ts: float = 0
 _JWKS_TTL = 3600
 
 
+def _kc_base_internal() -> str:
+    """URL used for server-to-server calls (JWKS, token, admin). Defaults to public."""
+    return (settings.keycloak_url_internal or settings.keycloak_url).rstrip("/")
+
+
+def _kc_base_public() -> str:
+    """URL used for iss validation and user-facing flows."""
+    return settings.keycloak_url.rstrip("/")
+
+
 def _get_jwks_url() -> str:
-    return f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
+    return f"{_kc_base_internal()}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
 
 
 def _get_token_url() -> str:
-    return f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/token"
+    return f"{_kc_base_internal()}/realms/{settings.keycloak_realm}/protocol/openid-connect/token"
 
 
 def _get_admin_url() -> str:
-    return f"{settings.keycloak_url}/admin/realms/{settings.keycloak_realm}"
+    return f"{_kc_base_internal()}/admin/realms/{settings.keycloak_realm}"
 
 
 def _get_logout_url() -> str:
-    return f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/logout"
+    return f"{_kc_base_internal()}/realms/{settings.keycloak_realm}/protocol/openid-connect/logout"
 
 
 def _fetch_jwks() -> dict:
@@ -85,7 +95,7 @@ def decode_token(token: str) -> dict:
     if not public_key:
         raise HTTPException(status_code=401, detail="Unknown signing key")
 
-    expected_issuer = f"{settings.keycloak_url}/realms/{settings.keycloak_realm}"
+    expected_issuer = f"{_kc_base_public()}/realms/{settings.keycloak_realm}"
 
     try:
         payload = jwt.decode(

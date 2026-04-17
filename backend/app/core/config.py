@@ -46,7 +46,10 @@ class Settings(BaseSettings):
     rag_hah_chah_enabled: bool = True
 
     # Keycloak OIDC (papai-org realm, core-service client)
+    # keycloak_url: public URL, used for "iss" validation and user-facing links
+    # keycloak_url_internal: server-to-server URL (admin API, token, JWKS) — defaults to keycloak_url
     keycloak_url: str = "http://localhost:8080"
+    keycloak_url_internal: Optional[str] = None
     keycloak_realm: str = "papai-org"
     keycloak_client_id: str = "core-service"
     keycloak_client_secret: Optional[str] = None
