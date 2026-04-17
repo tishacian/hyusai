@@ -102,15 +102,6 @@ def decode_token(token: str) -> dict:
             token,
             public_key,
             algorithms=["RS256", "RS384", "RS512"],
-            audience=settings.keycloak_client_id,
-            issuer=expected_issuer,
-            options={"verify_exp": True, "verify_aud": True},
-        )
-    except jwt.exceptions.MissingRequiredClaimError:
-        payload = jwt.decode(
-            token,
-            public_key,
-            algorithms=["RS256", "RS384", "RS512"],
             issuer=expected_issuer,
             options={"verify_exp": True, "verify_aud": False},
         )
@@ -118,6 +109,18 @@ def decode_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+    # Keycloak direct-access tokens store the issuing client in "azp", not "aud"
+    # (aud is typically "account"). We accept either.
+    expected_client = settings.keycloak_client_id
+    azp = payload.get("azp")
+    aud = payload.get("aud")
+    aud_list = aud if isinstance(aud, list) else ([aud] if aud else [])
+    if azp != expected_client and expected_client not in aud_list:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Token not issued for this client (azp={azp}, aud={aud_list})",
+        )
 
     return payload
 
