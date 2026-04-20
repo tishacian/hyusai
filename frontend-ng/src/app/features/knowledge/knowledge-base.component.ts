@@ -1,15 +1,45 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { FormsModule } from '@angular/forms';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
+import { DrawerComponent } from '@app/shared/ui/drawer.component';
+import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 
-interface DocInfo {
-  collection: string;
-  count: number;
+interface CollectionInfo {
+  name: string;
+  chunks: number;
+  docs: number;
+  loading?: boolean;
+}
+
+interface DocItem {
+  document_id: string;
+  filename: string;
+  chunk_count?: number;
+  mime_type?: string;
+  uploaded_at?: string;
+  size?: number;
+}
+
+interface SearchResult {
+  score?: number;
+  content?: string;
+  text?: string;
+  metadata?: Record<string, unknown> & { filename?: string; document_id?: string };
 }
 
 @Component({
@@ -17,11 +47,14 @@ interface DocInfo {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    FormsModule,
     IconComponent,
     SectionHeaderComponent,
     StatTileComponent,
     EmptyStateComponent,
     StatusPulseComponent,
+    DrawerComponent,
+    ConfirmDialogComponent,
   ],
   template: `
     <app-section-header
@@ -32,8 +65,22 @@ interface DocInfo {
     >
       <button
         type="button"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+        (click)="searchOpen.set(true)"
+      >
+        <app-icon name="search" [size]="14" /> Search
+      </button>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+        (click)="newCollectionDraft.set(''); createOpen.set(true)"
+      >
+        <app-icon name="folder-plus" [size]="14" /> New collection
+      </button>
+      <button
+        type="button"
         (click)="fileInput.click()"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
       >
         <app-icon name="cloud-upload" [size]="14" /> Upload
       </button>
@@ -42,14 +89,19 @@ interface DocInfo {
     <!-- Stats -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       <app-stat-tile label="Collections" [value]="collections().length" icon="boxes" />
+      <app-stat-tile label="Documents" [value]="totalDocs()" icon="file-text" />
       <app-stat-tile label="Chunks" [value]="totalChunks()" icon="braces" />
-      <app-stat-tile label="Retrievals · 24h" value="842" icon="activity" trend="up" delta="+18%" />
-      <app-stat-tile label="Reindex" value="Live" icon="refresh-cw" />
+      <app-stat-tile
+        label="Vector DB"
+        [value]="vectorDbType() || '—'"
+        icon="server"
+        [hint]="indexingLabel()"
+      />
     </div>
 
     <!-- Dropzone -->
     <div
-      class="relative rounded-md p-10 text-center mb-6 transition-colors cursor-pointer group"
+      class="relative rounded-md p-8 text-center mb-6 transition-colors cursor-pointer group"
       [class.border-2]="true"
       [class.border-dashed]="true"
       [class.border-white\\/10]="!dragging()"
@@ -68,37 +120,65 @@ interface DocInfo {
         (change)="onFileSelect($event)"
         accept=".pdf,.txt,.md,.docx,.csv,.json"
       />
-      <div
-        class="mx-auto w-16 h-16 rounded-xl flex items-center justify-center bg-gradient-to-br from-brand-500/15 to-violet-500/15 ring-1 ring-brand-500/30 text-brand-400 mb-3 shadow-glow-sm group-hover:scale-105 transition-transform"
-      >
-        <app-icon name="cloud-upload" [size]="28" />
+      <div class="flex items-center justify-center gap-4">
+        <div
+          class="w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br from-brand-500/15 to-violet-500/15 ring-1 ring-brand-500/30 text-brand-400 shadow-glow-sm group-hover:scale-105 transition-transform shrink-0"
+        >
+          <app-icon name="cloud-upload" [size]="22" />
+        </div>
+        <div class="text-left">
+          <div class="text-sm font-medium text-white">
+            Drop files here or
+            <span class="text-brand-400">click to browse</span>
+            <span class="text-gray-500 ml-2">→ target: </span>
+            <select
+              class="bg-black/40 ring-1 ring-white/10 rounded px-2 py-0.5 text-xs text-white ml-1"
+              [(ngModel)]="uploadTarget"
+              (click)="$event.stopPropagation()"
+            >
+              <option value="documents">documents</option>
+              @for (c of collections(); track c.name) {
+                @if (c.name !== 'documents') {
+                  <option [value]="c.name">{{ c.name }}</option>
+                }
+              }
+            </select>
+          </div>
+          <p class="text-xs text-gray-500 mt-0.5">PDF · TXT · MD · DOCX · CSV · JSON</p>
+        </div>
       </div>
-      <p class="text-sm font-medium text-white">
-        Drag & drop files here <span class="text-gray-400">or</span>
-        <span class="text-brand-400">click to browse</span>
-      </p>
-      <p class="text-xs text-gray-500 mt-1">PDF · TXT · MD · DOCX · CSV · JSON</p>
 
       @if (uploading()) {
-        <div class="absolute inset-x-4 bottom-4 flex items-center gap-2 justify-center text-xs text-brand-300">
+        <div
+          class="absolute inset-x-4 bottom-3 flex items-center gap-2 justify-center text-xs text-brand-300"
+        >
           <app-icon name="loader-2" [size]="14" class="animate-spin" />
-          Uploading…
+          Ingesting {{ uploadCount() }} file(s)…
         </div>
       }
     </div>
 
     <!-- Collections -->
-    @if (collections().length === 0) {
+    @if (loadingCollections()) {
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        @for (_ of [0, 1, 2, 3, 4, 5]; track $index) {
+          <div class="t-card t-elevated rounded-md p-5 animate-pulse">
+            <div class="h-4 w-32 bg-white/5 rounded mb-2"></div>
+            <div class="h-3 w-20 bg-white/5 rounded"></div>
+          </div>
+        }
+      </div>
+    } @else if (collections().length === 0) {
       <div class="t-card t-elevated rounded-md">
         <app-empty-state
           icon="database"
           title="No collections yet"
-          description="Upload your first document to build a knowledge base for your systems."
+          description="Upload your first document or create a collection to get started."
         />
       </div>
     } @else {
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        @for (doc of collections(); track doc.collection) {
+        @for (doc of collections(); track doc.name) {
           <div class="t-card t-elevated rounded-md p-5 group">
             <div class="flex items-start gap-3 mb-4">
               <div
@@ -107,10 +187,16 @@ interface DocInfo {
                 <app-icon name="folder" [size]="18" />
               </div>
               <div class="flex-1 min-w-0">
-                <h3 class="font-semibold text-white truncate">{{ doc.collection }}</h3>
-                <div class="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                  <app-icon name="braces" [size]="11" />
-                  {{ doc.count }} chunks
+                <h3 class="font-semibold text-white truncate">{{ doc.name }}</h3>
+                <div class="text-xs text-gray-500 mt-0.5 flex items-center gap-3">
+                  <span class="flex items-center gap-1">
+                    <app-icon name="file-text" [size]="11" />
+                    {{ doc.docs }} docs
+                  </span>
+                  <span class="flex items-center gap-1">
+                    <app-icon name="braces" [size]="11" />
+                    {{ doc.chunks }} chunks
+                  </span>
                 </div>
               </div>
             </div>
@@ -118,13 +204,25 @@ interface DocInfo {
             <div class="flex items-center justify-between">
               <app-status-pulse tone="success" label="Indexed" />
               <div class="flex items-center gap-1">
-                <button class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition" title="Search">
+                <button
+                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition"
+                  title="Browse documents"
+                  (click)="openBrowse(doc.name)"
+                >
+                  <app-icon name="folder" [size]="14" />
+                </button>
+                <button
+                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition"
+                  title="Search in this collection"
+                  (click)="openSearchIn(doc.name)"
+                >
                   <app-icon name="search" [size]="14" />
                 </button>
-                <button class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition" title="Reindex">
-                  <app-icon name="refresh-cw" [size]="14" />
-                </button>
-                <button class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-red-400 transition" title="Delete">
+                <button
+                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-red-400 transition"
+                  title="Delete collection"
+                  (click)="requestDeleteCollection(doc.name)"
+                >
                   <app-icon name="trash-2" [size]="14" />
                 </button>
               </div>
@@ -133,69 +231,568 @@ interface DocInfo {
         }
       </div>
     }
+
+    <!-- Search drawer -->
+    <app-drawer
+      [open]="searchOpen()"
+      title="Search knowledge"
+      [subtitle]="searchCollection() || 'All collections'"
+      icon="search"
+      (close)="closeSearch()"
+    >
+      <form class="mb-3" (ngSubmit)="runSearch()">
+        <div class="flex items-center gap-2">
+          <select
+            [(ngModel)]="searchCollectionDraft"
+            name="scoll"
+            class="bg-white/5 ring-1 ring-white/10 rounded px-2 py-2 text-xs text-white focus:outline-none focus:ring-brand-400"
+          >
+            <option value="">All</option>
+            @for (c of collections(); track c.name) {
+              <option [value]="c.name">{{ c.name }}</option>
+            }
+          </select>
+          <input
+            [(ngModel)]="searchQuery"
+            name="sq"
+            type="text"
+            placeholder="Ask semantic question…"
+            class="flex-1 bg-white/5 ring-1 ring-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-brand-400"
+            autocomplete="off"
+          />
+          <button
+            type="submit"
+            class="bg-brand-500 hover:bg-brand-600 rounded px-3 py-2 text-sm font-medium text-white flex items-center gap-1.5 disabled:opacity-50"
+            [disabled]="!searchQuery.trim() || searching()"
+          >
+            <app-icon [name]="searching() ? 'loader-2' : 'search'" [size]="14" [class.animate-spin]="searching()" />
+            Search
+          </button>
+        </div>
+        <label class="flex items-center gap-2 text-xs text-gray-400 mt-2 cursor-pointer">
+          <input type="checkbox" [(ngModel)]="useHybrid" name="sh" class="accent-brand-500" />
+          Use hybrid (BM25 + vector)
+        </label>
+      </form>
+
+      @if (searchResults().length === 0 && !searching() && searchAttempted()) {
+        <app-empty-state icon="search" title="No results" description="Try a different query or disable hybrid." />
+      }
+
+      <ul class="space-y-2">
+        @for (r of searchResults(); track $index) {
+          <li class="rounded bg-black/20 ring-1 ring-white/5 p-3">
+            <div class="flex items-center justify-between mb-1">
+              <div class="text-[11px] text-gray-500 truncate flex items-center gap-1">
+                <app-icon name="file-text" [size]="11" />
+                {{ r.metadata?.filename ?? 'unknown' }}
+              </div>
+              @if (isNum(r.score)) {
+                <span
+                  class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-300"
+                >
+                  {{ r.score!.toFixed(3) }}
+                </span>
+              }
+            </div>
+            <div class="text-xs text-gray-200 leading-relaxed line-clamp-5">
+              {{ r.content || r.text }}
+            </div>
+          </li>
+        }
+      </ul>
+    </app-drawer>
+
+    <!-- Browse drawer -->
+    <app-drawer
+      [open]="browseOpen()"
+      title="Documents"
+      [subtitle]="browseCollection()"
+      icon="folder"
+      (close)="browseOpen.set(false)"
+    >
+      @if (browseLoading()) {
+        <div class="space-y-2">
+          @for (_ of [0, 1, 2, 3]; track $index) {
+            <div class="h-10 rounded bg-white/5 animate-pulse"></div>
+          }
+        </div>
+      } @else if (browseDocs().length === 0) {
+        <app-empty-state icon="file-text" title="Empty collection" description="Upload documents to this collection." />
+      } @else {
+        <ul class="space-y-2">
+          @for (d of browseDocs(); track d.document_id) {
+            <li
+              class="flex items-center justify-between gap-2 text-sm text-gray-200 px-3 py-2 rounded bg-black/20 ring-1 ring-white/5 group"
+            >
+              <div class="flex-1 min-w-0">
+                <div class="truncate">{{ d.filename }}</div>
+                <div class="text-[11px] text-gray-500 font-mono">
+                  {{ d.chunk_count ?? 0 }} chunks
+                  @if (d.mime_type) {
+                    <span class="mx-1">·</span>{{ d.mime_type }}
+                  }
+                </div>
+              </div>
+              <div class="flex items-center gap-0.5 shrink-0 opacity-70 group-hover:opacity-100">
+                <button
+                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-brand-400 transition"
+                  title="Preview"
+                  (click)="previewDoc(d)"
+                >
+                  <app-icon name="eye" [size]="13" />
+                </button>
+                <button
+                  class="p-1.5 rounded hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition"
+                  title="Delete document"
+                  (click)="requestDeleteDoc(d)"
+                >
+                  <app-icon name="trash-2" [size]="13" />
+                </button>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </app-drawer>
+
+    <!-- Preview drawer -->
+    <app-drawer
+      [open]="previewOpen()"
+      [title]="previewDocItem()?.filename ?? ''"
+      subtitle="Document preview"
+      icon="eye"
+      (close)="previewOpen.set(false)"
+    >
+      @if (previewLoading()) {
+        <div class="space-y-2">
+          @for (_ of [0, 1, 2, 3, 4, 5, 6]; track $index) {
+            <div class="h-3 rounded bg-white/5 animate-pulse"></div>
+          }
+        </div>
+      } @else if (previewError()) {
+        <div class="text-sm text-red-400">{{ previewError() }}</div>
+      } @else if (previewDownloadUrl()) {
+        <div class="text-sm text-gray-300 mb-3">
+          This document is a binary file. Open or download it to view.
+        </div>
+        <a
+          [href]="previewDownloadUrl()!"
+          target="_blank"
+          rel="noreferrer"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium"
+        >
+          <app-icon name="external-link" [size]="14" /> Open file
+        </a>
+      } @else {
+        <pre
+          class="text-[11px] leading-relaxed text-gray-200 whitespace-pre-wrap font-mono bg-black/30 rounded p-3 max-h-[70vh] overflow-auto"
+        >{{ previewContent() }}</pre>
+      }
+    </app-drawer>
+
+    <!-- Create collection dialog -->
+    @if (createOpen()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" (click)="createOpen.set(false)"></div>
+        <div
+          class="relative glass-blur rounded-lg border border-white/10 shadow-elevated max-w-md w-full p-6"
+        >
+          <div class="flex items-start gap-4 mb-4">
+            <div
+              class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/15 text-brand-400 shrink-0"
+            >
+              <app-icon name="folder-plus" [size]="20" />
+            </div>
+            <div class="flex-1">
+              <h2 class="text-base font-semibold text-white mb-1">New collection</h2>
+              <p class="text-sm text-gray-400">
+                Collections isolate your documents. Names are workspace-scoped.
+              </p>
+            </div>
+          </div>
+          <input
+            type="text"
+            [(ngModel)]="newCollectionDraftValue"
+            placeholder="e.g. policies, research"
+            class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+            (keyup.enter)="createCollection()"
+            autofocus
+          />
+          <div class="mt-6 flex justify-end gap-2">
+            <button
+              type="button"
+              (click)="createOpen.set(false)"
+              class="px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              (click)="createCollection()"
+              [disabled]="!newCollectionDraftValue.trim() || creating()"
+              class="px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded disabled:opacity-40 flex items-center gap-1.5"
+            >
+              <app-icon
+                [name]="creating() ? 'loader-2' : 'plus'"
+                [size]="14"
+                [class.animate-spin]="creating()"
+              />
+              Create
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <app-confirm-dialog
+      [open]="deleteCollectionTarget() !== null"
+      [title]="'Delete collection ' + (deleteCollectionTarget() ?? '')"
+      description="All documents and chunks in this collection will be deleted. This cannot be undone."
+      [confirmPhrase]="deleteCollectionTarget() ?? ''"
+      confirmLabel="Delete collection"
+      tone="danger"
+      (confirm)="confirmDeleteCollection()"
+      (cancel)="deleteCollectionTarget.set(null)"
+    />
+
+    <app-confirm-dialog
+      [open]="deleteDocTarget() !== null"
+      [title]="'Delete ' + (deleteDocTarget()?.filename ?? '')"
+      description="This document and its chunks will be removed from the collection."
+      confirmLabel="Delete"
+      tone="danger"
+      (confirm)="confirmDeleteDoc()"
+      (cancel)="deleteDocTarget.set(null)"
+    />
   `,
 })
 export class KnowledgeBaseComponent implements OnInit {
   private readonly http = inject(HttpClient);
-  private readonly toastr = inject(ToastrService);
+  private readonly toast = inject(ToastrService);
 
-  collections = signal<DocInfo[]>([]);
+  private readonly base = '/api/v1/documents';
+
+  // Collections
+  collections = signal<CollectionInfo[]>([]);
+  loadingCollections = signal(false);
+  vectorDbType = signal<string>('');
+
   uploading = signal(false);
+  uploadCount = signal(0);
   dragging = signal(false);
+  uploadTarget = 'documents';
 
-  totalChunks = () =>
-    this.collections()
-      .map((c) => c.count || 0)
-      .reduce((a, b) => a + b, 0);
+  // Create collection
+  createOpen = signal(false);
+  newCollectionDraft = signal('');
+  newCollectionDraftValue = '';
+  creating = signal(false);
+
+  // Delete collection
+  deleteCollectionTarget = signal<string | null>(null);
+
+  // Browse
+  browseOpen = signal(false);
+  browseCollection = signal<string>('');
+  browseDocs = signal<DocItem[]>([]);
+  browseLoading = signal(false);
+
+  // Preview
+  previewOpen = signal(false);
+  previewDocItem = signal<DocItem | null>(null);
+  previewLoading = signal(false);
+  previewContent = signal<string>('');
+  previewDownloadUrl = signal<string | null>(null);
+  previewError = signal<string | null>(null);
+
+  // Delete doc
+  deleteDocTarget = signal<DocItem | null>(null);
+
+  // Search
+  searchOpen = signal(false);
+  searchCollection = signal<string>('');
+  searchCollectionDraft = '';
+  searchQuery = '';
+  useHybrid = true;
+  searching = signal(false);
+  searchAttempted = signal(false);
+  searchResults = signal<SearchResult[]>([]);
+
+  readonly totalDocs = computed(() =>
+    this.collections().reduce((acc, c) => acc + (c.docs || 0), 0),
+  );
+  readonly totalChunks = computed(() =>
+    this.collections().reduce((acc, c) => acc + (c.chunks || 0), 0),
+  );
+  readonly indexingLabel = computed(() =>
+    this.loadingCollections() ? 'indexing…' : 'ready',
+  );
 
   ngOnInit(): void {
     this.loadCollections();
   }
 
   loadCollections(): void {
-    this.http.get<{ collections: DocInfo[] }>('/api/v1/documents/collections').subscribe({
-      next: (res) => this.collections.set(res.collections ?? []),
-      error: () => {},
-    });
+    this.loadingCollections.set(true);
+    this.http
+      .get<{ collections: string[]; default: string | null; vector_db_type: string }>(
+        `${this.base}/collections`,
+      )
+      .subscribe({
+        next: (res) => {
+          const names = res?.collections ?? [];
+          this.vectorDbType.set(res?.vector_db_type ?? '');
+          if (names.length === 0) {
+            this.collections.set([]);
+            this.loadingCollections.set(false);
+            return;
+          }
+          const infos: CollectionInfo[] = names.map((name) => ({
+            name,
+            chunks: 0,
+            docs: 0,
+            loading: true,
+          }));
+          this.collections.set(infos);
+          // Fetch per-collection stats in parallel.
+          forkJoin(
+            names.map((name) =>
+              forkJoin({
+                stats: this.http
+                  .get<{ total_chunks: number }>(
+                    `${this.base}/stats?collection_name=${encodeURIComponent(name)}`,
+                  )
+                  .pipe(catchError(() => of({ total_chunks: 0 }))),
+                list: this.http
+                  .get<{ total: number }>(
+                    `${this.base}/list?collection_name=${encodeURIComponent(name)}`,
+                  )
+                  .pipe(catchError(() => of({ total: 0 }))),
+              }),
+            ),
+          ).subscribe((results) => {
+            const merged = infos.map((inf, i) => ({
+              name: inf.name,
+              chunks: results[i]?.stats?.total_chunks ?? 0,
+              docs: results[i]?.list?.total ?? 0,
+            }));
+            this.collections.set(merged);
+            this.loadingCollections.set(false);
+          });
+        },
+        error: () => {
+          this.collections.set([]);
+          this.loadingCollections.set(false);
+        },
+      });
   }
 
-  onDragOver(event: DragEvent): void {
-    event.preventDefault();
+  onDragOver(e: DragEvent): void {
+    e.preventDefault();
     this.dragging.set(true);
   }
 
-  onDragLeave(event: DragEvent): void {
-    event.preventDefault();
+  onDragLeave(e: DragEvent): void {
+    e.preventDefault();
     this.dragging.set(false);
   }
 
-  onDrop(event: DragEvent): void {
-    event.preventDefault();
+  onDrop(e: DragEvent): void {
+    e.preventDefault();
     this.dragging.set(false);
-    const files = event.dataTransfer?.files;
+    const files = e.dataTransfer?.files;
     if (files && files.length) this.uploadFiles(files);
   }
 
-  onFileSelect(event: Event): void {
-    const input = event.target as HTMLInputElement;
+  onFileSelect(e: Event): void {
+    const input = e.target as HTMLInputElement;
     if (input.files && input.files.length) this.uploadFiles(input.files);
+    input.value = '';
   }
 
   private uploadFiles(files: FileList): void {
     this.uploading.set(true);
+    this.uploadCount.set(files.length);
     const formData = new FormData();
     Array.from(files).forEach((f) => formData.append('files', f));
+    formData.append('collection_name', this.uploadTarget || 'documents');
 
-    this.http.post('/api/v1/documents/upload', formData).subscribe({
-      next: () => {
+    this.http.post<{ total: number; successful: number; failed: number }>(
+      `${this.base}/upload-batch`,
+      formData,
+    ).subscribe({
+      next: (res) => {
         this.uploading.set(false);
-        this.toastr.success(`${files.length} file(s) ingested`, 'Upload complete');
+        if (res.failed > 0) {
+          this.toast.warning(
+            `${res.successful}/${res.total} ingested · ${res.failed} failed`,
+            'Upload partial',
+          );
+        } else {
+          this.toast.success(`${res.successful} file(s) ingested`, 'Upload complete');
+        }
         this.loadCollections();
       },
       error: (err) => {
         this.uploading.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to upload', 'Error');
+        this.toast.error(err?.error?.detail || 'Failed to upload', 'Upload error');
       },
     });
+  }
+
+  createCollection(): void {
+    const name = this.newCollectionDraftValue.trim();
+    if (!name) return;
+    this.creating.set(true);
+    this.http
+      .post<{ status: string }>(
+        `${this.base}/collections?collection_name=${encodeURIComponent(name)}`,
+        {},
+      )
+      .subscribe({
+        next: () => {
+          this.toast.success(`Collection "${name}" created`, 'Knowledge');
+          this.creating.set(false);
+          this.createOpen.set(false);
+          this.newCollectionDraftValue = '';
+          this.loadCollections();
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.detail || 'Failed to create', 'Knowledge');
+          this.creating.set(false);
+        },
+      });
+  }
+
+  requestDeleteCollection(name: string): void {
+    this.deleteCollectionTarget.set(name);
+  }
+
+  confirmDeleteCollection(): void {
+    const name = this.deleteCollectionTarget();
+    if (!name) return;
+    this.http
+      .delete<{ status: string }>(`${this.base}/collections/${encodeURIComponent(name)}`)
+      .subscribe({
+        next: () => {
+          this.toast.success(`Collection "${name}" deleted`, 'Knowledge');
+          this.deleteCollectionTarget.set(null);
+          this.loadCollections();
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.detail || 'Failed to delete', 'Knowledge');
+          this.deleteCollectionTarget.set(null);
+        },
+      });
+  }
+
+  openBrowse(name: string): void {
+    this.browseCollection.set(name);
+    this.browseOpen.set(true);
+    this.browseLoading.set(true);
+    this.http
+      .get<{ documents: DocItem[] }>(`${this.base}/list?collection_name=${encodeURIComponent(name)}`)
+      .subscribe({
+        next: (res) => {
+          this.browseDocs.set(res?.documents ?? []);
+          this.browseLoading.set(false);
+        },
+        error: () => {
+          this.browseDocs.set([]);
+          this.browseLoading.set(false);
+        },
+      });
+  }
+
+  previewDoc(d: DocItem): void {
+    this.previewDocItem.set(d);
+    this.previewOpen.set(true);
+    this.previewLoading.set(true);
+    this.previewContent.set('');
+    this.previewDownloadUrl.set(null);
+    this.previewError.set(null);
+    const col = this.browseCollection();
+    this.http
+      .get<{ content?: string; download_url?: string; content_type?: string }>(
+        `${this.base}/preview/${encodeURIComponent(d.document_id)}?collection_name=${encodeURIComponent(col)}`,
+      )
+      .subscribe({
+        next: (res) => {
+          if (res.download_url) this.previewDownloadUrl.set(res.download_url);
+          else this.previewContent.set(res.content ?? '');
+          this.previewLoading.set(false);
+        },
+        error: (err) => {
+          this.previewError.set(err?.error?.detail ?? 'Could not load preview');
+          this.previewLoading.set(false);
+        },
+      });
+  }
+
+  requestDeleteDoc(d: DocItem): void {
+    this.deleteDocTarget.set(d);
+  }
+
+  confirmDeleteDoc(): void {
+    const d = this.deleteDocTarget();
+    if (!d) return;
+    const col = this.browseCollection();
+    this.http
+      .delete<unknown>(
+        `${this.base}/${encodeURIComponent(d.document_id)}?collection_name=${encodeURIComponent(col)}`,
+      )
+      .subscribe({
+        next: () => {
+          this.toast.success(`"${d.filename}" deleted`, 'Knowledge');
+          this.browseDocs.update((list) => list.filter((x) => x.document_id !== d.document_id));
+          this.deleteDocTarget.set(null);
+          this.loadCollections();
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.detail || 'Failed to delete', 'Knowledge');
+          this.deleteDocTarget.set(null);
+        },
+      });
+  }
+
+  openSearchIn(name: string): void {
+    this.searchCollection.set(name);
+    this.searchCollectionDraft = name;
+    this.searchOpen.set(true);
+  }
+
+  closeSearch(): void {
+    this.searchOpen.set(false);
+    this.searchCollection.set('');
+  }
+
+  runSearch(): void {
+    const q = this.searchQuery.trim();
+    if (!q) return;
+    this.searching.set(true);
+    this.searchAttempted.set(true);
+    const col = this.searchCollectionDraft || this.searchCollection() || 'documents';
+    this.http
+      .post<{ results: SearchResult[] }>(`${this.base}/search`, {
+        query: q,
+        top_k: 10,
+        collection_name: col,
+        use_hybrid: this.useHybrid,
+      })
+      .subscribe({
+        next: (res) => {
+          this.searchResults.set(res?.results ?? []);
+          this.searching.set(false);
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.detail || 'Search failed', 'Knowledge');
+          this.searching.set(false);
+        },
+      });
+  }
+
+  isNum(v: unknown): boolean {
+    return typeof v === 'number' && !Number.isNaN(v);
   }
 }
