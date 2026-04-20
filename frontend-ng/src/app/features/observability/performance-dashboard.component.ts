@@ -71,25 +71,39 @@ interface MetricsResponse {
         label="Total requests"
         [value]="summary()?.total_requests ?? 0"
         icon="activity"
+        [sparkline]="requestsSeries()"
+        sparklineTone="neutral"
+        [trend]="seriesTrend(requestsSeries())"
+        trendSentiment="positive"
+        [delta]="seriesDelta(requestsSeries())"
       />
       <app-stat-tile
         label="Total errors"
         [value]="summary()?.total_errors ?? 0"
         icon="alert-triangle"
-        [trend]="(summary()?.total_errors ?? 0) > 0 ? 'up' : null"
+        [sparkline]="errorsSeries()"
+        sparklineTone="negative"
+        [trend]="seriesTrend(errorsSeries())"
+        trendSentiment="negative"
+        [delta]="seriesDelta(errorsSeries())"
       />
       <app-stat-tile
         label="Error rate"
         [value]="errorRateDisplay()"
         unit="%"
         icon="alert-circle"
-        [trend]="errorRateTrend()"
+        [sparkline]="errorRateSeries()"
+        sparklineTone="negative"
+        [trend]="seriesTrend(errorRateSeries())"
+        trendSentiment="negative"
       />
       <app-stat-tile
         label="Cache usage"
         [value]="cacheUsageDisplay()"
         unit="%"
         icon="database"
+        [sparkline]="cacheSeries()"
+        sparklineTone="neutral"
         [hint]="(cache()?.size ?? 0) + ' / ' + (cache()?.max_size ?? 0)"
       />
     </div>
@@ -195,6 +209,36 @@ export class PerformanceDashboardComponent implements OnInit, OnDestroy {
   loading = signal(false);
   autoRefresh = signal(false);
   private timer: number | null = null;
+  private readonly MAX_SERIES = 30;
+
+  private readonly _requestsSeries = signal<number[]>([]);
+  private readonly _errorsSeries = signal<number[]>([]);
+  private readonly _errorRateSeries = signal<number[]>([]);
+  private readonly _cacheSeries = signal<number[]>([]);
+
+  readonly requestsSeries = this._requestsSeries.asReadonly();
+  readonly errorsSeries = this._errorsSeries.asReadonly();
+  readonly errorRateSeries = this._errorRateSeries.asReadonly();
+  readonly cacheSeries = this._cacheSeries.asReadonly();
+
+  seriesTrend(series: readonly number[]): 'up' | 'down' | 'flat' | null {
+    if (series.length < 2) return null;
+    const last = series[series.length - 1];
+    const prev = series[series.length - 2];
+    if (last > prev) return 'up';
+    if (last < prev) return 'down';
+    return 'flat';
+  }
+
+  seriesDelta(series: readonly number[]): string {
+    if (series.length < 2) return '';
+    const last = series[series.length - 1];
+    const prev = series[series.length - 2];
+    const diff = last - prev;
+    if (diff === 0) return '';
+    const sign = diff > 0 ? '+' : '';
+    return sign + diff.toFixed(diff % 1 === 0 ? 0 : 1);
+  }
 
   readonly metricsList = computed(() =>
     Object.entries(this.metrics()).map(([key, value]) => ({
@@ -239,14 +283,30 @@ export class PerformanceDashboardComponent implements OnInit, OnDestroy {
     this.api.get<MetricsResponse>('/metrics').subscribe({
       next: (res) => {
         this.metrics.set(res?.metrics ?? {});
-        this.summary.set(res?.summary ?? null);
+        const summary = res?.summary ?? null;
+        this.summary.set(summary);
+        if (summary) {
+          this.pushSeries(this._requestsSeries, summary.total_requests ?? 0);
+          this.pushSeries(this._errorsSeries, summary.total_errors ?? 0);
+          this.pushSeries(this._errorRateSeries, summary.error_rate_percent ?? 0);
+        }
         this.loading.set(false);
       },
       error: () => this.loading.set(false),
     });
     this.api.get<CacheStats>('/metrics/cache').subscribe({
-      next: (res) => this.cache.set(res),
+      next: (res) => {
+        this.cache.set(res);
+        if (res) this.pushSeries(this._cacheSeries, res.usage_percent ?? 0);
+      },
       error: () => this.cache.set(null),
+    });
+  }
+
+  private pushSeries(sig: { update: (fn: (v: number[]) => number[]) => void }, value: number): void {
+    sig.update((arr) => {
+      const next = [...arr, value];
+      return next.length > this.MAX_SERIES ? next.slice(next.length - this.MAX_SERIES) : next;
     });
   }
 

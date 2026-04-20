@@ -7,6 +7,11 @@ export const systemsRoutes: Routes = [
       import('./systems-grid.component').then((m) => m.SystemsGridComponent),
   },
   {
+    path: 'new',
+    loadComponent: () =>
+      import('./system-builder.component').then((m) => m.SystemBuilderComponent),
+  },
+  {
     path: ':systemId',
     loadComponent: () =>
       import('./system-view.component').then((m) => m.SystemViewComponent),

@@ -1,13 +1,14 @@
-import { ChangeDetectionStrategy, Component, Input, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { IconComponent } from './icon.component';
+import { SparklineComponent } from './sparkline.component';
 
 export type StatTrend = 'up' | 'down' | 'flat' | null;
 
 @Component({
   selector: 'app-stat-tile',
   standalone: true,
-  imports: [NgClass, IconComponent],
+  imports: [NgClass, IconComponent, SparklineComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -31,30 +32,42 @@ export type StatTrend = 'up' | 'down' | 'flat' | null;
         @if (unit) {
           <span class="text-xs text-gray-500 dark:text-gray-400">{{ unit }}</span>
         }
-      </div>
-      @if (delta || hint) {
-        <div class="flex items-center gap-2 text-xs">
-          @if (delta) {
-            <span
-              class="inline-flex items-center gap-0.5 font-medium"
-              [ngClass]="{
-                'text-emerald-500': trend === 'up',
-                'text-red-500': trend === 'down',
-                'text-gray-500': !trend || trend === 'flat'
-              }"
-            >
-              @if (trend === 'up') {
-                <app-icon name="trending-up" [size]="12" />
-              } @else if (trend === 'down') {
-                <app-icon name="trending-down" [size]="12" />
-              }
+        @if (trend) {
+          <span
+            class="inline-flex items-center gap-0.5 text-[10px] font-semibold ml-auto tabular-nums"
+            [ngClass]="{
+              'text-emerald-500': trend === 'up' && trendSentiment !== 'negative',
+              'text-red-500': trend === 'up' && trendSentiment === 'negative',
+              'text-emerald-500 flip': trend === 'down' && trendSentiment === 'negative',
+              'text-red-500 flip2': trend === 'down' && trendSentiment !== 'negative',
+              'text-gray-500': trend === 'flat'
+            }"
+          >
+            @if (trend === 'up') {
+              <app-icon name="trending-up" [size]="10" />
+            } @else if (trend === 'down') {
+              <app-icon name="trending-down" [size]="10" />
+            } @else {
+              <app-icon name="minus" [size]="10" />
+            }
+            @if (delta) {
               {{ delta }}
-            </span>
-          }
-          @if (hint) {
-            <span class="text-gray-500 dark:text-gray-400">{{ hint }}</span>
-          }
+            }
+          </span>
+        }
+      </div>
+      @if (sparkline && sparkline.length >= 2) {
+        <div class="-mx-1 -mb-1" [class.text-emerald-400]="sparklineTone === 'positive'"
+          [class.text-red-400]="sparklineTone === 'negative'"
+          [class.text-brand-400]="!sparklineTone || sparklineTone === 'neutral'"
+        >
+          <app-sparkline [data]="sparkline" [width]="140" [height]="28" />
         </div>
+      }
+      @if (hint && (!sparkline || sparkline.length < 2)) {
+        <div class="text-[11px] text-gray-500 dark:text-gray-400">{{ hint }}</div>
+      } @else if (hint) {
+        <div class="text-[10px] text-gray-500 dark:text-gray-400">{{ hint }}</div>
       }
       <div class="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-brand-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
     </div>
@@ -66,7 +79,11 @@ export class StatTileComponent {
   @Input() unit?: string;
   @Input() delta?: string;
   @Input() trend: StatTrend = null;
+  /** 'negative' means "up is bad" (e.g. errors, latency), 'positive' means "up is good" (e.g. quality) */
+  @Input() trendSentiment: 'positive' | 'negative' | 'neutral' = 'positive';
   @Input() hint?: string;
   @Input() icon?: string;
   @Input() interactive = false;
+  @Input() sparkline: number[] | null = null;
+  @Input() sparklineTone: 'positive' | 'negative' | 'neutral' = 'neutral';
 }

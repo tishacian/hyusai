@@ -206,12 +206,13 @@ interface BatchProgress {
               type="doughnut"
             ></canvas>
           } @else if (chartsReady()) {
-            <div class="h-full w-full flex flex-col items-center justify-center text-center">
-              <app-icon name="pie-chart" [size]="28" class="text-gray-700 mb-2" />
-              <div class="text-sm text-gray-400">No sentiment data yet.</div>
-              <p class="text-xs text-gray-500 mt-1 max-w-xs">
-                Trigger a run or wait for the scheduler.
-              </p>
+            <div class="h-full flex items-center justify-center">
+              <app-empty-state
+                size="sm"
+                icon="pie-chart"
+                title="No sentiment data yet"
+                description="Trigger a run or wait for the scheduler."
+              />
             </div>
           } @else {
             <div class="h-full w-full rounded bg-white/5 animate-pulse"></div>
@@ -237,9 +238,13 @@ interface BatchProgress {
               type="bar"
             ></canvas>
           } @else if (chartsReady()) {
-            <div class="h-full w-full flex flex-col items-center justify-center text-center">
-              <app-icon name="tags" [size]="28" class="text-gray-700 mb-2" />
-              <div class="text-sm text-gray-400">No entities detected yet.</div>
+            <div class="h-full flex items-center justify-center">
+              <app-empty-state
+                size="sm"
+                icon="tags"
+                title="No entities yet"
+                description="Entities will appear here after the next ingestion run."
+              />
             </div>
           } @else {
             <div class="h-full w-full rounded bg-white/5 animate-pulse"></div>

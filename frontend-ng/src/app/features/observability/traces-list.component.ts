@@ -77,20 +77,36 @@ interface Trace {
     </app-section-header>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <app-stat-tile label="Traces" [value]="traces().length" icon="git-commit" />
+      <app-stat-tile
+        label="Traces"
+        [value]="traces().length"
+        icon="git-commit"
+        [sparkline]="countSeries()"
+        sparklineTone="neutral"
+      />
       <app-stat-tile
         label="Avg duration"
         [value]="avgDuration()"
         unit="ms"
         icon="clock"
+        [sparkline]="durationSeries()"
+        sparklineTone="negative"
       />
       <app-stat-tile
         label="Slowest"
         [value]="maxDuration()"
         unit="ms"
         icon="gauge"
+        [sparkline]="durationSeries()"
+        sparklineTone="negative"
       />
-      <app-stat-tile label="With errors" [value]="errorCount()" icon="alert-triangle" />
+      <app-stat-tile
+        label="With errors"
+        [value]="errorCount()"
+        icon="alert-triangle"
+        [trend]="errorCount() > 0 ? 'up' : null"
+        trendSentiment="negative"
+      />
     </div>
 
     <section class="t-card t-elevated rounded-md overflow-hidden">
@@ -287,6 +303,21 @@ export class TracesListComponent implements OnInit {
     () =>
       this.traces().filter((t) => (t.steps ?? []).some((s) => !!s.error)).length,
   );
+
+  /** Latest N trace durations, oldest first — for the sparkline. */
+  readonly durationSeries = computed<number[]>(() => {
+    const list = this.traces()
+      .filter((t) => t.duration_ms != null && t.duration_ms > 0)
+      .slice(0, 20);
+    return list.map((t) => t.duration_ms ?? 0).reverse();
+  });
+
+  /** Cumulative trace counts over the last 20 entries — oldest first. */
+  readonly countSeries = computed<number[]>(() => {
+    const n = Math.min(this.traces().length, 20);
+    if (n < 2) return [];
+    return Array.from({ length: n }, (_, i) => i + 1);
+  });
 
   readonly selectedOperationLabel = computed(() => {
     const t = this.selectedTrace();

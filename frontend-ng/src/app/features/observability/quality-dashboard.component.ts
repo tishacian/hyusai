@@ -14,6 +14,7 @@ import { ApiService } from '@app/core/api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 
 interface DimensionsResponse {
   dimensions: Record<string, string>;
@@ -52,7 +53,13 @@ const PALETTE = {
   selector: 'app-quality-dashboard',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BaseChartDirective, IconComponent, SectionHeaderComponent, StatTileComponent],
+  imports: [
+    BaseChartDirective,
+    IconComponent,
+    SectionHeaderComponent,
+    StatTileComponent,
+    EmptyStateComponent,
+  ],
   template: `
     <app-section-header
       breadcrumb="Measure"
@@ -92,12 +99,17 @@ const PALETTE = {
         unit="/100"
         icon="target"
         [trend]="compositeTrend()"
+        trendSentiment="positive"
         [delta]="compositeDelta()"
+        [sparkline]="compositeSeries()"
+        sparklineTone="positive"
       />
       <app-stat-tile
         label="Evaluations run"
         [value]="history().length.toString()"
         icon="history"
+        [sparkline]="evaluationsSeries()"
+        sparklineTone="neutral"
       />
       <app-stat-tile
         label="Hallucination rate"
@@ -105,6 +117,9 @@ const PALETTE = {
         unit="%"
         icon="alert-triangle"
         [trend]="hallucinationTrend()"
+        trendSentiment="negative"
+        [sparkline]="hallucinationSeries()"
+        sparklineTone="negative"
       />
       <app-stat-tile
         label="Drift rate"
@@ -112,6 +127,9 @@ const PALETTE = {
         unit="%"
         icon="waves"
         [trend]="driftTrend()"
+        trendSentiment="negative"
+        [sparkline]="driftSeries()"
+        sparklineTone="negative"
       />
     </div>
 
@@ -136,13 +154,13 @@ const PALETTE = {
               type="radar"
             ></canvas>
           } @else if (chartsReady()) {
-            <div class="h-full w-full rounded flex flex-col items-center justify-center text-center">
-              <app-icon name="radar" [size]="28" class="text-gray-700 mb-2" />
-              <div class="text-sm text-gray-400">No evaluation yet for this workspace.</div>
-              <p class="text-xs text-gray-500 mt-1 max-w-xs">
-                Send a message in the playground, then hit
-                <span class="font-medium text-gray-300">Run evaluation</span>.
-              </p>
+            <div class="h-full flex items-center justify-center">
+              <app-empty-state
+                size="sm"
+                icon="radar"
+                title="No evaluation yet"
+                description="Chat in the playground, then run an evaluation to populate this radar."
+              />
             </div>
           } @else {
             <div class="h-full w-full rounded bg-white/5 animate-pulse"></div>
@@ -170,12 +188,13 @@ const PALETTE = {
               type="line"
             ></canvas>
           } @else if (chartsReady()) {
-            <div class="h-full w-full rounded flex flex-col items-center justify-center text-center">
-              <app-icon name="line-chart" [size]="28" class="text-gray-700 mb-2" />
-              <div class="text-sm text-gray-400">No history yet.</div>
-              <p class="text-xs text-gray-500 mt-1 max-w-xs">
-                Evaluations will accumulate here as you score responses.
-              </p>
+            <div class="h-full flex items-center justify-center">
+              <app-empty-state
+                size="sm"
+                icon="line-chart"
+                title="No history yet"
+                description="Evaluations accumulate here as you score responses."
+              />
             </div>
           } @else {
             <div class="h-full w-full rounded bg-white/5 animate-pulse"></div>
@@ -196,9 +215,12 @@ const PALETTE = {
         </span>
       </div>
       @if (claims().length === 0) {
-        <div class="px-5 py-6 text-sm text-gray-500 text-center">
-          Run an evaluation to see per-claim grounding.
-        </div>
+        <app-empty-state
+          size="sm"
+          icon="shield-check"
+          title="No claims audited yet"
+          description="Run an evaluation to see per-claim grounding."
+        />
       } @else {
         <ul class="divide-y divide-white/5">
           @for (claim of claims(); track $index) {
@@ -298,6 +320,25 @@ export class QualityDashboardComponent implements OnInit {
   });
 
   readonly claims = computed(() => this.latest()?.claim_audit?.claims ?? []);
+
+  /** Sparkline series — oldest first. */
+  readonly compositeSeries = computed<number[]>(() => {
+    const reversed = [...this.history()].reverse();
+    return reversed.map((e) => e.composite_score ?? 0).filter((v) => Number.isFinite(v));
+  });
+  readonly hallucinationSeries = computed<number[]>(() => {
+    const reversed = [...this.history()].reverse();
+    return reversed.map((e) => (e.hallucination_rate ?? 0) * 100);
+  });
+  readonly driftSeries = computed<number[]>(() => {
+    const reversed = [...this.history()].reverse();
+    return reversed.map((e) => (e.drift_rate ?? 0) * 100);
+  });
+  readonly evaluationsSeries = computed<number[]>(() => {
+    const n = Math.min(this.history().length, 20);
+    if (n < 2) return [];
+    return Array.from({ length: n }, (_, i) => i + 1);
+  });
 
   readonly canRunEvaluation = computed(() => !!this.readLastContext());
 
