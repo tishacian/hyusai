@@ -7,6 +7,7 @@ from app.models.audit import AuditLog
 from app.models.task import Task
 from app.models.evaluation import EvaluationScore
 from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, SafetyFilter
+from app.models.sharepoint_sync_job import SharePointSyncJob
 
 __all__ = [
     "User", "Session", "Message",
@@ -15,4 +16,5 @@ __all__ = [
     "AppSettings", "AuditLog",
     "Task", "EvaluationScore",
     "FeedSource", "FeedArticle", "SemanticTarget", "SafetyFilter",
+    "SharePointSyncJob",
 ]
