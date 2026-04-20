@@ -180,6 +180,11 @@ import {
   Edit3,
   RotateCcw,
   Maximize,
+  ThumbsUp,
+  ThumbsDown,
+  Binary,
+  Waves,
+  BarChart2,
 } from 'lucide-angular';
 
 const ICONS = {
@@ -355,6 +360,11 @@ const ICONS = {
   Edit3,
   RotateCcw,
   Maximize,
+  ThumbsUp,
+  ThumbsDown,
+  Binary,
+  Waves,
+  BarChart2,
 };
 
 /**

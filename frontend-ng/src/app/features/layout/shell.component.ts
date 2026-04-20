@@ -398,6 +398,10 @@ export class ShellComponent {
       title: 'Govern',
       items: [{ label: 'Governance', icon: 'shield-check', route: '/governance' }],
     },
+    {
+      title: 'Configure',
+      items: [{ label: 'Settings', icon: 'sliders-horizontal', route: '/settings' }],
+    },
   ];
 
   readonly breadcrumbs = computed<Crumb[]>(() => {

@@ -5,7 +5,7 @@ import { Observable } from 'rxjs';
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
-  private readonly base = '/api/v1';
+  readonly base = '/api/v1';
 
   get<T>(path: string, params?: Record<string, string>): Observable<T> {
     let httpParams = new HttpParams();
@@ -25,5 +25,21 @@ export class ApiService {
 
   delete<T>(path: string): Observable<T> {
     return this.http.delete<T>(`${this.base}${path}`);
+  }
+
+  /** Upload an audio blob and receive a transcription. */
+  transcribeAudio(blob: Blob, filename = 'recording.webm'): Observable<{ text: string }> {
+    const form = new FormData();
+    form.append('file', blob, filename);
+    return this.http.post<{ text: string }>(`${this.base}/voice/transcribe`, form);
+  }
+
+  /** Synthesize speech (returns a playable audio Blob). */
+  synthesizeSpeech(text: string, voice = 'nova'): Observable<Blob> {
+    return this.http.post(
+      `${this.base}/voice/synthesize`,
+      { text, voice },
+      { responseType: 'blob' },
+    );
   }
 }
