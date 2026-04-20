@@ -412,7 +412,7 @@ export class ChatPanelComponent {
   }
 
   iconFor(step: DecisionStep): string {
-    return STEP_ICONS[step.type ?? 'default'] ?? STEP_ICONS.default;
+    return STEP_ICONS[step.type ?? 'default'] ?? STEP_ICONS['default'];
   }
 
   onKey(e: KeyboardEvent): void {
@@ -455,7 +455,7 @@ export class ChatPanelComponent {
         top_k: s.ragTopK,
         similarity_threshold: s.ragSimilarityThreshold,
         rag_pipeline_mode: s.ragPipelineMode,
-        system_prompt: s.systemPrompt ?? null,
+        system_prompt: (s['systemPrompt'] as string | undefined) ?? null,
         agent_preferences: {
           model_preferences: {
             model: s.defaultModel,
