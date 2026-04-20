@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ApiService } from '@app/core/api.service';
@@ -33,6 +33,7 @@ interface Article {
 @Component({
   selector: 'app-news-lab',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     BaseChartDirective,
     IconComponent,

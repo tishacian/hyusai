@@ -18,7 +18,7 @@ import { IconComponent } from './icon.component';
           (click)="dismiss($event)"
         ></div>
         <aside
-          class="relative h-full glass border-l border-white/10 shadow-elevated animate-slide-up overflow-y-auto"
+          class="relative h-full glass-blur border-l border-white/10 shadow-elevated animate-slide-up overflow-y-auto"
           [style.width.px]="width"
           (click)="$event.stopPropagation()"
         >

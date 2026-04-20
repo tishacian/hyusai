@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ApiService } from '@app/core/api.service';
@@ -21,6 +21,7 @@ interface EvalRun {
 @Component({
   selector: 'app-quality-dashboard',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [BaseChartDirective, IconComponent, SectionHeaderComponent, StatTileComponent],
   template: `
     <app-section-header

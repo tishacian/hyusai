@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -15,6 +15,7 @@ interface DocInfo {
 @Component({
   selector: 'app-knowledge-base',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     IconComponent,
     SectionHeaderComponent,

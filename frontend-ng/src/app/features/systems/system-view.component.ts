@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
@@ -22,6 +22,7 @@ interface WizardStep {
 @Component({
   selector: 'app-system-view',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     NgClass,
     ChatPanelComponent,

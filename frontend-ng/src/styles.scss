@@ -153,14 +153,29 @@ app-root {
   animation: gradient-shift 10s ease infinite;
 }
 
-/* Glass panel — blur + border + translucent */
+/*
+ * `.glass`  — opaque-ish surface. Cheap on the compositor because there is no
+ *             backdrop-filter. Use for the large chrome (sidebar, header, large
+ *             cards) that are permanently on screen.
+ * `.glass-blur` — real translucent blur. Reserve for small, ephemeral layers
+ *             (drawers, modals, menus) so backdrop-filter runs only when shown.
+ */
 .glass {
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+.dark .glass {
+  background: rgba(15, 20, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-blur {
   background: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   border: 1px solid rgba(255, 255, 255, 0.18);
 }
-.dark .glass {
+.dark .glass-blur {
   background: rgba(17, 24, 39, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(20px) saturate(150%);
@@ -435,4 +450,35 @@ lucide-icon svg {
   border: 1px solid var(--border-default);
   border-radius: var(--radius);
   padding: 12px;
+}
+
+/* ============================================================================
+   Perf helpers
+   ============================================================================ */
+
+/* Large virtual-scrollable containers off-screen get skipped by the renderer. */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 600px;
+}
+
+/* Respect OS "reduce motion" preference: stops every ambient animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  body::before {
+    animation: none;
+  }
+  .gradient-title,
+  .header-underline::after,
+  .pulse-dot,
+  .skeleton {
+    animation: none;
+  }
 }

@@ -18,6 +18,7 @@ import {
 } from '@app/core/auth-api.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { AuthStore } from '@app/store/auth.store';
+import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 
 function isMfa(r: LoginResponse): r is MfaChallengeResponse {
@@ -163,6 +164,7 @@ export class SigninComponent implements OnDestroy {
   private readonly authApi = inject(AuthApiService);
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authStore = inject(AuthStore);
+  private readonly authBootstrap = inject(AuthBootstrapService);
   private readonly workspaceService = inject(WorkspaceService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -308,6 +310,7 @@ export class SigninComponent implements OnDestroy {
       email: this.email,
       role: 'user',
     });
+    this.authBootstrap.markValid();
     this.workspaceService.loadWorkspaces().subscribe();
     const redirect = this.route.snapshot.queryParams['redirectURL'] || '/';
     this.router.navigateByUrl(redirect);

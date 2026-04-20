@@ -1,5 +1,6 @@
 import {
   AfterViewInit,
+  ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
   DestroyRef,
@@ -7,6 +8,7 @@ import {
   NgZone,
   OnDestroy,
   ViewChild,
+  ViewEncapsulation,
   inject,
   signal,
 } from '@angular/core';
@@ -33,7 +35,10 @@ interface FlowTemplate {
 @Component({
   selector: 'app-workflow-editor',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent, SectionHeaderComponent, StatusPulseComponent],
+  styleUrls: ['./workflow-editor.styles.scss'],
+  encapsulation: ViewEncapsulation.None,
   template: `
     <app-section-header
       breadcrumb="Build"

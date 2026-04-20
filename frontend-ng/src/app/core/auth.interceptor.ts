@@ -26,18 +26,14 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const router = inject(Router);
   const workspaceService = inject(WorkspaceService);
 
-  let authReq = req;
   const token = tokenStorage.getToken();
-  if (token) {
-    authReq = req.clone({ setHeaders: { Authorization: token } });
-  }
-
   const wsSlug = workspaceService.currentSlug();
-  if (wsSlug) {
-    authReq = authReq.clone({
-      setHeaders: { ...authReq.headers.keys().reduce((acc, k) => ({ ...acc, [k]: authReq.headers.get(k)! }), {}), 'X-Workspace-Slug': wsSlug },
-    });
-  }
+
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = token;
+  if (wsSlug) headers['X-Workspace-Slug'] = wsSlug;
+
+  const authReq = Object.keys(headers).length ? req.clone({ setHeaders: headers }) : req;
 
   return next(authReq).pipe(
     catchError((error: HttpErrorResponse) => {

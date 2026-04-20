@@ -1,0 +1,5 @@
+/*
+ * Pulled out of the global styles bundle so drawflow's CSS only ships to users
+ * who actually open the orchestration route (≈12 KB saved on initial load).
+ */
+@import 'drawflow/dist/drawflow.min.css';

@@ -17,7 +17,7 @@ import { IconComponent } from './icon.component';
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" (click)="onCancel()"></div>
         <div
-          class="relative glass rounded-lg border border-white/10 shadow-elevated max-w-md w-full p-6 animate-slide-up"
+          class="relative glass-blur rounded-lg border border-white/10 shadow-elevated max-w-md w-full p-6 animate-slide-up"
           (click)="$event.stopPropagation()"
         >
           <div class="flex items-start gap-4">

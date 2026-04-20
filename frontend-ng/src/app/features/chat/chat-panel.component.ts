@@ -1,4 +1,4 @@
-import { Component, input, signal, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, signal, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { SseService, SseChunk } from '@app/core/sse.service';
 
@@ -11,6 +11,7 @@ interface ChatMessage {
 @Component({
   selector: 'app-chat-panel',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule],
   template: `
     <!-- Messages -->

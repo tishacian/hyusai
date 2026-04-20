@@ -23,7 +23,6 @@
             ],
             "styles": [
               "node_modules/ngx-toastr/toastr.css",
-              "node_modules/drawflow/dist/drawflow.min.css",
               "src/styles.scss"
             ],
             "scripts": []
@@ -32,7 +31,7 @@
             "production": {
               "budgets": [
                 { "type": "initial", "maximumWarning": "500kB", "maximumError": "1MB" },
-                { "type": "anyComponentStyle", "maximumWarning": "4kB", "maximumError": "8kB" }
+                { "type": "anyComponentStyle", "maximumWarning": "6kB", "maximumError": "20kB" }
               ],
               "outputHashing": "all"
             },

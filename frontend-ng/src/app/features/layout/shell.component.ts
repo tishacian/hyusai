@@ -1,4 +1,4 @@
-import { Component, HostListener, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import {
   NavigationEnd,
@@ -11,6 +11,7 @@ import { filter, map, startWith } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { AuthApiService } from '@app/core/auth-api.service';
+import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
 import { ThemeService } from '@app/core/theme.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -38,6 +39,7 @@ interface Crumb {
 @Component({
   selector: 'app-shell',
   standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterOutlet,
     RouterLink,
@@ -354,6 +356,7 @@ export class ShellComponent {
   protected readonly themeService = inject(ThemeService);
   protected readonly workspaceService = inject(WorkspaceService);
   protected readonly authStore = inject(AuthStore);
+  private readonly authBootstrap = inject(AuthBootstrapService);
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authApi = inject(AuthApiService);
   private readonly router = inject(Router);
@@ -570,6 +573,7 @@ export class ShellComponent {
   private finishLogout(): void {
     this.tokenStorage.clear();
     this.authStore.clear();
+    this.authBootstrap.markInvalid();
     this.router.navigate(['/auth/signin']);
   }
 }
