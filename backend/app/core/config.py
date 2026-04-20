@@ -74,6 +74,15 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # SharePoint OTP connector
+    # Persistence of captured sessions and MSAL token caches (encrypted at rest
+    # when sharepoint_connector_fernet_key is set). Path is relative to the
+    # process CWD, typically the repo root on the demo VM.
+    sharepoint_session_dir: str = ".sharepoint_sessions"
+    sharepoint_download_dir: str = "./downloads/sharepoint"
+    sharepoint_connector_fernet_key: Optional[str] = None
+    sharepoint_connector_require_encryption: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

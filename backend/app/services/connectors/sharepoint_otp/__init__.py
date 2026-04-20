@@ -14,42 +14,42 @@ can swap implementations without code changes, and the ingester itself
 supports incremental sync via a per-folder manifest.
 """
 
-from backend.app.services.connectors.sharepoint_otp.client import (
+from .client import (
     SharePointBrowserClient,
     SharePointCookieClient,
     SharePointFile,
     SharePointFolder,
 )
-from backend.app.services.connectors.sharepoint_otp.client_msal import (
+from .client_msal import (
     MsalAppConfig,
     SharePointMsalAuth,
     SharePointMsalClient,
 )
-from backend.app.services.connectors.sharepoint_otp.crypto import (
+from .crypto import (
     EncryptionConfig,
     EncryptionNotConfigured,
     decrypt_blob,
     encrypt_blob,
     generate_master_key,
 )
-from backend.app.services.connectors.sharepoint_otp.errors import (
+from .errors import (
     SharePointApiError,
     SharePointAuthError,
     SharePointConnectorError,
     SharePointLoginRequired,
     SharePointSessionExpired,
 )
-from backend.app.services.connectors.sharepoint_otp.ingester import (
+from .ingester import (
     IngestionResult,
     SharedFolderIngester,
     derive_session_key,
 )
-from backend.app.services.connectors.sharepoint_otp.manifest import (
+from .manifest import (
     MANIFEST_FILENAME,
     ManifestEntry,
     SyncManifest,
 )
-from backend.app.services.connectors.sharepoint_otp.session import (
+from .session import (
     SharePointSession,
     SharePointSessionStore,
     login_via_sharing_link,

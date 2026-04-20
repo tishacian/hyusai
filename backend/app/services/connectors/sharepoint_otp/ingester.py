@@ -29,17 +29,17 @@ from pathlib import Path
 from typing import Callable, ContextManager, Iterator, Protocol
 from urllib.parse import urlparse
 
-from backend.app.services.connectors.sharepoint_otp.client import (
+from .client import (
     SharePointBrowserClient,
     SharePointFile,
     SharePointFolder,
 )
-from backend.app.services.connectors.sharepoint_otp.errors import (
+from .errors import (
     SharePointLoginRequired,
     SharePointSessionExpired,
 )
-from backend.app.services.connectors.sharepoint_otp.manifest import SyncManifest
-from backend.app.services.connectors.sharepoint_otp.session import (
+from .manifest import SyncManifest
+from .session import (
     SharePointSession,
     SharePointSessionStore,
     login_via_sharing_link,
@@ -191,7 +191,7 @@ class SharedFolderIngester:
         primed with a token cache; callers decide ahead of time whether a
         missing account should trigger an interactive prompt.
         """
-        from backend.app.services.connectors.sharepoint_otp.client_msal import (
+        from .client_msal import (
             SharePointMsalClient,
         )
 

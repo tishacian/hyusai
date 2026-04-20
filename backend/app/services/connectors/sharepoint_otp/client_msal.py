@@ -33,16 +33,16 @@ from typing import Iterator
 
 import requests
 
-from backend.app.services.connectors.sharepoint_otp.client import (
+from .client import (
     SharePointFile,
     SharePointFolder,
     _quote_sp_path,
 )
-from backend.app.services.connectors.sharepoint_otp.crypto import (
+from .crypto import (
     decrypt_blob,
     encrypt_blob,
 )
-from backend.app.services.connectors.sharepoint_otp.errors import (
+from .errors import (
     SharePointApiError,
     SharePointLoginRequired,
     SharePointSessionExpired,

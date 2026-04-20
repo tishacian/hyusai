@@ -28,11 +28,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from backend.app.services.connectors.sharepoint_otp.crypto import (
+from .crypto import (
     decrypt_blob,
     encrypt_blob,
 )
-from backend.app.services.connectors.sharepoint_otp.errors import SharePointAuthError
+from .errors import SharePointAuthError
 
 logger = logging.getLogger(__name__)
 

@@ -17,19 +17,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from backend.app.services.connectors.sharepoint_otp.client_msal import (
+from .client_msal import (
     MsalAppConfig,
     SharePointMsalAuth,
 )
-from backend.app.services.connectors.sharepoint_otp.errors import (
+from .errors import (
     SharePointConnectorError,
     SharePointLoginRequired,
 )
-from backend.app.services.connectors.sharepoint_otp.ingester import (
+from .ingester import (
     IngestionResult,
     SharedFolderIngester,
 )
-from backend.app.services.connectors.sharepoint_otp.session import (
+from .session import (
     SharePointSessionStore,
 )
 

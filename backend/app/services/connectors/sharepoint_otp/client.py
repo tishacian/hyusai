@@ -25,11 +25,11 @@ import re
 from pathlib import Path
 from typing import Iterator
 
-from backend.app.services.connectors.sharepoint_otp.errors import (
+from .errors import (
     SharePointApiError,
     SharePointSessionExpired,
 )
-from backend.app.services.connectors.sharepoint_otp.session import SharePointSession
+from .session import SharePointSession
 
 logger = logging.getLogger(__name__)
 

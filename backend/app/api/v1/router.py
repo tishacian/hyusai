@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     tasks,
     evaluation,
     intelligence,
+    sharepoint,
 )
 
 api_router = APIRouter()
@@ -35,3 +36,4 @@ api_router.include_router(voice.router, prefix="/voice", tags=["voice"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(evaluation.router, prefix="/evaluation", tags=["evaluation"])
 api_router.include_router(intelligence.router, prefix="/intelligence", tags=["intelligence"])
+api_router.include_router(sharepoint.router, prefix="/sharepoint", tags=["sharepoint"])
