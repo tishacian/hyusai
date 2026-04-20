@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { SettingsService } from '@app/core/settings.service';
@@ -24,19 +25,43 @@ interface DecisionStep {
   metrics?: Record<string, unknown>;
 }
 
+interface Source {
+  id?: string;
+  document_id?: string;
+  title?: string;
+  filename?: string;
+  snippet?: string;
+  content?: string;
+  text?: string;
+  score?: number;
+  collection?: string;
+  collection_name?: string;
+  page?: number;
+  url?: string;
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   decisionSteps?: DecisionStep[];
-  sources?: unknown[];
+  sources?: Source[];
   feedback?: 'up' | 'down' | null;
+  durationMs?: number;
   evaluation?: {
     composite_score: number;
     scores: Record<string, number>;
     hallucination_rate: number;
     claim_audit?: { claims?: Array<{ text: string; verdict: string; score: number }> };
   } | null;
+}
+
+interface SuggestionCard {
+  icon: string;
+  label: string;
+  prompt: string;
 }
 
 const STEP_ICONS: Record<string, string> = {
@@ -57,7 +82,7 @@ const STEP_ICONS: Record<string, string> = {
   selector: 'app-chat-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, RouterLink, IconComponent],
   template: `
     <div class="flex flex-col h-full">
       <!-- Toolbar -->
@@ -99,16 +124,41 @@ const STEP_ICONS: Record<string, string> = {
         style="max-height: calc(100vh - 320px); min-height: 360px;"
       >
         @if (messages().length === 0 && !streaming()) {
-          <div class="h-full flex flex-col items-center justify-center text-center py-10">
+          <div class="h-full flex flex-col items-center justify-center py-8">
             <div
               class="w-12 h-12 rounded-full bg-gradient-to-br from-brand-500/20 to-violet-500/20 flex items-center justify-center mb-3"
             >
               <app-icon name="sparkles" [size]="20" class="text-brand-300" />
             </div>
-            <div class="text-sm font-semibold text-white">Start a conversation</div>
-            <p class="text-xs text-gray-500 mt-1 max-w-xs">
-              Ask a question, explore your corpus, or inspect how the agent reasons step by step.
+            <div class="text-sm font-semibold text-gray-900 dark:text-white">
+              Start a conversation
+            </div>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xs text-center">
+              Try one of these prompts or ask anything about your corpus.
             </p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-5 w-full max-w-2xl">
+              @for (s of suggestions; track s.prompt) {
+                <button
+                  type="button"
+                  class="text-left px-3 py-2.5 rounded-md ring-1 ring-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:ring-brand-500/30 transition group"
+                  (click)="useSuggestion(s)"
+                >
+                  <div class="flex items-center gap-2 mb-1">
+                    <div
+                      class="w-6 h-6 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 group-hover:bg-brand-500/20 transition shrink-0"
+                    >
+                      <app-icon [name]="s.icon" [size]="12" />
+                    </div>
+                    <span class="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
+                      {{ s.label }}
+                    </span>
+                  </div>
+                  <p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">
+                    {{ s.prompt }}
+                  </p>
+                </button>
+              }
+            </div>
           </div>
         }
 
@@ -197,11 +247,105 @@ const STEP_ICONS: Record<string, string> = {
               <!-- Content -->
               <div class="flex justify-start">
                 <div
-                  class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-white/5"
+                  class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5"
                 >
                   {{ msg.content || '(no response)' }}
                 </div>
               </div>
+
+              <!-- Sources / citations -->
+              @if (msg.sources && msg.sources.length > 0) {
+                <div class="ml-0 space-y-1.5">
+                  <button
+                    type="button"
+                    class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-300 font-semibold"
+                    (click)="toggleSources(msg.id)"
+                  >
+                    <app-icon
+                      [name]="isSourcesOpen(msg.id) ? 'chevron-down' : 'chevron-right'"
+                      [size]="12"
+                    />
+                    <app-icon name="book-open" [size]="12" class="text-brand-400" />
+                    Sources · {{ msg.sources.length }}
+                  </button>
+                  @if (isSourcesOpen(msg.id)) {
+                    <ol class="space-y-1.5 pl-1">
+                      @for (src of msg.sources; track $index; let i = $index) {
+                        <li
+                          class="rounded-md px-3 py-2 text-[12px] bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5"
+                        >
+                          <div class="flex items-center gap-2 mb-0.5">
+                            <span
+                              class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-brand-500/15 text-brand-400"
+                            >
+                              {{ i + 1 }}
+                            </span>
+                            <span class="font-medium text-gray-900 dark:text-white truncate">
+                              {{ sourceTitle(src) }}
+                            </span>
+                            @if (sourceCollection(src); as col) {
+                              <span
+                                class="text-[9px] uppercase tracking-wider text-gray-500 font-mono shrink-0"
+                              >
+                                {{ col }}
+                              </span>
+                            }
+                            @if (src.score != null) {
+                              <span
+                                class="ml-auto font-mono text-[10px] text-emerald-500 dark:text-emerald-400 shrink-0"
+                              >
+                                {{ scoreDisplay(src.score) }}
+                              </span>
+                            }
+                          </div>
+                          @if (sourceSnippet(src); as snippet) {
+                            <p class="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-3">
+                              {{ snippet }}
+                            </p>
+                          }
+                        </li>
+                      }
+                    </ol>
+                  }
+                </div>
+              }
+
+              <!-- Task summary -->
+              @if (msg.decisionSteps && msg.decisionSteps.length > 0) {
+                <div
+                  class="ml-0 mt-1 rounded-md px-3 py-2 bg-gradient-to-r from-brand-500/5 to-violet-500/5 ring-1 ring-brand-500/15 flex items-center gap-3 text-[11px] text-gray-700 dark:text-gray-300"
+                >
+                  <app-icon name="circle-dot" [size]="11" class="text-brand-400 shrink-0" />
+                  <span class="font-medium">
+                    {{ msg.decisionSteps.length }} step{{ msg.decisionSteps.length > 1 ? 's' : '' }}
+                  </span>
+                  @if (msg.durationMs) {
+                    <span class="font-mono text-gray-500">· {{ msg.durationMs }}ms</span>
+                  }
+                  @if (msg.sources?.length) {
+                    <span class="font-mono text-gray-500">· {{ msg.sources!.length }} sources</span>
+                  }
+                  @if (msg.evaluation) {
+                    <span class="font-mono text-emerald-500 dark:text-emerald-400">
+                      · {{ msg.evaluation.composite_score.toFixed(1) }}/100
+                    </span>
+                  }
+                  <a
+                    routerLink="/observability/traces"
+                    class="ml-auto text-brand-500 hover:text-brand-400 inline-flex items-center gap-1"
+                  >
+                    <app-icon name="git-commit" [size]="11" />
+                    Trace
+                  </a>
+                  <a
+                    routerLink="/observability"
+                    class="text-brand-500 hover:text-brand-400 inline-flex items-center gap-1"
+                  >
+                    <app-icon name="activity" [size]="11" />
+                    Quality
+                  </a>
+                </div>
+              }
 
               <!-- Post-chat audit toolbar -->
               <div class="flex items-center gap-1.5 ml-2 text-[11px] text-gray-500">
@@ -388,9 +532,34 @@ export class ChatPanelComponent {
   ttsEnabled = signal(false);
 
   private readonly openTrails = signal<Set<string>>(new Set());
+  private readonly openSources = signal<Set<string>>(new Set());
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
   private currentAudio: HTMLAudioElement | null = null;
+  private streamStart = 0;
+
+  readonly suggestions: SuggestionCard[] = [
+    {
+      icon: 'file-search',
+      label: 'Summarize corpus',
+      prompt: 'Summarize the most important findings across my indexed documents.',
+    },
+    {
+      icon: 'compass',
+      label: 'Explore entities',
+      prompt: 'What are the key people, organizations and topics mentioned recently?',
+    },
+    {
+      icon: 'binary',
+      label: 'Cite sources',
+      prompt: 'Answer with exact quotes and cite the source documents you used.',
+    },
+    {
+      icon: 'shield-check',
+      label: 'Policy check',
+      prompt: 'Is there any compliance risk in my recent knowledge base updates?',
+    },
+  ];
 
   constructor() {
     this.settings.refresh();
@@ -409,6 +578,56 @@ export class ChatPanelComponent {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     this.openTrails.set(next);
+  }
+
+  isSourcesOpen(id: string): boolean {
+    return this.openSources().has(id);
+  }
+
+  toggleSources(id: string): void {
+    const next = new Set(this.openSources());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.openSources.set(next);
+  }
+
+  sourceTitle(src: Source): string {
+    return (
+      (src.title as string | undefined) ||
+      (src.filename as string | undefined) ||
+      (src.document_id as string | undefined) ||
+      ((src.metadata as any)?.title as string | undefined) ||
+      ((src.metadata as any)?.filename as string | undefined) ||
+      'Source'
+    );
+  }
+
+  sourceCollection(src: Source): string {
+    return (
+      (src.collection as string | undefined) ||
+      (src.collection_name as string | undefined) ||
+      ((src.metadata as any)?.collection as string | undefined) ||
+      ''
+    );
+  }
+
+  sourceSnippet(src: Source): string {
+    const raw =
+      (src.snippet as string | undefined) ||
+      (src.content as string | undefined) ||
+      (src.text as string | undefined) ||
+      '';
+    return raw.length > 240 ? raw.slice(0, 240).trim() + '…' : raw;
+  }
+
+  scoreDisplay(score: number | undefined): string {
+    if (score == null || Number.isNaN(score)) return '';
+    return score <= 1 ? (score * 100).toFixed(0) + '%' : score.toFixed(2);
+  }
+
+  useSuggestion(s: SuggestionCard): void {
+    this.userInput = s.prompt;
+    this.send();
   }
 
   iconFor(step: DecisionStep): string {
@@ -436,11 +655,12 @@ export class ChatPanelComponent {
     this.streaming.set(true);
     this.streamBuffer.set('');
     this.liveSteps.set([]);
+    this.streamStart = Date.now();
 
     const s = this.settings.settings();
     let buffer = '';
     let reasoning: DecisionStep[] = [];
-    let sources: unknown[] | undefined;
+    let sources: Source[] | undefined;
 
     this.sse
       .stream('/api/v1/chat/stream', {
@@ -476,22 +696,34 @@ export class ChatPanelComponent {
             buffer += `\n\n⚠ ${chunk.content}`;
             this.streamBuffer.set(buffer);
           } else if (chunk.sources && Array.isArray(chunk.sources)) {
-            sources = chunk.sources;
+            sources = chunk.sources as Source[];
           } else if (chunk.type === 'done') {
+            const durationMs = Date.now() - this.streamStart;
+            const assistantId = cryptoId();
             const assistantMsg: ChatMessage = {
-              id: cryptoId(),
+              id: assistantId,
               role: 'assistant',
               content: buffer,
               decisionSteps: reasoning.length ? reasoning : undefined,
               sources,
               feedback: null,
               evaluation: null,
+              durationMs,
             };
             this.messages.update((m) => [...m, assistantMsg]);
             this.streaming.set(false);
             this.streamBuffer.set('');
             this.liveSteps.set([]);
             this.persistLastEvalContext(text, buffer);
+            this.logAudit('chat_query', {
+              message_id: assistantId,
+              agent_id: this.systemId(),
+              query_length: text.length,
+              response_length: buffer.length,
+              sources: sources?.length ?? 0,
+              steps: reasoning.length,
+              duration_ms: durationMs,
+            });
             if (this.ttsEnabled() && buffer.trim()) this.playTTS(buffer);
           }
         },
@@ -516,7 +748,11 @@ export class ChatPanelComponent {
       msgs.map((m) => (m.id === msg.id ? { ...m, feedback: verdict } : m)),
     );
     this.toast.success(verdict === 'up' ? 'Marked as helpful' : 'Feedback recorded', 'Thanks');
-    // TODO (B2): wire to /audit once backend endpoint exists.
+    this.logAudit('chat_feedback', {
+      message_id: msg.id,
+      agent_id: this.systemId(),
+      verdict,
+    });
   }
 
   copy(text: string): void {
@@ -549,6 +785,12 @@ export class ChatPanelComponent {
             `Composite score ${Number(res?.composite_score ?? 0).toFixed(1)}/100`,
             'Fact-check',
           );
+          this.logAudit('evaluation_run', {
+            message_id: msg.id,
+            agent_id: this.systemId(),
+            composite_score: Number(res?.composite_score ?? 0),
+            hallucination_rate: Number(res?.hallucination_rate ?? 0),
+          });
           this.evaluatingId.set(null);
         },
         error: (err) => {
@@ -626,6 +868,25 @@ export class ChatPanelComponent {
       if (msgs[i].role === 'user') return msgs[i];
     }
     return undefined;
+  }
+
+  private logAudit(event_type: string, details: Record<string, unknown>): void {
+    this.api
+      .post('/audit', {
+        event_type,
+        actor: 'user',
+        details,
+        agent_id: this.systemId(),
+        severity: 'info',
+      })
+      .subscribe({
+        next: () => {
+          /* non-blocking */
+        },
+        error: () => {
+          /* non-blocking */
+        },
+      });
   }
 
   private persistLastEvalContext(query: string, response: string): void {

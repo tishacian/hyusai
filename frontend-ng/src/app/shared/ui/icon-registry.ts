@@ -185,6 +185,8 @@ import {
   Binary,
   Waves,
   BarChart2,
+  FileSearch,
+  Compass,
 } from 'lucide-angular';
 
 const ICONS = {
@@ -365,6 +367,8 @@ const ICONS = {
   Binary,
   Waves,
   BarChart2,
+  FileSearch,
+  Compass,
 };
 
 /**

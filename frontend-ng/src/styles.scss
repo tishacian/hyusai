@@ -445,6 +445,70 @@ lucide-icon svg {
 }
 
 /* ============================================================================
+   Light-mode polish — remap dark-biased Tailwind utilities to token colours
+   so pages authored against the dark theme remain legible in light mode.
+   Uses attribute selectors to avoid escaping forward-slash opacity modifiers.
+   ============================================================================ */
+html:not(.dark) {
+  /* Text — dark-biased greys become slate tokens */
+  [class~='text-white'] { color: var(--text-primary); }
+  [class~='text-gray-100'] { color: var(--text-primary); }
+  [class~='text-gray-200'] { color: var(--text-primary); }
+  [class~='text-gray-300'] { color: var(--text-secondary); }
+  [class~='text-gray-400'] { color: var(--text-secondary); }
+  [class~='text-gray-500'] { color: var(--text-muted); }
+  [class~='text-gray-600'] { color: var(--text-muted); }
+
+  /* White translucent overlays → dark translucent so they stay visible on light. */
+  [class~='bg-white/5'] { background-color: rgb(15 23 42 / 0.04); }
+  [class~='bg-white/[0.02]'] { background-color: rgb(15 23 42 / 0.025); }
+  [class~='bg-white/[0.03]'] { background-color: rgb(15 23 42 / 0.03); }
+  [class~='bg-white/[0.04]'] { background-color: rgb(15 23 42 / 0.04); }
+  [class~='bg-white/[0.06]'] { background-color: rgb(15 23 42 / 0.05); }
+  [class~='bg-white/10'] { background-color: rgb(15 23 42 / 0.06); }
+  [class~='bg-white/15'] { background-color: rgb(15 23 42 / 0.08); }
+  [class~='bg-white/20'] { background-color: rgb(15 23 42 / 0.1); }
+
+  /* Hover versions */
+  [class~='hover:bg-white/5']:hover { background-color: rgb(15 23 42 / 0.05); }
+  [class~='hover:bg-white/10']:hover { background-color: rgb(15 23 42 / 0.07); }
+  [class~='hover:bg-white/[0.06]']:hover { background-color: rgb(15 23 42 / 0.06); }
+
+  /* Ring / border whites → slate tokens (rings use --tw-ring-color). */
+  [class~='ring-white/5'] { --tw-ring-color: rgb(15 23 42 / 0.06); }
+  [class~='ring-white/10'] { --tw-ring-color: rgb(15 23 42 / 0.1); }
+  [class~='ring-white/20'] { --tw-ring-color: rgb(15 23 42 / 0.14); }
+  [class~='hover:ring-white/10']:hover { --tw-ring-color: rgb(15 23 42 / 0.12); }
+  [class~='border-white/5'] { border-color: rgb(15 23 42 / 0.06); }
+  [class~='border-white/10'] { border-color: rgb(15 23 42 / 0.1); }
+  [class~='border-white/20'] { border-color: rgb(15 23 42 / 0.14); }
+
+  /* Dark backgrounds used for inputs / panels → subtle slate tint. */
+  [class~='bg-black/20'] { background-color: rgb(15 23 42 / 0.03); }
+  [class~='bg-black/30'] { background-color: rgb(15 23 42 / 0.04); }
+  [class~='bg-black/40'] { background-color: rgb(15 23 42 / 0.05); }
+
+  /* Placeholder greys. */
+  [class~='placeholder-gray-500']::placeholder { color: var(--text-muted); }
+
+  /* Buttons & selects: default Tailwind focus rings look fine once ring colour is retinted */
+  input, textarea, select {
+    background-color: #ffffff;
+    border-color: var(--border-default);
+    color: var(--text-primary);
+  }
+  input::placeholder,
+  textarea::placeholder { color: var(--text-muted); }
+
+  /* Tab indicator border that uses `border-brand-500` is fine; inactive tabs rely on text-gray-400 handled above. */
+
+  /* Chat gradients use rgba colours directly; nudge opacity so they sit nicely on white. */
+  .prose-chat {
+    color: var(--text-primary);
+  }
+}
+
+/* ============================================================================
    Perf helpers
    ============================================================================ */
 

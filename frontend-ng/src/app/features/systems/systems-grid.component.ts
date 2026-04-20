@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
@@ -8,7 +8,23 @@ import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
+import { ApiService } from '@app/core/api.service';
 import { SystemsStore, SystemAgent } from './systems.store';
+
+interface TraceRow {
+  trace_id?: string;
+  agent_id?: string;
+  duration_ms?: number;
+  operation_type?: string;
+  timestamp?: string;
+  created_at?: string;
+}
+
+interface AgentStats {
+  runs: number;
+  avgLatency: number;
+  lastRun: string | null;
+}
 
 interface Template {
   id: string;
@@ -169,15 +185,21 @@ interface Template {
             <div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-white/5">
               <div>
                 <div class="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Runs</div>
-                <div class="text-sm font-semibold text-white tabular-nums">{{ agent.draft ? '—' : stub(agent.id, 1) }}</div>
+                <div class="text-sm font-semibold text-white tabular-nums">
+                  {{ statsFor(agent.id).runs > 0 ? statsFor(agent.id).runs : '—' }}
+                </div>
               </div>
               <div>
-                <div class="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">ROI</div>
-                <div class="text-sm font-semibold text-emerald-400 tabular-nums">{{ agent.draft ? '—' : '+' + stub(agent.id, 2) + '%' }}</div>
+                <div class="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Avg ms</div>
+                <div class="text-sm font-semibold text-white tabular-nums">
+                  {{ statsFor(agent.id).avgLatency > 0 ? statsFor(agent.id).avgLatency : '—' }}
+                </div>
               </div>
               <div>
-                <div class="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Saved</div>
-                <div class="text-sm font-semibold text-white tabular-nums">{{ agent.draft ? '—' : stub(agent.id, 3) + 'h' }}</div>
+                <div class="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Last run</div>
+                <div class="text-sm font-semibold text-gray-300 truncate">
+                  {{ statsFor(agent.id).lastRun ?? '—' }}
+                </div>
               </div>
             </div>
 
@@ -309,9 +331,50 @@ export class SystemsGridComponent implements OnInit {
   protected readonly store = inject(SystemsStore);
   private readonly router = inject(Router);
   private readonly toastr = inject(ToastrService);
+  private readonly api = inject(ApiService);
 
   prompt = '';
   drawerOpen = signal(false);
+  private readonly traces = signal<TraceRow[]>([]);
+
+  readonly statsByAgent = computed<Record<string, AgentStats>>(() => {
+    const out: Record<string, AgentStats> = {};
+    for (const t of this.traces()) {
+      const id = t.agent_id ?? '';
+      if (!id) continue;
+      const cur = out[id] ?? { runs: 0, avgLatency: 0, lastRun: null };
+      cur.runs += 1;
+      if (t.duration_ms) {
+        cur.avgLatency =
+          cur.runs === 1
+            ? Math.round(t.duration_ms)
+            : Math.round(((cur.avgLatency * (cur.runs - 1)) + t.duration_ms) / cur.runs);
+      }
+      const ts = t.timestamp ?? t.created_at ?? null;
+      if (ts && (!cur.lastRun || ts > cur.lastRun)) cur.lastRun = ts;
+      out[id] = cur;
+    }
+    return out;
+  });
+
+  statsFor(id: string): AgentStats {
+    const s = this.statsByAgent()[id];
+    if (!s) return { runs: 0, avgLatency: 0, lastRun: null };
+    return { ...s, lastRun: s.lastRun ? this.formatRelative(s.lastRun) : null };
+  }
+
+  private formatRelative(iso: string): string {
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return '';
+    const diff = Date.now() - t;
+    const minute = 60_000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    if (diff < minute) return 'now';
+    if (diff < hour) return Math.round(diff / minute) + 'm';
+    if (diff < day) return Math.round(diff / hour) + 'h';
+    return Math.round(diff / day) + 'd';
+  }
 
   form = {
     name: '',
@@ -335,6 +398,10 @@ export class SystemsGridComponent implements OnInit {
 
   ngOnInit(): void {
     this.store.load().subscribe();
+    this.api.get<{ traces: TraceRow[] }>('/traces/traces').subscribe({
+      next: (res) => this.traces.set(res?.traces ?? []),
+      error: () => this.traces.set([]),
+    });
   }
 
   applyTemplate(tpl: Template): void {
@@ -411,12 +478,4 @@ export class SystemsGridComponent implements OnInit {
     return 'bot';
   }
 
-  stub(seed: string, k: number): number {
-    let h = 0;
-    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-    const mix = (h >>> (k * 3)) & 0xffff;
-    if (k === 1) return (mix % 900) + 100;
-    if (k === 2) return (mix % 40) + 10;
-    return (mix % 20) + 2;
-  }
 }

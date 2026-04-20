@@ -1,13 +1,37 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
+import { ApiService } from '@app/core/api.service';
 import { SettingsService } from '@app/core/settings.service';
 import { SystemsStore } from './systems.store';
+
+interface MetricsSummary {
+  total_requests?: number;
+  total_errors?: number;
+  error_rate_percent?: number;
+  metrics_count?: number;
+}
+
+interface LatestEvaluation {
+  composite_score?: number;
+  hallucination_rate?: number;
+  claim_audit?: unknown;
+  created_at?: string | null;
+}
+
+interface TraceRow {
+  trace_id?: string;
+  duration_ms?: number;
+  agent_id?: string;
+  operation_type?: string;
+}
 
 interface TabDef {
   id: 'overview' | 'design' | 'runs' | 'settings';
@@ -116,52 +140,57 @@ interface PipelineStage {
         <!-- KPI row — each tile is actionable and routes to observability -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <app-stat-tile
-            label="Runs"
-            value="—"
-            hint="last 7d"
+            label="Requests"
+            [value]="kpiRequests()"
+            hint="since restart"
             icon="play-circle"
             [interactive]="true"
             (click)="goto('/observability/performance')"
           />
           <app-stat-tile
-            label="Tokens"
-            value="—"
-            hint="last 7d"
-            icon="sparkles"
+            label="Errors"
+            [value]="kpiErrors()"
+            [trend]="errorsTrend()"
+            icon="alert-triangle"
             [interactive]="true"
             (click)="goto('/observability/performance')"
           />
           <app-stat-tile
-            label="Latency"
-            value="—"
+            label="Avg latency"
+            [value]="kpiLatency()"
             unit="ms"
             icon="gauge"
             [interactive]="true"
-            (click)="goto('/observability/performance')"
+            (click)="goto('/observability/traces')"
           />
           <app-stat-tile
             label="Quality"
-            value="—"
-            unit="%"
+            [value]="kpiQuality()"
+            unit="/100"
             icon="target"
             [interactive]="true"
             (click)="goto('/observability')"
           />
           <app-stat-tile
-            label="Cost"
-            value="—"
-            icon="trending-down"
+            label="Error rate"
+            [value]="kpiErrorRate()"
+            unit="%"
+            [trend]="errorRateTrend()"
+            icon="alert-circle"
             [interactive]="true"
             (click)="goto('/observability/performance')"
           />
           <app-stat-tile
             label="Traces"
-            value="—"
+            [value]="kpiTraces()"
             icon="git-commit"
             [interactive]="true"
             (click)="goto('/observability/traces')"
           />
         </div>
+        @if (kpisLoading()) {
+          <p class="text-[11px] text-gray-500 -mt-2">Loading metrics…</p>
+        }
 
         <!-- Setup wizard — each step has an actionable CTA -->
         <section class="t-card t-elevated rounded-md p-6">
@@ -374,6 +403,7 @@ export class SystemViewComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly store = inject(SystemsStore);
+  private readonly api = inject(ApiService);
   readonly settings = inject(SettingsService);
 
   systemId = '';
@@ -381,6 +411,40 @@ export class SystemViewComponent implements OnInit {
   agentDescription = signal('');
   isDraft = signal(false);
   activeTab = signal<TabDef['id']>('overview');
+
+  private readonly metrics = signal<MetricsSummary | null>(null);
+  private readonly latestEval = signal<LatestEvaluation | null>(null);
+  private readonly traces = signal<TraceRow[]>([]);
+  private readonly hasCollections = signal(false);
+  readonly kpisLoading = signal(false);
+
+  readonly kpiRequests = computed(() => this.metrics()?.total_requests ?? '—');
+  readonly kpiErrors = computed(() => this.metrics()?.total_errors ?? '—');
+  readonly kpiErrorRate = computed(() => {
+    const rate = this.metrics()?.error_rate_percent;
+    return rate == null ? '—' : rate.toFixed(1);
+  });
+  readonly kpiQuality = computed(() => {
+    const s = this.latestEval()?.composite_score;
+    return s == null ? '—' : s.toFixed(1);
+  });
+  readonly kpiTraces = computed(() => this.traces().length || '—');
+  readonly errorRateTrend = computed<'up' | null>(() => {
+    const rate = this.metrics()?.error_rate_percent;
+    return rate != null && rate > 0 ? 'up' : null;
+  });
+  readonly errorsTrend = computed<'up' | null>(() => {
+    const e = this.metrics()?.total_errors ?? 0;
+    return e > 0 ? 'up' : null;
+  });
+  readonly kpiLatency = computed(() => {
+    const rows = this.traces();
+    if (!rows.length) return '—';
+    const vals = rows.map((r) => r.duration_ms ?? 0).filter((v) => v > 0);
+    if (!vals.length) return '—';
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return Math.round(avg).toString();
+  });
 
   readonly tabs: TabDef[] = [
     { id: 'overview', label: 'Overview', icon: 'layout-dashboard' },
@@ -411,7 +475,7 @@ export class SystemViewComponent implements OnInit {
         icon: 'database',
         cta: 'Open Knowledge',
         route: '/knowledge',
-        done: false,
+        done: this.hasCollections(),
       },
       {
         key: 'model',
@@ -496,16 +560,44 @@ export class SystemViewComponent implements OnInit {
       this.agentName.set(local.name);
       this.agentDescription.set(local.description || '');
       this.isDraft.set(!!local.draft);
-      return;
+    } else {
+      this.store.getById(this.systemId).subscribe({
+        next: (agent) => {
+          if (!agent) return;
+          this.agentName.set(agent.name);
+          this.agentDescription.set(agent.description || '');
+          this.isDraft.set(!!agent.draft);
+        },
+        error: () => {},
+      });
     }
-    this.store.getById(this.systemId).subscribe({
-      next: (agent) => {
-        if (!agent) return;
-        this.agentName.set(agent.name);
-        this.agentDescription.set(agent.description || '');
-        this.isDraft.set(!!agent.draft);
-      },
-      error: () => {},
+    this.loadKpis();
+  }
+
+  private loadKpis(): void {
+    this.kpisLoading.set(true);
+    forkJoin({
+      metrics: this.api
+        .get<MetricsSummary>('/metrics/summary')
+        .pipe(catchError(() => of({} as MetricsSummary))),
+      evaluation: this.api
+        .get<{ evaluation: LatestEvaluation | null }>('/evaluation/latest', {
+          agent_id: this.systemId,
+        })
+        .pipe(catchError(() => of({ evaluation: null }))),
+      traces: this.api
+        .get<{ traces: TraceRow[] }>('/traces/traces')
+        .pipe(catchError(() => of({ traces: [] as TraceRow[] }))),
+      collections: this.api
+        .get<{ collections: string[] }>('/documents/collections')
+        .pipe(catchError(() => of({ collections: [] as string[] }))),
+    }).subscribe(({ metrics, evaluation, traces, collections }) => {
+      this.metrics.set(metrics ?? null);
+      this.latestEval.set(evaluation?.evaluation ?? null);
+      const all = traces?.traces ?? [];
+      this.traces.set(all.filter((t) => !this.systemId || t.agent_id === this.systemId));
+      this.hasCollections.set((collections?.collections?.length ?? 0) > 0);
+      this.kpisLoading.set(false);
     });
   }
 }
