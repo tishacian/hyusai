@@ -61,6 +61,16 @@ export const routes: Routes = [
         loadChildren: () =>
           import('./features/settings/settings.routes').then((m) => m.settingsRoutes),
       },
+      {
+        path: 'tasks',
+        loadChildren: () =>
+          import('./features/tasks/tasks.routes').then((m) => m.tasksRoutes),
+      },
+      {
+        path: 'resources',
+        loadChildren: () =>
+          import('./features/resources/resources.routes').then((m) => m.resourcesRoutes),
+      },
     ],
   },
   { path: '**', redirectTo: '' },

@@ -1,7 +1,8 @@
-import { Component } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 interface Capability {
   key: string;
@@ -29,12 +30,21 @@ interface Role {
       icon="shield-check"
       subtitle="Who can do what inside this workspace."
     >
-      <a
-        routerLink="/workspace/members"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
-      >
-        <app-icon name="users" [size]="14" /> Manage members
-      </a>
+      @if (membersLink(); as link) {
+        <a
+          [routerLink]="link"
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+        >
+          <app-icon name="users" [size]="14" /> Manage members
+        </a>
+      } @else {
+        <span
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-400 ring-1 ring-white/10"
+          title="Select a workspace first"
+        >
+          <app-icon name="users" [size]="14" /> Manage members
+        </span>
+      }
     </app-section-header>
 
     <!-- Role overview -->
@@ -116,6 +126,13 @@ interface Role {
   `,
 })
 export class AccessRolesComponent {
+  private readonly workspace = inject(WorkspaceService);
+
+  readonly membersLink = computed<unknown[] | null>(() => {
+    const current = this.workspace.current();
+    return current ? ['/workspace', current.slug, 'members'] : null;
+  });
+
   readonly roles: Role[] = [
     { key: 'owner', label: 'Owner', icon: 'crown', tone: 'amber', tagline: 'Full control, including billing and deletion.' },
     { key: 'admin', label: 'Admin', icon: 'shield-check', tone: 'brand', tagline: 'Manage members, systems and knowledge.' },

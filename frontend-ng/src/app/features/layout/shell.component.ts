@@ -385,6 +385,7 @@ export class ShellComponent {
         { label: 'Systems', icon: 'layers', route: '/systems' },
         { label: 'Knowledge', icon: 'database', route: '/knowledge' },
         { label: 'Orchestration', icon: 'workflow', route: '/orchestration' },
+        { label: 'Missions', icon: 'list-todo', route: '/tasks' },
       ],
     },
     {
@@ -400,7 +401,10 @@ export class ShellComponent {
     },
     {
       title: 'Configure',
-      items: [{ label: 'Settings', icon: 'sliders-horizontal', route: '/settings' }],
+      items: [
+        { label: 'Resources', icon: 'plug', route: '/resources' },
+        { label: 'Settings', icon: 'sliders-horizontal', route: '/settings' },
+      ],
     },
   ];
 
