@@ -43,11 +43,20 @@ export class SseService {
     const wsSlug = this.workspaceService.currentSlug();
     if (wsSlug) headers['X-Workspace-Slug'] = wsSlug;
 
+    // `done` must be emitted exactly once per stream, whether triggered by
+    // the upstream `[DONE]` sentinel, a natural close, or a transport error.
+    let doneEmitted = false;
+    const emitDone = () => {
+      if (doneEmitted) return;
+      doneEmitted = true;
+      subject.next({ type: 'done' });
+    };
+
     fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
       .then(async (response) => {
         if (!response.ok || !response.body) {
           subject.next({ chunk_type: 'error', content: `HTTP ${response.status}`, is_final: true });
-          subject.next({ type: 'done' });
+          emitDone();
           subject.complete();
           return;
         }
@@ -63,7 +72,7 @@ export class SseService {
           if (payload.startsWith('data:')) payload = payload.slice(5).trimStart();
           if (!payload) return;
           if (payload === '[DONE]') {
-            subject.next({ type: 'done' });
+            emitDone();
             return;
           }
           try {
@@ -101,12 +110,12 @@ export class SseService {
         }
 
         if (buffer.trim()) emitFrame(buffer.trim());
-        subject.next({ type: 'done' });
+        emitDone();
         subject.complete();
       })
       .catch((err) => {
         subject.next({ chunk_type: 'error', content: String(err), is_final: true });
-        subject.next({ type: 'done' });
+        emitDone();
         subject.complete();
       });
 

@@ -42,9 +42,9 @@ interface FlowTemplate {
   template: `
     <app-section-header
       breadcrumb="Build"
-      title="Orchestration"
+      title="Flow builder"
       icon="workflow"
-      subtitle="Compose multi-step agent flows with retrieval, tools and guardrails."
+      subtitle="Compose and preview a system's pipeline — retrieval, tools, guardrails, routing."
     >
       <div class="flex items-center gap-2">
         <app-status-pulse tone="accent" label="Draft" />

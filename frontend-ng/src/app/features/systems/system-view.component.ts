@@ -1,11 +1,12 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
+import { SettingsService } from '@app/core/settings.service';
 import { SystemsStore } from './systems.store';
 
 interface TabDef {
@@ -15,8 +16,23 @@ interface TabDef {
 }
 
 interface WizardStep {
+  key: 'identity' | 'knowledge' | 'model' | 'guardrails' | 'launch';
   title: string;
+  description: string;
+  icon: string;
+  cta: string;
+  route: string | unknown[];
   done: boolean;
+}
+
+interface PipelineStage {
+  key: 'query' | 'retrieve' | 'rerank' | 'generate';
+  name: string;
+  icon: string;
+  description: string;
+  configureLabel: string;
+  route: string | unknown[];
+  tone: 'brand' | 'violet' | 'emerald';
 }
 
 @Component({
@@ -25,6 +41,7 @@ interface WizardStep {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     NgClass,
+    RouterLink,
     ChatPanelComponent,
     IconComponent,
     SectionHeaderComponent,
@@ -40,6 +57,13 @@ interface WizardStep {
       [pill]="isDraft() ? 'Draft' : ''"
     >
       <app-status-pulse [tone]="isDraft() ? 'warning' : 'success'" [label]="isDraft() ? 'Draft' : 'Ready'" />
+      <button
+        type="button"
+        (click)="activeTab.set('runs')"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+      >
+        <app-icon name="message-square" [size]="14" /> Open playground
+      </button>
     </app-section-header>
 
     <div class="flex items-center gap-1 border-b border-white/5 mb-6">
@@ -62,7 +86,7 @@ interface WizardStep {
     <!-- Overview -->
     @if (activeTab() === 'overview') {
       <div class="space-y-6">
-        <!-- OmniRAG banner -->
+        <!-- OmniRAG banner: each stage links to the matching configuration -->
         <div
           class="relative overflow-hidden t-card rounded-md p-5"
           style="background: linear-gradient(135deg, rgba(0,188,212,0.08) 0%, rgba(139,92,246,0.08) 100%); border: 1px solid rgba(0,188,212,0.25);"
@@ -71,12 +95,16 @@ interface WizardStep {
           <div class="relative flex items-center gap-3 flex-wrap">
             <app-icon name="atom" [size]="18" class="text-brand-400" />
             <span class="text-xs uppercase tracking-wider font-semibold text-brand-300">OmniRAG pipeline</span>
-            <div class="flex items-center gap-2 ml-auto text-[11px] text-gray-300">
-              @for (step of pipelineSteps; track step.name; let last = $last) {
-                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 ring-1 ring-white/10">
-                  <app-icon [name]="step.icon" [size]="11" class="text-brand-400" />
-                  {{ step.name }}
-                </span>
+            <div class="flex items-center gap-2 ml-auto text-[11px]">
+              @for (stage of pipelineStages; track stage.key; let last = $last) {
+                <a
+                  [routerLink]="stage.route"
+                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 ring-1 ring-white/10 text-gray-200 hover:bg-white/10 hover:ring-brand-500/40 transition"
+                  [title]="'Open ' + stage.configureLabel"
+                >
+                  <app-icon [name]="stage.icon" [size]="11" class="text-brand-400" />
+                  {{ stage.name }}
+                </a>
                 @if (!last) {
                   <app-icon name="chevron-right" [size]="12" class="text-gray-600" />
                 }
@@ -85,46 +113,104 @@ interface WizardStep {
           </div>
         </div>
 
-        <!-- KPI row -->
+        <!-- KPI row — each tile is actionable and routes to observability -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <app-stat-tile label="Runs" value="1,284" icon="play-circle" trend="up" delta="+12%" />
-          <app-stat-tile label="Tokens" value="4.8M" icon="sparkles" trend="up" delta="+5%" />
-          <app-stat-tile label="Latency" value="842" unit="ms" icon="gauge" trend="down" delta="-8%" />
-          <app-stat-tile label="Quality" value="94" unit="%" icon="target" trend="up" delta="+2%" />
-          <app-stat-tile label="Cost" value="$38.20" icon="trending-down" trend="down" delta="-4%" />
-          <app-stat-tile label="Users" value="37" icon="users" trend="up" delta="+3" />
+          <app-stat-tile
+            label="Runs"
+            value="—"
+            hint="last 7d"
+            icon="play-circle"
+            [interactive]="true"
+            (click)="goto('/observability/performance')"
+          />
+          <app-stat-tile
+            label="Tokens"
+            value="—"
+            hint="last 7d"
+            icon="sparkles"
+            [interactive]="true"
+            (click)="goto('/observability/performance')"
+          />
+          <app-stat-tile
+            label="Latency"
+            value="—"
+            unit="ms"
+            icon="gauge"
+            [interactive]="true"
+            (click)="goto('/observability/performance')"
+          />
+          <app-stat-tile
+            label="Quality"
+            value="—"
+            unit="%"
+            icon="target"
+            [interactive]="true"
+            (click)="goto('/observability')"
+          />
+          <app-stat-tile
+            label="Cost"
+            value="—"
+            icon="trending-down"
+            [interactive]="true"
+            (click)="goto('/observability/performance')"
+          />
+          <app-stat-tile
+            label="Traces"
+            value="—"
+            icon="git-commit"
+            [interactive]="true"
+            (click)="goto('/observability/traces')"
+          />
         </div>
 
-        <!-- Setup wizard -->
+        <!-- Setup wizard — each step has an actionable CTA -->
         <section class="t-card t-elevated rounded-md p-6">
           <div class="flex items-center gap-2 mb-4">
             <app-icon name="list-checks" [size]="16" class="text-brand-400" />
             <h3 class="text-base font-semibold text-white">Setup checklist</h3>
-            <span class="ml-auto text-xs text-gray-400">{{ completedSteps() }} / {{ wizard.length }} done</span>
+            <span class="ml-auto text-xs text-gray-400">{{ completedSteps() }} / {{ wizard().length }} done</span>
           </div>
 
           <div class="w-full h-1.5 rounded-full bg-white/5 overflow-hidden mb-4">
             <div
               class="h-full rounded-full bg-gradient-to-r from-brand-500 to-violet-500 transition-all"
-              [style.width.%]="(completedSteps() / wizard.length) * 100"
+              [style.width.%]="(completedSteps() / wizard().length) * 100"
             ></div>
           </div>
 
-          <ul class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
-            @for (step of wizard; track step.title; let i = $index) {
+          <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            @for (step of wizard(); track step.key; let i = $index) {
               <li
-                class="flex items-center gap-2 px-3 py-2 rounded border text-sm"
+                class="flex items-start gap-3 px-4 py-3 rounded-md border"
                 [ngClass]="step.done
-                  ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
-                  : 'border-white/5 bg-black/20 text-gray-400'"
+                  ? 'border-emerald-500/20 bg-emerald-500/[0.04]'
+                  : 'border-white/5 bg-black/20'"
               >
-                <app-icon
-                  [name]="step.done ? 'check-circle-2' : 'circle'"
-                  [size]="14"
-                  [class]="step.done ? 'text-emerald-400' : 'text-gray-500'"
-                />
-                <span class="text-[10px] uppercase tracking-wider text-gray-500 mr-1">{{ i + 1 }}</span>
-                <span class="truncate">{{ step.title }}</span>
+                <div
+                  class="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
+                  [ngClass]="step.done
+                    ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30'
+                    : 'bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/20'"
+                >
+                  <app-icon [name]="step.done ? 'check-circle-2' : step.icon" [size]="16" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Step {{ i + 1 }}</span>
+                    <span class="text-sm font-medium text-white">{{ step.title }}</span>
+                  </div>
+                  <p class="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{{ step.description }}</p>
+                </div>
+                <a
+                  [routerLink]="step.route"
+                  class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-medium transition"
+                  [ngClass]="step.done
+                    ? 'bg-white/5 text-gray-300 hover:bg-white/10 ring-1 ring-white/10'
+                    : 'bg-brand-500 text-white hover:bg-brand-600 shadow-glow-sm'"
+                >
+                  <app-icon [name]="step.done ? 'external-link' : 'arrow-right'" [size]="12" />
+                  {{ step.cta }}
+                </a>
               </li>
             }
           </ul>
@@ -134,111 +220,161 @@ interface WizardStep {
 
     <!-- Design canvas -->
     @if (activeTab() === 'design') {
-      <section class="t-card t-elevated rounded-md overflow-hidden h-[560px] flex">
-        <aside class="w-56 border-r border-white/5 p-4 space-y-3 bg-black/20">
-          <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Building blocks</div>
-          @for (block of designBlocks; track block.label) {
-            <div
-              class="px-3 py-2 rounded bg-white/5 ring-1 ring-white/5 text-sm text-gray-200 flex items-center gap-2 cursor-grab hover:ring-brand-500/40 transition"
-            >
-              <app-icon [name]="block.icon" [size]="14" class="text-brand-400" />
-              {{ block.label }}
-            </div>
-          }
-        </aside>
-        <div class="flex-1 relative bg-[radial-gradient(circle_at_2px_2px,rgba(148,163,184,0.14)_1px,transparent_0)] bg-[length:18px_18px]">
-          <svg class="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="flow" x1="0" x2="1">
-                <stop offset="0%" stop-color="#00bcd4" />
-                <stop offset="100%" stop-color="#8b5cf6" />
-              </linearGradient>
-            </defs>
-            <path d="M 120 200 C 260 200 260 260 420 260 S 580 340 720 340" stroke="url(#flow)" stroke-width="2" fill="none" stroke-dasharray="6 4" />
-          </svg>
-          <div class="absolute left-10 top-40 t-card rounded-md px-4 py-3 w-56 shadow-elevated ring-1 ring-brand-500/20">
-            <div class="text-[10px] uppercase tracking-wider text-brand-400 font-semibold mb-0.5">L1 · Input</div>
-            <div class="text-sm font-medium text-white">User request</div>
+      <div class="space-y-4">
+        <!-- Orientation banner -->
+        <div
+          class="t-card rounded-md p-4 flex items-start gap-3"
+          style="background: linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(0,188,212,0.08) 100%); border: 1px solid rgba(139,92,246,0.25);"
+        >
+          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-violet-500/15 text-violet-300 ring-1 ring-violet-500/30 shrink-0">
+            <app-icon name="workflow" [size]="18" />
           </div>
-          <div class="absolute left-[340px] top-52 t-card rounded-md px-4 py-3 w-56 shadow-elevated ring-1 ring-violet-500/20">
-            <div class="text-[10px] uppercase tracking-wider text-violet-400 font-semibold mb-0.5">L2 · Retrieve</div>
-            <div class="text-sm font-medium text-white">Knowledge base</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-semibold text-white">Pipeline blueprint</div>
+            <p class="text-xs text-gray-400 mt-0.5 leading-relaxed max-w-2xl">
+              Each stage of this system is configurable independently. For a free-form, multi-branch
+              composition (tool calls, guardrails, conditional routing), open this system in the Flow
+              builder.
+            </p>
           </div>
-          <div class="absolute left-[640px] top-72 t-card rounded-md px-4 py-3 w-56 shadow-elevated ring-1 ring-emerald-500/20">
-            <div class="text-[10px] uppercase tracking-wider text-emerald-400 font-semibold mb-0.5">L3 · Generate</div>
-            <div class="text-sm font-medium text-white">LLM response</div>
-          </div>
+          <a
+            routerLink="/orchestration"
+            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition shrink-0"
+          >
+            <app-icon name="workflow" [size]="14" /> Open in flow builder
+          </a>
         </div>
-      </section>
+
+        <!-- Pipeline stages — each with inline "Configure" action -->
+        <section class="t-card t-elevated rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+              <app-icon name="layers" [size]="16" class="text-brand-400" />
+              Stages
+            </h3>
+            <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              {{ pipelineStages.length }} active
+            </span>
+          </div>
+          <ul>
+            @for (stage of pipelineStages; track stage.key; let i = $index; let last = $last) {
+              <li
+                class="px-5 py-4 flex items-center gap-4"
+                [class.border-b]="!last"
+                [class.border-white\\/5]="!last"
+              >
+                <div
+                  class="w-11 h-11 rounded-md flex items-center justify-center shrink-0 ring-1"
+                  [ngClass]="{
+                    'bg-brand-500/15 text-brand-400 ring-brand-500/30': stage.tone === 'brand',
+                    'bg-violet-500/15 text-violet-400 ring-violet-500/30': stage.tone === 'violet',
+                    'bg-emerald-500/15 text-emerald-400 ring-emerald-500/30': stage.tone === 'emerald'
+                  }"
+                >
+                  <app-icon [name]="stage.icon" [size]="18" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">L{{ i + 1 }}</span>
+                    <span class="text-sm font-medium text-white">{{ stage.name }}</span>
+                  </div>
+                  <p class="text-[12px] text-gray-400 mt-0.5 leading-relaxed">{{ stage.description }}</p>
+                </div>
+                <a
+                  [routerLink]="stage.route"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition shrink-0"
+                >
+                  <app-icon name="settings-2" [size]="12" /> {{ stage.configureLabel }}
+                </a>
+              </li>
+            }
+          </ul>
+        </section>
+      </div>
     }
 
     <!-- Runs -->
     @if (activeTab() === 'runs') {
-      @if (isDraft()) {
-        <div class="t-card t-elevated rounded-md p-6 flex items-start gap-3">
-          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/30 shrink-0">
-            <app-icon name="alert-triangle" [size]="18" />
-          </div>
-          <div>
-            <div class="text-base font-semibold text-white">Not deployed yet</div>
-            <p class="text-sm text-gray-400 mt-1 max-w-lg">
-              This system is still a draft. Finish the setup checklist and launch it to start running
-              conversations. The Runs tab will light up as soon as the system is active.
-            </p>
-          </div>
-        </div>
-      } @else {
-        <div class="t-card t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
-          <app-chat-panel [systemId]="systemId" />
-        </div>
-      }
+      <div class="t-card t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
+        <app-chat-panel [systemId]="systemId" />
+      </div>
     }
 
     <!-- Settings -->
     @if (activeTab() === 'settings') {
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <section class="t-card t-elevated rounded-md p-5">
-          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="tag" [size]="14" class="text-brand-400" /> Identity
-          </h3>
-          <div class="space-y-3 text-sm">
-            <div>
-              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Name</div>
-              <div class="text-white">{{ agentName() }}</div>
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <p class="text-xs text-gray-400">
+            These values come from your workspace-wide settings. Changes apply to every system unless
+            overridden on a per-system basis.
+          </p>
+          <a
+            routerLink="/settings"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+          >
+            <app-icon name="sliders-horizontal" [size]="12" /> Edit in Settings
+          </a>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <section class="t-card t-elevated rounded-md p-5">
+            <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+              <app-icon name="tag" [size]="14" class="text-brand-400" /> Identity
+            </h3>
+            <div class="space-y-3 text-sm">
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Name</div>
+                <div class="text-white">{{ agentName() }}</div>
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">System ID</div>
+                <div class="text-gray-300 font-mono text-xs break-all">{{ systemId }}</div>
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Status</div>
+                <div class="text-white capitalize">{{ isDraft() ? 'Draft' : 'Ready' }}</div>
+              </div>
             </div>
-            <div>
-              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">System ID</div>
-              <div class="text-gray-300 font-mono text-xs">{{ systemId }}</div>
+          </section>
+          <section class="t-card t-elevated rounded-md p-5">
+            <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+              <app-icon name="cpu" [size]="14" class="text-brand-400" /> Model
+            </h3>
+            <div class="space-y-3 text-sm text-gray-300">
+              <div>Provider: <span class="text-white font-mono">{{ settings.settings().defaultProvider || '—' }}</span></div>
+              <div>Model: <span class="text-white font-mono">{{ settings.settings().defaultModel || '—' }}</span></div>
+              <div>Temperature: <span class="text-white font-mono">{{ settings.settings().temperature?.toFixed(2) ?? '—' }}</span></div>
+              <div>Max tokens: <span class="text-white font-mono">{{ settings.settings().maxTokens ?? '—' }}</span></div>
             </div>
-          </div>
-        </section>
-        <section class="t-card t-elevated rounded-md p-5">
-          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="cpu" [size]="14" class="text-brand-400" /> Model
-          </h3>
-          <div class="space-y-3 text-sm text-gray-300">
-            <div>Provider: <span class="text-white">OpenAI</span></div>
-            <div>Model: <span class="text-white">gpt-4o-mini</span></div>
-            <div>Temperature: <span class="text-white">0.4</span></div>
-          </div>
-        </section>
-        <section class="t-card t-elevated rounded-md p-5">
-          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="database" [size]="14" class="text-brand-400" /> Knowledge
-          </h3>
-          <div class="space-y-3 text-sm text-gray-300">
-            <div>Collections: <span class="text-white">2</span></div>
-            <div>Retriever: <span class="text-white">OmniRAG</span></div>
-            <div>Reranker: <span class="text-white">Cohere rerank-3</span></div>
-          </div>
-        </section>
+          </section>
+          <section class="t-card t-elevated rounded-md p-5">
+            <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+              <app-icon name="database" [size]="14" class="text-brand-400" /> Retrieval
+            </h3>
+            <div class="space-y-3 text-sm text-gray-300">
+              <div>Pipeline: <span class="text-white font-mono">{{ settings.ragPipelineMode() || '—' }}</span></div>
+              <div>Top-K: <span class="text-white font-mono">{{ settings.settings().ragTopK ?? '—' }}</span></div>
+              <div>Similarity: <span class="text-white font-mono">{{ settings.settings().ragSimilarityThreshold?.toFixed(2) ?? '—' }}</span></div>
+              <div class="pt-1">
+                <a
+                  routerLink="/knowledge"
+                  class="inline-flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300"
+                >
+                  <app-icon name="external-link" [size]="11" /> Manage collections
+                </a>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     }
   `,
 })
 export class SystemViewComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly store = inject(SystemsStore);
+  readonly settings = inject(SettingsService);
 
   systemId = '';
   agentName = signal('System');
@@ -253,34 +389,108 @@ export class SystemViewComponent implements OnInit {
     { id: 'settings', label: 'Settings', icon: 'settings' },
   ];
 
-  readonly wizard: WizardStep[] = [
-    { title: 'Identity', done: true },
-    { title: 'Knowledge', done: true },
-    { title: 'Model', done: true },
-    { title: 'Guardrails', done: false },
-    { title: 'Launch', done: false },
+  readonly wizard = computed<WizardStep[]>(() => {
+    const s = this.settings.settings();
+    const hasModel = !!s.defaultModel;
+    const hasPipeline = !!this.settings.ragPipelineMode();
+    const draft = this.isDraft();
+    return [
+      {
+        key: 'identity',
+        title: 'Identity',
+        description: 'Name, description and prompt.',
+        icon: 'tag',
+        cta: 'Review',
+        route: ['/systems', this.systemId],
+        done: !!this.agentName() && this.agentName() !== 'System',
+      },
+      {
+        key: 'knowledge',
+        title: 'Knowledge',
+        description: 'Collections the system can retrieve from.',
+        icon: 'database',
+        cta: 'Open Knowledge',
+        route: '/knowledge',
+        done: false,
+      },
+      {
+        key: 'model',
+        title: 'Model',
+        description: 'Default LLM, temperature, max tokens.',
+        icon: 'cpu',
+        cta: 'Configure',
+        route: '/settings',
+        done: hasModel,
+      },
+      {
+        key: 'guardrails',
+        title: 'Guardrails',
+        description: 'RAG pipeline mode, similarity threshold, safety filters.',
+        icon: 'shield-check',
+        cta: 'Configure',
+        route: '/settings',
+        done: hasPipeline,
+      },
+      {
+        key: 'launch',
+        title: 'Launch',
+        description: 'Promote this draft and start serving traffic.',
+        icon: 'rocket',
+        cta: 'Open playground',
+        route: ['/systems', this.systemId],
+        done: !draft,
+      },
+    ];
+  });
+
+  readonly pipelineStages: PipelineStage[] = [
+    {
+      key: 'query',
+      name: 'Query',
+      icon: 'message-square',
+      description: 'User intent parsing, query rewriting and routing.',
+      configureLabel: 'System prompt',
+      route: '/settings',
+      tone: 'brand',
+    },
+    {
+      key: 'retrieve',
+      name: 'Retrieve',
+      icon: 'database',
+      description: 'Hybrid search over your collections (dense + BM25).',
+      configureLabel: 'Collections',
+      route: '/knowledge',
+      tone: 'violet',
+    },
+    {
+      key: 'rerank',
+      name: 'Rerank',
+      icon: 'filter',
+      description: 'Cross-encoder reranking + context filtering.',
+      configureLabel: 'Top-K & threshold',
+      route: '/settings',
+      tone: 'brand',
+    },
+    {
+      key: 'generate',
+      name: 'Generate',
+      icon: 'sparkles',
+      description: 'LLM synthesis with citations and guardrails.',
+      configureLabel: 'Model',
+      route: '/settings',
+      tone: 'emerald',
+    },
   ];
 
-  readonly pipelineSteps = [
-    { name: 'Query', icon: 'message-square' },
-    { name: 'Retrieve', icon: 'database' },
-    { name: 'Rerank', icon: 'filter' },
-    { name: 'Generate', icon: 'sparkles' },
-  ];
+  readonly completedSteps = computed(() => this.wizard().filter((s) => s.done).length);
 
-  readonly designBlocks = [
-    { label: 'Prompt', icon: 'message-square' },
-    { label: 'Retriever', icon: 'database' },
-    { label: 'Guardrail', icon: 'shield' },
-    { label: 'Tool call', icon: 'wrench' },
-    { label: 'Post-process', icon: 'wand-2' },
-    { label: 'Output', icon: 'send' },
-  ];
-
-  readonly completedSteps = computed(() => this.wizard.filter((s) => s.done).length);
+  goto(path: string): void {
+    this.router.navigateByUrl(path);
+  }
 
   ngOnInit(): void {
     this.systemId = this.route.snapshot.paramMap.get('systemId') ?? '';
+    this.settings.refresh();
     const local = this.store.findById(this.systemId);
     if (local) {
       this.agentName.set(local.name);

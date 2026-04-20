@@ -286,7 +286,12 @@ interface Crumb {
                     {{ authStore.email() }}
                   </span>
                 }
-                <app-icon name="chevron-down" [size]="14" class="text-gray-500" />
+                <app-icon
+                  name="chevron-down"
+                  [size]="14"
+                  class="text-gray-500 transition-transform duration-150"
+                  [class.rotate-180]="userMenuOpen()"
+                />
               </button>
 
               @if (userMenuOpen()) {
@@ -321,6 +326,26 @@ interface Crumb {
                     class="w-full text-left flex items-center gap-2.5 px-4 py-2 text-sm text-gray-200 hover:bg-white/5 transition"
                   >
                     <app-icon name="monitor" [size]="15" class="text-gray-400" /> Sessions
+                  </button>
+                  <button
+                    type="button"
+                    (click)="toggleThemeFromMenu()"
+                    class="w-full text-left flex items-center gap-2.5 px-4 py-2 text-sm text-gray-200 hover:bg-white/5 transition border-t border-white/5"
+                  >
+                    <app-icon
+                      [name]="themeService.isDark() ? 'sun' : 'moon'"
+                      [size]="15"
+                      class="text-gray-400"
+                    />
+                    {{ themeService.isDark() ? 'Switch to light mode' : 'Switch to dark mode' }}
+                  </button>
+                  <button
+                    type="button"
+                    (click)="navigate('/settings')"
+                    class="w-full text-left flex items-center gap-2.5 px-4 py-2 text-sm text-gray-200 hover:bg-white/5 transition"
+                  >
+                    <app-icon name="sliders-horizontal" [size]="15" class="text-gray-400" />
+                    Preferences &amp; RAG
                   </button>
                   @if (workspaceService.current(); as current) {
                     <button
@@ -384,7 +409,7 @@ export class ShellComponent {
       items: [
         { label: 'Systems', icon: 'layers', route: '/systems' },
         { label: 'Knowledge', icon: 'database', route: '/knowledge' },
-        { label: 'Orchestration', icon: 'workflow', route: '/orchestration' },
+        { label: 'Flow builder', icon: 'workflow', route: '/orchestration' },
         { label: 'Missions', icon: 'list-todo', route: '/tasks' },
       ],
     },
@@ -508,6 +533,10 @@ export class ShellComponent {
     this.workspaceMenuOpen.set(false);
     if (Array.isArray(target)) this.router.navigate(target);
     else this.router.navigateByUrl(target);
+  }
+
+  toggleThemeFromMenu(): void {
+    this.themeService.toggle();
   }
 
   initials(): string {
