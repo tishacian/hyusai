@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, NgZone, OnInit, inject, signal } from '@angular/core';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ApiService } from '@app/core/api.service';
@@ -57,12 +57,16 @@ interface EvalRun {
           </span>
         </div>
         <div class="h-80">
-          <canvas
-            baseChart
-            [data]="radarData"
-            [options]="radarOptions"
-            type="radar"
-          ></canvas>
+          @if (chartsReady()) {
+            <canvas
+              baseChart
+              [data]="radarData"
+              [options]="radarOptions"
+              type="radar"
+            ></canvas>
+          } @else {
+            <div class="h-full w-full rounded bg-white/5 animate-pulse"></div>
+          }
         </div>
       </section>
 
@@ -77,12 +81,16 @@ interface EvalRun {
           </span>
         </div>
         <div class="h-80">
-          <canvas
-            baseChart
-            [data]="historyData"
-            [options]="lineOptions"
-            type="line"
-          ></canvas>
+          @if (chartsReady()) {
+            <canvas
+              baseChart
+              [data]="historyData"
+              [options]="lineOptions"
+              type="line"
+            ></canvas>
+          } @else {
+            <div class="h-full w-full rounded bg-white/5 animate-pulse"></div>
+          }
         </div>
       </section>
     </div>
@@ -131,9 +139,11 @@ interface EvalRun {
 })
 export class QualityDashboardComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly zone = inject(NgZone);
 
   overallScore = signal<number>(86);
   hallucinationRate = signal<number>(2.4);
+  chartsReady = signal<boolean>(false);
 
   readonly radarData: ChartData<'radar'> = {
     labels: [
@@ -256,6 +266,12 @@ export class QualityDashboardComponent implements OnInit {
           this.hallucinationRate.set(+(data.avg_hallucination * 100).toFixed(1));
       },
       error: () => {},
+    });
+    this.zone.runOutsideAngular(() => {
+      const schedule = (window as any).requestIdleCallback ?? window.setTimeout;
+      schedule(() => {
+        this.zone.run(() => this.chartsReady.set(true));
+      }, { timeout: 1500 } as any);
     });
   }
 }

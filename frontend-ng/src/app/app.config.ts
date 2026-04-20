@@ -1,10 +1,5 @@
 import { APP_INITIALIZER, ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
-import {
-  provideRouter,
-  withPreloading,
-  NoPreloading,
-  withViewTransitions,
-} from '@angular/router';
+import { provideRouter, withPreloading } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideToastr } from 'ngx-toastr';
@@ -13,11 +8,12 @@ import { routes } from './app.routes';
 import { authInterceptor } from './core/auth.interceptor';
 import { provideLucideIcons } from './shared/ui/icon-registry';
 import { AuthBootstrapService } from './core/auth-bootstrap.service';
+import { IdlePreloadStrategy } from './core/idle-preload.strategy';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
-    provideRouter(routes, withPreloading(NoPreloading), withViewTransitions()),
+    provideRouter(routes, withPreloading(IdlePreloadStrategy)),
     provideHttpClient(withInterceptors([authInterceptor])),
     provideAnimationsAsync(),
     {

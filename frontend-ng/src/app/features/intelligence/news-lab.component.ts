@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, NgZone, OnInit, inject, signal } from '@angular/core';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ApiService } from '@app/core/api.service';
@@ -75,7 +75,11 @@ interface Article {
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Last 14 days</span>
         </div>
         <div class="h-72">
-          <canvas baseChart [data]="sentimentData" [options]="sentimentOptions" type="line"></canvas>
+          @if (chartsReady()) {
+            <canvas baseChart [data]="sentimentData" [options]="sentimentOptions" type="line"></canvas>
+          } @else {
+            <div class="h-full w-full rounded bg-white/5 animate-pulse"></div>
+          }
         </div>
       </section>
 
@@ -87,7 +91,11 @@ interface Article {
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Top 8</span>
         </div>
         <div class="h-72">
-          <canvas baseChart [data]="entitiesData" [options]="barOptions" type="bar"></canvas>
+          @if (chartsReady()) {
+            <canvas baseChart [data]="entitiesData" [options]="barOptions" type="bar"></canvas>
+          } @else {
+            <div class="h-full w-full rounded bg-white/5 animate-pulse"></div>
+          }
         </div>
       </section>
     </div>
@@ -199,10 +207,12 @@ interface Article {
 })
 export class NewsLabComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly zone = inject(NgZone);
 
   feeds = signal<Feed[]>([]);
   targets = signal<Target[]>([]);
   drawerOpen = signal(false);
+  chartsReady = signal<boolean>(false);
 
   readonly articles: Article[] = [
     {
@@ -312,6 +322,12 @@ export class NewsLabComponent implements OnInit {
     this.api.get<Target[]>('/intelligence/targets').subscribe({
       next: (data) => this.targets.set(data ?? []),
       error: () => {},
+    });
+    this.zone.runOutsideAngular(() => {
+      const schedule = (window as any).requestIdleCallback ?? window.setTimeout;
+      schedule(() => {
+        this.zone.run(() => this.chartsReady.set(true));
+      }, { timeout: 1500 } as any);
     });
   }
 }
