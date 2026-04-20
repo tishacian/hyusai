@@ -27,9 +27,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
+from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.db.base import SessionLocal, get_db
 from app.models.sharepoint_sync_job import SharePointSyncJob
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -125,11 +128,42 @@ def _job_to_summary(job: SharePointSyncJob) -> SharePointJobSummary:
 # ---- helpers -----------------------------------------------------------
 
 
-def _resolve_output_dir(request: SharePointSyncRequest) -> Path:
+def _scoped_session_key(workspace: Workspace, session_key: str) -> str:
+    """Namespace session_key by workspace so two workspaces never share
+    cached SharePoint sessions on disk or in the DB.
+    """
+    safe_key = session_key.replace("/", "_").replace(":", "_").strip()
+    if not safe_key:
+        raise HTTPException(status_code=400, detail="session_key must not be empty")
+    return f"ws_{workspace.id}__{safe_key}"
+
+
+def _resolve_output_dir(
+    workspace: Workspace, request: SharePointSyncRequest
+) -> Path:
     if request.output_dir:
         return Path(request.output_dir)
     safe_key = request.session_key.replace("/", "_").replace(":", "_")
-    return Path(settings.sharepoint_download_dir) / safe_key
+    return Path(settings.sharepoint_download_dir) / workspace.slug / safe_key
+
+
+def _require_admin_role(db: DBSession, user: User, workspace: Workspace) -> None:
+    """Mutating session state is an operator-grade action (it persists
+    live cookies server-side). Restrict it to workspace owners/admins.
+    """
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.user_id == user.id,
+            WorkspaceMember.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    if membership is None or membership.role not in ("owner", "admin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Workspace admin or owner role required.",
+        )
 
 
 def _update_job_row(job_id: str, **fields: object) -> None:
@@ -152,7 +186,9 @@ def _update_job_row(job_id: str, **fields: object) -> None:
 # ---- background worker -------------------------------------------------
 
 
-def _run_sync_job(job_id: str, request: SharePointSyncRequest) -> None:
+def _run_sync_job(
+    job_id: str, request: SharePointSyncRequest, scoped_key: str, output_dir: Path
+) -> None:
     """Runs in FastAPI's thread pool; blocking I/O (Playwright, downloads)
     is fine here.
     """
@@ -162,12 +198,11 @@ def _run_sync_job(job_id: str, request: SharePointSyncRequest) -> None:
         run_sync_from_payload,
     )
 
-    output_dir = _resolve_output_dir(request)
     payload = SimpleNamespace(
         auth_mode=request.auth_mode,
         folder_server_relative_url=request.folder_server_relative_url,
         output_dir=output_dir,
-        session_key=request.session_key,
+        session_key=scoped_key,
         session_dir=Path(settings.sharepoint_session_dir),
         sharing_url=request.sharing_url,
         prune_local_files=request.prune_local_files,
@@ -233,6 +268,7 @@ def _run_sync_job(job_id: str, request: SharePointSyncRequest) -> None:
 def enqueue_sharepoint_sync(
     request: SharePointSyncRequest,
     background_tasks: BackgroundTasks,
+    workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ) -> SharePointJobSummary:
     if request.auth_mode == "session" and not request.sharing_url:
@@ -248,9 +284,11 @@ def enqueue_sharepoint_sync(
             detail="client_id and tenant_host are required when auth_mode='msal'.",
         )
 
-    output_dir = _resolve_output_dir(request)
+    scoped_key = _scoped_session_key(workspace, request.session_key)
+    output_dir = _resolve_output_dir(workspace, request)
     job = SharePointSyncJob(
         id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
         session_key=request.session_key,
         auth_mode=request.auth_mode,
         state="running",
@@ -263,7 +301,7 @@ def enqueue_sharepoint_sync(
     db.commit()
     db.refresh(job)
 
-    background_tasks.add_task(_run_sync_job, job.id, request)
+    background_tasks.add_task(_run_sync_job, job.id, request, scoped_key, output_dir)
     return _job_to_summary(job)
 
 
@@ -273,9 +311,18 @@ def enqueue_sharepoint_sync(
     summary="Fetch a sync job status + result.",
 )
 def get_sharepoint_job(
-    job_id: str, db: DBSession = Depends(get_db)
+    job_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ) -> SharePointJobSummary:
-    job = db.query(SharePointSyncJob).filter(SharePointSyncJob.id == job_id).first()
+    job = (
+        db.query(SharePointSyncJob)
+        .filter(
+            SharePointSyncJob.id == job_id,
+            SharePointSyncJob.workspace_id == workspace.id,
+        )
+        .first()
+    )
     if job is None:
         raise HTTPException(status_code=404, detail=f"Unknown job {job_id}")
     return _job_to_summary(job)
@@ -283,13 +330,16 @@ def get_sharepoint_job(
 
 @router.get(
     "/sync",
-    summary="List recent SharePoint sync jobs.",
+    summary="List recent SharePoint sync jobs for the current workspace.",
 )
 def list_sharepoint_jobs(
-    limit: int = 20, db: DBSession = Depends(get_db)
+    limit: int = 20,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ) -> dict:
     rows = (
         db.query(SharePointSyncJob)
+        .filter(SharePointSyncJob.workspace_id == workspace.id)
         .order_by(SharePointSyncJob.created_at.desc())
         .limit(limit)
         .all()
@@ -303,8 +353,14 @@ def list_sharepoint_jobs(
     summary="Upload an OTP-captured SharePoint session (storage_state).",
 )
 def upload_sharepoint_session(
-    session_key: str, body: SessionUploadRequest
+    session_key: str,
+    body: SessionUploadRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ) -> None:
+    _require_admin_role(db, user, workspace)
+
     from app.services.connectors.sharepoint_otp import (
         SharePointSession,
         SharePointSessionStore,
@@ -326,19 +382,24 @@ def upload_sharepoint_session(
             ),
         )
 
+    scoped_key = _scoped_session_key(workspace, session_key)
     store = SharePointSessionStore(settings.sharepoint_session_dir)
-    store.save(session_key, session)
+    store.save(scoped_key, session)
 
 
 @router.get(
     "/sessions/{session_key}",
     summary="Check whether a SharePoint session is cached server-side.",
 )
-def get_sharepoint_session_status(session_key: str) -> dict:
+def get_sharepoint_session_status(
+    session_key: str,
+    workspace: Workspace = Depends(get_current_workspace),
+) -> dict:
     from app.services.connectors.sharepoint_otp import SharePointSessionStore
 
+    scoped_key = _scoped_session_key(workspace, session_key)
     store = SharePointSessionStore(settings.sharepoint_session_dir)
-    session = store.load(session_key)
+    session = store.load(scoped_key)
     if session is None:
         return {"session_key": session_key, "exists": False}
     return {
@@ -355,7 +416,14 @@ def get_sharepoint_session_status(session_key: str) -> dict:
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Forget a cached SharePoint session.",
 )
-def delete_sharepoint_session(session_key: str) -> None:
+def delete_sharepoint_session(
+    session_key: str,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> None:
+    _require_admin_role(db, user, workspace)
     from app.services.connectors.sharepoint_otp import SharePointSessionStore
 
-    SharePointSessionStore(settings.sharepoint_session_dir).delete(session_key)
+    scoped_key = _scoped_session_key(workspace, session_key)
+    SharePointSessionStore(settings.sharepoint_session_dir).delete(scoped_key)

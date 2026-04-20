@@ -9,7 +9,7 @@ surprises.
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 
 from app.db.base import Base
 
@@ -18,6 +18,9 @@ class SharePointSyncJob(Base):
     __tablename__ = "sharepoint_sync_jobs"
 
     id = Column(String(36), primary_key=True)
+    workspace_id = Column(
+        String(36), ForeignKey("workspaces.id"), nullable=True, index=True
+    )
     session_key = Column(String(255), nullable=False, index=True)
     auth_mode = Column(String(16), nullable=False, default="session")
     # "running" | "completed" | "failed"
