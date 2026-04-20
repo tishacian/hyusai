@@ -187,6 +187,10 @@ import {
   BarChart2,
   FileSearch,
   Compass,
+  Cloud,
+  Phone,
+  MapPin,
+  Inbox,
 } from 'lucide-angular';
 
 const ICONS = {
@@ -369,6 +373,10 @@ const ICONS = {
   BarChart2,
   FileSearch,
   Compass,
+  Cloud,
+  Phone,
+  MapPin,
+  Inbox,
 };
 
 /**

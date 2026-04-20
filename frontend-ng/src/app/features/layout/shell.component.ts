@@ -428,6 +428,7 @@ export class ShellComponent {
       title: 'Configure',
       items: [
         { label: 'Resources', icon: 'plug', route: '/resources' },
+        { label: 'Apps', icon: 'sparkles', route: '/apps' },
         { label: 'Settings', icon: 'sliders-horizontal', route: '/settings' },
       ],
     },

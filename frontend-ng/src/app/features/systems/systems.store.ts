@@ -11,6 +11,8 @@ export interface SystemAgent {
   model?: string;
   template?: string;
   prompt?: string;
+  skills?: string[];
+  collections?: string[];
   draft?: boolean;
   created_at?: string;
 }
@@ -98,6 +100,8 @@ export class SystemsStore {
       model: input.model ?? 'gpt-4o-mini',
       template: input.template,
       prompt: input.prompt,
+      skills: input.skills ?? [],
+      collections: input.collections ?? [],
       draft: true,
       created_at: new Date().toISOString(),
     };

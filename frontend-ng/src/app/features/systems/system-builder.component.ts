@@ -17,6 +17,7 @@ import { SettingsService } from '@app/core/settings.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { APPS, readAppToggles } from '@app/features/resources/resources.catalog';
 import { SystemsStore } from './systems.store';
 
 interface Template {
@@ -36,7 +37,7 @@ interface ModelInfo {
 }
 
 interface WizardStep {
-  key: 'identity' | 'knowledge' | 'model' | 'guardrails' | 'launch';
+  key: 'identity' | 'knowledge' | 'model' | 'skills' | 'guardrails' | 'launch';
   title: string;
   description: string;
   icon: string;
@@ -392,8 +393,66 @@ const TEMPLATES: Template[] = [
           </div>
         }
 
-        <!-- Step 4: Guardrails -->
+        <!-- Step 4: Skills -->
         @if (currentStep() === 3) {
+          <div class="space-y-5">
+            <header class="mb-2">
+              <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+                <app-icon name="sparkles" [size]="16" class="text-brand-400" />
+                Skills & capabilities
+              </h2>
+              <p class="text-xs text-gray-400 mt-1">
+                Which apps the orchestrator is allowed to call for this system. The
+                workspace-wide toggles on
+                <a routerLink="/apps" class="text-brand-400 hover:text-brand-300 underline">Apps</a>
+                act as the default; you can narrow the set here.
+              </p>
+            </header>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              @for (a of APPS; track a.id) {
+                <label
+                  class="flex items-start gap-3 px-3 py-2.5 rounded border cursor-pointer transition"
+                  [ngClass]="isSkillSelected(a.id)
+                    ? 'border-brand-500/50 bg-brand-500/10'
+                    : 'border-white/5 bg-black/20 hover:border-brand-500/30'"
+                >
+                  <input
+                    type="checkbox"
+                    [checked]="isSkillSelected(a.id)"
+                    (change)="toggleSkill(a.id)"
+                    class="accent-brand-500 mt-0.5"
+                  />
+                  <div class="w-7 h-7 rounded-md bg-brand-500/15 text-brand-400 flex items-center justify-center shrink-0">
+                    <app-icon [name]="a.icon" [size]="14" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <div class="text-sm font-medium text-white truncate">{{ a.name }}</div>
+                      <span
+                        class="text-[8px] uppercase tracking-wider font-semibold px-1 py-0.5 rounded"
+                        [ngClass]="a.status === 'ready'
+                          ? 'bg-emerald-500/10 text-emerald-400'
+                          : 'bg-amber-500/10 text-amber-400'"
+                      >
+                        {{ a.status }}
+                      </span>
+                    </div>
+                    <div class="text-[10px] text-gray-500 leading-relaxed line-clamp-2">
+                      {{ a.description }}
+                    </div>
+                  </div>
+                </label>
+              }
+            </div>
+            <p class="text-[11px] text-gray-500">
+              {{ draft.skills.length }} of {{ APPS.length }} selected. Leave empty to disable
+              tool use for this system entirely.
+            </p>
+          </div>
+        }
+
+        <!-- Step 5: Guardrails -->
+        @if (currentStep() === 4) {
           <div class="space-y-5">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
@@ -474,8 +533,8 @@ const TEMPLATES: Template[] = [
           </div>
         }
 
-        <!-- Step 5: Launch -->
-        @if (currentStep() === 4) {
+        <!-- Step 6: Launch -->
+        @if (currentStep() === 5) {
           <div class="space-y-5">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
@@ -518,6 +577,19 @@ const TEMPLATES: Template[] = [
                   temp <span class="text-gray-300 font-mono">{{ draft.temperature.toFixed(2) }}</span>
                   · max <span class="text-gray-300 font-mono">{{ draft.max_tokens }}</span>
                 </div>
+              </div>
+              <div class="t-card rounded p-4 bg-black/20">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Skills</div>
+                <div class="text-white text-sm">
+                  {{ draft.skills.length }} / {{ APPS.length }} enabled
+                </div>
+                @if (draft.skills.length) {
+                  <div class="text-[11px] text-gray-400 mt-1 font-mono truncate">
+                    {{ draft.skills.join(', ') }}
+                  </div>
+                } @else {
+                  <div class="text-[11px] text-gray-500 mt-1 italic">No tool use</div>
+                }
               </div>
               <div class="t-card rounded p-4 bg-black/20">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Guardrails</div>
@@ -586,6 +658,13 @@ const TEMPLATES: Template[] = [
             <span class="text-gray-400">Model</span>
             <span class="ml-auto text-gray-300 font-mono truncate max-w-[160px]">
               {{ draft.model }}
+            </span>
+          </li>
+          <li class="flex items-center gap-2">
+            <app-icon name="sparkles" [size]="12" class="text-brand-400" />
+            <span class="text-gray-400">Skills</span>
+            <span class="ml-auto text-gray-300 font-mono">
+              {{ draft.skills.length }}/{{ APPS.length }}
             </span>
           </li>
           <li class="flex items-center gap-2">
@@ -661,9 +740,12 @@ export class SystemBuilderComponent implements OnInit {
     { key: 'identity', title: 'Identity', description: 'Name, objective, prompt', icon: 'tag' },
     { key: 'knowledge', title: 'Knowledge', description: 'Collections & retrieval', icon: 'database' },
     { key: 'model', title: 'Model', description: 'LLM & generation', icon: 'cpu' },
+    { key: 'skills', title: 'Skills', description: 'Apps the orchestrator can call', icon: 'sparkles' },
     { key: 'guardrails', title: 'Guardrails', description: 'Policy & safety', icon: 'shield-check' },
     { key: 'launch', title: 'Launch', description: 'Review & create', icon: 'rocket' },
   ];
+
+  readonly APPS = APPS;
 
   readonly currentStep = signal(0);
   readonly furthestReached = signal(0);
@@ -683,6 +765,7 @@ export class SystemBuilderComponent implements OnInit {
     model: 'gpt-4o-mini',
     temperature: 0.3,
     max_tokens: 2048,
+    skills: [] as string[],
     top_k: 8,
     similarity_threshold: 0.5,
     require_citations: true,
@@ -731,6 +814,10 @@ export class SystemBuilderComponent implements OnInit {
       if (typeof s.ragSimilarityThreshold === 'number') {
         this.draft.similarity_threshold = s.ragSimilarityThreshold;
       }
+      const toggles = readAppToggles();
+      this.draft.skills = Object.entries(toggles)
+        .filter(([, v]) => !!v)
+        .map(([k]) => k);
       this.loadingCollections.set(false);
       this.loadingModels.set(false);
     });
@@ -764,8 +851,9 @@ export class SystemBuilderComponent implements OnInit {
       case 1:
       case 2:
       case 3:
-        return true;
       case 4:
+        return true;
+      case 5:
         return this.draft.name.trim().length > 0 && !!this.draft.model;
       default:
         return true;
@@ -780,11 +868,21 @@ export class SystemBuilderComponent implements OnInit {
     switch (this.currentStep()) {
       case 0:
         return 'A name is required to continue.';
-      case 4:
+      case 5:
         return 'Fill the name in step 1 before launching.';
       default:
         return '';
     }
+  }
+
+  isSkillSelected(id: string): boolean {
+    return this.draft.skills.includes(id);
+  }
+
+  toggleSkill(id: string): void {
+    const idx = this.draft.skills.indexOf(id);
+    if (idx >= 0) this.draft.skills.splice(idx, 1);
+    else this.draft.skills.push(id);
   }
 
   gotoStep(i: number): void {
@@ -813,6 +911,8 @@ export class SystemBuilderComponent implements OnInit {
       model: this.draft.model,
       rag_mode: this.draft.rag_mode,
       prompt: this.draft.prompt,
+      skills: [...this.draft.skills],
+      collections: [...this.draft.collections],
     });
     this.toast.success(`"${draft.name}" is ready to configure`, 'System created');
     this.router.navigate(['/systems', draft.id]);

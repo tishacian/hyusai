@@ -71,6 +71,11 @@ export const routes: Routes = [
         loadChildren: () =>
           import('./features/resources/resources.routes').then((m) => m.resourcesRoutes),
       },
+      {
+        path: 'apps',
+        loadChildren: () =>
+          import('./features/apps/apps.routes').then((m) => m.appsRoutes),
+      },
     ],
   },
   { path: '**', redirectTo: '' },
