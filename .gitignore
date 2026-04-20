@@ -52,3 +52,10 @@ uploads/
 
 # Secrets
 */secrets/
+
+# SharePoint OTP connector
+# Cached session blobs contain live cookies (even when encrypted at rest,
+# they are still a secret that must not reach the repo).
+.sharepoint_sessions/
+# Local ingestion output used during CLI runs.
+downloads/

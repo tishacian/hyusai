@@ -32,3 +32,11 @@ structlog>=24.0.0
 
 # Utilities
 python-dotenv>=1.0.0
+
+# SharePoint OTP connector
+# - playwright: interactive OTP + MFA login and cookie-based REST calls
+# - msal: OAuth delegated tokens once admin consent is granted
+# - cryptography: at-rest encryption of persisted sessions and token caches
+playwright>=1.48.0
+msal>=1.30.0
+cryptography>=43.0.0
