@@ -228,7 +228,7 @@ type DraftState = {
           <input
             type="text"
             [ngModel]="draft().name"
-            (ngModelChange)="draft.set({ ...draft(), name: $event })"
+            (ngModelChange)="patchDraft({ name: $event })"
             class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
             placeholder="e.g. EU-West high-recall"
           />
@@ -264,7 +264,7 @@ type DraftState = {
             </label>
             <select
               [ngModel]="draft().scopeId"
-              (ngModelChange)="draft.set({ ...draft(), scopeId: $event })"
+              (ngModelChange)="patchDraft({ scopeId: $event })"
               class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
             >
               <option [ngValue]="null" disabled>— Select a capability —</option>
@@ -280,7 +280,7 @@ type DraftState = {
             </label>
             <select
               [ngModel]="draft().scopeId"
-              (ngModelChange)="draft.set({ ...draft(), scopeId: $event })"
+              (ngModelChange)="patchDraft({ scopeId: $event })"
               class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
             >
               <option [ngValue]="null" disabled>— Select a system —</option>
@@ -297,7 +297,7 @@ type DraftState = {
           </label>
           <select
             [ngModel]="draft().baseId"
-            (ngModelChange)="draft.set({ ...draft(), baseId: $event })"
+            (ngModelChange)="patchDraft({ baseId: $event })"
             class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
           >
             <option [ngValue]="null">Empty config (use backend defaults)</option>
@@ -313,7 +313,7 @@ type DraftState = {
           <input
             type="checkbox"
             [checked]="draft().isDefault"
-            (change)="draft.set({ ...draft(), isDefault: $any($event.target).checked })"
+            (change)="onIsDefaultChange($event)"
             class="accent-brand-500"
           />
           Set as default for this scope
@@ -549,6 +549,15 @@ export class PresetsListComponent implements OnInit {
     return `Provider ${provider} · Model ${model} · Top-K ${topK} · Mode ${mode}`;
   }
 
+  patchDraft(patch: Partial<DraftState>): void {
+    this.draft.set({ ...this.draft(), ...patch });
+  }
+
+  onIsDefaultChange(ev: Event): void {
+    const checked = (ev.target as HTMLInputElement | null)?.checked ?? false;
+    this.patchDraft({ isDefault: checked });
+  }
+
   setDefault(id: string): void {
     this.service
       .setDefault(id)
@@ -602,8 +611,7 @@ export class PresetsListComponent implements OnInit {
 
   selectScope(scope: RagPresetScope): void {
     // Changing scope invalidates the scope_id anchor.
-    this.draft.set({
-      ...this.draft(),
+    this.patchDraft({
       scope,
       scopeId: scope === 'workspace' ? null : this.draft().scopeId,
     });
