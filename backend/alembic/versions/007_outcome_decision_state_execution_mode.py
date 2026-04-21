@@ -1,6 +1,6 @@
 """Canonical Outcome + Decision state machine + execution_mode first-class.
 
-Revision ID: 007_outcome_decision_state_execution_mode
+Revision ID: 007_outcome_decision
 Revises: 006_adaptive_policy_scope
 Create Date: 2026-04-21
 
@@ -21,7 +21,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "007_outcome_decision_state_execution_mode"
+revision = "007_outcome_decision"
 down_revision = "006_adaptive_policy_scope"
 branch_labels = None
 depends_on = None
