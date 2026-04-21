@@ -11,6 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
+import { RouterLink } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
@@ -55,6 +56,7 @@ interface SearchResult {
     StatusPulseComponent,
     DrawerComponent,
     ConfirmDialogComponent,
+    RouterLink,
   ],
   template: `
     <app-section-header
@@ -204,6 +206,13 @@ interface SearchResult {
             <div class="flex items-center justify-between">
               <app-status-pulse tone="success" label="Indexed" />
               <div class="flex items-center gap-1">
+                <a
+                  [routerLink]="['/knowledge', doc.name]"
+                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition inline-flex items-center"
+                  title="Open collection detail"
+                >
+                  <app-icon name="external-link" [size]="14" />
+                </a>
                 <button
                   class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition"
                   title="Browse documents"

@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CanonicalApiService, type Capability, type Run, type Skill } from '@app/core/canonical-api.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -31,6 +31,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
     ImpactPreviewComponent,
     RunOutcomeCardComponent,
     RuntimeStatusBadgeComponent,
+    RouterLink,
   ],
   template: `
     <ck-page-frame
@@ -126,11 +127,20 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                     <span class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
                       {{ c.skill_ids?.length || 0 }} SKILLS · {{ c.input_unit || '—' }} → {{ c.output_unit || '—' }}
                     </span>
-                    @if (c.confidence_threshold != null) {
-                      <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-3);">
-                        τ{{ c.confidence_threshold.toFixed(2) }}
-                      </span>
-                    }
+                    <div class="flex items-center gap-2">
+                      @if (c.confidence_threshold != null) {
+                        <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-3);">
+                          τ{{ c.confidence_threshold.toFixed(2) }}
+                        </span>
+                      }
+                      <a
+                        [routerLink]="['/capabilities', c.id]"
+                        (click)="$event.stopPropagation()"
+                        class="ck-mono"
+                        style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-3); border:1px solid var(--ck-stroke-soft); padding:3px 8px; border-radius:3px; text-decoration:none;"
+                        title="Open capability detail"
+                      >Open →</a>
+                    </div>
                   </div>
                 </footer>
               </article>

@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
 import {
   GlyphComponent,
@@ -15,7 +16,7 @@ type CertFilter = 'all' | 'basic' | 'production' | 'enterprise';
   selector: 'app-skills',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageFrameComponent, GlyphComponent, KbdComponent, StatReadoutComponent, MicroBarComponent, TagComponent],
+  imports: [PageFrameComponent, GlyphComponent, KbdComponent, StatReadoutComponent, MicroBarComponent, TagComponent, RouterLink],
   template: `
     <ck-page-frame
       eyebrow="Registry · Skills"
@@ -111,7 +112,16 @@ type CertFilter = 'all' | 'basic' | 'production' | 'enterprise';
                   {{ (sk.certification_level || 'basic').slice(0, 4).toUpperCase() }}
                 </ck-tag>
                 <div class="min-w-0">
-                  <div class="text-sm text-white font-medium">{{ sk.name }}</div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm text-white font-medium truncate">{{ sk.name }}</span>
+                    <a
+                      [routerLink]="['/skills', sk.id]"
+                      (click)="$event.stopPropagation()"
+                      class="ck-mono"
+                      style="font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4); border:1px solid var(--ck-stroke-soft); padding:2px 6px; border-radius:3px; text-decoration:none;"
+                      title="Open skill detail"
+                    >Open →</a>
+                  </div>
                   <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
                     {{ sk.slug }}<span style="color:var(--ck-fg-5); margin:0 4px;">·</span>{{ sk.version || 'v1' }}
                   </div>

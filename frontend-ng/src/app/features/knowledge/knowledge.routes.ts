@@ -6,4 +6,9 @@ export const knowledgeRoutes: Routes = [
     loadComponent: () =>
       import('./knowledge-base.component').then((m) => m.KnowledgeBaseComponent),
   },
+  {
+    path: ':kbId',
+    loadComponent: () =>
+      import('./knowledge-view.component').then((m) => m.KnowledgeViewComponent),
+  },
 ];

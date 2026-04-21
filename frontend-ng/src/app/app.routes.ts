@@ -33,13 +33,13 @@ export const routes: Routes = [
       },
       {
         path: 'capabilities',
-        loadComponent: () =>
-          import('./features/capabilities/capabilities.component').then((m) => m.CapabilitiesComponent),
+        loadChildren: () =>
+          import('./features/capabilities/capabilities.routes').then((m) => m.capabilitiesRoutes),
       },
       {
         path: 'skills',
-        loadComponent: () =>
-          import('./features/skills/skills.component').then((m) => m.SkillsComponent),
+        loadChildren: () =>
+          import('./features/skills/skills.routes').then((m) => m.skillsRoutes),
       },
       {
         path: 'systems',
