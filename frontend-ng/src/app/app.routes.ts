@@ -87,7 +87,17 @@ export const routes: Routes = [
           import('./features/account/account.routes').then((m) => m.accountRoutes),
       },
       {
+        path: 'presets',
+        loadChildren: () =>
+          import('./features/presets/presets.routes').then((m) => m.presetsRoutes),
+      },
+      {
         path: 'settings',
+        redirectTo: 'presets',
+        pathMatch: 'full',
+      },
+      {
+        path: 'settings/legacy',
         loadChildren: () =>
           import('./features/settings/settings.routes').then((m) => m.settingsRoutes),
       },

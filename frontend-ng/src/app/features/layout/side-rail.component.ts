@@ -53,7 +53,8 @@ export type CockpitScopeType =
   | 'skill'
   | 'knowledge'
   | 'flow'
-  | 'run';
+  | 'run'
+  | 'preset';
 
 export interface CockpitSection {
   key: string;
@@ -127,15 +128,15 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'govern',
     label: 'Govern',
-    hint: 'Control & Policy · audit, access, settings',
+    hint: 'Control & Policy · audit, access, presets',
     glyph: 'shield',
     primaryRoute: '/governance',
-    matches: ['/governance', '/apps', '/resources', '/settings'],
+    matches: ['/governance', '/apps', '/resources', '/presets', '/settings'],
     sections: [
       { key: 'audit',     label: 'Governance', glyph: 'shield',  route: '/governance', scopeType: 'system' },
       { key: 'apps',      label: 'Apps',       glyph: 'bolt',    route: '/apps',       scopeType: 'system' },
       { key: 'resources', label: 'Resources',  glyph: 'orbit',   route: '/resources',  scopeType: 'system' },
-      { key: 'settings',  label: 'Settings',   glyph: 'sliders', route: '/settings',   scopeType: 'system' },
+      { key: 'presets',   label: 'Presets',    glyph: 'sliders', route: '/presets',    scopeType: 'preset' },
     ],
   },
 ];
