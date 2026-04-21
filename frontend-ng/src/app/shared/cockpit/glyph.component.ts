@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, inject } from '@angular/core';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 export type CkGlyphName =
   | 'flow'
@@ -29,6 +30,10 @@ export type CkGlyphName =
  * Lucide remains the right choice for content-grade icons (connectors, apps).
  *
  * Each glyph is intentionally minimal: 1px stroke, square cap, no fill.
+ *
+ * SVG fragments must be marked as trusted HTML: Angular's default sanitizer
+ * strips `<path>` / `<circle>` etc. from `[innerHTML]`, which would render
+ * empty icon slots in production.
  */
 @Component({
   selector: 'ck-glyph',
@@ -46,17 +51,19 @@ export type CkGlyphName =
       stroke-linejoin="miter"
       [style.display]="'inline-block'"
       [style.verticalAlign]="'middle'"
-      [innerHTML]="path"
+      [innerHTML]="safePath"
     ></svg>
   `,
 })
 export class GlyphComponent {
+  private readonly sanitizer = inject(DomSanitizer);
+
   @Input() name: CkGlyphName = 'cube';
   @Input() size = 14;
   @Input() color = 'currentColor';
 
-  get path(): string {
-    return GLYPHS[this.name] ?? '';
+  get safePath(): SafeHtml {
+    return this.sanitizer.bypassSecurityTrustHtml(GLYPHS[this.name] ?? '');
   }
 }
 
