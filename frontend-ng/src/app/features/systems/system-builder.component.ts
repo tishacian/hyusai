@@ -13,6 +13,11 @@ import { catchError } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Capability, type Context, type Skill, type System } from '@app/core/canonical-api.service';
+import {
+  FlowSerializerService,
+  type CanonicalFlow,
+  type SystemBuilderDraft,
+} from '@app/core/flow-serializer.service';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { SettingsService } from '@app/core/settings.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -143,15 +148,24 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
         </a>
         <button
           type="button"
+          (click)="switchToFlow()"
+          [disabled]="!canSwitchToFlow() || launching()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition mr-2"
+          [title]="canSwitchToFlow() ? 'Open this draft as a flow graph' : 'Pick a name and a capability first'"
+        >
+          <app-icon name="workflow" [size]="14" /> Switch to Flow
+        </button>
+        <button
+          type="button"
           (click)="launch()"
           [disabled]="!allGatesValid() || launching()"
           class="ck-mono inline-flex items-center gap-2 px-3 py-2 rounded text-xs font-semibold transition"
           style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:#020617;"
           [style.opacity]="!allGatesValid() || launching() ? '0.4' : '1'"
-          [title]="allGatesValid() ? 'Create this system' : firstInvalidGateMessage()"
+          [title]="allGatesValid() ? (editingSystemId() ? 'Save this system' : 'Create this system') : firstInvalidGateMessage()"
         >
           <ck-glyph name="bolt" [size]="12" />
-          {{ launching() ? 'CREATING…' : 'CREATE SYSTEM' }}
+          {{ launching() ? (editingSystemId() ? 'SAVING…' : 'CREATING…') : (editingSystemId() ? 'SAVE SYSTEM' : 'CREATE SYSTEM') }}
         </button>
       </span>
     </ck-object-header>
@@ -207,7 +221,30 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               />
             </button>
             @if (isSectionOpen(section.key)) {
-              <div style="padding:20px 22px; border-top: 1px solid var(--ck-hair);">
+              <div
+                style="padding:20px 22px; border-top: 1px solid var(--ck-hair);"
+                [style.opacity]="isSectionLocked(section.key) ? '0.55' : '1'"
+                [style.pointerEvents]="isSectionLocked(section.key) ? 'none' : 'auto'"
+              >
+              @if (isSectionLocked(section.key)) {
+                <div
+                  class="flex items-center gap-2"
+                  style="padding:8px 12px; margin-bottom:14px; border-radius:6px; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.22); pointer-events:auto;"
+                >
+                  <ck-glyph name="bolt" [size]="12" />
+                  <div class="flex-1 text-xs ck-mono" style="color:var(--ck-signal-warn);">
+                    Edited in Flow — re-open this section from the flow builder to adjust it.
+                  </div>
+                  <a
+                    [routerLink]="['/orchestration']"
+                    [queryParams]="{ systemId: editingSystemId() }"
+                    class="ck-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded"
+                    style="color: var(--ck-signal-warn); border:1px solid rgba(234,179,8,0.3); pointer-events:auto;"
+                  >
+                    Open in Flow
+                  </a>
+                </div>
+              }
         @if (section.key === 'objective') {
           <div class="space-y-5">
             <header class="mb-2">
@@ -809,7 +846,20 @@ export class SystemBuilderComponent implements OnInit {
   private readonly toast = inject(ToastrService);
   private readonly store = inject(SystemsStore);
   private readonly zoom = inject(ZoomContextService);
+  private readonly serializer = inject(FlowSerializerService);
   readonly settings = inject(SettingsService);
+
+  /**
+   * When set, the builder is editing an existing System (Flow → Form
+   * round-trip). Some sections may be locked as read-only depending on
+   * `flow_definition.extended` / `source`.
+   */
+  readonly editingSystemId = signal<string | null>(null);
+  readonly editingSystem = signal<System | null>(null);
+  readonly flowExtended = signal(false);
+  readonly flowSource = signal<'form' | 'flow'>('form');
+  /** Sections frozen in read-only because Drawflow added custom nodes. */
+  readonly lockedSections = signal<Set<CanvasSectionKey>>(new Set());
 
   readonly ragPipelines = RAG_PIPELINES;
   readonly executionModes = EXECUTION_MODES;
@@ -925,11 +975,23 @@ export class SystemBuilderComponent implements OnInit {
     if (q.get('name')) this.draft.name = q.get('name') ?? '';
     if (q.get('objective')) this.draft.objective = q.get('objective') ?? '';
 
-    // The builder has no owning System yet, so clear the System scope
-    // and any stale Run focus. If the user arrived with a prefilled
-    // capability_id (e.g. "create system for this capability"), that
-    // will be set via `selectCapability` below.
-    this.zoom.setCurrentSystem(null);
+    const editId = q.get('systemId');
+    if (editId) {
+      // Edit mode: round-trip an existing System's flow back into the
+      // canvas. Sections authored in Flow with custom nodes will be
+      // rendered read-only further down.
+      this.canonical.getSystem(editId).subscribe({
+        next: (sys) => {
+          if (sys) this.hydrateFromSystem(sys);
+        },
+      });
+    } else {
+      // Creation mode — no owning System yet; clear the System scope
+      // and any stale Run focus. A pre-filled capability_id (coming from
+      // a "create system for this capability" jump) will be applied
+      // through `selectCapability` below.
+      this.zoom.setCurrentSystem(null);
+    }
     this.zoom.setCurrentRun(null);
 
     this.settings.refresh();
@@ -1100,6 +1162,165 @@ export class SystemBuilderComponent implements OnInit {
     return this.openSections().has(key);
   }
 
+  /**
+   * A section is "locked" when the canonical flow carries custom nodes
+   * the Form can't round-trip without data loss. We only freeze the
+   * downstream sections (Skills + Policy) that are most sensitive to
+   * custom insertions; the upstream semantic fields (name, capability,
+   * context collections) are still editable so the operator can rename
+   * a system without losing their Flow work.
+   */
+  isSectionLocked(key: CanvasSectionKey): boolean {
+    return this.lockedSections().has(key);
+  }
+
+  /**
+   * The Switch-to-Flow button is live as soon as the two minimum gates
+   * are satisfied (name + capability). We persist an in-flight draft
+   * via createSystem/updateSystem so the Flow editor has a real row to
+   * PATCH, guaranteeing a faithful round-trip.
+   */
+  canSwitchToFlow(): boolean {
+    return this.draft.name.trim().length > 0 && !!this.draft.capability_id;
+  }
+
+  /**
+   * Emit the current draft as a CanonicalFlow, persist it onto the
+   * System (creating the row on first use) and navigate to
+   * `/orchestration?systemId=:id`. If an existing `flow_definition` is
+   * already present we preserve its `variant` so specialised Systems
+   * (e.g. intelligence) remain intact.
+   */
+  switchToFlow(): void {
+    if (!this.canSwitchToFlow() || this.launching()) return;
+    this.launching.set(true);
+    const flow: CanonicalFlow = this.serializer.formToFlow(this.draftAsSerializerInput());
+    const existing = (this.editingSystem()?.flow_definition ?? {}) as unknown as CanonicalFlow;
+    const merged: CanonicalFlow = {
+      ...flow,
+      variant: existing.variant,
+    };
+    const body: Partial<System> = this.systemBodyFromDraft({
+      flow_definition: merged as unknown as Record<string, unknown>,
+    });
+    const sid = this.editingSystemId();
+    const op$ = sid
+      ? this.canonical.updateSystem(sid, body)
+      : this.canonical.createSystem(body);
+    op$.subscribe((sys) => {
+      this.launching.set(false);
+      if (!sys) {
+        this.toast.error('Could not persist draft — backend unreachable.', 'Switch to Flow');
+        return;
+      }
+      this.toast.info(`"${sys.name}" opened in Flow`, 'Draft saved');
+      this.router.navigate(['/orchestration'], { queryParams: { systemId: sys.id } });
+    });
+  }
+
+  /**
+   * Shape the mutable `draft` into the `SystemBuilderDraft` interface
+   * the serializer expects. This intermediate hop is cheap and lets
+   * the serializer stay dependency-free.
+   */
+  private draftAsSerializerInput(): SystemBuilderDraft {
+    return {
+      name: this.draft.name,
+      objective: this.draft.objective,
+      capability_id: this.draft.capability_id ?? null,
+      collections: [...this.draft.collections],
+      rag_mode: this.draft.rag_mode,
+      reuse_context_id: this.draft.reuse_context_id ?? null,
+      default_prompt_type: this.draft.default_prompt_type,
+      default_model: this.draft.default_model,
+      execution_mode: this.draft.execution_mode,
+      temperature: this.draft.temperature,
+      max_cost: this.draft.max_cost,
+      max_latency_ms: this.draft.max_latency_ms,
+      confidence_threshold: this.draft.confidence_threshold,
+      require_citations: this.draft.require_citations,
+      enable_audit: this.draft.enable_audit,
+    };
+  }
+
+  /**
+   * Build the System PATCH/POST body from the current draft. Shared
+   * between `launch()` and `switchToFlow()` so both call sites agree
+   * on the canonical payload shape.
+   */
+  private systemBodyFromDraft(overrides: Partial<System> = {}): Partial<System> {
+    const cap = this.selectedCapability();
+    const pipeline = this.ragPipelines.find((p) => p.id === this.draft.rag_mode);
+    const canonicalRagMode = pipeline?.canonical ?? 'auto';
+    const promptType =
+      this.draft.default_prompt_type && this.draft.default_prompt_type !== 'auto'
+        ? this.draft.default_prompt_type
+        : null;
+    const defaultModel = this.draft.default_model?.trim() || null;
+    const body: Partial<System> & {
+      flow_definition?: Record<string, unknown>;
+      default_prompt_type?: string | null;
+      default_model?: string | null;
+      retrieval_mode_default?: string | null;
+      execution_mode?: System['execution_mode'];
+    } = {
+      name: this.draft.name.trim(),
+      objective: this.draft.objective.trim(),
+      capability_id: this.draft.capability_id ?? null,
+      skill_ids: cap?.skill_ids ?? [],
+      default_prompt_type: promptType,
+      default_model: defaultModel,
+      retrieval_mode_default: canonicalRagMode,
+      execution_mode: this.draft.execution_mode,
+      status: 'active',
+      ...overrides,
+    };
+    return body;
+  }
+
+  /**
+   * Hydrate the builder state from an existing System (edit mode).
+   * Locks Skills + Policy sections when the flow is marked
+   * `extended` so the user can't silently overwrite Drawflow work.
+   */
+  private hydrateFromSystem(sys: System): void {
+    this.editingSystem.set(sys);
+    this.editingSystemId.set(sys.id);
+    const flow = (sys.flow_definition ?? {}) as unknown as CanonicalFlow;
+    const { draft: hydrated, extended } = this.serializer.flowToForm(
+      flow,
+      this.draftAsSerializerInput(),
+    );
+    this.draft.name = hydrated.name;
+    this.draft.objective = hydrated.objective;
+    this.draft.capability_id = hydrated.capability_id ?? null;
+    this.draft.collections = [...hydrated.collections];
+    this.draft.rag_mode = hydrated.rag_mode;
+    this.draft.reuse_context_id = hydrated.reuse_context_id ?? null;
+    this.draft.default_prompt_type = hydrated.default_prompt_type;
+    this.draft.default_model = hydrated.default_model;
+    this.draft.execution_mode =
+      (hydrated.execution_mode as typeof this.draft.execution_mode) ||
+      this.draft.execution_mode;
+    this.draft.temperature = hydrated.temperature;
+    this.draft.max_cost = hydrated.max_cost;
+    this.draft.max_latency_ms = hydrated.max_latency_ms;
+    this.draft.confidence_threshold = hydrated.confidence_threshold;
+    this.draft.require_citations = hydrated.require_citations;
+    this.draft.enable_audit = hydrated.enable_audit;
+
+    this.flowSource.set(flow.source ?? 'form');
+    this.flowExtended.set(!!extended);
+    if (extended && flow.source === 'flow') {
+      this.lockedSections.set(new Set<CanvasSectionKey>(['skills', 'policy']));
+    } else {
+      this.lockedSections.set(new Set());
+    }
+
+    this.zoom.setCurrentSystem(sys.id);
+    if (sys.capability_id) this.zoom.setCurrentCapability(sys.capability_id);
+  }
+
   toggleSection(key: CanvasSectionKey): void {
     this.openSections.update((prev) => {
       const next = new Set(prev);
@@ -1181,6 +1402,18 @@ export class SystemBuilderComponent implements OnInit {
       : of(null);
 
     contextOp.subscribe((ctx) => {
+      // Canonical flow projection. When a System is being edited we
+      // preserve the existing `variant` + any `extended` markers so the
+      // specialised facets (e.g. intelligence) survive a save.
+      const canonicalFlow: CanonicalFlow = this.serializer.formToFlow(
+        this.draftAsSerializerInput(),
+      );
+      const existing = (this.editingSystem()?.flow_definition ?? {}) as unknown as CanonicalFlow;
+      const mergedFlow: CanonicalFlow = {
+        ...canonicalFlow,
+        variant: existing.variant,
+        extended: existing.extended === true ? true : canonicalFlow.extended,
+      };
       const body: Partial<System> & {
         flow_definition?: Record<string, unknown>;
         default_prompt_type?: string | null;
@@ -1198,27 +1431,23 @@ export class SystemBuilderComponent implements OnInit {
         default_model: defaultModel,
         retrieval_mode_default: canonicalRagMode,
         execution_mode: this.draft.execution_mode,
-        flow_definition: {
-          collections: this.draft.collections,
-          rag_mode: this.draft.rag_mode,
-          canonical_rag_mode: canonicalRagMode,
-          context_reused: !!reuseId,
-          policy: {
-            max_cost: this.draft.max_cost,
-            max_latency_ms: this.draft.max_latency_ms,
-            confidence_threshold: this.draft.confidence_threshold,
-            temperature: this.draft.temperature,
-            require_citations: this.draft.require_citations,
-            enable_audit: this.draft.enable_audit,
-          },
-        },
+        flow_definition: mergedFlow as unknown as Record<string, unknown>,
         status: 'active',
       };
-      this.canonical.createSystem(body).subscribe((sys) => {
+
+      const sid = this.editingSystemId();
+      const op$ = sid
+        ? this.canonical.updateSystem(sid, body)
+        : this.canonical.createSystem(body);
+      op$.subscribe((sys) => {
         this.launching.set(false);
         if (sys) {
-          this.toast.success(`"${sys.name}" is live`, 'System created');
+          this.toast.success(`"${sys.name}" is live`, sid ? 'System saved' : 'System created');
           this.router.navigate(['/systems', sys.id]);
+          return;
+        }
+        if (sid) {
+          this.toast.error('Could not save changes — backend unreachable.', 'Save failed');
           return;
         }
         const draft = this.store.createDraft({
