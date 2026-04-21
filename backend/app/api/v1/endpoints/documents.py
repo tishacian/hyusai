@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from app.core.auth import get_current_workspace
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.core.settings_manager import get_app_settings
+from app.core.settings_manager import get_resolved_settings
 from app.models.workspace import Workspace
 from app.services.rag.document_service import DocumentService
 
@@ -52,7 +52,7 @@ async def upload_document(
 ):
     """Upload and index a document"""
     try:
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         safe_name = file.filename.replace("/", "_").replace("\\", "_")
@@ -97,7 +97,7 @@ async def upload_documents_batch(
     workspace: Workspace = Depends(get_current_workspace),
 ):
     """Upload and index multiple documents"""
-    app_settings = get_app_settings()
+    app_settings = get_resolved_settings(workspace_id=workspace.id)
     db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
     temp_files = []
@@ -145,7 +145,7 @@ async def search_documents(
 ):
     """Search documents"""
     try:
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         doc_service = DocumentService(
@@ -321,7 +321,7 @@ async def clear_all_documents(
 ):
     """Clear all documents from a collection"""
     try:
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         doc_service = DocumentService(
@@ -360,7 +360,7 @@ async def delete_document(
 ):
     """Delete a document and its chunks"""
     try:
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         doc_service = DocumentService(
@@ -402,7 +402,7 @@ async def list_collections(
     try:
         from app.services.vector_db.factory import VectorDBFactory
 
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         collection_names = VectorDBFactory.list_collections_for_workspace(
@@ -436,7 +436,7 @@ async def create_collection(
     try:
         from app.services.vector_db.factory import VectorDBFactory
 
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         scoped = VectorDBFactory.scoped_name(collection_name, workspace.slug)
@@ -508,7 +508,7 @@ async def delete_collection(
 
         collection_name = unquote(collection_name)
 
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         scoped_coll = VectorDBFactory.scoped_name(collection_name, workspace.slug)
@@ -600,7 +600,7 @@ async def list_documents(
 ):
     """List all documents in a collection (scoped to current workspace)."""
     try:
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
         doc_service = DocumentService(

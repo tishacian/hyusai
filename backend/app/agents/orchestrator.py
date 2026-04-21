@@ -3,7 +3,7 @@ import asyncio
 import time
 from typing import Dict, Any, List, AsyncGenerator
 from app.core.logging import get_logger
-from app.core.settings_manager import get_app_settings
+from app.core.settings_manager import get_resolved_settings
 from app.agents.base import BaseAgent
 
 logger = get_logger(__name__)
@@ -79,7 +79,11 @@ class AgentOrchestrator:
     
     def select_agents(self, request: Dict[str, Any]) -> List[str]:
         """Select appropriate agents for a request"""
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(
+            workspace_id=request.get("workspace_id"),
+            capability_id=request.get("capability_id"),
+            system_id=request.get("system_id"),
+        )
         preferred = request.get("agent_preferences", {}).get("preferred_agents", [])
 
         if preferred:
@@ -167,7 +171,11 @@ class AgentOrchestrator:
         routing_start = time.time()
         routing_id = f"routing-{id(query)}"
 
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(
+            workspace_id=request.get("workspace_id"),
+            capability_id=request.get("capability_id"),
+            system_id=request.get("system_id"),
+        )
         hybrid = app_settings.get("ragUseHybridSearch", True)
         strategy = "Hybrid (vector + BM25)" if hybrid else "Vector similarity"
 

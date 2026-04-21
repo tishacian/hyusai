@@ -7,7 +7,7 @@ from app.services.vector_store import VectorStore
 from app.services.rag.document_service import DocumentService
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.core.settings_manager import get_app_settings
+from app.core.settings_manager import get_resolved_settings
 
 logger = get_logger(__name__)
 
@@ -48,7 +48,11 @@ class RAGAgent(BaseAgent):
         import time
         
         query = request.get("query", "")
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(
+            workspace_id=request.get("workspace_id"),
+            capability_id=request.get("capability_id"),
+            system_id=request.get("system_id"),
+        )
         model_name = request.get("agent_preferences", {}).get(
             "model_preferences", {}
         ).get("model", app_settings.get("defaultModel", settings.ollama_default_model))

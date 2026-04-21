@@ -3,7 +3,7 @@ from typing import Dict, Any, AsyncGenerator
 from app.agents.base import BaseAgent
 from app.services.models import ModelService
 from app.core.config import settings
-from app.core.settings_manager import get_app_settings
+from app.core.settings_manager import get_resolved_settings
 
 class ReasoningAgent(BaseAgent):
     """Agent for chain-of-thought reasoning"""
@@ -30,7 +30,11 @@ class ReasoningAgent(BaseAgent):
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Process request with reasoning"""
         query = request.get("query", "")
-        app_settings = get_app_settings()
+        app_settings = get_resolved_settings(
+            workspace_id=request.get("workspace_id"),
+            capability_id=request.get("capability_id"),
+            system_id=request.get("system_id"),
+        )
         model_name = request.get("agent_preferences", {}).get(
             "model_preferences", {}
         ).get("model", app_settings.get("defaultModel", settings.ollama_default_model))
@@ -68,8 +72,12 @@ Provide your reasoning process step by step, then give your final answer. Format
         full_content = ""
         
         try:
-            # Get context window settings from app settings
-            app_settings = get_app_settings()
+            # Get context window settings from resolved preset
+            app_settings = get_resolved_settings(
+                workspace_id=request.get("workspace_id"),
+                capability_id=request.get("capability_id"),
+                system_id=request.get("system_id"),
+            )
             # Use 32K default for faster generation (can be increased if needed)
             num_ctx = app_settings.get("ollamaNumCtx", 32768)  # Default 32K tokens - optimized for speed
             rope_scale = app_settings.get("ollamaRopeScale", None)

@@ -3,6 +3,7 @@ from app.models.user import User, Session, Message
 from app.models.workspace import Workspace, WorkspaceMember
 from app.models.mfa import MfaChallenge
 from app.models.settings import AppSettings
+from app.models.rag_preset import RagPreset
 from app.models.audit import AuditLog
 from app.models.task import Task
 from app.models.evaluation import EvaluationScore
@@ -23,7 +24,7 @@ __all__ = [
     "User", "Session", "Message",
     "Workspace", "WorkspaceMember",
     "MfaChallenge",
-    "AppSettings", "AuditLog",
+    "AppSettings", "RagPreset", "AuditLog",
     "Task", "EvaluationScore",
     "FeedSource", "FeedArticle", "SemanticTarget", "SafetyFilter",
     "SharePointSyncJob",

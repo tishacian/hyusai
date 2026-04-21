@@ -26,12 +26,50 @@ class SettingsManager:
             SettingsManager._initialized = True
     
     def _load_settings(self):
-        """Load settings from database"""
+        """Load settings from database.
+
+        Preferred source of truth is the workspace-default ``rag_presets`` row;
+        if none exists yet (e.g. pre-migration or mid-bootstrap) we fall back
+        to the legacy ``app_settings`` singleton. This keeps the process-wide
+        singleton aligned with the new multi-scope preset model without
+        breaking any caller that still uses ``get_app_settings()``.
+        """
         try:
             db = SessionLocal()
             try:
+                loaded_from_preset = False
+                try:
+                    from app.services.rag_preset_service import RagPresetService
+                    from app.models.rag_preset import RagPreset
+                    default = (
+                        db.query(RagPreset)
+                        .filter(
+                            RagPreset.scope == "workspace",
+                            RagPreset.is_default.is_(True),
+                        )
+                        .order_by(RagPreset.created_at.asc())
+                        .first()
+                    )
+                    if default and default.config:
+                        merged = self._get_default_settings()
+                        merged.update(dict(default.config))
+                        self._settings = merged
+                        loaded_from_preset = True
+                        logger.info(
+                            "Settings loaded from rag_presets",
+                            preset_id=default.id,
+                        )
+                except Exception as preset_error:  # pragma: no cover - defensive
+                    logger.debug(
+                        "rag_presets lookup skipped — falling back to app_settings",
+                        error=str(preset_error),
+                    )
+
+                if loaded_from_preset:
+                    return
+
                 self._settings = SettingsService.get_settings(db)
-                logger.info("Settings loaded from database")
+                logger.info("Settings loaded from app_settings table")
             except Exception as db_error:
                 # Check if it's a missing column error (migration not run yet)
                 error_str = str(db_error)
@@ -124,8 +162,50 @@ def get_settings_manager() -> SettingsManager:
 
 
 def get_app_settings() -> Dict[str, Any]:
-    """Get current application settings"""
+    """Get current application settings (process-wide singleton).
+
+    Kept for backward compatibility with callers that don't know their
+    workspace / capability / system context. Prefer
+    :func:`get_resolved_settings` when the context is available so the
+    most specific preset gets picked.
+    """
     return get_settings_manager().get_settings()
+
+
+def get_resolved_settings(
+    workspace_id: Optional[str] = None,
+    capability_id: Optional[str] = None,
+    system_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Resolve the preset config for a given run context.
+
+    Falls back to the process-wide singleton (``get_app_settings``) if the
+    database is unavailable or the preset service hasn't been migrated yet,
+    so this helper is always safe to call from agent code.
+    """
+    if not any([workspace_id, capability_id, system_id]):
+        return get_app_settings()
+    try:
+        from app.services.rag_preset_service import RagPresetService
+        db = SessionLocal()
+        try:
+            merged = get_settings_manager()._get_default_settings()
+            resolved = RagPresetService.resolve_for(
+                db,
+                workspace_id=workspace_id,
+                capability_id=capability_id,
+                system_id=system_id,
+            )
+            merged.update(resolved or {})
+            return merged
+        finally:
+            db.close()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug(
+            "get_resolved_settings fallback",
+            error=str(exc),
+        )
+        return get_app_settings()
 
 
 def reload_app_settings():

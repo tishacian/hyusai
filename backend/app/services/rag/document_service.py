@@ -22,7 +22,7 @@ from app.services.retrieval.fusion_method import FusionMethod
 from app.services.tracing.rag_tracer import get_tracer, TraceStepType
 from app.services.rag.cache import get_cache
 from app.core.logging import get_logger
-from app.core.settings_manager import get_app_settings
+from app.core.settings_manager import get_resolved_settings
 
 logger = get_logger(__name__)
 
@@ -80,7 +80,11 @@ class DocumentService:
         try:
             # Get chunking settings from app settings if not provided
             from app.services.document_parser.chunker import ChunkingMethod
-            app_settings = get_app_settings()
+            # DocumentService doesn't have direct workspace_id — fall back to
+            # the process-wide singleton. Callers that do have a workspace
+            # context should pass chunking_method / chunk_size / chunk_overlap
+            # explicitly via kwargs (see documents.py endpoints).
+            app_settings = get_resolved_settings()
             
             if 'chunking_method' not in kwargs:
                 chunking_method_str = app_settings.get("ragChunkingMethod", "recursive_character")

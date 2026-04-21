@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     sessions,
     metrics,
     settings,
+    presets,
     traces,
     audit,
     voice,
@@ -42,7 +43,8 @@ api_router.include_router(documents.router, prefix="/documents", tags=["document
 api_router.include_router(agents.router, prefix="/agents", tags=["agents (legacy alias of /systems)"])
 api_router.include_router(sessions.router, prefix="/sessions", tags=["sessions"])
 api_router.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
-api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
+api_router.include_router(settings.router, prefix="/settings", tags=["settings (legacy proxy over /presets default)"])
+api_router.include_router(presets.router, prefix="/presets", tags=["presets"])
 api_router.include_router(traces.router, prefix="/traces", tags=["traces (legacy alias of /runs)"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(voice.router, prefix="/voice", tags=["voice"])

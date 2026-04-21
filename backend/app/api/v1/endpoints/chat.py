@@ -7,7 +7,7 @@ from app.core.auth import get_current_workspace
 from app.core.logging import get_logger
 from app.core.validation import QueryValidator, ResponseValidator
 from app.core.errors import ValidationError
-from app.core.settings_manager import get_app_settings
+from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
 from app.models.user import Message
 from app.models.workspace import Workspace
@@ -63,8 +63,8 @@ async def chat_completion(
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
         
-        # Load app settings for defaults
-        app_settings = get_app_settings()
+        # Load resolved preset config for defaults (workspace-scoped).
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
         
         request_dict = request.model_dump()
         request_dict["query"] = validated_query
@@ -204,7 +204,7 @@ async def chat_stream(
                 yield f"data: {json.dumps({'chunk_type': 'error', 'content': 'Orchestrator not initialized', 'is_final': True})}\n\n"
                 return
 
-            app_settings = get_app_settings()
+            app_settings = get_resolved_settings(workspace_id=workspace.id)
 
             request_dict = request.model_dump()
             request_dict["workspace_slug"] = workspace.slug
