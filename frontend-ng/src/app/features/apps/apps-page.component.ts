@@ -9,8 +9,10 @@ import { NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
-import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
+import {
+  CkObjectHeaderComponent,
+  type CkObjectKpi,
+} from '@app/shared/cockpit/object-header.component';
 import {
   APPS,
   AppDef,
@@ -28,23 +30,23 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
     NgClass,
     FormsModule,
     IconComponent,
-    SectionHeaderComponent,
-    StatTileComponent,
+    CkObjectHeaderComponent,
   ],
   template: `
-    <app-section-header
-      breadcrumb="Extend"
-      title="Apps & skills"
-      icon="sparkles"
-      subtitle="Capabilities the orchestrator can plug into any system."
+    <ck-object-header
+      eyebrow="Govern · Apps"
+      title="Apps & integrations"
+      subtitle="Packaged extensions and integrations the orchestrator can plug into any system — not to be confused with /skills, the atomic registry."
+      [kpis]="headerKpis()"
     >
       <a
+        actions
         href="mailto:product@agentium.papai.ai?subject=App%20runtime%20wiring%20request"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
       >
         <app-icon name="send" [size]="14" /> Request wiring
       </a>
-    </app-section-header>
+    </ck-object-header>
 
     <div class="mb-5 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
       <app-icon name="alert-triangle" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
@@ -53,31 +55,12 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
           Catalog only · no runtime wiring yet
         </div>
         <p class="text-[11px] text-amber-200/80 leading-relaxed">
-          These apps advertise orchestrator capabilities but are not yet bound to a backend runtime.
+          These apps advertise orchestrator integrations but are not yet bound to a backend runtime.
           Toggling them surfaces them in the Builder wizard but does not connect to a live service.
-          Use <span class="font-semibold">Request wiring</span> to prioritise one.
+          Use <span class="font-semibold">Request wiring</span> to prioritise one. For atomic
+          skill primitives, head to <span class="font-mono">/skills</span>.
         </p>
       </div>
-    </div>
-
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <app-stat-tile label="Total apps" [value]="APPS.length" icon="sparkles" />
-      <app-stat-tile
-        label="Enabled"
-        [value]="enabledCount()"
-        icon="check-circle-2"
-        [hint]="enabledCount() > 0 ? 'Ready to be used' : 'Turn some on to extend reach'"
-      />
-      <app-stat-tile
-        label="Ready"
-        [value]="readyCount()"
-        icon="zap"
-      />
-      <app-stat-tile
-        label="In beta"
-        [value]="betaCount()"
-        icon="flag"
-      />
     </div>
 
     <div class="flex items-center gap-1 mb-5 p-1 bg-white/5 ring-1 ring-white/10 rounded-md w-fit">
@@ -200,6 +183,22 @@ export class AppsPageComponent {
   });
   readonly readyCount = computed(() => APPS.filter((a) => a.status === 'ready').length);
   readonly betaCount = computed(() => APPS.filter((a) => a.status === 'beta').length);
+
+  readonly headerKpis = computed<CkObjectKpi[]>(() => [
+    { label: 'Total apps', value: String(APPS.length) },
+    {
+      label: 'Enabled',
+      value: String(this.enabledCount()),
+      hint: this.enabledCount() > 0 ? 'Ready to be used' : 'Turn some on',
+      tone: this.enabledCount() > 0 ? 'pos' : 'neutral',
+    },
+    { label: 'Ready', value: String(this.readyCount()), tone: 'cool' },
+    {
+      label: 'In beta',
+      value: String(this.betaCount()),
+      tone: this.betaCount() > 0 ? 'warn' : 'neutral',
+    },
+  ]);
 
   isEnabled(id: string): boolean {
     this.version();

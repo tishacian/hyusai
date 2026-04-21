@@ -273,10 +273,11 @@ type Tab = 'models' | 'connectors' | 'apps';
     @if (tab() === 'apps') {
       <div class="mb-4 flex items-center justify-between">
         <div>
-          <h3 class="text-sm font-semibold text-white mb-0.5">Apps & skills</h3>
+          <h3 class="text-sm font-semibold text-white mb-0.5">Apps & integrations</h3>
           <p class="text-xs text-gray-500">
-            Enable capabilities the orchestrator can plug into any system. Changes
-            are saved locally and respected by the builder wizard.
+            Packaged extensions and integrations — distinct from the atomic
+            <span class="font-mono text-gray-400">/skills</span> registry.
+            Toggles are saved locally and respected by the builder wizard.
           </p>
         </div>
         <a

@@ -19,9 +19,9 @@ type CertFilter = 'all' | 'basic' | 'production' | 'enterprise';
   imports: [PageFrameComponent, GlyphComponent, KbdComponent, StatReadoutComponent, MicroBarComponent, TagComponent, RouterLink],
   template: `
     <ck-page-frame
-      eyebrow="Registry · Skills"
-      title="Certified atomic operations"
-      description="Every skill carries a typed contract, a certification badge, version history and live perf metrics aggregated from all skill invocations."
+      eyebrow="Build · Skills"
+      title="Atomic skill registry"
+      description="Typed, versioned, certified operations — the building blocks orchestrated by Systems. For packaged integrations, see /apps."
     >
       <div class="flex flex-col gap-6">
         <!-- Filter bar -->

@@ -54,7 +54,9 @@ export type CockpitScopeType =
   | 'knowledge'
   | 'flow'
   | 'run'
-  | 'preset';
+  | 'preset'
+  | 'app'
+  | 'context';
 
 export interface CockpitSection {
   key: string;
@@ -86,7 +88,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'build',
     label: 'Build',
-    hint: 'Create Systems, Capabilities, Skills, Knowledge',
+    hint: 'Create Systems, Capabilities, atomic Skills, Knowledge',
     glyph: 'cube',
     primaryRoute: '/systems',
     matches: ['/systems', '/capabilities', '/skills', '/knowledge', '/orchestration'],
@@ -121,20 +123,20 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     matches: ['/steering'],
     sections: [
       { key: 'levers',   label: 'Control plane', glyph: 'sliders',   route: '/steering',          scopeType: 'system' },
-      { key: 'contexts', label: 'Contexts',      glyph: 'crosshair', route: '/steering/contexts', scopeType: 'system' },
+      { key: 'contexts', label: 'Contexts',      glyph: 'crosshair', route: '/steering/contexts', scopeType: 'context' },
     ],
     hiddenInModes: ['builder'],
   },
   {
     key: 'govern',
     label: 'Govern',
-    hint: 'Control & Policy · audit, access, presets',
+    hint: 'Control & Policy · audit, apps, presets',
     glyph: 'shield',
     primaryRoute: '/governance',
     matches: ['/governance', '/apps', '/resources', '/presets', '/settings'],
     sections: [
       { key: 'audit',     label: 'Governance', glyph: 'shield',  route: '/governance', scopeType: 'system' },
-      { key: 'apps',      label: 'Apps',       glyph: 'bolt',    route: '/apps',       scopeType: 'system' },
+      { key: 'apps',      label: 'Apps',       glyph: 'bolt',    route: '/apps',       scopeType: 'app' },
       { key: 'resources', label: 'Resources',  glyph: 'orbit',   route: '/resources',  scopeType: 'system' },
       { key: 'presets',   label: 'Presets',    glyph: 'sliders', route: '/presets',    scopeType: 'preset' },
     ],

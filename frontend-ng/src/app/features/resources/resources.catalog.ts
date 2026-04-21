@@ -1,12 +1,21 @@
 /**
- * Canonical catalog of connectors and apps (skills/tools) the platform exposes.
- * Only `sharepoint` has a real backend today; everything else is a vitrine card
- * — matches the legacy HTML frontend behaviour but in a typed, reusable shape.
+ * Canonical catalog of connectors and packaged apps the platform exposes.
+ *
+ * Mental model — "apps" ≠ "skills":
+ *   - `/apps`   = packaged **integrations** (connectors, vertical templates).
+ *                 Catalog-level toggles, governed under the `Govern` verb.
+ *   - `/skills` = atomic, typed, versioned **operations** (the registry
+ *                 orchestrated by Systems). Lives under the `Build` verb.
+ *
+ * Only `sharepoint` has a real backend today; every other app is a vitrine
+ * card — matches the legacy HTML frontend behaviour in a typed, reusable
+ * shape.
  *
  * Both lists are pure data so they can be imported by:
  *   - the Resources page (Models + Connectors + Apps overview tabs),
- *   - a dedicated `/apps` route with persisted toggles,
- *   - the System Builder wizard ("Skills" step).
+ *   - the dedicated `/apps` route with persisted toggles,
+ *   - the System Builder wizard ("Skills" step, which resolves references
+ *     against `/skills` — not this file).
  */
 
 export type ConnectorStatus = 'active' | 'available' | 'coming-soon';
