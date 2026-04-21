@@ -142,17 +142,44 @@ interface FlowTemplate {
         <button
           actions
           type="button"
+          (click)="toggleDebugMode()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium ring-1 ring-white/10 text-gray-200 transition"
+          [class.bg-amber-500]="debugMode() !== 'off'"
+          [class.hover:bg-amber-600]="debugMode() !== 'off'"
+          [class.text-black]="debugMode() !== 'off'"
+          [class.bg-white/5]="debugMode() === 'off'"
+          [class.hover:bg-white/10]="debugMode() === 'off'"
+          [title]="'Debug mode: ' + debugMode() + ' — click to cycle off / step / breakpoints'"
+        >
+          <app-icon name="bug" [size]="14" /> Debug: {{ debugMode() }}
+        </button>
+      }
+      @if (systemId()) {
+        <button
+          actions
+          type="button"
           (click)="executeOnBackend()"
           [disabled]="executing()"
           class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
           [style.opacity]="executing() ? '0.55' : '1'"
-          title="Run this flow on the backend — real skill invocations, real Outcome"
+          [title]="debugMode() === 'off' ? 'Run this flow on the backend — real skill invocations, real Outcome' : 'Run with the debugger attached — walker will pause on steps / breakpoints'"
         >
           @if (executing()) {
             <app-icon name="loader-2" [size]="14" class="animate-spin" /> Running…
           } @else {
             <app-icon name="rocket" [size]="14" /> Execute
           }
+        </button>
+      }
+      @if (systemId() && canReplay()) {
+        <button
+          actions
+          type="button"
+          (click)="replayRun()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          title="Replay the last completed run's checkpoints at cinematic pace"
+        >
+          <app-icon name="history" [size]="14" /> Replay
         </button>
       }
     </ck-object-header>
@@ -322,7 +349,53 @@ interface FlowTemplate {
                   </div>
                 </div>
               }
-              @if (terminalLog().length === 0 && currentRun()?.status !== 'hitl_pending') {
+              @if (currentRun()?.status === 'debug_pending' && currentRun()?.debug) {
+                <div class="df-hitl-card" role="alertdialog" data-tone="debug">
+                  <div class="df-hitl-head">
+                    <app-icon name="bug" [size]="14" class="text-cyan-300" />
+                    <span>Debugger paused</span>
+                    <span class="df-tag df-tag-cool">{{ currentRun()?.debug?.debug_mode ?? 'step' }}</span>
+                  </div>
+                  <div class="df-hitl-prompt">
+                    Paused after
+                    <span class="ck-mono text-cyan-200">{{ currentRun()?.debug?.node_id ?? 'node' }}</span>
+                    — inspect context and advance.
+                  </div>
+                  <div class="df-debug-ctx">
+                    <div class="df-debug-ctx-label">Last output</div>
+                    <pre class="df-debug-ctx-body">{{ previewJson(currentRun()?.debug?.last_output) }}</pre>
+                    <div class="df-debug-ctx-label">Context snapshot</div>
+                    <pre class="df-debug-ctx-body">{{ previewJson(currentRun()?.debug?.ctx_snapshot) }}</pre>
+                  </div>
+                  <div class="df-hitl-actions">
+                    <button
+                      type="button"
+                      (click)="debugAction('stop')"
+                      [disabled]="debugStepping()"
+                      class="df-hitl-btn df-hitl-btn--reject"
+                    >
+                      <app-icon name="square" [size]="12" /> Stop
+                    </button>
+                    <button
+                      type="button"
+                      (click)="debugAction('continue')"
+                      [disabled]="debugStepping()"
+                      class="df-hitl-btn"
+                    >
+                      <app-icon name="chevrons-right" [size]="12" /> Continue
+                    </button>
+                    <button
+                      type="button"
+                      (click)="debugAction('step')"
+                      [disabled]="debugStepping()"
+                      class="df-hitl-btn df-hitl-btn--accept"
+                    >
+                      <app-icon name="chevron-right" [size]="12" /> Step
+                    </button>
+                  </div>
+                </div>
+              }
+              @if (terminalLog().length === 0 && currentRun()?.status !== 'hitl_pending' && currentRun()?.status !== 'debug_pending') {
                 <div class="df-terminal-empty">
                   <span class="text-gray-500">›</span>
                   Execute a Run on this System to see live output. Click Simulate for a client-side dry run, or Execute to hit the backend.
@@ -377,6 +450,26 @@ interface FlowTemplate {
                 <!-- Title -->
                 <div class="text-lg text-white font-light mb-1">{{ selectedNode()!.label || selectedNode()!.type }}</div>
                 <div class="ck-mono text-[10px] text-gray-500">id: {{ selectedNode()!.id }}</div>
+
+                <!-- Debugger breakpoint toggle — only visible when debug mode is active -->
+                @if (debugMode() !== 'off') {
+                  <div class="df-inspector-section">
+                    <label class="df-breakpoint-row">
+                      <input
+                        type="checkbox"
+                        [checked]="isBreakpoint(selectedNode()!.id)"
+                        (change)="toggleBreakpoint(selectedNode()!.id)"
+                      />
+                      <span class="text-xs text-gray-200">Break on this node</span>
+                      @if (isBreakpoint(selectedNode()!.id)) {
+                        <span class="df-tag df-tag-warn">BREAK</span>
+                      }
+                    </label>
+                    <div class="text-[10px] text-gray-500 mt-1">
+                      Breakpoints are sent to the walker at Execute time.
+                    </div>
+                  </div>
+                }
 
                 <!-- I/O contract -->
                 @if ((selectedNode()!.inputs?.length ?? 0) > 0 || (selectedNode()!.outputs?.length ?? 0) > 0) {
@@ -553,8 +646,19 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly executing = signal(false);
   readonly currentRun = signal<Run | null>(null);
   readonly hitlResolving = signal(false);
+  // Step debugger — ``debugMode`` cycles off/step/breakpoints. ``breakpoints``
+  // is a Set kept as a plain state; we materialise it into a signal through
+  // `breakpointsSig` for change detection on template reads.
+  readonly debugMode = signal<'off' | 'step' | 'breakpoints'>('off');
+  readonly breakpointsSig = signal<string[]>([]);
+  readonly debugStepping = signal(false);
+  readonly canReplay = computed(() => {
+    const r = this.currentRun();
+    return !!r && (r.checkpoints?.length ?? 0) > 0;
+  });
   private pollSub: Subscription | null = null;
   private streamSub: Subscription | null = null;
+  private replayTimer: ReturnType<typeof setTimeout> | null = null;
   private seenInvocationIds = new Set<string>();
   private seenCheckpoints = new Set<string>();
   private streamFellBackToPoll = false;
@@ -1202,7 +1306,23 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.pushTerminal({ tone: 'cyan', tag: 'EXEC', text: 'Dispatching run to backend…' });
     this.executing.set(true);
 
-    this.canonical.triggerRun(sid, {}).subscribe({
+    const mode = this.debugMode();
+    const trigger$ =
+      mode === 'off'
+        ? this.canonical.triggerRun(sid, {})
+        : this.canonical.triggerRunDebug(sid, {
+            mode,
+            breakpoints: this.breakpointsSig(),
+          });
+    if (mode !== 'off') {
+      this.pushTerminal({
+        tone: 'warn',
+        tag: 'DEBUG',
+        text: `Debugger attached · mode=${mode} · breakpoints=${this.breakpointsSig().length}`,
+      });
+    }
+
+    trigger$.subscribe({
       next: (run) => {
         if (!run) {
           this.executing.set(false);
@@ -1224,6 +1344,142 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         this.toastr.error('Could not reach the backend.', 'Execute failed');
       },
     });
+  }
+
+  // ---------------------------------------------------------------------
+  // Step debugger actions
+  // ---------------------------------------------------------------------
+
+  /** Cycle the debug mode through off → step → breakpoints → off.
+   *  When switching to ``breakpoints`` with no flags set, we coach the
+   *  operator towards the Node Inspector to mark one. */
+  toggleDebugMode(): void {
+    const m = this.debugMode();
+    const next = m === 'off' ? 'step' : m === 'step' ? 'breakpoints' : 'off';
+    this.debugMode.set(next);
+    if (next === 'breakpoints' && this.breakpointsSig().length === 0) {
+      this.toastr.info(
+        'Mark breakpoints from the Node Inspector (checkbox at the top of a selected node).',
+        'Debugger',
+      );
+    }
+  }
+
+  isBreakpoint(nodeId: string): boolean {
+    return this.breakpointsSig().includes(nodeId);
+  }
+
+  /** Toggle a breakpoint on the given node. When the debugger is already
+   *  running and paused on this node, the new set is pushed to the backend
+   *  on the next Step / Continue. */
+  toggleBreakpoint(nodeId: string): void {
+    const set = new Set(this.breakpointsSig());
+    if (set.has(nodeId)) set.delete(nodeId);
+    else set.add(nodeId);
+    this.breakpointsSig.set([...set]);
+  }
+
+  /** Send a debugger step / continue / stop to the backend; on a successful
+   *  Step or Continue we reopen the SSE stream so resumed events land live.
+   */
+  debugAction(action: 'step' | 'continue' | 'stop'): void {
+    const run = this.currentRun();
+    if (!run || run.status !== 'debug_pending') return;
+    if (this.debugStepping()) return;
+    this.debugStepping.set(true);
+    this.pushTerminal({
+      tone: action === 'stop' ? 'neg' : 'cyan',
+      tag: 'DEBUG',
+      text: `Operator → ${action}${
+        action === 'continue' && this.breakpointsSig().length
+          ? ` (breakpoints=${this.breakpointsSig().length})`
+          : ''
+      }`,
+    });
+    this.canonical
+      .stepRun(run.id, { action, breakpoints: this.breakpointsSig() })
+      .subscribe({
+        next: (updated) => {
+          this.debugStepping.set(false);
+          if (!updated) {
+            this.pushTerminal({ tone: 'neg', tag: 'ERR', text: 'Debugger rejected by backend.' });
+            return;
+          }
+          if (action === 'stop') {
+            this.executing.set(false);
+            this.canonical.getRun(run.id).subscribe((r) => {
+              if (r) this.currentRun.set(r);
+            });
+            return;
+          }
+          // Reopen the live stream so the resumed walker's events land in
+          // the terminal.
+          this.executing.set(true);
+          this.seenCheckpoints.clear();
+          this.startStreaming(run.id);
+        },
+        error: () => {
+          this.debugStepping.set(false);
+          this.pushTerminal({ tone: 'neg', tag: 'ERR', text: 'Network error during debug action.' });
+        },
+      });
+  }
+
+  // ---------------------------------------------------------------------
+  // Outcome replay — cinematic playback of a finished run's checkpoints
+  // ---------------------------------------------------------------------
+
+  /** Replay the current run's checkpoints as if they were arriving live.
+   *  Useful for demos and for inspecting a run post-mortem without having
+   *  to rerun the DAG. */
+  replayRun(): void {
+    if (this.replayTimer) {
+      clearTimeout(this.replayTimer);
+      this.replayTimer = null;
+    }
+    const run = this.currentRun();
+    if (!run) return;
+    const checkpoints = (run.checkpoints ?? []) as Array<
+      Record<string, unknown> & { kind?: string }
+    >;
+    if (checkpoints.length === 0) {
+      this.toastr.info('No checkpoints to replay on this run.', 'Replay');
+      return;
+    }
+    this.terminalOpen.set(true);
+    this.terminalLog.set([]);
+    this.pushTerminal({
+      tone: 'cyan',
+      tag: 'REPLAY',
+      text: `Replaying ${checkpoints.length} checkpoints from run ${run.id.slice(0, 8)}…`,
+    });
+
+    const stepDelayMs = 380;
+    const playNext = (i: number) => {
+      if (i >= checkpoints.length) {
+        this.pushTerminal({ tone: 'pos', tag: 'REPLAY', text: 'Replay done.' });
+        return;
+      }
+      const cp = checkpoints[i];
+      this.emitStreamEvent(run.id, {
+        event: String(cp['kind'] ?? 'event'),
+        data: cp,
+      });
+      this.replayTimer = setTimeout(() => playNext(i + 1), stepDelayMs);
+    };
+    playNext(0);
+  }
+
+  /** Tiny JSON previewer for the debug card — caps depth + length so a
+   *  rogue skill output can't blow up the panel. */
+  previewJson(value: unknown): string {
+    if (value === undefined || value === null) return '— no data —';
+    try {
+      const json = JSON.stringify(value, null, 2);
+      return json.length > 1400 ? json.slice(0, 1400) + '\n… (truncated)' : json;
+    } catch {
+      return String(value);
+    }
   }
 
   /** Accept or reject the HITL Decision pinned on the current run, then
@@ -1309,6 +1565,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.streamSub.unsubscribe();
       this.streamSub = null;
     }
+    if (this.replayTimer) {
+      clearTimeout(this.replayTimer);
+      this.replayTimer = null;
+    }
     this.stopPolling();
   }
 
@@ -1393,6 +1653,26 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           text: `▶ Resumed from ${data.node_id ?? 'gate'}.`,
         });
         break;
+      case 'debug_pause':
+        this.pushTerminal({
+          tone: 'warn',
+          tag: 'DEBUG',
+          text: `⏸ Paused after ${data.node_id ?? 'node'} — open Inspector to continue.`,
+        });
+        // Close the stream and refresh the run so the Debugger card fills in
+        // with ctx_snapshot / last_output.
+        this.canonical.getRun(runId).subscribe((r) => {
+          if (r) this.currentRun.set(r);
+          this.executing.set(false);
+        });
+        break;
+      case 'debug_resume':
+        this.pushTerminal({
+          tone: 'cyan',
+          tag: 'DEBUG',
+          text: `▶ Resumed from ${data.node_id ?? 'node'} · action=${(data as { action?: string }).action ?? '—'}`,
+        });
+        break;
       case 'run_end':
         this.pushTerminal({
           tone: data.status === 'completed' ? 'pos' : 'neg',
@@ -1428,7 +1708,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       .pipe(
         switchMap(() => this.canonical.getRun(runId)),
         takeWhile(
-          (r) => !!r && !this.isTerminalRunState(r.status) && r.status !== 'hitl_pending',
+          (r) => !!r && !this.isTerminalRunState(r.status) && !this.isPausedState(r.status),
           true,
         ),
       )
@@ -1438,10 +1718,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           const prev = this.currentRun();
           this.currentRun.set(r);
           this.emitDeltaEvents(prev, r);
-          if (this.isTerminalRunState(r.status)) {
-            this.executing.set(false);
-            this.stopPolling();
-          } else if (r.status === 'hitl_pending') {
+          if (this.isTerminalRunState(r.status) || this.isPausedState(r.status)) {
             this.executing.set(false);
             this.stopPolling();
           }
@@ -1465,6 +1742,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     status: Run['status'] | undefined,
   ): boolean {
     return status === 'completed' || status === 'failed' || status === 'cancelled';
+  }
+
+  /** Shared predicate for the polling loop so both hitl_pending and
+   *  debug_pending correctly short-circuit out of the tick. */
+  private isPausedState(status: Run['status'] | undefined): boolean {
+    return status === 'hitl_pending' || status === 'debug_pending';
   }
 
   /** Emit terminal lines for each new SkillInvocation delta and any

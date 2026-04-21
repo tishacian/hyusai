@@ -207,6 +207,17 @@ class WalkerState:
     accumulated_ms: float = 0.0
     total_cost: float = 0.0
 
+    # Debugger state (C8). ``debug_mode`` is one of:
+    #   * None         → no debugger, walker runs freely.
+    #   * "step"       → pause after every non-source/sink node.
+    #   * "breakpoints"→ pause only when a settled node id is in
+    #                     ``breakpoints``.
+    # ``breakpoints`` is shared across modes — operators can preset
+    # breakpoints even when starting in ``step`` mode so Continue jumps
+    # directly to the next flag.
+    debug_mode: Optional[str] = None
+    breakpoints: Set[str] = field(default_factory=set)
+
     def to_payload(self) -> Dict[str, Any]:
         return {
             "node_outputs": self.node_outputs,
@@ -217,6 +228,8 @@ class WalkerState:
             "invocation_ids": list(self.invocation_ids),
             "accumulated_ms": self.accumulated_ms,
             "total_cost": self.total_cost,
+            "debug_mode": self.debug_mode,
+            "breakpoints": sorted(self.breakpoints),
         }
 
     @classmethod
@@ -233,6 +246,8 @@ class WalkerState:
         state.invocation_ids = list(payload.get("invocation_ids") or [])
         state.accumulated_ms = float(payload.get("accumulated_ms") or 0.0)
         state.total_cost = float(payload.get("total_cost") or 0.0)
+        state.debug_mode = payload.get("debug_mode") or None
+        state.breakpoints = set(payload.get("breakpoints") or [])
         return state
 
 
@@ -274,7 +289,27 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
             pending_counts={nid: len(graph.in_edges[nid]) for nid in graph.nodes},
             start_monotonic=time.monotonic(),
         )
-        _append_checkpoint(db, run, {"kind": "run_start", "nodes": len(graph.nodes)})
+        # Pick up optional debugger config from the run input. Shape:
+        #   run.input_ref["_debug"] = {"mode": "step"|"breakpoints",
+        #                              "breakpoints": ["n1", "n3"]}
+        debug_cfg = (run.input_ref or {}).get("_debug") if isinstance(run.input_ref, dict) else None
+        if isinstance(debug_cfg, dict):
+            mode = debug_cfg.get("mode")
+            if mode in ("step", "breakpoints"):
+                state.debug_mode = mode
+            bps = debug_cfg.get("breakpoints") or []
+            if isinstance(bps, list):
+                state.breakpoints = {str(b) for b in bps if b}
+        _append_checkpoint(
+            db,
+            run,
+            {
+                "kind": "run_start",
+                "nodes": len(graph.nodes),
+                "debug_mode": state.debug_mode,
+                "breakpoints": sorted(state.breakpoints) if state.breakpoints else [],
+            },
+        )
 
         return await _walk(
             db,
@@ -430,6 +465,8 @@ async def _walk(
                 _settle_node(graph, state, nid, outcome)
                 if outcome.get("pause"):
                     return _emit_hitl_pause(db, run, state, outcome)
+                if _should_debug_pause(graph, state, nid):
+                    return _emit_debug_pause(db, run, state, nid)
 
         for nid in serial:
             outcome = await _execute_node(
@@ -438,6 +475,8 @@ async def _walk(
             _settle_node(graph, state, nid, outcome)
             if outcome.get("pause"):
                 return _emit_hitl_pause(db, run, state, outcome)
+            if _should_debug_pause(graph, state, nid):
+                return _emit_debug_pause(db, run, state, nid)
 
         # Adaptive hard-stop across the whole DAG.
         if adaptive and adaptive.enabled and _dag_should_stop(adaptive, state):
@@ -530,6 +569,160 @@ def _settle_node(
         state.pending_counts[edge.target] = max(
             0, state.pending_counts.get(edge.target, 0) - 1
         )
+
+
+def _should_debug_pause(graph: DagGraph, state: WalkerState, node_id: str) -> bool:
+    """Decide whether to pause the walker right after ``node_id`` settled.
+
+    Source and sink nodes are elided from step mode because they carry
+    no user-observable behaviour — stepping over them would just burn
+    two clicks on every run. Breakpoints always fire, even on source /
+    sink, so power users can pause at the very first / last event.
+    """
+    if state.debug_mode == "breakpoints" and node_id in state.breakpoints:
+        return True
+    if state.debug_mode == "step":
+        if node_id in state.breakpoints:
+            return True
+        kind = graph.nodes[node_id].kind if node_id in graph.nodes else None
+        if kind in ("source", "sink"):
+            return False
+        return True
+    return False
+
+
+def _emit_debug_pause(
+    db: DBSession, run: Run, state: WalkerState, node_id: str
+) -> Dict[str, Any]:
+    """Freeze the walker for debugger inspection and flip Run status.
+
+    The payload schema mirrors :func:`_emit_hitl_pause` so the SSE /
+    resume machinery can treat both pause types uniformly. The key
+    differences: no Decision row is created and the resume path is the
+    dedicated ``resume_run_dag_debug`` which understands step vs
+    continue semantics.
+    """
+    state.accumulated_ms += (time.monotonic() - state.start_monotonic) * 1000
+    # Per-node ctx snapshot — only the fields that changed since the
+    # last pause would be ideal, but walker ctx is small enough (RAG
+    # payloads, not entire documents) that shipping the whole thing is
+    # fine and saves the client a fetch.
+    checkpoint = {
+        "kind": "debug_pause",
+        "t": datetime.utcnow().isoformat(),
+        "node_id": node_id,
+        "debug_mode": state.debug_mode,
+        "breakpoints": sorted(state.breakpoints),
+        "ctx_snapshot": _sanitize(state.ctx),
+        "last_output": state.node_outputs.get(node_id) or {},
+        "state": state.to_payload(),
+    }
+    _append_checkpoint(db, run, checkpoint)
+    run.status = "debug_pending"
+    db.commit()
+    try:
+        event_bus.close(run.id)
+    except Exception:  # noqa: BLE001
+        pass
+    logger.info(
+        "dag_engine: debug pause",
+        run_id=run.id,
+        node_id=node_id,
+        mode=state.debug_mode,
+    )
+    return {
+        "id": run.id,
+        "status": "debug_pending",
+        "node_id": node_id,
+        "debug_mode": state.debug_mode,
+    }
+
+
+async def resume_run_dag_debug(
+    run_id: str, *, action: str, breakpoints: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Resume a Run paused by the step debugger.
+
+    ``action`` controls what happens after resume:
+        * ``"step"``       → run until the next non-source/sink node, pause again.
+        * ``"continue"``   → run until the next breakpoint or natural end.
+        * ``"stop"``       → finalise the run as cancelled here.
+
+    ``breakpoints`` optionally replaces the current breakpoint set
+    before resume so operators can toggle flags from the UI without
+    scheduling a brand new run.
+    """
+    db: DBSession = SessionLocal()
+    try:
+        run = db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            return {"error": "run_not_found"}
+        if run.status != "debug_pending":
+            return {"error": "run_not_paused", "status": run.status}
+
+        checkpoints = list(run.checkpoints or [])
+        pause_cp = next(
+            (cp for cp in reversed(checkpoints) if cp.get("kind") == "debug_pause"),
+            None,
+        )
+        if not pause_cp:
+            return _fail(db, run, "no_debug_checkpoint")
+
+        system = db.query(System).filter(System.id == run.system_id).first()
+        if not system:
+            return _fail(db, run, "system_not_found")
+
+        flow = system.flow_definition or {}
+        graph = DagGraph.from_flow_definition(flow)
+        state = WalkerState.from_payload(pause_cp.get("state") or {})
+        state.start_monotonic = time.monotonic()
+
+        if breakpoints is not None:
+            state.breakpoints = {str(b) for b in breakpoints if b}
+
+        if action == "continue":
+            state.debug_mode = "breakpoints" if state.breakpoints else None
+        elif action == "step":
+            state.debug_mode = "step"
+        elif action == "stop":
+            _fail(db, run, reason="debugger_stopped")
+            return {"id": run.id, "status": "cancelled"}
+        else:
+            return {"error": "invalid_action", "action": action}
+
+        capability = (
+            db.query(Capability).filter(Capability.id == system.capability_id).first()
+            if system.capability_id
+            else None
+        )
+        control = _load_control_policy(db, system)
+        adaptive = _load_adaptive_policy(db, system)
+
+        run.status = "running"
+        db.commit()
+        _append_checkpoint(
+            db,
+            run,
+            {
+                "kind": "debug_resume",
+                "node_id": pause_cp.get("node_id"),
+                "action": action,
+                "debug_mode": state.debug_mode,
+                "breakpoints": sorted(state.breakpoints),
+            },
+        )
+        return await _walk(
+            db,
+            run,
+            graph,
+            state,
+            system=system,
+            capability=capability,
+            control=control,
+            adaptive=adaptive,
+        )
+    finally:
+        db.close()
 
 
 def _emit_hitl_pause(

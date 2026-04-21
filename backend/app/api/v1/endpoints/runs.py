@@ -25,7 +25,7 @@ from app.services.decisions import (
     reject as reject_decision,
 )
 from app.services.outcome.derive import apply_operator_override
-from app.services.run_engine.dag import resume_run_dag
+from app.services.run_engine.dag import resume_run_dag, resume_run_dag_debug
 from app.services.run_engine.events import bus as event_bus
 
 logger = get_logger(__name__)
@@ -65,6 +65,17 @@ def _pending_hitl_checkpoint(r: Run) -> Optional[Dict[str, Any]]:
         return None
     for cp in reversed(list(r.checkpoints or [])):
         if isinstance(cp, dict) and cp.get("kind") == "hitl_pause":
+            return cp
+    return None
+
+
+def _pending_debug_checkpoint(r: Run) -> Optional[Dict[str, Any]]:
+    """Return the last ``debug_pause`` checkpoint when the Run is paused
+    in the step debugger."""
+    if (r.status or "") != "debug_pending":
+        return None
+    for cp in reversed(list(r.checkpoints or [])):
+        if isinstance(cp, dict) and cp.get("kind") == "debug_pause":
             return cp
     return None
 
@@ -127,6 +138,15 @@ async def get_run(
             "decision_status": decision.status if decision else None,
             "decision_title": decision.title if decision else None,
         }
+    debug_cp = _pending_debug_checkpoint(r)
+    if debug_cp:
+        payload["debug"] = {
+            "node_id": debug_cp.get("node_id"),
+            "debug_mode": debug_cp.get("debug_mode"),
+            "breakpoints": debug_cp.get("breakpoints") or [],
+            "ctx_snapshot": debug_cp.get("ctx_snapshot") or {},
+            "last_output": debug_cp.get("last_output") or {},
+        }
     return payload
 
 
@@ -187,6 +207,67 @@ async def resolve_run_hitl(
 
 
 # ---------------------------------------------------------------------------
+# Step debugger — /runs/{id}/step
+# ---------------------------------------------------------------------------
+class DebugStep(BaseModel):
+    action: Literal["step", "continue", "stop"]
+    breakpoints: Optional[List[str]] = Field(
+        default=None,
+        description="Optional replacement breakpoint set applied before resume.",
+    )
+
+
+@router.post("/{run_id}/step")
+async def step_run(
+    run_id: str,
+    body: DebugStep,
+    background_tasks: BackgroundTasks,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Advance a Run paused by the step debugger.
+
+    Action semantics:
+        * ``step``     — run until the next non-source/sink node settles.
+        * ``continue`` — run until a breakpoint fires or the DAG ends.
+        * ``stop``     — cancel the Run here; outcome = ``debugger_stopped``.
+
+    Returns 409 when the Run is not currently in ``debug_pending``.
+    """
+    r = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace.id).first()
+    if not r:
+        raise HTTPException(404, "Run not found")
+    if r.status != "debug_pending":
+        raise HTTPException(409, f"Run is not in debugger pause (status={r.status!r})")
+    background_tasks.add_task(
+        _step_wrapper, r.id, body.action, body.breakpoints or None
+    )
+    logger.info(
+        "runs.debug: dispatched step", run_id=r.id, action=body.action
+    )
+    return {"id": r.id, "status": r.status, "action": body.action}
+
+
+def _step_wrapper(run_id: str, action: str, breakpoints: Optional[List[str]]) -> None:
+    """Background shim mirroring :func:`_resume_wrapper` for step resume."""
+    import asyncio
+
+    try:
+        asyncio.run(
+            resume_run_dag_debug(run_id, action=action, breakpoints=breakpoints)
+        )
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        loop.create_task(
+            resume_run_dag_debug(run_id, action=action, breakpoints=breakpoints)
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "runs.debug: step failed", run_id=run_id, action=action, error=str(exc)
+        )
+
+
+# ---------------------------------------------------------------------------
 # Live SSE stream — /runs/{id}/stream
 # ---------------------------------------------------------------------------
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
@@ -243,7 +324,10 @@ async def _run_event_stream(
                 },
             )
 
-            if run.status in _TERMINAL_STATUSES or run.status == "hitl_pending":
+            if run.status in _TERMINAL_STATUSES or run.status in (
+                "hitl_pending",
+                "debug_pending",
+            ):
                 yield _sse_format(
                     "close", {"reason": "run_not_live", "status": run.status}
                 )
@@ -272,7 +356,7 @@ async def _run_event_stream(
                     # the wire via the checkpoint replay loop.
                     continue
                 yield _sse_format(event.get("kind", "event"), event)
-                if event.get("kind") in ("run_end", "hitl_pause"):
+                if event.get("kind") in ("run_end", "hitl_pause", "debug_pause"):
                     break
             else:
                 # 15s tick with no events. Two responsibilities here:
@@ -288,7 +372,10 @@ async def _run_event_stream(
                     )
                 finally:
                     db.close()
-                if status in _TERMINAL_STATUSES or status == "hitl_pending":
+                if status in _TERMINAL_STATUSES or status in (
+                    "hitl_pending",
+                    "debug_pending",
+                ):
                     yield _sse_format(
                         "close", {"reason": "polled_terminal", "status": status}
                     )

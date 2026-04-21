@@ -14,13 +14,14 @@ The engine is safe to call from a FastAPI BackgroundTask: all work happens in
 a fresh DB session, and any failure is captured on the Run row so the UI can
 surface it without crashing the request.
 """
-from .dag import execute_run_dag, resume_run_dag, should_use_dag
+from .dag import execute_run_dag, resume_run_dag, resume_run_dag_debug, should_use_dag
 from .engine import execute_run, schedule_run
 
 __all__ = [
     "execute_run",
     "execute_run_dag",
     "resume_run_dag",
+    "resume_run_dag_debug",
     "schedule_run",
     "should_use_dag",
 ]

@@ -83,11 +83,26 @@ export interface RunHitlPayload {
   decision_title?: string | null;
 }
 
+export interface RunDebugPayload {
+  node_id?: string;
+  debug_mode?: 'step' | 'breakpoints' | null;
+  breakpoints?: string[];
+  ctx_snapshot?: Record<string, unknown>;
+  last_output?: Record<string, unknown>;
+}
+
 export interface Run {
   id: string;
   system_id: string;
   capability_id?: string | null;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'hitl_pending';
+  status:
+    | 'pending'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'hitl_pending'
+    | 'debug_pending';
   started_at?: string;
   ended_at?: string;
   duration_ms?: number;
@@ -101,6 +116,11 @@ export interface Run {
    * Decision reference plus the prompt to surface in the Terminal.
    */
   hitl?: RunHitlPayload;
+  /** Populated when status === 'debug_pending' — walker ctx snapshot,
+   * the node that tripped the breakpoint, and the current breakpoint set
+   * so the step debugger UI can render without another request.
+   */
+  debug?: RunDebugPayload;
 }
 
 export interface Context {
@@ -352,6 +372,47 @@ export class CanonicalApiService {
     return this.api
       .post<Run>(`/runs/${runId}/hitl`, body)
       .pipe(catchError(() => of(null)));
+  }
+
+  /**
+   * Advance or halt a Run paused in the step debugger.
+   *
+   * Actions:
+   *   * ``step``     — let the walker settle one more non-meta node.
+   *   * ``continue`` — run until a breakpoint fires or the DAG ends.
+   *   * ``stop``     — cancel the Run with ``debugger_stopped`` outcome.
+   *
+   * Optional ``breakpoints`` replaces the server-side breakpoint set
+   * before resume (handy when the operator toggles flags from the UI).
+   */
+  stepRun(
+    runId: string,
+    body: { action: 'step' | 'continue' | 'stop'; breakpoints?: string[] },
+  ): Observable<Run | null> {
+    return this.api
+      .post<Run>(`/runs/${runId}/step`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  /**
+   * Trigger a Run against a System with an attached debugger config.
+   * The backend stores ``_debug`` inside ``input_ref`` so the walker
+   * picks it up on the first tick without needing a new API column.
+   */
+  triggerRunDebug(
+    systemId: string,
+    options: {
+      mode: 'step' | 'breakpoints';
+      breakpoints?: string[];
+      payload?: Record<string, unknown>;
+    },
+  ): Observable<Run | null> {
+    const body: Record<string, unknown> = { ...(options.payload || {}) };
+    body['_debug'] = {
+      mode: options.mode,
+      breakpoints: options.breakpoints ?? [],
+    };
+    return this.triggerRun(systemId, body);
   }
 
   // ---- Impact / Hypervisor -------------------------------------------------
