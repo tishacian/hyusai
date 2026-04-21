@@ -6,13 +6,38 @@ Python wrapper; the wrapper then delegates to the real implementation.
 
 The registry lives at
 `backend/app/services/skills_registry/wrappers.py` and exposes a
-tri-state status via `GET /skills/runtime-health`:
+four-state status via `GET /skills/runtime-health`:
 
 - `bound` — wrapper exists **and** the implementation module imports.
 - `stub`  — wrapper exists but only returns a placeholder payload
   (feature not shipped yet or waiting for a third-party credential).
 - `unbound` — no wrapper registered at all; `run_engine` falls through
   to `_unimplemented` and records an error outcome.
+- `catalog_only` — surfaced in the UI catalogue (e.g. Apps, Connectors,
+  RAG presets) but deliberately has no runtime binding. Replaces the
+  former silent "available" label; the UI shows a neutral badge and a
+  "Request wiring" CTA instead of a fake toggle.
+
+The same vocabulary is reused by:
+
+- `GET /retrieval/presets/health` for RAG mode gating in the Builder.
+- `GET /connectors/health` and `GET /apps/health` for the honest
+  Resources / Apps pages.
+
+---
+
+## Deprecated endpoints (2026-04-21)
+
+These routes still respond for backwards compatibility but emit
+`X-Deprecated: true` and `X-Canonical-Alternative: <path>`. They will
+be removed in the next major version.
+
+| Legacy route                     | Canonical replacement       | Sunset target |
+|----------------------------------|-----------------------------|---------------|
+| `GET /agents`, `/agents/:id`     | `/systems`, `/systems/:id`  | v0.6          |
+| `POST /agents/:id/run`           | `POST /systems/:id/runs`    | v0.6          |
+| `GET /traces`, `/traces/:id`     | `/runs`, `/runs/:id`        | v0.6          |
+| `GET /playground/*`              | `/chat` + `/systems/:id`    | already gone  |
 
 ---
 

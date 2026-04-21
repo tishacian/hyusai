@@ -4,6 +4,39 @@ _Single source of truth for Agentium's product vision, canonical entities, runti
 
 ---
 
+## Post-realignment delivery log — 2026-04-21
+
+The realignment plan (`docs/agentium-realignment-plan.md`) landed across five waves and 26 tickets. The following concepts moved from 🟡 **Partial** to ✅ **Shipped**:
+
+| Area | Mental model section | Before | After |
+|------|----------------------|--------|-------|
+| Canonical `Outcome` (cost/value/confidence/efficiency) with `value_source` hybrid (auto-derive + operator override) | §22.3 | 🟡 Partial | ✅ Shipped |
+| Decision state machine `proposed → accepted → rejected → applied` with enactment patch | §23.5–§23.6 | 🟡 Partial | ✅ Shipped |
+| Hypervisor Act — Accept/Reject/Apply feeds policy patch on `Capability` / `ControlPolicy` / `AdaptivePolicy` | §23.6 | 🟡 Partial | ✅ Shipped |
+| `ControlPlaneVector` 4 axes (`resource`, `velocity`, `autonomy`, `risk_tolerance`) used by `simulate`, `what-if`, Steering, Hypervisor | §18.2, §36 | 🟡 Partial | ✅ Shipped |
+| Universal Impact Preview (<300ms) on every policy lever | §36 | 🔵 Planned | ✅ Shipped |
+| Runtime health 4-state (`bound` / `stub` / `unbound` / `catalog_only`) unified across Skills, RAG presets, Builder | §9, §30 | 🟡 Partial | ✅ Shipped |
+| Semantic zoom context shared across Capability → System → Run with persistent breadcrumb | §12, §37 | 🟡 Partial | ✅ Shipped |
+| Builder restored to 6 steps (Objective → Capability → Skills → Context → Policy → Launch) with unbound-skill gate | §29 | 🟡 Partial | ✅ Shipped |
+| RAG presets (`Auto` / `Semantic` / `Hybrid` / `HAH` / `OmniRAG`) gated by `/skills/runtime-health` | §16 | 🟡 Partial | ✅ Shipped |
+| Title-bar live telemetry from `/telemetry/live` with neutral idle state | §38 | 🟡 Partial | ✅ Shipped |
+| `execution_mode` first-class on `System` (`real_time_decision` / `batch_processing` / `event_driven_automation` / `continuous_monitoring` / `human_augmented`) with `execution_profile` SLA | §20.6 | 🔵 Planned | ✅ Shipped |
+| Workspace modes `builder` / `operator` / `executive` with progressive disclosure of Hypervisor and ROI | §34, §38 | 🔵 Planned | ✅ Shipped |
+| Resources / Apps / Connectors honest catalog-only labelling (no fake wiring) | §30 | 🟡 Partial | ✅ Shipped |
+| Governance audit — actor / kind filters, CSV export, pagination, read-only RBAC banner | §33 | 🟡 Partial | ✅ Shipped |
+| Persona-aware help tooltips (`<ck-help>` + `/help-content` registry, 17 IDs covering Hypervisor / Steering / Builder / Runs / Workspace) | §38 | 🔵 Planned | ✅ Shipped |
+| Deprecation headers on `/agents` and `/traces` (`X-Deprecated: true`, `X-Canonical-Alternative: /systems` or `/runs`) | §0.2 | 🟡 Partial | ✅ Shipped |
+
+### Remaining 🟡 / 🔵 concepts (explicitly out of scope for this wave)
+
+- Dynamic RBAC with custom roles (§33) — read-only built-in roles shipped, full CRUD deferred.
+- Marketplace / certification / billing (§35) — ledger Tier 4.
+- Card-transformation polymorph, Focus Mode, radial steering (§36.4) — ledger Tier 2.
+- Backend connector runtime for Apps (§30) — catalog-only with "Request wiring" CTA.
+- papAI interop bridge (§40) — ledger Tier 5.
+
+---
+
 ## How to read this document
 
 This document fuses two layers:
