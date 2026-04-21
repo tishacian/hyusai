@@ -10,7 +10,13 @@ import {
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 
-import { HelpService, type Persona, type HelpContentIndex } from '@app/core/help.service';
+import {
+  HelpService,
+  type HelpContentIndex,
+  type Language,
+  type LocalizedText,
+  type Persona,
+} from '@app/core/help.service';
 
 /**
  * `<ck-help [id]="..." />` — persona-aware help affordance.
@@ -37,7 +43,7 @@ import { HelpService, type Persona, type HelpContentIndex } from '@app/core/help
         class="ck-help-button"
         (click)="toggleOpen()"
         [attr.aria-expanded]="open()"
-        [attr.aria-label]="'Help about ' + (resolved()?.entry?.title ?? id())"
+        [attr.aria-label]="'Help about ' + (titleText() || id())"
       >
         ?
       </button>
@@ -56,36 +62,51 @@ import { HelpService, type Persona, type HelpContentIndex } from '@app/core/help
           } @else {
             <header class="ck-help-header">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="ck-help-title">{{ resolved()!.entry.title }}</span>
+                <span class="ck-help-title">{{ titleText() }}</span>
                 <span class="ck-help-category">{{ resolved()!.entry.category }}</span>
               </div>
-              <div class="ck-help-personas">
-                @for (p of personas; track p) {
-                  <button
-                    type="button"
-                    class="ck-help-persona"
-                    [class.ck-help-persona-active]="help.persona() === p"
-                    (click)="switchPersona(p)"
-                  >
-                    {{ help.personaLabelOf(p) }}
-                  </button>
-                }
+              <div class="flex items-center gap-2 flex-wrap">
+                <div class="ck-help-personas">
+                  @for (p of personas; track p) {
+                    <button
+                      type="button"
+                      class="ck-help-persona"
+                      [class.ck-help-persona-active]="help.persona() === p"
+                      (click)="switchPersona(p)"
+                    >
+                      {{ help.personaLabelOf(p) }}
+                    </button>
+                  }
+                </div>
+                <div class="ck-help-personas" aria-label="Help language">
+                  @for (lang of languages; track lang) {
+                    <button
+                      type="button"
+                      class="ck-help-persona"
+                      [class.ck-help-persona-active]="help.language() === lang"
+                      (click)="switchLanguage(lang)"
+                      [attr.aria-label]="'Switch help language to ' + help.languageLabelOf(lang)"
+                    >
+                      {{ help.languageLabelOf(lang) }}
+                    </button>
+                  }
+                </div>
               </div>
             </header>
 
-            <p class="ck-help-summary">{{ resolved()!.copy.summary }}</p>
+            <p class="ck-help-summary">{{ pick(resolved()!.copy.summary) }}</p>
 
             <section class="ck-help-section">
-              <span class="ck-help-section-label">USER STORY</span>
-              <p class="ck-help-section-body">{{ resolved()!.copy.user_story }}</p>
+              <span class="ck-help-section-label">{{ labels().userStory }}</span>
+              <p class="ck-help-section-body">{{ pick(resolved()!.copy.user_story) }}</p>
             </section>
 
             @if (resolved()!.copy.prerequisites.length) {
               <section class="ck-help-section">
-                <span class="ck-help-section-label">PREREQUISITES</span>
+                <span class="ck-help-section-label">{{ labels().prerequisites }}</span>
                 <ul class="ck-help-list">
-                  @for (p of resolved()!.copy.prerequisites; track p) {
-                    <li>{{ p }}</li>
+                  @for (p of resolved()!.copy.prerequisites; track $index) {
+                    <li>{{ pick(p) }}</li>
                   }
                 </ul>
               </section>
@@ -93,7 +114,7 @@ import { HelpService, type Persona, type HelpContentIndex } from '@app/core/help
 
             @if (resolved()!.copy.related_actions.length) {
               <section class="ck-help-section">
-                <span class="ck-help-section-label">RELATED ACTIONS</span>
+                <span class="ck-help-section-label">{{ labels().relatedActions }}</span>
                 <ul class="ck-help-list">
                   @for (a of resolved()!.copy.related_actions; track a) {
                     <li><code class="ck-help-code">{{ a }}</code></li>
@@ -110,7 +131,7 @@ import { HelpService, type Persona, type HelpContentIndex } from '@app/core/help
                   target="_blank"
                   rel="noreferrer noopener"
                 >
-                  Learn more →
+                  {{ labels().learnMore }} →
                 </a>
               </footer>
             }
@@ -270,6 +291,7 @@ export class HelpTooltipComponent {
 
   readonly open = signal(false);
   protected readonly personas: Persona[] = ['builder', 'operator', 'executive'];
+  protected readonly languages: Language[] = ['en', 'fr'];
 
   private readonly index = toSignal(this.help.load(), { initialValue: null as HelpContentIndex | null });
 
@@ -278,12 +300,45 @@ export class HelpTooltipComponent {
     return this.help.resolve(this.index(), this.id(), persona);
   });
 
+  readonly titleText = computed(() => {
+    const r = this.resolved();
+    return r ? this.help.pickText(r.entry.title) : '';
+  });
+
+  readonly labels = computed(() => {
+    switch (this.help.language()) {
+      case 'fr':
+        return {
+          userStory: 'USER STORY',
+          prerequisites: 'PRÉREQUIS',
+          relatedActions: 'ACTIONS LIÉES',
+          learnMore: 'En savoir plus',
+        };
+      case 'en':
+      default:
+        return {
+          userStory: 'USER STORY',
+          prerequisites: 'PREREQUISITES',
+          relatedActions: 'RELATED ACTIONS',
+          learnMore: 'Learn more',
+        };
+    }
+  });
+
+  pick(text: LocalizedText | null | undefined): string {
+    return this.help.pickText(text);
+  }
+
   toggleOpen(): void {
     this.open.update((v) => !v);
   }
 
   switchPersona(p: Persona): void {
     this.help.setPersona(p);
+  }
+
+  switchLanguage(lang: Language): void {
+    this.help.setLanguage(lang);
   }
 
   @HostListener('document:click', ['$event'])

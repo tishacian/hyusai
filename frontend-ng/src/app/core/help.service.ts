@@ -5,17 +5,27 @@ import { ApiService } from './api.service';
 
 export type Persona = 'builder' | 'operator' | 'executive';
 export type HelpCategory = 'action' | 'metric' | 'control' | 'navigation' | 'status' | 'concept';
+export type Language = 'en' | 'fr';
+
+/**
+ * Localized string map keyed by language code.
+ *
+ * The backend ships every textual field as `{ en: "…", fr: "…" }`.
+ * Legacy plain strings (no locale wrapping) are silently coerced to
+ * `{ en: value }` by the backend loader.
+ */
+export type LocalizedText = Partial<Record<Language, string>>;
 
 export interface PersonaCopy {
-  summary: string;
-  user_story: string;
-  prerequisites: string[];
+  summary: LocalizedText;
+  user_story: LocalizedText;
+  prerequisites: LocalizedText[];
   related_actions: string[];
 }
 
 export interface HelpContent {
   id: string;
-  title: string;
+  title: LocalizedText;
   category: HelpCategory;
   by_persona: Partial<Record<Persona, PersonaCopy>>;
   learn_more?: string | null;
@@ -24,20 +34,25 @@ export interface HelpContent {
 export interface HelpContentIndex {
   version: string;
   personas: Persona[];
+  languages: Language[];
   items: HelpContent[];
 }
 
 const PERSONA_STORAGE_KEY = 'agentium.persona';
+const LANGUAGE_STORAGE_KEY = 'agentium.help.lang';
 const DEFAULT_PERSONA: Persona = 'operator';
+const DEFAULT_LANGUAGE: Language = 'en';
+const FALLBACK_ORDER: Language[] = ['en', 'fr'];
 
 /**
- * HelpService — caches the persona-aware help registry served by
- * `/api/v1/help-content` and resolves copy for a given id × persona.
+ * HelpService — caches the persona-aware, bilingual help registry
+ * served by `/api/v1/help-content` and resolves copy for a given
+ * id × persona × language.
  *
- * Any UI element that accepts a help handle (Outcome card, Balance
- * sheet KPI, Steering lever, Builder step, etc.) can consume this
- * service via the `<ck-help>` component without having to manage
- * its own state.
+ * The app is English-first; French is preserved so francophone
+ * operators can stay in their language of choice. Both the persona
+ * and the language are user preferences, persisted in localStorage
+ * so they travel across sessions.
  */
 @Injectable({ providedIn: 'root' })
 export class HelpService {
@@ -48,7 +63,9 @@ export class HelpService {
   readonly persona = signal<Persona>(this.readStoredPersona());
   readonly personaLabel = computed(() => this.personaLabelOf(this.persona()));
 
-  /** Lazily loads (and caches) the help index from the backend. */
+  readonly language = signal<Language>(this.readStoredLanguage());
+  readonly languageLabel = computed(() => this.languageLabelOf(this.language()));
+
   load(): Observable<HelpContentIndex | null> {
     if (!this._index$) {
       this._index$ = this.api
@@ -61,7 +78,6 @@ export class HelpService {
     return this._index$;
   }
 
-  /** Force-refresh from the backend (used by the content reload endpoint). */
   reload(): Observable<HelpContentIndex | null> {
     this._index$ = null;
     return this.load().pipe(tap(() => undefined));
@@ -76,7 +92,27 @@ export class HelpService {
     }
   }
 
-  /** Find an entry in the already-loaded index (returns null if not loaded yet). */
+  setLanguage(lang: Language): void {
+    this.language.set(lang);
+    try {
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+    } catch {
+      // Ignore private-mode errors.
+    }
+  }
+
+  /** Pick the best-matching text for the current (or requested) language. */
+  pickText(text: LocalizedText | null | undefined, lang?: Language): string {
+    if (!text) return '';
+    const target = lang ?? this.language();
+    if (text[target]) return text[target] ?? '';
+    for (const fallback of FALLBACK_ORDER) {
+      if (text[fallback]) return text[fallback] ?? '';
+    }
+    const firstValue = Object.values(text).find((v) => typeof v === 'string' && v.length > 0);
+    return typeof firstValue === 'string' ? firstValue : '';
+  }
+
   find(index: HelpContentIndex | null, id: string): HelpContent | null {
     if (!index) return null;
     return index.items.find((item) => item.id === id) ?? null;
@@ -111,6 +147,15 @@ export class HelpService {
     }
   }
 
+  languageLabelOf(lang: Language): string {
+    switch (lang) {
+      case 'en':
+        return 'EN';
+      case 'fr':
+        return 'FR';
+    }
+  }
+
   private readStoredPersona(): Persona {
     try {
       const stored = localStorage.getItem(PERSONA_STORAGE_KEY);
@@ -121,5 +166,17 @@ export class HelpService {
       // Ignore.
     }
     return DEFAULT_PERSONA;
+  }
+
+  private readStoredLanguage(): Language {
+    try {
+      const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+      if (stored === 'en' || stored === 'fr') {
+        return stored;
+      }
+    } catch {
+      // Ignore.
+    }
+    return DEFAULT_LANGUAGE;
   }
 }

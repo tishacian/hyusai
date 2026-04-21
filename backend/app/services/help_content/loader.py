@@ -23,6 +23,7 @@ def _load_from_disk() -> HelpContentIndex:
         return HelpContentIndex(
             version="0.0.0",
             personas=["builder", "operator", "executive"],
+            languages=["en", "fr"],
             items=[],
         )
     raw = yaml.safe_load(_CONTENT_PATH.read_text(encoding="utf-8")) or {}
@@ -30,6 +31,7 @@ def _load_from_disk() -> HelpContentIndex:
     return HelpContentIndex(
         version=raw.get("version", "dev"),
         personas=raw.get("personas", ["builder", "operator", "executive"]),
+        languages=raw.get("languages", ["en", "fr"]),
         items=items,
     )
 
@@ -51,4 +53,9 @@ def get_help_index(ids: Optional[list[str]] = None) -> HelpContentIndex:
         return index
     wanted = set(ids)
     filtered = [i for i in index.items if i.id in wanted]
-    return HelpContentIndex(version=index.version, personas=index.personas, items=filtered)
+    return HelpContentIndex(
+        version=index.version,
+        personas=index.personas,
+        languages=index.languages,
+        items=filtered,
+    )

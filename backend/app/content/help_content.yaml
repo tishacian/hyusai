@@ -1,394 +1,671 @@
 version: "2026.04.21"
 personas: [builder, operator, executive]
+languages: [en, fr]
 
 # ---------------------------------------------------------------------------
 # HYPERVISOR — Balance sheet, decisions, portfolio what-if.
 # ---------------------------------------------------------------------------
 items:
   - id: hypervisor.balance-sheet.overview
-    title: "Balance sheet"
+    title:
+      en: "Balance sheet"
+      fr: "Balance sheet"
     category: metric
     learn_more: "#s-22-hypervisor"
     by_persona:
       executive:
-        summary: "Le P&L de ton portefeuille d'Agentium : coût, valeur, ROI agrégés sur la période."
-        user_story: "En tant que dirigeant, je consulte le balance sheet pour arbitrer quelles capabilities financer."
-        prerequisites: ["Au moins un System actif avec des Runs."]
+        summary:
+          en: "The P&L of your Agentium portfolio: cost, value and ROI aggregated over the period."
+          fr: "Le P&L de ton portefeuille d'Agentium : coût, valeur, ROI agrégés sur la période."
+        user_story:
+          en: "As an executive, I review the balance sheet to decide which capabilities to fund."
+          fr: "En tant que dirigeant, je consulte le balance sheet pour arbitrer quelles capabilities financer."
+        prerequisites:
+          - en: "At least one active System with Runs."
+            fr: "Au moins un System actif avec des Runs."
         related_actions: ["hypervisor.balance-sheet.scale-capability", "hypervisor.decisions.feed"]
       operator:
-        summary: "Vue agrégée des Outcomes sur tes Systems — utile pour détecter les dérives."
-        user_story: "En tant qu'operator, je surveille le balance sheet pour identifier les capabilities sous-performantes."
+        summary:
+          en: "Aggregated view of Outcomes across your Systems — useful to spot drifts early."
+          fr: "Vue agrégée des Outcomes sur tes Systems — utile pour détecter les dérives."
+        user_story:
+          en: "As an operator, I monitor the balance sheet to flag underperforming capabilities."
+          fr: "En tant qu'operator, je surveille le balance sheet pour identifier les capabilities sous-performantes."
         prerequisites: []
         related_actions: ["steering.levers.resource", "runs.filter.by-system"]
       builder:
-        summary: "Tu vois ici l'impact des Systems que tu as assemblés. Indicateur de santé produit."
-        user_story: "En tant que builder, je vérifie dans le balance sheet que mes Systems génèrent de la valeur."
+        summary:
+          en: "You see here the impact of the Systems you assembled. Product-health indicator."
+          fr: "Tu vois ici l'impact des Systems que tu as assemblés. Indicateur de santé produit."
+        user_story:
+          en: "As a builder, I check the balance sheet to confirm my Systems actually generate value."
+          fr: "En tant que builder, je vérifie dans le balance sheet que mes Systems génèrent de la valeur."
         prerequisites: []
         related_actions: ["systems.create", "capabilities.roi-model"]
 
   - id: hypervisor.balance-sheet.scale-capability
-    title: "Scaler une capability"
+    title:
+      en: "Scale a capability"
+      fr: "Scaler une capability"
     category: action
     learn_more: "#s-22-hypervisor"
     by_persona:
       executive:
-        summary: "Augmente l'allocation et la valeur-par-outcome d'une capability à fort ROI."
-        user_story: "En tant que dirigeant, je scale une capability performante pour concentrer mes investissements."
-        prerequisites: ["ROI > seuil interne", "Capacité à absorber la charge"]
+        summary:
+          en: "Increase allocation and value-per-outcome on a high-ROI capability."
+          fr: "Augmente l'allocation et la valeur-par-outcome d'une capability à fort ROI."
+        user_story:
+          en: "As an executive, I scale a performing capability to concentrate investment."
+          fr: "En tant que dirigeant, je scale une capability performante pour concentrer mes investissements."
+        prerequisites:
+          - en: "ROI above internal threshold."
+            fr: "ROI > seuil interne"
+          - en: "Capacity to absorb the extra load."
+            fr: "Capacité à absorber la charge"
         related_actions: ["hypervisor.decisions.accept", "steering.levers.resource"]
       operator:
-        summary: "Passe par une Decision proposée — tu valides l'impact avant application."
-        user_story: "En tant qu'operator, je valide la recommandation de scaling avant qu'elle ne modifie les policies."
-        prerequisites: ["Une Decision ouverte avec action=scale"]
+        summary:
+          en: "Goes through a proposed Decision — you validate the impact before it is applied."
+          fr: "Passe par une Decision proposée — tu valides l'impact avant application."
+        user_story:
+          en: "As an operator, I validate the scaling recommendation before it rewrites policies."
+          fr: "En tant qu'operator, je valide la recommandation de scaling avant qu'elle ne modifie les policies."
+        prerequisites:
+          - en: "An open Decision with action=scale."
+            fr: "Une Decision ouverte avec action=scale"
         related_actions: ["hypervisor.decisions.apply"]
       builder:
-        summary: "Action d'exécutif — tu verras le résultat dans la composition de tes Systems demain."
-        user_story: "En tant que builder, je suis informé des scaling décidés pour anticiper la charge sur mes Systems."
+        summary:
+          en: "An executive action — you will feel it in the composition of your Systems tomorrow."
+          fr: "Action d'exécutif — tu verras le résultat dans la composition de tes Systems demain."
+        user_story:
+          en: "As a builder, I stay informed of scaling decisions to anticipate load on my Systems."
+          fr: "En tant que builder, je suis informé des scaling décidés pour anticiper la charge sur mes Systems."
         prerequisites: []
         related_actions: ["systems.monitor.outcome"]
 
   - id: hypervisor.decisions.feed
-    title: "Flux de décisions"
+    title:
+      en: "Decision feed"
+      fr: "Flux de décisions"
     category: navigation
     learn_more: "#s-24-decisions"
     by_persona:
       executive:
-        summary: "Liste chronologique des recommandations en attente et des actions appliquées."
-        user_story: "En tant que dirigeant, je parcours le flux pour arbitrer ce qui attend mon accord."
+        summary:
+          en: "Chronological stream of pending recommendations and applied actions."
+          fr: "Liste chronologique des recommandations en attente et des actions appliquées."
+        user_story:
+          en: "As an executive, I scan the feed to arbitrate what is waiting for my approval."
+          fr: "En tant que dirigeant, je parcours le flux pour arbitrer ce qui attend mon accord."
         prerequisites: []
         related_actions: ["hypervisor.decisions.accept", "hypervisor.decisions.reject"]
       operator:
-        summary: "Centre d'action : accept/reject/apply par décision, filtrable par scope."
-        user_story: "En tant qu'operator, je traite le flux de décisions en priorisant les actions bloquantes."
+        summary:
+          en: "Action center: accept/reject/apply per decision, filterable by scope."
+          fr: "Centre d'action : accept/reject/apply par décision, filtrable par scope."
+        user_story:
+          en: "As an operator, I work the feed and prioritise blocking actions first."
+          fr: "En tant qu'operator, je traite le flux de décisions en priorisant les actions bloquantes."
         prerequisites: []
         related_actions: ["hypervisor.decisions.apply"]
       builder:
-        summary: "Lecture seule — tu vois ici les décisions qui impactent tes Systems."
-        user_story: "En tant que builder, je consulte le flux pour comprendre pourquoi mes Systems changent."
+        summary:
+          en: "Read-only for you — shows decisions that will impact your Systems."
+          fr: "Lecture seule — tu vois ici les décisions qui impactent tes Systems."
+        user_story:
+          en: "As a builder, I consult the feed to understand why my Systems are changing."
+          fr: "En tant que builder, je consulte le flux pour comprendre pourquoi mes Systems changent."
         prerequisites: []
         related_actions: []
 
   - id: hypervisor.decisions.accept
-    title: "Accepter une décision"
+    title:
+      en: "Accept a decision"
+      fr: "Accepter une décision"
     category: action
     learn_more: "#s-24-decisions"
     by_persona:
       executive:
-        summary: "Valide la recommandation — elle reste à enacter par un operator."
-        user_story: "En tant que dirigeant, j'accepte la décision pour autoriser son application."
-        prerequisites: ["Statut = proposed"]
+        summary:
+          en: "Validate the recommendation — an operator still needs to enact it."
+          fr: "Valide la recommandation — elle reste à enacter par un operator."
+        user_story:
+          en: "As an executive, I accept the decision to authorize its application."
+          fr: "En tant que dirigeant, j'accepte la décision pour autoriser son application."
+        prerequisites:
+          - en: "Status = proposed."
+            fr: "Statut = proposed"
         related_actions: ["hypervisor.decisions.apply"]
       operator:
-        summary: "Étape intermédiaire avant Apply ; ajoute une note d'audit si nécessaire."
-        user_story: "En tant qu'operator, j'accepte la décision et la marque pour application sous ma responsabilité."
-        prerequisites: ["Statut = proposed"]
+        summary:
+          en: "Intermediate step before Apply; attach an audit note if relevant."
+          fr: "Étape intermédiaire avant Apply ; ajoute une note d'audit si nécessaire."
+        user_story:
+          en: "As an operator, I accept the decision and flag it for application under my responsibility."
+          fr: "En tant qu'operator, j'accepte la décision et la marque pour application sous ma responsabilité."
+        prerequisites:
+          - en: "Status = proposed."
+            fr: "Statut = proposed"
         related_actions: ["hypervisor.decisions.apply", "hypervisor.decisions.reject"]
       builder:
-        summary: "Action réservée aux executives/operators."
-        user_story: "En tant que builder, je n'accepte pas directement — je signale plutôt les effets observés."
+        summary:
+          en: "Reserved to executives/operators."
+          fr: "Action réservée aux executives/operators."
+        user_story:
+          en: "As a builder, I don't accept directly — I report observed effects instead."
+          fr: "En tant que builder, je n'accepte pas directement — je signale plutôt les effets observés."
         prerequisites: []
         related_actions: []
 
   - id: hypervisor.decisions.reject
-    title: "Rejeter une décision"
+    title:
+      en: "Reject a decision"
+      fr: "Rejeter une décision"
     category: action
     by_persona:
       executive:
-        summary: "Clôture la recommandation sans impact — ajoute une note pour l'apprentissage du système."
-        user_story: "En tant que dirigeant, je rejette la décision car elle contredit une priorité stratégique."
-        prerequisites: ["Statut = proposed"]
+        summary:
+          en: "Closes the recommendation without impact — add a note to feed the learning loop."
+          fr: "Clôture la recommandation sans impact — ajoute une note pour l'apprentissage du système."
+        user_story:
+          en: "As an executive, I reject the decision because it conflicts with a strategic priority."
+          fr: "En tant que dirigeant, je rejette la décision car elle contredit une priorité stratégique."
+        prerequisites:
+          - en: "Status = proposed."
+            fr: "Statut = proposed"
         related_actions: []
       operator:
-        summary: "Écarte la proposition ; le runtime adaptatif apprendra du motif fourni."
-        user_story: "En tant qu'operator, je rejette la décision avec un motif pour alimenter la boucle adaptative."
-        prerequisites: ["Statut = proposed"]
+        summary:
+          en: "Dismiss the proposal; the adaptive runtime will learn from your rationale."
+          fr: "Écarte la proposition ; le runtime adaptatif apprendra du motif fourni."
+        user_story:
+          en: "As an operator, I reject the decision with a rationale to feed the adaptive loop."
+          fr: "En tant qu'operator, je rejette la décision avec un motif pour alimenter la boucle adaptative."
+        prerequisites:
+          - en: "Status = proposed."
+            fr: "Statut = proposed"
         related_actions: []
       builder:
-        summary: "Action réservée aux executives/operators."
-        user_story: "En tant que builder, je n'ai pas ce droit — je remonte plutôt le feedback."
+        summary:
+          en: "Reserved to executives/operators."
+          fr: "Action réservée aux executives/operators."
+        user_story:
+          en: "As a builder, I don't have this right — I escalate feedback instead."
+          fr: "En tant que builder, je n'ai pas ce droit — je remonte plutôt le feedback."
         prerequisites: []
         related_actions: []
 
   - id: hypervisor.decisions.apply
-    title: "Appliquer une décision"
+    title:
+      en: "Apply a decision"
+      fr: "Appliquer une décision"
     category: action
     learn_more: "#s-24-decisions"
     by_persona:
       operator:
-        summary: "Enacte la décision : patch les policies/systems concernés et enregistre l'audit."
-        user_story: "En tant qu'operator, j'applique la décision pour matérialiser le changement sur le runtime."
-        prerequisites: ["Statut = accepted"]
+        summary:
+          en: "Enact the decision: patches the impacted policies/systems and logs the audit trail."
+          fr: "Enacte la décision : patch les policies/systems concernés et enregistre l'audit."
+        user_story:
+          en: "As an operator, I apply the decision to materialize the change on the runtime."
+          fr: "En tant qu'operator, j'applique la décision pour matérialiser le changement sur le runtime."
+        prerequisites:
+          - en: "Status = accepted."
+            fr: "Statut = accepted"
         related_actions: ["runs.list", "steering.levers.resource"]
       executive:
-        summary: "Transition accepted → applied — habituellement déclenchée par un operator."
-        user_story: "En tant que dirigeant, je déclenche Apply uniquement quand je veux court-circuiter la chaîne."
-        prerequisites: ["Statut = accepted"]
+        summary:
+          en: "Accepted → applied transition — usually triggered by an operator."
+          fr: "Transition accepted → applied — habituellement déclenchée par un operator."
+        user_story:
+          en: "As an executive, I trigger Apply only when I need to short-circuit the chain."
+          fr: "En tant que dirigeant, je déclenche Apply uniquement quand je veux court-circuiter la chaîne."
+        prerequisites:
+          - en: "Status = accepted."
+            fr: "Statut = accepted"
         related_actions: []
       builder:
-        summary: "Action réservée aux operators/executives."
-        user_story: "En tant que builder, je n'applique pas de décisions."
+        summary:
+          en: "Reserved to operators/executives."
+          fr: "Action réservée aux operators/executives."
+        user_story:
+          en: "As a builder, I don't apply decisions."
+          fr: "En tant que builder, je n'applique pas de décisions."
         prerequisites: []
         related_actions: []
 
   - id: hypervisor.what-if.run
-    title: "Simulation What-If"
+    title:
+      en: "What-If simulation"
+      fr: "Simulation What-If"
     category: action
     learn_more: "#s-36-steering"
     by_persona:
       executive:
-        summary: "Projette le P&L si tu bouges resource / velocity / autonomy / risk tolerance."
-        user_story: "En tant que dirigeant, je simule les leviers avant tout changement pour valider l'impact attendu."
+        summary:
+          en: "Projects the P&L when you move resource / velocity / autonomy / risk tolerance."
+          fr: "Projette le P&L si tu bouges resource / velocity / autonomy / risk tolerance."
+        user_story:
+          en: "As an executive, I simulate the levers before any change to validate the expected impact."
+          fr: "En tant que dirigeant, je simule les leviers avant tout changement pour valider l'impact attendu."
         prerequisites: []
         related_actions: ["steering.levers.resource"]
       operator:
-        summary: "Essaie une combinaison de leviers et mesure la projection avant de modifier les policies."
-        user_story: "En tant qu'operator, je lance un what-if pour vérifier la résilience avant d'appliquer un réglage."
+        summary:
+          en: "Try a lever combination and read the projection before modifying policies."
+          fr: "Essaie une combinaison de leviers et mesure la projection avant de modifier les policies."
+        user_story:
+          en: "As an operator, I run a what-if to check resilience before applying a tuning."
+          fr: "En tant qu'operator, je lance un what-if pour vérifier la résilience avant d'appliquer un réglage."
         prerequisites: []
         related_actions: ["steering.levers.resource"]
       builder:
-        summary: "Pré-visualise l'effet des leviers sur les Systems que tu as conçus."
-        user_story: "En tant que builder, je simule les leviers pour comprendre la sensibilité de mes Systems."
+        summary:
+          en: "Preview the effect of the levers on the Systems you designed."
+          fr: "Pré-visualise l'effet des leviers sur les Systems que tu as conçus."
+        user_story:
+          en: "As a builder, I simulate the levers to understand the sensitivity of my Systems."
+          fr: "En tant que builder, je simule les leviers pour comprendre la sensibilité de mes Systems."
         prerequisites: []
         related_actions: []
 
 # ---------------------------------------------------------------------------
-# STEERING — Les 4 leviers canoniques.
+# STEERING — The 4 canonical levers.
 # ---------------------------------------------------------------------------
   - id: steering.levers.resource
-    title: "Levier Resource"
+    title:
+      en: "Resource lever"
+      fr: "Levier Resource"
     category: control
     learn_more: "#s-36-steering"
     by_persona:
       executive:
-        summary: "Alloue plus ou moins de budget (tokens, agents, retrieval) au périmètre sélectionné."
-        user_story: "En tant que dirigeant, j'augmente Resource sur une capability prioritaire."
+        summary:
+          en: "Allocates more or less budget (tokens, agents, retrieval) to the selected scope."
+          fr: "Alloue plus ou moins de budget (tokens, agents, retrieval) au périmètre sélectionné."
+        user_story:
+          en: "As an executive, I raise Resource on a priority capability."
+          fr: "En tant que dirigeant, j'augmente Resource sur une capability prioritaire."
         prerequisites: []
         related_actions: ["hypervisor.what-if.run"]
       operator:
-        summary: "0 = lean (coût -40%), 1 = deep (valeur +35%). À ajuster avant un pic."
-        user_story: "En tant qu'operator, je monte Resource avant un pic de trafic prévu."
+        summary:
+          en: "0 = lean (cost -40%), 1 = deep (value +35%). Tune before a peak."
+          fr: "0 = lean (coût -40%), 1 = deep (valeur +35%). À ajuster avant un pic."
+        user_story:
+          en: "As an operator, I raise Resource ahead of a scheduled traffic peak."
+          fr: "En tant qu'operator, je monte Resource avant un pic de trafic prévu."
         prerequisites: []
         related_actions: ["hypervisor.what-if.run"]
       builder:
-        summary: "Variable contextuelle passée à tes Skills — à lire depuis ctx.resource."
-        user_story: "En tant que builder, je m'assure que mes Skills tirent parti de Resource quand il monte."
+        summary:
+          en: "Context variable fed to your Skills — read it from ctx.resource."
+          fr: "Variable contextuelle passée à tes Skills — à lire depuis ctx.resource."
+        user_story:
+          en: "As a builder, I make sure my Skills exploit Resource when it rises."
+          fr: "En tant que builder, je m'assure que mes Skills tirent parti de Resource quand il monte."
         prerequisites: []
         related_actions: []
 
   - id: steering.levers.velocity
-    title: "Levier Velocity"
+    title:
+      en: "Velocity lever"
+      fr: "Levier Velocity"
     category: control
     learn_more: "#s-36-steering"
     by_persona:
       operator:
-        summary: "Pilote le latency budget (rapid vs thorough)."
-        user_story: "En tant qu'operator, je passe Velocity à 1 (rapid) pour un incident live."
+        summary:
+          en: "Drives the latency budget (rapid vs thorough)."
+          fr: "Pilote le latency budget (rapid vs thorough)."
+        user_story:
+          en: "As an operator, I push Velocity to 1 (rapid) during a live incident."
+          fr: "En tant qu'operator, je passe Velocity à 1 (rapid) pour un incident live."
         prerequisites: []
         related_actions: []
       executive:
-        summary: "Rapide = réponse <1s avec dégradation qualité ; Thorough = analyse en profondeur."
-        user_story: "En tant que dirigeant, j'utilise Thorough pour les décisions stratégiques, Rapid pour l'opérationnel."
+        summary:
+          en: "Rapid = response <1s with quality trade-off; Thorough = deep analysis."
+          fr: "Rapide = réponse <1s avec dégradation qualité ; Thorough = analyse en profondeur."
+        user_story:
+          en: "As an executive, I use Thorough for strategic decisions, Rapid for operational ones."
+          fr: "En tant que dirigeant, j'utilise Thorough pour les décisions stratégiques, Rapid pour l'opérationnel."
         prerequisites: []
         related_actions: []
       builder:
-        summary: "Signal à lire pour arbitrer entre modèles rapides et modèles précis."
-        user_story: "En tant que builder, je route vers un modèle léger quand Velocity > 0.7."
+        summary:
+          en: "Signal to read when choosing between fast and precise models."
+          fr: "Signal à lire pour arbitrer entre modèles rapides et modèles précis."
+        user_story:
+          en: "As a builder, I route to a lightweight model when Velocity > 0.7."
+          fr: "En tant que builder, je route vers un modèle léger quand Velocity > 0.7."
         prerequisites: []
         related_actions: []
 
   - id: steering.levers.autonomy
-    title: "Levier Autonomy"
+    title:
+      en: "Autonomy lever"
+      fr: "Levier Autonomy"
     category: control
     learn_more: "#s-36-steering"
     by_persona:
       operator:
-        summary: "0 = HITL systématique ; 1 = automatisation complète (sous contrôle d'un ControlPolicy)."
-        user_story: "En tant qu'operator, je baisse Autonomy à 0.3 pour imposer une revue humaine sur les décisions à fort impact."
+        summary:
+          en: "0 = mandatory HITL; 1 = full automation (bounded by a ControlPolicy)."
+          fr: "0 = HITL systématique ; 1 = automatisation complète (sous contrôle d'un ControlPolicy)."
+        user_story:
+          en: "As an operator, I drop Autonomy to 0.3 to force a human review on high-impact decisions."
+          fr: "En tant qu'operator, je baisse Autonomy à 0.3 pour imposer une revue humaine sur les décisions à fort impact."
         prerequisites: []
         related_actions: []
       executive:
-        summary: "Contrôle le risque opérationnel et la vitesse de décision."
-        user_story: "En tant que dirigeant, je fixe Autonomy pour équilibrer vitesse et gouvernance."
+        summary:
+          en: "Controls operational risk and decision speed."
+          fr: "Contrôle le risque opérationnel et la vitesse de décision."
+        user_story:
+          en: "As an executive, I set Autonomy to balance speed and governance."
+          fr: "En tant que dirigeant, je fixe Autonomy pour équilibrer vitesse et gouvernance."
         prerequisites: []
         related_actions: []
       builder:
-        summary: "Ta ControlPolicy définit les seuils où Autonomy déclenche HITL."
-        user_story: "En tant que builder, je définis un seuil mandatory_hitl_if_confidence_below pour borner Autonomy."
+        summary:
+          en: "Your ControlPolicy defines the thresholds at which Autonomy triggers HITL."
+          fr: "Ta ControlPolicy définit les seuils où Autonomy déclenche HITL."
+        user_story:
+          en: "As a builder, I set a mandatory_hitl_if_confidence_below threshold to bound Autonomy."
+          fr: "En tant que builder, je définis un seuil mandatory_hitl_if_confidence_below pour borner Autonomy."
         prerequisites: []
         related_actions: []
 
   - id: steering.levers.risk-tolerance
-    title: "Levier Risk tolerance"
+    title:
+      en: "Risk tolerance lever"
+      fr: "Levier Risk tolerance"
     category: control
     learn_more: "#s-36-steering"
     by_persona:
       executive:
-        summary: "Ajuste combien tu acceptes de te tromper — impacte les seuils de décision."
-        user_story: "En tant que dirigeant, je relève Risk tolerance pour tester une capability émergente."
+        summary:
+          en: "Adjust how much you accept to be wrong — impacts decision thresholds."
+          fr: "Ajuste combien tu acceptes de te tromper — impacte les seuils de décision."
+        user_story:
+          en: "As an executive, I raise Risk tolerance to test an emerging capability."
+          fr: "En tant que dirigeant, je relève Risk tolerance pour tester une capability émergente."
         prerequisites: []
         related_actions: []
       operator:
-        summary: "À utiliser avec prudence : assouplit les guardrails confidence/précision."
-        user_story: "En tant qu'operator, je baisse Risk tolerance après un incident pour durcir les seuils."
+        summary:
+          en: "Use with care: loosens the confidence/precision guardrails."
+          fr: "À utiliser avec prudence : assouplit les guardrails confidence/précision."
+        user_story:
+          en: "As an operator, I lower Risk tolerance after an incident to tighten thresholds."
+          fr: "En tant qu'operator, je baisse Risk tolerance après un incident pour durcir les seuils."
         prerequisites: []
         related_actions: []
       builder:
-        summary: "Signal passé aux skills de classification/decision pour moduler leur sélectivité."
-        user_story: "En tant que builder, j'ajuste le threshold de mes decision_skills selon Risk tolerance."
+        summary:
+          en: "Signal forwarded to classification/decision skills to modulate their selectivity."
+          fr: "Signal passé aux skills de classification/decision pour moduler leur sélectivité."
+        user_story:
+          en: "As a builder, I adjust my decision_skills threshold based on Risk tolerance."
+          fr: "En tant que builder, j'ajuste le threshold de mes decision_skills selon Risk tolerance."
         prerequisites: []
         related_actions: []
 
 # ---------------------------------------------------------------------------
-# SYSTEM BUILDER — étapes 1→6.
+# SYSTEM BUILDER — steps 1 → 6.
 # ---------------------------------------------------------------------------
   - id: builder.steps.overview
-    title: "Assembler un System"
+    title:
+      en: "Assemble a System"
+      fr: "Assembler un System"
     category: concept
     learn_more: "#s-8-system"
     by_persona:
       builder:
-        summary: "Composition : Objective → Capability → Context → Skills → Policy → Review."
-        user_story: "En tant que builder, je suis les 6 étapes pour produire un System activable."
+        summary:
+          en: "Composition: Objective → Capability → Context → Skills → Policy → Review."
+          fr: "Composition : Objective → Capability → Context → Skills → Policy → Review."
+        user_story:
+          en: "As a builder, I follow the 6 steps to produce an activatable System."
+          fr: "En tant que builder, je suis les 6 étapes pour produire un System activable."
         prerequisites: []
         related_actions: ["builder.steps.skills", "builder.steps.context"]
       operator:
-        summary: "Tu vois ici les Systems que le builder a conçu ; tu ne les modifies pas directement."
-        user_story: "En tant qu'operator, j'inspecte la composition d'un System pour comprendre ses dépendances."
+        summary:
+          en: "You see Systems designed by the builder; you don't edit them directly."
+          fr: "Tu vois ici les Systems que le builder a conçu ; tu ne les modifies pas directement."
+        user_story:
+          en: "As an operator, I inspect a System's composition to understand its dependencies."
+          fr: "En tant qu'operator, j'inspecte la composition d'un System pour comprendre ses dépendances."
         prerequisites: []
         related_actions: []
       executive:
-        summary: "Rappel : un System = unité de déploiement liée à une Capability."
-        user_story: "En tant que dirigeant, je comprends la composition d'un System pour arbitrer son financement."
+        summary:
+          en: "Reminder: a System is a deployable unit bound to a Capability."
+          fr: "Rappel : un System = unité de déploiement liée à une Capability."
+        user_story:
+          en: "As an executive, I understand a System's composition to arbitrate its funding."
+          fr: "En tant que dirigeant, je comprends la composition d'un System pour arbitrer son financement."
         prerequisites: []
         related_actions: []
 
   - id: builder.steps.skills
-    title: "Étape Skills"
+    title:
+      en: "Skills step"
+      fr: "Étape Skills"
     category: action
     learn_more: "#s-15-skills"
     by_persona:
       builder:
-        summary: "Choisis les Skills qui composent la chaîne d'exécution. Statut runtime visible."
-        user_story: "En tant que builder, je sélectionne les Skills bound pour éviter les stubs en prod."
-        prerequisites: ["Une Capability sélectionnée à l'étape 2"]
+        summary:
+          en: "Pick the Skills that compose the execution chain. Runtime status is shown per skill."
+          fr: "Choisis les Skills qui composent la chaîne d'exécution. Statut runtime visible."
+        user_story:
+          en: "As a builder, I pick bound Skills to avoid stubs in production."
+          fr: "En tant que builder, je sélectionne les Skills bound pour éviter les stubs en prod."
+        prerequisites:
+          - en: "A Capability selected at step 2."
+            fr: "Une Capability sélectionnée à l'étape 2"
         related_actions: ["builder.steps.policy"]
       operator:
-        summary: "Lecture seule ; surveille les Skills stub qui peuvent dégrader les Outcomes."
-        user_story: "En tant qu'operator, je repère les Skills stub pour alerter les builders."
+        summary:
+          en: "Read-only; watch for stub Skills that can degrade Outcomes."
+          fr: "Lecture seule ; surveille les Skills stub qui peuvent dégrader les Outcomes."
+        user_story:
+          en: "As an operator, I spot stub Skills to alert the builders."
+          fr: "En tant qu'operator, je repère les Skills stub pour alerter les builders."
         prerequisites: []
         related_actions: []
       executive:
-        summary: "Rappel : Skills = bloc atomique exécutable dans un Run."
-        user_story: "En tant que dirigeant, je valide le coût des Skills retenus."
+        summary:
+          en: "Reminder: a Skill is the atomic executable block of a Run."
+          fr: "Rappel : Skills = bloc atomique exécutable dans un Run."
+        user_story:
+          en: "As an executive, I validate the cost of the selected Skills."
+          fr: "En tant que dirigeant, je valide le coût des Skills retenus."
         prerequisites: []
         related_actions: []
 
   - id: builder.steps.context
-    title: "Étape Context"
+    title:
+      en: "Context step"
+      fr: "Étape Context"
     category: action
     by_persona:
       builder:
-        summary: "Rattache ou crée un Context (prompt, corpus, garde-fous conversationnels)."
-        user_story: "En tant que builder, je réutilise un Context existant pour accélérer l'assemblage."
+        summary:
+          en: "Attach or create a Context (prompt, corpus, conversational guardrails)."
+          fr: "Rattache ou crée un Context (prompt, corpus, garde-fous conversationnels)."
+        user_story:
+          en: "As a builder, I reuse an existing Context to speed up assembly."
+          fr: "En tant que builder, je réutilise un Context existant pour accélérer l'assemblage."
         prerequisites: []
         related_actions: ["contexts.list"]
       operator:
-        summary: "Important pour la qualité des réponses ; un Context partagé propage les changements."
-        user_story: "En tant qu'operator, je surveille la propagation quand un Context partagé change."
+        summary:
+          en: "Important for answer quality; a shared Context propagates changes everywhere it is linked."
+          fr: "Important pour la qualité des réponses ; un Context partagé propage les changements."
+        user_story:
+          en: "As an operator, I monitor propagation when a shared Context changes."
+          fr: "En tant qu'operator, je surveille la propagation quand un Context partagé change."
         prerequisites: []
         related_actions: []
       executive:
-        summary: "Contrôle le ton et les corpus mobilisés par le System."
-        user_story: "En tant que dirigeant, je m'assure que le Context reflète la voix de la marque."
+        summary:
+          en: "Controls the tone and the corpora mobilized by the System."
+          fr: "Contrôle le ton et les corpus mobilisés par le System."
+        user_story:
+          en: "As an executive, I make sure the Context reflects the brand voice."
+          fr: "En tant que dirigeant, je m'assure que le Context reflète la voix de la marque."
         prerequisites: []
         related_actions: []
 
   - id: builder.steps.policy
-    title: "Étape Policy"
+    title:
+      en: "Policy step"
+      fr: "Étape Policy"
     category: action
     learn_more: "#s-21-policies"
     by_persona:
       builder:
-        summary: "Attache une ControlPolicy (guardrails) et une AdaptivePolicy (directives soft)."
-        user_story: "En tant que builder, je lie une ControlPolicy pour borner coût et latence."
+        summary:
+          en: "Attach a ControlPolicy (guardrails) and an AdaptivePolicy (soft directives)."
+          fr: "Attache une ControlPolicy (guardrails) et une AdaptivePolicy (directives soft)."
+        user_story:
+          en: "As a builder, I bind a ControlPolicy to cap cost and latency."
+          fr: "En tant que builder, je lie une ControlPolicy pour borner coût et latence."
         prerequisites: []
         related_actions: []
       operator:
-        summary: "Valide que les caps (cost, latency, HITL) sont cohérents avec tes SLAs."
-        user_story: "En tant qu'operator, j'ajuste les policies pour aligner les SLAs avec la charge réelle."
+        summary:
+          en: "Verify that the caps (cost, latency, HITL) match your SLAs."
+          fr: "Valide que les caps (cost, latency, HITL) sont cohérents avec tes SLAs."
+        user_story:
+          en: "As an operator, I tune policies to align SLAs with real load."
+          fr: "En tant qu'operator, j'ajuste les policies pour aligner les SLAs avec la charge réelle."
         prerequisites: []
         related_actions: []
       executive:
-        summary: "Tu vois ici les règles du jeu imposées au System."
-        user_story: "En tant que dirigeant, je lis les policies pour comprendre les limites du System."
+        summary:
+          en: "You see here the rules imposed on the System."
+          fr: "Tu vois ici les règles du jeu imposées au System."
+        user_story:
+          en: "As an executive, I read the policies to understand a System's boundaries."
+          fr: "En tant que dirigeant, je lis les policies pour comprendre les limites du System."
         prerequisites: []
         related_actions: []
 
 # ---------------------------------------------------------------------------
-# RUNS — drill-down outcome.
+# RUNS — outcome drill-down.
 # ---------------------------------------------------------------------------
   - id: runs.outcome.override
-    title: "Override Outcome.value"
+    title:
+      en: "Override Outcome.value"
+      fr: "Override Outcome.value"
     category: action
     learn_more: "#s-22-hypervisor"
     by_persona:
       operator:
-        summary: "Corrige la valeur business quand l'auto-dérivation n'est pas alignée avec la réalité."
-        user_story: "En tant qu'operator, j'override value quand un deal réel contredit le roi_model."
-        prerequisites: ["Run terminé"]
+        summary:
+          en: "Correct the business value when the auto-derivation disagrees with reality."
+          fr: "Corrige la valeur business quand l'auto-dérivation n'est pas alignée avec la réalité."
+        user_story:
+          en: "As an operator, I override value when a real deal contradicts the roi_model."
+          fr: "En tant qu'operator, j'override value quand un deal réel contredit le roi_model."
+        prerequisites:
+          - en: "Run has completed."
+            fr: "Run terminé"
         related_actions: []
       executive:
-        summary: "Trace la divergence entre modèle de ROI et valeur réelle — à lire dans la balance sheet."
-        user_story: "En tant que dirigeant, je lis les overrides pour calibrer les roi_model."
+        summary:
+          en: "Tracks the gap between ROI model and real value — surfaced in the balance sheet."
+          fr: "Trace la divergence entre modèle de ROI et valeur réelle — à lire dans la balance sheet."
+        user_story:
+          en: "As an executive, I read the overrides to calibrate the roi_model."
+          fr: "En tant que dirigeant, je lis les overrides pour calibrer les roi_model."
         prerequisites: []
         related_actions: []
       builder:
-        summary: "Signal pour revoir le roi_model de la Capability liée."
-        user_story: "En tant que builder, je revois le roi_model quand trop d'overrides arrivent sur une Capability."
+        summary:
+          en: "Signal to revisit the roi_model of the linked Capability."
+          fr: "Signal pour revoir le roi_model de la Capability liée."
+        user_story:
+          en: "As a builder, I revisit the roi_model when too many overrides land on a Capability."
+          fr: "En tant que builder, je revois le roi_model quand trop d'overrides arrivent sur une Capability."
         prerequisites: []
         related_actions: []
 
   - id: runs.list
-    title: "Liste des Runs"
+    title:
+      en: "Runs list"
+      fr: "Liste des Runs"
     category: navigation
     learn_more: "#s-22-hypervisor"
     by_persona:
       operator:
-        summary: "Historique complet filtrable par System et statut."
-        user_story: "En tant qu'operator, je filtre les Runs failed pour investiguer les incidents."
+        summary:
+          en: "Full history, filterable by System and status."
+          fr: "Historique complet filtrable par System et statut."
+        user_story:
+          en: "As an operator, I filter failed Runs to investigate incidents."
+          fr: "En tant qu'operator, je filtre les Runs failed pour investiguer les incidents."
         prerequisites: []
         related_actions: ["runs.outcome.override"]
       builder:
-        summary: "Vois l'exécution réelle de tes Systems et les invocations de Skills."
-        user_story: "En tant que builder, je consulte les Runs pour valider le comportement de ma composition."
+        summary:
+          en: "See the real execution of your Systems and their Skill invocations."
+          fr: "Vois l'exécution réelle de tes Systems et les invocations de Skills."
+        user_story:
+          en: "As a builder, I consult Runs to validate my composition's behaviour."
+          fr: "En tant que builder, je consulte les Runs pour valider le comportement de ma composition."
         prerequisites: []
         related_actions: []
       executive:
-        summary: "Niveau opérationnel — rarement utile au portfolio level."
-        user_story: "En tant que dirigeant, je vais ici seulement pour un drill-down exceptionnel."
+        summary:
+          en: "Operational level — rarely relevant at portfolio level."
+          fr: "Niveau opérationnel — rarement utile au portfolio level."
+        user_story:
+          en: "As an executive, I open this only for an exceptional drill-down."
+          fr: "En tant que dirigeant, je vais ici seulement pour un drill-down exceptionnel."
         prerequisites: []
         related_actions: []
 
 # ---------------------------------------------------------------------------
-# WORKSPACE — modes persona.
+# WORKSPACE — persona modes.
 # ---------------------------------------------------------------------------
   - id: workspace.mode.switch
-    title: "Changer de mode workspace"
+    title:
+      en: "Switch workspace mode"
+      fr: "Changer de mode workspace"
     category: navigation
     learn_more: "#s-37-modes"
     by_persona:
       builder:
-        summary: "Bascule en mode Operator ou Executive pour changer de perspective sans quitter le workspace."
-        user_story: "En tant que builder, je passe en mode operator pour tester l'expérience quotidienne."
+        summary:
+          en: "Switch to Operator or Executive to change perspective without leaving the workspace."
+          fr: "Bascule en mode Operator ou Executive pour changer de perspective sans quitter le workspace."
+        user_story:
+          en: "As a builder, I switch to operator to test the daily experience."
+          fr: "En tant que builder, je passe en mode operator pour tester l'expérience quotidienne."
         prerequisites: []
         related_actions: []
       operator:
-        summary: "Ajuste l'interface (densité, panneaux, navigation) à ton rôle courant."
-        user_story: "En tant qu'operator, je bascule en mode executive avant une revue trimestrielle."
+        summary:
+          en: "Adjusts the UI (density, panels, navigation) to your current role."
+          fr: "Ajuste l'interface (densité, panneaux, navigation) à ton rôle courant."
+        user_story:
+          en: "As an operator, I switch to executive before a quarterly review."
+          fr: "En tant qu'operator, je bascule en mode executive avant une revue trimestrielle."
         prerequisites: []
         related_actions: []
       executive:
-        summary: "Mode executive = densité basse, focus portfolio/decisions/balance sheet."
-        user_story: "En tant que dirigeant, je reste en mode executive 90% du temps."
+        summary:
+          en: "Executive mode = low density, focus on portfolio/decisions/balance sheet."
+          fr: "Mode executive = densité basse, focus portfolio/decisions/balance sheet."
+        user_story:
+          en: "As an executive, I stay in executive mode 90% of the time."
+          fr: "En tant que dirigeant, je reste en mode executive 90% du temps."
         prerequisites: []
         related_actions: []
