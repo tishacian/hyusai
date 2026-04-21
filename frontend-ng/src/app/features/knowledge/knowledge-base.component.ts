@@ -13,8 +13,10 @@ import { catchError } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { RouterLink } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
-import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
+import {
+  CkObjectHeaderComponent,
+  type CkObjectKpi,
+} from '@app/shared/cockpit/object-header.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
@@ -50,8 +52,7 @@ interface SearchResult {
   imports: [
     FormsModule,
     IconComponent,
-    SectionHeaderComponent,
-    StatTileComponent,
+    CkObjectHeaderComponent,
     EmptyStateComponent,
     StatusPulseComponent,
     DrawerComponent,
@@ -59,13 +60,14 @@ interface SearchResult {
     RouterLink,
   ],
   template: `
-    <app-section-header
-      breadcrumb="Build"
+    <ck-object-header
+      eyebrow="Build · Knowledge"
       title="Knowledge"
-      icon="database"
       subtitle="Ingest documents and give every system fresh context."
+      [kpis]="headerKpis()"
     >
       <button
+        actions
         type="button"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
         (click)="searchOpen.set(true)"
@@ -73,6 +75,7 @@ interface SearchResult {
         <app-icon name="search" [size]="14" /> Search
       </button>
       <button
+        actions
         type="button"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
         (click)="newCollectionDraft.set(''); createOpen.set(true)"
@@ -80,26 +83,14 @@ interface SearchResult {
         <app-icon name="folder-plus" [size]="14" /> New collection
       </button>
       <button
+        actions
         type="button"
         (click)="fileInput.click()"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
       >
         <app-icon name="cloud-upload" [size]="14" /> Upload
       </button>
-    </app-section-header>
-
-    <!-- Stats -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <app-stat-tile label="Collections" [value]="collections().length" icon="boxes" />
-      <app-stat-tile label="Documents" [value]="totalDocs()" icon="file-text" />
-      <app-stat-tile label="Chunks" [value]="totalChunks()" icon="braces" />
-      <app-stat-tile
-        label="Vector DB"
-        [value]="vectorDbType() || '—'"
-        icon="server"
-        [hint]="indexingLabel()"
-      />
-    </div>
+    </ck-object-header>
 
     <!-- Dropzone -->
     <div
@@ -537,6 +528,33 @@ export class KnowledgeBaseComponent implements OnInit {
   readonly indexingLabel = computed(() =>
     this.loadingCollections() ? 'indexing…' : 'ready',
   );
+
+  readonly headerKpis = computed<CkObjectKpi[]>(() => [
+    {
+      label: 'Collections',
+      value: String(this.collections().length),
+      tone: 'cool',
+      hint: 'Total number of collections in this workspace.',
+    },
+    {
+      label: 'Documents',
+      value: String(this.totalDocs()),
+      tone: 'neutral',
+      hint: 'Aggregate document count across all collections.',
+    },
+    {
+      label: 'Chunks',
+      value: String(this.totalChunks()),
+      tone: 'neutral',
+      hint: 'Aggregate chunk count — the indexing unit.',
+    },
+    {
+      label: 'Vector DB',
+      value: this.vectorDbType() || '—',
+      tone: 'violet',
+      hint: this.indexingLabel(),
+    },
+  ]);
 
   ngOnInit(): void {
     this.loadCollections();
