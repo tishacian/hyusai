@@ -22,7 +22,11 @@ import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
 } from '@app/shared/cockpit/object-header.component';
-import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
+import {
+  CanonicalApiService,
+  type Skill,
+  type System,
+} from '@app/core/canonical-api.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import {
   FlowSerializerService,
@@ -218,6 +222,10 @@ interface FlowTemplate {
               <app-icon name="maximize" [size]="14" />
             </button>
             <span class="w-px h-4 bg-white/10 mx-1"></span>
+            <button (click)="autoLayout()" class="df-tool-btn" title="Auto-layout nodes (topological)">
+              <app-icon name="layout-grid" [size]="14" />
+            </button>
+            <span class="w-px h-4 bg-white/10 mx-1"></span>
             <button (click)="toggleTerminal()" class="df-tool-btn" [class.active]="terminalOpen()" title="Toggle execution terminal">
               <app-icon name="terminal" [size]="14" />
             </button>
@@ -339,6 +347,31 @@ interface FlowTemplate {
                           </div>
                         }
                       </div>
+                    }
+                  </div>
+                }
+
+                <!-- Skill binder — only for task kind -->
+                @if ((selectedNode()!.kind ?? 'task') === 'task') {
+                  <div class="df-inspector-section">
+                    <div class="df-inspector-label">Bound skill</div>
+                    <select
+                      class="df-skill-select ck-mono"
+                      [value]="currentSkillId(selectedNode()!) ?? ''"
+                      (change)="onSkillBinderChange($event)"
+                      (focus)="ensureSkillsLoaded()"
+                    >
+                      <option value="">— Unbound —</option>
+                      @for (s of skills(); track s.id) {
+                        <option [value]="s.id">{{ s.slug }} · {{ s.name }}</option>
+                      }
+                    </select>
+                    @if (skillsLoading()) {
+                      <div class="text-[10px] text-gray-500 mt-1.5 ck-mono">Loading catalog…</div>
+                    } @else if (skills().length === 0) {
+                      <div class="text-[10px] text-gray-500 mt-1.5">Focus the dropdown to load the skill catalog.</div>
+                    } @else {
+                      <div class="text-[10px] text-gray-500 mt-1.5">{{ skills().length }} skills available.</div>
                     }
                   </div>
                 }
@@ -519,9 +552,23 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       },
     },
     {
+      id: 'safe',
+      label: 'Guarded LLM · Safety first',
+      description: 'Input → Guardrail → LLM → Output',
+      build: (add, connect) => {
+        const a = add('input', 60, 220);
+        const g = add('guardrail', 290, 220);
+        const c = add('llm', 540, 220);
+        const d = add('output', 790, 220);
+        connect(a, g);
+        connect(g, c);
+        connect(c, d);
+      },
+    },
+    {
       id: 'router',
       label: 'Router · Classify → Dispatch',
-      description: 'Split traffic between two tools',
+      description: 'Decision splits traffic between two tools',
       build: (add, connect) => {
         const a = add('input', 60, 240);
         const r = add('router', 300, 240);
@@ -536,20 +583,101 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       },
     },
     {
-      id: 'safe',
-      label: 'Guarded LLM · Safety first',
-      description: 'Input → Guardrail → LLM → Output',
+      id: 'parallel',
+      label: 'Fork / Join · Parallel research',
+      description: 'Fan out to 3 LLMs, join results',
+      build: (add, connect) => {
+        const a = add('input', 60, 260);
+        const f = add('fork', 280, 260);
+        const l1 = add('llm', 520, 140);
+        const l2 = add('llm', 520, 260);
+        const l3 = add('llm', 520, 380);
+        const j = add('join', 760, 260);
+        const o = add('output', 980, 260);
+        connect(a, f);
+        connect(f, l1);
+        connect(f, l2);
+        connect(f, l3);
+        connect(l1, j);
+        connect(l2, j);
+        connect(l3, j);
+        connect(j, o);
+      },
+    },
+    {
+      id: 'retry-loop',
+      label: 'Retry + Loop · Self-healing',
+      description: 'Loop with retry policy and HITL fallback',
+      build: (add, connect) => {
+        const a = add('input', 60, 240);
+        const l = add('loop', 280, 240);
+        const r = add('retry', 520, 240);
+        const t = add('llm', 760, 160);
+        const h = add('hitl', 760, 340);
+        const o = add('output', 1000, 240);
+        connect(a, l);
+        connect(l, r);
+        connect(r, t);
+        connect(r, h);
+        connect(t, o);
+        connect(h, o);
+      },
+    },
+    {
+      id: 'hitl-review',
+      label: 'HITL gate · Compliance',
+      description: 'LLM draft → human review → commit',
+      build: (add, connect) => {
+        const a = add('input', 60, 240);
+        const c = add('llm', 290, 240);
+        const h = add('hitl', 540, 240);
+        const g = add('guardrail', 790, 240);
+        const o = add('output', 1040, 240);
+        connect(a, c);
+        connect(c, h);
+        connect(h, g);
+        connect(g, o);
+      },
+    },
+    {
+      id: 'subflow',
+      label: 'Subflow · Nested pipeline',
+      description: 'Trigger → Subflow → Output',
       build: (add, connect) => {
         const a = add('input', 60, 220);
-        const g = add('guardrail', 290, 220);
-        const c = add('llm', 540, 220);
-        const d = add('output', 790, 220);
-        connect(a, g);
-        connect(g, c);
-        connect(c, d);
+        const s = add('subflow', 290, 220);
+        const g = add('guardrail', 540, 220);
+        const o = add('output', 790, 220);
+        connect(a, s);
+        connect(s, g);
+        connect(g, o);
+      },
+    },
+    {
+      id: 'research-agent',
+      label: 'Research agent · Plan → Execute',
+      description: 'Decision → Retrieve OR Tool → LLM synthesis',
+      build: (add, connect) => {
+        const a = add('input', 60, 240);
+        const d = add('router', 290, 240);
+        const r = add('retrieve', 540, 140);
+        const t = add('tool', 540, 340);
+        const s = add('llm', 790, 240);
+        const o = add('output', 1040, 240);
+        connect(a, d);
+        connect(d, r);
+        connect(d, t);
+        connect(r, s);
+        connect(t, s);
+        connect(s, o);
       },
     },
   ];
+
+  // Skill binder state — loaded lazily on first inspector open.
+  readonly skills = signal<Skill[]>([]);
+  readonly skillsLoading = signal(false);
+  readonly boundSkillId = signal<string | null>(null);
 
   private pendingDrop: PaletteItem | null = null;
   private ids = 0;
@@ -1009,6 +1137,153 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.router.navigate(['/systems', sid], { queryParams: { facet: 'overview' } });
   }
 
+  // ---------- Skills binder ----------
+
+  /** Load the skill catalog once. Called when the inspector first shows
+   *  a task node that has no skill bound. Idempotent. */
+  ensureSkillsLoaded(): void {
+    if (this.skills().length > 0 || this.skillsLoading()) return;
+    this.skillsLoading.set(true);
+    this.canonical.listSkills().subscribe({
+      next: (rows) => {
+        this.skills.set(rows ?? []);
+        this.skillsLoading.set(false);
+      },
+      error: () => {
+        this.skillsLoading.set(false);
+        this.toastr.warning('Could not load skill catalog — binder offline.', 'Inspector');
+      },
+    });
+  }
+
+  /**
+   * Bind / unbind a Skill on the currently selected task node. Writes
+   * `canonical_config.skill_id` + `skill_slug` on the Drawflow node
+   * data so the next project() picks it up and serializes it.
+   */
+  bindSkill(skillId: string | null): void {
+    const rawId = this.selectedNodeId();
+    const node = this.selectedNode();
+    if (!rawId || !node || !this.editor) return;
+    const nodeData = this.exportGraph()?.drawflow?.Home?.data?.[rawId];
+    if (!nodeData) return;
+    const skill = this.skills().find((s) => s.id === skillId) ?? null;
+    const nextConfig: Record<string, unknown> = {
+      ...((nodeData.data?.['canonical_config'] as Record<string, unknown>) ?? {}),
+      skill_id: skill?.id ?? null,
+      skill_slug: skill?.slug ?? null,
+    };
+    const nextData = {
+      ...(nodeData.data ?? {}),
+      canonical_config: nextConfig,
+    };
+    try {
+      this.editor.updateNodeDataFromId(rawId, nextData);
+    } catch {
+      return;
+    }
+    this.boundSkillId.set(skill?.id ?? null);
+    this.selectedNode.set({
+      ...node,
+      config: nextConfig as CanonicalFlowNode['config'],
+    });
+    this.refreshKpis();
+    if (skill) {
+      this.toastr.success(`Bound "${skill.name}" (${skill.slug})`, 'Skill');
+    } else {
+      this.toastr.info('Skill unbound', 'Skill');
+    }
+  }
+
+  onSkillBinderChange(ev: Event): void {
+    const value = (ev.target as HTMLSelectElement | null)?.value ?? '';
+    this.bindSkill(value || null);
+  }
+
+  // ---------- Auto-layout (topological layered) ----------
+
+  /**
+   * Reposition every node using a simple layered topological layout.
+   * Pure JavaScript — no dagre dependency. Good enough for <100 nodes.
+   */
+  autoLayout(): void {
+    if (!this.editor) return;
+    const graph = this.exportGraph();
+    const flow = this.serializer.project(graph);
+    const order = this.serializer.topoSort(flow);
+    if (!order) {
+      this.toastr.warning('Auto-layout refused — flow has a cycle.', 'Layout');
+      return;
+    }
+
+    // Assign each node to a layer = 1 + max(layer of predecessors).
+    const layer = new Map<string, number>();
+    flow.nodes.forEach((n) => layer.set(n.id, 0));
+    const preds = new Map<string, string[]>();
+    flow.nodes.forEach((n) => preds.set(n.id, []));
+    flow.edges.forEach((e) => {
+      if (preds.has(e.to)) preds.get(e.to)!.push(e.from);
+    });
+    for (const id of order) {
+      const ps = preds.get(id) ?? [];
+      const d = ps.length === 0 ? 0 : Math.max(...ps.map((p) => (layer.get(p) ?? 0) + 1));
+      layer.set(id, d);
+    }
+
+    // Group by layer and spread vertically within each layer.
+    const byLayer = new Map<number, string[]>();
+    layer.forEach((l, id) => {
+      if (!byLayer.has(l)) byLayer.set(l, []);
+      byLayer.get(l)!.push(id);
+    });
+
+    const COL_W = 260;
+    const ROW_H = 140;
+    const START_X = 60;
+    const START_Y = 80;
+
+    // Find drawflow numeric id per canonical id.
+    const canonicalToNum = new Map<string, string>();
+    for (const [key, node] of Object.entries(graph.drawflow?.Home?.data ?? {})) {
+      const cid = (node.data?.['canonical_id'] as string) || `flow.${key}`;
+      canonicalToNum.set(cid, key);
+    }
+
+    let moved = 0;
+    byLayer.forEach((ids, l) => {
+      ids.forEach((id, row) => {
+        const num = canonicalToNum.get(id);
+        if (!num) return;
+        const x = START_X + l * COL_W;
+        const y = START_Y + row * ROW_H;
+        try {
+          const dn = graph.drawflow?.Home?.data?.[num];
+          if (dn) {
+            dn.pos_x = x;
+            dn.pos_y = y;
+          }
+          const el = document.getElementById(`node-${num}`);
+          if (el) {
+            (el as HTMLElement).style.left = `${x}px`;
+            (el as HTMLElement).style.top = `${y}px`;
+          }
+          moved += 1;
+        } catch {
+          // continue
+        }
+      });
+    });
+
+    try {
+      // Redraw connections after moving nodes.
+      this.editor.updateConnectionNodes?.('node-*');
+    } catch {
+      // noop
+    }
+    this.toastr.success(`${moved} nodes rearranged.`, 'Auto-layout');
+    this.refreshKpis();
+  }
+
   // ---------- Inspector helpers ----------
 
   toneForNode(node: CanonicalFlowNode): NodeTone {
@@ -1035,6 +1310,13 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   kindLabel(kind: NodeKind | undefined): string {
     const k = kind ?? 'task';
     return k.toUpperCase();
+  }
+
+  /** Currently bound skill id on a node's config, if any. */
+  currentSkillId(node: CanonicalFlowNode): string | null {
+    const cfg = (node.config ?? {}) as Record<string, unknown>;
+    const id = cfg['skill_id'];
+    return typeof id === 'string' && id.length > 0 ? id : null;
   }
 
   /**

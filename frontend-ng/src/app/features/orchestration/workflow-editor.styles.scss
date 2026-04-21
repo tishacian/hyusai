@@ -552,6 +552,29 @@
   border-radius: 4px;
 }
 
+.df-skill-select {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--ck-bg-inset, #0f172a);
+  border: 1px solid var(--ck-stroke-2, rgba(148, 163, 184, 0.15));
+  border-radius: 4px;
+  color: var(--ck-fg-1, #f8fafc);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 140ms ease;
+
+  &:hover,
+  &:focus {
+    border-color: var(--ck-signal-cool, #38bdf8);
+    outline: none;
+  }
+
+  option {
+    background: var(--ck-bg-panel, #111827);
+    color: var(--ck-fg-1, #f8fafc);
+  }
+}
+
 .df-metric-label {
   font-family: var(--ck-mono, ui-monospace, monospace);
   font-size: 9px;
