@@ -47,6 +47,14 @@ interface Role {
       }
     </app-section-header>
 
+    <div class="mb-5 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
+      <app-icon name="info" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
+      <p class="text-[11px] text-amber-200/80 leading-relaxed flex-1">
+        Built-in roles are enforced server-side. Dynamic role creation and per-capability customisation
+        are coming with the RBAC release — this page stays read-only until then.
+      </p>
+    </div>
+
     <!-- Role overview -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
       @for (r of roles; track r.key) {

@@ -125,7 +125,7 @@ export const CONNECTORS: ConnectorDef[] = [
     category: 'channels',
     icon: 'message-square',
     name: 'WhatsApp Business',
-    description: 'Agent access via WhatsApp Cloud API.',
+    description: 'System access via WhatsApp Cloud API.',
     version: 'Cloud API v18',
     status: 'coming-soon',
     fields: [

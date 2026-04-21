@@ -3,6 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
+import { WorkspaceService, type WorkspaceMode } from '@app/core/workspace.service';
 
 interface RailItem {
   key: string;
@@ -11,6 +12,7 @@ interface RailItem {
   glyph: CkGlyphName;
   route: string;
   matches: string[];
+  hiddenInModes?: WorkspaceMode[];
 }
 
 interface ExtraGroup {
@@ -45,7 +47,7 @@ interface ExtraGroup {
       [style.zIndex]="30"
     >
       <nav [style.display]="'flex'" [style.flexDirection]="'column'" [style.alignItems]="'center'" [style.gap.px]="6" [style.flex]="'1 1 auto'">
-        @for (it of items; track it.key) {
+        @for (it of visibleItems(); track it.key) {
           <a
             [routerLink]="it.route"
             [title]="it.label + ' — ' + it.hint"
@@ -161,6 +163,7 @@ interface ExtraGroup {
 })
 export class SideRailComponent {
   private readonly router = inject(Router);
+  private readonly workspace = inject(WorkspaceService);
   moreOpen = signal(false);
 
   private readonly url = toSignal(
@@ -173,12 +176,17 @@ export class SideRailComponent {
   );
 
   readonly items: RailItem[] = [
-    { key: 'hypervisor', label: 'Hypervisor', hint: 'Balance sheet',  glyph: 'ledger',    route: '/hypervisor',    matches: ['/hypervisor'] },
+    { key: 'hypervisor', label: 'Hypervisor', hint: 'Balance sheet',  glyph: 'ledger',    route: '/hypervisor',    matches: ['/hypervisor'], hiddenInModes: ['builder'] },
     { key: 'zoom',       label: 'Zoom',       hint: 'Capabilities & skills', glyph: 'focus', route: '/capabilities', matches: ['/capabilities', '/skills'] },
-    { key: 'steering',   label: 'Steering',   hint: 'Control plane',  glyph: 'sliders',   route: '/steering',       matches: ['/steering'] },
+    { key: 'steering',   label: 'Steering',   hint: 'Control plane',  glyph: 'sliders',   route: '/steering',       matches: ['/steering'], hiddenInModes: ['builder'] },
     { key: 'builder',    label: 'Builder',    hint: 'Compose systems', glyph: 'flow',     route: '/systems',        matches: ['/systems', '/orchestration', '/knowledge'] },
     { key: 'run',        label: 'Run',        hint: 'Observability & missions', glyph: 'telemetry', route: '/observability', matches: ['/observability', '/runs', '/intelligence', '/tasks'] },
   ];
+
+  readonly visibleItems = computed(() => {
+    const mode = this.workspace.mode();
+    return this.items.filter((it) => !it.hiddenInModes || !it.hiddenInModes.includes(mode));
+  });
 
   readonly extras: ExtraGroup[] = [
     {

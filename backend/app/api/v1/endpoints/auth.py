@@ -120,6 +120,11 @@ class WorkspaceCreate(BaseModel):
 class WorkspaceUpdate(BaseModel):
     name: Optional[str] = None
     settings: Optional[dict] = None
+    mode: Optional[str] = None
+
+
+class WorkspaceModeUpdate(BaseModel):
+    mode: str  # builder | operator | executive
 
 
 class MemberInvite(BaseModel):
@@ -149,6 +154,7 @@ class WorkspaceDetail(BaseModel):
     created_at: datetime
     deleted_at: Optional[datetime] = None
     settings: dict = {}
+    mode: str = "executive"
 
 
 class MemberDetail(BaseModel):
@@ -447,7 +453,13 @@ async def get_me(user: User = Depends(get_current_user), db: DBSession = Depends
     for m in memberships:
         ws = db.query(Workspace).filter(Workspace.id == m.workspace_id).first()
         if ws and ws.is_active:
-            workspaces.append({"id": ws.id, "name": ws.name, "slug": ws.slug, "role": m.role})
+            workspaces.append({
+                "id": ws.id,
+                "name": ws.name,
+                "slug": ws.slug,
+                "role": m.role,
+                "mode": getattr(ws, "mode", "executive") or "executive",
+            })
 
     kc_data = await _get_kc_user(user.keycloak_sub) if user.keycloak_sub else {}
     attrs = kc_data.get("attributes") or {}
@@ -740,6 +752,7 @@ async def create_workspace(
         member_count=1,
         created_at=workspace.created_at,
         settings=workspace.settings or {},
+        mode=getattr(workspace, "mode", "executive") or "executive",
     )
 
 
@@ -764,6 +777,7 @@ async def list_workspaces(user: User = Depends(get_current_user), db: DBSession 
                 "role": m.role,
                 "member_count": member_count,
                 "created_at": ws.created_at.isoformat() if ws.created_at else None,
+                "mode": getattr(ws, "mode", "executive") or "executive",
             })
     return result
 
@@ -788,6 +802,7 @@ async def get_workspace(
         created_at=workspace.created_at,
         deleted_at=workspace.deleted_at,
         settings=workspace.settings or {},
+        mode=getattr(workspace, "mode", "executive") or "executive",
     )
 
 
@@ -805,6 +820,10 @@ async def update_workspace(
         workspace.name = body.name
     if body.settings is not None:
         workspace.settings = body.settings
+    if body.mode is not None:
+        if body.mode not in ("builder", "operator", "executive"):
+            raise HTTPException(status_code=422, detail="Invalid workspace mode")
+        workspace.mode = body.mode
 
     db.commit()
     db.refresh(workspace)
@@ -820,6 +839,44 @@ async def update_workspace(
         member_count=member_count,
         created_at=workspace.created_at,
         settings=workspace.settings or {},
+        mode=getattr(workspace, "mode", "executive") or "executive",
+    )
+
+
+@router.patch("/workspaces/{slug}/mode", response_model=WorkspaceDetail)
+async def update_workspace_mode(
+    slug: str,
+    body: WorkspaceModeUpdate,
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Canonical endpoint to toggle workspace persona surface.
+
+    - `builder`   → System Builder focused, hides Hypervisor/ROI.
+    - `operator`  → Runs + steering focused, Hypervisor visible but reduced.
+    - `executive` → Full portfolio view (default).
+    The underlying data never changes; only the shell surface adapts.
+    """
+    if body.mode not in ("builder", "operator", "executive"):
+        raise HTTPException(status_code=422, detail="Invalid workspace mode")
+    workspace, membership = _resolve_workspace_and_role(db, user, slug)
+    _require_admin(membership)
+    workspace.mode = body.mode
+    db.commit()
+    db.refresh(workspace)
+    member_count = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace.id
+    ).count()
+    return WorkspaceDetail(
+        id=workspace.id,
+        name=workspace.name,
+        slug=workspace.slug,
+        role=membership.role,
+        is_active=workspace.is_active,
+        member_count=member_count,
+        created_at=workspace.created_at,
+        settings=workspace.settings or {},
+        mode=workspace.mode or "executive",
     )
 
 

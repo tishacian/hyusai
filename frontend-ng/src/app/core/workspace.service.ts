@@ -2,6 +2,8 @@ import { Injectable, inject, signal, computed, effect } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
 
+export type WorkspaceMode = 'builder' | 'operator' | 'executive';
+
 export interface WorkspaceInfo {
   id: string;
   name: string;
@@ -9,6 +11,7 @@ export interface WorkspaceInfo {
   role: string;
   member_count?: number;
   created_at?: string;
+  mode?: WorkspaceMode;
 }
 
 export interface WorkspaceDetail {
@@ -21,6 +24,7 @@ export interface WorkspaceDetail {
   created_at: string;
   deleted_at?: string | null;
   settings?: Record<string, unknown>;
+  mode?: WorkspaceMode;
 }
 
 export interface WorkspaceMemberDetail {
@@ -50,6 +54,13 @@ export class WorkspaceService {
     return role === 'owner' || role === 'admin';
   });
   readonly isOwner = computed(() => this.current()?.role === 'owner');
+
+  readonly mode = computed<WorkspaceMode>(
+    () => (this.current()?.mode as WorkspaceMode) || 'executive',
+  );
+  readonly isBuilderMode = computed(() => this.mode() === 'builder');
+  readonly isOperatorMode = computed(() => this.mode() === 'operator');
+  readonly isExecutiveMode = computed(() => this.mode() === 'executive');
 
   constructor() {
     effect(() => {
@@ -94,6 +105,12 @@ export class WorkspaceService {
   renameWorkspace(slug: string, name: string): Observable<WorkspaceDetail> {
     return this.http.patch<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}`, { name }).pipe(
       tap(() => this.loadWorkspaces().subscribe())
+    );
+  }
+
+  setMode(slug: string, mode: WorkspaceMode): Observable<WorkspaceDetail> {
+    return this.http.patch<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}/mode`, { mode }).pipe(
+      tap(() => this.loadWorkspaces().subscribe()),
     );
   }
 

@@ -196,6 +196,24 @@ type Tab = 'models' | 'connectors' | 'apps';
 
     <!-- Connectors tab -->
     @if (tab() === 'connectors') {
+      <div class="mb-5 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
+        <app-icon name="alert-triangle" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
+        <div class="flex-1">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-amber-300 mb-0.5">
+            Configuration only · most connectors are catalog placeholders
+          </div>
+          <p class="text-[11px] text-amber-200/80 leading-relaxed">
+            Only connectors marked <span class="font-semibold text-emerald-300">connected</span> (green pulse) are wired
+            end-to-end. Others store configuration locally for the roadmap — no runtime calls are made.
+          </p>
+        </div>
+        <a
+          href="mailto:product@agentium.papai.ai?subject=Connector%20wiring%20request"
+          class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+        >
+          <app-icon name="send" [size]="12" /> Request
+        </a>
+      </div>
       @for (cat of categories; track cat.id) {
         <section class="mb-6">
           <header class="flex items-center gap-2 mb-3">
@@ -268,6 +286,13 @@ type Tab = 'models' | 'connectors' | 'apps';
           Dedicated page <app-icon name="arrow-right" [size]="10" />
         </a>
       </div>
+      <div class="mb-4 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
+        <app-icon name="alert-triangle" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
+        <p class="text-[11px] text-amber-200/80 leading-relaxed flex-1">
+          Apps are <span class="font-semibold">catalog only</span> — toggling enables them for the Builder wizard
+          but runtime wiring is still on the roadmap.
+        </p>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         @for (a of APPS; track a.id) {
           <div
@@ -287,12 +312,10 @@ type Tab = 'models' | 'connectors' | 'apps';
               </div>
               <div class="flex items-center gap-2">
                 <span
-                  class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1"
-                  [ngClass]="a.status === 'ready'
-                    ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20'
-                    : 'bg-amber-500/10 text-amber-400 ring-amber-500/20'"
+                  class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-white/5 text-gray-400 ring-white/10"
+                  title="Listed in the catalog but not yet bound to a runtime"
                 >
-                  {{ a.status }}
+                  catalog only
                 </span>
                 <button
                   type="button"

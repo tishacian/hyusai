@@ -5,10 +5,11 @@ import { ActivatedRoute } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
-import { WorkspaceDetail, WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceDetail, WorkspaceMode, WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
+import { HelpTooltipComponent } from '@app/shared/cockpit';
 
 const FIELD =
   'flex-1 px-3 py-2 rounded bg-black/20 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 transition';
@@ -16,7 +17,7 @@ const FIELD =
 @Component({
   selector: 'app-workspace-general',
   standalone: true,
-  imports: [FormsModule, DatePipe, IconComponent, StatusPulseComponent, SkeletonComponent],
+  imports: [FormsModule, DatePipe, IconComponent, StatusPulseComponent, SkeletonComponent, HelpTooltipComponent],
   template: `
     <div class="space-y-6">
       <section class="t-card t-elevated rounded-md p-6">
@@ -91,6 +92,49 @@ const FIELD =
 
       @if (detail(); as d) {
         <section class="t-card t-elevated rounded-md p-6">
+          <div class="flex items-start gap-3 mb-4">
+            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+              <app-icon name="layers" [size]="18" />
+            </div>
+            <div class="flex-1">
+              <h2 class="text-base font-semibold text-white flex items-center gap-2">
+                Mode
+                <ck-help id="workspace.mode.switch" />
+              </h2>
+              <p class="text-sm text-gray-400 mt-0.5 max-w-xl">
+                Progressive disclosure of the cockpit surface. Data never changes—only what you see. Switch at any time.
+              </p>
+            </div>
+          </div>
+          <div class="grid gap-3 md:grid-cols-3">
+            @for (m of modes; track m.key) {
+              <button
+                type="button"
+                (click)="setMode(m.key)"
+                [disabled]="!canEdit() || savingMode()"
+                [class.ring-2]="currentMode() === m.key"
+                [class.ring-brand-500]="currentMode() === m.key"
+                [class.bg-brand-500]="currentMode() === m.key"
+                [class.bg-opacity-10]="currentMode() === m.key"
+                class="text-left p-4 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div class="flex items-center gap-2 mb-2">
+                  <app-icon [name]="m.icon" [size]="16" class="text-brand-400" />
+                  <span class="text-sm font-semibold text-white">{{ m.label }}</span>
+                  @if (currentMode() === m.key) {
+                    <span class="ml-auto text-[10px] uppercase tracking-wider text-brand-400 font-mono">active</span>
+                  }
+                </div>
+                <p class="text-xs text-gray-400 leading-relaxed">{{ m.description }}</p>
+              </button>
+            }
+          </div>
+          @if (!canEdit()) {
+            <p class="text-xs text-gray-500 mt-3">Only owners and admins can change the workspace mode.</p>
+          }
+        </section>
+
+        <section class="t-card t-elevated rounded-md p-6">
           <h2 class="text-base font-semibold text-white mb-4 flex items-center gap-2">
             <app-icon name="info" [size]="16" class="text-brand-400" />
             Metadata
@@ -141,7 +185,33 @@ export class WorkspaceGeneralComponent {
 
   readonly detail = signal<WorkspaceDetail | null>(null);
   readonly saving = signal(false);
+  readonly savingMode = signal(false);
   readonly copied = signal(false);
+
+  readonly modes: { key: WorkspaceMode; label: string; icon: string; description: string }[] = [
+    {
+      key: 'builder',
+      label: 'Builder',
+      icon: 'wrench',
+      description: 'Focus on System Builder: capability, skills, context, policy. Hypervisor/ROI hidden.',
+    },
+    {
+      key: 'operator',
+      label: 'Operator',
+      icon: 'activity',
+      description: 'Daily operations: runs, decisions, steering. Portfolio KPIs reduced.',
+    },
+    {
+      key: 'executive',
+      label: 'Executive',
+      icon: 'briefcase',
+      description: 'Full portfolio view with Hypervisor, ROI, balance sheet and capability ranking.',
+    },
+  ];
+
+  readonly currentMode = computed<WorkspaceMode>(
+    () => (this.detail()?.mode as WorkspaceMode) || 'executive',
+  );
 
   name = '';
 
@@ -189,6 +259,23 @@ export class WorkspaceGeneralComponent {
       error: (err) => {
         this.saving.set(false);
         this.toastr.error(err?.error?.detail || 'Failed to rename workspace', 'Error');
+      },
+    });
+  }
+
+  setMode(mode: WorkspaceMode): void {
+    const d = this.detail();
+    if (!d || !this.canEdit() || mode === this.currentMode()) return;
+    this.savingMode.set(true);
+    this.workspaceService.setMode(d.slug, mode).subscribe({
+      next: (updated) => {
+        this.savingMode.set(false);
+        this.detail.set(updated);
+        this.toastr.success(`Workspace mode set to "${mode}"`, 'Saved');
+      },
+      error: (err) => {
+        this.savingMode.set(false);
+        this.toastr.error(err?.error?.detail || 'Failed to update mode', 'Error');
       },
     });
   }

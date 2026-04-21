@@ -38,21 +38,27 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
       icon="sparkles"
       subtitle="Capabilities the orchestrator can plug into any system."
     >
-      <button
-        type="button"
+      <a
+        href="mailto:product@agentium.papai.ai?subject=App%20runtime%20wiring%20request"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        (click)="enableAll()"
       >
-        <app-icon name="check" [size]="14" /> Enable all
-      </button>
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        (click)="disableAll()"
-      >
-        <app-icon name="x" [size]="14" /> Disable all
-      </button>
+        <app-icon name="send" [size]="14" /> Request wiring
+      </a>
     </app-section-header>
+
+    <div class="mb-5 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
+      <app-icon name="alert-triangle" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
+      <div class="flex-1">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-amber-300 mb-0.5">
+          Catalog only · no runtime wiring yet
+        </div>
+        <p class="text-[11px] text-amber-200/80 leading-relaxed">
+          These apps advertise orchestrator capabilities but are not yet bound to a backend runtime.
+          Toggling them surfaces them in the Builder wizard but does not connect to a live service.
+          Use <span class="font-semibold">Request wiring</span> to prioritise one.
+        </p>
+      </div>
+    </div>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       <app-stat-tile label="Total apps" [value]="APPS.length" icon="sparkles" />
@@ -115,12 +121,10 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
             </div>
             <div class="flex items-center gap-2">
               <span
-                class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1"
-                [ngClass]="a.status === 'ready'
-                  ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20'
-                  : 'bg-amber-500/10 text-amber-400 ring-amber-500/20'"
+                class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-white/5 text-gray-400 ring-white/10"
+                title="Listed in the catalog but not yet bound to a runtime"
               >
-                {{ a.status }}
+                catalog only
               </span>
               <button
                 type="button"
@@ -153,9 +157,9 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
     <div class="mt-6 rounded-md p-4 bg-brand-500/5 ring-1 ring-brand-500/20 flex items-start gap-3 max-w-2xl">
       <app-icon name="lightbulb" [size]="14" class="text-brand-400 mt-0.5 shrink-0" />
       <p class="text-[11px] text-brand-200/90 leading-relaxed">
-        Enabled apps become available in the agent's execution pipeline. The
-        orchestrator selects them dynamically based on query intent — the
-        builder wizard can also pre-wire a subset per system.
+        Enabling an app exposes it in the Builder wizard per system. Runtime
+        wiring is still on the roadmap — until a backend connector ships,
+        toggles act as catalog intent only.
       </p>
     </div>
   `,
@@ -215,15 +219,4 @@ export class AppsPageComponent {
     }
   }
 
-  enableAll(): void {
-    for (const a of APPS) writeAppToggle(a.id, true);
-    this.version.update((v) => v + 1);
-    this.toast.success(`All ${APPS.length} apps enabled`, 'Apps');
-  }
-
-  disableAll(): void {
-    for (const a of APPS) writeAppToggle(a.id, false);
-    this.version.update((v) => v + 1);
-    this.toast.info('All apps disabled', 'Apps');
-  }
 }

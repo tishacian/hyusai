@@ -16,6 +16,7 @@ class Workspace(Base):
     is_active = Column(Boolean, default=True)
     deleted_at = Column(DateTime, nullable=True, index=True)
     settings = Column(JSON, default=dict)
+    mode = Column(String(32), nullable=False, default="executive")
 
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
 
