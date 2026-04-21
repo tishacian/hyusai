@@ -3,18 +3,43 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { GlyphComponent } from '@app/shared/cockpit';
-import { COCKPIT_VERBS, type CockpitSection, type CockpitVerb } from './side-rail.component';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import {
+  COCKPIT_VERBS,
+  type CockpitScopeType,
+  type CockpitSection,
+  type CockpitVerb,
+} from './side-rail.component';
 
 /**
- * Contextual second-level navigation — shown beside the primary rail
- * whenever the active cockpit verb has sub-sections (e.g. Build →
- * Systems / Capabilities / Skills / Knowledge / Flows).
+ * Ordered ancestry for scope filtering: a section is hidden if its
+ * `scopeType` is at or above the currently resolved breadcrumb level.
+ * Example: inside a System, hide `capability` and `system`; keep `skill`,
+ * `knowledge`, `flow`, `run` as legitimate child scopes.
+ */
+const SCOPE_ORDER: CockpitScopeType[] = [
+  'capability',
+  'system',
+  'run',
+  'skill',
+];
+
+/**
+ * Mini-rail — **Object Index** (scope switcher), not a navigation bar.
+ *
+ * Role (docs/mental-model.md §5bis.4):
+ *   - Answers *"what type of object am I exploring right now, inside the
+ *     current breadcrumb scope?"* — never *"where do I go next?"*.
+ *   - Filters itself against `ZoomContextService` so scope types already
+ *     resolved by the breadcrumb disappear (e.g. inside a Capability the
+ *     `Capabilities` item hides).
+ *   - A click never resets the canvas context; clicking the already-active
+ *     item is a no-op.
  *
  * The component resolves the active verb from the URL (same rule as
- * `<app-side-rail>`) and renders its sections; if the verb has no
- * sections (Hypervisor today) the component self-hides so the content
- * flows edge-to-edge. This is the "VS Code style" mini-rail requested
- * during the nav refactor.
+ * `<app-side-rail>`) and renders its filtered sections; if the verb has no
+ * sections (Hypervisor today) or all sections are filtered out, the
+ * component self-hides so the canvas flows edge-to-edge.
  */
 @Component({
   selector: 'app-mini-rail',
@@ -23,20 +48,24 @@ import { COCKPIT_VERBS, type CockpitSection, type CockpitVerb } from './side-rai
   imports: [RouterLink, GlyphComponent],
   template: `
     @if (activeVerb(); as verb) {
-      @if (verb.sections && verb.sections.length) {
-        <aside class="ck-mini-rail" aria-label="Sub-navigation">
+      @if (visibleSections().length > 0) {
+        <aside class="ck-mini-rail" aria-label="Object index">
           <header class="ck-mini-head">
-            <span class="ck-mini-eyebrow">{{ verb.label }}</span>
-            <span class="ck-mini-hint">{{ verb.hint }}</span>
+            <span class="ck-mini-eyebrow">SCOPE</span>
+            <span class="ck-mini-verb">{{ verb.label }}</span>
+            @if (scopeSuffix()) {
+              <span class="ck-mini-scope" [title]="scopeSuffixFull()">{{ scopeSuffix() }}</span>
+            }
           </header>
 
           <nav class="ck-mini-nav">
-            @for (s of verb.sections; track s.key) {
+            @for (s of visibleSections(); track s.key) {
               <a
                 [routerLink]="s.route"
                 class="ck-mini-item"
                 [class.ck-mini-item-active]="isSectionActive(s)"
                 [attr.aria-current]="isSectionActive(s) ? 'page' : null"
+                (click)="onItemClick($event, s)"
               >
                 @if (isSectionActive(s)) {
                   <span class="ck-mini-active-bar" aria-hidden="true"></span>
@@ -44,7 +73,7 @@ import { COCKPIT_VERBS, type CockpitSection, type CockpitVerb } from './side-rai
                 <span class="ck-mini-glyph" aria-hidden="true">
                   <ck-glyph [name]="s.glyph" [size]="14" />
                 </span>
-                <span class="ck-mini-label">{{ s.label }}</span>
+                <span class="ck-mini-label">{{ sectionLabel(s) }}</span>
               </a>
             }
           </nav>
@@ -72,21 +101,32 @@ import { COCKPIT_VERBS, type CockpitSection, type CockpitVerb } from './side-rai
       .ck-mini-head {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 3px;
         padding: 0 6px 8px;
         border-bottom: 1px dashed var(--ck-stroke-2);
       }
       .ck-mini-eyebrow {
         font-family: var(--ck-font-mono);
-        font-size: 10px;
+        font-size: 9px;
         letter-spacing: 0.22em;
         text-transform: uppercase;
         color: var(--ck-signal-cool);
       }
-      .ck-mini-hint {
-        font-size: 10.5px;
+      .ck-mini-verb {
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--ck-fg-2);
+        font-weight: 600;
+      }
+      .ck-mini-scope {
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
         color: var(--ck-fg-4);
         line-height: 1.4;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .ck-mini-nav {
@@ -145,6 +185,7 @@ import { COCKPIT_VERBS, type CockpitSection, type CockpitVerb } from './side-rai
 })
 export class MiniRailComponent {
   private readonly router = inject(Router);
+  private readonly ctx = inject(ZoomContextService);
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -165,9 +206,95 @@ export class MiniRailComponent {
     );
   });
 
+  /**
+   * Deepest scope type currently resolved by the breadcrumb. Used to hide
+   * mini-rail items that refer to a parent or equal scope.
+   */
+  private readonly deepestResolvedScope = computed<CockpitScopeType | null>(() => {
+    if (this.ctx.skillId()) return 'skill';
+    if (this.ctx.runId()) return 'run';
+    if (this.ctx.systemId()) return 'system';
+    if (this.ctx.capabilityId()) return 'capability';
+    return null;
+  });
+
+  readonly visibleSections = computed<CockpitSection[]>(() => {
+    const verb = this.activeVerb();
+    if (!verb?.sections) return [];
+    const deepest = this.deepestResolvedScope();
+    if (!deepest) return verb.sections;
+    const cutoff = SCOPE_ORDER.indexOf(deepest);
+    if (cutoff === -1) return verb.sections;
+    return verb.sections.filter((s) => {
+      const idx = SCOPE_ORDER.indexOf(s.scopeType);
+      return idx === -1 || idx > cutoff;
+    });
+  });
+
+  /**
+   * Compact trailing descriptor like `· of 3a4f9c10`, rendered under the
+   * eyebrow when the breadcrumb has resolved an ancestor object. Proper
+   * human names will replace the shortId once backend exposes them.
+   */
+  readonly scopeSuffix = computed<string>(() => {
+    const parts: string[] = [];
+    const cap = this.ctx.capabilityId();
+    const sys = this.ctx.systemId();
+    const run = this.ctx.runId();
+    if (cap) parts.push(`cap:${cap.slice(0, 6)}`);
+    if (sys) parts.push(`sys:${sys.slice(0, 6)}`);
+    if (run) parts.push(`run:${run.slice(0, 6)}`);
+    return parts.length ? `· ${parts.join(' › ')}` : '';
+  });
+
+  readonly scopeSuffixFull = computed<string>(() => {
+    const cap = this.ctx.capabilityId();
+    const sys = this.ctx.systemId();
+    const run = this.ctx.runId();
+    const parts: string[] = [];
+    if (cap) parts.push(`Capability ${cap}`);
+    if (sys) parts.push(`System ${sys}`);
+    if (run) parts.push(`Run ${run}`);
+    return parts.join(' › ');
+  });
+
   isSectionActive(s: CockpitSection): boolean {
     const path = this.currentPath();
     const patterns = s.matches ?? [s.route];
     return patterns.some((m) => path === m || path.startsWith(m + '/'));
+  }
+
+  /**
+   * Suffix dynamic labels with a scope hint so the mini-rail reads as an
+   * Object Index rather than a parallel navigation. E.g. `Systems` becomes
+   * `Systems · of cap:3a4f9c` when a capability is focused.
+   */
+  sectionLabel(s: CockpitSection): string {
+    const deepest = this.deepestResolvedScope();
+    if (!deepest) return s.label;
+    const idx = SCOPE_ORDER.indexOf(s.scopeType);
+    const cutoff = SCOPE_ORDER.indexOf(deepest);
+    if (idx === -1 || cutoff === -1 || idx <= cutoff) return s.label;
+    // Section is a descendant of the resolved breadcrumb — annotate.
+    const anchor =
+      deepest === 'capability'
+        ? `cap:${this.ctx.capabilityId()!.slice(0, 6)}`
+        : deepest === 'system'
+          ? `sys:${this.ctx.systemId()!.slice(0, 6)}`
+          : deepest === 'run'
+            ? `run:${this.ctx.runId()!.slice(0, 6)}`
+            : `skl:${this.ctx.skillId()!.slice(0, 6)}`;
+    return `${s.label} · of ${anchor}`;
+  }
+
+  /**
+   * Clicking the already-active scope is a **no-op** — the Object Index
+   * never resets the canvas context, even if the user clicks twice.
+   */
+  onItemClick(ev: MouseEvent, s: CockpitSection): void {
+    if (this.isSectionActive(s)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
   }
 }

@@ -13,3 +13,16 @@ export {
   RuntimeStatusBadgeComponent,
   type RuntimeStatus,
 } from './runtime-status-badge.component';
+export { CkTabsComponent, CkTabComponent } from './tabs.component';
+export {
+  CkObjectHeaderComponent,
+  type CkObjectKpi,
+  type CkObjectKpiTone,
+} from './object-header.component';
+export {
+  CkPanelComponent,
+  CkPanelHostComponent,
+  PanelHostService,
+  type CkPanelPosition,
+  type CkPanelRef,
+} from './panel.component';

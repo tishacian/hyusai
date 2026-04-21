@@ -14,10 +14,15 @@ import { WorkspaceService, type WorkspaceMode } from '@app/core/workspace.servic
 
 /**
  * A cockpit "verb" — what the operator *does* in this mode. Verbs are the
- * functional axis of the cockpit, orthogonal to the semantic-zoom axis
- * (Portfolio › Capability › System › Skill › Run) which lives in the title
- * bar. Every canonical route belongs to exactly one verb so users never
- * wonder "where did Systems go?".
+ * **functional axis** (lens) of the cockpit, orthogonal to the **hierarchy
+ * axis** (Portfolio › Capability › System › Run › Skill) which lives in the
+ * title bar. Every canonical route belongs to exactly one verb so users
+ * never wonder "where did Systems go?".
+ *
+ * The `hint` is rendered as a sublabel under the verb name in the expanded
+ * rail; we deliberately inject Outcome / Value vocabulary (see
+ * docs/mental-model.md §5bis.3) so the rail reads as a set of intents, not
+ * a set of product features.
  */
 export interface CockpitVerb {
   key: 'hypervisor' | 'build' | 'operate' | 'steer' | 'govern';
@@ -33,12 +38,31 @@ export interface CockpitVerb {
   hiddenInModes?: WorkspaceMode[];
 }
 
+/**
+ * One entry in the **Object Index** (mini-rail) — a scope switcher, not a
+ * navigation destination. Each section advertises which kind of object it
+ * lets the operator explore via `scopeType`, so the mini-rail can hide
+ * itself when the breadcrumb already resolves that scope level (e.g. hide
+ * `Capabilities` when we are inside a specific Capability).
+ *
+ * See docs/mental-model.md §5bis.4 for the Object Index contract.
+ */
+export type CockpitScopeType =
+  | 'capability'
+  | 'system'
+  | 'skill'
+  | 'knowledge'
+  | 'flow'
+  | 'run';
+
 export interface CockpitSection {
   key: string;
   label: string;
   glyph: CkGlyphName;
   route: string;
   matches?: string[];
+  /** Canonical object type this section scopes the canvas to. */
+  scopeType: CockpitScopeType;
 }
 
 /**
@@ -52,7 +76,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'hypervisor',
     label: 'Hypervisor',
-    hint: 'Strategic — balance sheet, decisions, what-if',
+    hint: 'Decide · balance sheet, outcomes, what-if',
     glyph: 'ledger',
     primaryRoute: '/hypervisor',
     matches: ['/hypervisor'],
@@ -61,57 +85,57 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'build',
     label: 'Build',
-    hint: 'Authoring — systems, capabilities, skills, knowledge',
+    hint: 'Create Systems, Capabilities, Skills, Knowledge',
     glyph: 'cube',
     primaryRoute: '/systems',
     matches: ['/systems', '/capabilities', '/skills', '/knowledge', '/orchestration'],
     sections: [
-      { key: 'systems',      label: 'Systems',      glyph: 'cube',    route: '/systems' },
-      { key: 'capabilities', label: 'Capabilities', glyph: 'focus',   route: '/capabilities' },
-      { key: 'skills',       label: 'Skills',       glyph: 'bolt',    route: '/skills' },
-      { key: 'knowledge',    label: 'Knowledge',    glyph: 'layers',  route: '/knowledge' },
-      { key: 'flows',        label: 'Flow builder', glyph: 'flow',    route: '/orchestration' },
+      { key: 'systems',      label: 'Systems',      glyph: 'cube',   route: '/systems',      scopeType: 'system' },
+      { key: 'capabilities', label: 'Capabilities', glyph: 'focus',  route: '/capabilities', scopeType: 'capability' },
+      { key: 'skills',       label: 'Skills',       glyph: 'bolt',   route: '/skills',       scopeType: 'skill' },
+      { key: 'knowledge',    label: 'Knowledge',    glyph: 'layers', route: '/knowledge',    scopeType: 'knowledge' },
+      { key: 'flows',        label: 'Flow builder', glyph: 'flow',   route: '/orchestration',scopeType: 'flow' },
     ],
   },
   {
     key: 'operate',
     label: 'Operate',
-    hint: 'Runtime — runs, observability, intelligence, missions',
+    hint: 'Run Systems · runtime, runs, missions',
     glyph: 'telemetry',
     primaryRoute: '/runs',
     matches: ['/runs', '/observability', '/intelligence', '/tasks'],
     sections: [
-      { key: 'runs',          label: 'Runs',          glyph: 'ledger',    route: '/runs' },
-      { key: 'observability', label: 'Observability', glyph: 'telemetry', route: '/observability' },
-      { key: 'intelligence',  label: 'Intelligence',  glyph: 'pulse',     route: '/intelligence' },
-      { key: 'missions',      label: 'Missions',      glyph: 'play',      route: '/tasks' },
+      { key: 'runs',          label: 'Runs',          glyph: 'ledger',    route: '/runs',          scopeType: 'run' },
+      { key: 'observability', label: 'Observability', glyph: 'telemetry', route: '/observability', scopeType: 'system' },
+      { key: 'intelligence',  label: 'Intelligence',  glyph: 'pulse',     route: '/intelligence',  scopeType: 'system' },
+      { key: 'missions',      label: 'Missions',      glyph: 'play',      route: '/tasks',         scopeType: 'run' },
     ],
   },
   {
     key: 'steer',
     label: 'Steer',
-    hint: 'Control plane — levers, policies, contexts',
+    hint: 'Optimize Outcomes · levers, policies, simulations',
     glyph: 'sliders',
     primaryRoute: '/steering',
     matches: ['/steering'],
     sections: [
-      { key: 'levers',   label: 'Control plane', glyph: 'sliders',   route: '/steering' },
-      { key: 'contexts', label: 'Contexts',      glyph: 'crosshair', route: '/steering/contexts' },
+      { key: 'levers',   label: 'Control plane', glyph: 'sliders',   route: '/steering',          scopeType: 'system' },
+      { key: 'contexts', label: 'Contexts',      glyph: 'crosshair', route: '/steering/contexts', scopeType: 'system' },
     ],
     hiddenInModes: ['builder'],
   },
   {
     key: 'govern',
     label: 'Govern',
-    hint: 'Policy — audit, access, apps, resources, settings',
+    hint: 'Control & Policy · audit, access, settings',
     glyph: 'shield',
     primaryRoute: '/governance',
     matches: ['/governance', '/apps', '/resources', '/settings'],
     sections: [
-      { key: 'audit',     label: 'Governance', glyph: 'shield',  route: '/governance' },
-      { key: 'apps',      label: 'Apps',       glyph: 'bolt',    route: '/apps' },
-      { key: 'resources', label: 'Resources',  glyph: 'orbit',   route: '/resources' },
-      { key: 'settings',  label: 'Settings',   glyph: 'sliders', route: '/settings' },
+      { key: 'audit',     label: 'Governance', glyph: 'shield',  route: '/governance', scopeType: 'system' },
+      { key: 'apps',      label: 'Apps',       glyph: 'bolt',    route: '/apps',       scopeType: 'system' },
+      { key: 'resources', label: 'Resources',  glyph: 'orbit',   route: '/resources',  scopeType: 'system' },
+      { key: 'settings',  label: 'Settings',   glyph: 'sliders', route: '/settings',   scopeType: 'system' },
     ],
   },
 ];

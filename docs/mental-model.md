@@ -431,6 +431,134 @@ This creates trust and engagement.
 
 ---
 
+## 5bis. Navigation Model — 4 Orthogonal Axes · ✅ Shipped (axes v2), 🟡 (lens-aware data)
+
+Agentium's navigation is deliberately **not menu-first**. It is **cognitive-first** — each surface answers a different question about the same world.
+
+### 5bis.1 The five foundational equations
+
+| Axis        | Question                          | Surface                                           |
+| ----------- | --------------------------------- | ------------------------------------------------- |
+| Hierarchy   | *Where am I?*                     | Breadcrumb zoom in the title bar                  |
+| Function    | *Why am I here?*                  | Side rail — 5 verbs as lenses                     |
+| Scope       | *What am I exploring?*            | Mini-rail — **Object Index** (scope switcher)     |
+| Depth       | *How do I look at it?*            | `<ck-tabs>` — facets of the same object           |
+| Speed       | *Give me direct access*           | Command palette (`⌘K`)                            |
+
+Navigation is a change of **perspective**, never of **context**. The breadcrumb updates *only when the object changes*.
+
+### 5bis.2 Canonical hierarchy (corrected)
+
+```
+Portfolio › Capability › System › Run › Skill
+```
+
+Rationale:
+- **System** is the living asset.
+- **Run** is an *instance of execution* of the System — one System spawns many Runs.
+- **Skill** is a *component invocation inside a Run* — skills exist in the catalog, but at breadcrumb level they represent "this skill execution within this run".
+
+The previous ordering (`System › Skill › Run`) was wrong: it placed the ephemeral (Run) below the compositional (Skill), which inverts the mental model. ⌘Z / ⇧⌘Z traverse this corrected chain.
+
+### 5bis.3 Function axis — verbs as lenses (Option A — Outcome-injected)
+
+Each verb is both an intent and a lens on the hierarchy. The verb does not change what object you're on; it changes **what projection** of that object you see.
+
+| Verb        | Intent                | Lens (sublabel)                                  |
+| ----------- | --------------------- | ------------------------------------------------ |
+| Hypervisor  | Decide                | `balance sheet, outcomes, what-if`               |
+| Build       | Create                | `Systems, Capabilities, Skills, Knowledge`       |
+| Operate     | Run                   | `runtime, runs, missions`                        |
+| Steer       | Optimize              | `levers, policies, simulations`                  |
+| Govern      | Control               | `audit, access, settings`                        |
+
+Same `System X` under `Operate` shows runtime metrics; under `Steer` it shows impact and levers; under `Govern` it shows audit trail. The **tabs stay identical across lenses** — only the projection of their content changes.
+
+### 5bis.4 Scope axis — mini-rail as **Object Index** (not navigation)
+
+The mini-rail is a **scope switcher**, not a secondary nav bar. It answers *"what type of object am I exploring within the current verb, filtered by my current breadcrumb?"*
+
+Rules:
+- The mini-rail is **contextual to the breadcrumb**. If the user is inside `Capability A`, the mini-rail hides `Capabilities` (we're already inside one) and scopes `Systems` to `Systems of Capability A`.
+- Clicking an item **does not reset context**. It switches the dataset shown in the canvas; it never destroys the breadcrumb.
+- The header eyebrow reads `SCOPE`, not the verb label, to make the scope-switcher role explicit.
+- Clicking the already-active item is a **no-op**.
+
+Anti-pattern (forbidden): a mini-rail listing `Systems | Capabilities | Skills` as raw routes is a **duplicated navigation** — it competes with the hierarchy and breaks the mental model, even if presented vertically.
+
+### 5bis.5 Depth axis — tabs as **facets of the same object**
+
+Tabs exist only under a **selected object**. They are representations of that object, never categories or destinations.
+
+**Core rules:**
+
+1. **Scope-locked**: tabs only render when the breadcrumb resolves to a concrete object. There are no global tabs at the route root.
+2. **Object invariance**: a persistent `<ck-object-header>` (title + KPI pills like ROI / Cost / Yield) sits above the tab strip and **never changes** when the user switches tabs. This is the test of the model.
+3. **Same tabs, different lens**: the tab set for a given object type (e.g. `System`) is identical across verbs. Content adapts to `currentLens()`; the header and tab strip do not.
+4. **Max 4–5 visible tabs**, the rest go behind a `More` overflow. The limit is cognitive (human chunking), not arbitrary.
+5. **Inline switch <300ms**, panels not destroyed between switches → scroll, selection, filters are **state-preserving**.
+6. **Keyboard-first**: `⌘1 … ⌘5` bind to visible tabs via a single `TabShortcutService`; the most recently-mounted `<ck-tabs>` owns the shortcuts (avoids multi-host collisions).
+7. **URLs point at objects, not at tabs**: `/systems/:id` is canonical; `?tab=...` is an optional deep-link parameter only.
+
+**Anti-patterns (forbidden):**
+
+- Tabs at route root (`[ Systems | Capabilities | Skills ]`) — that's navigation in disguise.
+- Tabs that change the object or the breadcrumb level.
+- Tabs that mix views and actions (`[ Overview | Edit | Deploy ]`) — actions belong in the object header or in panels.
+- Deep-link entries in the left rail pointing to a specific tab — the rail points at verbs, not at tabs.
+- Tabs whose content change resets scroll / selection / filters — breaks the "same object, different view" promise.
+
+**Ultimate test:** *if I mask the tab strip, does the user still know where they are?*
+- Yes → the model is sound.
+- No → the tabs are hidden navigation and must be refactored.
+
+### 5bis.6 Panels — transient, opportunistic views
+
+What doesn't deserve a tab goes into a `<ck-panel>`:
+
+- `side` panels for detail / edit / settings tied to the current object.
+- `bottom` panels for logs / timeline / traces.
+- `floating` panels for quick-actions / comparisons / simulations.
+
+Panels preserve the canvas: the user never changes screen, the surface is enriched. Debug, Logs, and Settings are **never tabs** — they are panels.
+
+### 5bis.7 Speed axis — command palette
+
+`⌘K` opens the global palette. The rail footer exposes a `Jump to…` affordance that dispatches `window:ck:command-palette:open` so users discover it without knowing the shortcut. The palette never replaces hierarchy navigation; it accelerates it for power users.
+
+### 5bis.8 Summary diagram
+
+```
+┌─ Breadcrumb (hierarchy) ─────────────────────────────────┐
+│ Portfolio › Capability A › System X                      │
+└──────────────────────────────────────────────────────────┘
+┌─ Rail (verbs = lenses) ─┐  ┌─ Mini-rail (Object Index) ─┐
+│ Hypervisor              │  │ SCOPE                      │
+│ Build  ●                │  │ ● Systems (of Capa. A)     │
+│ Operate                 │  │ ○ Skills                   │
+│ Steer                   │  │ ○ Knowledge                │
+│ Govern                  │  └────────────────────────────┘
+└─────────────────────────┘
+┌─ Object header (persistent) ─────────────────────────────┐
+│ System X    ROI +120%    Cost 0.18€/u    Yield 94%       │
+└──────────────────────────────────────────────────────────┘
+┌─ Tabs (facets, ⌘1…⌘5) ──────────────────────────────────┐
+│ Overview │ Runs │ Skills │ Knowledge │ Flows    ⋯ More  │
+└──────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+                    [ Canvas morphs inline ]
+                           │
+                  opens ◀ ─┴─ ▶ opens
+                           │
+                    [ <ck-panel> overlay ]
+```
+
+> **✅ Shipped** — 5bis.1, 5bis.2 (hierarchy swap), 5bis.3 (verb sublabels), 5bis.4 (mini-rail as Object Index), 5bis.5 (tabs-as-facets via `<ck-tabs>` + `<ck-object-header>`), 5bis.6 (`<ck-panel>` primitive), 5bis.7 (rail footer → palette).
+> **🟡 Partial** — 5bis.3 lens-aware *data* projection: tab content currently adapts visually on `system-view` only; capability / skill / knowledge detail pages scaffold the contract but surface neutral content per lens.
+
+---
+
 ## 6. Value as First-Class Citizen · 🟡 Partial
 
 ### Metrics are Product, not Logs

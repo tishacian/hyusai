@@ -5,13 +5,19 @@ import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { RunOutcomeCardComponent, ImpactPreviewComponent } from '@app/shared/cockpit';
+import {
+  CkObjectHeaderComponent,
+  type CkObjectKpi,
+} from '@app/shared/cockpit/object-header.component';
+import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
+import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { LensService } from '@app/core/lens';
 import { SettingsService } from '@app/core/settings.service';
 import { ToastrService } from 'ngx-toastr';
 import { SystemsStore } from './systems.store';
@@ -39,11 +45,7 @@ interface TraceRow {
   operation_type?: string;
 }
 
-interface TabDef {
-  id: 'overview' | 'design' | 'runs' | 'outcomes' | 'context' | 'settings';
-  label: string;
-  icon: string;
-}
+type SystemTabId = 'overview' | 'runs' | 'design' | 'context' | 'chat';
 
 interface WizardStep {
   key: 'identity' | 'knowledge' | 'model' | 'guardrails' | 'launch';
@@ -74,22 +76,29 @@ interface PipelineStage {
     RouterLink,
     ChatPanelComponent,
     IconComponent,
-    SectionHeaderComponent,
     StatTileComponent,
     StatusPulseComponent,
     RunOutcomeCardComponent,
     ImpactPreviewComponent,
+    CkObjectHeaderComponent,
+    CkTabsComponent,
+    CkTabComponent,
+    CkPanelComponent,
   ],
   template: `
-    <app-section-header
-      breadcrumb="Systems"
+    <ck-object-header
+      eyebrow="Systems · System"
       [title]="agentName()"
-      icon="bot"
       [subtitle]="agentDescription() || 'Configure, run and refine this AI system.'"
-      [pill]="isDraft() ? 'Draft' : ''"
+      [kpis]="objectKpis()"
     >
-      <app-status-pulse [tone]="isDraft() ? 'warning' : 'success'" [label]="isDraft() ? 'Draft' : 'Ready'" />
+      <app-status-pulse
+        status
+        [tone]="isDraft() ? 'warning' : 'success'"
+        [label]="isDraft() ? 'Draft' : 'Ready'"
+      />
       <button
+        actions
         type="button"
         (click)="triggerRun()"
         [disabled]="triggering() || isDraft()"
@@ -101,34 +110,32 @@ interface PipelineStage {
         {{ triggering() ? 'Queueing…' : 'Run now' }}
       </button>
       <button
+        actions
         type="button"
-        (click)="activeTab.set('runs')"
+        (click)="chatPanelOpen.set(true)"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        title="Open chat panel"
       >
-        <app-icon name="message-square" [size]="14" /> Open chat
+        <app-icon name="message-square" [size]="14" /> Chat
       </button>
-    </app-section-header>
+      <button
+        actions
+        type="button"
+        (click)="settingsPanelOpen.set(true)"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        title="Open settings panel"
+      >
+        <app-icon name="settings" [size]="14" /> Settings
+      </button>
+    </ck-object-header>
 
-    <div class="flex items-center gap-1 border-b border-white/5 mb-6">
-      @for (tab of tabs; track tab.id) {
-        <button
-          type="button"
-          (click)="activeTab.set(tab.id)"
-          [ngClass]="{
-            'text-white border-brand-500': activeTab() === tab.id,
-            'text-gray-400 border-transparent hover:text-gray-200': activeTab() !== tab.id
-          }"
-          class="relative inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition"
-        >
-          <app-icon [name]="tab.icon" [size]="14" />
-          {{ tab.label }}
-        </button>
-      }
-    </div>
-
-    <!-- Overview -->
-    @if (activeTab() === 'overview') {
-      <div class="space-y-6">
+    <ck-tabs
+      [active]="activeTab()"
+      (activeChange)="onTabChange($event)"
+      ariaLabel="System facets"
+    >
+      <ck-tab id="overview" label="Overview">
+        <div class="space-y-6">
         <!-- OmniRAG banner: each stage links to the matching configuration -->
         <div
           class="relative overflow-hidden t-card rounded-md p-5"
@@ -271,12 +278,53 @@ interface PipelineStage {
             }
           </ul>
         </section>
-      </div>
-    }
+        </div>
+      </ck-tab>
 
-    <!-- Design canvas -->
-    @if (activeTab() === 'design') {
-      <div class="space-y-4">
+      <ck-tab id="runs" label="Runs">
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-semibold text-white">Run outcomes</h3>
+              <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); letter-spacing:0.08em; margin-top:2px;">
+                Decision · Confidence · Value · Cost · Efficiency — canonical Outcome block per run.
+              </p>
+            </div>
+            <button
+              type="button"
+              (click)="loadRuns()"
+              class="ck-mono inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition"
+              style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-3); letter-spacing:0.12em; text-transform:uppercase;"
+            >
+              <app-icon name="refresh-cw" [size]="12" />
+              Refresh
+            </button>
+          </div>
+
+          @if (runsLoading()) {
+            <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">Loading runs…</div>
+          } @else if (runs().length === 0) {
+            <div class="ck-surface rounded-md" style="padding:32px; text-align:center;">
+              <div class="ck-mono" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
+                NO RUNS YET
+              </div>
+              <p class="text-sm text-white mb-1">This system has not produced any outcome.</p>
+              <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">
+                Click <span class="text-white">Run now</span> above to trigger a canonical run.
+              </p>
+            </div>
+          } @else {
+            <div class="space-y-3">
+              @for (run of runs(); track run.id) {
+                <ck-run-outcome-card [run]="run" />
+              }
+            </div>
+          }
+        </div>
+      </ck-tab>
+
+      <ck-tab id="design" label="Design">
+        <div class="space-y-4">
         <!-- Orientation banner -->
         <div
           class="t-card rounded-md p-4 flex items-start gap-3"
@@ -346,62 +394,11 @@ interface PipelineStage {
             }
           </ul>
         </section>
-      </div>
-    }
-
-    <!-- Outcomes -->
-    @if (activeTab() === 'outcomes') {
-      <div class="space-y-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h3 class="text-sm font-semibold text-white">Run outcomes</h3>
-            <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); letter-spacing:0.08em; margin-top:2px;">
-              Decision · Confidence · Value · Cost · Efficiency — the canonical Outcome block.
-            </p>
-          </div>
-          <button
-            type="button"
-            (click)="loadRuns()"
-            class="ck-mono inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition"
-            style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-3); letter-spacing:0.12em; text-transform:uppercase;"
-          >
-            <app-icon name="refresh-cw" [size]="12" />
-            Refresh
-          </button>
         </div>
+      </ck-tab>
 
-        @if (runsLoading()) {
-          <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">Loading runs…</div>
-        } @else if (runs().length === 0) {
-          <div class="ck-surface rounded-md" style="padding:32px; text-align:center;">
-            <div class="ck-mono" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-              NO RUNS YET
-            </div>
-            <p class="text-sm text-white mb-1">This system has not produced any outcome.</p>
-            <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">
-              Click <span class="text-white">Run now</span> above to trigger a canonical run.
-            </p>
-          </div>
-        } @else {
-          <div class="space-y-3">
-            @for (run of runs(); track run.id) {
-              <ck-run-outcome-card [run]="run" />
-            }
-          </div>
-        }
-      </div>
-    }
-
-    <!-- Chat -->
-    @if (activeTab() === 'runs') {
-      <div class="t-card t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
-        <app-chat-panel [systemId]="systemId" />
-      </div>
-    }
-
-    <!-- Context -->
-    @if (activeTab() === 'context') {
-      <div class="space-y-4">
+      <ck-tab id="context" label="Context">
+        <div class="space-y-4">
         @if (contextLoading()) {
           <div class="t-card t-elevated rounded-md p-5 animate-pulse">
             <div class="h-3 w-40 bg-white/5 rounded mb-2"></div>
@@ -460,103 +457,121 @@ interface PipelineStage {
             </div>
           </section>
         }
-      </div>
-    }
+        </div>
+      </ck-tab>
+    </ck-tabs>
 
-    <!-- Settings -->
-    @if (activeTab() === 'settings') {
+    <!-- Settings side panel — opened via header button; never a tab. -->
+    <ck-panel
+      [open]="settingsPanelOpen()"
+      (openChange)="settingsPanelOpen.set($event)"
+      position="side"
+      eyebrow="System · panel"
+      title="Settings"
+      width="480px"
+    >
       <div class="space-y-4">
-        <div class="flex items-center justify-between">
-          <p class="text-xs text-gray-400">
-            These values come from your workspace-wide settings. Changes apply to every system unless
-            overridden on a per-system basis.
-          </p>
-          <a
-            routerLink="/settings"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
-          >
-            <app-icon name="sliders-horizontal" [size]="12" /> Edit in Settings
-          </a>
-        </div>
+        <p class="text-xs text-gray-400">
+          These values come from your workspace-wide settings. Changes apply to every system unless
+          overridden on a per-system basis.
+        </p>
+        <a
+          routerLink="/settings"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+        >
+          <app-icon name="sliders-horizontal" [size]="12" /> Edit in Settings
+        </a>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <section class="t-card t-elevated rounded-md p-5">
-            <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-              <app-icon name="tag" [size]="14" class="text-brand-400" /> Identity
-            </h3>
-            <div class="space-y-3 text-sm">
-              <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Name</div>
-                <div class="text-white">{{ agentName() }}</div>
-              </div>
-              <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">System ID</div>
-                <div class="text-gray-300 font-mono text-xs break-all">{{ systemId }}</div>
-              </div>
-              <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Status</div>
-                <div class="text-white capitalize">{{ isDraft() ? 'Draft' : 'Ready' }}</div>
-              </div>
-              <div>
-                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Execution mode</div>
-                <div class="text-white">
-                  {{ executionModeLabel() }}
-                  <span class="ml-1 text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ executionModeRaw() }}</span>
-                </div>
+        <section class="t-card t-elevated rounded-md p-5">
+          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+            <app-icon name="tag" [size]="14" class="text-brand-400" /> Identity
+          </h3>
+          <div class="space-y-3 text-sm">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Name</div>
+              <div class="text-white">{{ agentName() }}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">System ID</div>
+              <div class="text-gray-300 font-mono text-xs break-all">{{ systemId }}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Status</div>
+              <div class="text-white capitalize">{{ isDraft() ? 'Draft' : 'Ready' }}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Execution mode</div>
+              <div class="text-white">
+                {{ executionModeLabel() }}
+                <span class="ml-1 text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ executionModeRaw() }}</span>
               </div>
             </div>
-          </section>
-          <section class="t-card t-elevated rounded-md p-5">
-            <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-              <app-icon name="cpu" [size]="14" class="text-brand-400" /> Model
-            </h3>
-            <div class="space-y-3 text-sm text-gray-300">
-              <div>
-                Default model:
-                <span class="text-white font-mono">{{ effectiveModel() }}</span>
-                @if (systemDefaults()?.default_model) {
-                  <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20">
-                    override
-                  </span>
-                }
-              </div>
-              <div>
-                Reasoning template:
-                <span class="text-white font-mono">{{ systemDefaults()?.default_prompt_type || 'auto' }}</span>
-              </div>
-              <div>Temperature: <span class="text-white font-mono">{{ settings.settings().temperature?.toFixed(2) ?? '—' }}</span></div>
-              <div>Max tokens: <span class="text-white font-mono">{{ settings.settings().maxTokens ?? '—' }}</span></div>
+          </div>
+        </section>
+        <section class="t-card t-elevated rounded-md p-5">
+          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+            <app-icon name="cpu" [size]="14" class="text-brand-400" /> Model
+          </h3>
+          <div class="space-y-3 text-sm text-gray-300">
+            <div>
+              Default model:
+              <span class="text-white font-mono">{{ effectiveModel() }}</span>
+              @if (systemDefaults()?.default_model) {
+                <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20">
+                  override
+                </span>
+              }
             </div>
-          </section>
-          <section class="t-card t-elevated rounded-md p-5">
-            <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-              <app-icon name="database" [size]="14" class="text-brand-400" /> Retrieval
-            </h3>
-            <div class="space-y-3 text-sm text-gray-300">
-              <div>
-                Pipeline:
-                <span class="text-white font-mono">{{ systemDefaults()?.retrieval_mode_default || settings.ragPipelineMode() || '—' }}</span>
-                @if (systemDefaults()?.retrieval_mode_default && systemDefaults()?.retrieval_mode_default !== 'auto') {
-                  <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">
-                    pinned
-                  </span>
-                }
-              </div>
-              <div>Top-K: <span class="text-white font-mono">{{ settings.settings().ragTopK ?? '—' }}</span></div>
-              <div>Similarity: <span class="text-white font-mono">{{ settings.settings().ragSimilarityThreshold?.toFixed(2) ?? '—' }}</span></div>
-              <div class="pt-1">
-                <a
-                  routerLink="/knowledge"
-                  class="inline-flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300"
-                >
-                  <app-icon name="external-link" [size]="11" /> Manage collections
-                </a>
-              </div>
+            <div>
+              Reasoning template:
+              <span class="text-white font-mono">{{ systemDefaults()?.default_prompt_type || 'auto' }}</span>
             </div>
-          </section>
-        </div>
+            <div>Temperature: <span class="text-white font-mono">{{ settings.settings().temperature?.toFixed(2) ?? '—' }}</span></div>
+            <div>Max tokens: <span class="text-white font-mono">{{ settings.settings().maxTokens ?? '—' }}</span></div>
+          </div>
+        </section>
+        <section class="t-card t-elevated rounded-md p-5">
+          <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
+            <app-icon name="database" [size]="14" class="text-brand-400" /> Retrieval
+          </h3>
+          <div class="space-y-3 text-sm text-gray-300">
+            <div>
+              Pipeline:
+              <span class="text-white font-mono">{{ systemDefaults()?.retrieval_mode_default || settings.ragPipelineMode() || '—' }}</span>
+              @if (systemDefaults()?.retrieval_mode_default && systemDefaults()?.retrieval_mode_default !== 'auto') {
+                <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">
+                  pinned
+                </span>
+              }
+            </div>
+            <div>Top-K: <span class="text-white font-mono">{{ settings.settings().ragTopK ?? '—' }}</span></div>
+            <div>Similarity: <span class="text-white font-mono">{{ settings.settings().ragSimilarityThreshold?.toFixed(2) ?? '—' }}</span></div>
+            <div class="pt-1">
+              <a
+                routerLink="/knowledge"
+                class="inline-flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300"
+              >
+                <app-icon name="external-link" [size]="11" /> Manage collections
+              </a>
+            </div>
+          </div>
+        </section>
       </div>
-    }
+    </ck-panel>
+
+    <!-- Chat side panel — opens on demand, preserves the canvas context. -->
+    <ck-panel
+      [open]="chatPanelOpen()"
+      (openChange)="chatPanelOpen.set($event)"
+      position="side"
+      eyebrow="System · panel"
+      title="Chat"
+      width="520px"
+    >
+      <div class="t-card t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
+        <app-chat-panel [systemId]="systemId" />
+      </div>
+    </ck-panel>
   `,
 })
 export class SystemViewComponent implements OnInit {
@@ -568,6 +583,7 @@ export class SystemViewComponent implements OnInit {
   private readonly zoom = inject(ZoomContextService);
   private readonly toast = inject(ToastrService);
   readonly settings = inject(SettingsService);
+  readonly lensService = inject(LensService);
 
   readonly runs = signal<Run[]>([]);
   readonly runsLoading = signal(false);
@@ -577,7 +593,10 @@ export class SystemViewComponent implements OnInit {
   agentName = signal('System');
   agentDescription = signal('');
   isDraft = signal(false);
-  activeTab = signal<TabDef['id']>('overview');
+  activeTab = signal<SystemTabId>('overview');
+  /** Side panels — Settings and Chat live here, never as tabs. */
+  readonly settingsPanelOpen = signal(false);
+  readonly chatPanelOpen = signal(false);
 
   readonly systemDefaults = signal<{
     default_prompt_type?: string | null;
@@ -656,14 +675,40 @@ export class SystemViewComponent implements OnInit {
     return Math.round(avg).toString();
   });
 
-  readonly tabs: TabDef[] = [
-    { id: 'overview', label: 'Overview', icon: 'layout-dashboard' },
-    { id: 'outcomes', label: 'Outcomes', icon: 'activity' },
-    { id: 'design', label: 'Design', icon: 'workflow' },
-    { id: 'context', label: 'Context', icon: 'database' },
-    { id: 'runs', label: 'Chat', icon: 'message-square' },
-    { id: 'settings', label: 'Settings', icon: 'settings' },
-  ];
+  /**
+   * Object-level KPIs rendered in the persistent `<ck-object-header>`.
+   * Values not yet tracked (ROI, unit cost) render as `—` — better to show
+   * the slot and admit ignorance than fake a number. See mental-model §6.
+   *
+   * The current lens is threaded in as a hint so future iterations can
+   * adapt the *set* of KPIs per lens (e.g. Govern highlights audit
+   * deltas); for now all lenses share the same 4 KPIs.
+   */
+  readonly objectKpis = computed<CkObjectKpi[]>(() => {
+    const quality = this.latestEval()?.composite_score;
+    const errRate = this.metrics()?.error_rate_percent;
+    const yieldValue =
+      quality != null ? quality.toFixed(0) : errRate != null ? (100 - errRate).toFixed(0) : '—';
+    return [
+      { label: 'ROI', value: '—', hint: 'Return on decision — coming when Outcome.value is priced.' },
+      { label: 'Cost', value: '—', hint: 'Unit cost per run — coming with cost accounting.' },
+      {
+        label: 'Yield',
+        value: yieldValue === '—' ? '—' : `${yieldValue}%`,
+        tone: yieldValue === '—' ? 'neutral' : 'cool',
+        hint: 'Composite quality score (latest evaluation).',
+      },
+      {
+        label: 'Runs',
+        value: String(this.traces().length || this.runs().length || 0),
+        tone: 'neutral',
+      },
+    ];
+  });
+
+  onTabChange(id: string): void {
+    this.activeTab.set(id as SystemTabId);
+  }
 
   readonly wizard = computed<WizardStep[]>(() => {
     const s = this.settings.settings();

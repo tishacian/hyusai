@@ -6,7 +6,7 @@ import { GlyphComponent } from '@app/shared/cockpit';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 
 interface ZoomLevel {
-  key: 'portfolio' | 'capability' | 'system' | 'skill' | 'run';
+  key: 'portfolio' | 'capability' | 'system' | 'run' | 'skill';
   label: string;
   sub?: string;
   href?: string | any[];
@@ -14,10 +14,16 @@ interface ZoomLevel {
 }
 
 /**
- * Semantic zoom breadcrumb — Portfolio › Capability › System › Skill › Run.
+ * Semantic zoom breadcrumb — Portfolio › Capability › System › Run › Skill.
  * Lives inside the title bar and reflects the current navigation depth.
+ *
+ * Canonical order (see docs/mental-model.md §5bis.2): a Run is an instance
+ * of a System, and a Skill is a component invoked *within* a Run. Skill
+ * therefore sits beneath Run in the zoom chain.
+ *
  * Levels are clickable to navigate while preserving context (e.g. clicking
- * "System" from a Run keeps the system in scope).
+ * "System" from a Run keeps the system in scope). ⌘Z / ⇧⌘Z traverse the
+ * chain respecting this canonical order.
  *
  * The mapping is heuristic (URL-based) for now; phase 7 wires it to the
  * real System / Run context selector.
@@ -90,6 +96,7 @@ export class SemanticZoomBreadcrumbComponent {
     const currentCap = this.ctx.capabilityId();
     const currentSys = this.ctx.systemId();
     const currentRun = this.ctx.runId();
+    const currentSkill = this.ctx.skillId();
 
     return [
       {
@@ -103,7 +110,7 @@ export class SemanticZoomBreadcrumbComponent {
         key: 'capability',
         label: currentCap ? 'Capability ·' : 'Capability',
         sub: currentCap ? `Focused on ${currentCap.slice(0, 8)}` : 'Catalog',
-        href: currentCap ? `/capabilities?focus=${currentCap}` : '/capabilities',
+        href: currentCap ? ['/capabilities', currentCap] : '/capabilities',
         active: isCaps,
       },
       {
@@ -114,18 +121,18 @@ export class SemanticZoomBreadcrumbComponent {
         active: isBuilder || isSteering,
       },
       {
-        key: 'skill',
-        label: 'Skill',
-        sub: 'Registry',
-        href: '/skills',
-        active: isSkills,
-      },
-      {
         key: 'run',
         label: currentRun ? 'Run ·' : 'Run',
         sub: currentRun ? `Open ${currentRun.slice(0, 8)}` : 'Telemetry',
         href: currentRun ? ['/runs', currentRun] : '/runs',
         active: isRun,
+      },
+      {
+        key: 'skill',
+        label: currentSkill ? 'Skill ·' : 'Skill',
+        sub: currentSkill ? `Invocation ${currentSkill.slice(0, 8)}` : 'Registry',
+        href: currentSkill ? ['/skills', currentSkill] : '/skills',
+        active: isSkills,
       },
     ];
   });

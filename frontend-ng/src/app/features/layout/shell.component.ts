@@ -6,6 +6,7 @@ import { SideRailComponent } from './side-rail.component';
 import { MiniRailComponent } from './mini-rail.component';
 import { CommandBarComponent } from './command-bar.component';
 import { CommandPaletteComponent } from './command-palette.component';
+import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
 
 /**
  * Cockpit shell — assembles the title bar, side rail and command bar
@@ -23,6 +24,7 @@ import { CommandPaletteComponent } from './command-palette.component';
     MiniRailComponent,
     CommandBarComponent,
     CommandPaletteComponent,
+    CkPanelHostComponent,
   ],
   template: `
     <div
@@ -51,6 +53,7 @@ import { CommandPaletteComponent } from './command-palette.component';
 
       <app-command-bar></app-command-bar>
       <app-command-palette></app-command-palette>
+      <app-panel-host></app-panel-host>
     </div>
   `,
 })
