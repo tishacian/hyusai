@@ -15,23 +15,34 @@ import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Capability, type Context, type Skill, type System } from '@app/core/canonical-api.service';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { SettingsService } from '@app/core/settings.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
   type CkGlyphName,
   GlyphComponent,
   HelpTooltipComponent,
   LiveDotComponent,
-  MicroBarComponent,
   RuntimeStatusBadgeComponent,
   StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
+import {
+  CkObjectHeaderComponent,
+  type CkObjectKpi,
+} from '@app/shared/cockpit/object-header.component';
 import { SystemsStore } from './systems.store';
 
-interface WizardStep {
-  key: 'objective' | 'capability' | 'skills' | 'context' | 'policy' | 'launch';
+type CanvasSectionKey =
+  | 'objective'
+  | 'capability'
+  | 'skills'
+  | 'context'
+  | 'policy'
+  | 'launch';
+
+interface CanvasSection {
+  key: CanvasSectionKey;
   title: string;
   description: string;
   glyph: CkGlyphName;
@@ -107,82 +118,97 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
     FormsModule,
     RouterLink,
     IconComponent,
-    SectionHeaderComponent,
     EmptyStateComponent,
     GlyphComponent,
     HelpTooltipComponent,
     LiveDotComponent,
-    MicroBarComponent,
     RuntimeStatusBadgeComponent,
     StatReadoutComponent,
     TagComponent,
+    CkObjectHeaderComponent,
   ],
   template: `
-    <app-section-header
-      breadcrumb="Build"
-      title="New system"
-      icon="sparkles"
-      subtitle="Compose a system: objective → capability → context → policy → launch."
+    <ck-object-header
+      eyebrow="Build · System"
+      [title]="draft.name || 'New system'"
+      [subtitle]="draft.objective || 'Compose a system on a single canvas — every gate must turn green before launch.'"
+      [kpis]="headerKpis()"
     >
-      <a
-        routerLink="/systems"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
-      >
-        <app-icon name="arrow-left" [size]="14" /> Back to systems
-      </a>
-    </app-section-header>
+      <span actions>
+        <a
+          routerLink="/systems"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition mr-2"
+        >
+          <app-icon name="arrow-left" [size]="14" /> Cancel
+        </a>
+        <button
+          type="button"
+          (click)="launch()"
+          [disabled]="!allGatesValid() || launching()"
+          class="ck-mono inline-flex items-center gap-2 px-3 py-2 rounded text-xs font-semibold transition"
+          style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:#020617;"
+          [style.opacity]="!allGatesValid() || launching() ? '0.4' : '1'"
+          [title]="allGatesValid() ? 'Create this system' : firstInvalidGateMessage()"
+        >
+          <ck-glyph name="bolt" [size]="12" />
+          {{ launching() ? 'CREATING…' : 'CREATE SYSTEM' }}
+        </button>
+      </span>
+    </ck-object-header>
 
-    <!-- Stepper -->
-    <div class="mb-6">
-      <div class="flex items-center gap-4 max-w-4xl">
-        @for (step of steps; track step.key; let i = $index; let last = $last) {
-          <div class="flex items-center flex-1" [class.flex-none]="last">
+    <!-- Single-surface canvas: every section is always visible, collapsible,
+         gated by a live badge. No prev/next — the operator can zoom into any
+         concern at any time. -->
+    <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+      <div class="space-y-3">
+        @for (section of sections; track section.key) {
+          <section
+            class="ck-surface rounded-md overflow-hidden"
+            [style.borderColor]="isSectionValid(section.key) ? 'var(--ck-stroke-soft)' : 'var(--ck-signal-warn)'"
+            [style.borderWidth]="isSectionValid(section.key) ? '1px' : '1px'"
+          >
             <button
               type="button"
-              (click)="gotoStep(i)"
-              [disabled]="i > furthestReached()"
-              class="flex items-center gap-2 group disabled:opacity-60"
-              [title]="step.description"
+              (click)="toggleSection(section.key)"
+              class="w-full flex items-center gap-3 text-left transition"
+              style="padding:14px 18px; background: var(--ck-bg-inset);"
             >
               <div
-                class="w-9 h-9 rounded-md flex items-center justify-center transition shrink-0 ck-surface"
-                [style.borderColor]="i === currentStep() ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
-                [style.color]="i === currentStep() ? 'var(--ck-signal-cool)' : 'var(--ck-fg-3)'"
-                [style.boxShadow]="i === currentStep() ? 'var(--ck-glow-cool)' : 'none'"
+                class="w-8 h-8 rounded-md flex items-center justify-center shrink-0 ck-surface"
+                [style.color]="isSectionValid(section.key) ? 'var(--ck-signal-pos)' : 'var(--ck-signal-warn)'"
+                [style.borderColor]="isSectionValid(section.key) ? 'var(--ck-stroke-soft)' : 'var(--ck-signal-warn)'"
               >
-                @if (i < currentStep() && isStepValid(i)) {
+                @if (isSectionValid(section.key)) {
                   <ck-glyph name="check" [size]="14" />
                 } @else {
-                  <ck-glyph [name]="step.glyph" [size]="14" />
+                  <ck-glyph [name]="section.glyph" [size]="14" />
                 }
               </div>
-              <div class="hidden md:block text-left">
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);">
-                  {{ ('0' + (i + 1)).slice(-2) }}
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-medium text-white">{{ section.title }}</span>
+                  <span
+                    class="ck-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                    [style.color]="isSectionValid(section.key) ? 'var(--ck-signal-pos)' : 'var(--ck-signal-warn)'"
+                    [style.background]="isSectionValid(section.key) ? 'rgba(16,185,129,0.08)' : 'rgba(234,179,8,0.08)'"
+                    [style.border]="'1px solid ' + (isSectionValid(section.key) ? 'rgba(16,185,129,0.2)' : 'rgba(234,179,8,0.25)')"
+                  >
+                    {{ isSectionValid(section.key) ? 'READY' : 'PENDING' }}
+                  </span>
                 </div>
-                <div
-                  class="text-sm font-medium"
-                  [style.color]="i === currentStep() ? 'var(--ck-fg-1)' : 'var(--ck-fg-3)'"
-                >
-                  {{ step.title }}
+                <div class="ck-mono text-[11px]" style="color:var(--ck-fg-4); margin-top:2px;">
+                  {{ sectionSummary(section.key) }}
                 </div>
               </div>
+              <ck-glyph
+                [name]="isSectionOpen(section.key) ? 'arrow-right' : 'arrow-right'"
+                [size]="12"
+                [style.transform]="isSectionOpen(section.key) ? 'rotate(90deg)' : 'none'"
+              />
             </button>
-            @if (!last) {
-              <div class="h-px flex-1 mx-3"
-                [style.backgroundColor]="i < currentStep() ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
-              ></div>
-            }
-          </div>
-        }
-      </div>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- Main pane -->
-      <section class="lg:col-span-2 ck-surface rounded-md" style="padding: 24px;">
-        <!-- Step 1: Objective & identity -->
-        @if (currentStep() === 0) {
+            @if (isSectionOpen(section.key)) {
+              <div style="padding:20px 22px; border-top: 1px solid var(--ck-hair);">
+        @if (section.key === 'objective') {
           <div class="space-y-5">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
@@ -227,8 +253,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           </div>
         }
 
-        <!-- Step 2: Capability -->
-        @if (currentStep() === 1) {
+        @if (section.key === 'capability') {
           <div class="space-y-4">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
@@ -296,8 +321,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           </div>
         }
 
-        <!-- Step 3: Skills (bundled + custom) -->
-        @if (currentStep() === 2) {
+        @if (section.key === 'skills') {
           <div class="space-y-4">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
@@ -362,8 +386,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           </div>
         }
 
-        <!-- Step 4: Context -->
-        @if (currentStep() === 3) {
+        @if (section.key === 'context') {
           <div class="space-y-5">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
@@ -485,8 +508,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           </div>
         }
 
-        <!-- Step 5: Policy -->
-        @if (currentStep() === 4) {
+        @if (section.key === 'policy') {
           <div class="space-y-5">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
@@ -621,8 +643,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           </div>
         }
 
-        <!-- Step 6: Launch -->
-        @if (currentStep() === 5) {
+        @if (section.key === 'launch') {
           <div class="space-y-5">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
@@ -684,13 +705,16 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             </div>
           </div>
         }
-      </section>
+              </div>
+            }
+          </section>
+        }
+      </div>
 
-      <!-- Live preview pane -->
       <aside class="ck-surface rounded-md self-start sticky top-4" style="padding:20px;">
         <div class="flex items-center gap-3 mb-4 pb-3" style="border-bottom: 1px solid var(--ck-hair);">
           <div class="w-10 h-10 rounded-md flex items-center justify-center ck-surface" style="background:var(--ck-bg-inset); border-color: var(--ck-stroke-soft);">
-            <ck-glyph [name]="currentGlyph()" [size]="18" />
+            <ck-glyph name="focus" [size]="18" />
           </div>
           <div>
             <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);">
@@ -731,61 +755,48 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           </li>
         </ul>
 
-        <!-- Step progress -->
         <div class="mt-4 pt-4" style="border-top: 1px solid var(--ck-hair);">
           <div class="flex items-center justify-between mb-2">
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">PROGRESS</span>
-            <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2);">
-              {{ currentStep() + 1 }} / {{ steps.length }}
+            <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">GATES</span>
+            <span
+              class="ck-mono ck-tnum"
+              style="font-size:11px;"
+              [style.color]="allGatesValid() ? 'var(--ck-signal-pos)' : 'var(--ck-signal-warn)'"
+            >
+              {{ gatesValidCount() }} / {{ sections.length }}
             </span>
           </div>
-          <ck-micro-bar [value]="currentStep() + 1" [max]="steps.length" [width]="220" tone="cool" [glow]="true" />
+          <ul class="space-y-1.5">
+            @for (section of sections; track section.key) {
+              <li class="flex items-center gap-2">
+                <span
+                  class="inline-block w-2 h-2 rounded-full"
+                  [style.background]="isSectionValid(section.key) ? 'var(--ck-signal-pos)' : 'var(--ck-signal-warn)'"
+                ></span>
+                <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-3);">
+                  {{ section.title }}
+                </span>
+                @if (!isSectionValid(section.key)) {
+                  <button
+                    type="button"
+                    (click)="expandSection(section.key)"
+                    class="ml-auto ck-mono text-[10px]"
+                    style="color:var(--ck-signal-warn); letter-spacing:0.08em; text-transform:uppercase;"
+                  >
+                    FIX
+                  </button>
+                }
+              </li>
+            }
+          </ul>
         </div>
 
-        @if (!isStepValid(currentStep())) {
+        @if (!allGatesValid()) {
           <div class="ck-mono mt-4" style="font-size:10px; color:var(--ck-signal-warn); letter-spacing:0.02em;">
-            ⚠ {{ validationMessage() }}
+            ⚠ {{ firstInvalidGateMessage() }}
           </div>
         }
       </aside>
-    </div>
-
-    <!-- Nav -->
-    <div class="flex items-center justify-between mt-6 pt-6" style="border-top: 1px solid var(--ck-hair);">
-      <button
-        type="button"
-        (click)="prev()"
-        [disabled]="currentStep() === 0"
-        class="ck-surface ck-mono inline-flex items-center gap-2"
-        style="padding: 8px 14px; border-radius:4px; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);"
-      >
-        <ck-glyph name="arrow-right" [size]="12" style="transform: rotate(180deg); display:inline-block;" /> PREV
-      </button>
-      <span class="ck-mono" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);">
-        STEP {{ currentStep() + 1 }} / {{ steps.length }}
-      </span>
-      @if (currentStep() < steps.length - 1) {
-        <button
-          type="button"
-          (click)="next()"
-          [disabled]="!isStepValid(currentStep())"
-          class="ck-mono inline-flex items-center gap-2"
-          style="padding: 8px 14px; border-radius:4px; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-cool); color:#020617; font-weight:600;"
-        >
-          NEXT <ck-glyph name="arrow-right" [size]="12" />
-        </button>
-      } @else {
-        <button
-          type="button"
-          (click)="launch()"
-          [disabled]="!allStepsValid() || launching()"
-          class="ck-mono inline-flex items-center gap-2"
-          style="padding: 8px 16px; border-radius:4px; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:#020617; font-weight:600; box-shadow: var(--ck-glow-pos);"
-        >
-          <ck-glyph name="bolt" [size]="12" />
-          {{ launching() ? 'CREATING…' : 'CREATE SYSTEM' }}
-        </button>
-      }
     </div>
   `,
 })
@@ -797,6 +808,7 @@ export class SystemBuilderComponent implements OnInit {
   private readonly health = inject(RuntimeHealthService);
   private readonly toast = inject(ToastrService);
   private readonly store = inject(SystemsStore);
+  private readonly zoom = inject(ZoomContextService);
   readonly settings = inject(SettingsService);
 
   readonly ragPipelines = RAG_PIPELINES;
@@ -807,7 +819,12 @@ export class SystemBuilderComponent implements OnInit {
     return EXECUTION_MODES.find((m) => m.id === id)?.label ?? id;
   });
 
-  readonly steps: WizardStep[] = [
+  /**
+   * Single-surface canvas — all sections are available at once (no linear
+   * wizard). Each section is its own `CanvasSection` with a gate; the
+   * launch action unlocks only when every gate turns green.
+   */
+  readonly sections: CanvasSection[] = [
     { key: 'objective', title: 'Objective', description: 'Name & outcome', glyph: 'focus' },
     { key: 'capability', title: 'Capability', description: 'Value-producing unit', glyph: 'cube' },
     { key: 'skills', title: 'Skills', description: 'Bundled + custom runtime', glyph: 'cube' },
@@ -816,8 +833,17 @@ export class SystemBuilderComponent implements OnInit {
     { key: 'launch', title: 'Launch', description: 'Review & create', glyph: 'bolt' },
   ];
 
-  readonly currentStep = signal(0);
-  readonly furthestReached = signal(0);
+  /** Set of expanded accordion sections; all open by default. */
+  readonly openSections = signal<Set<CanvasSectionKey>>(
+    new Set<CanvasSectionKey>([
+      'objective',
+      'capability',
+      'skills',
+      'context',
+      'policy',
+      'launch',
+    ]),
+  );
   readonly launching = signal(false);
 
   readonly capabilities = signal<Capability[]>([]);
@@ -856,8 +882,6 @@ export class SystemBuilderComponent implements OnInit {
   readonly reasoningTemplates = signal<ReasoningTemplateOpt[]>([]);
   readonly availableModels = signal<ModelOpt[]>([]);
   readonly existingContexts = signal<Context[]>([]);
-
-  readonly currentGlyph = computed<CkGlyphName>(() => this.steps[this.currentStep()]?.glyph ?? 'focus');
 
   readonly selectedCapability = computed<Capability | null>(() => {
     const id = this.draft.capability_id;
@@ -900,6 +924,13 @@ export class SystemBuilderComponent implements OnInit {
     const q = this.route.snapshot.queryParamMap;
     if (q.get('name')) this.draft.name = q.get('name') ?? '';
     if (q.get('objective')) this.draft.objective = q.get('objective') ?? '';
+
+    // The builder has no owning System yet, so clear the System scope
+    // and any stale Run focus. If the user arrived with a prefilled
+    // capability_id (e.g. "create system for this capability"), that
+    // will be set via `selectCapability` below.
+    this.zoom.setCurrentSystem(null);
+    this.zoom.setCurrentRun(null);
 
     this.settings.refresh();
     this.health.load().subscribe();
@@ -953,6 +984,7 @@ export class SystemBuilderComponent implements OnInit {
     if (cap.pricing?.unit_price != null) {
       this.draft.max_cost = Math.max(this.draft.max_cost, cap.pricing.unit_price * 2);
     }
+    this.zoom.setCurrentCapability(cap.id);
   }
 
   isCollectionChecked(name: string): boolean {
@@ -993,59 +1025,139 @@ export class SystemBuilderComponent implements OnInit {
     return 'Warning — at least one underlying skill is only in the catalog, not registered at runtime.';
   }
 
-  isStepValid(idx: number): boolean {
-    switch (idx) {
-      case 0:
+  /**
+   * Gate evaluation — each section is independent. Skills and Launch
+   * inherit their gates from upstream sections (Capability and Objective)
+   * so the bottom of the canvas only turns green once the pre-requisites
+   * are satisfied.
+   */
+  isSectionValid(key: CanvasSectionKey): boolean {
+    switch (key) {
+      case 'objective':
         return this.draft.name.trim().length > 0;
-      case 1:
+      case 'capability':
         return !!this.draft.capability_id;
-      case 2: // Skills — always passes (surface-only, gated by capability above)
-      case 3: // Context
-      case 4: // Policy
+      case 'skills':
+      case 'context':
+      case 'policy':
         return true;
-      case 5:
+      case 'launch':
         return this.draft.name.trim().length > 0 && !!this.draft.capability_id;
       default:
         return true;
     }
   }
 
-  allStepsValid(): boolean {
-    return this.steps.every((_, i) => this.isStepValid(i));
+  allGatesValid(): boolean {
+    return this.sections.every((s) => this.isSectionValid(s.key));
   }
 
-  validationMessage(): string {
-    switch (this.currentStep()) {
-      case 0:
-        return 'A name is required.';
-      case 1:
-        return 'Pick a capability to continue.';
-      case 5:
+  gatesValidCount(): number {
+    return this.sections.filter((s) => this.isSectionValid(s.key)).length;
+  }
+
+  firstInvalidGateMessage(): string {
+    const first = this.sections.find((s) => !this.isSectionValid(s.key));
+    if (!first) return '';
+    switch (first.key) {
+      case 'objective':
+        return 'Give this system a name.';
+      case 'capability':
+        return 'Pick the capability this system will produce.';
+      case 'launch':
         return 'Fill the name and pick a capability before launching.';
+      default:
+        return `Complete the ${first.title} section.`;
+    }
+  }
+
+  sectionSummary(key: CanvasSectionKey): string {
+    switch (key) {
+      case 'objective':
+        return this.draft.name.trim() || 'Name & one-sentence outcome.';
+      case 'capability':
+        return this.selectedCapability()?.name || 'Pick a value-producing unit.';
+      case 'skills': {
+        const n = this.bundledSkills().length;
+        const stubs = this.stubSkillsCount();
+        const unbound = this.unboundSkillsCount();
+        if (!this.draft.capability_id) return 'Bundled automatically once a capability is picked.';
+        if (!n) return 'No bundled skill — runs will fall back to defaults.';
+        return `${n} bundled · ${stubs} stub · ${unbound} unbound`;
+      }
+      case 'context':
+        return `${this.draft.collections.length} collection${this.draft.collections.length === 1 ? '' : 's'} · ${this.draft.rag_mode}`;
+      case 'policy':
+        return `${this.executionModeLabel()} · $${this.draft.max_cost.toFixed(2)} · τ${this.draft.confidence_threshold.toFixed(2)}`;
+      case 'launch':
+        return this.allGatesValid() ? 'Ready to create this system.' : 'Unlocks once all gates are green.';
       default:
         return '';
     }
   }
 
-  gotoStep(i: number): void {
-    if (i > this.furthestReached()) return;
-    this.currentStep.set(i);
+  isSectionOpen(key: CanvasSectionKey): boolean {
+    return this.openSections().has(key);
   }
 
-  next(): void {
-    if (!this.isStepValid(this.currentStep())) return;
-    const next = this.currentStep() + 1;
-    this.currentStep.set(next);
-    if (next > this.furthestReached()) this.furthestReached.set(next);
+  toggleSection(key: CanvasSectionKey): void {
+    this.openSections.update((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
-  prev(): void {
-    if (this.currentStep() === 0) return;
-    this.currentStep.set(this.currentStep() - 1);
+  expandSection(key: CanvasSectionKey): void {
+    this.openSections.update((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+    // Scroll the section into view so the user can act immediately.
+    setTimeout(() => {
+      const el = document.querySelector(`[data-section-key="${key}"]`);
+      if (el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 30);
+  }
+
+  /** Object-level KPIs rendered in `<ck-object-header>`. */
+  headerKpis(): CkObjectKpi[] {
+    const cap = this.selectedCapability();
+    const gatesLabel = `${this.gatesValidCount()}/${this.sections.length}`;
+    return [
+      {
+        label: 'Gates',
+        value: gatesLabel,
+        tone: this.allGatesValid() ? 'pos' : 'warn',
+        hint: this.allGatesValid()
+          ? 'All sections validated — launch is unlocked.'
+          : this.firstInvalidGateMessage(),
+      },
+      {
+        label: 'Capability',
+        value: cap?.tier ? cap.tier.toUpperCase() : '—',
+        tone: cap ? 'cool' : 'neutral',
+        hint: cap?.name ?? 'Pick the capability this system will produce.',
+      },
+      {
+        label: 'Skills',
+        value: String(this.bundledSkills().length || 0),
+        tone: this.unboundSkillsCount() ? 'warn' : 'neutral',
+        hint: 'Skills bundled by the selected capability.',
+      },
+      {
+        label: 'Est. cost',
+        value: this.formatPrice(cap?.pricing?.unit_price),
+        tone: 'neutral',
+        hint: 'Projected unit cost per run based on the capability pricing.',
+      },
+    ];
   }
 
   launch(): void {
-    if (!this.allStepsValid() || this.launching()) return;
+    if (!this.allGatesValid() || this.launching()) return;
     this.launching.set(true);
     const cap = this.selectedCapability();
     const pipeline = this.ragPipelines.find((p) => p.id === this.draft.rag_mode);

@@ -18,6 +18,7 @@ import {
   type RagPreset,
   type RagPresetScope,
 } from '@app/core/rag-preset.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 
 /**
  * Presets catalog — the "Govern · Presets" landing page.
@@ -136,6 +137,7 @@ import {
 export class PresetsListComponent implements OnInit {
   private readonly service = inject(RagPresetService);
   private readonly toastr = inject(ToastrService);
+  private readonly zoom = inject(ZoomContextService);
 
   readonly presets = signal<RagPreset[]>([]);
   readonly loading = signal(true);
@@ -168,6 +170,10 @@ export class PresetsListComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    // Presets is workspace-scoped administration — drop any prior
+    // Capability/System/Run focus so the breadcrumb reads
+    // "Portfolio › Presets" rather than lying about an active object.
+    this.zoom.clear();
     this.refresh();
   }
 

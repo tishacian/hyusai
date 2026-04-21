@@ -158,8 +158,13 @@ export class SemanticZoomBreadcrumbComponent {
     if (!(ev.metaKey || ev.ctrlKey)) return;
     if (ev.altKey) return;
 
+    // Two guards, not one: `ev.target` can be stale on Safari after a
+    // focus change, so we also consult `document.activeElement`. If
+    // either is editable we bow out and let native undo/redo handle it.
     const target = ev.target as HTMLElement | null;
+    const active = document.activeElement as HTMLElement | null;
     if (target && this.isEditable(target)) return;
+    if (active && this.isEditable(active)) return;
 
     ev.preventDefault();
     ev.stopPropagation();
