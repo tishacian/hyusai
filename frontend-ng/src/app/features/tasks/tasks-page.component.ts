@@ -11,10 +11,10 @@ import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
+import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
 
 interface Agent {
   id: string;
@@ -65,35 +65,64 @@ interface TaskEvent {
   imports: [
     FormsModule,
     IconComponent,
-    SectionHeaderComponent,
     StatTileComponent,
     EmptyStateComponent,
     DrawerComponent,
+    PageFrameComponent,
+    GlyphComponent,
   ],
   template: `
-    <app-section-header
-      breadcrumb="Build"
-      title="Missions"
-      icon="list-todo"
-      subtitle="Autonomous tasks: plan → act → verify → report."
+    <ck-page-frame
+      eyebrow="Run · Missions"
+      title="Autonomous missions"
+      description="Goal-oriented tasks: plan → act → verify → report — running in the background."
     >
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        (click)="refresh()"
-        [disabled]="loading()"
-      >
-        <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
-        Refresh
-      </button>
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
-        (click)="openCreate()"
-      >
-        <app-icon name="plus" [size]="14" /> New mission
-      </button>
-    </app-section-header>
+      <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+        <button
+          type="button"
+          (click)="refresh()"
+          [disabled]="loading()"
+          class="ck-mono"
+          [style.display]="'inline-flex'"
+          [style.alignItems]="'center'"
+          [style.gap.px]="6"
+          [style.height.px]="28"
+          [style.padding]="'0 12px'"
+          [style.background]="'transparent'"
+          [style.color]="'var(--ck-fg-2)'"
+          [style.border]="'1px solid var(--ck-stroke-2)'"
+          [style.borderRadius.px]="4"
+          [style.fontSize.px]="11"
+          [style.letterSpacing]="'0.08em'"
+          [style.textTransform]="'uppercase'"
+          [style.cursor]="'pointer'"
+        >
+          <ck-glyph name="orbit" [size]="12" />
+          Refresh
+        </button>
+        <button
+          type="button"
+          (click)="openCreate()"
+          class="ck-mono"
+          [style.display]="'inline-flex'"
+          [style.alignItems]="'center'"
+          [style.gap.px]="6"
+          [style.height.px]="28"
+          [style.padding]="'0 12px'"
+          [style.background]="'var(--ck-signal-cool)'"
+          [style.color]="'var(--ck-bg-base)'"
+          [style.border]="'none'"
+          [style.borderRadius.px]="4"
+          [style.fontSize.px]="11"
+          [style.fontWeight]="600"
+          [style.letterSpacing]="'0.08em'"
+          [style.textTransform]="'uppercase'"
+          [style.cursor]="'pointer'"
+        >
+          <ck-glyph name="bolt" [size]="12" />
+          New mission
+        </button>
+      </div>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       <app-stat-tile label="Total" [value]="tasks().length" icon="list-todo" />
@@ -181,6 +210,7 @@ interface TaskEvent {
         </ul>
       }
     </section>
+    </ck-page-frame>
 
     <!-- Create dialog -->
     @if (createOpen()) {

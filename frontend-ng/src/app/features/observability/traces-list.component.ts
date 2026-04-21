@@ -9,10 +9,10 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '@app/core/api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
+import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
 
 interface TraceStep {
   id?: string;
@@ -43,38 +43,60 @@ interface Trace {
   imports: [
     FormsModule,
     IconComponent,
-    SectionHeaderComponent,
     StatTileComponent,
     EmptyStateComponent,
     DrawerComponent,
+    PageFrameComponent,
+    GlyphComponent,
   ],
   template: `
-    <app-section-header
-      breadcrumb="Measure"
+    <ck-page-frame
+      eyebrow="Measure · Observability"
       title="Traces"
-      icon="git-commit"
-      subtitle="RAG execution traces — retrieval, synthesis, evaluation."
+      description="Execution traces for every Run — retrieval, synthesis, evaluation."
     >
-      <select
-        [(ngModel)]="filterType"
-        (ngModelChange)="refresh()"
-        class="bg-white/5 ring-1 ring-white/10 rounded px-2 py-2 text-xs text-white focus:outline-none focus:ring-brand-400"
-      >
-        <option value="">All operations</option>
-        <option value="ingest">Ingest</option>
-        <option value="search">Search</option>
-        <option value="query">Query</option>
-      </select>
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        (click)="refresh()"
-        [disabled]="loading()"
-      >
-        <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
-        Refresh
-      </button>
-    </app-section-header>
+      <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+        <select
+          [(ngModel)]="filterType"
+          (ngModelChange)="refresh()"
+          class="ck-mono"
+          [style.height.px]="28"
+          [style.padding]="'0 10px'"
+          [style.background]="'var(--ck-bg-inset)'"
+          [style.color]="'var(--ck-fg-1)'"
+          [style.border]="'1px solid var(--ck-stroke-2)'"
+          [style.borderRadius.px]="4"
+          [style.fontSize.px]="11"
+          [style.letterSpacing]="'0.04em'"
+        >
+          <option value="">All operations</option>
+          <option value="ingest">Ingest</option>
+          <option value="search">Search</option>
+          <option value="query">Query</option>
+        </select>
+        <button
+          type="button"
+          (click)="refresh()"
+          [disabled]="loading()"
+          class="ck-mono"
+          [style.display]="'inline-flex'"
+          [style.alignItems]="'center'"
+          [style.gap.px]="6"
+          [style.height.px]="28"
+          [style.padding]="'0 12px'"
+          [style.background]="'transparent'"
+          [style.color]="'var(--ck-fg-2)'"
+          [style.border]="'1px solid var(--ck-stroke-2)'"
+          [style.borderRadius.px]="4"
+          [style.fontSize.px]="11"
+          [style.letterSpacing]="'0.08em'"
+          [style.textTransform]="'uppercase'"
+          [style.cursor]="'pointer'"
+        >
+          <ck-glyph name="orbit" [size]="12" />
+          Refresh
+        </button>
+      </div>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       <app-stat-tile
@@ -178,6 +200,7 @@ interface Trace {
         </ul>
       }
     </section>
+    </ck-page-frame>
 
     <app-drawer
       [open]="selectedTrace() !== null"

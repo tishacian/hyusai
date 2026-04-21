@@ -9,9 +9,9 @@ import {
 } from '@angular/core';
 import { ApiService } from '@app/core/api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
 
 interface MetricSummary {
   total_requests: number;
@@ -43,28 +43,41 @@ interface MetricsResponse {
   selector: 'app-performance-dashboard',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SectionHeaderComponent, StatTileComponent, EmptyStateComponent],
+  imports: [IconComponent, StatTileComponent, EmptyStateComponent, PageFrameComponent, GlyphComponent],
   template: `
-    <app-section-header
-      breadcrumb="Measure"
+    <ck-page-frame
+      eyebrow="Measure · Observability"
       title="Performance"
-      icon="gauge"
-      subtitle="Request latency, error rate and cache efficiency."
+      description="Request latency, error rate and cache efficiency across your systems."
     >
-      <label class="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-        <input type="checkbox" [checked]="autoRefresh()" (change)="toggleAuto()" class="accent-brand-500" />
-        Auto-refresh
-      </label>
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        (click)="refresh()"
-        [disabled]="loading()"
-      >
-        <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
-        Refresh
-      </button>
-    </app-section-header>
+      <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="10">
+        <label class="ck-mono" [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6" [style.fontSize.px]="10" [style.color]="'var(--ck-fg-3)'" [style.letterSpacing]="'0.10em'" [style.textTransform]="'uppercase'" [style.cursor]="'pointer'">
+          <input type="checkbox" [checked]="autoRefresh()" (change)="toggleAuto()" class="accent-brand-500" />
+          Auto-refresh
+        </label>
+        <button
+          type="button"
+          (click)="refresh()"
+          [disabled]="loading()"
+          class="ck-mono"
+          [style.display]="'inline-flex'"
+          [style.alignItems]="'center'"
+          [style.gap.px]="6"
+          [style.height.px]="28"
+          [style.padding]="'0 12px'"
+          [style.background]="'transparent'"
+          [style.color]="'var(--ck-fg-2)'"
+          [style.border]="'1px solid var(--ck-stroke-2)'"
+          [style.borderRadius.px]="4"
+          [style.fontSize.px]="11"
+          [style.letterSpacing]="'0.08em'"
+          [style.textTransform]="'uppercase'"
+          [style.cursor]="'pointer'"
+        >
+          <ck-glyph name="orbit" [size]="12" />
+          Refresh
+        </button>
+      </div>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       <app-stat-tile
@@ -198,6 +211,7 @@ interface MetricsResponse {
         </div>
       </div>
     </section>
+    </ck-page-frame>
   `,
 })
 export class PerformanceDashboardComponent implements OnInit, OnDestroy {

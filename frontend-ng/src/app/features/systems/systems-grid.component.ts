@@ -1,12 +1,15 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { IconComponent } from '@app/shared/ui/icon.component';
-import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
-import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
-import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
 import { ApiService } from '@app/core/api.service';
+import {
+  GlyphComponent,
+  KbdComponent,
+  LiveDotComponent,
+  PageFrameComponent,
+  StatReadoutComponent,
+  TagComponent,
+} from '@app/shared/cockpit';
 import { SystemsStore, SystemAgent } from './systems.store';
 
 interface TraceRow {
@@ -27,11 +30,15 @@ interface AgentStats {
 interface Template {
   id: string;
   label: string;
-  icon: string;
   description: string;
   prompt: string;
 }
 
+/**
+ * Systems grid — catalog of every System deployed in the workspace.
+ * Cockpit-grade: eyebrow + title + description via PageFrame, quick-start
+ * composer on top, grid of mono-labeled cards below. No legacy section header.
+ */
 @Component({
   selector: 'app-systems-grid',
   standalone: true,
@@ -39,183 +46,273 @@ interface Template {
   imports: [
     RouterLink,
     FormsModule,
-    IconComponent,
-    SectionHeaderComponent,
-    StatusPulseComponent,
-    EmptyStateComponent,
-    SkeletonComponent,
+    PageFrameComponent,
+    GlyphComponent,
+    KbdComponent,
+    LiveDotComponent,
+    StatReadoutComponent,
+    TagComponent,
   ],
   template: `
-    <app-section-header
-      breadcrumb="Build"
-      title="Systems"
-      icon="layers"
-      subtitle="Design, launch and monitor purpose-built AI systems."
+    <ck-page-frame
+      eyebrow="Build · Systems"
+      title="Your deployed systems"
+      description="Each System is a composition of a Capability, a Context and a Policy. Launch one from scratch or start from a goal."
+      [status]="agents().length + ' ACTIVE'"
     >
       <a
+        actions
         routerLink="/systems/new"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+        [style.display]="'inline-flex'"
+        [style.alignItems]="'center'"
+        [style.gap.px]="6"
+        [style.padding]="'6px 12px'"
+        [style.height.px]="28"
+        [style.background]="'var(--ck-signal-cool)'"
+        [style.color]="'var(--ck-bg-base)'"
+        [style.border]="'none'"
+        [style.borderRadius.px]="4"
+        [style.fontFamily]="'var(--ck-font-mono)'"
+        [style.fontSize.px]="11"
+        [style.fontWeight]="600"
+        [style.letterSpacing]="'0.08em'"
+        [style.textTransform]="'uppercase'"
+        [style.cursor]="'pointer'"
+        [style.textDecoration]="'none'"
       >
-        <app-icon name="plus" [size]="14" /> New system
+        <ck-glyph name="bolt" [size]="12" />
+        New system
       </a>
-    </app-section-header>
 
-    <!-- Quick start hero -->
-    <section
-      class="relative overflow-hidden t-card t-elevated rounded-md p-6 mb-8"
-      style="border-left: 3px solid var(--accent); background: linear-gradient(135deg, var(--bg-card) 0%, rgba(0,188,212,0.06) 50%, rgba(139,92,246,0.06) 100%);"
-    >
-      <div class="absolute -top-10 -right-10 w-48 h-48 bg-brand-500/10 rounded-full blur-3xl pointer-events-none"></div>
-      <div class="absolute -bottom-12 -left-12 w-56 h-56 bg-violet-500/10 rounded-full blur-3xl pointer-events-none"></div>
-
-      <div class="relative">
-        <div class="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] font-semibold text-brand-400 mb-2">
-          <app-icon name="sparkles" [size]="12" />
-          Quick start
+      <!-- Quick-start composer -->
+      <section
+        class="ck-hero-ambient"
+        [style.position]="'relative'"
+        [style.padding]="'22px 24px'"
+        [style.background]="'var(--ck-bg-panel)'"
+        [style.border]="'1px solid var(--ck-stroke-2)'"
+        [style.borderRadius.px]="6"
+        [style.marginBottom.px]="24"
+      >
+        <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="10" [style.marginBottom.px]="12">
+          <span class="ck-label" [style.color]="'var(--ck-signal-cool)'">QUICK START</span>
+          <ck-live-dot tone="cool" />
         </div>
-        <h2 class="text-xl md:text-2xl font-semibold text-white leading-tight max-w-2xl">
-          What would you like your AI team to achieve today?
-        </h2>
-        <p class="text-sm text-gray-400 mt-1.5 max-w-xl">
-          Describe a goal and we'll compose agents, knowledge and orchestration around it.
+        <h2
+          [style.fontFamily]="'var(--ck-font-sans)'"
+          [style.fontSize.px]="20"
+          [style.fontWeight]="500"
+          [style.letterSpacing]="'-0.01em'"
+          [style.color]="'var(--ck-fg-1)'"
+          [style.margin]="'0 0 6px 0'"
+          [style.maxWidth.ch]="64"
+        >What would you like your AI team to achieve today?</h2>
+        <p [style.color]="'var(--ck-fg-3)'" [style.fontSize.px]="12" [style.margin]="'0 0 14px 0'" [style.maxWidth.ch]="72">
+          Describe a goal and we'll compose a Capability, Context and Policy around it.
         </p>
 
-        <form (ngSubmit)="startFromPrompt()" class="mt-5 flex gap-2 max-w-2xl">
-          <div class="relative flex-1">
-            <app-icon
-              name="wand-2"
-              [size]="16"
-              class="absolute left-3 top-1/2 -translate-y-1/2 text-brand-400 pointer-events-none"
-            />
+        <form (ngSubmit)="startFromPrompt()" [style.display]="'flex'" [style.gap.px]="8" [style.maxWidth.px]="720">
+          <div [style.position]="'relative'" [style.flex]="'1 1 auto'">
+            <span [style.position]="'absolute'" [style.left.px]="10" [style.top.px]="9" [style.pointerEvents]="'none'" [style.color]="'var(--ck-signal-cool)'">
+              <ck-glyph name="focus" [size]="14" />
+            </span>
             <input
               type="text"
               [(ngModel)]="prompt"
               name="prompt"
-              class="w-full pl-10 pr-4 py-2.5 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition"
+              [style.width]="'100%'"
+              [style.padding]="'8px 12px 8px 32px'"
+              [style.height.px]="32"
+              [style.background]="'var(--ck-bg-inset)'"
+              [style.border]="'1px solid var(--ck-stroke-2)'"
+              [style.borderRadius.px]="4"
+              [style.color]="'var(--ck-fg-1)'"
+              [style.fontSize.px]="13"
               placeholder="Summarise incoming contracts and flag risks…"
             />
           </div>
           <button
             type="submit"
             [disabled]="!prompt.trim()"
-            class="px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white font-medium text-sm shadow-glow-sm transition inline-flex items-center gap-1.5"
-          >
-            <app-icon name="zap" [size]="14" /> Compose
-          </button>
+            [style.padding]="'0 14px'"
+            [style.height.px]="32"
+            [style.background]="'var(--ck-signal-cool)'"
+            [style.color]="'var(--ck-bg-base)'"
+            [style.border]="'none'"
+            [style.borderRadius.px]="4"
+            [style.fontFamily]="'var(--ck-font-mono)'"
+            [style.fontSize.px]="11"
+            [style.fontWeight]="600"
+            [style.letterSpacing]="'0.08em'"
+            [style.textTransform]="'uppercase'"
+            [style.cursor]="prompt.trim() ? 'pointer' : 'not-allowed'"
+            [style.opacity]="prompt.trim() ? 1 : 0.4"
+          >Compose</button>
         </form>
 
-        <div class="flex flex-wrap gap-2 mt-5">
+        <div [style.display]="'flex'" [style.flexWrap]="'wrap'" [style.gap.px]="6" [style.marginTop.px]="14">
           @for (tpl of templates; track tpl.id) {
             <button
               type="button"
               (click)="applyTemplate(tpl)"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-gray-300 bg-white/5 hover:bg-brand-500/10 hover:text-brand-300 ring-1 ring-white/10 hover:ring-brand-500/40 transition"
-            >
-              <app-icon [name]="tpl.icon" [size]="12" />
-              {{ tpl.label }}
-            </button>
+              [style.padding]="'3px 10px'"
+              [style.background]="'transparent'"
+              [style.border]="'1px solid var(--ck-stroke-2)'"
+              [style.borderRadius.px]="99"
+              [style.color]="'var(--ck-fg-3)'"
+              [style.fontFamily]="'var(--ck-font-mono)'"
+              [style.fontSize.px]="10"
+              [style.letterSpacing]="'0.08em'"
+              [style.textTransform]="'uppercase'"
+              [style.cursor]="'pointer'"
+              [title]="tpl.description"
+            >{{ tpl.label }}</button>
           }
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- Agents grid -->
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-[0.14em]">Your systems</h2>
-      <span class="text-xs text-gray-500">{{ agents().length }} total</span>
-    </div>
-
-    @if (store.loading()) {
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        @for (_ of [0, 1, 2, 3, 4, 5]; track $index) {
-          <app-skeleton height="180px" />
-        }
+      <!-- Grid header -->
+      <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'" [style.marginBottom.px]="12">
+        <span class="ck-label">SYSTEMS · {{ agents().length }}</span>
+        <span class="ck-mono" [style.fontSize.px]="10" [style.color]="'var(--ck-fg-4)'" [style.letterSpacing]="'0.10em'">
+          <ck-kbd>⌘K</ck-kbd> to navigate
+        </span>
       </div>
-    } @else if (agents().length === 0) {
-      <div class="t-card t-elevated rounded-md">
-        <app-empty-state
-          icon="layers"
-          title="No systems yet"
-          description="Your first AI system is just a prompt away. Compose one from scratch or pick a template above."
+
+      @if (store.loading()) {
+        <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fill, minmax(320px, 1fr))'" [style.gap.px]="12">
+          @for (_ of [0, 1, 2, 3, 4, 5]; track $index) {
+            <div
+              [style.height.px]="160"
+              [style.background]="'var(--ck-bg-panel)'"
+              [style.border]="'1px solid var(--ck-stroke-2)'"
+              [style.borderRadius.px]="6"
+              [style.opacity]="0.5"
+            ></div>
+          }
+        </div>
+      } @else if (agents().length === 0) {
+        <div
+          [style.padding]="'48px 32px'"
+          [style.background]="'var(--ck-bg-panel)'"
+          [style.border]="'1px solid var(--ck-stroke-2)'"
+          [style.borderRadius.px]="6"
+          [style.textAlign]="'center'"
         >
+          <div [style.display]="'inline-flex'" [style.color]="'var(--ck-signal-cool)'"><ck-glyph name="cube" [size]="24" /></div>
+          <h3
+            [style.fontFamily]="'var(--ck-font-sans)'"
+            [style.fontSize.px]="18"
+            [style.fontWeight]="500"
+            [style.color]="'var(--ck-fg-1)'"
+            [style.margin]="'12px 0 6px 0'"
+          >No systems yet</h3>
+          <p [style.color]="'var(--ck-fg-3)'" [style.fontSize.px]="13" [style.margin]="'0 auto 18px'" [style.maxWidth.ch]="54">
+            Your first AI system is just a prompt away. Compose one from scratch or pick a template above.
+          </p>
           <a
             routerLink="/systems/new"
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+            [style.display]="'inline-flex'"
+            [style.alignItems]="'center'"
+            [style.gap.px]="6"
+            [style.padding]="'6px 14px'"
+            [style.height.px]="30"
+            [style.background]="'var(--ck-signal-cool)'"
+            [style.color]="'var(--ck-bg-base)'"
+            [style.borderRadius.px]="4"
+            [style.fontFamily]="'var(--ck-font-mono)'"
+            [style.fontSize.px]="11"
+            [style.fontWeight]="600"
+            [style.letterSpacing]="'0.08em'"
+            [style.textTransform]="'uppercase'"
+            [style.textDecoration]="'none'"
           >
-            <app-icon name="plus" [size]="14" /> Create your first system
+            <ck-glyph name="bolt" [size]="12" />
+            Create your first system
           </a>
-        </app-empty-state>
-      </div>
-    } @else {
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        @for (agent of agents(); track agent.id) {
-          <a
-            [routerLink]="[agent.id]"
-            class="group t-card t-elevated rounded-md p-5 relative overflow-hidden hover:-translate-y-0.5 transition-transform"
-          >
-            @if (agent.draft) {
-              <span
-                class="absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30"
-              >
-                <app-icon name="pencil" [size]="10" /> Draft
-              </span>
-            }
-            <div class="flex items-start gap-3">
-              <div
-                class="w-10 h-10 rounded-md flex items-center justify-center bg-gradient-to-br from-brand-500/20 to-violet-500/20 ring-1 ring-brand-500/30 text-brand-400 shadow-glow-sm shrink-0"
-              >
-                <app-icon [name]="agentIcon(agent)" [size]="18" />
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-0.5 pr-16">
-                  <h3 class="font-semibold text-white truncate">{{ agent.name }}</h3>
-                  <app-status-pulse [tone]="agent.status === 'active' ? 'success' : agent.draft ? 'warning' : 'accent'" />
+        </div>
+      } @else {
+        <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fill, minmax(340px, 1fr))'" [style.gap.px]="12">
+          @for (agent of agents(); track agent.id) {
+            <a
+              [routerLink]="[agent.id]"
+              [style.position]="'relative'"
+              [style.display]="'flex'"
+              [style.flexDirection]="'column'"
+              [style.gap.px]="12"
+              [style.padding]="'16px'"
+              [style.background]="'var(--ck-bg-panel)'"
+              [style.border]="'1px solid var(--ck-stroke-2)'"
+              [style.borderRadius.px]="6"
+              [style.color]="'inherit'"
+              [style.textDecoration]="'none'"
+              [style.transition]="'border-color 120ms var(--ck-ease-out), transform 120ms'"
+              onmouseover="this.style.borderColor='var(--ck-stroke-3)'"
+              onmouseout="this.style.borderColor='var(--ck-stroke-2)'"
+            >
+              <div [style.display]="'flex'" [style.alignItems]="'flex-start'" [style.gap.px]="10">
+                <div
+                  [style.width.px]="32"
+                  [style.height.px]="32"
+                  [style.flex]="'0 0 32px'"
+                  [style.borderRadius.px]="4"
+                  [style.background]="'var(--ck-bg-inset)'"
+                  [style.border]="'1px solid var(--ck-stroke-2)'"
+                  [style.display]="'inline-flex'"
+                  [style.alignItems]="'center'"
+                  [style.justifyContent]="'center'"
+                  [style.color]="'var(--ck-signal-cool)'"
+                >
+                  <ck-glyph name="cube" [size]="16" />
                 </div>
-                <p class="text-xs text-gray-400 line-clamp-2 leading-relaxed">
-                  {{ agent.description || 'No description yet.' }}
-                </p>
+                <div [style.flex]="'1 1 auto'" [style.minWidth.px]="0">
+                  <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8">
+                    <span
+                      [style.fontFamily]="'var(--ck-font-sans)'"
+                      [style.fontSize.px]="14"
+                      [style.fontWeight]="500"
+                      [style.color]="'var(--ck-fg-1)'"
+                      [style.overflow]="'hidden'"
+                      [style.textOverflow]="'ellipsis'"
+                      [style.whiteSpace]="'nowrap'"
+                    >{{ agent.name }}</span>
+                    @if (agent.draft) {
+                      <ck-tag tone="warn" variant="outline">DRAFT</ck-tag>
+                    } @else {
+                      <ck-live-dot tone="pos" />
+                    }
+                  </div>
+                  <p
+                    [style.fontSize.px]="11"
+                    [style.color]="'var(--ck-fg-3)'"
+                    [style.margin]="'4px 0 0 0'"
+                    [style.lineHeight]="1.5"
+                    [style.display]="'-webkit-box'"
+                    [style.overflow]="'hidden'"
+                    style="-webkit-line-clamp: 2; -webkit-box-orient: vertical;"
+                  >{{ agent.description || 'No description yet.' }}</p>
+                </div>
               </div>
-            </div>
 
-            <div class="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-white/5">
-              <div>
-                <div class="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Runs</div>
-                <div class="text-sm font-semibold text-white tabular-nums">
-                  {{ statsFor(agent.id).runs > 0 ? statsFor(agent.id).runs : '—' }}
-                </div>
+              <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(3, 1fr)'" [style.gap.px]="8" [style.paddingTop.px]="12" [style.borderTop]="'1px solid var(--ck-stroke-1)'">
+                <ck-stat-readout label="RUNS"   [value]="statsFor(agent.id).runs > 0 ? statsFor(agent.id).runs.toString() : '—'" tone="cool" [size]="14" />
+                <ck-stat-readout label="AVG MS" [value]="statsFor(agent.id).avgLatency > 0 ? statsFor(agent.id).avgLatency.toString() : '—'" tone="pos" [size]="14" />
+                <ck-stat-readout label="LAST"   [value]="statsFor(agent.id).lastRun ?? '—'" tone="violet" [size]="14" />
               </div>
-              <div>
-                <div class="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Avg ms</div>
-                <div class="text-sm font-semibold text-white tabular-nums">
-                  {{ statsFor(agent.id).avgLatency > 0 ? statsFor(agent.id).avgLatency : '—' }}
-                </div>
-              </div>
-              <div>
-                <div class="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Last run</div>
-                <div class="text-sm font-semibold text-gray-300 truncate">
-                  {{ statsFor(agent.id).lastRun ?? '—' }}
-                </div>
-              </div>
-            </div>
 
-            <div class="mt-3 flex items-center justify-between">
-              <span
-                class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/20"
-              >
-                <app-icon name="database" [size]="10" />
-                {{ agent.rag_mode || 'OmniRAG' }}
-              </span>
-              <app-icon
-                name="arrow-up-right"
-                [size]="14"
-                class="text-gray-500 group-hover:text-brand-400 transition"
-              />
-            </div>
-          </a>
-        }
-      </div>
-    }
-
+              <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'">
+                <ck-tag tone="cool" variant="soft">
+                  {{ agent.rag_mode || 'OmniRAG' }}
+                </ck-tag>
+                <span [style.color]="'var(--ck-fg-4)'">
+                  <ck-glyph name="arrow-right" [size]="12" />
+                </span>
+              </div>
+            </a>
+          }
+        </div>
+      }
+    </ck-page-frame>
   `,
 })
 export class SystemsGridComponent implements OnInit {
@@ -268,12 +365,12 @@ export class SystemsGridComponent implements OnInit {
   readonly agents = this.store.systems;
 
   readonly templates: Template[] = [
-    { id: 'contract', label: 'Contract Analysis', icon: 'file-text', description: 'Flag risky clauses in contracts', prompt: 'Analyze contracts and flag risk clauses' },
-    { id: 'support', label: 'Customer Support', icon: 'message-square', description: 'Answer questions from your docs', prompt: 'Answer customer questions from docs' },
-    { id: 'code', label: 'Code Review', icon: 'code-2', description: 'Review PRs for bugs and style', prompt: 'Review pull requests for bugs and style' },
-    { id: 'research', label: 'Market Research', icon: 'microscope', description: 'Synthesize competitor intel', prompt: 'Synthesize competitor intelligence' },
-    { id: 'onboarding', label: 'HR Onboarding', icon: 'user-plus', description: 'Guide new hires in the first weeks', prompt: 'Guide new hires through their first weeks' },
-    { id: 'insights', label: 'Data Insights', icon: 'bar-chart-3', description: 'Extract KPIs from CSVs', prompt: 'Extract KPIs from CSVs and reports' },
+    { id: 'contract',   label: 'Contract Analysis', description: 'Flag risky clauses in contracts',       prompt: 'Analyze contracts and flag risk clauses' },
+    { id: 'support',    label: 'Customer Support',  description: 'Answer questions from your docs',        prompt: 'Answer customer questions from docs' },
+    { id: 'code',       label: 'Code Review',       description: 'Review PRs for bugs and style',          prompt: 'Review pull requests for bugs and style' },
+    { id: 'research',   label: 'Market Research',   description: 'Synthesize competitor intel',            prompt: 'Synthesize competitor intelligence' },
+    { id: 'onboarding', label: 'HR Onboarding',     description: 'Guide new hires in the first weeks',     prompt: 'Guide new hires through their first weeks' },
+    { id: 'insights',   label: 'Data Insights',     description: 'Extract KPIs from CSVs',                 prompt: 'Extract KPIs from CSVs and reports' },
   ];
 
   ngOnInit(): void {
@@ -308,24 +405,8 @@ export class SystemsGridComponent implements OnInit {
   }
 
   agentIcon(agent: SystemAgent): string {
-    if (agent.template) {
-      const map: Record<string, string> = {
-        contract: 'file-text',
-        support: 'message-square',
-        code: 'code-2',
-        research: 'microscope',
-        onboarding: 'user-plus',
-        insights: 'bar-chart-3',
-      };
-      if (map[agent.template]) return map[agent.template];
-    }
-    const name = (agent.name || '').toLowerCase();
-    if (name.includes('support') || name.includes('chat')) return 'message-square';
-    if (name.includes('code') || name.includes('dev')) return 'code-2';
-    if (name.includes('contract') || name.includes('legal')) return 'file-text';
-    if (name.includes('data') || name.includes('sql')) return 'database';
-    if (name.includes('voice') || name.includes('mic')) return 'mic';
-    return 'bot';
+    // Legacy helper, retained for back-compat with any remaining callers; the
+    // grid now renders a single canonical glyph.
+    return 'cube';
   }
-
 }

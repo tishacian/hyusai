@@ -23,16 +23,27 @@
     >
   </noscript>
   <script>
+    // Runs before Angular bootstraps to avoid any FOUC. If the user has
+    // previously pinned a theme ("light" / "dark") we honour it; otherwise we
+    // fall back to the OS preference via `prefers-color-scheme`.
     (function () {
       try {
-        var t = localStorage.getItem('agentium_theme');
-        var isLight = t === 'light';
-        if (isLight) {
-          document.documentElement.classList.remove('dark');
-          document.documentElement.setAttribute('data-theme', 'light');
+        var stored = localStorage.getItem('agentium_theme');
+        var prefersLight = false;
+        if (stored === 'light') {
+          prefersLight = true;
+        } else if (stored === 'dark') {
+          prefersLight = false;
+        } else if (window.matchMedia) {
+          prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+        }
+        var root = document.documentElement;
+        if (prefersLight) {
+          root.classList.remove('dark');
+          root.setAttribute('data-theme', 'light');
         } else {
-          document.documentElement.classList.add('dark');
-          document.documentElement.setAttribute('data-theme', 'dark');
+          root.classList.add('dark');
+          root.setAttribute('data-theme', 'dark');
         }
       } catch (e) {
         document.documentElement.classList.add('dark');

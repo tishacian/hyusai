@@ -139,7 +139,47 @@
   border: 2px solid transparent;
 }
 
+/* ---------- Side rail hover fly-out label ---------- */
+.ck-rail-item {
+  position: relative;
+  text-decoration: none;
+}
+
+.ck-rail-item:hover {
+  color: var(--ck-fg-1) !important;
+  background: var(--ck-bg-panel-hi) !important;
+}
+
+.ck-rail-flyout {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translate(-6px, -50%);
+  min-width: 168px;
+  padding: 8px 10px;
+  background: var(--ck-bg-panel-hi);
+  border: 1px solid var(--ck-stroke-3);
+  border-radius: 4px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+  transition:
+    opacity 120ms var(--ck-ease-out),
+    transform 120ms var(--ck-ease-out);
+  z-index: 40;
+}
+
+.ck-rail-item:hover .ck-rail-flyout,
+.ck-rail-item:focus-visible .ck-rail-flyout {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
 /* ---------- Reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   .ck-live-dot { animation: none; }
+  .ck-rail-flyout { transition: none; }
 }

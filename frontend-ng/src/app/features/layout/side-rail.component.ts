@@ -7,6 +7,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 interface RailItem {
   key: string;
   label: string;
+  hint: string;
   glyph: CkGlyphName;
   route: string;
   matches: string[];
@@ -47,7 +48,9 @@ interface ExtraGroup {
         @for (it of items; track it.key) {
           <a
             [routerLink]="it.route"
-            [title]="it.label"
+            [title]="it.label + ' — ' + it.hint"
+            class="ck-rail-item"
+            [class.active]="isActive(it)"
             [style.position]="'relative'"
             [style.display]="'inline-flex'"
             [style.alignItems]="'center'"
@@ -72,6 +75,14 @@ interface ExtraGroup {
               ></span>
             }
             <ck-glyph [name]="it.glyph" [size]="18" />
+
+            <!-- Hover fly-out label (shown on hover via sibling CSS) -->
+            <span
+              class="ck-rail-flyout ck-mono"
+            >
+              <span [style.fontSize.px]="11" [style.fontWeight]="600" [style.color]="'var(--ck-fg-1)'" [style.letterSpacing]="'0.06em'" [style.textTransform]="'uppercase'">{{ it.label }}</span>
+              <span [style.fontSize.px]="10" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="2">{{ it.hint }}</span>
+            </span>
           </a>
         }
       </nav>
@@ -162,11 +173,11 @@ export class SideRailComponent {
   );
 
   readonly items: RailItem[] = [
-    { key: 'hypervisor', label: 'Hypervisor', glyph: 'ledger',    route: '/hypervisor', matches: ['/hypervisor'] },
-    { key: 'zoom',       label: 'Zoom',       glyph: 'focus',     route: '/capabilities', matches: ['/capabilities', '/skills'] },
-    { key: 'steering',   label: 'Steering',   glyph: 'sliders',   route: '/steering',   matches: ['/steering'] },
-    { key: 'builder',    label: 'Builder',    glyph: 'flow',      route: '/systems',    matches: ['/systems', '/orchestration', '/knowledge'] },
-    { key: 'run',        label: 'Run',        glyph: 'telemetry', route: '/observability', matches: ['/observability', '/runs', '/intelligence', '/tasks'] },
+    { key: 'hypervisor', label: 'Hypervisor', hint: 'Balance sheet',  glyph: 'ledger',    route: '/hypervisor',    matches: ['/hypervisor'] },
+    { key: 'zoom',       label: 'Zoom',       hint: 'Capabilities & skills', glyph: 'focus', route: '/capabilities', matches: ['/capabilities', '/skills'] },
+    { key: 'steering',   label: 'Steering',   hint: 'Control plane',  glyph: 'sliders',   route: '/steering',       matches: ['/steering'] },
+    { key: 'builder',    label: 'Builder',    hint: 'Compose systems', glyph: 'flow',     route: '/systems',        matches: ['/systems', '/orchestration', '/knowledge'] },
+    { key: 'run',        label: 'Run',        hint: 'Observability & missions', glyph: 'telemetry', route: '/observability', matches: ['/observability', '/runs', '/intelligence', '/tasks'] },
   ];
 
   readonly extras: ExtraGroup[] = [

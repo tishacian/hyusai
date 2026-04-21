@@ -81,10 +81,10 @@ import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.comp
 
       <span class="ck-hairline-v" [style.height.px]="22" [style.flex]="'0 0 auto'"></span>
 
-      <!-- Theme toggle -->
+      <!-- Theme cycle: light → dark → system → … -->
       <button
         type="button"
-        (click)="themeService.toggle()"
+        (click)="cycleTheme()"
         [style.background]="'transparent'"
         [style.border]="'1px solid var(--ck-stroke-2)'"
         [style.borderRadius.px]="4"
@@ -95,9 +95,9 @@ import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.comp
         [style.justifyContent]="'center'"
         [style.color]="'var(--ck-fg-2)'"
         [style.cursor]="'pointer'"
-        title="Toggle theme"
+        [title]="themeTooltip()"
       >
-        <ck-glyph [name]="themeService.isDark() ? 'pulse' : 'crosshair'" [size]="14" />
+        <ck-glyph [name]="themeGlyph()" [size]="14" />
       </button>
 
       <!-- Workspace switcher -->
@@ -334,6 +334,27 @@ export class TitleBarComponent {
   readonly thrpt   = computed(() => '127 r/m');
   readonly latency = computed(() => '342 ms');
   readonly outputYield = computed(() => '94.2%');
+
+  readonly themeGlyph = computed(() => {
+    const mode = this.themeService.mode();
+    if (mode === 'light') return 'crosshair' as const;
+    if (mode === 'dark') return 'pulse' as const;
+    return 'orbit' as const;
+  });
+
+  readonly themeTooltip = computed(() => {
+    const mode = this.themeService.mode();
+    if (mode === 'light') return 'Theme: Light  (click → Dark)';
+    if (mode === 'dark')  return 'Theme: Dark  (click → System)';
+    return 'Theme: System  (click → Light)';
+  });
+
+  cycleTheme(): void {
+    const m = this.themeService.mode();
+    if (m === 'light') this.themeService.setMode('dark');
+    else if (m === 'dark') this.themeService.setMode('system');
+    else this.themeService.setMode('light');
+  }
 
   @HostListener('document:click')
   closeMenus(): void {
