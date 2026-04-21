@@ -29,6 +29,10 @@ import {
   type Skill,
   type System,
 } from '@app/core/canonical-api.service';
+import {
+  RunStreamService,
+  type RunStreamEvent,
+} from '@app/core/run-stream.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import {
   FlowSerializerService,
@@ -516,6 +520,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly runStream = inject(RunStreamService);
   private readonly serializer = inject(FlowSerializerService);
   private readonly zoomCtx = inject(ZoomContextService);
 
@@ -549,7 +554,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly currentRun = signal<Run | null>(null);
   readonly hitlResolving = signal(false);
   private pollSub: Subscription | null = null;
+  private streamSub: Subscription | null = null;
   private seenInvocationIds = new Set<string>();
+  private seenCheckpoints = new Set<string>();
+  private streamFellBackToPoll = false;
   readonly errorCount = computed(
     () => this.issues().filter((i) => i.level === 'error').length,
   );
@@ -793,7 +801,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   ngOnDestroy(): void {
-    this.stopPolling();
+    this.stopStream();
     try {
       this.editor?.clear?.();
     } catch {
@@ -1186,9 +1194,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.toastr.warning('Fix validation errors before running — the backend will reject an invalid DAG.', 'Execute');
       return;
     }
-    this.stopPolling();
+    this.stopStream();
     this.terminalOpen.set(true);
     this.seenInvocationIds.clear();
+    this.seenCheckpoints.clear();
+    this.streamFellBackToPoll = false;
     this.pushTerminal({ tone: 'cyan', tag: 'EXEC', text: 'Dispatching run to backend…' });
     this.executing.set(true);
 
@@ -1206,7 +1216,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           tag: 'RUN',
           text: `Run ${run.id.slice(0, 8)}… scheduled (status=${run.status}).`,
         });
-        this.startPolling(run.id);
+        this.startStreaming(run.id);
       },
       error: () => {
         this.executing.set(false);
@@ -1228,7 +1238,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       tag: 'HITL',
       text: `Operator ${action === 'accept' ? 'approved' : 'rejected'} the pending step.`,
     });
-    this.canonical.resolveRunHitl(run.id, { action }).subscribe({
+        this.canonical.resolveRunHitl(run.id, { action }).subscribe({
       next: (updated) => {
         this.hitlResolving.set(false);
         if (!updated) {
@@ -1236,13 +1246,180 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           this.toastr.error('Backend rejected the HITL resolution.', 'HITL');
           return;
         }
-        this.startPolling(run.id);
+        // Resume spawns a fresh execution phase — reopen a new SSE stream
+        // so node_start / node_end events from the resumed walk land in
+        // the terminal in real time.
+        this.seenCheckpoints.clear();
+        this.startStreaming(run.id);
       },
       error: () => {
         this.hitlResolving.set(false);
         this.pushTerminal({ tone: 'neg', tag: 'ERR', text: 'Network error during HITL resolve.' });
       },
     });
+  }
+
+  /**
+   * Subscribe to the backend SSE stream for this Run. Each event fans out
+   * to :method:`emitStreamEvent` which produces a terminal line and keeps
+   * the ``currentRun`` signal in sync. On transport error we transparently
+   * fall back to the legacy 1.5s polling loop so the UI never gets stuck.
+   */
+  private startStreaming(runId: string): void {
+    this.stopStream();
+    this.streamSub = this.runStream.streamRun(runId).subscribe({
+      next: (event) => this.emitStreamEvent(runId, event),
+      error: () => {
+        // Transport died (proxy quirks, network blip, CORS). Degrade to
+        // polling once; if that also fails we show a terminal error.
+        if (!this.streamFellBackToPoll) {
+          this.streamFellBackToPoll = true;
+          this.pushTerminal({
+            tone: 'warn',
+            tag: 'STREAM',
+            text: 'Live stream interrupted — falling back to polling.',
+          });
+          this.startPolling(runId);
+        } else {
+          this.executing.set(false);
+          this.pushTerminal({
+            tone: 'neg',
+            tag: 'ERR',
+            text: 'Lost connection to the backend (stream + poll).',
+          });
+        }
+      },
+      complete: () => {
+        // Stream ended cleanly; one final fetch to refresh outcome +
+        // HITL payload in the inspector before releasing the UI.
+        this.canonical.getRun(runId).subscribe((r) => {
+          if (r) {
+            const prev = this.currentRun();
+            this.currentRun.set(r);
+            this.emitDeltaEvents(prev, r);
+          }
+          this.executing.set(false);
+        });
+      },
+    });
+  }
+
+  private stopStream(): void {
+    if (this.streamSub) {
+      this.streamSub.unsubscribe();
+      this.streamSub = null;
+    }
+    this.stopPolling();
+  }
+
+  /**
+   * Map one SSE event to a terminal entry and a minimal state update.
+   * Dedupes by checkpoint timestamp so the replay-then-live phase
+   * doesn't double-log the first few events.
+   */
+  private emitStreamEvent(runId: string, event: RunStreamEvent): void {
+    const data = event.data as {
+      t?: string;
+      kind?: string;
+      node_id?: string;
+      node_kind?: string;
+      label?: string;
+      status?: string;
+      skill_slug?: string;
+      latency_ms?: number;
+      cost?: number;
+      error?: string;
+      chosen_branch?: string;
+      reason?: string;
+      outcome?: Run['outcome'];
+      checkpoints_emitted?: number;
+    };
+    const ts = data.t;
+    if (typeof ts === 'string') {
+      const key = `${event.event}:${ts}:${data.node_id ?? ''}`;
+      if (this.seenCheckpoints.has(key)) return;
+      this.seenCheckpoints.add(key);
+    }
+
+    switch (event.event) {
+      case 'run_start':
+        this.pushTerminal({ tone: 'info', tag: 'START', text: 'Walker booted — executing DAG.' });
+        break;
+      case 'node_start': {
+        const label = data.label ?? data.node_id ?? 'node';
+        const tag = (data.node_kind ?? 'NODE').toUpperCase();
+        this.pushTerminal({
+          tone: 'info',
+          tag,
+          text: `▶ ${label}${data.skill_slug ? ` · ${data.skill_slug}` : ''}`,
+        });
+        break;
+      }
+      case 'node_end': {
+        const label = data.label ?? data.node_id ?? 'node';
+        const tag = (data.node_kind ?? 'NODE').toUpperCase();
+        const status = data.status;
+        const latency = data.latency_ms != null ? ` · ${Math.round(data.latency_ms)}ms` : '';
+        const branch = data.chosen_branch ? ` · branch=${data.chosen_branch}` : '';
+        const tone: TerminalEntry['tone'] =
+          status === 'failed' ? 'neg' : status === 'completed' ? 'pos' : 'info';
+        this.pushTerminal({
+          tone,
+          tag,
+          text: `◼ ${label}${status ? ` · ${status}` : ''}${latency}${branch}${
+            data.error ? ` · ${data.error.slice(0, 80)}` : ''
+          }`,
+        });
+        break;
+      }
+      case 'hitl_pause':
+        this.pushTerminal({
+          tone: 'warn',
+          tag: 'HITL',
+          text: `⏸ Paused on ${data.label ?? data.node_id ?? 'hitl gate'} — awaiting operator.`,
+        });
+        // Fetch the full run to populate the HITL card; the stream has
+        // closed, so polling/stream restart isn't needed until the
+        // operator hits Approve / Reject.
+        this.canonical.getRun(runId).subscribe((r) => {
+          if (r) this.currentRun.set(r);
+          this.executing.set(false);
+        });
+        break;
+      case 'hitl_resume':
+        this.pushTerminal({
+          tone: 'info',
+          tag: 'HITL',
+          text: `▶ Resumed from ${data.node_id ?? 'gate'}.`,
+        });
+        break;
+      case 'run_end':
+        this.pushTerminal({
+          tone: data.status === 'completed' ? 'pos' : 'neg',
+          tag: 'END',
+          text: `Run finished · status=${data.status ?? 'unknown'}`,
+        });
+        break;
+      case 'snapshot':
+        // Update the local state shape so the inspector's outcome tile
+        // and status pulse reflect the server without a second request.
+        if (data.status || data.outcome) {
+          const prev = this.currentRun();
+          if (prev) {
+            this.currentRun.set({ ...prev, status: (data.status as Run['status']) ?? prev.status, outcome: data.outcome ?? prev.outcome });
+          }
+        }
+        break;
+      case 'close':
+        // Noop — stream will `complete()` right after this frame.
+        break;
+      case 'error':
+        this.pushTerminal({ tone: 'neg', tag: 'ERR', text: data.reason ?? 'Stream error.' });
+        break;
+      default:
+        // Unknown event — log raw for debug visibility.
+        this.pushTerminal({ tone: 'info', tag: event.event.toUpperCase().slice(0, 10), text: JSON.stringify(data).slice(0, 120) });
+    }
   }
 
   private startPolling(runId: string): void {

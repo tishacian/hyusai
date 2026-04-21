@@ -54,6 +54,7 @@ from .engine import (
     _log_decision,
     _should_stop_adaptive,
 )
+from .events import bus as event_bus
 
 logger = get_logger(__name__)
 
@@ -484,6 +485,13 @@ async def _walk(
             "nodes_executed": len(state.done),
         },
     )
+    # Let live SSE subscribers know no further events will arrive for
+    # this run. Replayers (connecting after the fact) still get the full
+    # checkpoint list from the DB.
+    try:
+        event_bus.close(run.id)
+    except Exception:  # noqa: BLE001
+        pass
     logger.info(
         "dag_engine: done",
         run_id=run.id,
@@ -540,6 +548,12 @@ def _emit_hitl_pause(
     _append_checkpoint(db, run, checkpoint)
     run.status = "hitl_pending"
     db.commit()
+    # Close the current live stream — resume will spin up a fresh run
+    # that SSE clients can re-subscribe to on reconnect.
+    try:
+        event_bus.close(run.id)
+    except Exception:  # noqa: BLE001
+        pass
     logger.info(
         "dag_engine: hitl pause",
         run_id=run.id,
@@ -580,6 +594,7 @@ async def _execute_node(
             "node_id": node.id,
             "node_kind": node.kind,
             "label": node.label,
+            "skill_slug": node.skill_slug,
         },
     )
 
@@ -590,44 +605,63 @@ async def _execute_node(
     if merged_input:
         state.ctx.update({k: v for k, v in merged_input.items() if v is not None})
 
+    invocations_before = len(state.invocation_ids)
+    result: Dict[str, Any] = {}
     try:
         if node.kind == "source":
             output = dict(state.ctx.get("input") or run.input_ref or {})
-            return {"output": output}
+            result = {"output": output}
+            return result
 
         if node.kind == "sink":
-            return {"output": merged_input}
+            result = {"output": merged_input}
+            return result
 
         if node.kind == "task":
-            return await _run_task(db, run, node, state, control=control)
+            result = await _run_task(db, run, node, state, control=control)
+            return result
 
         if node.kind == "decision":
-            return _run_decision(node, graph, state, merged_input)
+            result = _run_decision(node, graph, state, merged_input)
+            return result
 
         if node.kind == "fork":
-            return {"output": merged_input}
+            result = {"output": merged_input}
+            return result
 
         if node.kind == "join":
-            return _run_join(node, merged_input)
+            result = _run_join(node, merged_input)
+            return result
 
         if node.kind == "retry":
-            return await _run_retry(db, run, node, state, control=control)
+            result = await _run_retry(db, run, node, state, control=control)
+            return result
 
         if node.kind == "loop":
-            return await _run_loop(db, run, node, state, control=control)
+            result = await _run_loop(db, run, node, state, control=control)
+            return result
 
         if node.kind == "hitl":
-            return _run_hitl(db, run, node, state)
+            result = _run_hitl(db, run, node, state)
+            return result
 
         if node.kind == "subflow":
-            return await _run_subflow(db, run, node, state, control=control)
+            result = await _run_subflow(db, run, node, state, control=control)
+            return result
 
         # Unknown kind → treat as pass-through with a warning.
         logger.warning(
             "dag_engine: unknown node kind", run_id=run.id, node_id=node.id, kind=node.kind
         )
-        return {"output": merged_input}
+        result = {"output": merged_input}
+        return result
     finally:
+        # Enrich node_end with whatever we learned during execution so
+        # the SSE consumer can render informative terminal lines without
+        # fetching /runs/:id for each event.
+        summary = _summarise_node_execution(
+            db, run, node, result, state, invocations_before
+        )
         _append_checkpoint(
             db,
             run,
@@ -636,6 +670,7 @@ async def _execute_node(
                 "t": datetime.utcnow().isoformat(),
                 "node_id": node.id,
                 "node_kind": node.kind,
+                **summary,
             },
         )
 
@@ -971,12 +1006,64 @@ def _collect_terminal_output(graph: DagGraph, state: WalkerState) -> Dict[str, A
     return dict(state.ctx.get("input") or {})
 
 
+def _summarise_node_execution(
+    db: DBSession,
+    run: Run,
+    node: DagNode,
+    result: Dict[str, Any],
+    state: WalkerState,
+    invocations_before: int,
+) -> Dict[str, Any]:
+    """Distil whatever the handler returned into a few SSE-friendly fields.
+
+    Returned fields are merged into the ``node_end`` checkpoint and are
+    all optional — the frontend never panics on missing keys.
+
+    * Task nodes surface ``skill_slug``, ``status``, ``latency_ms``, ``cost``
+      pulled from the invocation(s) that this handler produced.
+    * Decision nodes surface ``chosen_branch``.
+    * Any handler that signalled a pause propagates ``pause=True``.
+    """
+    summary: Dict[str, Any] = {}
+    if not isinstance(result, dict):
+        return summary
+    if result.get("pause"):
+        summary["pause"] = True
+    if node.kind == "decision":
+        out = result.get("output") or {}
+        if isinstance(out, dict) and out.get("chosen_branch"):
+            summary["chosen_branch"] = out.get("chosen_branch")
+    new_invocations = state.invocation_ids[invocations_before:]
+    if new_invocations:
+        inv = (
+            db.query(SkillInvocation)
+            .filter(SkillInvocation.id == new_invocations[-1])
+            .first()
+        )
+        if inv is not None:
+            summary["skill_slug"] = inv.skill_slug
+            summary["status"] = inv.status
+            if inv.latency_ms is not None:
+                summary["latency_ms"] = float(inv.latency_ms)
+            if inv.cost is not None:
+                summary["cost"] = float(inv.cost)
+            if inv.error:
+                summary["error"] = inv.error[:240]
+    return summary
+
+
 def _append_checkpoint(db: DBSession, run: Run, entry: Dict[str, Any]) -> None:
     cps = list(run.checkpoints or [])
     entry.setdefault("t", datetime.utcnow().isoformat())
     cps.append(entry)
     run.checkpoints = cps
     db.commit()
+    # Mirror to the live event bus so SSE subscribers see the event
+    # within one tick of it being persisted.
+    try:
+        event_bus.publish(run.id, entry)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _dag_should_stop(adaptive, state: WalkerState) -> bool:

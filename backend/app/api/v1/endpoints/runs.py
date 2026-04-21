@@ -4,15 +4,18 @@ A Run carries the Outcome block. Detail view exposes the SkillInvocation
 ledger so the cockpit can drill from the Run timeline down to individual
 skill calls.
 """
-from typing import Any, Dict, List, Literal, Optional
+import asyncio
+import json
+from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_workspace
 from app.core.logging import get_logger
-from app.db.base import get_db
+from app.db.base import SessionLocal, get_db
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.workspace import Workspace
@@ -23,6 +26,7 @@ from app.services.decisions import (
 )
 from app.services.outcome.derive import apply_operator_override
 from app.services.run_engine.dag import resume_run_dag
+from app.services.run_engine.events import bus as event_bus
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -180,6 +184,151 @@ async def resolve_run_hitl(
             "status": decision.status,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Live SSE stream — /runs/{id}/stream
+# ---------------------------------------------------------------------------
+_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def _sse_format(event: str, payload: Dict[str, Any]) -> str:
+    """Serialize one payload as a single SSE frame."""
+    return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+
+async def _run_event_stream(
+    run_id: str, request: Request, workspace_id: Optional[str]
+) -> AsyncIterator[str]:
+    """Yield SSE frames for a single Run.
+
+    1. Subscribe to the live bus *before* touching the DB so any event
+       emitted by the walker during the replay phase lands in our queue.
+    2. Replay every checkpoint already persisted, remembering their
+       timestamps so we can dedupe them against the buffered live events.
+    3. Emit a ``snapshot`` meta event carrying the current outcome so
+       the UI can rebuild state without a second HTTP round-trip.
+    4. Forward live events until the bus closes, the Run reaches a
+       terminal state, or the HTTP client disconnects.
+    """
+    subscriber = event_bus.subscribe(run_id)
+    replayed_ts: set[str] = set()
+    try:
+        db = SessionLocal()
+        try:
+            run = db.query(Run).filter(Run.id == run_id).first()
+            if not run or (workspace_id and run.workspace_id != workspace_id):
+                yield _sse_format("error", {"code": "not_found", "run_id": run_id})
+                return
+
+            checkpoints = list(run.checkpoints or [])
+            for cp in checkpoints:
+                ts = cp.get("t")
+                if isinstance(ts, str):
+                    replayed_ts.add(ts)
+                yield _sse_format(cp.get("kind", "checkpoint"), cp)
+
+            yield _sse_format(
+                "snapshot",
+                {
+                    "status": run.status,
+                    "outcome": {
+                        "decision": run.decision,
+                        "confidence": run.confidence,
+                        "value_estimated": run.value_estimated,
+                        "cost_internal": run.cost_internal,
+                        "efficiency": run.efficiency,
+                    },
+                    "checkpoints_emitted": len(checkpoints),
+                },
+            )
+
+            if run.status in _TERMINAL_STATUSES or run.status == "hitl_pending":
+                yield _sse_format(
+                    "close", {"reason": "run_not_live", "status": run.status}
+                )
+                return
+        finally:
+            db.close()
+
+        consumer_task: Optional[asyncio.Task[Optional[Dict[str, Any]]]] = None
+        while True:
+            if await request.is_disconnected():
+                return
+            if consumer_task is None:
+                consumer_task = asyncio.create_task(subscriber.next_event())
+            done, _ = await asyncio.wait(
+                {consumer_task}, timeout=15.0, return_when=asyncio.FIRST_COMPLETED
+            )
+            if consumer_task in done:
+                event = consumer_task.result()
+                consumer_task = None
+                if event is None:
+                    # Bus closed cleanly.
+                    break
+                ts = event.get("t")
+                if isinstance(ts, str) and ts in replayed_ts:
+                    # This event landed during replay and is already on
+                    # the wire via the checkpoint replay loop.
+                    continue
+                yield _sse_format(event.get("kind", "event"), event)
+                if event.get("kind") in ("run_end", "hitl_pause"):
+                    break
+            else:
+                # 15s tick with no events. Two responsibilities here:
+                #   1. Keep the connection warm so proxies (Nginx) don't
+                #      close idle streams.
+                #   2. Short-circuit when the Run finished through a
+                #      path that bypasses the live bus (e.g. sequential
+                #      walker that doesn't publish events).
+                db = SessionLocal()
+                try:
+                    status = (
+                        db.query(Run.status).filter(Run.id == run_id).scalar()
+                    )
+                finally:
+                    db.close()
+                if status in _TERMINAL_STATUSES or status == "hitl_pending":
+                    yield _sse_format(
+                        "close", {"reason": "polled_terminal", "status": status}
+                    )
+                    break
+                yield ": keep-alive\n\n"
+        if consumer_task is not None:
+            consumer_task.cancel()
+    finally:
+        await subscriber.aclose()
+        yield _sse_format("close", {"reason": "stream_closed"})
+
+
+@router.get("/{run_id}/stream")
+async def stream_run(
+    run_id: str,
+    request: Request,
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Server-Sent Events stream of a Run's lifecycle.
+
+    Each frame is shaped as::
+
+        event: <kind>
+        data: <json>
+
+    Known ``kind`` values mirror the walker checkpoints: ``run_start``,
+    ``node_start``, ``node_end``, ``hitl_pause``, ``hitl_resume``,
+    ``run_end``, plus two meta events the HTTP layer injects:
+    ``snapshot`` (initial state dump on connect) and ``close`` (terminal
+    signal so the client can unsubscribe without inspecting ``status``).
+    """
+    return StreamingResponse(
+        _run_event_stream(run_id, request, workspace.id if workspace else None),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # disable buffering on Nginx
+        },
+    )
 
 
 def _resume_wrapper(run_id: str, decision_id: str) -> None:
