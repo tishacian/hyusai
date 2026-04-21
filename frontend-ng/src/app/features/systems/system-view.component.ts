@@ -15,7 +15,8 @@ import {
 import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { ApiService } from '@app/core/api.service';
-import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
+import { NewsLabComponent } from '@app/features/intelligence/news-lab.component';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { LensService } from '@app/core/lens';
 import { SettingsService } from '@app/core/settings.service';
@@ -45,7 +46,21 @@ interface TraceRow {
   operation_type?: string;
 }
 
-type SystemTabId = 'overview' | 'runs' | 'design' | 'context' | 'chat';
+type SystemTabId =
+  | 'intelligence'
+  | 'overview'
+  | 'runs'
+  | 'design'
+  | 'context'
+  | 'chat';
+
+/**
+ * Variant is a marker persisted on `flow_definition.variant` that lets
+ * SystemViewComponent adapt its facets without introducing a separate
+ * route. For Vague A we only recognize `intelligence` — other specialist
+ * Systems will plug here the same way.
+ */
+type SystemVariant = 'intelligence' | 'standard';
 
 interface WizardStep {
   key: 'identity' | 'knowledge' | 'model' | 'guardrails' | 'launch';
@@ -84,12 +99,13 @@ interface PipelineStage {
     CkTabsComponent,
     CkTabComponent,
     CkPanelComponent,
+    NewsLabComponent,
   ],
   template: `
     <ck-object-header
-      eyebrow="Systems · System"
+      [eyebrow]="headerEyebrow()"
       [title]="agentName()"
-      [subtitle]="agentDescription() || 'Configure, run and refine this AI system.'"
+      [subtitle]="agentDescription() || headerFallbackSubtitle()"
       [kpis]="objectKpis()"
     >
       <app-status-pulse
@@ -134,6 +150,12 @@ interface PipelineStage {
       (activeChange)="onTabChange($event)"
       ariaLabel="System facets"
     >
+      @if (isIntelligence()) {
+        <ck-tab id="intelligence" label="News Lab">
+          <app-news-lab />
+        </ck-tab>
+      }
+
       <ck-tab id="overview" label="Overview">
         <div class="space-y-6">
         <!-- OmniRAG banner: each stage links to the matching configuration -->
@@ -594,6 +616,22 @@ export class SystemViewComponent implements OnInit {
   agentDescription = signal('');
   isDraft = signal(false);
   activeTab = signal<SystemTabId>('overview');
+
+  /**
+   * Variant derived from `flow_definition.variant`. When set to
+   * `intelligence`, the view prepends a dedicated facet for the News Lab
+   * so `/intelligence` is a thin redirect rather than a standalone page.
+   */
+  readonly variant = signal<SystemVariant>('standard');
+  readonly isIntelligence = computed(() => this.variant() === 'intelligence');
+  readonly headerEyebrow = computed(() =>
+    this.isIntelligence() ? 'Systems · Intelligence' : 'Systems · System',
+  );
+  readonly headerFallbackSubtitle = computed(() =>
+    this.isIntelligence()
+      ? 'Market-signal briefs and continuous monitoring.'
+      : 'Configure, run and refine this AI system.',
+  );
   /** Side panels — Settings and Chat live here, never as tabs. */
   readonly settingsPanelOpen = signal(false);
   readonly chatPanelOpen = signal(false);
@@ -813,6 +851,7 @@ export class SystemViewComponent implements OnInit {
     this.systemId = this.route.snapshot.paramMap.get('systemId') ?? '';
     this.zoom.setCurrentSystem(this.systemId || null);
     this.settings.refresh();
+    this.loadVariantAndApplyFacet();
     const local = this.store.findById(this.systemId);
     if (local) {
       this.agentName.set(local.name);
@@ -844,6 +883,43 @@ export class SystemViewComponent implements OnInit {
     this.loadKpis();
     this.loadRuns();
     this.loadContext();
+  }
+
+  /**
+   * Fetch the canonical System row and derive the variant marker from
+   * `flow_definition.variant`. When the URL carries `?facet=<id>`, the
+   * matching tab is auto-activated — this is how `/intelligence` opens
+   * directly on the News Lab facet without a second click.
+   */
+  private loadVariantAndApplyFacet(): void {
+    if (!this.systemId) return;
+    this.canonical.getSystem(this.systemId).subscribe({
+      next: (sys: System | null) => {
+        const flow = (sys?.flow_definition ?? {}) as Record<string, unknown>;
+        const variant = String(flow['variant'] ?? '').toLowerCase();
+        if (variant === 'intelligence') {
+          this.variant.set('intelligence');
+        } else {
+          this.variant.set('standard');
+        }
+        this.applyRequestedFacet();
+      },
+      error: () => this.applyRequestedFacet(),
+    });
+  }
+
+  private applyRequestedFacet(): void {
+    const facet = this.route.snapshot.queryParamMap.get('facet');
+    const allowed: SystemTabId[] = this.isIntelligence()
+      ? ['intelligence', 'overview', 'runs', 'design', 'context']
+      : ['overview', 'runs', 'design', 'context'];
+    if (facet && (allowed as string[]).includes(facet)) {
+      this.activeTab.set(facet as SystemTabId);
+      return;
+    }
+    if (this.isIntelligence()) {
+      this.activeTab.set('intelligence');
+    }
   }
 
   private loadContext(): void {

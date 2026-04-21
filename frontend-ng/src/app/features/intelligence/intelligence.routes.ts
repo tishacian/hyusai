@@ -4,6 +4,8 @@ export const intelligenceRoutes: Routes = [
   {
     path: '',
     loadComponent: () =>
-      import('./news-lab.component').then((m) => m.NewsLabComponent),
+      import('./intelligence-entry.component').then(
+        (m) => m.IntelligenceEntryComponent,
+      ),
   },
 ];
