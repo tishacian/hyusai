@@ -14,6 +14,8 @@ import { ApiService } from '@app/core/api.service';
 import { SettingsService } from '@app/core/settings.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { RuntimeHealthService } from '@app/core/runtime-health.service';
+import { RuntimeStatusBadgeComponent } from '@app/shared/cockpit';
 
 interface DecisionStep {
   id: string;
@@ -82,6 +84,14 @@ const RAG_MODE_CHOICES: { slug: RagModeChoice; label: string; hint: string }[] =
   { slug: 'chah', label: 'C-HAH', hint: 'Composite HAH (parallel variants)' },
 ];
 
+const RAG_SLUG_TO_PRESET: Record<RagModeChoice, string> = {
+  auto: 'None',
+  naive: 'Semantic',
+  hybrid: 'Hybrid',
+  hah: 'HAH',
+  chah: 'OmniRAG',
+};
+
 const STEP_ICONS: Record<string, string> = {
   query_received: 'log-in',
   query_rewrite: 'wand-2',
@@ -100,7 +110,7 @@ const STEP_ICONS: Record<string, string> = {
   selector: 'app-chat-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, IconComponent],
+  imports: [FormsModule, RouterLink, IconComponent, RuntimeStatusBadgeComponent],
   template: `
     <div class="flex flex-col h-full">
       <!-- Toolbar -->
@@ -109,7 +119,7 @@ const STEP_ICONS: Record<string, string> = {
       >
         <div class="flex items-center gap-2 text-[11px] text-gray-400 min-w-0 flex-wrap">
           <app-icon name="circle-dot" [size]="12" class="text-emerald-400" />
-          <span class="uppercase tracking-wider font-semibold">Playground</span>
+          <span class="uppercase tracking-wider font-semibold">Chat</span>
           <span class="text-gray-600">·</span>
           <span class="font-mono truncate">{{ settings.settings().defaultModel || '—' }}</span>
           <span class="text-gray-600">·</span>
@@ -128,6 +138,9 @@ const STEP_ICONS: Record<string, string> = {
               <option [value]="m.slug">{{ m.label }}</option>
             }
           </select>
+          @if (ragModeOverride() !== 'auto') {
+            <ck-runtime-status [status]="ragModeRuntimeStatus()" />
+          }
 
           <!-- Reasoning template chip -->
           <label class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500">
@@ -582,6 +595,7 @@ export class ChatPanelComponent {
   private readonly sse = inject(SseService);
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastrService);
+  private readonly health = inject(RuntimeHealthService);
   private readonly destroyRef = inject(DestroyRef);
   readonly settings = inject(SettingsService);
 
@@ -600,6 +614,12 @@ export class ChatPanelComponent {
   readonly ragModeHint = computed(() => {
     const slug = this.ragModeOverride();
     return this.ragModeChoices.find((m) => m.slug === slug)?.hint ?? '';
+  });
+
+  readonly ragModeRuntimeStatus = computed(() => {
+    const slug = this.ragModeOverride();
+    const presetId = RAG_SLUG_TO_PRESET[slug] ?? 'None';
+    return this.health.presetStatus(presetId);
   });
 
   readonly promptTypeHint = computed(() => {
@@ -643,6 +663,7 @@ export class ChatPanelComponent {
 
   constructor() {
     this.settings.refresh();
+    this.health.load().subscribe();
     this.loadReasoningTemplates();
     this.destroyRef.onDestroy(() => {
       this.currentAudio?.pause();

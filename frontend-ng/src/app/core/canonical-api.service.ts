@@ -48,6 +48,7 @@ export interface Skill {
     success_rate?: number;
   };
   is_seeded?: 'Y' | 'N';
+  runtime_status?: 'bound' | 'stub' | 'unbound' | 'catalog_only';
 }
 
 export interface Outcome {
@@ -58,6 +59,8 @@ export interface Outcome {
   revenue_allocated?: number | null;
   efficiency?: number | null;
   currency?: string;
+  value_source?: 'auto' | 'operator' | 'unset';
+  operator_value_note?: string | null;
 }
 
 export interface SkillInvocation {
@@ -114,6 +117,14 @@ export interface System {
   flow?: Record<string, unknown>;
   flow_definition?: Record<string, unknown>;
   status?: 'draft' | 'active' | 'paused' | 'archived';
+  /** Canonical execution taxonomy — see schemas/canonical.ExecutionMode. */
+  execution_mode?:
+    | 'real_time_decision'
+    | 'batch_processing'
+    | 'event_driven_automation'
+    | 'continuous_monitoring'
+    | 'human_augmented';
+  execution_profile?: Record<string, unknown>;
   // Canonical per-system defaults consumed by the run engine / RAG wrappers.
   default_prompt_type?: string | null;
   default_model?: string | null;
@@ -391,9 +402,54 @@ export class CanonicalApiService {
       );
   }
 
+  createDecision(body: {
+    scope: string;
+    target_id?: string | null;
+    kind: string;
+    title: string;
+    status?: 'proposed' | 'accepted' | 'rejected' | 'applied';
+    rationale?: Record<string, unknown>;
+    impact_estimate?: Record<string, unknown>;
+    notes?: string;
+  }): Observable<DecisionDetail | null> {
+    return this.api
+      .post<DecisionDetail>('/hypervisor/decisions', body)
+      .pipe(catchError(() => of(null)));
+  }
+
   getDecision(id: string): Observable<DecisionDetail | null> {
     return this.api
       .get<DecisionDetail>(`/hypervisor/decisions/${id}`)
+      .pipe(catchError(() => of(null)));
+  }
+
+  acceptDecision(id: string, body: { note?: string; actor?: string } = {}): Observable<DecisionDetail | null> {
+    return this.api
+      .post<DecisionDetail>(`/hypervisor/decisions/${id}/accept`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  rejectDecision(id: string, body: { note?: string; actor?: string } = {}): Observable<DecisionDetail | null> {
+    return this.api
+      .post<DecisionDetail>(`/hypervisor/decisions/${id}/reject`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  applyDecision(
+    id: string,
+    body: { actor?: string; enact?: boolean; patch?: Record<string, unknown> } = { enact: true },
+  ): Observable<DecisionDetail | null> {
+    return this.api
+      .post<DecisionDetail>(`/hypervisor/decisions/${id}/apply`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  overrideRunOutcome(
+    runId: string,
+    body: { value: number; note?: string },
+  ): Observable<RunDetail | null> {
+    return this.api
+      .patch<RunDetail>(`/runs/${runId}/outcome`, body)
       .pipe(catchError(() => of(null)));
   }
 
@@ -459,7 +515,7 @@ export class CanonicalApiService {
   simulate(body: {
     scope: string;
     target_id?: string | null;
-    levers: { resource?: number; velocity?: number; autonomy?: number };
+    levers: { resource?: number; velocity?: number; autonomy?: number; risk_tolerance?: number };
   }): Observable<SimulateResult | null> {
     return this.api
       .post<SimulateResult>('/control-plane/simulate', body)
@@ -502,6 +558,7 @@ export interface DecisionRow {
   title: string;
   created_at?: string | null;
   approved_by?: string | null;
+  applied_at?: string | null;
 }
 
 export interface DecisionDetail extends DecisionRow {
@@ -509,6 +566,34 @@ export interface DecisionDetail extends DecisionRow {
   impact_estimate?: Record<string, number>;
   notes?: string;
   approved_at?: string | null;
+  applied_by?: string | null;
+  applied_patch?: Record<string, unknown>;
+}
+
+export interface RunOutcome {
+  decision?: string | null;
+  confidence?: number | null;
+  value_estimated?: number | null;
+  cost_internal?: number | null;
+  revenue_allocated?: number | null;
+  efficiency?: number | null;
+  value_source?: 'auto' | 'operator' | 'unset';
+  operator_value_note?: string | null;
+}
+
+export interface RunDetail {
+  id: string;
+  system_id?: string | null;
+  capability_id?: string | null;
+  status: string;
+  trigger?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  outcome: RunOutcome;
+  retries?: number;
+  error?: string | null;
+  invocations?: Array<Record<string, unknown>>;
 }
 
 export interface SimulateResult {

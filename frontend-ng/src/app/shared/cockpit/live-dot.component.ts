@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 
-export type CkLiveTone = 'pos' | 'cool' | 'violet' | 'warn' | 'neg';
+export type CkLiveTone = 'pos' | 'cool' | 'violet' | 'warn' | 'neg' | 'neutral';
 
 /**
  * Animated pulsing live indicator. Double box-shadow (close + far) for the
@@ -17,7 +17,7 @@ export type CkLiveTone = 'pos' | 'cool' | 'violet' | 'warn' | 'neg';
       [style.alignItems]="'center'"
       [style.gap.px]="6"
     >
-      <span class="ck-live-dot" [class.cool]="tone==='cool'" [class.violet]="tone==='violet'" [class.warn]="tone==='warn'" [class.neg]="tone==='neg'"></span>
+      <span class="ck-live-dot" [class.cool]="tone==='cool'" [class.violet]="tone==='violet'" [class.warn]="tone==='warn'" [class.neg]="tone==='neg'" [class.neutral]="tone==='neutral'"></span>
       @if (label) {
         <span
           class="ck-mono"

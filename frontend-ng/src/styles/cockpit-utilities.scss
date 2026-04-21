@@ -114,6 +114,7 @@
 .ck-live-dot.violet { background: var(--ck-signal-violet); box-shadow: 0 0 6px var(--ck-signal-violet), 0 0 14px var(--ck-signal-violet); }
 .ck-live-dot.warn   { background: var(--ck-signal-warn);   box-shadow: 0 0 6px var(--ck-signal-warn),   0 0 14px var(--ck-signal-warn); }
 .ck-live-dot.neg    { background: var(--ck-signal-neg);    box-shadow: 0 0 6px var(--ck-signal-neg),    0 0 14px var(--ck-signal-neg); }
+.ck-live-dot.neutral { background: var(--ck-fg-4); box-shadow: none; animation: none; }
 
 /* ---------- Crosshair signal ---------- */
 .ck-glow-cool   { filter: drop-shadow(0 0 6px var(--ck-signal-cool)); }

@@ -21,6 +21,7 @@ import {
   PageFrameComponent,
   StatReadoutComponent,
   TagComponent,
+  HelpTooltipComponent,
 } from '@app/shared/cockpit';
 
 type PeriodKey = 'wtd' | 'mtd' | 'qtd' | 'rolling_30d' | 'rolling_90d';
@@ -46,6 +47,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
     LiveDotComponent,
     GlyphComponent,
     KbdComponent,
+    HelpTooltipComponent,
   ],
   template: `
     <ck-page-frame
@@ -92,6 +94,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
               <div class="ck-mono flex items-center gap-2 mb-3" style="font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-4);">
                 <ck-glyph name="telemetry" [size]="12" />
                 NET VALUE · {{ periodLabel() }}
+                <ck-help id="hypervisor.balance-sheet.overview" />
               </div>
               <div class="flex items-baseline gap-3">
                 <span
@@ -152,14 +155,34 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
               <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);">
                 CAPABILITIES · {{ periodLabel() }}
               </h3>
+              <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
+                ranked by {{ rankByLabel() }}
+              </span>
+              <ck-help id="hypervisor.balance-sheet.scale-capability" />
             </div>
-            <a
-              routerLink="/capabilities"
-              class="ck-mono"
-              style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);"
-            >
-              FULL CATALOG →
-            </a>
+            <div class="flex items-center gap-3">
+              <div class="flex items-center gap-1 ck-surface rounded" style="padding:2px; background:var(--ck-bg-inset);">
+                @for (r of rankOptions; track r.id) {
+                  <button
+                    type="button"
+                    (click)="setRankBy(r.id)"
+                    class="ck-mono"
+                    style="padding:4px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase;"
+                    [style.background]="rankBy() === r.id ? 'var(--ck-bg-raised)' : 'transparent'"
+                    [style.color]="rankBy() === r.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-4)'"
+                  >
+                    {{ r.label }}
+                  </button>
+                }
+              </div>
+              <a
+                routerLink="/capabilities"
+                class="ck-mono"
+                style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);"
+              >
+                FULL CATALOG →
+              </a>
+            </div>
           </div>
 
           @if (loading()) {
@@ -182,10 +205,12 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                   <th style="text-align:right; padding:8px 10px; font-weight:500; border-bottom: 1px solid var(--ck-hair);">VALUE</th>
                   <th style="text-align:right; padding:8px 10px; font-weight:500; border-bottom: 1px solid var(--ck-hair);">ROI</th>
                   <th style="text-align:right; padding:8px 10px; font-weight:500; border-bottom: 1px solid var(--ck-hair); width:120px;">CONFIDENCE</th>
+                  <th style="text-align:right; padding:8px 10px; font-weight:500; border-bottom: 1px solid var(--ck-hair); width:90px;">EFFICIENCY</th>
+                  <th style="text-align:right; padding:8px 10px; font-weight:500; border-bottom: 1px solid var(--ck-hair); width:170px;">ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
-                @for (c of capabilities(); track c.capability_id) {
+                @for (c of rankedCapabilities(); track c.capability_id) {
                   <tr
                     style="border-bottom: 1px solid var(--ck-hair); cursor:pointer; transition: background 120ms ease;"
                     (click)="drillDown(c)"
@@ -227,6 +252,44 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                         <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2); min-width:34px; text-align:right;">
                           {{ formatPercent(c.avg_confidence) }}
                         </span>
+                      </div>
+                    </td>
+                    <td class="ck-mono ck-tnum" style="padding:10px; font-size:12px; text-align:right;" [style.color]="efficiencyColor(c.avg_efficiency)">
+                      {{ formatIndex(c.avg_efficiency) }}
+                    </td>
+                    <td style="padding:8px;" (click)="$event.stopPropagation()">
+                      <div style="display:flex; gap:4px; justify-content:flex-end;">
+                        <button
+                          type="button"
+                          (click)="openRuns(c)"
+                          title="Drill into Runs for this capability"
+                          class="ck-mono"
+                          style="padding:4px 8px; border-radius:3px; font-size:9px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-3); background:transparent;"
+                        >
+                          RUNS
+                        </button>
+                        <button
+                          type="button"
+                          (click)="proposeScale(c)"
+                          [disabled]="proposingFor() === c.capability_id"
+                          title="Propose a scale decision for this capability"
+                          class="ck-mono"
+                          style="padding:4px 8px; border-radius:3px; font-size:9px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); background:var(--ck-bg-inset);"
+                          [style.color]="proposingFor() === c.capability_id ? 'var(--ck-fg-4)' : 'var(--ck-signal-pos)'"
+                        >
+                          {{ proposingFor() === c.capability_id ? '…' : 'SCALE' }}
+                        </button>
+                        <button
+                          type="button"
+                          (click)="proposeAdjust(c)"
+                          [disabled]="proposingFor() === c.capability_id"
+                          title="Propose an adjust decision (tighten/relax policies)"
+                          class="ck-mono"
+                          style="padding:4px 8px; border-radius:3px; font-size:9px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); background:var(--ck-bg-inset);"
+                          [style.color]="proposingFor() === c.capability_id ? 'var(--ck-fg-4)' : 'var(--ck-signal-cool)'"
+                        >
+                          ADJUST
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -326,6 +389,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
               <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
                 4 global levers · live projection
               </span>
+              <ck-help id="hypervisor.what-if.run" />
             </div>
             <button
               type="button"
@@ -423,6 +487,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
               <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-4);">
                 {{ decisions().length }}/{{ decisionsTotal() }}
               </span>
+              <ck-help id="hypervisor.decisions.feed" />
             </div>
             <div class="flex items-center gap-1 ck-surface rounded" style="padding:2px; background:var(--ck-bg-inset);">
               @for (s of statusFilters; track s.id) {
@@ -463,6 +528,36 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                     <span class="ml-auto ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-4);">
                       {{ formatRelative(d.created_at) }}
                     </span>
+                  </div>
+                  <div (click)="$event.stopPropagation()" style="display:flex; gap:4px; margin-top:6px;">
+                    @if (d.status === 'proposed') {
+                      <button
+                        type="button"
+                        (click)="accept(d.id)"
+                        [disabled]="busyDecisionId() === d.id"
+                        class="ck-mono"
+                        style="padding:4px 10px; border-radius:3px; font-size:9px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-signal-pos); background:transparent;"
+                      >ACCEPT</button>
+                      <button
+                        type="button"
+                        (click)="reject(d.id)"
+                        [disabled]="busyDecisionId() === d.id"
+                        class="ck-mono"
+                        style="padding:4px 10px; border-radius:3px; font-size:9px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-signal-neg); background:transparent;"
+                      >REJECT</button>
+                    } @else if (d.status === 'accepted') {
+                      <button
+                        type="button"
+                        (click)="apply(d.id)"
+                        [disabled]="busyDecisionId() === d.id"
+                        class="ck-mono"
+                        style="padding:4px 10px; border-radius:3px; font-size:9px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); background:var(--ck-bg-raised);"
+                      >APPLY</button>
+                    } @else if (d.status === 'applied' && d.applied_at) {
+                      <span class="ck-mono" style="font-size:9px; color:var(--ck-fg-4); letter-spacing:0.12em;">
+                        APPLIED {{ formatRelative(d.applied_at) }}
+                      </span>
+                    }
                   </div>
                 </li>
               }
@@ -543,7 +638,43 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
               <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
                 CREATED {{ d.created_at || '—' }}
                 @if (d.approved_by) { · APPROVED BY {{ d.approved_by }} }
+                @if (d.applied_at) { · APPLIED {{ formatRelative(d.applied_at) }} }
               </div>
+              <div style="display:flex; gap:6px; margin-top:16px; align-items:center;">
+                @if (d.status === 'proposed') {
+                  <button
+                    type="button"
+                    (click)="accept(d.id, true)"
+                    [disabled]="busyDecisionId() === d.id"
+                    class="ck-mono"
+                    style="padding:6px 14px; border-radius:3px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-signal-pos); background:transparent;"
+                  >ACCEPT</button>
+                  <ck-help id="hypervisor.decisions.accept" />
+                  <button
+                    type="button"
+                    (click)="reject(d.id, true)"
+                    [disabled]="busyDecisionId() === d.id"
+                    class="ck-mono"
+                    style="padding:6px 14px; border-radius:3px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-signal-neg); background:transparent;"
+                  >REJECT</button>
+                  <ck-help id="hypervisor.decisions.reject" />
+                } @else if (d.status === 'accepted') {
+                  <button
+                    type="button"
+                    (click)="apply(d.id, true)"
+                    [disabled]="busyDecisionId() === d.id"
+                    class="ck-mono"
+                    style="padding:6px 14px; border-radius:3px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); background:var(--ck-bg-raised);"
+                  >APPLY — enact</button>
+                  <ck-help id="hypervisor.decisions.apply" />
+                }
+              </div>
+              @if (d.applied_patch && objectKeys(d.applied_patch).length > 0) {
+                <div class="mt-4">
+                  <div class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:4px;">APPLIED PATCH</div>
+                  <pre class="ck-mono" style="font-size:11px; color:var(--ck-fg-2); white-space:pre-wrap; word-break:break-word; background:var(--ck-bg-inset); padding:10px; border-radius:4px;">{{ jsonText(d.applied_patch) }}</pre>
+                </div>
+              }
             </aside>
           </div>
         }
@@ -591,14 +722,25 @@ export class HypervisorComponent implements OnInit {
   private whatIfTimer: number | null = null;
 
   // ---- Decisions feed ------------------------------------------------------
-  readonly statusFilters: Array<{ id: 'all' | 'open' | 'accepted' | 'rejected' | 'applied'; label: string }> = [
+  readonly statusFilters: Array<{ id: 'all' | 'proposed' | 'accepted' | 'rejected' | 'applied'; label: string }> = [
     { id: 'all', label: 'ALL' },
-    { id: 'open', label: 'OPEN' },
+    { id: 'proposed', label: 'PROPOSED' },
     { id: 'accepted', label: 'ACCEPTED' },
     { id: 'rejected', label: 'REJECTED' },
     { id: 'applied', label: 'APPLIED' },
   ];
-  readonly decisionStatus = signal<'all' | 'open' | 'accepted' | 'rejected' | 'applied'>('all');
+  readonly decisionStatus = signal<'all' | 'proposed' | 'accepted' | 'rejected' | 'applied'>('all');
+  readonly busyDecisionId = signal<string | null>(null);
+
+  // ---- Capability ranking --------------------------------------------------
+  readonly rankOptions: Array<{ id: 'efficiency' | 'roi' | 'value' | 'runs'; label: string }> = [
+    { id: 'efficiency', label: 'EFFICIENCY' },
+    { id: 'roi', label: 'ROI' },
+    { id: 'value', label: 'VALUE' },
+    { id: 'runs', label: 'RUNS' },
+  ];
+  readonly rankBy = signal<'efficiency' | 'roi' | 'value' | 'runs'>('efficiency');
+  readonly proposingFor = signal<string | null>(null);
   readonly decisions = signal<DecisionRow[]>([]);
   readonly decisionsTotal = signal(0);
   readonly decisionsLoading = signal(false);
@@ -679,11 +821,123 @@ export class HypervisorComponent implements OnInit {
   }
 
   // ---- Decisions feed ------------------------------------------------------
-  setDecisionStatus(status: 'all' | 'open' | 'accepted' | 'rejected' | 'applied'): void {
+  setDecisionStatus(status: 'all' | 'proposed' | 'accepted' | 'rejected' | 'applied'): void {
     this.decisionStatus.set(status);
     this.decisionsPage.set(0);
     this.decisions.set([]);
     this.refreshDecisions();
+  }
+
+  rankByLabel = computed(() => this.rankOptions.find((o) => o.id === this.rankBy())?.label ?? 'EFFICIENCY');
+
+  setRankBy(id: 'efficiency' | 'roi' | 'value' | 'runs'): void {
+    this.rankBy.set(id);
+  }
+
+  readonly rankedCapabilities = computed<CapabilityRow[]>(() => {
+    const rows = [...this.capabilities()];
+    const key = this.rankBy();
+    const get = (row: CapabilityRow): number => {
+      switch (key) {
+        case 'roi': return row.roi ?? -Infinity;
+        case 'value': return row.estimated_value ?? 0;
+        case 'runs': return row.runs_count ?? 0;
+        case 'efficiency':
+        default: return row.avg_efficiency ?? -Infinity;
+      }
+    };
+    rows.sort((a, b) => get(b) - get(a));
+    return rows;
+  });
+
+  openRuns(c: CapabilityRow): void {
+    this.router.navigate(['/runs'], { queryParams: { capability_id: c.capability_id } });
+  }
+
+  proposeScale(c: CapabilityRow): void {
+    this.proposingFor.set(c.capability_id);
+    const factor = 1.15;
+    this.canonical
+      .hypervisorWhatIf({ scope: 'capability', target_id: c.capability_id, levers: { resource: 0.7, velocity: 0.5, autonomy: 0.4, risk_tolerance: 0.5 } })
+      .subscribe((sim) => {
+        const impact = sim?.projected
+          ? {
+              cost_delta: (sim.projected.total_cost ?? 0) - (sim.base.total_cost ?? 0),
+              value_delta: (sim.projected.estimated_value ?? 0) - (sim.base.estimated_value ?? 0),
+              roi: sim.projected.roi,
+            }
+          : {};
+        this.canonical
+          .createDecision({
+            scope: 'capability',
+            target_id: c.capability_id,
+            kind: 'recommendation',
+            title: `Scale ${c.name} (+${Math.round((factor - 1) * 100)}%)`,
+            status: 'proposed',
+            rationale: { action: 'scale', capability_id: c.capability_id, factor, source: 'hypervisor-cta' },
+            impact_estimate: impact,
+          })
+          .subscribe(() => {
+            this.proposingFor.set(null);
+            this.refreshDecisions();
+          });
+      });
+  }
+
+  proposeAdjust(c: CapabilityRow): void {
+    this.proposingFor.set(c.capability_id);
+    this.canonical
+      .createDecision({
+        scope: 'capability',
+        target_id: c.capability_id,
+        kind: 'recommendation',
+        title: `Tighten guardrails on ${c.name}`,
+        status: 'proposed',
+        rationale: {
+          action: 'adjust',
+          policy_updates: { mandatory_hitl_if_confidence_below: 0.7 },
+          source: 'hypervisor-cta',
+        },
+        impact_estimate: { risk: -0.2 },
+      })
+      .subscribe(() => {
+        this.proposingFor.set(null);
+        this.refreshDecisions();
+      });
+  }
+
+  efficiencyColor(v: number | null | undefined): string {
+    if (v == null) return 'var(--ck-fg-3)';
+    if (v >= 1.5) return 'var(--ck-signal-pos)';
+    if (v >= 0.5) return 'var(--ck-signal-cool)';
+    return 'var(--ck-signal-neg)';
+  }
+
+  accept(id: string, refreshDrawer = false): void {
+    this.busyDecisionId.set(id);
+    this.canonical.acceptDecision(id).subscribe((detail) => {
+      this.busyDecisionId.set(null);
+      if (detail && refreshDrawer) this.selectedDecision.set(detail);
+      this.refreshDecisions();
+    });
+  }
+
+  reject(id: string, refreshDrawer = false): void {
+    this.busyDecisionId.set(id);
+    this.canonical.rejectDecision(id).subscribe((detail) => {
+      this.busyDecisionId.set(null);
+      if (detail && refreshDrawer) this.selectedDecision.set(detail);
+      this.refreshDecisions();
+    });
+  }
+
+  apply(id: string, refreshDrawer = false): void {
+    this.busyDecisionId.set(id);
+    this.canonical.applyDecision(id, { enact: true }).subscribe((detail) => {
+      this.busyDecisionId.set(null);
+      if (detail && refreshDrawer) this.selectedDecision.set(detail);
+      this.refreshDecisions();
+    });
   }
 
   loadMoreDecisions(): void {
@@ -737,14 +991,12 @@ export class HypervisorComponent implements OnInit {
     status: string,
   ): 'pos' | 'cool' | 'violet' | 'warn' | 'neg' | 'neutral' {
     switch (status) {
-      case 'accepted':
-      case 'applied':
-        return 'pos';
-      case 'rejected':
-        return 'neg';
+      case 'applied': return 'pos';
+      case 'accepted': return 'cool';
+      case 'rejected': return 'neg';
+      case 'proposed':
       case 'open':
-      default:
-        return 'warn';
+      default: return 'warn';
     }
   }
 

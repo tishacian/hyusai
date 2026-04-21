@@ -11,6 +11,7 @@ import {
 } from '@app/core/canonical-api.service';
 import {
   GlyphComponent,
+  HelpTooltipComponent,
   KbdComponent,
   LiveDotComponent,
   MicroBarComponent,
@@ -41,6 +42,7 @@ import {
     LiveDotComponent,
     GlyphComponent,
     KbdComponent,
+    HelpTooltipComponent,
   ],
   template: `
     <ck-page-frame
@@ -106,6 +108,7 @@ import {
                     <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-3);">
                       {{ leverLabel('resource', resource()) }}
                     </span>
+                    <ck-help id="steering.levers.resource" />
                   </div>
                   <span class="ck-mono ck-tnum" style="font-size:12px; color:var(--ck-signal-cool);">
                     {{ (resource() * 100).toFixed(0) }}%
@@ -135,6 +138,7 @@ import {
                     <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-3);">
                       {{ leverLabel('velocity', velocity()) }}
                     </span>
+                    <ck-help id="steering.levers.velocity" />
                   </div>
                   <span class="ck-mono ck-tnum" style="font-size:12px; color:var(--ck-signal-violet);">
                     {{ (velocity() * 100).toFixed(0) }}%
@@ -164,6 +168,7 @@ import {
                     <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-3);">
                       {{ leverLabel('autonomy', autonomy()) }}
                     </span>
+                    <ck-help id="steering.levers.autonomy" />
                   </div>
                   <span
                     class="ck-mono ck-tnum"
@@ -186,6 +191,40 @@ import {
                   <span>HITL</span>
                   <span>SUPERVISED</span>
                   <span>FULL</span>
+                </div>
+              </div>
+
+              <!-- Risk tolerance lever (4th canonical axis) -->
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <ck-tag [tone]="riskTolerance() > 0.7 ? 'warn' : 'cool'" variant="outline">RISK TOLERANCE</ck-tag>
+                    <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-3);">
+                      {{ leverLabel('risk_tolerance', riskTolerance()) }}
+                    </span>
+                    <ck-help id="steering.levers.risk-tolerance" />
+                  </div>
+                  <span
+                    class="ck-mono ck-tnum"
+                    style="font-size:12px;"
+                    [style.color]="riskTolerance() > 0.7 ? 'var(--ck-signal-warn)' : 'var(--ck-fg-1)'"
+                  >
+                    {{ (riskTolerance() * 100).toFixed(0) }}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  [ngModel]="riskTolerance()"
+                  (ngModelChange)="riskTolerance.set($event); onLeverChanged()"
+                  class="w-full accent-amber-400"
+                />
+                <div class="flex justify-between ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); margin-top:4px;">
+                  <span>CAUTIOUS</span>
+                  <span>BALANCED</span>
+                  <span>BOLD</span>
                 </div>
               </div>
             </div>
@@ -484,9 +523,11 @@ export class SteeringComponent implements OnInit {
   readonly creatingAdaptive = signal(false);
 
   // Levers are plain signals so templates can drive them via [ngModel].
+  // Canonical 4-axis ControlPlaneVector (mental model §23.8).
   readonly resource = signal(0.5);
   readonly velocity = signal(0.5);
   readonly autonomy = signal(0.3);
+  readonly riskTolerance = signal(0.4);
 
   private readonly leverPulse = new Subject<void>();
 
@@ -512,6 +553,7 @@ export class SteeringComponent implements OnInit {
             resource: this.resource(),
             velocity: this.velocity(),
             autonomy: this.autonomy(),
+            risk_tolerance: this.riskTolerance(),
           },
         }),
       ),
@@ -554,6 +596,7 @@ export class SteeringComponent implements OnInit {
     this.resource.set(0.5);
     this.velocity.set(0.5);
     this.autonomy.set(0.3);
+    this.riskTolerance.set(0.4);
     this.leverPulse.next();
   }
 
@@ -565,7 +608,8 @@ export class SteeringComponent implements OnInit {
     const s = this.sim()!;
     const body = {
       name: `Levers · ${target?.slug ?? 'portfolio'} · ${new Date().toISOString().slice(0, 10)}`,
-      scope: target ? 'capability' : 'workspace',
+      // Canonical scopes: portfolio | capability | system. Never 'workspace'.
+      scope: target ? 'capability' : 'portfolio',
       target_id: target?.id ?? null,
       max_cost_per_decision: s.projected.total_cost > 0 && s.base.runs_count
         ? (s.projected.total_cost / s.base.runs_count) * 1.2
@@ -579,6 +623,7 @@ export class SteeringComponent implements OnInit {
           resource: this.resource(),
           velocity: this.velocity(),
           autonomy: this.autonomy(),
+          risk_tolerance: this.riskTolerance(),
         },
       },
     };
@@ -591,7 +636,10 @@ export class SteeringComponent implements OnInit {
     });
   }
 
-  protected leverLabel(kind: 'resource' | 'velocity' | 'autonomy', v: number): string {
+  protected leverLabel(
+    kind: 'resource' | 'velocity' | 'autonomy' | 'risk_tolerance',
+    v: number,
+  ): string {
     if (kind === 'resource') {
       if (v < 0.3) return 'LEAN';
       if (v < 0.7) return 'BALANCED';
@@ -601,6 +649,11 @@ export class SteeringComponent implements OnInit {
       if (v < 0.3) return 'THOROUGH';
       if (v < 0.7) return 'NORMAL';
       return 'RAPID';
+    }
+    if (kind === 'risk_tolerance') {
+      if (v < 0.3) return 'CAUTIOUS';
+      if (v < 0.7) return 'BALANCED';
+      return 'BOLD';
     }
     if (v < 0.3) return 'HITL ON EVERY STEP';
     if (v < 0.7) return 'SUPERVISED';

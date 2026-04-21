@@ -8,9 +8,10 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
-import { RunOutcomeCardComponent } from '@app/shared/cockpit';
+import { RunOutcomeCardComponent, ImpactPreviewComponent } from '@app/shared/cockpit';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { SettingsService } from '@app/core/settings.service';
 import { ToastrService } from 'ngx-toastr';
 import { SystemsStore } from './systems.store';
@@ -77,6 +78,7 @@ interface PipelineStage {
     StatTileComponent,
     StatusPulseComponent,
     RunOutcomeCardComponent,
+    ImpactPreviewComponent,
   ],
   template: `
     <app-section-header
@@ -208,6 +210,14 @@ interface PipelineStage {
         @if (kpisLoading()) {
           <p class="text-[11px] text-gray-500 -mt-2">Loading metrics…</p>
         }
+
+        <!-- Universal Impact Preview — projects what would happen if the
+             system's control-plane levers were shifted. -->
+        <ck-impact-preview
+          scope="system"
+          [targetId]="systemId"
+          label="System what-if · preview before you apply"
+        />
 
         <!-- Setup wizard — each step has an actionable CTA -->
         <section class="t-card t-elevated rounded-md p-6">
@@ -487,6 +497,13 @@ interface PipelineStage {
                 <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Status</div>
                 <div class="text-white capitalize">{{ isDraft() ? 'Draft' : 'Ready' }}</div>
               </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Execution mode</div>
+                <div class="text-white">
+                  {{ executionModeLabel() }}
+                  <span class="ml-1 text-[10px] uppercase tracking-wider text-gray-500 font-mono">{{ executionModeRaw() }}</span>
+                </div>
+              </div>
             </div>
           </section>
           <section class="t-card t-elevated rounded-md p-5">
@@ -548,6 +565,7 @@ export class SystemViewComponent implements OnInit {
   private readonly store = inject(SystemsStore);
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly zoom = inject(ZoomContextService);
   private readonly toast = inject(ToastrService);
   readonly settings = inject(SettingsService);
 
@@ -565,7 +583,29 @@ export class SystemViewComponent implements OnInit {
     default_prompt_type?: string | null;
     default_model?: string | null;
     retrieval_mode_default?: string | null;
+    execution_mode?: string | null;
   } | null>(null);
+
+  readonly executionModeRaw = computed(
+    () => this.systemDefaults()?.execution_mode || 'real_time_decision',
+  );
+
+  readonly executionModeLabel = computed(() => {
+    switch (this.executionModeRaw()) {
+      case 'real_time_decision':
+        return 'Real-time decision';
+      case 'batch_processing':
+        return 'Batch processing';
+      case 'event_driven_automation':
+        return 'Event-driven automation';
+      case 'continuous_monitoring':
+        return 'Continuous monitoring';
+      case 'human_augmented':
+        return 'Human-augmented';
+      default:
+        return this.executionModeRaw();
+    }
+  });
 
   readonly effectiveModel = computed(() => {
     const d = this.systemDefaults();
@@ -672,7 +712,7 @@ export class SystemViewComponent implements OnInit {
         title: 'Launch',
         description: 'Promote this draft and start serving traffic.',
         icon: 'rocket',
-        cta: 'Open playground',
+        cta: 'Open chat',
         route: ['/systems', this.systemId],
         done: !draft,
       },
@@ -726,6 +766,7 @@ export class SystemViewComponent implements OnInit {
 
   ngOnInit(): void {
     this.systemId = this.route.snapshot.paramMap.get('systemId') ?? '';
+    this.zoom.setCurrentSystem(this.systemId || null);
     this.settings.refresh();
     const local = this.store.findById(this.systemId);
     if (local) {
@@ -736,6 +777,7 @@ export class SystemViewComponent implements OnInit {
         default_prompt_type: local.default_prompt_type ?? null,
         default_model: local.default_model ?? null,
         retrieval_mode_default: local.retrieval_mode_default ?? null,
+        execution_mode: (local as unknown as { execution_mode?: string | null }).execution_mode ?? null,
       });
     } else {
       this.store.getById(this.systemId).subscribe({
@@ -748,6 +790,7 @@ export class SystemViewComponent implements OnInit {
             default_prompt_type: agent.default_prompt_type ?? null,
             default_model: agent.default_model ?? null,
             retrieval_mode_default: agent.retrieval_mode_default ?? null,
+            execution_mode: (agent as unknown as { execution_mode?: string | null }).execution_mode ?? null,
           });
         },
         error: () => {},

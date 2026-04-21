@@ -1,13 +1,16 @@
-import { ChangeDetectionStrategy, Component, HostListener, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
+import { timer } from 'rxjs';
 import { AuthApiService } from '@app/core/auth-api.service';
 import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
+import { ApiService } from '@app/core/api.service';
 import { ThemeService } from '@app/core/theme.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { GlyphComponent, LiveDotComponent, StatReadoutComponent } from '@app/shared/cockpit';
 import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.component';
 
@@ -73,10 +76,10 @@ import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.comp
 
       <!-- Readouts -->
       <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="18" [style.flex]="'0 0 auto'">
-        <ck-stat-readout label="THRPT"   [value]="thrpt()"   [tone]="'cool'"   [size]="12" align="end" />
-        <ck-stat-readout label="LATENCY" [value]="latency()" [tone]="'pos'"    [size]="12" align="end" />
-        <ck-stat-readout label="YIELD"   [value]="outputYield()" [tone]="'violet'" [size]="12" align="end" />
-        <ck-live-dot tone="pos" label="Live" />
+        <ck-stat-readout label="THRPT"   [value]="thrpt()"   [tone]="hasTelemetry() ? 'cool' : 'neutral'"   [size]="12" align="end" />
+        <ck-stat-readout label="LATENCY" [value]="latency()" [tone]="hasTelemetry() ? 'pos' : 'neutral'"    [size]="12" align="end" />
+        <ck-stat-readout label="YIELD"   [value]="outputYield()" [tone]="hasTelemetry() ? 'violet' : 'neutral'" [size]="12" align="end" />
+        <ck-live-dot [tone]="hasTelemetry() ? 'pos' : 'neutral'" [label]="hasTelemetry() ? 'Live' : 'Idle'" />
       </div>
 
       <span class="ck-hairline-v" [style.height.px]="22" [style.flex]="'0 0 auto'"></span>
@@ -324,6 +327,8 @@ export class TitleBarComponent {
   private readonly authApi = inject(AuthApiService);
   private readonly router = inject(Router);
   private readonly toastr = inject(ToastrService);
+  private readonly api = inject(ApiService);
+  private readonly destroyRef = inject(DestroyRef);
 
   userMenuOpen = signal(false);
   workspaceMenuOpen = signal(false);
@@ -331,9 +336,53 @@ export class TitleBarComponent {
   newWorkspaceName = '';
   creating = signal(false);
 
-  readonly thrpt   = computed(() => '127 r/m');
-  readonly latency = computed(() => '342 ms');
-  readonly outputYield = computed(() => '94.2%');
+  readonly telemetry = signal<{
+    throughput_rpm: number | null;
+    latency_ms: number | null;
+    yield_pct: number | null;
+    runs_count?: number;
+  } | null>(null);
+
+  readonly hasTelemetry = computed(() => (this.telemetry()?.runs_count ?? 0) > 0);
+
+  readonly thrpt = computed(() => {
+    const t = this.telemetry()?.throughput_rpm;
+    return t == null ? '— r/m' : `${t.toFixed(t < 10 ? 1 : 0)} r/m`;
+  });
+  readonly latency = computed(() => {
+    const l = this.telemetry()?.latency_ms;
+    return l == null ? '— ms' : `${Math.round(l)} ms`;
+  });
+  readonly outputYield = computed(() => {
+    const y = this.telemetry()?.yield_pct;
+    return y == null ? '—' : `${y.toFixed(1)}%`;
+  });
+
+  constructor() {
+    timer(0, 30_000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refreshTelemetry());
+  }
+
+  private refreshTelemetry(): void {
+    this.api
+      .get<{
+        throughput_rpm: number | null;
+        latency_ms: number | null;
+        yield_pct: number | null;
+        runs_count?: number;
+      }>('/telemetry/live')
+      .subscribe({
+        next: (t) => this.telemetry.set(t),
+        error: () =>
+          this.telemetry.set({
+            throughput_rpm: null,
+            latency_ms: null,
+            yield_pct: null,
+            runs_count: 0,
+          }),
+      });
+  }
 
   readonly themeGlyph = computed(() => {
     const mode = this.themeService.mode();

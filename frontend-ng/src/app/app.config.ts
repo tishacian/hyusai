@@ -9,6 +9,7 @@ import { authInterceptor } from './core/auth.interceptor';
 import { provideLucideIcons } from './shared/ui/icon-registry';
 import { AuthBootstrapService } from './core/auth-bootstrap.service';
 import { IdlePreloadStrategy } from './core/idle-preload.strategy';
+import { HelpService } from './core/help.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -21,6 +22,15 @@ export const appConfig: ApplicationConfig = {
       multi: true,
       useFactory: (svc: AuthBootstrapService) => () => svc.bootstrap(),
       deps: [AuthBootstrapService],
+    },
+    {
+      provide: APP_INITIALIZER,
+      multi: true,
+      useFactory: (svc: HelpService) => () => {
+        svc.load().subscribe();
+        return Promise.resolve();
+      },
+      deps: [HelpService],
     },
     provideToastr({
       positionClass: 'toast-top-right',

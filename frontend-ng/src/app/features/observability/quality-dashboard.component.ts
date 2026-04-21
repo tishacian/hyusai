@@ -94,7 +94,7 @@ const PALETTE = {
           type="button"
           (click)="runEvaluation()"
           [disabled]="running() || !canRunEvaluation()"
-          [title]="canRunEvaluation() ? 'Score the last chat exchange' : 'Send a message in the playground first'"
+          [title]="canRunEvaluation() ? 'Score the last chat exchange' : 'Send a message in the chat first'"
           class="ck-mono"
           [style.display]="'inline-flex'"
           [style.alignItems]="'center'"
@@ -183,7 +183,7 @@ const PALETTE = {
                 size="sm"
                 icon="radar"
                 title="No evaluation yet"
-                description="Chat in the playground, then run an evaluation to populate this radar."
+                description="Chat with a system, then run an evaluation to populate this radar."
               />
             </div>
           } @else {
@@ -506,7 +506,7 @@ export class QualityDashboardComponent implements OnInit {
   runEvaluation(): void {
     const ctx = this.readLastContext();
     if (!ctx) {
-      this.toast.warning('Send a message in the playground first', 'Evaluation');
+      this.toast.warning('Send a message in the chat first', 'Evaluation');
       return;
     }
     this.running.set(true);

@@ -7,3 +7,9 @@ export { StatReadoutComponent, type CkReadoutTone, type CkReadoutAlign } from '.
 export { GlyphComponent, type CkGlyphName } from './glyph.component';
 export { PageFrameComponent } from './page-frame.component';
 export { RunOutcomeCardComponent } from './run-outcome-card.component';
+export { ImpactPreviewComponent } from './impact-preview.component';
+export { HelpTooltipComponent } from './help-tooltip.component';
+export {
+  RuntimeStatusBadgeComponent,
+  type RuntimeStatus,
+} from './runtime-status-badge.component';

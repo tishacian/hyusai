@@ -3,6 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { GlyphComponent } from '@app/shared/cockpit';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 
 interface ZoomLevel {
   key: 'portfolio' | 'capability' | 'system' | 'skill' | 'run';
@@ -64,6 +65,7 @@ interface ZoomLevel {
 })
 export class SemanticZoomBreadcrumbComponent {
   private readonly router = inject(Router);
+  private readonly ctx = inject(ZoomContextService);
   private readonly url = toSignal(
     this.router.events.pipe(
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),
@@ -85,6 +87,10 @@ export class SemanticZoomBreadcrumbComponent {
     const isRun      = first === 'observability' || first === 'runs';
     const isSkills   = first === 'skills';
 
+    const currentCap = this.ctx.capabilityId();
+    const currentSys = this.ctx.systemId();
+    const currentRun = this.ctx.runId();
+
     return [
       {
         key: 'portfolio',
@@ -95,16 +101,16 @@ export class SemanticZoomBreadcrumbComponent {
       },
       {
         key: 'capability',
-        label: 'Capability',
-        sub: 'Catalog',
-        href: '/capabilities',
+        label: currentCap ? 'Capability ·' : 'Capability',
+        sub: currentCap ? `Focused on ${currentCap.slice(0, 8)}` : 'Catalog',
+        href: currentCap ? `/capabilities?focus=${currentCap}` : '/capabilities',
         active: isCaps,
       },
       {
         key: 'system',
-        label: 'System',
-        sub: 'Builder',
-        href: '/systems',
+        label: currentSys ? 'System ·' : 'System',
+        sub: currentSys ? `Open ${currentSys.slice(0, 8)}` : 'Builder',
+        href: currentSys ? ['/systems', currentSys] : '/systems',
         active: isBuilder || isSteering,
       },
       {
@@ -116,9 +122,9 @@ export class SemanticZoomBreadcrumbComponent {
       },
       {
         key: 'run',
-        label: 'Run',
-        sub: 'Telemetry',
-        href: '/observability',
+        label: currentRun ? 'Run ·' : 'Run',
+        sub: currentRun ? `Open ${currentRun.slice(0, 8)}` : 'Telemetry',
+        href: currentRun ? ['/runs', currentRun] : '/runs',
         active: isRun,
       },
     ];

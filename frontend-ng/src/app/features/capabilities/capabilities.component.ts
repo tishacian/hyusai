@@ -1,11 +1,16 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { CanonicalApiService, type Capability, type Skill } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Capability, type Run, type Skill } from '@app/core/canonical-api.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import {
   GlyphComponent,
+  ImpactPreviewComponent,
   KbdComponent,
   MicroBarComponent,
   PageFrameComponent,
+  RunOutcomeCardComponent,
+  RuntimeStatusBadgeComponent,
   StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
@@ -16,7 +21,17 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
   selector: 'app-capabilities',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PageFrameComponent, GlyphComponent, StatReadoutComponent, MicroBarComponent, TagComponent, KbdComponent],
+  imports: [
+    PageFrameComponent,
+    GlyphComponent,
+    StatReadoutComponent,
+    MicroBarComponent,
+    TagComponent,
+    KbdComponent,
+    ImpactPreviewComponent,
+    RunOutcomeCardComponent,
+    RuntimeStatusBadgeComponent,
+  ],
   template: `
     <ck-page-frame
       eyebrow="Catalog · Capabilities"
@@ -98,10 +113,12 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                   {{ c.description || '—' }}
                 </p>
 
-                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;">
+                <div [style.display]="'grid'" [style.grid-template-columns]="hideRoi() ? '1fr 1fr' : '1fr 1fr 1fr'" style="gap:10px;">
                   <ck-stat-readout label="COST" [value]="formatPrice(c.pricing?.unit_price)" tone="cool" [size]="13" />
                   <ck-stat-readout label="VALUE" [value]="formatPrice(c.value_per_outcome)" tone="pos" [size]="13" />
-                  <ck-stat-readout label="ROI" [value]="projectedRoi(c)" tone="violet" [size]="13" />
+                  @if (!hideRoi()) {
+                    <ck-stat-readout label="ROI" [value]="projectedRoi(c)" tone="violet" [size]="13" />
+                  }
                 </div>
 
                 <footer class="pt-3" style="border-top:1px solid var(--ck-hair);">
@@ -157,10 +174,11 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                   </div>
                   <ul style="display:flex; flex-direction:column; gap:4px;">
                     @for (sk of bundledSkills(cap); track sk.id) {
-                      <li style="display:grid; grid-template-columns: 70px 1fr 80px 80px; gap:12px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
+                      <li style="display:grid; grid-template-columns: 70px 90px 1fr 70px 70px; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
                         <ck-tag [tone]="certTone(sk.certification_level)" variant="outline">
                           {{ (sk.certification_level || 'basic').slice(0, 4).toUpperCase() }}
                         </ck-tag>
+                        <ck-runtime-status [status]="sk.runtime_status" />
                         <div class="min-w-0">
                           <div class="text-sm text-white font-medium">{{ sk.name }}</div>
                           <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">{{ sk.slug }}</div>
@@ -185,7 +203,9 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                   <div class="flex flex-col gap-3">
                     <ck-stat-readout label="UNIT PRICE" [value]="formatPrice(cap.pricing?.unit_price)" tone="cool" [size]="16" />
                     <ck-stat-readout label="VALUE / OUTCOME" [value]="formatPrice(cap.value_per_outcome)" tone="pos" [size]="16" />
-                    <ck-stat-readout label="PROJECTED ROI" [value]="projectedRoi(cap)" tone="violet" [size]="16" />
+                    @if (!hideRoi()) {
+                      <ck-stat-readout label="PROJECTED ROI" [value]="projectedRoi(cap)" tone="violet" [size]="16" />
+                    }
                   </div>
                 </div>
 
@@ -219,6 +239,28 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                 </div>
               </div>
             </div>
+
+            <!-- Recent Outcome + Impact preview for this capability -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+              <div>
+                <div class="ck-mono flex items-center gap-2" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
+                  <ck-glyph name="crosshair" [size]="12" />
+                  LATEST RUN OUTCOME
+                </div>
+                @if (latestRun()) {
+                  <ck-run-outcome-card [run]="latestRun()!" />
+                } @else {
+                  <div class="ck-surface rounded-md ck-mono" style="padding:20px; font-size:11px; text-align:center; color:var(--ck-fg-4);">
+                    NO RUN RECORDED FOR THIS CAPABILITY YET
+                  </div>
+                }
+              </div>
+              <ck-impact-preview
+                scope="capability"
+                [targetId]="cap.id"
+                label="Capability what-if"
+              />
+            </div>
           </section>
         }
       </div>
@@ -228,6 +270,10 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
 export class CapabilitiesComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly zoom = inject(ZoomContextService);
+  private readonly workspace = inject(WorkspaceService);
+
+  readonly hideRoi = computed(() => this.workspace.isBuilderMode());
 
   readonly tiers: { id: TierFilter; label: string }[] = [
     { id: 'all', label: 'ALL' },
@@ -243,6 +289,7 @@ export class CapabilitiesComponent implements OnInit {
   readonly tier = signal<TierFilter>('all');
   readonly query = signal('');
   readonly selected = signal<Capability | null>(null);
+  readonly latestRun = signal<Run | null>(null);
 
   readonly filtered = computed(() => {
     const t = this.tier();
@@ -258,6 +305,22 @@ export class CapabilitiesComponent implements OnInit {
       );
     });
   });
+
+  constructor() {
+    // When a capability is selected, load its latest run so the Outcome card
+    // reflects real data for that specific capability's drill-down.
+    effect(() => {
+      const cap = this.selected();
+      this.zoom.setCurrentCapability(cap?.id ?? null);
+      if (!cap) {
+        this.latestRun.set(null);
+        return;
+      }
+      this.canonical.listRuns({ capability_id: cap.id }).subscribe((runs) => {
+        this.latestRun.set(runs?.[0] ?? null);
+      });
+    });
+  }
 
   ngOnInit(): void {
     this.canonical.listCapabilities().subscribe((caps) => {

@@ -10,8 +10,9 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { PageFrameComponent } from '@app/shared/cockpit';
+import { HelpTooltipComponent, PageFrameComponent, RunOutcomeCardComponent } from '@app/shared/cockpit';
 import { CanonicalApiService, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 
 @Component({
   selector: 'app-run-view',
@@ -22,6 +23,8 @@ import { CanonicalApiService, type Run, type SkillInvocation } from '@app/core/c
     IconComponent,
     EmptyStateComponent,
     PageFrameComponent,
+    RunOutcomeCardComponent,
+    HelpTooltipComponent,
   ],
   template: `
     <ck-page-frame
@@ -70,51 +73,88 @@ import { CanonicalApiService, type Run, type SkillInvocation } from '@app/core/c
           description="This run may have been purged, or the id is incorrect."
         />
       } @else {
-        <!-- Summary row -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
-          <div class="rounded-lg border border-white/5 bg-white/[0.02] p-3">
-            <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
-              Duration
-            </div>
-            <div class="text-lg font-mono tabular-nums text-white">
-              @if (run()?.duration_ms != null) {
-                {{ formatDuration(run()!.duration_ms!) }}
+        <!-- Canonical Outcome card — value / cost / confidence / efficiency + decision. -->
+        <div class="mb-6">
+          <ck-run-outcome-card [run]="run()!" />
+
+          <!-- Operator override strip — live next to the Outcome so operators
+               can declare "actual" value when the auto-derivation is off. -->
+          <div class="mt-3 rounded-lg border border-white/5 bg-white/[0.02] p-3">
+            <div class="flex items-center gap-3 flex-wrap">
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">
+                  VALUE SOURCE
+                </span>
+                <span
+                  class="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded"
+                  [class.text-emerald-300]="run()!.outcome?.value_source === 'operator'"
+                  [class.bg-emerald-500\\/10]="run()!.outcome?.value_source === 'operator'"
+                  [class.text-cyan-300]="run()!.outcome?.value_source === 'auto'"
+                  [class.bg-cyan-500\\/10]="run()!.outcome?.value_source === 'auto'"
+                  [class.text-gray-400]="!run()!.outcome?.value_source || run()!.outcome?.value_source === 'unset'"
+                  [class.bg-white\\/5]="!run()!.outcome?.value_source || run()!.outcome?.value_source === 'unset'"
+                >
+                  {{ run()!.outcome?.value_source || 'unset' }}
+                </span>
+              </div>
+
+              @if (!overrideMode()) {
+                <div class="ml-auto flex items-center gap-2">
+                  <ck-help id="runs.outcome.override" />
+                  <button
+                    type="button"
+                    (click)="enableOverride()"
+                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition font-mono tracking-wider"
+                  >
+                    <app-icon name="edit-3" [size]="11" />
+                    OVERRIDE VALUE
+                  </button>
+                </div>
               } @else {
-                <span class="text-gray-600">—</span>
+                <div class="flex items-center gap-2 flex-wrap ml-auto">
+                  <input
+                    type="number"
+                    step="0.01"
+                    [value]="overrideValue()"
+                    (input)="overrideValue.set(+asInput($event).value)"
+                    placeholder="Actual value"
+                    class="font-mono text-xs tabular-nums"
+                    style="width:110px; padding:4px 8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:3px; color:white;"
+                  />
+                  <input
+                    type="text"
+                    [value]="overrideNote()"
+                    (input)="overrideNote.set(asInput($event).value)"
+                    placeholder="Why this override?"
+                    class="font-mono text-xs"
+                    style="min-width:200px; padding:4px 8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:3px; color:white;"
+                  />
+                  <button
+                    type="button"
+                    (click)="submitOverride()"
+                    [disabled]="submittingOverride()"
+                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium font-mono tracking-wider"
+                    style="background:var(--ck-signal-pos); color:#020617;"
+                    [style.opacity]="submittingOverride() ? '0.4' : '1'"
+                  >
+                    {{ submittingOverride() ? 'SAVING…' : 'SAVE' }}
+                  </button>
+                  <button
+                    type="button"
+                    (click)="cancelOverride()"
+                    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 font-mono tracking-wider"
+                  >
+                    CANCEL
+                  </button>
+                </div>
               }
             </div>
-          </div>
-          <div class="rounded-lg border border-white/5 bg-white/[0.02] p-3">
-            <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
-              Skill calls
-            </div>
-            <div class="text-lg font-mono tabular-nums text-white">
-              {{ skillInvocations().length }}
-            </div>
-          </div>
-          <div class="rounded-lg border border-white/5 bg-white/[0.02] p-3">
-            <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
-              Cost
-            </div>
-            <div class="text-lg font-mono tabular-nums text-white">
-              @if (run()?.outcome?.cost_internal != null) {
-                \${{ (run()!.outcome!.cost_internal ?? 0).toFixed(4) }}
-              } @else {
-                <span class="text-gray-600">—</span>
-              }
-            </div>
-          </div>
-          <div class="rounded-lg border border-white/5 bg-white/[0.02] p-3">
-            <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
-              Confidence
-            </div>
-            <div class="text-lg font-mono tabular-nums text-white">
-              @if (run()?.outcome?.confidence != null) {
-                {{ ((run()!.outcome!.confidence ?? 0) * 100).toFixed(0) }}%
-              } @else {
-                <span class="text-gray-600">—</span>
-              }
-            </div>
+            @if (run()!.outcome?.operator_value_note) {
+              <p class="text-[11px] text-gray-400 mt-2 font-mono">
+                <span class="text-gray-500">NOTE:</span>
+                {{ run()!.outcome!.operator_value_note }}
+              </p>
+            }
           </div>
         </div>
 
@@ -247,10 +287,16 @@ export class RunViewComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly zoom = inject(ZoomContextService);
 
   readonly runId = signal<string>('');
   readonly run = signal<Run | null>(null);
   readonly loading = signal(false);
+
+  readonly overrideMode = signal(false);
+  readonly overrideValue = signal<number>(0);
+  readonly overrideNote = signal<string>('');
+  readonly submittingOverride = signal(false);
 
   readonly skillInvocations = computed<SkillInvocation[]>(
     () => this.run()?.skill_invocations ?? [],
@@ -290,6 +336,7 @@ export class RunViewComponent implements OnInit {
         return;
       }
       this.runId.set(id);
+      this.zoom.setCurrentRun(id);
       this.refresh();
     });
   }
@@ -301,6 +348,7 @@ export class RunViewComponent implements OnInit {
     this.canonical.getRun(id).subscribe({
       next: (r) => {
         this.run.set(r);
+        if (r?.system_id) this.zoom.setCurrentSystem(r.system_id);
         this.loading.set(false);
       },
       error: () => {
@@ -341,4 +389,39 @@ export class RunViewComponent implements OnInit {
     }
   }
 
+  asInput(ev: Event): HTMLInputElement {
+    return ev.target as HTMLInputElement;
+  }
+
+  enableOverride(): void {
+    const current = this.run()?.outcome?.value_estimated ?? 0;
+    this.overrideValue.set(Number(current) || 0);
+    this.overrideNote.set(this.run()?.outcome?.operator_value_note ?? '');
+    this.overrideMode.set(true);
+  }
+
+  cancelOverride(): void {
+    this.overrideMode.set(false);
+  }
+
+  submitOverride(): void {
+    const id = this.runId();
+    if (!id || this.submittingOverride()) return;
+    this.submittingOverride.set(true);
+    this.canonical
+      .overrideRunOutcome(id, {
+        value: this.overrideValue(),
+        note: this.overrideNote() || undefined,
+      })
+      .subscribe({
+        next: (updated) => {
+          if (updated) this.run.set(updated as unknown as Run);
+          this.submittingOverride.set(false);
+          this.overrideMode.set(false);
+        },
+        error: () => {
+          this.submittingOverride.set(false);
+        },
+      });
+  }
 }

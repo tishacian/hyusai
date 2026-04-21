@@ -13,6 +13,7 @@ import { catchError } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Capability, type Context, type Skill, type System } from '@app/core/canonical-api.service';
+import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { SettingsService } from '@app/core/settings.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -20,19 +21,39 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
   type CkGlyphName,
   GlyphComponent,
+  HelpTooltipComponent,
   LiveDotComponent,
   MicroBarComponent,
+  RuntimeStatusBadgeComponent,
   StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
 import { SystemsStore } from './systems.store';
 
 interface WizardStep {
-  key: 'objective' | 'capability' | 'context' | 'policy' | 'launch';
+  key: 'objective' | 'capability' | 'skills' | 'context' | 'policy' | 'launch';
   title: string;
   description: string;
   glyph: CkGlyphName;
 }
+
+const EXECUTION_MODES: {
+  id:
+    | 'real_time_decision'
+    | 'batch_processing'
+    | 'event_driven_automation'
+    | 'continuous_monitoring'
+    | 'human_augmented';
+  label: string;
+  short: string;
+  description: string;
+}[] = [
+  { id: 'real_time_decision', label: 'Real-time', short: 'Synchronous per query', description: 'Synchronous — one outcome per user-initiated query (chat, API).' },
+  { id: 'batch_processing', label: 'Batch', short: 'Scheduled batches', description: 'Runs over a batch of inputs on a schedule; outcomes aggregated.' },
+  { id: 'event_driven_automation', label: 'Event-driven', short: 'Triggers from connectors', description: 'Triggered by external events (webhooks, connectors).' },
+  { id: 'continuous_monitoring', label: 'Continuous', short: 'Always-on watcher', description: 'Always-on monitoring, emits decisions on anomalies.' },
+  { id: 'human_augmented', label: 'Human-augmented', short: 'Pairs with operator', description: 'Requires human-in-the-loop for every material decision.' },
+];
 
 const RAG_PIPELINES: { id: string; canonical: string; label: string; description: string }[] = [
   { id: 'OmniRAG', canonical: 'chah', label: 'OmniRAG (C-HAH)', description: 'Composite hybrid, parallel variants + RRF' },
@@ -89,8 +110,10 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
     SectionHeaderComponent,
     EmptyStateComponent,
     GlyphComponent,
+    HelpTooltipComponent,
     LiveDotComponent,
     MicroBarComponent,
+    RuntimeStatusBadgeComponent,
     StatReadoutComponent,
     TagComponent,
   ],
@@ -165,6 +188,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="focus" [size]="16" />
                 Objective
+                <ck-help id="builder.steps.overview" />
               </h2>
               <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
                 Define what this system should achieve — a single, measurable objective the Hypervisor can track.
@@ -269,25 +293,57 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               </div>
             }
 
-            <!-- Bundled skills preview -->
-            @if (draft.capability_id && bundledSkills().length > 0) {
-              <div class="pt-3" style="border-top: 1px solid var(--ck-hair);">
+          </div>
+        }
+
+        <!-- Step 3: Skills (bundled + custom) -->
+        @if (currentStep() === 2) {
+          <div class="space-y-4">
+            <header class="mb-2">
+              <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+                <ck-glyph name="cube" [size]="16" />
+                Skills
+                <ck-help id="builder.steps.skills" />
+              </h2>
+              <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
+                Capability bundles a validated skill set. Runtime badges surface stubs or unbound wrappers before launch.
+              </p>
+            </header>
+
+            @if (!draft.capability_id) {
+              <app-empty-state
+                icon="cube"
+                title="Pick a capability first"
+                description="Skills are derived from the capability you select in the previous step."
+              />
+            } @else if (bundledSkills().length === 0) {
+              <app-empty-state
+                icon="cube"
+                title="No bundled skill"
+                description="This capability has no attached skills yet. Launch will still succeed but will route through defaults."
+              />
+            } @else {
+              <div>
                 <div class="ck-mono flex items-center gap-2 mb-3" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
                   <ck-glyph name="ledger" [size]="12" />
                   BUNDLED SKILLS · {{ bundledSkills().length }}
                 </div>
                 <ul style="display:flex; flex-direction:column; gap:4px;">
                   @for (sk of bundledSkills(); track sk.id) {
-                    <li style="display:grid; grid-template-columns: 1fr auto auto; gap:12px; align-items:center; padding:6px 10px; border-radius:4px; background:var(--ck-bg-inset);">
-                      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
-                        <ck-tag [tone]="certTone(sk.certification_level)" variant="outline">
-                          {{ (sk.certification_level || 'basic').slice(0, 4).toUpperCase() }}
-                        </ck-tag>
-                        <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    <li style="display:grid; grid-template-columns: 70px 90px 1fr 80px 70px; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
+                      <ck-tag [tone]="certTone(sk.certification_level)" variant="outline">
+                        {{ (sk.certification_level || 'basic').slice(0, 4).toUpperCase() }}
+                      </ck-tag>
+                      <ck-runtime-status [status]="sk.runtime_status" />
+                      <div style="min-width:0;">
+                        <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                           {{ sk.name }}
-                        </span>
+                        </div>
+                        <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
+                          {{ sk.slug }}
+                        </div>
                       </div>
-                      <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
+                      <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); text-align:right;">
                         {{ sk.type || '—' }}
                       </span>
                       <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-3); text-align:right;">
@@ -296,18 +352,24 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     </li>
                   }
                 </ul>
+                @if (stubSkillsCount() > 0 || unboundSkillsCount() > 0) {
+                  <div class="ck-mono mt-3" style="font-size:10px; color:var(--ck-signal-warn); letter-spacing:0.06em;">
+                    WARNING · {{ stubSkillsCount() }} stub · {{ unboundSkillsCount() }} unbound — runs may return degraded payloads.
+                  </div>
+                }
               </div>
             }
           </div>
         }
 
-        <!-- Step 3: Context -->
-        @if (currentStep() === 2) {
+        <!-- Step 4: Context -->
+        @if (currentStep() === 3) {
           <div class="space-y-5">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="ledger" [size]="16" />
                 Context
+                <ck-help id="builder.steps.context" />
               </h2>
               <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
                 Knowledge collections and the retrieval pipeline. Becomes the versioned Context attached to every Run —
@@ -403,12 +465,17 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     (click)="draft.rag_mode = mode.id"
                     class="text-left transition ck-surface rounded"
                     style="padding:10px 12px;"
+                    [title]="presetHealthTitle(mode.id)"
+                    [style.opacity]="presetStatus(mode.id) === 'bound' ? 1 : 0.82"
                     [style.borderColor]="draft.rag_mode === mode.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
                   >
-                    <div class="text-sm font-medium" [style.color]="draft.rag_mode === mode.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-2)'">
-                      {{ mode.label }}
+                    <div class="flex items-center gap-2 mb-1" style="justify-content:space-between;">
+                      <div class="text-sm font-medium" [style.color]="draft.rag_mode === mode.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-2)'">
+                        {{ mode.label }}
+                      </div>
+                      <ck-runtime-status [status]="presetStatus(mode.id)" />
                     </div>
-                    <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:2px;">
+                    <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
                       {{ mode.description }}
                     </div>
                   </button>
@@ -418,13 +485,14 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           </div>
         }
 
-        <!-- Step 4: Policy -->
-        @if (currentStep() === 3) {
+        <!-- Step 5: Policy -->
+        @if (currentStep() === 4) {
           <div class="space-y-5">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="sliders" [size]="16" />
                 Policy
+                <ck-help id="builder.steps.policy" />
               </h2>
               <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
                 Control guardrails and adaptive levers. Control = hard limits, Adaptive = soft directives.
@@ -462,6 +530,32 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                   <span class="ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.temperature.toFixed(2) }}</span>
                 </label>
                 <input type="range" min="0" max="2" step="0.05" [(ngModel)]="draft.temperature" class="w-full accent-violet-400" />
+              </div>
+            </div>
+
+            <div style="border-top: 1px solid var(--ck-hair); padding-top:16px;">
+              <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
+                Execution mode
+              </div>
+              <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+                @for (mode of executionModes; track mode.id) {
+                  <button
+                    type="button"
+                    (click)="draft.execution_mode = mode.id"
+                    class="text-left transition ck-surface rounded"
+                    style="padding:10px 12px;"
+                    [title]="mode.description"
+                    [style.borderColor]="draft.execution_mode === mode.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
+                    [style.boxShadow]="draft.execution_mode === mode.id ? 'var(--ck-glow-cool)' : 'none'"
+                  >
+                    <div class="text-sm font-medium" [style.color]="draft.execution_mode === mode.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-2)'">
+                      {{ mode.label }}
+                    </div>
+                    <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:2px;">
+                      {{ mode.short }}
+                    </div>
+                  </button>
+                }
               </div>
             </div>
 
@@ -527,8 +621,8 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           </div>
         }
 
-        <!-- Step 5: Launch -->
-        @if (currentStep() === 4) {
+        <!-- Step 6: Launch -->
+        @if (currentStep() === 5) {
           <div class="space-y-5">
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
@@ -580,6 +674,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               <div class="ck-surface rounded" style="padding:14px 16px;">
                 <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">POLICY</div>
                 <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); line-height:1.7;">
+                  EXECUTION <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ executionModeLabel() }}</span><br />
                   MAX COST <span class="ck-tnum" style="color:var(--ck-fg-2);">\${{ draft.max_cost.toFixed(2) }}</span> ·
                   MAX LATENCY <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ draft.max_latency_ms }} ms</span><br />
                   CONFIDENCE ≥ <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ draft.confidence_threshold.toFixed(2) }}</span> ·
@@ -699,15 +794,23 @@ export class SystemBuilderComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly health = inject(RuntimeHealthService);
   private readonly toast = inject(ToastrService);
   private readonly store = inject(SystemsStore);
   readonly settings = inject(SettingsService);
 
   readonly ragPipelines = RAG_PIPELINES;
+  readonly executionModes = EXECUTION_MODES;
+
+  readonly executionModeLabel = computed(() => {
+    const id = this.draft.execution_mode;
+    return EXECUTION_MODES.find((m) => m.id === id)?.label ?? id;
+  });
 
   readonly steps: WizardStep[] = [
     { key: 'objective', title: 'Objective', description: 'Name & outcome', glyph: 'focus' },
     { key: 'capability', title: 'Capability', description: 'Value-producing unit', glyph: 'cube' },
+    { key: 'skills', title: 'Skills', description: 'Bundled + custom runtime', glyph: 'cube' },
     { key: 'context', title: 'Context', description: 'Knowledge + retrieval', glyph: 'ledger' },
     { key: 'policy', title: 'Policy', description: 'Guardrails + levers', glyph: 'sliders' },
     { key: 'launch', title: 'Launch', description: 'Review & create', glyph: 'bolt' },
@@ -736,6 +839,12 @@ export class SystemBuilderComponent implements OnInit {
     // engine / RAG skill wrappers when a run is triggered.
     default_prompt_type: 'auto',
     default_model: '' as string | '',
+    execution_mode: 'real_time_decision' as
+      | 'real_time_decision'
+      | 'batch_processing'
+      | 'event_driven_automation'
+      | 'continuous_monitoring'
+      | 'human_augmented',
     temperature: 0.3,
     max_cost: 0.5,
     max_latency_ms: 8000,
@@ -763,6 +872,16 @@ export class SystemBuilderComponent implements OnInit {
     return this.skills().filter((s) => ids.has(s.id));
   });
 
+  readonly stubSkillsCount = computed(
+    () => this.bundledSkills().filter((s) => s.runtime_status === 'stub').length,
+  );
+  readonly unboundSkillsCount = computed(
+    () =>
+      this.bundledSkills().filter(
+        (s) => s.runtime_status === 'unbound' || s.runtime_status === 'catalog_only',
+      ).length,
+  );
+
   readonly projectedMargin = computed(() => {
     const cap = this.selectedCapability();
     if (!cap?.value_per_outcome || cap?.pricing?.unit_price == null) return '—';
@@ -783,6 +902,7 @@ export class SystemBuilderComponent implements OnInit {
     if (q.get('objective')) this.draft.objective = q.get('objective') ?? '';
 
     this.settings.refresh();
+    this.health.load().subscribe();
     this.loadingCaps.set(true);
     this.loadingCollections.set(true);
     this.api
@@ -861,16 +981,29 @@ export class SystemBuilderComponent implements OnInit {
     else this.draft.collections.push(name);
   }
 
+  presetStatus(presetId: string): 'bound' | 'stub' | 'unbound' | 'catalog_only' {
+    return this.health.presetStatus(presetId);
+  }
+
+  presetHealthTitle(presetId: string): string {
+    const st = this.presetStatus(presetId);
+    if (st === 'bound') return 'Preset available — all required skills are bound.';
+    if (st === 'stub') return 'Preset available but at least one underlying skill is a stub.';
+    if (st === 'unbound') return 'Warning — at least one underlying skill has no wrapper. Runs may fail.';
+    return 'Warning — at least one underlying skill is only in the catalog, not registered at runtime.';
+  }
+
   isStepValid(idx: number): boolean {
     switch (idx) {
       case 0:
         return this.draft.name.trim().length > 0;
       case 1:
         return !!this.draft.capability_id;
-      case 2:
-      case 3:
+      case 2: // Skills — always passes (surface-only, gated by capability above)
+      case 3: // Context
+      case 4: // Policy
         return true;
-      case 4:
+      case 5:
         return this.draft.name.trim().length > 0 && !!this.draft.capability_id;
       default:
         return true;
@@ -887,7 +1020,7 @@ export class SystemBuilderComponent implements OnInit {
         return 'A name is required.';
       case 1:
         return 'Pick a capability to continue.';
-      case 4:
+      case 5:
         return 'Fill the name and pick a capability before launching.';
       default:
         return '';
@@ -942,6 +1075,7 @@ export class SystemBuilderComponent implements OnInit {
         default_model?: string | null;
         retrieval_mode_default?: string | null;
         context_id?: string | null;
+        execution_mode?: System['execution_mode'];
       } = {
         name: this.draft.name.trim(),
         objective: this.draft.objective.trim(),
@@ -951,6 +1085,7 @@ export class SystemBuilderComponent implements OnInit {
         default_prompt_type: promptType,
         default_model: defaultModel,
         retrieval_mode_default: canonicalRagMode,
+        execution_mode: this.draft.execution_mode,
         flow_definition: {
           collections: this.draft.collections,
           rag_mode: this.draft.rag_mode,

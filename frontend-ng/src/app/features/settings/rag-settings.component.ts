@@ -35,7 +35,7 @@ const RAG_MODES = [
       breadcrumb="Configure"
       title="Settings"
       icon="sliders-horizontal"
-      subtitle="Generation, retrieval and pipeline tuning shared across playground sessions."
+      subtitle="Generation, retrieval and pipeline tuning shared across chat sessions."
     >
       <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mr-2">
         {{ dirty() ? 'Unsaved changes' : 'Synced' }}

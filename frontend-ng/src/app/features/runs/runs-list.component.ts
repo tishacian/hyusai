@@ -12,7 +12,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { PageFrameComponent } from '@app/shared/cockpit';
+import { HelpTooltipComponent, PageFrameComponent } from '@app/shared/cockpit';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
 
 type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
@@ -26,6 +26,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
     IconComponent,
     EmptyStateComponent,
     PageFrameComponent,
+    HelpTooltipComponent,
   ],
   template: `
     <ck-page-frame
@@ -34,6 +35,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
       description="Every execution is a Run: input, outcome, skill trail. Click a row to drill down."
     >
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+        <ck-help id="runs.list" />
         <select
           [(ngModel)]="statusFilter"
           class="ck-mono"
