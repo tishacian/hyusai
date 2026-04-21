@@ -47,15 +47,128 @@ export type CanonicalNodeType =
   | 'sink'
   | 'custom';
 
+/**
+ * Execution kind — orthogonal to the semantic `type`.
+ *
+ * `type` carries the builder's meaning ("this is the Context section");
+ * `kind` tells the DAG runtime what to do with the node at execution
+ * time. Builder-authored canonical nodes are always `task` (no-op in
+ * runtime; the run engine extracts skills from the System, not the
+ * flow). Flow-authored nodes choose any kind to compose a real DAG.
+ */
+export type NodeKind =
+  | 'task'      // Execute a Skill (LLM call or deterministic op).
+  | 'decision'  // Branch on condition → N outgoing edges w/ branch_label.
+  | 'fork'      // Fan out: N branches run in parallel.
+  | 'join'      // Fan in: wait for N incoming branches.
+  | 'loop'      // Repeat body until condition or max_iterations.
+  | 'retry'     // Retry target on error with backoff.
+  | 'hitl'      // Pause for Human-in-the-loop approval.
+  | 'subflow'   // Nested execution of another System.
+  | 'source'    // Flow input (from trigger).
+  | 'sink';     // Flow output.
+
+/**
+ * Typed I/O contract for a node. `schema` is a compact hint:
+ * primitive (`'string' | 'number' | 'boolean' | 'object' | 'array'`) or
+ * a dotted path to a shared schema (`'ref:run.input'`). The frontend
+ * uses it for hover previews and simple validation; the backend can
+ * use it later to enforce dataflow correctness.
+ */
+export interface NodePort {
+  name: string;
+  schema: string;
+  required?: boolean;
+  description?: string;
+}
+
+/**
+ * Kind-specific config payload. Typed as a discriminated union for
+ * IDE support, but always persisted as a free-form bag so forward-
+ * compatibility is cheap.
+ */
+export interface TaskNodeConfig {
+  skill_id?: string | null;
+  skill_slug?: string;
+  /** Map input port name → expression against the context bag. */
+  inputs_map?: Record<string, string>;
+  /** Map output port name → context key to write. */
+  outputs_map?: Record<string, string>;
+}
+
+export interface DecisionNodeConfig {
+  branches: { label: string; condition: string }[];
+  default_branch?: string;
+}
+
+export interface ForkNodeConfig {
+  /** Names of the parallel branches (free-form labels). */
+  branches: string[];
+}
+
+export interface JoinNodeConfig {
+  /** Wait for all, any, or race-win strategy. */
+  strategy: 'all' | 'any' | 'race';
+}
+
+export interface LoopNodeConfig {
+  max_iterations: number;
+  break_on?: string;
+  iterator?: string;
+}
+
+export interface RetryNodeConfig {
+  max_attempts: number;
+  backoff_ms: number;
+  /** Optional filter: only retry for specific error kinds. */
+  on_errors?: string[];
+}
+
+export interface HitlNodeConfig {
+  prompt: string;
+  timeout_ms?: number;
+  /** Roles allowed to approve/reject. */
+  approvers?: string[];
+}
+
+export interface SubflowNodeConfig {
+  /** Target System to execute as a nested run. */
+  system_id: string;
+  /** Project parent context keys into child input. */
+  input_map?: Record<string, string>;
+}
+
+export type KindConfig =
+  | TaskNodeConfig
+  | DecisionNodeConfig
+  | ForkNodeConfig
+  | JoinNodeConfig
+  | LoopNodeConfig
+  | RetryNodeConfig
+  | HitlNodeConfig
+  | SubflowNodeConfig
+  | Record<string, unknown>;
+
 export interface CanonicalFlowNode {
   id: string;
   type: CanonicalNodeType | string;
+  /**
+   * Execution semantics. Optional for backward compat: readers should
+   * default to `'task'` when absent.
+   */
+  kind?: NodeKind;
   label?: string;
   /**
    * Section payload for builder-originated nodes. Free-form bag indexed
    * by the caller; the serializer only cares about the canonical keys.
    */
   data?: Record<string, unknown>;
+  /** Typed input ports. Empty = implicit passthrough. */
+  inputs?: NodePort[];
+  /** Typed output ports. Empty = implicit passthrough. */
+  outputs?: NodePort[];
+  /** Kind-specific config. Shape depends on `kind`. */
+  config?: KindConfig;
   /** Pixel position — only meaningful for Drawflow. */
   position?: { x: number; y: number };
 }
@@ -63,7 +176,32 @@ export interface CanonicalFlowNode {
 export interface CanonicalFlowEdge {
   from: string;
   to: string;
+  /**
+   * What travels on this edge. `data` = value passthrough (port→port),
+   * `control` = pure sequencing, `branch` = outcome of a `decision`
+   * or `fork` (requires `branch_label`).
+   */
+  kind?: 'data' | 'control' | 'branch';
+  branch_label?: string;
+  /** Source port name (when kind='data'). */
+  from_port?: string;
+  /** Target port name (when kind='data'). */
+  to_port?: string;
   label?: string;
+}
+
+/**
+ * A reusable flow starter. Persisted client-side in Vague C (starter
+ * kit shipped with the app) and server-side in Vague D.
+ */
+export interface FlowTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  category?: 'rag' | 'agent' | 'automation' | 'research' | 'compliance' | 'custom';
+  /** Emoji or icon slug for quick visual identification. */
+  icon?: string;
+  flow: CanonicalFlow;
 }
 
 export interface CanonicalPolicy {
@@ -97,6 +235,36 @@ export interface CanonicalFlow {
   rag_mode?: string;
   canonical_rag_mode?: string;
   context_reused?: boolean;
+
+  /** Optional template lineage (set when the flow was spawned from a
+   *  FlowTemplate). Does not imply a live link — a flow is its own
+   *  standalone graph once instantiated. */
+  template_id?: string;
+  template_name?: string;
+
+  /** Optional schema version for the flow itself — lets us evolve the
+   *  shape with safe migrations. Current = 2 (v1 = Vague A/B, v2 = C). */
+  schema_version?: number;
+}
+
+/** Validation diagnostic for a flow graph. */
+export interface FlowValidationIssue {
+  level: 'error' | 'warn';
+  node_id?: string;
+  edge_index?: number;
+  code:
+    | 'dangling_edge'
+    | 'join_without_fork'
+    | 'fork_without_join'
+    | 'decision_no_branches'
+    | 'task_no_skill'
+    | 'cycle_detected'
+    | 'unreachable_node'
+    | 'port_type_mismatch'
+    | 'hitl_no_prompt'
+    | 'loop_no_budget'
+    | 'retry_no_target';
+  message: string;
 }
 
 /**
@@ -177,38 +345,50 @@ export class FlowSerializerService {
       {
         id: 'builder.objective',
         type: 'objective',
+        kind: 'source',
         label: draft.name || 'Objective',
         data: { name: draft.name, objective: draft.objective },
+        outputs: [{ name: 'goal', schema: 'string', description: 'User objective' }],
         position: { x: 60, y: 80 },
       },
       {
         id: 'builder.capability',
         type: 'capability',
+        kind: 'task',
         label: 'Capability',
         data: { capability_id: draft.capability_id },
+        inputs: [{ name: 'goal', schema: 'string' }],
+        outputs: [{ name: 'plan', schema: 'object' }],
         position: { x: 320, y: 80 },
       },
       {
         id: 'builder.skills',
         type: 'skill',
+        kind: 'task',
         label: 'Bundled skills',
         data: {},
+        inputs: [{ name: 'plan', schema: 'object' }],
+        outputs: [{ name: 'result', schema: 'object' }],
         position: { x: 580, y: 80 },
       },
       {
         id: 'builder.context',
         type: 'context',
+        kind: 'task',
         label: 'Context',
         data: {
           collections: draft.collections,
           reuse_context_id: draft.reuse_context_id,
           rag_mode: draft.rag_mode,
         },
+        inputs: [{ name: 'result', schema: 'object' }],
+        outputs: [{ name: 'grounded', schema: 'object' }],
         position: { x: 840, y: 80 },
       },
       {
         id: 'builder.policy',
         type: 'policy',
+        kind: 'task',
         label: 'Policy',
         data: {
           execution_mode: draft.execution_mode,
@@ -216,25 +396,30 @@ export class FlowSerializerService {
           default_model: draft.default_model,
           policy: this.policyFromDraft(draft),
         },
+        inputs: [{ name: 'grounded', schema: 'object' }],
+        outputs: [{ name: 'checked', schema: 'object' }],
         position: { x: 1100, y: 80 },
       },
       {
         id: 'builder.launch',
         type: 'launch',
+        kind: 'sink',
         label: 'Launch',
         data: {},
+        inputs: [{ name: 'checked', schema: 'object' }],
         position: { x: 1360, y: 80 },
       },
     ];
 
     const edges: CanonicalFlowEdge[] = [];
     for (let i = 0; i < nodes.length - 1; i += 1) {
-      edges.push({ from: nodes[i].id, to: nodes[i + 1].id });
+      edges.push({ from: nodes[i].id, to: nodes[i + 1].id, kind: 'data' });
     }
 
     return {
       source: 'form',
       extended: false,
+      schema_version: 2,
       nodes,
       edges,
       policy: this.policyFromDraft(draft),
@@ -324,13 +509,22 @@ export class FlowSerializerService {
     flow.nodes.forEach((n, idx) => {
       const num = idx + 1;
       idToNum.set(n.id, num);
+      const kind = n.kind ?? 'task';
       data[String(num)] = {
         id: num,
         name: String(n.type),
-        class: `flow-node flow-node-${n.type}`,
+        class: `flow-node flow-node-${n.type} flow-kind-${kind}`,
         html: this.nodeHtml(n),
         typenode: false,
-        data: { ...(n.data ?? {}), canonical_id: n.id, canonical_type: n.type },
+        data: {
+          ...(n.data ?? {}),
+          canonical_id: n.id,
+          canonical_type: n.type,
+          canonical_kind: kind,
+          canonical_config: n.config ?? null,
+          canonical_inputs: n.inputs ?? null,
+          canonical_outputs: n.outputs ?? null,
+        },
         inputs: { input_1: { connections: [] } },
         outputs: { output_1: { connections: [] } },
         pos_x: n.position?.x ?? 60 + idx * 260,
@@ -373,16 +567,32 @@ export class FlowSerializerService {
       const canonicalId = (node.data?.['canonical_id'] as string) || `flow.${key}`;
       const type =
         (node.data?.['canonical_type'] as string) || node.name || 'custom';
+      const kind = (node.data?.['canonical_kind'] as NodeKind) || 'task';
+      const config = (node.data?.['canonical_config'] as KindConfig) || undefined;
+      const inputs = (node.data?.['canonical_inputs'] as NodePort[]) || undefined;
+      const outputs = (node.data?.['canonical_outputs'] as NodePort[]) || undefined;
       if (!CANONICAL_ID_SET.has(canonicalId) && type !== 'source' && type !== 'sink') {
         hasExtra = true;
       }
       numToCanonical.set(key, canonicalId);
-      const { canonical_id: _ci, canonical_type: _ct, ...rest } = node.data ?? {};
+      const {
+        canonical_id: _ci,
+        canonical_type: _ct,
+        canonical_kind: _ck,
+        canonical_config: _cc,
+        canonical_inputs: _cin,
+        canonical_outputs: _cout,
+        ...rest
+      } = node.data ?? {};
       nodes.push({
         id: canonicalId,
         type,
+        kind,
         label: this.extractLabel(node),
         data: rest,
+        config,
+        inputs,
+        outputs,
         position: { x: node.pos_x, y: node.pos_y },
       });
     }
@@ -394,7 +604,7 @@ export class FlowSerializerService {
       for (const out of Object.values(node.outputs ?? {})) {
         for (const conn of out.connections ?? []) {
           const toId = numToCanonical.get(conn.node);
-          if (toId) edges.push({ from: fromId, to: toId });
+          if (toId) edges.push({ from: fromId, to: toId, kind: 'data' });
         }
       }
     }
@@ -402,6 +612,7 @@ export class FlowSerializerService {
     return {
       source: 'flow',
       extended: hasExtra,
+      schema_version: 2,
       nodes,
       edges,
     };
@@ -429,6 +640,256 @@ export class FlowSerializerService {
       context_reused: !!ctx['reuse_context_id'] || flow.context_reused === true,
       policy: policy ?? flow.policy,
     };
+  }
+
+  // ---------- C1 extensions: normalization / validation / topo / runnables ----------
+
+  /**
+   * Ensure every node carries a `kind` (defaults to `'task'`) and has
+   * the minimal shape downstream consumers expect. Also back-fills a
+   * `schema_version` marker when absent. Idempotent.
+   */
+  normalize(flow: CanonicalFlow): CanonicalFlow {
+    const nodes = flow.nodes.map((n) => this.normalizeNode(n));
+    const edges = flow.edges.map((e) => ({
+      ...e,
+      kind: e.kind ?? 'data',
+    }));
+    return {
+      ...flow,
+      schema_version: flow.schema_version ?? 2,
+      nodes,
+      edges,
+    };
+  }
+
+  normalizeNode(node: CanonicalFlowNode): CanonicalFlowNode {
+    return {
+      ...node,
+      kind: node.kind ?? 'task',
+      inputs: node.inputs ?? [],
+      outputs: node.outputs ?? [],
+      config: node.config ?? {},
+    };
+  }
+
+  /**
+   * Static validation pass against a canonical flow. Runs in O(V+E),
+   * never throws — returns a list of diagnostics the UI can surface as
+   * inline hints or a validation panel.
+   */
+  validateFlow(flow: CanonicalFlow): FlowValidationIssue[] {
+    const issues: FlowValidationIssue[] = [];
+    const ids = new Set(flow.nodes.map((n) => n.id));
+    const adj = new Map<string, string[]>();
+    const rev = new Map<string, string[]>();
+    flow.nodes.forEach((n) => {
+      adj.set(n.id, []);
+      rev.set(n.id, []);
+    });
+
+    flow.edges.forEach((e, idx) => {
+      if (!ids.has(e.from) || !ids.has(e.to)) {
+        issues.push({
+          level: 'error',
+          edge_index: idx,
+          code: 'dangling_edge',
+          message: `Edge ${e.from} → ${e.to} references unknown node(s).`,
+        });
+        return;
+      }
+      adj.get(e.from)!.push(e.to);
+      rev.get(e.to)!.push(e.from);
+    });
+
+    let forkCount = 0;
+    let joinCount = 0;
+
+    for (const n of flow.nodes) {
+      const kind = n.kind ?? 'task';
+      const cfg = (n.config ?? {}) as Record<string, unknown>;
+      if (kind === 'fork') forkCount += 1;
+      if (kind === 'join') joinCount += 1;
+
+      if (kind === 'task') {
+        const skillId = cfg['skill_id'];
+        const skillSlug = cfg['skill_slug'];
+        const hasSkill =
+          (typeof skillId === 'string' && skillId.length > 0) ||
+          (typeof skillSlug === 'string' && skillSlug.length > 0);
+        const isBuilderNode = CANONICAL_ID_SET.has(n.id);
+        if (!hasSkill && !isBuilderNode) {
+          issues.push({
+            level: 'warn',
+            node_id: n.id,
+            code: 'task_no_skill',
+            message: `Task node "${n.label ?? n.id}" has no Skill bound.`,
+          });
+        }
+      }
+      if (kind === 'decision') {
+        const branches = cfg['branches'];
+        if (!Array.isArray(branches) || branches.length < 2) {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'decision_no_branches',
+            message: `Decision "${n.label ?? n.id}" needs at least two branches.`,
+          });
+        }
+      }
+      if (kind === 'loop') {
+        const budget = cfg['max_iterations'];
+        if (typeof budget !== 'number' || budget <= 0) {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'loop_no_budget',
+            message: `Loop "${n.label ?? n.id}" is missing a positive max_iterations budget.`,
+          });
+        }
+      }
+      if (kind === 'retry') {
+        const attempts = cfg['max_attempts'];
+        if (typeof attempts !== 'number' || attempts <= 0) {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'retry_no_target',
+            message: `Retry "${n.label ?? n.id}" is missing a positive max_attempts.`,
+          });
+        }
+      }
+      if (kind === 'hitl') {
+        const prompt = cfg['prompt'];
+        if (typeof prompt !== 'string' || prompt.trim().length === 0) {
+          issues.push({
+            level: 'warn',
+            node_id: n.id,
+            code: 'hitl_no_prompt',
+            message: `HITL "${n.label ?? n.id}" should include an approver prompt.`,
+          });
+        }
+      }
+    }
+
+    if (joinCount > 0 && forkCount === 0) {
+      issues.push({
+        level: 'warn',
+        code: 'join_without_fork',
+        message: 'Flow has join node(s) but no fork — join will degenerate to passthrough.',
+      });
+    }
+    if (forkCount > 0 && joinCount === 0) {
+      issues.push({
+        level: 'warn',
+        code: 'fork_without_join',
+        message: 'Flow has fork node(s) but no join — branches may race to the sink.',
+      });
+    }
+
+    if (this.hasCycle(adj)) {
+      issues.push({
+        level: 'error',
+        code: 'cycle_detected',
+        message: 'Flow contains a cycle outside a loop node. Use a loop kind for controlled iteration.',
+      });
+    }
+
+    return issues;
+  }
+
+  /**
+   * Kahn topological sort. Returns `null` when the graph has a cycle
+   * (use validateFlow to surface the diagnostic). Used by the client
+   * simulator and the C6 backend extraction step.
+   */
+  topoSort(flow: CanonicalFlow): string[] | null {
+    const indeg = new Map<string, number>();
+    const adj = new Map<string, string[]>();
+    flow.nodes.forEach((n) => {
+      indeg.set(n.id, 0);
+      adj.set(n.id, []);
+    });
+    flow.edges.forEach((e) => {
+      if (!indeg.has(e.from) || !indeg.has(e.to)) return;
+      indeg.set(e.to, (indeg.get(e.to) ?? 0) + 1);
+      adj.get(e.from)!.push(e.to);
+    });
+
+    const queue: string[] = [];
+    indeg.forEach((deg, id) => {
+      if (deg === 0) queue.push(id);
+    });
+
+    const out: string[] = [];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      out.push(id);
+      for (const next of adj.get(id) ?? []) {
+        const d = (indeg.get(next) ?? 0) - 1;
+        indeg.set(next, d);
+        if (d === 0) queue.push(next);
+      }
+    }
+    return out.length === flow.nodes.length ? out : null;
+  }
+
+  /**
+   * Extract the ordered list of Skill slugs that the backend run engine
+   * should execute, based on the flow's task nodes. Non-task kinds are
+   * reported as `skipped_kinds` so the UI can warn that advanced nodes
+   * are client-simulated only (until the C6 DAG runtime ships).
+   */
+  extractRunnableSkills(
+    flow: CanonicalFlow,
+    skillIdToSlug: (id: string) => string | undefined,
+  ): { slugs: string[]; skipped_kinds: NodeKind[] } {
+    const order = this.topoSort(flow) ?? flow.nodes.map((n) => n.id);
+    const byId = new Map(flow.nodes.map((n) => [n.id, n] as const));
+    const slugs: string[] = [];
+    const skipped: NodeKind[] = [];
+
+    for (const id of order) {
+      const node = byId.get(id);
+      if (!node) continue;
+      const kind = node.kind ?? 'task';
+      if (kind === 'source' || kind === 'sink') continue;
+      if (kind !== 'task') {
+        skipped.push(kind);
+        continue;
+      }
+      const cfg = (node.config ?? {}) as TaskNodeConfig;
+      const slug = cfg.skill_slug ?? (cfg.skill_id ? skillIdToSlug(cfg.skill_id) : undefined);
+      if (slug) slugs.push(slug);
+    }
+
+    return { slugs, skipped_kinds: skipped };
+  }
+
+  private hasCycle(adj: Map<string, string[]>): boolean {
+    const white = new Set(adj.keys());
+    const gray = new Set<string>();
+    const black = new Set<string>();
+
+    const visit = (id: string): boolean => {
+      if (black.has(id)) return false;
+      if (gray.has(id)) return true;
+      gray.add(id);
+      white.delete(id);
+      for (const next of adj.get(id) ?? []) {
+        if (visit(next)) return true;
+      }
+      gray.delete(id);
+      black.add(id);
+      return false;
+    };
+
+    while (white.size > 0) {
+      const id = white.values().next().value as string;
+      if (visit(id)) return true;
+    }
+    return false;
   }
 
   // ---------- helpers ----------
