@@ -30,14 +30,31 @@ import {
   type CanonicalFlowEdge,
   type CanonicalFlowNode,
   type DrawflowGraph,
+  type FlowValidationIssue,
+  type NodeKind,
 } from '@app/core/flow-serializer.service';
+
+/** Tone vocabulary — maps 1:1 to the mockup's `--signal-*` tokens. */
+type NodeTone = 'brand' | 'violet' | 'emerald' | 'amber' | 'rose' | 'cyan';
 
 interface PaletteItem {
   type: string;
   icon: string;
   label: string;
   description: string;
-  tone: 'brand' | 'violet' | 'emerald' | 'amber';
+  tone: NodeTone;
+  /** DAG kind this node represents. Defaults to 'task'. */
+  kind?: NodeKind;
+  /** Uppercase pill label shown on the node card. */
+  typeLabel?: string;
+}
+
+/** Single timestamped entry in the Execution Terminal. */
+interface TerminalEntry {
+  t: string; // HH:MM:SS
+  tag: string; // [System], [Skill], ...
+  tone: NodeTone | 'pos' | 'neg' | 'warn' | 'info';
+  text: string;
 }
 
 interface FlowTemplate {
@@ -112,50 +129,35 @@ interface FlowTemplate {
       </button>
     </ck-object-header>
 
-    <div class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
+    <div class="grid grid-cols-1 gap-3 df-shell" [attr.data-inspector]="inspectorOpen() ? 'open' : 'closed'">
       <!-- Palette -->
-      <aside class="t-card t-elevated rounded-md p-4 h-fit">
-        <h3 class="text-xs uppercase tracking-wider font-semibold text-gray-400 mb-3 flex items-center gap-1.5">
+      <aside class="t-card t-elevated rounded-md p-3 h-fit">
+        <h3 class="text-[10px] uppercase tracking-[0.14em] font-semibold text-gray-400 mb-2 flex items-center gap-1.5 ck-mono">
           <app-icon name="layers" [size]="12" class="text-brand-400" /> Nodes
         </h3>
-        <p class="text-[11px] text-gray-500 mb-3 leading-relaxed">
-          Drag a node onto the canvas or click to add it at the center.
-        </p>
-        <div class="space-y-2">
+        <div class="space-y-1.5">
           @for (node of palette; track node.type) {
             <div
               draggable="true"
               (dragstart)="onDragStart($event, node)"
               (click)="addNodeAtCenter(node)"
-              class="flex items-start gap-3 px-3 py-2.5 rounded border border-white/5 bg-black/20 hover:bg-white/5 hover:border-brand-500/30 transition text-left group cursor-grab active:cursor-grabbing"
+              class="df-palette-card group"
+              [attr.data-tone]="node.tone"
+              [title]="node.description"
             >
-              <div
-                class="w-8 h-8 rounded flex items-center justify-center shrink-0 ring-1"
-                [class.bg-brand-500\\/15]="node.tone === 'brand'"
-                [class.ring-brand-500\\/30]="node.tone === 'brand'"
-                [class.text-brand-400]="node.tone === 'brand'"
-                [class.bg-violet-500\\/15]="node.tone === 'violet'"
-                [class.ring-violet-500\\/30]="node.tone === 'violet'"
-                [class.text-violet-400]="node.tone === 'violet'"
-                [class.bg-emerald-500\\/15]="node.tone === 'emerald'"
-                [class.ring-emerald-500\\/30]="node.tone === 'emerald'"
-                [class.text-emerald-400]="node.tone === 'emerald'"
-                [class.bg-amber-500\\/15]="node.tone === 'amber'"
-                [class.ring-amber-500\\/30]="node.tone === 'amber'"
-                [class.text-amber-400]="node.tone === 'amber'"
-              >
+              <div class="df-palette-icon" [attr.data-tone]="node.tone">
                 <app-icon [name]="node.icon" [size]="14" />
               </div>
-              <div class="min-w-0">
-                <div class="text-sm font-medium text-white truncate">{{ node.label }}</div>
-                <div class="text-[11px] text-gray-500 line-clamp-1">{{ node.description }}</div>
+              <div class="min-w-0 flex-1">
+                <div class="text-xs font-medium text-white truncate leading-tight">{{ node.label }}</div>
+                <div class="text-[9px] text-gray-500 leading-tight ck-mono uppercase tracking-wider">{{ node.typeLabel ?? node.label }}</div>
               </div>
             </div>
           }
         </div>
 
-        <div class="mt-5 pt-4 border-t border-white/5">
-          <h3 class="text-xs uppercase tracking-wider font-semibold text-gray-400 mb-2 flex items-center gap-1.5">
+        <div class="mt-4 pt-3 border-t border-white/5">
+          <h3 class="text-[10px] uppercase tracking-[0.14em] font-semibold text-gray-400 mb-2 flex items-center gap-1.5 ck-mono">
             <app-icon name="sparkles" [size]="12" class="text-brand-400" /> Templates
           </h3>
           <div class="space-y-1">
@@ -174,38 +176,102 @@ interface FlowTemplate {
         </div>
       </aside>
 
-      <!-- Canvas -->
+      <!-- Canvas + Terminal column -->
       <div
         class="t-card t-elevated rounded-md overflow-hidden relative"
-        style="height: 640px"
+        style="height: 680px"
       >
-        <div class="absolute inset-x-0 top-0 z-10 px-4 py-2 flex items-center justify-between bg-black/30 backdrop-blur-sm border-b border-white/5">
-          <div class="flex items-center gap-2 text-xs text-gray-400">
-            <app-icon name="mouse-pointer-2" [size]="12" class="text-brand-400" />
-            Drag nodes onto the grid · connect by dragging between ports · scroll to pan
+        <!-- Canvas toolbar -->
+        <div class="absolute inset-x-0 top-0 z-10 px-3 py-2 flex items-center justify-between bg-black/30 backdrop-blur-sm border-b border-white/5">
+          <div class="flex items-center gap-3">
+            <span class="ck-mono text-[9px] uppercase tracking-[0.14em] text-gray-400">Flow canvas</span>
+            @if (nodeCount() > 0) {
+              <div class="flex items-center gap-1.5">
+                @if (errorCount() > 0) {
+                  <span class="df-tag df-tag-neg" [title]="'Validation errors'">
+                    <app-icon name="alert-triangle" [size]="10" />
+                    {{ errorCount() }} ERR
+                  </span>
+                }
+                @if (warnCount() > 0) {
+                  <span class="df-tag df-tag-warn" [title]="'Validation warnings'">
+                    {{ warnCount() }} WARN
+                  </span>
+                }
+                @if (errorCount() === 0 && warnCount() === 0) {
+                  <span class="df-tag df-tag-pos">
+                    <app-icon name="check" [size]="10" />
+                    VALID
+                  </span>
+                }
+              </div>
+            }
           </div>
           <div class="flex items-center gap-1">
-            <button (click)="zoom('in')" class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition" title="Zoom in">
+            <button (click)="zoom('in')" class="df-tool-btn" title="Zoom in">
               <app-icon name="zoom-in" [size]="14" />
             </button>
-            <button (click)="zoom('out')" class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition" title="Zoom out">
+            <button (click)="zoom('out')" class="df-tool-btn" title="Zoom out">
               <app-icon name="zoom-out" [size]="14" />
             </button>
-            <button (click)="zoomReset()" class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition" title="Reset zoom">
+            <button (click)="zoomReset()" class="df-tool-btn" title="Reset zoom">
               <app-icon name="maximize" [size]="14" />
             </button>
-            <button (click)="clearAll()" class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-red-400 transition" title="Clear canvas">
+            <span class="w-px h-4 bg-white/10 mx-1"></span>
+            <button (click)="toggleTerminal()" class="df-tool-btn" [class.active]="terminalOpen()" title="Toggle execution terminal">
+              <app-icon name="terminal" [size]="14" />
+            </button>
+            <button (click)="toggleInspector()" class="df-tool-btn" [class.active]="inspectorOpen()" title="Toggle node inspector">
+              <app-icon name="sidebar" [size]="14" />
+            </button>
+            <button (click)="clearAll()" class="df-tool-btn df-tool-btn--danger" title="Clear canvas">
               <app-icon name="trash-2" [size]="14" />
             </button>
           </div>
         </div>
 
+        <!-- Drawflow host -->
         <div
           #drawflowContainer
-          class="w-full h-full pt-10"
+          class="w-full h-full pt-10 df-host"
           (dragover)="onDragOver($event)"
           (drop)="onDrop($event)"
         ></div>
+
+        <!-- Execution Terminal -->
+        @if (terminalOpen()) {
+          <div class="df-terminal">
+            <div class="df-terminal-head">
+              <span class="ck-mono text-[9px] uppercase tracking-[0.14em] text-gray-400">Execution terminal</span>
+              <div class="flex items-center gap-2">
+                @if (terminalLog().length > 0) {
+                  <span class="df-tag df-tag-cool">{{ terminalLog().length }} LINES</span>
+                }
+                <button (click)="clearTerminal()" class="text-[10px] text-gray-500 hover:text-gray-300 ck-mono" title="Clear log">
+                  CLEAR
+                </button>
+                <button (click)="toggleTerminal()" class="df-tool-btn df-tool-btn--small" title="Collapse">
+                  <app-icon name="chevron-down" [size]="12" />
+                </button>
+              </div>
+            </div>
+            <div class="df-terminal-body ck-mono">
+              @if (terminalLog().length === 0) {
+                <div class="df-terminal-empty">
+                  <span class="text-gray-500">›</span>
+                  Execute a Run on this System to see live output. Click Simulate or Execute on backend.
+                </div>
+              }
+              @for (entry of terminalLog(); track $index) {
+                <div class="df-terminal-row">
+                  <span class="df-terminal-time">{{ entry.t }}</span>
+                  <span class="df-terminal-tag" [attr.data-tone]="entry.tone">[{{ entry.tag }}]</span>
+                  <span class="df-terminal-text">{{ entry.text }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        }
 
         @if (loading()) {
           <div class="absolute inset-0 flex flex-col items-center justify-center text-sm text-gray-400 bg-black/20 pointer-events-none">
@@ -220,7 +286,137 @@ interface FlowTemplate {
           </div>
         }
       </div>
+
+      <!-- Node Inspector -->
+      @if (inspectorOpen()) {
+        <aside class="t-card t-elevated rounded-md overflow-hidden" style="height: 680px">
+          <div class="df-inspector">
+            <div class="df-inspector-head">
+              <span class="ck-mono text-[10px] uppercase tracking-[0.14em] text-gray-400">Node inspector</span>
+              @if (selectedNode()) {
+                <span class="df-tag" [attr.data-tone]="toneForNode(selectedNode()!)">{{ kindLabel(selectedNode()!.kind) }}</span>
+              }
+            </div>
+
+            @if (!selectedNode()) {
+              <div class="df-inspector-empty">
+                <app-icon name="mouse-pointer-2" [size]="20" class="text-gray-500 mb-3" />
+                <div class="text-sm text-gray-400 font-medium mb-1">No node selected</div>
+                <div class="text-[11px] text-gray-500 leading-relaxed max-w-[220px]">
+                  Click a node on the canvas to inspect its contract, config, and live metrics.
+                </div>
+              </div>
+            } @else {
+              <div class="df-inspector-body">
+                <!-- Title -->
+                <div class="text-lg text-white font-light mb-1">{{ selectedNode()!.label || selectedNode()!.type }}</div>
+                <div class="ck-mono text-[10px] text-gray-500">id: {{ selectedNode()!.id }}</div>
+
+                <!-- I/O contract -->
+                @if ((selectedNode()!.inputs?.length ?? 0) > 0 || (selectedNode()!.outputs?.length ?? 0) > 0) {
+                  <div class="df-inspector-section">
+                    <div class="df-inspector-label">Typed contract</div>
+                    @if ((selectedNode()!.inputs?.length ?? 0) > 0) {
+                      <div class="text-[10px] text-gray-500 mb-1 ck-mono">INPUTS</div>
+                      <div class="space-y-1 mb-3">
+                        @for (p of selectedNode()!.inputs; track p.name) {
+                          <div class="df-port-row">
+                            <span class="df-port-dot" data-dir="in"></span>
+                            <span class="text-xs text-gray-200 ck-mono">{{ p.name }}</span>
+                            <span class="df-port-schema">{{ p.schema }}</span>
+                          </div>
+                        }
+                      </div>
+                    }
+                    @if ((selectedNode()!.outputs?.length ?? 0) > 0) {
+                      <div class="text-[10px] text-gray-500 mb-1 ck-mono">OUTPUTS</div>
+                      <div class="space-y-1">
+                        @for (p of selectedNode()!.outputs; track p.name) {
+                          <div class="df-port-row">
+                            <span class="df-port-dot" data-dir="out"></span>
+                            <span class="text-xs text-gray-200 ck-mono">{{ p.name }}</span>
+                            <span class="df-port-schema">{{ p.schema }}</span>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+
+                <!-- Kind-specific config preview -->
+                <div class="df-inspector-section">
+                  <div class="df-inspector-label">Config · {{ kindLabel(selectedNode()!.kind) }}</div>
+                  <div class="df-inspector-config ck-mono">
+                    @if (configSummary(selectedNode()!).length === 0) {
+                      <span class="text-gray-500">— no config —</span>
+                    }
+                    @for (row of configSummary(selectedNode()!); track row.key) {
+                      <div class="df-config-row">
+                        <span class="text-gray-400">{{ row.key }}</span>
+                        <span class="text-gray-200">{{ row.value }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+
+                <!-- Local metrics placeholder -->
+                <div class="df-inspector-section">
+                  <div class="df-inspector-label">Local metrics · 24h</div>
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <div class="df-metric">
+                      <div class="df-metric-label">Runs</div>
+                      <div class="df-metric-value">—</div>
+                    </div>
+                    <div class="df-metric">
+                      <div class="df-metric-label">Success</div>
+                      <div class="df-metric-value">—</div>
+                    </div>
+                    <div class="df-metric">
+                      <div class="df-metric-label">Latency p95</div>
+                      <div class="df-metric-value">—</div>
+                    </div>
+                    <div class="df-metric">
+                      <div class="df-metric-label">Cost</div>
+                      <div class="df-metric-value">—</div>
+                    </div>
+                  </div>
+                  <div class="text-[10px] text-gray-600 mt-2">
+                    Metrics are wired in C8.
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        </aside>
+      } @else {
+        <aside class="t-card t-elevated rounded-md flex flex-col items-center py-3" style="height: 680px">
+          <button (click)="toggleInspector()" class="df-tool-btn" title="Open inspector">
+            <app-icon name="sidebar" [size]="14" />
+          </button>
+        </aside>
+      }
     </div>
+
+    <!-- Validation issues strip -->
+    @if (issues().length > 0) {
+      <div class="mt-3 t-card t-elevated rounded-md p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <app-icon name="alert-triangle" [size]="14" class="text-amber-400" />
+          <span class="text-xs font-medium text-white">Flow validation — {{ issues().length }} issue{{ issues().length > 1 ? 's' : '' }}</span>
+        </div>
+        <div class="space-y-1">
+          @for (issue of issues(); track $index) {
+            <div class="flex items-start gap-2 text-[11px]">
+              <span class="df-tag" [attr.data-tone]="issue.level === 'error' ? 'neg' : 'warn'">{{ issue.level === 'error' ? 'ERR' : 'WARN' }}</span>
+              <span class="text-gray-300">{{ issue.message }}</span>
+              @if (issue.node_id) {
+                <span class="ck-mono text-[10px] text-gray-500">· {{ issue.node_id }}</span>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    }
   `,
 })
 export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy {
@@ -250,6 +446,20 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly edgeCount = signal(0);
   readonly source = signal<'form' | 'flow'>('flow');
   readonly extended = signal(false);
+  readonly issues = signal<FlowValidationIssue[]>([]);
+
+  // Inspector / Terminal state.
+  readonly selectedNodeId = signal<string | null>(null);
+  readonly selectedNode = signal<CanonicalFlowNode | null>(null);
+  readonly inspectorOpen = signal(true);
+  readonly terminalOpen = signal(true);
+  readonly terminalLog = signal<TerminalEntry[]>([]);
+  readonly errorCount = computed(
+    () => this.issues().filter((i) => i.level === 'error').length,
+  );
+  readonly warnCount = computed(
+    () => this.issues().filter((i) => i.level === 'warn').length,
+  );
 
   readonly headerEyebrow = computed(() =>
     this.systemId() ? 'Systems · Flow' : 'Build · Flow · Scratchpad',
@@ -277,13 +487,20 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   ]);
 
   readonly palette: PaletteItem[] = [
-    { type: 'input', icon: 'message-circle', label: 'Input', description: 'User prompt / webhook', tone: 'brand' },
-    { type: 'retrieve', icon: 'database', label: 'Retrieve', description: 'Vector search over knowledge', tone: 'violet' },
-    { type: 'llm', icon: 'brain', label: 'LLM', description: 'Call a language model', tone: 'brand' },
-    { type: 'tool', icon: 'wrench', label: 'Tool', description: 'Invoke a tool / API', tone: 'emerald' },
-    { type: 'router', icon: 'git-branch', label: 'Router', description: 'Classify + dispatch', tone: 'violet' },
-    { type: 'guardrail', icon: 'shield-check', label: 'Guardrail', description: 'Safety + policy filter', tone: 'amber' },
-    { type: 'output', icon: 'arrow-up-right', label: 'Output', description: 'Return answer', tone: 'brand' },
+    // ── Execution-kind DAG primitives (Vague C) ──
+    { type: 'input', icon: 'zap', label: 'Trigger', description: 'Webhook / queue / schedule', tone: 'violet', kind: 'source', typeLabel: 'TRIGGER' },
+    { type: 'llm', icon: 'brain', label: 'LLM', description: 'Call a language model', tone: 'cyan', kind: 'task', typeLabel: 'LLM' },
+    { type: 'retrieve', icon: 'database', label: 'Retrieve', description: 'Vector search over knowledge', tone: 'violet', kind: 'task', typeLabel: 'SKILL' },
+    { type: 'tool', icon: 'wrench', label: 'Tool', description: 'Invoke a tool / API', tone: 'emerald', kind: 'task', typeLabel: 'SKILL' },
+    { type: 'router', icon: 'git-branch', label: 'Decision', description: 'Branch on condition', tone: 'violet', kind: 'decision', typeLabel: 'LOGIC' },
+    { type: 'fork', icon: 'split', label: 'Fork', description: 'Run branches in parallel', tone: 'cyan', kind: 'fork', typeLabel: 'LOGIC' },
+    { type: 'join', icon: 'merge', label: 'Join', description: 'Wait for branches', tone: 'cyan', kind: 'join', typeLabel: 'LOGIC' },
+    { type: 'loop', icon: 'repeat', label: 'Loop', description: 'Iterate with budget', tone: 'amber', kind: 'loop', typeLabel: 'LOGIC' },
+    { type: 'retry', icon: 'rotate-ccw', label: 'Retry', description: 'Retry on error', tone: 'amber', kind: 'retry', typeLabel: 'LOGIC' },
+    { type: 'hitl', icon: 'user-check', label: 'HITL', description: 'Human-in-the-loop gate', tone: 'amber', kind: 'hitl', typeLabel: 'HITL' },
+    { type: 'subflow', icon: 'layers', label: 'Subflow', description: 'Nested System run', tone: 'violet', kind: 'subflow', typeLabel: 'SUBFLOW' },
+    { type: 'guardrail', icon: 'shield-check', label: 'Guardrail', description: 'Safety + policy filter', tone: 'rose', kind: 'task', typeLabel: 'GUARD' },
+    { type: 'output', icon: 'arrow-up-right', label: 'Output', description: 'Return answer', tone: 'emerald', kind: 'sink', typeLabel: 'OUTPUT' },
   ];
 
   readonly flowTemplates: FlowTemplate[] = [
@@ -402,12 +619,23 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const refresh = () => {
       this.zone.run(() => this.refreshKpis());
     };
+    const onSelect = (id: number | string) => {
+      this.zone.run(() => this.onNodeSelected(String(id)));
+    };
+    const onUnselect = () => {
+      this.zone.run(() => {
+        this.selectedNodeId.set(null);
+        this.selectedNode.set(null);
+      });
+    };
     try {
       this.editor.on('nodeCreated', refresh);
       this.editor.on('nodeRemoved', refresh);
       this.editor.on('nodeDataChanged', refresh);
       this.editor.on('connectionCreated', refresh);
       this.editor.on('connectionRemoved', refresh);
+      this.editor.on('nodeSelected', onSelect);
+      this.editor.on('nodeUnselected', onUnselect);
     } catch {
       // older drawflow builds silently ignore unknown events
     }
@@ -420,6 +648,70 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.nodeCount.set(flow.nodes.length);
     this.edgeCount.set(flow.edges.length);
     this.extended.set(!!flow.extended);
+    this.issues.set(this.serializer.validateFlow(flow));
+  }
+
+  /**
+   * Look up the canonical node behind a Drawflow integer id and push
+   * it into the inspector signal. The lookup tolerates string/number
+   * id drift across Drawflow versions.
+   */
+  private onNodeSelected(rawId: string): void {
+    const graph = this.exportGraph();
+    const nodeData = graph?.drawflow?.Home?.data?.[rawId];
+    if (!nodeData) {
+      this.selectedNodeId.set(null);
+      this.selectedNode.set(null);
+      return;
+    }
+    const canonicalId =
+      (nodeData.data?.['canonical_id'] as string) || `flow.${rawId}`;
+    const type =
+      (nodeData.data?.['canonical_type'] as string) || nodeData.name || 'custom';
+    const kind = (nodeData.data?.['canonical_kind'] as NodeKind) || 'task';
+    const { canonical_id: _ci, canonical_type: _ct, canonical_kind: _ck,
+            canonical_config: _cc, canonical_inputs: _cin, canonical_outputs: _cout,
+            ...rest } = nodeData.data ?? {};
+    this.selectedNodeId.set(rawId);
+    this.selectedNode.set({
+      id: canonicalId,
+      type,
+      kind,
+      label: this.extractLabelFromHtml(nodeData.html ?? ''),
+      data: rest,
+      config: (nodeData.data?.['canonical_config'] as Record<string, unknown>) ?? {},
+      inputs: (nodeData.data?.['canonical_inputs'] as CanonicalFlowNode['inputs']) ?? [],
+      outputs: (nodeData.data?.['canonical_outputs'] as CanonicalFlowNode['outputs']) ?? [],
+      position: { x: nodeData.pos_x, y: nodeData.pos_y },
+    });
+  }
+
+  private extractLabelFromHtml(html: string): string {
+    const match = html.match(/class="df-title[^"]*"[^>]*>([^<]+)</);
+    if (match?.[1]) return match[1].trim();
+    const fallback = html.match(/>(.*?)</);
+    return fallback?.[1]?.trim() ?? 'Node';
+  }
+
+  /** Push a line into the Execution Terminal. Capped at 200 entries. */
+  pushTerminal(entry: Omit<TerminalEntry, 't'>): void {
+    const t = new Date().toTimeString().slice(0, 8);
+    this.terminalLog.update((log) => {
+      const next = [...log, { t, ...entry }];
+      return next.length > 200 ? next.slice(next.length - 200) : next;
+    });
+  }
+
+  clearTerminal(): void {
+    this.terminalLog.set([]);
+  }
+
+  toggleTerminal(): void {
+    this.terminalOpen.update((v) => !v);
+  }
+
+  toggleInspector(): void {
+    this.inspectorOpen.update((v) => !v);
   }
 
   private async hydrateFromSystem(systemId: string): Promise<void> {
@@ -505,14 +797,32 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     return this.palette.find((p) => p.type === type) ?? this.palette[0];
   }
 
-  private nodeHtml(node: PaletteItem, override?: { label?: string; description?: string }): string {
-    const label = override?.label ?? node.label;
-    const body = override?.description ?? node.description;
+  private nodeHtml(
+    node: PaletteItem,
+    override?: { label?: string; description?: string; kind?: NodeKind },
+  ): string {
+    const label = this.escape(override?.label ?? node.label);
+    const body = this.escape(override?.description ?? node.description);
+    const typeLabel = this.escape(node.typeLabel ?? node.label.toUpperCase());
+    const kind = override?.kind ?? node.kind ?? 'task';
     return `
-      <div class="df-node">
-        <div class="df-node-head"><span class="df-dot df-${node.tone}"></span>${label}</div>
-        <div class="df-node-body">${body}</div>
+      <div class="df-node df-tone-${node.tone} df-kind-${kind}">
+        <div class="df-node-bar"></div>
+        <div class="df-node-head">
+          <span class="df-node-icon"></span>
+          <span class="df-node-pill">${typeLabel}</span>
+        </div>
+        <div class="df-node-title">${label}</div>
+        <div class="df-node-body mono">${body}</div>
       </div>`;
+  }
+
+  private escape(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   private internalAdd(
@@ -523,15 +833,23 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   ): number {
     if (!this.editor) return 0;
     const p = this.paletteFor(type);
-    const inputs = type === 'input' ? 0 : 1;
-    const outputs = type === 'output' ? 0 : type === 'router' ? 2 : 1;
-    const data: Record<string, unknown> = {};
+    const isSource = p.kind === 'source' || type === 'input';
+    const isSink = p.kind === 'sink' || type === 'output';
+    const inputs = isSource ? 0 : 1;
+    const outputs = isSink ? 0 : p.kind === 'decision' || type === 'router' ? 2 : p.kind === 'fork' ? 3 : 1;
+    const kind = canonical?.kind ?? p.kind ?? 'task';
+    const data: Record<string, unknown> = {
+      canonical_kind: kind,
+      canonical_config: canonical?.config ?? {},
+      canonical_inputs: canonical?.inputs ?? [],
+      canonical_outputs: canonical?.outputs ?? [],
+    };
     if (canonical) {
       data['canonical_id'] = canonical.id;
       data['canonical_type'] = canonical.type;
       if (canonical.data) Object.assign(data, canonical.data);
     }
-    const html = this.nodeHtml(p, { label: canonical?.label });
+    const html = this.nodeHtml(p, { label: canonical?.label, kind });
     const id = this.editor.addNode(type, inputs, outputs, x, y, type, data, html);
     this.ids = Math.max(this.ids, id);
     return id;
@@ -689,6 +1007,57 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       return;
     }
     this.router.navigate(['/systems', sid], { queryParams: { facet: 'overview' } });
+  }
+
+  // ---------- Inspector helpers ----------
+
+  toneForNode(node: CanonicalFlowNode): NodeTone {
+    const match = this.palette.find((p) => p.type === node.type);
+    if (match) return match.tone;
+    switch (node.kind) {
+      case 'decision':
+      case 'fork':
+      case 'join':
+      case 'subflow':
+        return 'violet';
+      case 'loop':
+      case 'retry':
+      case 'hitl':
+        return 'amber';
+      case 'source':
+      case 'sink':
+        return 'emerald';
+      default:
+        return 'cyan';
+    }
+  }
+
+  kindLabel(kind: NodeKind | undefined): string {
+    const k = kind ?? 'task';
+    return k.toUpperCase();
+  }
+
+  /**
+   * Flatten the node's kind-specific config into a printable `key: value`
+   * list the inspector can render without hard-coding every shape.
+   */
+  configSummary(node: CanonicalFlowNode): { key: string; value: string }[] {
+    const cfg = (node.config ?? {}) as Record<string, unknown>;
+    const out: { key: string; value: string }[] = [];
+    for (const [key, raw] of Object.entries(cfg)) {
+      if (raw === null || raw === undefined) continue;
+      let value: string;
+      if (Array.isArray(raw)) {
+        value = `[${raw.length}]`;
+      } else if (typeof raw === 'object') {
+        value = '{…}';
+      } else {
+        value = String(raw);
+      }
+      if (value.length > 48) value = value.slice(0, 45) + '…';
+      out.push({ key, value });
+    }
+    return out;
   }
 }
 
