@@ -63,6 +63,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Canonical registry seeding failed (non-blocking)", error=str(e))
 
+    # Seed Intelligence System per workspace (idempotent, Vague A commit 2).
+    try:
+        from app.db.base import SessionLocal
+        from app.services.systems.bootstrap import (
+            ensure_intelligence_system_for_all_workspaces,
+        )
+
+        with SessionLocal() as _db:
+            intel_report = ensure_intelligence_system_for_all_workspaces(_db)
+        logger.info("Intelligence System seeded", **intel_report)
+    except Exception as e:
+        logger.warning(
+            "Intelligence System seeding failed (non-blocking)", error=str(e)
+        )
+
     logger.info("Application started", agents_count=len(orchestrator.agents))
 
     # Start intelligence RSS scheduler (1h interval, daemon thread)
