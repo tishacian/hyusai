@@ -88,7 +88,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'build',
     label: 'Build',
-    hint: 'Create Systems, Capabilities, atomic Skills, Knowledge',
+    hint: 'Create Systems, Capabilities, Skills, Knowledge & Flows',
     glyph: 'cube',
     primaryRoute: '/systems',
     matches: ['/systems', '/capabilities', '/skills', '/knowledge', '/orchestration'],
@@ -130,7 +130,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'govern',
     label: 'Govern',
-    hint: 'Control & Policy · audit, apps, presets',
+    hint: 'Control · audit, apps, resources, presets',
     glyph: 'shield',
     primaryRoute: '/governance',
     matches: ['/governance', '/apps', '/resources', '/presets', '/settings'],

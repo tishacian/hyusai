@@ -25,7 +25,6 @@ import {
   hasConnectorConfig,
   readAppToggles,
   readConnectorConfig,
-  writeAppToggle,
   writeConnectorConfig,
 } from './resources.catalog';
 
@@ -39,7 +38,7 @@ interface ModelInfo {
   [key: string]: unknown;
 }
 
-type Tab = 'models' | 'connectors' | 'apps';
+type Tab = 'models' | 'connectors';
 
 @Component({
   selector: 'app-resources-page',
@@ -88,12 +87,19 @@ type Tab = 'models' | 'connectors' | 'apps';
         icon="plug"
         [hint]="connectorsActive() + ' configured · ' + connectorsComingSoon() + ' coming'"
       />
-      <ck-stat-readout variant="tile"
-        label="Apps enabled"
-        [value]="appsEnabled()"
-        icon="sparkles"
-        [hint]="APPS.length + ' available'"
-      />
+      <a
+        routerLink="/apps"
+        class="block group"
+        [title]="'Manage packaged apps &amp; integrations — catalog of ' + APPS.length + ' entries'"
+      >
+        <ck-stat-readout variant="tile"
+          label="Apps enabled"
+          [value]="appsEnabled()"
+          icon="sparkles"
+          [hint]="'Go to /apps · ' + APPS.length + ' available'"
+          [interactive]="true"
+        />
+      </a>
     </div>
 
     <!-- Tabs -->
@@ -269,81 +275,6 @@ type Tab = 'models' | 'connectors' | 'apps';
       }
     }
 
-    <!-- Apps tab -->
-    @if (tab() === 'apps') {
-      <div class="mb-4 flex items-center justify-between">
-        <div>
-          <h3 class="text-sm font-semibold text-white mb-0.5">Apps & integrations</h3>
-          <p class="text-xs text-gray-500">
-            Packaged extensions and integrations — distinct from the atomic
-            <span class="font-mono text-gray-400">/skills</span> registry.
-            Toggles are saved locally and respected by the builder wizard.
-          </p>
-        </div>
-        <a
-          routerLink="/apps"
-          class="text-[11px] text-brand-400 hover:text-brand-300 inline-flex items-center gap-1"
-        >
-          Dedicated page <app-icon name="arrow-right" [size]="10" />
-        </a>
-      </div>
-      <div class="mb-4 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
-        <app-icon name="alert-triangle" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
-        <p class="text-[11px] text-amber-200/80 leading-relaxed flex-1">
-          Apps are <span class="font-semibold">catalog only</span> — toggling enables them for the Builder wizard
-          but runtime wiring is still on the roadmap.
-        </p>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-        @for (a of APPS; track a.id) {
-          <div
-            class="t-card t-elevated rounded-md p-4 flex flex-col gap-2.5 transition"
-            [ngClass]="isAppEnabled(a.id)
-              ? 'ring-1 ring-brand-500/40 bg-brand-500/5'
-              : ''"
-          >
-            <div class="flex items-start justify-between">
-              <div
-                class="w-9 h-9 rounded-md flex items-center justify-center"
-                [ngClass]="isAppEnabled(a.id)
-                  ? 'bg-brand-500/20 text-brand-300'
-                  : 'bg-white/5 text-gray-400'"
-              >
-                <app-icon [name]="a.icon" [size]="18" />
-              </div>
-              <div class="flex items-center gap-2">
-                <span
-                  class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-white/5 text-gray-400 ring-white/10"
-                  title="Listed in the catalog but not yet bound to a runtime"
-                >
-                  catalog only
-                </span>
-                <button
-                  type="button"
-                  (click)="toggleApp(a.id)"
-                  role="switch"
-                  [attr.aria-checked]="isAppEnabled(a.id)"
-                  class="w-9 h-5 rounded-full relative transition-colors"
-                  [ngClass]="isAppEnabled(a.id) ? 'bg-brand-500' : 'bg-white/10'"
-                >
-                  <span
-                    class="block w-3.5 h-3.5 bg-white rounded-full absolute top-[3px] transition-all"
-                    [ngClass]="isAppEnabled(a.id) ? 'left-[20px]' : 'left-[3px]'"
-                  ></span>
-                </button>
-              </div>
-            </div>
-            <div>
-              <div class="text-sm font-semibold text-white">{{ a.name }}</div>
-              <p class="text-[11px] text-gray-400 leading-relaxed mt-0.5">
-                {{ a.description }}
-              </p>
-            </div>
-          </div>
-        }
-      </div>
-    }
-
     <!-- Connector config drawer -->
     <app-drawer
       [open]="drawerOpen()"
@@ -478,7 +409,6 @@ export class ResourcesPageComponent implements OnInit {
   readonly tabs = [
     { id: 'models' as Tab, label: 'Models', icon: 'cpu', count: () => this.models().length },
     { id: 'connectors' as Tab, label: 'Connectors', icon: 'plug', count: () => CONNECTORS.length },
-    { id: 'apps' as Tab, label: 'Apps', icon: 'sparkles', count: () => APPS.length },
   ];
 
   ngOnInit(): void {
@@ -589,17 +519,6 @@ export class ResourcesPageComponent implements OnInit {
     writeConnectorConfig(c.id, {});
     this.connectorsVersion.update((v) => v + 1);
     this.toast.info(`${c.name} configuration cleared`, 'Connector');
-  }
-
-  isAppEnabled(id: string): boolean {
-    this.appsVersion();
-    return !!readAppToggles()[id];
-  }
-
-  toggleApp(id: string): void {
-    const current = !!readAppToggles()[id];
-    writeAppToggle(id, !current);
-    this.appsVersion.update((v) => v + 1);
   }
 
   modelName(m: ModelInfo): string {
