@@ -365,6 +365,7 @@ interface PipelineStage {
           </div>
           <a
             routerLink="/orchestration"
+            [queryParams]="{ systemId: systemId }"
             class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition shrink-0"
           >
             <app-icon name="workflow" [size]="14" /> Open in flow builder

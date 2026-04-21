@@ -7,15 +7,30 @@ import {
   ElementRef,
   NgZone,
   OnDestroy,
+  OnInit,
   ViewChild,
   ViewEncapsulation,
+  computed,
   inject,
   signal,
 } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
+import {
+  CkObjectHeaderComponent,
+  type CkObjectKpi,
+} from '@app/shared/cockpit/object-header.component';
+import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import {
+  FlowSerializerService,
+  type CanonicalFlow,
+  type CanonicalFlowEdge,
+  type CanonicalFlowNode,
+  type DrawflowGraph,
+} from '@app/core/flow-serializer.service';
 
 interface PaletteItem {
   type: string;
@@ -29,41 +44,73 @@ interface FlowTemplate {
   id: string;
   label: string;
   description: string;
-  build: (add: (t: string, x: number, y: number) => number, connect: (a: number, b: number) => void) => void;
+  build: (
+    add: (t: string, x: number, y: number) => number,
+    connect: (a: number, b: number) => void,
+  ) => void;
 }
 
 @Component({
   selector: 'app-workflow-editor',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, SectionHeaderComponent, StatusPulseComponent],
+  imports: [IconComponent, CkObjectHeaderComponent, StatusPulseComponent],
   styleUrls: ['./workflow-editor.styles.scss'],
   encapsulation: ViewEncapsulation.None,
   template: `
-    <app-section-header
-      breadcrumb="Build"
-      title="Flow builder"
-      icon="workflow"
-      subtitle="Compose and preview a system's pipeline — retrieval, tools, guardrails, routing."
+    <ck-object-header
+      [eyebrow]="headerEyebrow()"
+      [title]="headerTitle()"
+      [subtitle]="headerSubtitle()"
+      [kpis]="headerKpis()"
     >
-      <div class="flex items-center gap-2">
-        <app-status-pulse tone="accent" label="Draft" />
+      <app-status-pulse
+        status
+        [tone]="extended() ? 'warning' : 'accent'"
+        [label]="extended() ? 'Extended' : 'Canonical'"
+      />
+      @if (systemId()) {
         <button
+          actions
           type="button"
-          (click)="resetCanvas()"
+          (click)="backToBuilder()"
           class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          title="Back to the System detail view"
         >
-          <app-icon name="rotate-ccw" [size]="14" /> Reset
+          <app-icon name="arrow-left" [size]="14" /> Back to System
         </button>
+      }
+      @if (systemId()) {
         <button
+          actions
           type="button"
-          (click)="run()"
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+          (click)="saveToSystem()"
+          [disabled]="saving()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium ck-mono transition"
+          style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:#020617;"
+          [style.opacity]="saving() ? '0.4' : '1'"
         >
-          <app-icon name="play" [size]="14" /> Simulate run
+          <app-icon name="save" [size]="12" />
+          {{ saving() ? 'Saving…' : 'Save to System' }}
         </button>
-      </div>
-    </app-section-header>
+      }
+      <button
+        actions
+        type="button"
+        (click)="resetCanvas()"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+      >
+        <app-icon name="rotate-ccw" [size]="14" /> Reset
+      </button>
+      <button
+        actions
+        type="button"
+        (click)="run()"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+      >
+        <app-icon name="play" [size]="14" /> Simulate run
+      </button>
+    </ck-object-header>
 
     <div class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
       <!-- Palette -->
@@ -176,17 +223,58 @@ interface FlowTemplate {
     </div>
   `,
 })
-export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
+export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('drawflowContainer', { static: true }) container!: ElementRef<HTMLElement>;
 
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly toastr = inject(ToastrService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly canonical = inject(CanonicalApiService);
+  private readonly serializer = inject(FlowSerializerService);
+  private readonly zoomCtx = inject(ZoomContextService);
 
   private editor: any = null;
   loading = signal(true);
   error = signal<string | null>(null);
+
+  // Systemid-scoped state.
+  readonly systemId = signal<string | null>(null);
+  readonly system = signal<System | null>(null);
+  readonly saving = signal(false);
+
+  // Semantic projection of the current canvas.
+  readonly nodeCount = signal(0);
+  readonly edgeCount = signal(0);
+  readonly source = signal<'form' | 'flow'>('flow');
+  readonly extended = signal(false);
+
+  readonly headerEyebrow = computed(() =>
+    this.systemId() ? 'Systems · Flow' : 'Build · Flow · Scratchpad',
+  );
+  readonly headerTitle = computed(() => this.system()?.name ?? 'Flow builder');
+  readonly headerSubtitle = computed(() => {
+    if (this.systemId()) {
+      return (
+        this.system()?.objective ||
+        "Edit this System's flow graph. Save overwrites the System's flow_definition."
+      );
+    }
+    return "Compose and preview a system's pipeline — retrieval, tools, guardrails, routing.";
+  });
+
+  readonly headerKpis = computed<CkObjectKpi[]>(() => [
+    { label: 'Nodes', value: String(this.nodeCount()), tone: 'cool' },
+    { label: 'Edges', value: String(this.edgeCount()), tone: 'neutral' },
+    { label: 'Source', value: this.source(), tone: this.source() === 'flow' ? 'violet' : 'neutral' },
+    {
+      label: 'Extended',
+      value: this.extended() ? 'Yes' : 'No',
+      tone: this.extended() ? 'warn' : 'neutral',
+    },
+  ]);
 
   readonly palette: PaletteItem[] = [
     { type: 'input', icon: 'message-circle', label: 'Input', description: 'User prompt / webhook', tone: 'brand' },
@@ -249,6 +337,17 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
   private pendingDrop: PaletteItem | null = null;
   private ids = 0;
 
+  ngOnInit(): void {
+    const sid = this.route.snapshot.queryParamMap.get('systemId');
+    this.systemId.set(sid);
+    if (sid) {
+      this.zoomCtx.setCurrentSystem(sid);
+    } else {
+      this.zoomCtx.setCurrentSystem(null);
+    }
+    this.zoomCtx.setCurrentRun(null);
+  }
+
   async ngAfterViewInit(): Promise<void> {
     const el = this.container?.nativeElement;
     if (!el) {
@@ -257,7 +356,6 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    // Drawflow mutates the DOM heavily & relies on timers; keep it outside Angular.
     await this.zone.runOutsideAngular(async () => {
       try {
         const mod: any = await import('drawflow');
@@ -266,7 +364,14 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
         this.editor.reroute = true;
         this.editor.reroute_fix_curvature = true;
         this.editor.start();
-        this.loadTemplate(this.flowTemplates[0]);
+
+        if (this.systemId()) {
+          await this.hydrateFromSystem(this.systemId()!);
+        } else {
+          this.loadTemplate(this.flowTemplates[0]);
+        }
+
+        this.attachChangeListeners();
       } catch (err) {
         console.error('Drawflow init failed', err);
         this.zone.run(() => this.error.set('Workflow editor unavailable'));
@@ -287,24 +392,147 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * Subscribe to Drawflow's mutation events so the header KPIs stay in
+   * sync with the canvas. All events are handled outside the Angular
+   * zone — we only poke CD when we actually update a signal.
+   */
+  private attachChangeListeners(): void {
+    if (!this.editor?.on) return;
+    const refresh = () => {
+      this.zone.run(() => this.refreshKpis());
+    };
+    try {
+      this.editor.on('nodeCreated', refresh);
+      this.editor.on('nodeRemoved', refresh);
+      this.editor.on('nodeDataChanged', refresh);
+      this.editor.on('connectionCreated', refresh);
+      this.editor.on('connectionRemoved', refresh);
+    } catch {
+      // older drawflow builds silently ignore unknown events
+    }
+    this.refreshKpis();
+  }
+
+  private refreshKpis(): void {
+    const graph = this.exportGraph();
+    const flow = this.serializer.project(graph);
+    this.nodeCount.set(flow.nodes.length);
+    this.edgeCount.set(flow.edges.length);
+    this.extended.set(!!flow.extended);
+  }
+
+  private async hydrateFromSystem(systemId: string): Promise<void> {
+    const sys = await this.canonical
+      .getSystem(systemId)
+      .toPromise()
+      .catch(() => null);
+    if (!sys) {
+      this.zone.run(() => {
+        this.toastr.warning(
+          'System not found — falling back to scratchpad',
+          'Orchestration',
+        );
+        this.systemId.set(null);
+      });
+      this.loadTemplate(this.flowTemplates[0]);
+      return;
+    }
+    this.zone.run(() => this.system.set(sys));
+
+    const flow = (sys.flow_definition ?? {}) as unknown as CanonicalFlow;
+    if (!Array.isArray(flow.nodes) || flow.nodes.length === 0) {
+      this.zone.run(() =>
+        this.toastr.info(
+          'This System has no flow yet — starting from the RAG template.',
+          'Orchestration',
+        ),
+      );
+      this.loadTemplate(this.flowTemplates[0]);
+      this.zone.run(() => this.source.set('form'));
+      return;
+    }
+    this.importFlow(flow);
+    this.zone.run(() => this.source.set(flow.source ?? 'form'));
+  }
+
+  /** Import a canonical flow into the current Drawflow instance. */
+  private importFlow(flow: CanonicalFlow): void {
+    if (!this.editor) return;
+    try {
+      this.editor.clearModuleSelected();
+    } catch {
+      // ignore
+    }
+    const graph = this.serializer.materialize(flow);
+    try {
+      this.editor.import(graph as any);
+    } catch (err) {
+      console.warn('drawflow.import failed, falling back to manual add', err);
+      this.manualImport(flow);
+    }
+    this.refreshKpis();
+  }
+
+  /**
+   * Fallback import path used when `drawflow.import` chokes on a graph.
+   * We rebuild the canvas node by node using the same canonical ids,
+   * matching the behaviour of `materialize` as closely as possible.
+   */
+  private manualImport(flow: CanonicalFlow): void {
+    const idToNum = new Map<string, number>();
+    for (const n of flow.nodes) {
+      const type = String(n.type);
+      const num = this.internalAdd(type, n.position?.x ?? 60, n.position?.y ?? 80, n);
+      idToNum.set(n.id, num);
+    }
+    for (const e of flow.edges) {
+      const from = idToNum.get(e.from);
+      const to = idToNum.get(e.to);
+      if (from && to) this.internalConnect(from, to);
+    }
+  }
+
+  private exportGraph(): DrawflowGraph {
+    try {
+      return this.editor?.export?.() ?? { drawflow: { Home: { data: {} } } };
+    } catch {
+      return { drawflow: { Home: { data: {} } } };
+    }
+  }
+
   private paletteFor(type: string): PaletteItem {
     return this.palette.find((p) => p.type === type) ?? this.palette[0];
   }
 
-  private nodeHtml(node: PaletteItem): string {
+  private nodeHtml(node: PaletteItem, override?: { label?: string; description?: string }): string {
+    const label = override?.label ?? node.label;
+    const body = override?.description ?? node.description;
     return `
       <div class="df-node">
-        <div class="df-node-head"><span class="df-dot df-${node.tone}"></span>${node.label}</div>
-        <div class="df-node-body">${node.description}</div>
+        <div class="df-node-head"><span class="df-dot df-${node.tone}"></span>${label}</div>
+        <div class="df-node-body">${body}</div>
       </div>`;
   }
 
-  private internalAdd(type: string, x: number, y: number): number {
+  private internalAdd(
+    type: string,
+    x: number,
+    y: number,
+    canonical?: CanonicalFlowNode,
+  ): number {
     if (!this.editor) return 0;
     const p = this.paletteFor(type);
     const inputs = type === 'input' ? 0 : 1;
     const outputs = type === 'output' ? 0 : type === 'router' ? 2 : 1;
-    const id = this.editor.addNode(type, inputs, outputs, x, y, type, {}, this.nodeHtml(p));
+    const data: Record<string, unknown> = {};
+    if (canonical) {
+      data['canonical_id'] = canonical.id;
+      data['canonical_type'] = canonical.type;
+      if (canonical.data) Object.assign(data, canonical.data);
+    }
+    const html = this.nodeHtml(p, { label: canonical?.label });
+    const id = this.editor.addNode(type, inputs, outputs, x, y, type, data, html);
     this.ids = Math.max(this.ids, id);
     return id;
   }
@@ -325,6 +553,7 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
       const x = rect.width / 2 - 80;
       const y = rect.height / 2 - 40;
       this.internalAdd(node.type, x, y);
+      this.zone.run(() => this.refreshKpis());
     });
   }
 
@@ -342,11 +571,12 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
     ev.preventDefault();
     if (!this.editor || !this.pendingDrop) return;
     const rect = this.container.nativeElement.getBoundingClientRect();
-    const zoom = this.editor.zoom ?? 1;
-    const x = (ev.clientX - rect.left) / zoom;
-    const y = (ev.clientY - rect.top) / zoom;
+    const zoomLvl = this.editor.zoom ?? 1;
+    const x = (ev.clientX - rect.left) / zoomLvl;
+    const y = (ev.clientY - rect.top) / zoomLvl;
     this.zone.runOutsideAngular(() => {
       this.internalAdd(this.pendingDrop!.type, Math.max(20, x - 80), Math.max(20, y - 40));
+      this.zone.run(() => this.refreshKpis());
     });
     this.pendingDrop = null;
   }
@@ -364,7 +594,10 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
         (a, b) => this.internalConnect(a, b),
       );
     });
-    this.zone.run(() => this.toastr.info(tpl.label, 'Template loaded'));
+    this.zone.run(() => {
+      this.toastr.info(tpl.label, 'Template loaded');
+      this.refreshKpis();
+    });
   }
 
   resetCanvas(): void {
@@ -375,8 +608,12 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
       } catch {
         // ignore
       }
-      this.loadTemplate(this.flowTemplates[0]);
     });
+    if (this.systemId()) {
+      this.hydrateFromSystem(this.systemId()!);
+    } else {
+      this.loadTemplate(this.flowTemplates[0]);
+    }
   }
 
   clearAll(): void {
@@ -387,6 +624,7 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
       } catch {
         // ignore
       }
+      this.zone.run(() => this.refreshKpis());
     });
   }
 
@@ -404,4 +642,55 @@ export class WorkflowEditorComponent implements AfterViewInit, OnDestroy {
   run(): void {
     this.toastr.success('Runs are simulated in the demo — connect a backend to execute flows.', 'Flow simulated');
   }
+
+  /**
+   * Serialize the current canvas and PATCH it back onto the owning
+   * System's `flow_definition`. Preserves `variant` and semantic
+   * sidecars so downstream RAG consumers keep working.
+   */
+  saveToSystem(): void {
+    const sid = this.systemId();
+    if (!sid) return;
+    const graph = this.exportGraph();
+    const projected = this.serializer.project(graph);
+    const existing = (this.system()?.flow_definition ?? {}) as unknown as CanonicalFlow;
+    const merged: CanonicalFlow = this.serializer.annotateSidecars({
+      ...existing,
+      ...projected,
+      variant: existing.variant,
+      source: 'flow',
+    });
+    this.saving.set(true);
+    this.canonical
+      .updateSystem(sid, { flow_definition: merged as unknown as Record<string, unknown> })
+      .subscribe({
+      next: (res) => {
+        this.saving.set(false);
+        if (!res) {
+          this.toastr.error('Could not save flow — backend rejected the update.', 'Save failed');
+          return;
+        }
+        this.system.set(res);
+        this.source.set('flow');
+        this.extended.set(!!merged.extended);
+        this.toastr.success(`Flow saved to "${res.name}".`, 'Saved');
+      },
+      error: () => {
+        this.saving.set(false);
+        this.toastr.error('Could not save flow — network error.', 'Save failed');
+      },
+    });
+  }
+
+  backToBuilder(): void {
+    const sid = this.systemId();
+    if (!sid) {
+      this.router.navigateByUrl('/systems');
+      return;
+    }
+    this.router.navigate(['/systems', sid], { queryParams: { facet: 'overview' } });
+  }
 }
+
+// Keep TypeScript from complaining about unused imports used only for typing.
+export type { CanonicalFlowEdge };
