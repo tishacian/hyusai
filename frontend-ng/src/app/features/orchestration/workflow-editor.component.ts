@@ -15,6 +15,7 @@ import {
   signal,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { Subscription, switchMap, takeWhile, timer } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
@@ -24,6 +25,7 @@ import {
 } from '@app/shared/cockpit/object-header.component';
 import {
   CanonicalApiService,
+  type Run,
   type Skill,
   type System,
 } from '@app/core/canonical-api.service';
@@ -126,11 +128,29 @@ interface FlowTemplate {
       <button
         actions
         type="button"
-        (click)="run()"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+        (click)="simulate()"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        title="Client-side dry-run — no LLM calls, no backend invocation"
       >
-        <app-icon name="play" [size]="14" /> Simulate run
+        <app-icon name="play" [size]="14" /> Simulate
       </button>
+      @if (systemId()) {
+        <button
+          actions
+          type="button"
+          (click)="executeOnBackend()"
+          [disabled]="executing()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+          [style.opacity]="executing() ? '0.55' : '1'"
+          title="Run this flow on the backend — real skill invocations, real Outcome"
+        >
+          @if (executing()) {
+            <app-icon name="loader-2" [size]="14" class="animate-spin" /> Running…
+          } @else {
+            <app-icon name="rocket" [size]="14" /> Execute
+          }
+        </button>
+      }
     </ck-object-header>
 
     <div class="grid grid-cols-1 gap-3 df-shell" [attr.data-inspector]="inspectorOpen() ? 'open' : 'closed'">
@@ -264,10 +284,44 @@ interface FlowTemplate {
               </div>
             </div>
             <div class="df-terminal-body ck-mono">
-              @if (terminalLog().length === 0) {
+              @if (currentRun()?.status === 'hitl_pending' && currentRun()?.hitl) {
+                <div class="df-hitl-card" role="alertdialog">
+                  <div class="df-hitl-head">
+                    <app-icon name="user-check" [size]="14" class="text-amber-300" />
+                    <span>Human approval required</span>
+                    <span class="df-tag df-tag-warn">PAUSED</span>
+                  </div>
+                  <div class="df-hitl-prompt">{{ currentRun()?.hitl?.prompt ?? 'An operator must approve this step to continue.' }}</div>
+                  @if (currentRun()?.hitl?.node_id) {
+                    <div class="df-hitl-meta">
+                      <span class="text-gray-500">Node</span>
+                      <span class="text-gray-300 ck-mono">{{ currentRun()?.hitl?.node_id }}</span>
+                    </div>
+                  }
+                  <div class="df-hitl-actions">
+                    <button
+                      type="button"
+                      (click)="resolveHitl('reject')"
+                      [disabled]="hitlResolving()"
+                      class="df-hitl-btn df-hitl-btn--reject"
+                    >
+                      <app-icon name="x" [size]="12" /> Reject
+                    </button>
+                    <button
+                      type="button"
+                      (click)="resolveHitl('accept')"
+                      [disabled]="hitlResolving()"
+                      class="df-hitl-btn df-hitl-btn--accept"
+                    >
+                      <app-icon name="check" [size]="12" /> Approve
+                    </button>
+                  </div>
+                </div>
+              }
+              @if (terminalLog().length === 0 && currentRun()?.status !== 'hitl_pending') {
                 <div class="df-terminal-empty">
                   <span class="text-gray-500">›</span>
-                  Execute a Run on this System to see live output. Click Simulate or Execute on backend.
+                  Execute a Run on this System to see live output. Click Simulate for a client-side dry run, or Execute to hit the backend.
                 </div>
               }
               @for (entry of terminalLog(); track $index) {
@@ -487,6 +541,15 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly inspectorOpen = signal(true);
   readonly terminalOpen = signal(true);
   readonly terminalLog = signal<TerminalEntry[]>([]);
+
+  // Backend execution state — non-null while a Run is in flight against the
+  // live System. ``hitlResolving`` blocks double-clicks on the approve /
+  // reject buttons while the /hitl POST is on the wire.
+  readonly executing = signal(false);
+  readonly currentRun = signal<Run | null>(null);
+  readonly hitlResolving = signal(false);
+  private pollSub: Subscription | null = null;
+  private seenInvocationIds = new Set<string>();
   readonly errorCount = computed(
     () => this.issues().filter((i) => i.level === 'error').length,
   );
@@ -730,6 +793,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   ngOnDestroy(): void {
+    this.stopPolling();
     try {
       this.editor?.clear?.();
     } catch {
@@ -1085,8 +1149,203 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.editor.zoom_reset();
   }
 
-  run(): void {
-    this.toastr.success('Runs are simulated in the demo — connect a backend to execute flows.', 'Flow simulated');
+  /**
+   * Client-side dry-run — stamps a few synthetic lines into the terminal
+   * so designers can sketch flows without hitting the backend. Real
+   * execution flows through :method:`executeOnBackend`.
+   */
+  simulate(): void {
+    if (this.nodeCount() === 0) {
+      this.toastr.warning('Add at least one node before simulating.', 'Simulate');
+      return;
+    }
+    this.terminalOpen.set(true);
+    this.pushTerminal({ tone: 'cyan', tag: 'SIM', text: 'Client-side simulation — no backend call.' });
+    this.pushTerminal({ tone: 'info', tag: 'PLAN', text: `${this.nodeCount()} nodes · ${this.edgeCount()} edges` });
+    this.pushTerminal({ tone: 'pos', tag: 'DONE', text: 'Simulation finished.' });
+    this.toastr.success('Client-side dry-run — switch to Execute to run on the backend.', 'Simulated');
+  }
+
+  /**
+   * Execute the current System on the backend and surface events in the
+   * Execution Terminal via polling. The Run is persisted server-side so
+   * the cockpit's /runs views reflect it immediately.
+   *
+   * Polling cadence: 1500ms. Stops once the Run reaches a terminal state
+   * (``completed | failed | cancelled``) or ``hitl_pending`` — in which
+   * case the HITL card becomes the next interaction surface.
+   */
+  executeOnBackend(): void {
+    const sid = this.systemId();
+    if (!sid) {
+      this.toastr.info('Save this flow to a System first — /orchestration scratchpad cannot Execute.', 'Execute');
+      return;
+    }
+    if (this.executing()) return;
+    if (this.errorCount() > 0) {
+      this.toastr.warning('Fix validation errors before running — the backend will reject an invalid DAG.', 'Execute');
+      return;
+    }
+    this.stopPolling();
+    this.terminalOpen.set(true);
+    this.seenInvocationIds.clear();
+    this.pushTerminal({ tone: 'cyan', tag: 'EXEC', text: 'Dispatching run to backend…' });
+    this.executing.set(true);
+
+    this.canonical.triggerRun(sid, {}).subscribe({
+      next: (run) => {
+        if (!run) {
+          this.executing.set(false);
+          this.pushTerminal({ tone: 'neg', tag: 'ERR', text: 'Backend rejected the trigger request.' });
+          this.toastr.error('Could not trigger a run — check backend logs.', 'Execute failed');
+          return;
+        }
+        this.currentRun.set(run);
+        this.pushTerminal({
+          tone: 'info',
+          tag: 'RUN',
+          text: `Run ${run.id.slice(0, 8)}… scheduled (status=${run.status}).`,
+        });
+        this.startPolling(run.id);
+      },
+      error: () => {
+        this.executing.set(false);
+        this.pushTerminal({ tone: 'neg', tag: 'ERR', text: 'Network error while triggering run.' });
+        this.toastr.error('Could not reach the backend.', 'Execute failed');
+      },
+    });
+  }
+
+  /** Accept or reject the HITL Decision pinned on the current run, then
+   * restart polling so the resumed DAG's events flow back into the UI. */
+  resolveHitl(action: 'accept' | 'reject'): void {
+    const run = this.currentRun();
+    if (!run || run.status !== 'hitl_pending' || !run.hitl) return;
+    if (this.hitlResolving()) return;
+    this.hitlResolving.set(true);
+    this.pushTerminal({
+      tone: action === 'accept' ? 'pos' : 'warn',
+      tag: 'HITL',
+      text: `Operator ${action === 'accept' ? 'approved' : 'rejected'} the pending step.`,
+    });
+    this.canonical.resolveRunHitl(run.id, { action }).subscribe({
+      next: (updated) => {
+        this.hitlResolving.set(false);
+        if (!updated) {
+          this.pushTerminal({ tone: 'neg', tag: 'ERR', text: 'HITL resolve rejected by backend.' });
+          this.toastr.error('Backend rejected the HITL resolution.', 'HITL');
+          return;
+        }
+        this.startPolling(run.id);
+      },
+      error: () => {
+        this.hitlResolving.set(false);
+        this.pushTerminal({ tone: 'neg', tag: 'ERR', text: 'Network error during HITL resolve.' });
+      },
+    });
+  }
+
+  private startPolling(runId: string): void {
+    this.stopPolling();
+    this.pollSub = timer(0, 1500)
+      .pipe(
+        switchMap(() => this.canonical.getRun(runId)),
+        takeWhile(
+          (r) => !!r && !this.isTerminalRunState(r.status) && r.status !== 'hitl_pending',
+          true,
+        ),
+      )
+      .subscribe({
+        next: (r) => {
+          if (!r) return;
+          const prev = this.currentRun();
+          this.currentRun.set(r);
+          this.emitDeltaEvents(prev, r);
+          if (this.isTerminalRunState(r.status)) {
+            this.executing.set(false);
+            this.stopPolling();
+          } else if (r.status === 'hitl_pending') {
+            this.executing.set(false);
+            this.stopPolling();
+          }
+        },
+        error: () => {
+          this.executing.set(false);
+          this.stopPolling();
+          this.pushTerminal({ tone: 'neg', tag: 'ERR', text: 'Lost connection while polling run.' });
+        },
+      });
+  }
+
+  private stopPolling(): void {
+    if (this.pollSub) {
+      this.pollSub.unsubscribe();
+      this.pollSub = null;
+    }
+  }
+
+  private isTerminalRunState(
+    status: Run['status'] | undefined,
+  ): boolean {
+    return status === 'completed' || status === 'failed' || status === 'cancelled';
+  }
+
+  /** Emit terminal lines for each new SkillInvocation delta and any
+   * status transition. Keeps the terminal conversational without
+   * hammering it when the polling tick brings back the same snapshot.
+   */
+  private emitDeltaEvents(prev: Run | null, next: Run): void {
+    if (!prev || prev.status !== next.status) {
+      this.pushTerminal({
+        tone: this.toneForStatus(next.status),
+        tag: 'STATUS',
+        text: `Run ${next.id.slice(0, 8)} → ${next.status}`,
+      });
+    }
+    const invocations = next.skill_invocations ?? [];
+    for (const inv of invocations) {
+      if (!inv.id || this.seenInvocationIds.has(inv.id)) continue;
+      if (inv.status === 'running') continue;
+      this.seenInvocationIds.add(inv.id);
+      this.pushTerminal({
+        tone:
+          inv.status === 'completed'
+            ? 'pos'
+            : inv.status === 'failed'
+              ? 'neg'
+              : 'warn',
+        tag: inv.skill_slug?.slice(0, 14).toUpperCase() ?? 'SKILL',
+        text: `${inv.status} · ${Math.round(inv.latency_ms ?? 0)}ms${
+          inv.error ? ' · ' + inv.error.slice(0, 80) : ''
+        }`,
+      });
+    }
+    if (this.isTerminalRunState(next.status) && next.outcome) {
+      const o = next.outcome;
+      this.pushTerminal({
+        tone: next.status === 'completed' ? 'pos' : 'neg',
+        tag: 'OUTCOME',
+        text: `decision=${o.decision ?? '—'} · confidence=${
+          o.confidence != null ? o.confidence.toFixed(2) : '—'
+        } · cost=${o.cost_internal != null ? o.cost_internal.toFixed(4) : '—'}`,
+      });
+    }
+  }
+
+  private toneForStatus(status: Run['status']): TerminalEntry['tone'] {
+    switch (status) {
+      case 'completed':
+        return 'pos';
+      case 'failed':
+      case 'cancelled':
+        return 'neg';
+      case 'hitl_pending':
+        return 'warn';
+      case 'running':
+        return 'cyan';
+      default:
+        return 'info';
+    }
   }
 
   /**

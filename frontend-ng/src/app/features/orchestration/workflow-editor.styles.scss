@@ -438,6 +438,98 @@
 }
 
 /* ============================================================
+   HITL approval card — surfaces in the Terminal when the DAG
+   walker pauses on a `hitl` node.
+   ============================================================ */
+.df-hitl-card {
+  position: relative;
+  margin: 0 0 10px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: linear-gradient(
+    180deg,
+    rgba(245, 158, 11, 0.08) 0%,
+    rgba(245, 158, 11, 0.04) 100%
+  );
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.08) inset;
+}
+
+.df-hitl-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fcd34d;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.df-hitl-prompt {
+  font-size: 12.5px;
+  color: var(--ck-fg-2, #e2e8f0);
+  line-height: 1.55;
+  margin-bottom: 6px;
+}
+
+.df-hitl-meta {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 10.5px;
+  margin-bottom: 10px;
+}
+
+.df-hitl-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.df-hitl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 120ms ease, transform 120ms ease;
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  &:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
+}
+
+.df-hitl-btn--accept {
+  background: var(--ck-signal-pos, #34d399);
+  color: #0f172a;
+  &:not(:disabled):hover {
+    background: #6ee7b7;
+  }
+}
+
+.df-hitl-btn--reject {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.35);
+  &:not(:disabled):hover {
+    background: rgba(248, 113, 113, 0.18);
+  }
+}
+
+/* ============================================================
    Node Inspector — right rail.
    ============================================================ */
 .df-inspector {

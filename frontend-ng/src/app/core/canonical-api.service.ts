@@ -75,11 +75,19 @@ export interface SkillInvocation {
   error?: string | null;
 }
 
+export interface RunHitlPayload {
+  node_id?: string;
+  prompt?: string;
+  decision_id?: string;
+  decision_status?: string | null;
+  decision_title?: string | null;
+}
+
 export interface Run {
   id: string;
   system_id: string;
   capability_id?: string | null;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'hitl_pending';
   started_at?: string;
   ended_at?: string;
   duration_ms?: number;
@@ -89,6 +97,10 @@ export interface Run {
   error?: string | null;
   trigger?: string;
   skill_invocations?: SkillInvocation[];
+  /** Populated when status === 'hitl_pending' — contains the pending
+   * Decision reference plus the prompt to surface in the Terminal.
+   */
+  hitl?: RunHitlPayload;
 }
 
 export interface Context {
@@ -326,6 +338,20 @@ export class CanonicalApiService {
       }),
       catchError(() => of(null)),
     );
+  }
+
+  /**
+   * Resolve a pending HITL checkpoint on a Run. The backend transitions
+   * the linked Decision via the canonical state machine and then resumes
+   * the DAG walker in the background.
+   */
+  resolveRunHitl(
+    runId: string,
+    body: { action: 'accept' | 'reject'; actor?: string; note?: string },
+  ): Observable<Run | null> {
+    return this.api
+      .post<Run>(`/runs/${runId}/hitl`, body)
+      .pipe(catchError(() => of(null)));
   }
 
   // ---- Impact / Hypervisor -------------------------------------------------

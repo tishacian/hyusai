@@ -1,13 +1,20 @@
 """Concrete execution engine for canonical Runs.
 
-The engine is intentionally pragmatic rather than a full DAG scheduler:
-capabilities today express a *sequence* of canonical skills. The engine walks
-that sequence, threads each skill's output into the next skill's input using a
-shared context bag, records invocations, computes an Outcome, and applies
-policy guardrails.
+Historically this walker assumed a *sequence* of canonical skills. From Wave C6
+onward the authoring layer can also produce a **DAG** (decision/fork/join/
+retry/subflow/hitl/loop nodes) — that variant is served by ``dag.py``.
 
-Hooks for Phase 7+ (streaming, parallel fan-out, HITL approval, adaptive
-switch-model) are already wired behind the `AdaptivePolicy` consultation.
+This module still owns the sequential walker (``execute_run``) plus the two
+shared helpers both walkers rely on:
+
+* ``_execute_task_node`` — resolve/invoke/persist one SkillInvocation with
+  latency, cost, error handling and ControlPolicy guardrail.
+* ``_finalize_run`` — derive the Outcome block, apply post-checks and persist
+  the terminal Run state.
+
+Keeping the per-node and finalization logic in one place guarantees the DAG
+walker behaves *identically* on task semantics: same cost model, same error
+capture, same Outcome derivation, same Decision side-effects.
 """
 from __future__ import annotations
 
@@ -39,22 +46,47 @@ logger = get_logger(__name__)
 def schedule_run(run_id: str) -> None:
     """Fire-and-forget entry point used by FastAPI BackgroundTasks.
 
+    Dispatches to either the sequential walker (``execute_run``) or the DAG
+    walker (``execute_run_dag``) based on the System's ``flow_definition``.
+
     Creates its own event loop when called from a sync context so the HTTP
     handler stays non-blocking. Any raised exception is logged and persisted
     on the Run row — it will *never* bubble back into the web request.
     """
+    # Local import avoids a circular dependency at module load time
+    # (``dag`` imports the shared helpers from this module).
+    from .dag import execute_run_dag, should_use_dag  # noqa: WPS433
+
+    async def _entry() -> None:
+        use_dag = False
+        db = SessionLocal()
+        try:
+            run = db.query(Run).filter(Run.id == run_id).first()
+            if run:
+                system = db.query(System).filter(System.id == run.system_id).first()
+                use_dag = bool(system and should_use_dag(system))
+        finally:
+            db.close()
+        if use_dag:
+            await execute_run_dag(run_id)
+        else:
+            await execute_run(run_id)
+
     try:
-        asyncio.run(execute_run(run_id))
+        asyncio.run(_entry())
     except RuntimeError:
-        # Already inside an event loop (rare for BackgroundTasks): schedule as task.
         loop = asyncio.get_event_loop()
-        loop.create_task(execute_run(run_id))
+        loop.create_task(_entry())
     except Exception as exc:  # noqa: BLE001
         logger.exception("run_engine.schedule_run failed", run_id=run_id, error=str(exc))
 
 
 async def execute_run(run_id: str) -> Dict[str, Any]:
-    """Execute one Run end-to-end. Returns the final Outcome payload."""
+    """Sequential walker — executes skill_ids in order, threading outputs.
+
+    Behaviorally identical to pre-C6; now delegates per-node work to
+    ``_execute_task_node`` and finalization to ``_finalize_run``.
+    """
     db: DBSession = SessionLocal()
     try:
         run = db.query(Run).filter(Run.id == run_id).first()
@@ -89,74 +121,32 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
         run.started_at = run.started_at or datetime.utcnow()
         db.commit()
 
-        ctx: Dict[str, Any] = {
-            "system_id": system.id,
-            "capability_id": capability.id if capability else None,
-            "workspace_id": run.workspace_id,
-            "input": run.input_ref or {},
-            # System-level defaults exposed to every skill invocation so
-            # RAG chains / LLM skills pick them up without the run
-            # trigger having to repeat them on each call.
-            "default_prompt_type": getattr(system, "default_prompt_type", None),
-            "default_model": getattr(system, "default_model", None),
-            "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
-        }
+        ctx = _build_initial_ctx(run, system, capability)
 
         start = time.monotonic()
         invocations_out: List[SkillInvocation] = []
         last_output: Dict[str, Any] = {}
         total_cost = 0.0
 
-        for idx, slug in enumerate(skill_slugs):
-            # Hard guardrail: allowed_skills whitelist.
-            if control and control.allowed_skills and slug not in control.allowed_skills:
-                _log_decision(
-                    db,
-                    scope="system",
-                    target_id=system.id,
-                    kind="policy_block",
-                    rationale={"skill": slug, "reason": "not_in_allowed_skills"},
-                )
-                continue
-
-            invocation = SkillInvocation(
-                id=str(uuid4()),
-                run_id=run.id,
-                skill_slug=slug,
-                status="running",
-                started_at=datetime.utcnow(),
-                input_ref=_build_skill_input(slug, run.input_ref or {}, last_output, ctx),
+        for slug in skill_slugs:
+            invocation = await _execute_task_node(
+                db,
+                run,
+                ctx,
+                slug,
+                control=control,
+                last_output=last_output,
             )
-            db.add(invocation)
-            db.commit()
-
-            t0 = time.monotonic()
-            try:
-                fn = resolve_skill(slug)
-                output = await fn(invocation.input_ref, ctx)
-                invocation.output_ref = output or {}
-                invocation.status = "completed"
-                last_output = output or {}
-            except NotImplementedError as nie:
-                invocation.status = "skipped"
-                invocation.error = f"unimplemented: {nie}"
-                logger.info("run_engine: skill unimplemented", run_id=run.id, skill=slug)
-            except Exception as exc:  # noqa: BLE001
-                invocation.status = "failed"
-                invocation.error = str(exc)[:500]
-                logger.warning("run_engine: skill failed", run_id=run.id, skill=slug, error=str(exc))
-
-            latency = (time.monotonic() - t0) * 1000
-            invocation.latency_ms = latency
-            invocation.completed_at = datetime.utcnow()
-            # Cost is the skill's unit price if known.
-            invocation.cost = _skill_unit_price(db, slug)
-            total_cost += invocation.cost or 0.0
-            db.commit()
+            if invocation is None:
+                continue
             invocations_out.append(invocation)
+            total_cost += invocation.cost or 0.0
+            if invocation.status == "completed":
+                last_output = invocation.output_ref or {}
 
-            # Soft hint from AdaptivePolicy — e.g. stop early on latency blow-up.
-            if adaptive and adaptive.enabled and _should_stop_adaptive(adaptive, invocation, total_cost):
+            if adaptive and adaptive.enabled and _should_stop_adaptive(
+                adaptive, invocation, total_cost
+            ):
                 _log_decision(
                     db,
                     scope="system",
@@ -165,67 +155,173 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
                     rationale={
                         "after_skill": slug,
                         "total_cost": total_cost,
-                        "latency_ms": latency,
+                        "latency_ms": invocation.latency_ms,
                     },
                 )
                 break
 
         duration_ms = (time.monotonic() - start) * 1000
-
-        # ---- Outcome aggregation (canonical derivation service) -----------
-        failed = [i for i in invocations_out if i.status == "failed"]
-        derived = derive_outcome(
-            invocations=invocations_out,
+        summary = _finalize_run(
+            db,
+            run,
+            system=system,
             capability=capability,
-            control_hitl_threshold=(
-                control.mandatory_hitl_if_confidence_below if control else None
-            ),
+            control=control,
+            invocations=invocations_out,
             duration_ms=duration_ms,
+            last_output=last_output,
         )
-        confidence = derived.confidence
-        decision = derived.decision
-        value_est = derived.value
-        efficiency = derived.efficiency
-
-        run.status = "completed" if not failed or decision != "blocked" else "failed"
-        run.completed_at = datetime.utcnow()
-        run.duration_ms = duration_ms
-        run.decision = decision
-        run.confidence = confidence
-        run.value_estimated = value_est
-        run.cost_internal = derived.cost
-        run.efficiency = efficiency
-        run.value_source = derived.value_source.value
-        run.output_ref = last_output or {}
-        if control:
-            _apply_control_postchecks(db, system, run, control)
-        db.commit()
-
         logger.info(
             "run_engine: done",
             run_id=run.id,
-            status=run.status,
-            decision=decision,
-            confidence=confidence,
+            status=summary["status"],
+            decision=summary.get("outcome", {}).get("decision"),
+            confidence=summary.get("outcome", {}).get("confidence"),
             cost=total_cost,
-            value=value_est,
+            value=summary.get("outcome", {}).get("value_estimated"),
             duration_ms=duration_ms,
         )
-
-        return {
-            "id": run.id,
-            "status": run.status,
-            "outcome": {
-                "decision": decision,
-                "confidence": confidence,
-                "value_estimated": value_est,
-                "cost_internal": total_cost,
-                "efficiency": efficiency,
-            },
-            "invocations": len(invocations_out),
-        }
+        return summary
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers (reused by dag.py)
+# ---------------------------------------------------------------------------
+def _build_initial_ctx(
+    run: Run, system: System, capability: Optional[Capability]
+) -> Dict[str, Any]:
+    """Build the shared context bag exposed to every skill invocation.
+
+    System-level defaults (prompt type, model, retrieval mode) are propagated
+    here so RAG chains and LLM skills pick them up without each trigger having
+    to repeat them.
+    """
+    return {
+        "system_id": system.id,
+        "capability_id": capability.id if capability else None,
+        "workspace_id": run.workspace_id,
+        "input": run.input_ref or {},
+        "default_prompt_type": getattr(system, "default_prompt_type", None),
+        "default_model": getattr(system, "default_model", None),
+        "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
+    }
+
+
+async def _execute_task_node(
+    db: DBSession,
+    run: Run,
+    ctx: Dict[str, Any],
+    slug: str,
+    *,
+    control: Optional[ControlPolicy],
+    last_output: Dict[str, Any],
+    node_id: Optional[str] = None,
+) -> Optional[SkillInvocation]:
+    """Invoke one Skill and persist its SkillInvocation ledger row.
+
+    Side-effects:
+    * writes an invocation row in ``running`` state, then updates it to
+      ``completed`` / ``failed`` / ``skipped`` once the skill returns.
+    * on allowed_skills block: emits a ``policy_block`` Decision and returns
+      ``None`` (caller decides whether to continue or abort).
+
+    ``node_id`` (optional) attaches a DAG node identifier into the invocation
+    ``trace`` so the UI can correlate per-node timing in the Run detail view.
+    """
+    if control and control.allowed_skills and slug not in control.allowed_skills:
+        _log_decision(
+            db,
+            scope="system",
+            target_id=ctx.get("system_id"),
+            kind="policy_block",
+            rationale={"skill": slug, "reason": "not_in_allowed_skills"},
+        )
+        return None
+
+    invocation = SkillInvocation(
+        id=str(uuid4()),
+        run_id=run.id,
+        skill_slug=slug,
+        status="running",
+        started_at=datetime.utcnow(),
+        input_ref=_build_skill_input(slug, run.input_ref or {}, last_output, ctx),
+        trace={"node_id": node_id} if node_id else {},
+    )
+    db.add(invocation)
+    db.commit()
+
+    t0 = time.monotonic()
+    try:
+        fn = resolve_skill(slug)
+        output = await fn(invocation.input_ref, ctx)
+        invocation.output_ref = output or {}
+        invocation.status = "completed"
+    except NotImplementedError as nie:
+        invocation.status = "skipped"
+        invocation.error = f"unimplemented: {nie}"
+        logger.info("run_engine: skill unimplemented", run_id=run.id, skill=slug)
+    except Exception as exc:  # noqa: BLE001
+        invocation.status = "failed"
+        invocation.error = str(exc)[:500]
+        logger.warning(
+            "run_engine: skill failed", run_id=run.id, skill=slug, error=str(exc)
+        )
+
+    invocation.latency_ms = (time.monotonic() - t0) * 1000
+    invocation.completed_at = datetime.utcnow()
+    invocation.cost = _skill_unit_price(db, slug)
+    db.commit()
+    return invocation
+
+
+def _finalize_run(
+    db: DBSession,
+    run: Run,
+    *,
+    system: System,
+    capability: Optional[Capability],
+    control: Optional[ControlPolicy],
+    invocations: List[SkillInvocation],
+    duration_ms: float,
+    last_output: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Derive the canonical Outcome block, apply post-checks, persist."""
+    failed = [i for i in invocations if i.status == "failed"]
+    derived = derive_outcome(
+        invocations=invocations,
+        capability=capability,
+        control_hitl_threshold=(
+            control.mandatory_hitl_if_confidence_below if control else None
+        ),
+        duration_ms=duration_ms,
+    )
+    run.status = "completed" if not failed or derived.decision != "blocked" else "failed"
+    run.completed_at = datetime.utcnow()
+    run.duration_ms = duration_ms
+    run.decision = derived.decision
+    run.confidence = derived.confidence
+    run.value_estimated = derived.value
+    run.cost_internal = derived.cost
+    run.efficiency = derived.efficiency
+    run.value_source = derived.value_source.value
+    run.output_ref = last_output or {}
+    if control:
+        _apply_control_postchecks(db, system, run, control)
+    db.commit()
+    return {
+        "id": run.id,
+        "status": run.status,
+        "outcome": {
+            "decision": derived.decision,
+            "confidence": derived.confidence,
+            "value_estimated": derived.value,
+            "cost_internal": derived.cost,
+            "efficiency": derived.efficiency,
+        },
+        "invocations": len(invocations),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +337,6 @@ def _resolve_skill_sequence(
     if not skill_ids:
         return []
     rows = db.query(Skill).filter(Skill.id.in_(skill_ids)).all()
-    # Preserve the order of `skill_ids`.
     by_id = {s.id: s for s in rows}
     return [by_id[i].slug for i in skill_ids if i in by_id]
 
@@ -284,7 +379,7 @@ def _skill_unit_price(db: DBSession, slug: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Outcome helpers
+# Skill I/O helpers
 # ---------------------------------------------------------------------------
 def _build_skill_input(
     slug: str,
@@ -292,67 +387,19 @@ def _build_skill_input(
     last_output: Dict[str, Any],
     ctx: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Thread the right fields into each skill's input schema."""
-    # Simple heuristic: start from the run's input, merge last_output, let
-    # skill-specific fields coming from ctx override.
+    """Thread the right fields into each skill's input schema.
+
+    Simple heuristic: start from the run's input, merge last_output, let
+    skill-specific conventions override.
+    """
     payload: Dict[str, Any] = {}
     payload.update(run_input or {})
     payload.update(last_output or {})
-    # Eval radar expects an `answer` field — pull it from last rag step if missing.
     if slug.startswith("eval_radar") and "answer" not in payload:
         payload["answer"] = last_output.get("answer")
     if slug.startswith("claim_audit") and "citations" not in payload:
         payload["citations"] = last_output.get("citations", [])
     return payload
-
-
-def _extract_confidence(invocations: List[SkillInvocation]) -> Optional[float]:
-    for inv in invocations:
-        out = inv.output_ref or {}
-        if "confidence" in out:
-            try:
-                return float(out["confidence"])
-            except (TypeError, ValueError):
-                continue
-    # No explicit signal — degrade to the success-ratio.
-    if not invocations:
-        return None
-    return round(len(invocations) / max(len(invocations), 1), 3)
-
-
-def _derive_decision(
-    completed: List[SkillInvocation],
-    failed: List[SkillInvocation],
-    control: Optional[ControlPolicy],
-    confidence: Optional[float],
-) -> str:
-    if not completed and failed:
-        return "failed"
-    if control and control.mandatory_hitl_if_confidence_below is not None:
-        if (confidence or 0) < control.mandatory_hitl_if_confidence_below:
-            return "hitl_escalated"
-    if failed:
-        return "partial"
-    return "approved"
-
-
-def _estimate_value(capability: Optional[Capability], decision: str) -> float:
-    if not capability or capability.value_per_outcome is None:
-        return 0.0
-    if decision in ("failed", "blocked", "hitl_escalated"):
-        return 0.0
-    if decision == "partial":
-        return float(capability.value_per_outcome) * 0.5
-    return float(capability.value_per_outcome)
-
-
-def _compute_efficiency(value: float, cost: float, duration_ms: float) -> Optional[float]:
-    if cost <= 0:
-        return None
-    # Efficiency blends economic yield with speed.
-    roi = (value - cost) / cost if cost else 0.0
-    speed = 1.0 / (1.0 + duration_ms / 5000.0)  # normalised around 5s budgets
-    return round(max(0.0, roi) * speed, 3)
 
 
 def _should_stop_adaptive(
@@ -399,28 +446,36 @@ def _log_decision(
     target_id: Optional[str],
     kind: str,
     rationale: Dict[str, Any],
-) -> None:
+    status: str = "applied",
+    title: Optional[str] = None,
+) -> Optional[Decision]:
+    """Persist a Decision row. Returns the row so callers can link it
+    (e.g. HITL pause stores the decision id in the run checkpoint).
+    """
     try:
         title_map = {
             "policy_block": "Skill blocked by policy",
             "policy_breach": "Guardrail breached",
             "adaptive_stop": "Run truncated by adaptive policy",
+            "hitl_approval": "Human approval required",
         }
         row = Decision(
             id=str(uuid4()),
             scope=scope,
             target_id=target_id,
             kind=kind,
-            status="applied",
-            title=title_map.get(kind, kind.replace("_", " ").title()),
+            status=status,
+            title=title or title_map.get(kind, kind.replace("_", " ").title()),
             rationale=rationale,
             impact_estimate={},
         )
         db.add(row)
         db.commit()
+        return row
     except Exception as exc:  # noqa: BLE001
         logger.warning("run_engine: decision log failed", kind=kind, error=str(exc))
         db.rollback()
+        return None
 
 
 def _fail(db: DBSession, run: Run, error: str) -> Dict[str, Any]:

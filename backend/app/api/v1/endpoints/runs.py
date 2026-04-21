@@ -4,18 +4,27 @@ A Run carries the Outcome block. Detail view exposes the SkillInvocation
 ledger so the cockpit can drill from the Run timeline down to individual
 skill calls.
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_workspace
+from app.core.logging import get_logger
 from app.db.base import get_db
+from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.workspace import Workspace
+from app.services.decisions import (
+    InvalidTransition,
+    accept as accept_decision,
+    reject as reject_decision,
+)
 from app.services.outcome.derive import apply_operator_override
+from app.services.run_engine.dag import resume_run_dag
 
+logger = get_logger(__name__)
 router = APIRouter()
 
 
@@ -41,7 +50,19 @@ def _row(r: Run) -> Dict[str, Any]:
         },
         "retries": r.retries,
         "error": r.error,
+        "checkpoints": r.checkpoints or [],
     }
+
+
+def _pending_hitl_checkpoint(r: Run) -> Optional[Dict[str, Any]]:
+    """Return the last ``hitl_pause`` checkpoint when the Run is awaiting
+    operator input, ``None`` otherwise."""
+    if (r.status or "") != "hitl_pending":
+        return None
+    for cp in reversed(list(r.checkpoints or [])):
+        if isinstance(cp, dict) and cp.get("kind") == "hitl_pause":
+            return cp
+    return None
 
 
 def _invocation(i: SkillInvocation) -> Dict[str, Any]:
@@ -85,7 +106,97 @@ async def get_run(
     if not r:
         raise HTTPException(404, "Run not found")
     invocations = db.query(SkillInvocation).filter(SkillInvocation.run_id == r.id).order_by(SkillInvocation.started_at.asc()).all()
-    return {**_row(r), "invocations": [_invocation(i) for i in invocations]}
+    payload: Dict[str, Any] = {
+        **_row(r),
+        "invocations": [_invocation(i) for i in invocations],
+    }
+    pending_cp = _pending_hitl_checkpoint(r)
+    if pending_cp:
+        decision_id = pending_cp.get("decision_id")
+        decision: Optional[Decision] = None
+        if decision_id:
+            decision = db.query(Decision).filter(Decision.id == decision_id).first()
+        payload["hitl"] = {
+            "node_id": pending_cp.get("node_id"),
+            "prompt": pending_cp.get("prompt"),
+            "decision_id": decision_id,
+            "decision_status": decision.status if decision else None,
+            "decision_title": decision.title if decision else None,
+        }
+    return payload
+
+
+class HitlResolve(BaseModel):
+    action: Literal["accept", "reject"]
+    actor: Optional[str] = Field(default=None, description="Operator id / email.")
+    note: Optional[str] = Field(default=None, description="Audit trail note.")
+
+
+@router.post("/{run_id}/hitl")
+async def resolve_run_hitl(
+    run_id: str,
+    body: HitlResolve,
+    background_tasks: BackgroundTasks,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Operator accepts or rejects the pending HITL Decision and the DAG
+    walker resumes in the background. The call is idempotent: a second
+    request on a Run no longer paused returns 409.
+    """
+    r = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace.id).first()
+    if not r:
+        raise HTTPException(404, "Run not found")
+    pending_cp = _pending_hitl_checkpoint(r)
+    if not pending_cp:
+        raise HTTPException(409, f"Run is not awaiting HITL (status={r.status!r})")
+    decision_id = pending_cp.get("decision_id")
+    if not decision_id:
+        raise HTTPException(500, "HITL checkpoint is missing its decision_id")
+    decision = db.query(Decision).filter(Decision.id == decision_id).first()
+    if not decision:
+        raise HTTPException(404, "HITL decision not found")
+
+    try:
+        if body.action == "accept":
+            accept_decision(db, decision, actor=body.actor, note=body.note)
+        else:
+            reject_decision(db, decision, actor=body.actor, note=body.note)
+    except InvalidTransition as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    background_tasks.add_task(_resume_wrapper, r.id, decision.id)
+    logger.info(
+        "runs.hitl: dispatched resume",
+        run_id=r.id,
+        decision_id=decision.id,
+        action=body.action,
+    )
+    return {
+        "id": r.id,
+        "status": r.status,
+        "decision": {
+            "id": decision.id,
+            "status": decision.status,
+        },
+    }
+
+
+def _resume_wrapper(run_id: str, decision_id: str) -> None:
+    """Background shim so the FastAPI request returns immediately; the
+    walker owns its own event loop via ``resume_run_dag``.
+    """
+    import asyncio
+
+    try:
+        asyncio.run(resume_run_dag(run_id, decision_id=decision_id))
+    except RuntimeError:
+        loop = asyncio.get_event_loop()
+        loop.create_task(resume_run_dag(run_id, decision_id=decision_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "runs.hitl: resume failed", run_id=run_id, decision_id=decision_id, error=str(exc)
+        )
 
 
 class OutcomeOverride(BaseModel):
