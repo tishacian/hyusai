@@ -27,6 +27,8 @@ from app.api.v1.endpoints import (
     control_plane,
     contexts,
     reasoning,
+    help_content,
+    telemetry,
 )
 
 api_router = APIRouter()
@@ -59,3 +61,5 @@ api_router.include_router(hypervisor.router,    prefix="/hypervisor",    tags=["
 api_router.include_router(control_plane.router, prefix="/control-plane", tags=["control-plane"])
 api_router.include_router(contexts.router,      prefix="/contexts",      tags=["contexts"])
 api_router.include_router(reasoning.router,     prefix="/reasoning",     tags=["reasoning"])
+api_router.include_router(help_content.router,  prefix="/help-content",  tags=["help-content"])
+api_router.include_router(telemetry.router,      prefix="/telemetry",     tags=["telemetry"])

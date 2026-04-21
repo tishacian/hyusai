@@ -18,6 +18,13 @@ from app.models.capability import Capability
 from app.models.decision import Decision
 from app.models.run import Run
 from app.models.workspace import Workspace
+from app.services.decisions import (
+    InvalidTransition,
+    accept as sm_accept,
+    apply_decision as sm_apply,
+    enact_decision,
+    reject as sm_reject,
+)
 
 router = APIRouter()
 
@@ -218,6 +225,7 @@ def _serialize_decision(d: Decision, *, full: bool = False) -> dict:
         "title": d.title,
         "created_at": d.created_at.isoformat() if d.created_at else None,
         "approved_by": d.approved_by,
+        "applied_at": d.applied_at.isoformat() if getattr(d, "applied_at", None) else None,
     }
     if full:
         base.update({
@@ -225,8 +233,32 @@ def _serialize_decision(d: Decision, *, full: bool = False) -> dict:
             "impact_estimate": d.impact_estimate or {},
             "notes": d.notes or "",
             "approved_at": d.approved_at.isoformat() if d.approved_at else None,
+            "applied_by": getattr(d, "applied_by", None),
+            "applied_patch": getattr(d, "applied_patch", None) or {},
         })
     return base
+
+
+class DecisionTransition(BaseModel):
+    note: Optional[str] = None
+    actor: Optional[str] = None
+
+
+class DecisionApplyRequest(BaseModel):
+    actor: Optional[str] = None
+    enact: bool = True
+    patch: Optional[Dict[str, Any]] = None
+
+
+class DecisionCreate(BaseModel):
+    scope: str = "capability"
+    target_id: Optional[str] = None
+    kind: str = "recommendation"
+    title: str
+    status: str = "proposed"
+    rationale: Dict[str, Any] = {}
+    impact_estimate: Dict[str, Any] = {}
+    notes: Optional[str] = None
 
 
 @router.get("/decisions")
@@ -263,6 +295,33 @@ async def list_decisions(
     }
 
 
+@router.post("/decisions", status_code=201)
+async def create_decision(
+    body: DecisionCreate,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Create a Decision record — used by cockpit CTAs (Scale, Adjust, …)
+    to surface a proposal that an operator can then Accept/Reject/Apply.
+    """
+    row = Decision(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        scope=body.scope,
+        target_id=body.target_id,
+        kind=body.kind,
+        status=body.status or "proposed",
+        title=body.title,
+        rationale=body.rationale or {},
+        impact_estimate=body.impact_estimate or {},
+        notes=body.notes or "",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _serialize_decision(row, full=True)
+
+
 @router.get("/decisions/{decision_id}")
 async def get_decision(
     decision_id: str,
@@ -277,4 +336,70 @@ async def get_decision(
     if not d:
         from fastapi import HTTPException
         raise HTTPException(404, "Decision not found")
+    return _serialize_decision(d, full=True)
+
+
+def _get_decision_or_404(db: DBSession, workspace_id: str, decision_id: str) -> Decision:
+    from fastapi import HTTPException
+    d = (
+        db.query(Decision)
+        .filter(Decision.id == decision_id, Decision.workspace_id == workspace_id)
+        .first()
+    )
+    if not d:
+        raise HTTPException(404, "Decision not found")
+    return d
+
+
+@router.post("/decisions/{decision_id}/accept")
+async def accept_decision(
+    decision_id: str,
+    body: Optional[DecisionTransition] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    from fastapi import HTTPException
+    d = _get_decision_or_404(db, workspace.id, decision_id)
+    try:
+        sm_accept(db, d, actor=(body.actor if body else None), note=(body.note if body else None))
+    except InvalidTransition as exc:
+        raise HTTPException(409, str(exc))
+    return _serialize_decision(d, full=True)
+
+
+@router.post("/decisions/{decision_id}/reject")
+async def reject_decision(
+    decision_id: str,
+    body: Optional[DecisionTransition] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    from fastapi import HTTPException
+    d = _get_decision_or_404(db, workspace.id, decision_id)
+    try:
+        sm_reject(db, d, actor=(body.actor if body else None), note=(body.note if body else None))
+    except InvalidTransition as exc:
+        raise HTTPException(409, str(exc))
+    return _serialize_decision(d, full=True)
+
+
+@router.post("/decisions/{decision_id}/apply")
+async def apply_decision_endpoint(
+    decision_id: str,
+    body: Optional[DecisionApplyRequest] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    from fastapi import HTTPException
+    d = _get_decision_or_404(db, workspace.id, decision_id)
+    actor = body.actor if body else None
+    patch: Dict[str, Any] = {}
+    if body and body.patch:
+        patch = body.patch
+    elif body is None or body.enact:
+        patch = enact_decision(db, d)
+    try:
+        sm_apply(db, d, actor=actor, patch=patch)
+    except InvalidTransition as exc:
+        raise HTTPException(409, str(exc))
     return _serialize_decision(d, full=True)

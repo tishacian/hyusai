@@ -32,6 +32,7 @@ structlog>=24.0.0
 
 # Utilities
 python-dotenv>=1.0.0
+PyYAML>=6.0
 
 # SharePoint OTP connector
 # - playwright: interactive OTP + MFA login and cookie-based REST calls

@@ -1,0 +1,394 @@
+version: "2026.04.21"
+personas: [builder, operator, executive]
+
+# ---------------------------------------------------------------------------
+# HYPERVISOR — Balance sheet, decisions, portfolio what-if.
+# ---------------------------------------------------------------------------
+items:
+  - id: hypervisor.balance-sheet.overview
+    title: "Balance sheet"
+    category: metric
+    learn_more: "#s-22-hypervisor"
+    by_persona:
+      executive:
+        summary: "Le P&L de ton portefeuille d'Agentium : coût, valeur, ROI agrégés sur la période."
+        user_story: "En tant que dirigeant, je consulte le balance sheet pour arbitrer quelles capabilities financer."
+        prerequisites: ["Au moins un System actif avec des Runs."]
+        related_actions: ["hypervisor.balance-sheet.scale-capability", "hypervisor.decisions.feed"]
+      operator:
+        summary: "Vue agrégée des Outcomes sur tes Systems — utile pour détecter les dérives."
+        user_story: "En tant qu'operator, je surveille le balance sheet pour identifier les capabilities sous-performantes."
+        prerequisites: []
+        related_actions: ["steering.levers.resource", "runs.filter.by-system"]
+      builder:
+        summary: "Tu vois ici l'impact des Systems que tu as assemblés. Indicateur de santé produit."
+        user_story: "En tant que builder, je vérifie dans le balance sheet que mes Systems génèrent de la valeur."
+        prerequisites: []
+        related_actions: ["systems.create", "capabilities.roi-model"]
+
+  - id: hypervisor.balance-sheet.scale-capability
+    title: "Scaler une capability"
+    category: action
+    learn_more: "#s-22-hypervisor"
+    by_persona:
+      executive:
+        summary: "Augmente l'allocation et la valeur-par-outcome d'une capability à fort ROI."
+        user_story: "En tant que dirigeant, je scale une capability performante pour concentrer mes investissements."
+        prerequisites: ["ROI > seuil interne", "Capacité à absorber la charge"]
+        related_actions: ["hypervisor.decisions.accept", "steering.levers.resource"]
+      operator:
+        summary: "Passe par une Decision proposée — tu valides l'impact avant application."
+        user_story: "En tant qu'operator, je valide la recommandation de scaling avant qu'elle ne modifie les policies."
+        prerequisites: ["Une Decision ouverte avec action=scale"]
+        related_actions: ["hypervisor.decisions.apply"]
+      builder:
+        summary: "Action d'exécutif — tu verras le résultat dans la composition de tes Systems demain."
+        user_story: "En tant que builder, je suis informé des scaling décidés pour anticiper la charge sur mes Systems."
+        prerequisites: []
+        related_actions: ["systems.monitor.outcome"]
+
+  - id: hypervisor.decisions.feed
+    title: "Flux de décisions"
+    category: navigation
+    learn_more: "#s-24-decisions"
+    by_persona:
+      executive:
+        summary: "Liste chronologique des recommandations en attente et des actions appliquées."
+        user_story: "En tant que dirigeant, je parcours le flux pour arbitrer ce qui attend mon accord."
+        prerequisites: []
+        related_actions: ["hypervisor.decisions.accept", "hypervisor.decisions.reject"]
+      operator:
+        summary: "Centre d'action : accept/reject/apply par décision, filtrable par scope."
+        user_story: "En tant qu'operator, je traite le flux de décisions en priorisant les actions bloquantes."
+        prerequisites: []
+        related_actions: ["hypervisor.decisions.apply"]
+      builder:
+        summary: "Lecture seule — tu vois ici les décisions qui impactent tes Systems."
+        user_story: "En tant que builder, je consulte le flux pour comprendre pourquoi mes Systems changent."
+        prerequisites: []
+        related_actions: []
+
+  - id: hypervisor.decisions.accept
+    title: "Accepter une décision"
+    category: action
+    learn_more: "#s-24-decisions"
+    by_persona:
+      executive:
+        summary: "Valide la recommandation — elle reste à enacter par un operator."
+        user_story: "En tant que dirigeant, j'accepte la décision pour autoriser son application."
+        prerequisites: ["Statut = proposed"]
+        related_actions: ["hypervisor.decisions.apply"]
+      operator:
+        summary: "Étape intermédiaire avant Apply ; ajoute une note d'audit si nécessaire."
+        user_story: "En tant qu'operator, j'accepte la décision et la marque pour application sous ma responsabilité."
+        prerequisites: ["Statut = proposed"]
+        related_actions: ["hypervisor.decisions.apply", "hypervisor.decisions.reject"]
+      builder:
+        summary: "Action réservée aux executives/operators."
+        user_story: "En tant que builder, je n'accepte pas directement — je signale plutôt les effets observés."
+        prerequisites: []
+        related_actions: []
+
+  - id: hypervisor.decisions.reject
+    title: "Rejeter une décision"
+    category: action
+    by_persona:
+      executive:
+        summary: "Clôture la recommandation sans impact — ajoute une note pour l'apprentissage du système."
+        user_story: "En tant que dirigeant, je rejette la décision car elle contredit une priorité stratégique."
+        prerequisites: ["Statut = proposed"]
+        related_actions: []
+      operator:
+        summary: "Écarte la proposition ; le runtime adaptatif apprendra du motif fourni."
+        user_story: "En tant qu'operator, je rejette la décision avec un motif pour alimenter la boucle adaptative."
+        prerequisites: ["Statut = proposed"]
+        related_actions: []
+      builder:
+        summary: "Action réservée aux executives/operators."
+        user_story: "En tant que builder, je n'ai pas ce droit — je remonte plutôt le feedback."
+        prerequisites: []
+        related_actions: []
+
+  - id: hypervisor.decisions.apply
+    title: "Appliquer une décision"
+    category: action
+    learn_more: "#s-24-decisions"
+    by_persona:
+      operator:
+        summary: "Enacte la décision : patch les policies/systems concernés et enregistre l'audit."
+        user_story: "En tant qu'operator, j'applique la décision pour matérialiser le changement sur le runtime."
+        prerequisites: ["Statut = accepted"]
+        related_actions: ["runs.list", "steering.levers.resource"]
+      executive:
+        summary: "Transition accepted → applied — habituellement déclenchée par un operator."
+        user_story: "En tant que dirigeant, je déclenche Apply uniquement quand je veux court-circuiter la chaîne."
+        prerequisites: ["Statut = accepted"]
+        related_actions: []
+      builder:
+        summary: "Action réservée aux operators/executives."
+        user_story: "En tant que builder, je n'applique pas de décisions."
+        prerequisites: []
+        related_actions: []
+
+  - id: hypervisor.what-if.run
+    title: "Simulation What-If"
+    category: action
+    learn_more: "#s-36-steering"
+    by_persona:
+      executive:
+        summary: "Projette le P&L si tu bouges resource / velocity / autonomy / risk tolerance."
+        user_story: "En tant que dirigeant, je simule les leviers avant tout changement pour valider l'impact attendu."
+        prerequisites: []
+        related_actions: ["steering.levers.resource"]
+      operator:
+        summary: "Essaie une combinaison de leviers et mesure la projection avant de modifier les policies."
+        user_story: "En tant qu'operator, je lance un what-if pour vérifier la résilience avant d'appliquer un réglage."
+        prerequisites: []
+        related_actions: ["steering.levers.resource"]
+      builder:
+        summary: "Pré-visualise l'effet des leviers sur les Systems que tu as conçus."
+        user_story: "En tant que builder, je simule les leviers pour comprendre la sensibilité de mes Systems."
+        prerequisites: []
+        related_actions: []
+
+# ---------------------------------------------------------------------------
+# STEERING — Les 4 leviers canoniques.
+# ---------------------------------------------------------------------------
+  - id: steering.levers.resource
+    title: "Levier Resource"
+    category: control
+    learn_more: "#s-36-steering"
+    by_persona:
+      executive:
+        summary: "Alloue plus ou moins de budget (tokens, agents, retrieval) au périmètre sélectionné."
+        user_story: "En tant que dirigeant, j'augmente Resource sur une capability prioritaire."
+        prerequisites: []
+        related_actions: ["hypervisor.what-if.run"]
+      operator:
+        summary: "0 = lean (coût -40%), 1 = deep (valeur +35%). À ajuster avant un pic."
+        user_story: "En tant qu'operator, je monte Resource avant un pic de trafic prévu."
+        prerequisites: []
+        related_actions: ["hypervisor.what-if.run"]
+      builder:
+        summary: "Variable contextuelle passée à tes Skills — à lire depuis ctx.resource."
+        user_story: "En tant que builder, je m'assure que mes Skills tirent parti de Resource quand il monte."
+        prerequisites: []
+        related_actions: []
+
+  - id: steering.levers.velocity
+    title: "Levier Velocity"
+    category: control
+    learn_more: "#s-36-steering"
+    by_persona:
+      operator:
+        summary: "Pilote le latency budget (rapid vs thorough)."
+        user_story: "En tant qu'operator, je passe Velocity à 1 (rapid) pour un incident live."
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: "Rapide = réponse <1s avec dégradation qualité ; Thorough = analyse en profondeur."
+        user_story: "En tant que dirigeant, j'utilise Thorough pour les décisions stratégiques, Rapid pour l'opérationnel."
+        prerequisites: []
+        related_actions: []
+      builder:
+        summary: "Signal à lire pour arbitrer entre modèles rapides et modèles précis."
+        user_story: "En tant que builder, je route vers un modèle léger quand Velocity > 0.7."
+        prerequisites: []
+        related_actions: []
+
+  - id: steering.levers.autonomy
+    title: "Levier Autonomy"
+    category: control
+    learn_more: "#s-36-steering"
+    by_persona:
+      operator:
+        summary: "0 = HITL systématique ; 1 = automatisation complète (sous contrôle d'un ControlPolicy)."
+        user_story: "En tant qu'operator, je baisse Autonomy à 0.3 pour imposer une revue humaine sur les décisions à fort impact."
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: "Contrôle le risque opérationnel et la vitesse de décision."
+        user_story: "En tant que dirigeant, je fixe Autonomy pour équilibrer vitesse et gouvernance."
+        prerequisites: []
+        related_actions: []
+      builder:
+        summary: "Ta ControlPolicy définit les seuils où Autonomy déclenche HITL."
+        user_story: "En tant que builder, je définis un seuil mandatory_hitl_if_confidence_below pour borner Autonomy."
+        prerequisites: []
+        related_actions: []
+
+  - id: steering.levers.risk-tolerance
+    title: "Levier Risk tolerance"
+    category: control
+    learn_more: "#s-36-steering"
+    by_persona:
+      executive:
+        summary: "Ajuste combien tu acceptes de te tromper — impacte les seuils de décision."
+        user_story: "En tant que dirigeant, je relève Risk tolerance pour tester une capability émergente."
+        prerequisites: []
+        related_actions: []
+      operator:
+        summary: "À utiliser avec prudence : assouplit les guardrails confidence/précision."
+        user_story: "En tant qu'operator, je baisse Risk tolerance après un incident pour durcir les seuils."
+        prerequisites: []
+        related_actions: []
+      builder:
+        summary: "Signal passé aux skills de classification/decision pour moduler leur sélectivité."
+        user_story: "En tant que builder, j'ajuste le threshold de mes decision_skills selon Risk tolerance."
+        prerequisites: []
+        related_actions: []
+
+# ---------------------------------------------------------------------------
+# SYSTEM BUILDER — étapes 1→6.
+# ---------------------------------------------------------------------------
+  - id: builder.steps.overview
+    title: "Assembler un System"
+    category: concept
+    learn_more: "#s-8-system"
+    by_persona:
+      builder:
+        summary: "Composition : Objective → Capability → Context → Skills → Policy → Review."
+        user_story: "En tant que builder, je suis les 6 étapes pour produire un System activable."
+        prerequisites: []
+        related_actions: ["builder.steps.skills", "builder.steps.context"]
+      operator:
+        summary: "Tu vois ici les Systems que le builder a conçu ; tu ne les modifies pas directement."
+        user_story: "En tant qu'operator, j'inspecte la composition d'un System pour comprendre ses dépendances."
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: "Rappel : un System = unité de déploiement liée à une Capability."
+        user_story: "En tant que dirigeant, je comprends la composition d'un System pour arbitrer son financement."
+        prerequisites: []
+        related_actions: []
+
+  - id: builder.steps.skills
+    title: "Étape Skills"
+    category: action
+    learn_more: "#s-15-skills"
+    by_persona:
+      builder:
+        summary: "Choisis les Skills qui composent la chaîne d'exécution. Statut runtime visible."
+        user_story: "En tant que builder, je sélectionne les Skills bound pour éviter les stubs en prod."
+        prerequisites: ["Une Capability sélectionnée à l'étape 2"]
+        related_actions: ["builder.steps.policy"]
+      operator:
+        summary: "Lecture seule ; surveille les Skills stub qui peuvent dégrader les Outcomes."
+        user_story: "En tant qu'operator, je repère les Skills stub pour alerter les builders."
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: "Rappel : Skills = bloc atomique exécutable dans un Run."
+        user_story: "En tant que dirigeant, je valide le coût des Skills retenus."
+        prerequisites: []
+        related_actions: []
+
+  - id: builder.steps.context
+    title: "Étape Context"
+    category: action
+    by_persona:
+      builder:
+        summary: "Rattache ou crée un Context (prompt, corpus, garde-fous conversationnels)."
+        user_story: "En tant que builder, je réutilise un Context existant pour accélérer l'assemblage."
+        prerequisites: []
+        related_actions: ["contexts.list"]
+      operator:
+        summary: "Important pour la qualité des réponses ; un Context partagé propage les changements."
+        user_story: "En tant qu'operator, je surveille la propagation quand un Context partagé change."
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: "Contrôle le ton et les corpus mobilisés par le System."
+        user_story: "En tant que dirigeant, je m'assure que le Context reflète la voix de la marque."
+        prerequisites: []
+        related_actions: []
+
+  - id: builder.steps.policy
+    title: "Étape Policy"
+    category: action
+    learn_more: "#s-21-policies"
+    by_persona:
+      builder:
+        summary: "Attache une ControlPolicy (guardrails) et une AdaptivePolicy (directives soft)."
+        user_story: "En tant que builder, je lie une ControlPolicy pour borner coût et latence."
+        prerequisites: []
+        related_actions: []
+      operator:
+        summary: "Valide que les caps (cost, latency, HITL) sont cohérents avec tes SLAs."
+        user_story: "En tant qu'operator, j'ajuste les policies pour aligner les SLAs avec la charge réelle."
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: "Tu vois ici les règles du jeu imposées au System."
+        user_story: "En tant que dirigeant, je lis les policies pour comprendre les limites du System."
+        prerequisites: []
+        related_actions: []
+
+# ---------------------------------------------------------------------------
+# RUNS — drill-down outcome.
+# ---------------------------------------------------------------------------
+  - id: runs.outcome.override
+    title: "Override Outcome.value"
+    category: action
+    learn_more: "#s-22-hypervisor"
+    by_persona:
+      operator:
+        summary: "Corrige la valeur business quand l'auto-dérivation n'est pas alignée avec la réalité."
+        user_story: "En tant qu'operator, j'override value quand un deal réel contredit le roi_model."
+        prerequisites: ["Run terminé"]
+        related_actions: []
+      executive:
+        summary: "Trace la divergence entre modèle de ROI et valeur réelle — à lire dans la balance sheet."
+        user_story: "En tant que dirigeant, je lis les overrides pour calibrer les roi_model."
+        prerequisites: []
+        related_actions: []
+      builder:
+        summary: "Signal pour revoir le roi_model de la Capability liée."
+        user_story: "En tant que builder, je revois le roi_model quand trop d'overrides arrivent sur une Capability."
+        prerequisites: []
+        related_actions: []
+
+  - id: runs.list
+    title: "Liste des Runs"
+    category: navigation
+    learn_more: "#s-22-hypervisor"
+    by_persona:
+      operator:
+        summary: "Historique complet filtrable par System et statut."
+        user_story: "En tant qu'operator, je filtre les Runs failed pour investiguer les incidents."
+        prerequisites: []
+        related_actions: ["runs.outcome.override"]
+      builder:
+        summary: "Vois l'exécution réelle de tes Systems et les invocations de Skills."
+        user_story: "En tant que builder, je consulte les Runs pour valider le comportement de ma composition."
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: "Niveau opérationnel — rarement utile au portfolio level."
+        user_story: "En tant que dirigeant, je vais ici seulement pour un drill-down exceptionnel."
+        prerequisites: []
+        related_actions: []
+
+# ---------------------------------------------------------------------------
+# WORKSPACE — modes persona.
+# ---------------------------------------------------------------------------
+  - id: workspace.mode.switch
+    title: "Changer de mode workspace"
+    category: navigation
+    learn_more: "#s-37-modes"
+    by_persona:
+      builder:
+        summary: "Bascule en mode Operator ou Executive pour changer de perspective sans quitter le workspace."
+        user_story: "En tant que builder, je passe en mode operator pour tester l'expérience quotidienne."
+        prerequisites: []
+        related_actions: []
+      operator:
+        summary: "Ajuste l'interface (densité, panneaux, navigation) à ton rôle courant."
+        user_story: "En tant qu'operator, je bascule en mode executive avant une revue trimestrielle."
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: "Mode executive = densité basse, focus portfolio/decisions/balance sheet."
+        user_story: "En tant que dirigeant, je reste en mode executive 90% du temps."
+        prerequisites: []
+        related_actions: []

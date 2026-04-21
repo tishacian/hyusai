@@ -30,13 +30,17 @@ class Run(Base):
     completed_at = Column(DateTime, nullable=True)
     duration_ms = Column(Float, nullable=True)
 
-    # Outcome block
+    # Outcome block — canonical {cost, value, confidence, efficiency} + source
     decision = Column(String(40), nullable=True)
     confidence = Column(Float, nullable=True)
     value_estimated = Column(Float, nullable=True)
     cost_internal = Column(Float, nullable=True)
     revenue_allocated = Column(Float, nullable=True)
     efficiency = Column(Float, nullable=True)
+    # value_source: 'auto' (derived from Capability.roi_model), 'operator'
+    # (declared post-run), or 'unset' (no roi_model, no operator input yet).
+    value_source = Column(String(16), default="unset", nullable=False)
+    operator_value_note = Column(Text, nullable=True)
 
     checkpoints = Column(JSON, default=list)
     retries = Column(Integer, default=0)

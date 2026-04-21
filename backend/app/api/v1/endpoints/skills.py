@@ -19,6 +19,23 @@ from app.models.workspace import Workspace
 router = APIRouter()
 
 
+def _runtime_status(slug: str) -> str:
+    """Resolve the canonical 4-state runtime status for a skill slug.
+
+    Returns one of ``bound`` | ``stub`` | ``unbound`` | ``catalog_only``.
+    ``catalog_only`` means the Skill row exists in the database but has
+    no registered wrapper — useful to flag "declared-but-unimplemented"
+    capabilities in the UI.
+    """
+    from app.services.skills_registry import registry_snapshot
+
+    snap = registry_snapshot()
+    entry = snap.get(slug)
+    if entry is None:
+        return "catalog_only"
+    return entry.get("status", "unbound")
+
+
 def _serialize(s: Skill, metrics: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return {
         "id": s.id,
@@ -35,6 +52,7 @@ def _serialize(s: Skill, metrics: Optional[Dict[str, Any]] = None) -> Dict[str, 
         "is_seeded": s.is_seeded == "Y",
         "provider": s.provider,
         "metrics": metrics or s.metrics or {},
+        "runtime_status": _runtime_status(s.slug),
     }
 
 
@@ -45,16 +63,30 @@ async def runtime_health(
 ):
     """Report the live runtime status of every registered skill wrapper.
 
-    Tri-state: ``bound`` (real implementation), ``stub`` (degraded stand-in)
-    or ``unbound`` (no wrapper declared). The frontend uses this to warn
-    operators when an otherwise-seeded skill will return empty payloads.
+    Canonical 4-state: ``bound`` (real implementation), ``stub`` (degraded
+    stand-in), ``unbound`` (declared in the registry but no wrapper) or
+    ``catalog_only`` (exists in the Skill catalog but has no registry
+    entry at all).
     """
     from app.services.skills_registry import registry_snapshot
 
     snapshot = registry_snapshot()
-    summary = {"bound": 0, "stub": 0, "unbound": 0}
+    summary = {"bound": 0, "stub": 0, "unbound": 0, "catalog_only": 0}
     for entry in snapshot.values():
         summary[entry["status"]] = summary.get(entry["status"], 0) + 1
+
+    catalog_slugs = {
+        row[0]
+        for row in db.query(Skill.slug)
+        .filter(
+            (Skill.workspace_id == workspace.id) | (Skill.workspace_id.is_(None)),
+        )
+        .all()
+    }
+    catalog_only = catalog_slugs - set(snapshot.keys())
+    summary["catalog_only"] = len(catalog_only)
+    for slug in catalog_only:
+        snapshot[slug] = {"status": "catalog_only", "declared_status": None, "module": None}
     return {"skills": snapshot, "summary": summary}
 
 

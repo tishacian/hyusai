@@ -18,8 +18,10 @@ class Decision(Base):
     scope = Column(String(20), default="capability")  # capability | system | run | portfolio
     target_id = Column(String(36), nullable=True, index=True)
 
-    kind = Column(String(40), default="recommendation")  # recommendation | what_if | adaptive_action | manual
-    status = Column(String(20), default="open")          # open | accepted | rejected | applied
+    kind = Column(String(40), default="recommendation")
+    # Canonical state machine: proposed -> accepted|rejected -> applied
+    # (legacy `open` rows migrated to `proposed` by revision 007).
+    status = Column(String(20), default="proposed")
     title = Column(String(255), nullable=False)
     rationale = Column(JSON, default=dict)
 
@@ -29,3 +31,8 @@ class Decision(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     approved_by = Column(String(255), nullable=True)
     approved_at = Column(DateTime, nullable=True)
+
+    # Enactment trace — filled when a decision transitions to `applied`.
+    applied_at = Column(DateTime, nullable=True)
+    applied_patch = Column(JSON, nullable=True)
+    applied_by = Column(String(255), nullable=True)

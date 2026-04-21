@@ -5,18 +5,26 @@ is kept for back-compat while the cockpit migrates all callsites, and
 every response is stamped with an ``X-Deprecated`` header so we can
 observe any residual calls in production logs.
 """
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from typing import List, Dict, Any
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter()
 
 _DEPRECATION_NOTICE = "Use /api/v1/systems (canonical). /agents will be removed."
+_SUNSET_DATE = "Wed, 30 Sep 2026 00:00:00 GMT"
+_SUCCESSOR = "/api/v1/systems"
 
 
-def _stamp_deprecated(response: Response) -> None:
+def _stamp_deprecated(response: Response) -> Response:
+    """Router-level dependency — stamps every response from /agents."""
     response.headers["X-Deprecated"] = _DEPRECATION_NOTICE
+    response.headers["Sunset"] = _SUNSET_DATE
+    response.headers["Link"] = f'<{_SUCCESSOR}>; rel="successor-version"'
+    return response
+
+
+router = APIRouter(dependencies=[Depends(_stamp_deprecated)])
 
 # This will be set by the main app
 _orchestrator = None
@@ -32,12 +40,11 @@ def get_orchestrator():
 
 
 @router.get("")
-async def list_agents(response: Response) -> Dict[str, List[Dict[str, Any]]]:
+async def list_agents() -> Dict[str, List[Dict[str, Any]]]:
     """List all registered agents.
 
     .. deprecated:: use ``GET /api/v1/systems`` instead.
     """
-    _stamp_deprecated(response)
     try:
         orchestrator = get_orchestrator()
         if orchestrator is None:

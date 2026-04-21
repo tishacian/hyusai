@@ -27,6 +27,7 @@ from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
+from app.services.outcome.derive import derive_outcome
 from app.services.skills_registry import resolve as resolve_skill
 
 logger = get_logger(__name__)
@@ -171,13 +172,20 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
 
         duration_ms = (time.monotonic() - start) * 1000
 
-        # ---- Outcome aggregation ------------------------------------------
-        completed = [i for i in invocations_out if i.status == "completed"]
+        # ---- Outcome aggregation (canonical derivation service) -----------
         failed = [i for i in invocations_out if i.status == "failed"]
-        confidence = _extract_confidence(completed)
-        decision = _derive_decision(completed, failed, control, confidence)
-        value_est = _estimate_value(capability, decision)
-        efficiency = _compute_efficiency(value_est, total_cost, duration_ms)
+        derived = derive_outcome(
+            invocations=invocations_out,
+            capability=capability,
+            control_hitl_threshold=(
+                control.mandatory_hitl_if_confidence_below if control else None
+            ),
+            duration_ms=duration_ms,
+        )
+        confidence = derived.confidence
+        decision = derived.decision
+        value_est = derived.value
+        efficiency = derived.efficiency
 
         run.status = "completed" if not failed or decision != "blocked" else "failed"
         run.completed_at = datetime.utcnow()
@@ -185,8 +193,9 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
         run.decision = decision
         run.confidence = confidence
         run.value_estimated = value_est
-        run.cost_internal = total_cost
+        run.cost_internal = derived.cost
         run.efficiency = efficiency
+        run.value_source = derived.value_source.value
         run.output_ref = last_output or {}
         if control:
             _apply_control_postchecks(db, system, run, control)

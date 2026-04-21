@@ -27,8 +27,12 @@ class System(Base):
     skill_ids = Column(JSON, default=list)         # list[str] — refs Skill.id
     flow_definition = Column(JSON, default=dict)   # drawflow-style JSON for the Flow
 
-    # Execution
-    execution_mode = Column(String(40), default="real_time")
+    # Execution — canonical modes: real_time_decision | batch_processing |
+    # event_driven_automation | continuous_monitoring | human_augmented.
+    # execution_profile carries SLA (latency target, max runtime), durability
+    # flags and pricing profile associated with the mode.
+    execution_mode = Column(String(40), default="real_time_decision")
+    execution_profile = Column(JSON, nullable=True)
     coordination_pattern = Column(String(40), default="single_agent")
 
     control_policy_id = Column(String(36), ForeignKey("control_policies.id"), nullable=True)

@@ -1,21 +1,33 @@
 """RAG execution traces endpoints.
 
-Deprecated — use the canonical ``/runs`` router instead. Kept for
-back-compat; every response carries an ``X-Deprecated`` header.
+Deprecated — use the canonical ``/runs`` router instead. Every response
+from this router is stamped with three RFC-8594 style headers:
+
+- ``X-Deprecated``    : human-readable notice
+- ``Sunset``          : RFC-3339 date at which this router is removed
+- ``Link``            : ``rel="successor-version"`` pointing at /runs
 """
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from typing import Optional
 from app.services.tracing.rag_tracer import get_tracer
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter()
 
 _DEPRECATION_NOTICE = "Use /api/v1/runs (canonical). /traces will be removed."
+_SUNSET_DATE = "Wed, 30 Sep 2026 00:00:00 GMT"
+_SUCCESSOR = "/api/v1/runs"
 
 
-def _stamp_deprecated(response: Response) -> None:
+def _stamp_deprecated(response: Response) -> Response:
+    """FastAPI dependency — stamps every response from this router."""
     response.headers["X-Deprecated"] = _DEPRECATION_NOTICE
+    response.headers["Sunset"] = _SUNSET_DATE
+    response.headers["Link"] = f'<{_SUCCESSOR}>; rel="successor-version"'
+    return response
+
+
+router = APIRouter(dependencies=[Depends(_stamp_deprecated)])
 
 
 @router.get("/traces")
@@ -24,7 +36,6 @@ async def get_traces(response: Response, operation_type: Optional[str] = None):
 
     .. deprecated:: use ``GET /api/v1/runs`` instead.
     """
-    _stamp_deprecated(response)
     try:
         tracer = get_tracer()
         traces = tracer.get_all_traces()
@@ -42,12 +53,11 @@ async def get_traces(response: Response, operation_type: Optional[str] = None):
 
 
 @router.get("/traces/{trace_id}")
-async def get_trace(trace_id: str, response: Response):
+async def get_trace(trace_id: str):
     """Get a specific trace by ID.
 
     .. deprecated:: use ``GET /api/v1/runs/{run_id}`` instead.
     """
-    _stamp_deprecated(response)
     try:
         tracer = get_tracer()
         trace = tracer.get_trace(trace_id)

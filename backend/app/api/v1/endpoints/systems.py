@@ -29,7 +29,8 @@ class SystemCreate(BaseModel):
     capability_id: Optional[str] = None
     skill_ids: List[str] = []
     flow_definition: Dict[str, Any] = {}
-    execution_mode: str = "real_time"
+    execution_mode: str = "real_time_decision"
+    execution_profile: Optional[Dict[str, Any]] = None
     coordination_pattern: str = "single_agent"
     control_policy_id: Optional[str] = None
     adaptive_policy_id: Optional[str] = None
@@ -47,6 +48,7 @@ class SystemUpdate(BaseModel):
     skill_ids: Optional[List[str]] = None
     flow_definition: Optional[Dict[str, Any]] = None
     execution_mode: Optional[str] = None
+    execution_profile: Optional[Dict[str, Any]] = None
     coordination_pattern: Optional[str] = None
     control_policy_id: Optional[str] = None
     adaptive_policy_id: Optional[str] = None
@@ -73,6 +75,7 @@ def _serialize(s: System) -> Dict[str, Any]:
         "skill_ids": s.skill_ids or [],
         "flow_definition": s.flow_definition or {},
         "execution_mode": s.execution_mode,
+        "execution_profile": getattr(s, "execution_profile", None) or {},
         "coordination_pattern": s.coordination_pattern,
         "control_policy_id": s.control_policy_id,
         "adaptive_policy_id": s.adaptive_policy_id,
@@ -117,6 +120,7 @@ async def create_system(
         skill_ids=body.skill_ids,
         flow_definition=body.flow_definition,
         execution_mode=body.execution_mode,
+        execution_profile=body.execution_profile or None,
         coordination_pattern=body.coordination_pattern,
         control_policy_id=body.control_policy_id,
         adaptive_policy_id=body.adaptive_policy_id,
