@@ -100,9 +100,28 @@ class AdaptivePolicyBody(BaseModel):
     name: str = "default"
     enabled: bool = False
     adaptation_level: str = "moderate"
+    scope: Optional[str] = None
+    target_id: Optional[str] = None
     triggers: Dict[str, Any] = {}
     allowed_actions: List[str] = []
     constraints: Dict[str, Any] = {}
+
+
+class AdaptivePolicyPatch(BaseModel):
+    """Partial update — every field optional."""
+
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    adaptation_level: Optional[str] = None
+    scope: Optional[str] = None
+    target_id: Optional[str] = None
+    triggers: Optional[Dict[str, Any]] = None
+    allowed_actions: Optional[List[str]] = None
+    constraints: Optional[Dict[str, Any]] = None
+
+
+class AdaptiveToggleBody(BaseModel):
+    enabled: Optional[bool] = None
 
 
 def _serialize_ap(p: AdaptivePolicy) -> Dict[str, Any]:
@@ -111,6 +130,8 @@ def _serialize_ap(p: AdaptivePolicy) -> Dict[str, Any]:
         "name": p.name,
         "enabled": bool(p.enabled),
         "adaptation_level": p.adaptation_level,
+        "scope": p.scope,
+        "target_id": p.target_id,
         "triggers": p.triggers or {},
         "allowed_actions": p.allowed_actions or [],
         "constraints": p.constraints or {},
@@ -119,11 +140,17 @@ def _serialize_ap(p: AdaptivePolicy) -> Dict[str, Any]:
 
 @router.get("/adaptive")
 async def list_adaptive(
+    scope: Optional[str] = None,
+    target_id: Optional[str] = None,
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    rows = db.query(AdaptivePolicy).filter(AdaptivePolicy.workspace_id == workspace.id).all()
-    return {"policies": [_serialize_ap(p) for p in rows]}
+    q = db.query(AdaptivePolicy).filter(AdaptivePolicy.workspace_id == workspace.id)
+    if scope:
+        q = q.filter(AdaptivePolicy.scope == scope)
+    if target_id:
+        q = q.filter(AdaptivePolicy.target_id == target_id)
+    return {"policies": [_serialize_ap(p) for p in q.all()]}
 
 
 @router.post("/adaptive")
@@ -137,6 +164,60 @@ async def create_adaptive(
     db.commit()
     db.refresh(p)
     return _serialize_ap(p)
+
+
+def _find_adaptive(db: DBSession, workspace_id: str, policy_id: str) -> AdaptivePolicy:
+    p = (
+        db.query(AdaptivePolicy)
+        .filter(AdaptivePolicy.id == policy_id, AdaptivePolicy.workspace_id == workspace_id)
+        .first()
+    )
+    if not p:
+        raise HTTPException(404, "Adaptive policy not found")
+    return p
+
+
+@router.patch("/adaptive/{policy_id}")
+async def update_adaptive(
+    policy_id: str,
+    body: AdaptivePolicyPatch,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    p = _find_adaptive(db, workspace.id, policy_id)
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(p, k, v)
+    db.commit()
+    db.refresh(p)
+    return _serialize_ap(p)
+
+
+@router.post("/adaptive/{policy_id}/toggle")
+async def toggle_adaptive(
+    policy_id: str,
+    body: Optional[AdaptiveToggleBody] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Flip the ``enabled`` flag. Explicit value wins, otherwise invert."""
+    p = _find_adaptive(db, workspace.id, policy_id)
+    target = body.enabled if (body and body.enabled is not None) else (not bool(p.enabled))
+    p.enabled = bool(target)
+    db.commit()
+    db.refresh(p)
+    return _serialize_ap(p)
+
+
+@router.delete("/adaptive/{policy_id}", status_code=204)
+async def delete_adaptive(
+    policy_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    p = _find_adaptive(db, workspace.id, policy_id)
+    db.delete(p)
+    db.commit()
+    return None
 
 
 # ---- Simulate ----

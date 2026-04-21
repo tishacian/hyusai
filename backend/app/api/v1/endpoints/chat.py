@@ -36,6 +36,13 @@ class ChatRequest(BaseModel):
     system_prompt: Optional[str] = None
     # RAG mode: auto | naive | hybrid | hah | chah — see docs/rag-rd-papai-mapping.md
     rag_pipeline_mode: Optional[str] = None
+    # Per-query retrieval override (alias of rag_pipeline_mode used by the
+    # cockpit chip selector — takes precedence over workspace settings).
+    rag_mode_override: Optional[str] = None
+    # Reasoning template (factual | analytical | comparative | causal |
+    # hypothetical | trivial | auto). When unset or "auto" the orchestrator
+    # runs the mode_selector heuristic.
+    prompt_type: Optional[str] = None
 
 
 @router.post("/completion")
@@ -63,6 +70,12 @@ async def chat_completion(
         request_dict["query"] = validated_query
         request_dict["workspace_slug"] = workspace.slug
         request_dict["workspace_id"] = workspace.id
+
+        # If the cockpit sent a per-query override, promote it onto the
+        # legacy pipeline-mode key so downstream code picks it up without
+        # changing its signature.
+        if request.rag_mode_override:
+            request_dict["rag_pipeline_mode"] = request.rag_mode_override
 
         # Apply settings defaults if not provided
         if not request_dict.get("agent_preferences"):
@@ -196,6 +209,8 @@ async def chat_stream(
             request_dict = request.model_dump()
             request_dict["workspace_slug"] = workspace.slug
             request_dict["workspace_id"] = workspace.id
+            if request.rag_mode_override:
+                request_dict["rag_pipeline_mode"] = request.rag_mode_override
             
             # Apply settings defaults if not provided
             if not request_dict.get("agent_preferences"):

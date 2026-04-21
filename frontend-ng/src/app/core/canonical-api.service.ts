@@ -88,6 +88,20 @@ export interface Run {
   skill_invocations?: SkillInvocation[];
 }
 
+export interface Context {
+  id: string;
+  system_id?: string | null;
+  name: string;
+  version?: number;
+  data_refs?: string[];
+  memory_refs?: string[];
+  history_refs?: string[];
+  environment_state?: Record<string, unknown>;
+  business_constraints?: Record<string, unknown>;
+  permissions?: Record<string, unknown>;
+  created_at?: string;
+}
+
 export interface System {
   id: string;
   name: string;
@@ -98,7 +112,12 @@ export interface System {
   control_policy_id?: string | null;
   adaptive_policy_id?: string | null;
   flow?: Record<string, unknown>;
+  flow_definition?: Record<string, unknown>;
   status?: 'draft' | 'active' | 'paused' | 'archived';
+  // Canonical per-system defaults consumed by the run engine / RAG wrappers.
+  default_prompt_type?: string | null;
+  default_model?: string | null;
+  retrieval_mode_default?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -234,6 +253,37 @@ export class CanonicalApiService {
     );
   }
 
+  // ---- Contexts ------------------------------------------------------------
+  listContexts(params?: { system_id?: string }): Observable<Context[]> {
+    const p: Record<string, string> = {};
+    if (params?.system_id) p['system_id'] = params.system_id;
+    return this.api
+      .get<Context[] | { contexts: Context[] }>('/contexts', p)
+      .pipe(
+        map((r) => this.unwrap<Context>(r, 'contexts')),
+        catchError(() => of([] as Context[])),
+      );
+  }
+
+  getContext(id: string): Observable<Context | null> {
+    return this.api.get<Context>(`/contexts/${id}`).pipe(catchError(() => of(null)));
+  }
+
+  createContext(body: Partial<Context>): Observable<Context | null> {
+    return this.api.post<Context>('/contexts', body).pipe(catchError(() => of(null)));
+  }
+
+  updateContext(id: string, body: Partial<Context>): Observable<Context | null> {
+    return this.api.patch<Context>(`/contexts/${id}`, body).pipe(catchError(() => of(null)));
+  }
+
+  deleteContext(id: string): Observable<boolean> {
+    return this.api.delete<void>(`/contexts/${id}`).pipe(
+      map(() => true),
+      catchError(() => of(false)),
+    );
+  }
+
   // ---- Runs ----------------------------------------------------------------
   triggerRun(systemId: string, payload?: Record<string, unknown>): Observable<Run | null> {
     return this.api
@@ -320,6 +370,33 @@ export class CanonicalApiService {
       .pipe(catchError(() => of(null)));
   }
 
+  listDecisions(
+    params: { status?: string; scope?: string; kind?: string; limit?: number; offset?: number } = {},
+  ): Observable<{ items: DecisionRow[]; total: number; limit: number; offset: number }> {
+    const p: Record<string, string | number> = {};
+    if (params.status) p['status'] = params.status;
+    if (params.scope) p['scope'] = params.scope;
+    if (params.kind) p['kind'] = params.kind;
+    if (params.limit != null) p['limit'] = params.limit;
+    if (params.offset != null) p['offset'] = params.offset;
+    return this.api
+      .get<{ items: DecisionRow[]; total: number; limit: number; offset: number }>(
+        '/hypervisor/decisions',
+        p as Record<string, string>,
+      )
+      .pipe(
+        catchError(() =>
+          of({ items: [] as DecisionRow[], total: 0, limit: params.limit ?? 50, offset: params.offset ?? 0 }),
+        ),
+      );
+  }
+
+  getDecision(id: string): Observable<DecisionDetail | null> {
+    return this.api
+      .get<DecisionDetail>(`/hypervisor/decisions/${id}`)
+      .pipe(catchError(() => of(null)));
+  }
+
   // ---- Control plane ------------------------------------------------------
   controlPolicies(params?: { scope?: string; target_id?: string }): Observable<ControlPolicy[]> {
     const p: Record<string, string> = {};
@@ -339,12 +416,43 @@ export class CanonicalApiService {
       .pipe(catchError(() => of(null)));
   }
 
-  adaptivePolicies(): Observable<AdaptivePolicy[]> {
+  adaptivePolicies(params?: { scope?: string; target_id?: string }): Observable<AdaptivePolicy[]> {
+    const p: Record<string, string> = {};
+    if (params?.scope) p['scope'] = params.scope;
+    if (params?.target_id) p['target_id'] = params.target_id;
     return this.api
-      .get<{ policies: AdaptivePolicy[] }>('/control-plane/adaptive')
+      .get<{ policies: AdaptivePolicy[] }>('/control-plane/adaptive', p)
       .pipe(
         map((r) => r?.policies ?? []),
         catchError(() => of([] as AdaptivePolicy[])),
+      );
+  }
+
+  createAdaptivePolicy(body: Partial<AdaptivePolicy>): Observable<AdaptivePolicy | null> {
+    return this.api
+      .post<AdaptivePolicy>('/control-plane/adaptive', body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  updateAdaptivePolicy(id: string, body: Partial<AdaptivePolicy>): Observable<AdaptivePolicy | null> {
+    return this.api
+      .patch<AdaptivePolicy>(`/control-plane/adaptive/${id}`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  toggleAdaptivePolicy(id: string, enabled?: boolean): Observable<AdaptivePolicy | null> {
+    const body = enabled === undefined ? {} : { enabled };
+    return this.api
+      .post<AdaptivePolicy>(`/control-plane/adaptive/${id}/toggle`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  deleteAdaptivePolicy(id: string): Observable<boolean> {
+    return this.api
+      .delete<void>(`/control-plane/adaptive/${id}`)
+      .pipe(
+        map(() => true),
+        catchError(() => of(false)),
       );
   }
 
@@ -378,9 +486,29 @@ export interface AdaptivePolicy {
   name: string;
   enabled: boolean;
   adaptation_level: 'conservative' | 'moderate' | 'aggressive' | string;
+  scope?: 'workspace' | 'portfolio' | 'capability' | 'system' | string | null;
+  target_id?: string | null;
   triggers?: Record<string, unknown>;
   allowed_actions?: string[];
   constraints?: Record<string, unknown>;
+}
+
+export interface DecisionRow {
+  id: string;
+  scope: string;
+  target_id?: string | null;
+  kind: string;
+  status: string;
+  title: string;
+  created_at?: string | null;
+  approved_by?: string | null;
+}
+
+export interface DecisionDetail extends DecisionRow {
+  rationale?: Record<string, unknown>;
+  impact_estimate?: Record<string, number>;
+  notes?: string;
+  approved_at?: string | null;
 }
 
 export interface SimulateResult {

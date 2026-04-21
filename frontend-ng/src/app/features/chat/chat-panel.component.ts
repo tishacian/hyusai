@@ -50,6 +50,8 @@ interface ChatMessage {
   sources?: Source[];
   feedback?: 'up' | 'down' | null;
   durationMs?: number;
+  ragMode?: string | null;
+  promptType?: string | null;
   evaluation?: {
     composite_score: number;
     scores: Record<string, number>;
@@ -63,6 +65,22 @@ interface SuggestionCard {
   label: string;
   prompt: string;
 }
+
+interface ReasoningTemplate {
+  slug: string;
+  label: string;
+  description: string;
+}
+
+type RagModeChoice = 'auto' | 'naive' | 'hybrid' | 'hah' | 'chah';
+
+const RAG_MODE_CHOICES: { slug: RagModeChoice; label: string; hint: string }[] = [
+  { slug: 'auto', label: 'Auto', hint: 'Use workspace default' },
+  { slug: 'naive', label: 'Naive', hint: 'Single-pass vector retrieval' },
+  { slug: 'hybrid', label: 'Hybrid', hint: 'BM25 + dense, RRF fusion' },
+  { slug: 'hah', label: 'HAH', hint: 'Hybrid Answer Harvesting (two-pass)' },
+  { slug: 'chah', label: 'C-HAH', hint: 'Composite HAH (parallel variants)' },
+];
 
 const STEP_ICONS: Record<string, string> = {
   query_received: 'log-in',
@@ -89,13 +107,43 @@ const STEP_ICONS: Record<string, string> = {
       <div
         class="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-white/5 bg-white/[0.02]"
       >
-        <div class="flex items-center gap-2 text-[11px] text-gray-400 min-w-0">
+        <div class="flex items-center gap-2 text-[11px] text-gray-400 min-w-0 flex-wrap">
           <app-icon name="circle-dot" [size]="12" class="text-emerald-400" />
           <span class="uppercase tracking-wider font-semibold">Playground</span>
           <span class="text-gray-600">·</span>
           <span class="font-mono truncate">{{ settings.settings().defaultModel || '—' }}</span>
           <span class="text-gray-600">·</span>
-          <span>RAG {{ settings.ragPipelineMode() }}</span>
+
+          <!-- Per-query retrieval mode chip -->
+          <label class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500">
+            Retrieval
+          </label>
+          <select
+            class="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-brand-400"
+            [ngModel]="ragModeOverride()"
+            (ngModelChange)="ragModeOverride.set($event)"
+            [title]="ragModeHint()"
+          >
+            @for (m of ragModeChoices; track m.slug) {
+              <option [value]="m.slug">{{ m.label }}</option>
+            }
+          </select>
+
+          <!-- Reasoning template chip -->
+          <label class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500">
+            Reasoning
+          </label>
+          <select
+            class="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-400"
+            [ngModel]="promptType()"
+            (ngModelChange)="promptType.set($event)"
+            [title]="promptTypeHint()"
+          >
+            <option value="auto">Auto</option>
+            @for (t of reasoningTemplates(); track t.slug) {
+              <option [value]="t.slug">{{ t.label }}</option>
+            }
+          </select>
         </div>
         <div class="flex items-center gap-1.5">
           <button
@@ -325,17 +373,33 @@ const STEP_ICONS: Record<string, string> = {
                   @if (msg.sources?.length) {
                     <span class="font-mono text-gray-500">· {{ msg.sources!.length }} sources</span>
                   }
+                  @if (msg.ragMode) {
+                    <span
+                      class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20"
+                      title="Retrieval mode override"
+                    >
+                      {{ msg.ragMode!.toUpperCase() }}
+                    </span>
+                  }
+                  @if (msg.promptType) {
+                    <span
+                      class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                      title="Reasoning template"
+                    >
+                      {{ msg.promptType }}
+                    </span>
+                  }
                   @if (msg.evaluation) {
                     <span class="font-mono text-emerald-500 dark:text-emerald-400">
                       · {{ msg.evaluation.composite_score.toFixed(1) }}/100
                     </span>
                   }
                   <a
-                    routerLink="/observability/traces"
+                    routerLink="/runs"
                     class="ml-auto text-brand-500 hover:text-brand-400 inline-flex items-center gap-1"
                   >
                     <app-icon name="git-commit" [size]="11" />
-                    Trace
+                    Runs
                   </a>
                   <a
                     routerLink="/observability"
@@ -528,6 +592,22 @@ export class ChatPanelComponent {
   evaluatingId = signal<string | null>(null);
   userInput = '';
 
+  readonly ragModeChoices = RAG_MODE_CHOICES;
+  readonly ragModeOverride = signal<RagModeChoice>('auto');
+  readonly promptType = signal<string>('auto');
+  readonly reasoningTemplates = signal<ReasoningTemplate[]>([]);
+
+  readonly ragModeHint = computed(() => {
+    const slug = this.ragModeOverride();
+    return this.ragModeChoices.find((m) => m.slug === slug)?.hint ?? '';
+  });
+
+  readonly promptTypeHint = computed(() => {
+    const slug = this.promptType();
+    if (slug === 'auto') return 'Heuristic selector picks the template per query';
+    return this.reasoningTemplates().find((t) => t.slug === slug)?.description ?? '';
+  });
+
   recording = signal(false);
   ttsEnabled = signal(false);
 
@@ -563,10 +643,20 @@ export class ChatPanelComponent {
 
   constructor() {
     this.settings.refresh();
+    this.loadReasoningTemplates();
     this.destroyRef.onDestroy(() => {
       this.currentAudio?.pause();
       if (this.mediaRecorder?.state === 'recording') this.mediaRecorder.stop();
     });
+  }
+
+  private loadReasoningTemplates(): void {
+    this.api
+      .get<{ templates: ReasoningTemplate[] }>('/reasoning/templates')
+      .subscribe({
+        next: (res) => this.reasoningTemplates.set(res?.templates ?? []),
+        error: () => this.reasoningTemplates.set([]),
+      });
   }
 
   isTrailOpen(id: string): boolean {
@@ -662,6 +752,8 @@ export class ChatPanelComponent {
     let reasoning: DecisionStep[] = [];
     let sources: Source[] | undefined;
 
+    const ragOverride = this.ragModeOverride();
+    const promptTypeSel = this.promptType();
     this.sse
       .stream('/api/v1/chat/stream', {
         query: text,
@@ -674,7 +766,11 @@ export class ChatPanelComponent {
         max_tokens: s.maxTokens,
         top_k: s.ragTopK,
         similarity_threshold: s.ragSimilarityThreshold,
-        rag_pipeline_mode: s.ragPipelineMode,
+        // Per-query retrieval override wins over workspace default.
+        rag_pipeline_mode: ragOverride !== 'auto' ? ragOverride : s.ragPipelineMode,
+        rag_mode_override: ragOverride !== 'auto' ? ragOverride : null,
+        // Per-query reasoning template; "auto" lets the mode_selector decide.
+        prompt_type: promptTypeSel !== 'auto' ? promptTypeSel : null,
         system_prompt: (s['systemPrompt'] as string | undefined) ?? null,
         agent_preferences: {
           model_preferences: {
@@ -709,6 +805,8 @@ export class ChatPanelComponent {
               feedback: null,
               evaluation: null,
               durationMs,
+              ragMode: ragOverride !== 'auto' ? ragOverride : null,
+              promptType: promptTypeSel !== 'auto' ? promptTypeSel : null,
             };
             this.messages.update((m) => [...m, assistantMsg]);
             this.streaming.set(false);

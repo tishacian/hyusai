@@ -35,6 +35,9 @@ class SystemCreate(BaseModel):
     adaptive_policy_id: Optional[str] = None
     context_id: Optional[str] = None
     status: str = "draft"
+    default_prompt_type: Optional[str] = None
+    default_model: Optional[str] = None
+    retrieval_mode_default: Optional[str] = None
 
 
 class SystemUpdate(BaseModel):
@@ -49,6 +52,9 @@ class SystemUpdate(BaseModel):
     adaptive_policy_id: Optional[str] = None
     context_id: Optional[str] = None
     status: Optional[str] = None
+    default_prompt_type: Optional[str] = None
+    default_model: Optional[str] = None
+    retrieval_mode_default: Optional[str] = None
 
 
 class RunCreate(BaseModel):
@@ -72,6 +78,9 @@ def _serialize(s: System) -> Dict[str, Any]:
         "adaptive_policy_id": s.adaptive_policy_id,
         "context_id": s.context_id,
         "status": s.status,
+        "default_prompt_type": getattr(s, "default_prompt_type", None),
+        "default_model": getattr(s, "default_model", None),
+        "retrieval_mode_default": getattr(s, "retrieval_mode_default", None),
         "created_by": s.created_by,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
@@ -113,6 +122,9 @@ async def create_system(
         adaptive_policy_id=body.adaptive_policy_id,
         context_id=body.context_id,
         status=body.status,
+        default_prompt_type=body.default_prompt_type,
+        default_model=body.default_model,
+        retrieval_mode_default=body.retrieval_mode_default or "auto",
     )
     db.add(s)
     db.commit()

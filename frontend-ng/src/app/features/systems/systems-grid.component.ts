@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { ApiService } from '@app/core/api.service';
+import { CanonicalApiService, Run } from '@app/core/canonical-api.service';
 import {
   GlyphComponent,
   KbdComponent,
@@ -11,15 +11,6 @@ import {
   TagComponent,
 } from '@app/shared/cockpit';
 import { SystemsStore, SystemAgent } from './systems.store';
-
-interface TraceRow {
-  trace_id?: string;
-  agent_id?: string;
-  duration_ms?: number;
-  operation_type?: string;
-  timestamp?: string;
-  created_at?: string;
-}
 
 interface AgentStats {
   runs: number;
@@ -318,25 +309,25 @@ interface Template {
 export class SystemsGridComponent implements OnInit {
   protected readonly store = inject(SystemsStore);
   private readonly router = inject(Router);
-  private readonly api = inject(ApiService);
+  private readonly canonical = inject(CanonicalApiService);
 
   prompt = '';
-  private readonly traces = signal<TraceRow[]>([]);
+  private readonly runs = signal<Run[]>([]);
 
   readonly statsByAgent = computed<Record<string, AgentStats>>(() => {
     const out: Record<string, AgentStats> = {};
-    for (const t of this.traces()) {
-      const id = t.agent_id ?? '';
+    for (const r of this.runs()) {
+      const id = r.system_id ?? '';
       if (!id) continue;
       const cur = out[id] ?? { runs: 0, avgLatency: 0, lastRun: null };
       cur.runs += 1;
-      if (t.duration_ms) {
+      if (r.duration_ms) {
         cur.avgLatency =
           cur.runs === 1
-            ? Math.round(t.duration_ms)
-            : Math.round(((cur.avgLatency * (cur.runs - 1)) + t.duration_ms) / cur.runs);
+            ? Math.round(r.duration_ms)
+            : Math.round(((cur.avgLatency * (cur.runs - 1)) + r.duration_ms) / cur.runs);
       }
-      const ts = t.timestamp ?? t.created_at ?? null;
+      const ts = r.ended_at ?? r.started_at ?? null;
       if (ts && (!cur.lastRun || ts > cur.lastRun)) cur.lastRun = ts;
       out[id] = cur;
     }
@@ -375,9 +366,10 @@ export class SystemsGridComponent implements OnInit {
 
   ngOnInit(): void {
     this.store.load().subscribe();
-    this.api.get<{ traces: TraceRow[] }>('/traces/traces').subscribe({
-      next: (res) => this.traces.set(res?.traces ?? []),
-      error: () => this.traces.set([]),
+    // Canonical `/runs` — the legacy `/traces/traces` alias is deprecated.
+    this.canonical.listRuns().subscribe({
+      next: (rows) => this.runs.set(rows ?? []),
+      error: () => this.runs.set([]),
     });
   }
 

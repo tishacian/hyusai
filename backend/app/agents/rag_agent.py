@@ -316,8 +316,20 @@ class RAGAgent(BaseAgent):
         context = self._construct_context(retrieval_results)
         
         # Step 3: Generate response with context
-        # If no context found, use a general knowledge prompt
-        if not retrieval_results:
+        # If a reasoning template (prompt_type) is selected, we render it
+        # with {context} / {question} and prepend it to the markdown brief.
+        # The selector can be "auto" (or None) — in which case we fall
+        # back to the legacy markdown-first prompt used historically.
+        prompt_type = request.get("prompt_type") or request.get("default_prompt_type")
+        template_text = self._render_reasoning_template(prompt_type, query, context, conversation_history)
+        if template_text is not None:
+            prompt = template_text
+            logger.info(
+                "Using reasoning template",
+                template=prompt_type,
+                has_context=bool(retrieval_results),
+            )
+        elif not retrieval_results:
             prompt = self._construct_general_prompt(query, conversation_history)
             logger.info("No documents found, using general knowledge mode")
         else:
@@ -472,6 +484,40 @@ Please provide a comprehensive answer based on the context above. Format your re
 
 If the context doesn't contain enough information to answer the question, use your general knowledge to supplement the answer."""
     
+    def _render_reasoning_template(
+        self,
+        prompt_type,
+        query: str,
+        context: str,
+        conversation_history: list = None,
+    ):
+        """Render one of the `SYSTEM_PROMPT_TEMPLATES` if `prompt_type` is set.
+
+        Returns ``None`` to let the caller fall back to the legacy prompt
+        (either when no template is requested or when the slug does not
+        resolve to a template). We keep the history block intact so the
+        conversational continuity survives the template swap.
+        """
+        if not prompt_type or prompt_type == "auto":
+            return None
+        try:
+            from app.services.system_prompts import SYSTEM_PROMPT_TEMPLATES, SystemPromptType
+            key = SystemPromptType(prompt_type) if isinstance(prompt_type, str) else prompt_type
+        except Exception:
+            return None
+        template = SYSTEM_PROMPT_TEMPLATES.get(key)
+        if not template:
+            return None
+        history_text = ""
+        if conversation_history:
+            lines = []
+            for msg in conversation_history:
+                role = "User" if msg.get("role") == "user" else "Assistant"
+                lines.append(f"{role}: {msg.get('content', '')}")
+            history_text = "\n\nPrevious conversation:\n" + "\n".join(lines) + "\n\n"
+        rendered = template.format(context=context or "(no retrieved context)", question=query)
+        return f"{rendered}{history_text}"
+
     def _construct_general_prompt(self, query: str, conversation_history: list = None) -> str:
         """Construct general knowledge prompt when no context is available"""
         history_text = ""

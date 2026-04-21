@@ -460,9 +460,10 @@ export class TasksPageComponent implements OnInit {
 
   ngOnInit(): void {
     this.refresh();
-    this.api.get<{ agents: Agent[] } | Agent[]>('/agents').subscribe({
+    // Canonical `/systems` — `/agents` is a deprecated alias.
+    this.api.get<{ systems: Agent[] } | Agent[]>('/systems').subscribe({
       next: (res) => {
-        const list = Array.isArray(res) ? res : res?.agents ?? [];
+        const list = Array.isArray(res) ? res : res?.systems ?? [];
         this.agents.set(list);
       },
       error: () => this.agents.set([]),

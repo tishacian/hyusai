@@ -93,6 +93,12 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
             "capability_id": capability.id if capability else None,
             "workspace_id": run.workspace_id,
             "input": run.input_ref or {},
+            # System-level defaults exposed to every skill invocation so
+            # RAG chains / LLM skills pick them up without the run
+            # trigger having to repeat them on each call.
+            "default_prompt_type": getattr(system, "default_prompt_type", None),
+            "default_model": getattr(system, "default_model", None),
+            "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
         }
 
         start = time.monotonic()

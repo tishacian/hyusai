@@ -12,13 +12,12 @@ interface Tab {
 }
 
 /**
- * Observability parent shell — exposes a cockpit-grade tab strip (Quality,
- * Performance, Traces) and delegates rendering of each view to its child
- * component. The shell stays thin so each child can own its own
- * {@link PageFrameComponent} header + actions.
+ * Governance parent shell — exposes a tab strip (Audit log, Access & roles)
+ * so both sub-pages are reachable from a single entry point. Mirrors the
+ * observability shell so the UX stays consistent between Measure sections.
  */
 @Component({
-  selector: 'app-observability-shell',
+  selector: 'app-governance-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, RouterOutlet, GlyphComponent],
@@ -67,7 +66,7 @@ interface Tab {
     <router-outlet />
   `,
 })
-export class ObservabilityShellComponent {
+export class GovernanceShellComponent {
   private readonly router = inject(Router);
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -81,9 +80,8 @@ export class ObservabilityShellComponent {
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
 
   readonly tabs: Tab[] = [
-    { label: 'Quality',     glyph: 'pulse',     route: '/observability',             exact: true },
-    { label: 'Performance', glyph: 'telemetry', route: '/observability/performance' },
-    { label: 'Runs',        glyph: 'ledger',    route: '/runs' },
+    { label: 'Audit log',       glyph: 'ledger', route: '/governance/audit' },
+    { label: 'Access & roles',  glyph: 'focus',  route: '/governance/access' },
   ];
 
   isActive(t: Tab): boolean {

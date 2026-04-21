@@ -337,7 +337,32 @@ import {
                       <ck-tag [tone]="adaptationTone(p.adaptation_level)" variant="outline">
                         {{ p.adaptation_level }}
                       </ck-tag>
+                      @if (p.scope) {
+                        <ck-tag tone="cool" variant="outline">{{ p.scope }}</ck-tag>
+                      }
                       <span class="text-sm text-white font-medium">{{ p.name }}</span>
+                      <span class="ml-auto flex items-center gap-1">
+                        <button
+                          type="button"
+                          (click)="toggleAdaptive(p)"
+                          [disabled]="pendingAdaptiveId() === p.id"
+                          class="ck-mono"
+                          style="padding:4px 8px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-raised);"
+                          [title]="p.enabled ? 'Disable this policy' : 'Enable this policy'"
+                        >
+                          {{ p.enabled ? 'DISABLE' : 'ENABLE' }}
+                        </button>
+                        <button
+                          type="button"
+                          (click)="deleteAdaptive(p)"
+                          [disabled]="pendingAdaptiveId() === p.id"
+                          class="ck-mono"
+                          style="padding:4px 8px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-signal-neg); background:transparent;"
+                          title="Delete this policy"
+                        >
+                          DEL
+                        </button>
+                      </span>
                     </div>
                     @if (p.allowed_actions?.length) {
                       <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-3);">
@@ -348,7 +373,99 @@ import {
                 }
               </ul>
             }
+            <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--ck-hair);">
+              <button
+                type="button"
+                (click)="quickCreateAdaptive()"
+                [disabled]="creatingAdaptive()"
+                class="ck-mono"
+                style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset);"
+              >
+                {{ creatingAdaptive() ? 'CREATING…' : '+ ADD ADAPTIVE POLICY' }}
+              </button>
+            </div>
           </div>
+        </section>
+
+        <!-- Simulate before/after -->
+        <section class="ck-surface rounded-md" style="padding:22px 26px;">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <ck-glyph name="crosshair" [size]="14" />
+              <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);">
+                SIMULATE · BEFORE / AFTER
+              </h3>
+            </div>
+            <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
+              Preview the levers' impact before committing
+            </span>
+          </div>
+          @if (!sim()) {
+            <div class="ck-mono" style="font-size:11px; padding:24px 0; text-align:center; color:var(--ck-fg-4);">
+              ADJUST A LEVER TO SIMULATE
+            </div>
+          } @else {
+            <div class="grid grid-cols-4 gap-4">
+              <div>
+                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:4px;">COST</div>
+                <div class="flex items-baseline gap-2">
+                  <span class="ck-mono ck-tnum" style="font-size:13px; color:var(--ck-fg-4);">
+                    {{ formatCurrency(sim()!.base.total_cost ?? 0) }}
+                  </span>
+                  <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">→</span>
+                  <span class="ck-mono ck-tnum" style="font-size:14px; color:var(--ck-fg-1);">
+                    {{ formatCurrency(sim()!.projected.total_cost) }}
+                  </span>
+                </div>
+                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(-(sim()!.projected.total_cost - (sim()!.base.total_cost ?? 0)))">
+                  {{ formatSigned(sim()!.projected.total_cost - (sim()!.base.total_cost ?? 0)) }}
+                </div>
+              </div>
+              <div>
+                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:4px;">VALUE</div>
+                <div class="flex items-baseline gap-2">
+                  <span class="ck-mono ck-tnum" style="font-size:13px; color:var(--ck-fg-4);">
+                    {{ formatCurrency(sim()!.base.estimated_value ?? 0) }}
+                  </span>
+                  <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">→</span>
+                  <span class="ck-mono ck-tnum" style="font-size:14px; color:var(--ck-fg-1);">
+                    {{ formatCurrency(sim()!.projected.estimated_value) }}
+                  </span>
+                </div>
+                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(sim()!.projected.estimated_value - (sim()!.base.estimated_value ?? 0))">
+                  {{ formatSigned(sim()!.projected.estimated_value - (sim()!.base.estimated_value ?? 0)) }}
+                </div>
+              </div>
+              <div>
+                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:4px;">ROI</div>
+                <div class="flex items-baseline gap-2">
+                  <span class="ck-mono ck-tnum" style="font-size:13px; color:var(--ck-fg-4);">
+                    {{ formatRoi(sim()!.base.roi ?? null) }}
+                  </span>
+                  <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">→</span>
+                  <span class="ck-mono ck-tnum" style="font-size:14px; color:var(--ck-fg-1);">
+                    {{ formatRoi(sim()!.projected.roi ?? null) }}
+                  </span>
+                </div>
+                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(((sim()!.projected.roi ?? 0) - (sim()!.base.roi ?? 0)))">
+                  {{ formatSigned(((sim()!.projected.roi ?? 0) - (sim()!.base.roi ?? 0)) * 100) }} pp
+                </div>
+              </div>
+              <div>
+                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:4px;">LATENCY IDX</div>
+                <div class="flex items-baseline gap-2">
+                  <span class="ck-mono ck-tnum" style="font-size:13px; color:var(--ck-fg-4);">1.00</span>
+                  <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">→</span>
+                  <span class="ck-mono ck-tnum" style="font-size:14px; color:var(--ck-fg-1);">
+                    {{ formatIndex(sim()!.projected.latency_index) }}
+                  </span>
+                </div>
+                <div class="ck-mono ck-tnum" style="font-size:10px; margin-top:2px;" [style.color]="deltaColor(-(sim()!.projected.latency_index - 1))">
+                  {{ formatSigned((sim()!.projected.latency_index - 1) * 100) }}%
+                </div>
+              </div>
+            </div>
+          }
         </section>
       </div>
     </ck-page-frame>
@@ -363,6 +480,8 @@ export class SteeringComponent implements OnInit {
   readonly applying = signal(false);
   readonly controlPolicies = signal<ControlPolicy[]>([]);
   readonly adaptivePolicies = signal<AdaptivePolicy[]>([]);
+  readonly pendingAdaptiveId = signal<string | null>(null);
+  readonly creatingAdaptive = signal(false);
 
   // Levers are plain signals so templates can drive them via [ngModel].
   readonly resource = signal(0.5);
@@ -407,14 +526,23 @@ export class SteeringComponent implements OnInit {
 
   ngOnInit(): void {
     this.canonical.listCapabilities().subscribe((caps) => this.capabilities.set(caps));
-    this.canonical.controlPolicies().subscribe((p) => this.controlPolicies.set(p));
-    this.canonical.adaptivePolicies().subscribe((p) => this.adaptivePolicies.set(p));
+    this.refreshPolicies();
     // First projection.
     this.leverPulse.next();
   }
 
+  private refreshPolicies(): void {
+    const cap = this.targetCapability();
+    const filter = cap
+      ? { scope: 'capability' as const, target_id: cap.id }
+      : undefined;
+    this.canonical.controlPolicies(filter).subscribe((p) => this.controlPolicies.set(p));
+    this.canonical.adaptivePolicies(filter).subscribe((p) => this.adaptivePolicies.set(p));
+  }
+
   selectCapability(c: Capability | null): void {
     this.targetCapability.set(c);
+    this.refreshPolicies();
     this.leverPulse.next();
   }
 
@@ -538,5 +666,59 @@ export class SteeringComponent implements OnInit {
       case 'moderate':
       default:             return 'cool';
     }
+  }
+
+  toggleAdaptive(p: AdaptivePolicy): void {
+    if (this.pendingAdaptiveId()) return;
+    this.pendingAdaptiveId.set(p.id);
+    this.canonical.toggleAdaptivePolicy(p.id).subscribe({
+      next: (updated) => {
+        if (updated) {
+          this.adaptivePolicies.update((list) =>
+            list.map((x) => (x.id === p.id ? updated : x)),
+          );
+        }
+        this.pendingAdaptiveId.set(null);
+      },
+      error: () => this.pendingAdaptiveId.set(null),
+    });
+  }
+
+  deleteAdaptive(p: AdaptivePolicy): void {
+    if (this.pendingAdaptiveId()) return;
+    if (!confirm(`Delete adaptive policy “${p.name}”? This cannot be undone.`)) return;
+    this.pendingAdaptiveId.set(p.id);
+    this.canonical.deleteAdaptivePolicy(p.id).subscribe({
+      next: (ok) => {
+        if (ok) {
+          this.adaptivePolicies.update((list) => list.filter((x) => x.id !== p.id));
+        }
+        this.pendingAdaptiveId.set(null);
+      },
+      error: () => this.pendingAdaptiveId.set(null),
+    });
+  }
+
+  quickCreateAdaptive(): void {
+    if (this.creatingAdaptive()) return;
+    this.creatingAdaptive.set(true);
+    const target = this.targetCapability();
+    const body: Partial<AdaptivePolicy> = {
+      name: `Adaptive · ${target?.slug ?? 'portfolio'} · ${new Date().toISOString().slice(0, 10)}`,
+      enabled: false,
+      adaptation_level: 'moderate',
+      scope: target ? 'capability' : 'portfolio',
+      target_id: target?.id ?? null,
+      triggers: { confidence_below: 0.7, latency_above_ms: 5000 },
+      allowed_actions: ['switch_model', 'escalate_hitl'],
+      constraints: {},
+    };
+    this.canonical.createAdaptivePolicy(body).subscribe({
+      next: (p) => {
+        if (p) this.adaptivePolicies.update((list) => [p, ...list]);
+        this.creatingAdaptive.set(false);
+      },
+      error: () => this.creatingAdaptive.set(false),
+    });
   }
 }

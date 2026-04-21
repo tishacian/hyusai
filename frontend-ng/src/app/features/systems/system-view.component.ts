@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { NgClass } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, map } from 'rxjs/operators';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -30,14 +30,16 @@ interface LatestEvaluation {
 }
 
 interface TraceRow {
+  id?: string;
   trace_id?: string;
   duration_ms?: number;
   agent_id?: string;
+  system_id?: string;
   operation_type?: string;
 }
 
 interface TabDef {
-  id: 'overview' | 'design' | 'runs' | 'outcomes' | 'settings';
+  id: 'overview' | 'design' | 'runs' | 'outcomes' | 'context' | 'settings';
   label: string;
   icon: string;
 }
@@ -176,7 +178,7 @@ interface PipelineStage {
             unit="ms"
             icon="gauge"
             [interactive]="true"
-            (click)="goto('/observability/traces')"
+            (click)="goto('/runs')"
           />
           <app-stat-tile
             label="Quality"
@@ -196,11 +198,11 @@ interface PipelineStage {
             (click)="goto('/observability/performance')"
           />
           <app-stat-tile
-            label="Traces"
+            label="Runs"
             [value]="kpiTraces()"
             icon="git-commit"
             [interactive]="true"
-            (click)="goto('/observability/traces')"
+            (click)="goto('/runs')"
           />
         </div>
         @if (kpisLoading()) {
@@ -387,6 +389,70 @@ interface PipelineStage {
       </div>
     }
 
+    <!-- Context -->
+    @if (activeTab() === 'context') {
+      <div class="space-y-4">
+        @if (contextLoading()) {
+          <div class="t-card t-elevated rounded-md p-5 animate-pulse">
+            <div class="h-3 w-40 bg-white/5 rounded mb-2"></div>
+            <div class="h-3 w-64 bg-white/5 rounded"></div>
+          </div>
+        } @else if (!currentContext()) {
+          <div class="t-card t-elevated rounded-md p-8 text-center text-gray-400 text-sm">
+            No dedicated Context attached. This System runs on the workspace default.
+            <div class="mt-3">
+              <a
+                routerLink="/steering/contexts"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+              >
+                <app-icon name="external-link" [size]="12" /> Manage contexts
+              </a>
+            </div>
+          </div>
+        } @else {
+          <section class="t-card t-elevated rounded-md p-5">
+            <div class="flex items-center gap-2 mb-4">
+              <app-icon name="database" [size]="14" class="text-brand-400" />
+              <h3 class="text-sm font-semibold text-white">{{ currentContext()!.name }}</h3>
+              <span class="ml-auto text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
+                v{{ currentContext()!.version ?? 1 }}
+              </span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Data refs</div>
+                @if ((currentContext()!.data_refs ?? []).length === 0) {
+                  <div class="text-gray-500">—</div>
+                } @else {
+                  <ul class="space-y-1">
+                    @for (ref of currentContext()!.data_refs ?? []; track $index) {
+                      <li class="font-mono text-xs text-gray-300 truncate">{{ ref }}</li>
+                    }
+                  </ul>
+                }
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Memory refs</div>
+                @if ((currentContext()!.memory_refs ?? []).length === 0) {
+                  <div class="text-gray-500">—</div>
+                } @else {
+                  <ul class="space-y-1">
+                    @for (ref of currentContext()!.memory_refs ?? []; track $index) {
+                      <li class="font-mono text-xs text-gray-300 truncate">{{ ref }}</li>
+                    }
+                  </ul>
+                }
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Permissions</div>
+                <pre class="font-mono text-[11px] text-gray-300 whitespace-pre-wrap break-all">{{ permissionsPreview() }}</pre>
+              </div>
+            </div>
+          </section>
+        }
+      </div>
+    }
+
     <!-- Settings -->
     @if (activeTab() === 'settings') {
       <div class="space-y-4">
@@ -428,8 +494,19 @@ interface PipelineStage {
               <app-icon name="cpu" [size]="14" class="text-brand-400" /> Model
             </h3>
             <div class="space-y-3 text-sm text-gray-300">
-              <div>Provider: <span class="text-white font-mono">{{ settings.settings().defaultProvider || '—' }}</span></div>
-              <div>Model: <span class="text-white font-mono">{{ settings.settings().defaultModel || '—' }}</span></div>
+              <div>
+                Default model:
+                <span class="text-white font-mono">{{ effectiveModel() }}</span>
+                @if (systemDefaults()?.default_model) {
+                  <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20">
+                    override
+                  </span>
+                }
+              </div>
+              <div>
+                Reasoning template:
+                <span class="text-white font-mono">{{ systemDefaults()?.default_prompt_type || 'auto' }}</span>
+              </div>
               <div>Temperature: <span class="text-white font-mono">{{ settings.settings().temperature?.toFixed(2) ?? '—' }}</span></div>
               <div>Max tokens: <span class="text-white font-mono">{{ settings.settings().maxTokens ?? '—' }}</span></div>
             </div>
@@ -439,7 +516,15 @@ interface PipelineStage {
               <app-icon name="database" [size]="14" class="text-brand-400" /> Retrieval
             </h3>
             <div class="space-y-3 text-sm text-gray-300">
-              <div>Pipeline: <span class="text-white font-mono">{{ settings.ragPipelineMode() || '—' }}</span></div>
+              <div>
+                Pipeline:
+                <span class="text-white font-mono">{{ systemDefaults()?.retrieval_mode_default || settings.ragPipelineMode() || '—' }}</span>
+                @if (systemDefaults()?.retrieval_mode_default && systemDefaults()?.retrieval_mode_default !== 'auto') {
+                  <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">
+                    pinned
+                  </span>
+                }
+              </div>
               <div>Top-K: <span class="text-white font-mono">{{ settings.settings().ragTopK ?? '—' }}</span></div>
               <div>Similarity: <span class="text-white font-mono">{{ settings.settings().ragSimilarityThreshold?.toFixed(2) ?? '—' }}</span></div>
               <div class="pt-1">
@@ -475,6 +560,27 @@ export class SystemViewComponent implements OnInit {
   agentDescription = signal('');
   isDraft = signal(false);
   activeTab = signal<TabDef['id']>('overview');
+
+  readonly systemDefaults = signal<{
+    default_prompt_type?: string | null;
+    default_model?: string | null;
+    retrieval_mode_default?: string | null;
+  } | null>(null);
+
+  readonly effectiveModel = computed(() => {
+    const d = this.systemDefaults();
+    return d?.default_model || this.settings.settings().defaultModel || '—';
+  });
+
+  readonly currentContext = signal<import('@app/core/canonical-api.service').Context | null>(null);
+  readonly contextLoading = signal(false);
+
+  readonly permissionsPreview = computed(() => {
+    const p = this.currentContext()?.permissions ?? {};
+    const keys = Object.keys(p);
+    if (!keys.length) return '—';
+    return JSON.stringify(p, null, 2);
+  });
 
   private readonly metrics = signal<MetricsSummary | null>(null);
   private readonly latestEval = signal<LatestEvaluation | null>(null);
@@ -514,6 +620,7 @@ export class SystemViewComponent implements OnInit {
     { id: 'overview', label: 'Overview', icon: 'layout-dashboard' },
     { id: 'outcomes', label: 'Outcomes', icon: 'activity' },
     { id: 'design', label: 'Design', icon: 'workflow' },
+    { id: 'context', label: 'Context', icon: 'database' },
     { id: 'runs', label: 'Chat', icon: 'message-square' },
     { id: 'settings', label: 'Settings', icon: 'settings' },
   ];
@@ -625,6 +732,11 @@ export class SystemViewComponent implements OnInit {
       this.agentName.set(local.name);
       this.agentDescription.set(local.description || '');
       this.isDraft.set(!!local.draft);
+      this.systemDefaults.set({
+        default_prompt_type: local.default_prompt_type ?? null,
+        default_model: local.default_model ?? null,
+        retrieval_mode_default: local.retrieval_mode_default ?? null,
+      });
     } else {
       this.store.getById(this.systemId).subscribe({
         next: (agent) => {
@@ -632,12 +744,33 @@ export class SystemViewComponent implements OnInit {
           this.agentName.set(agent.name);
           this.agentDescription.set(agent.description || '');
           this.isDraft.set(!!agent.draft);
+          this.systemDefaults.set({
+            default_prompt_type: agent.default_prompt_type ?? null,
+            default_model: agent.default_model ?? null,
+            retrieval_mode_default: agent.retrieval_mode_default ?? null,
+          });
         },
         error: () => {},
       });
     }
     this.loadKpis();
     this.loadRuns();
+    this.loadContext();
+  }
+
+  private loadContext(): void {
+    if (!this.systemId) return;
+    this.contextLoading.set(true);
+    this.canonical.listContexts({ system_id: this.systemId }).subscribe({
+      next: (ctxList) => {
+        this.currentContext.set((ctxList ?? [])[0] ?? null);
+        this.contextLoading.set(false);
+      },
+      error: () => {
+        this.currentContext.set(null);
+        this.contextLoading.set(false);
+      },
+    });
   }
 
   loadRuns(): void {
@@ -676,17 +809,24 @@ export class SystemViewComponent implements OnInit {
           agent_id: this.systemId,
         })
         .pipe(catchError(() => of({ evaluation: null }))),
+      // Canonical `/runs` — legacy `/traces/traces` is deprecated.
       traces: this.api
-        .get<{ traces: TraceRow[] }>('/traces/traces')
-        .pipe(catchError(() => of({ traces: [] as TraceRow[] }))),
+        .get<{ runs: TraceRow[] } | TraceRow[]>('/runs', this.systemId ? { system_id: this.systemId } : {})
+        .pipe(
+          map((r) => (Array.isArray(r) ? r : r?.runs ?? [])),
+          catchError(() => of([] as TraceRow[])),
+        ),
       collections: this.api
         .get<{ collections: string[] }>('/documents/collections')
         .pipe(catchError(() => of({ collections: [] as string[] }))),
     }).subscribe(({ metrics, evaluation, traces, collections }) => {
       this.metrics.set(metrics ?? null);
       this.latestEval.set(evaluation?.evaluation ?? null);
-      const all = traces?.traces ?? [];
-      this.traces.set(all.filter((t) => !this.systemId || t.agent_id === this.systemId));
+      this.traces.set(
+        (traces ?? []).filter((t) =>
+          !this.systemId || t.system_id === this.systemId || t.agent_id === this.systemId,
+        ),
+      );
       this.hasCollections.set((collections?.collections?.length ?? 0) > 0);
       this.kpisLoading.set(false);
     });

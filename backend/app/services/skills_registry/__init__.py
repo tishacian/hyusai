@@ -13,7 +13,7 @@ so the `/skills` endpoint returns them without a separate Alembic-level
 data migration. Runtime invocation is wired in phase 6 by `run_engine`.
 """
 from .seed import SEED_SKILLS, SEED_CAPABILITIES, seed_skills_and_capabilities
-from .wrappers import resolve, bound_slugs
+from .wrappers import resolve, bound_slugs, registry_snapshot, runtime_status
 
 __all__ = [
     "SEED_SKILLS",
@@ -21,4 +21,6 @@ __all__ = [
     "seed_skills_and_capabilities",
     "resolve",
     "bound_slugs",
+    "registry_snapshot",
+    "runtime_status",
 ]

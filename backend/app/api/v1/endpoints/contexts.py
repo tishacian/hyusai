@@ -25,6 +25,23 @@ class ContextBody(BaseModel):
     permissions: Dict[str, Any] = {}
 
 
+class ContextUpdate(BaseModel):
+    """Partial update for a Context — every field optional so PATCH is idempotent.
+
+    Distinct from `ContextBody` which is a *create* schema with defaults; a
+    partial body lets the UI flip a single field (e.g. rename, add a data_ref)
+    without round-tripping the full object.
+    """
+    name: Optional[str] = None
+    system_id: Optional[str] = None
+    data_refs: Optional[List[str]] = None
+    memory_refs: Optional[List[str]] = None
+    history_refs: Optional[List[str]] = None
+    environment_state: Optional[Dict[str, Any]] = None
+    business_constraints: Optional[Dict[str, Any]] = None
+    permissions: Optional[Dict[str, Any]] = None
+
+
 def _serialize(c: Context) -> Dict[str, Any]:
     return {
         "id": c.id,
@@ -82,7 +99,7 @@ async def get_context(
 @router.patch("/{ctx_id}")
 async def update_context(
     ctx_id: str,
-    body: ContextBody,
+    body: ContextUpdate,
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
@@ -95,3 +112,20 @@ async def update_context(
     db.commit()
     db.refresh(c)
     return _serialize(c)
+
+
+@router.delete("/{ctx_id}", status_code=204)
+async def delete_context(
+    ctx_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Hard-delete a Context. Systems referencing this id keep the dangling
+    ref but `GET /contexts/{id}` will 404; the cockpit clears the pin.
+    """
+    c = db.query(Context).filter(Context.id == ctx_id, Context.workspace_id == workspace.id).first()
+    if not c:
+        raise HTTPException(404, "Context not found")
+    db.delete(c)
+    db.commit()
+    return None

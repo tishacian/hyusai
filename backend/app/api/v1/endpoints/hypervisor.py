@@ -140,13 +140,52 @@ async def simulate_what_if(
     same payload through the real adaptive policy simulator."""
     base = _aggregate(db, workspace.id, capability_id=body.target_id, period="qtd")
     levers = body.levers or {}
-    cost_mult = float(levers.get("cost_factor", 1.0))
-    value_mult = float(levers.get("value_factor", 1.0))
-    latency_mult = float(levers.get("latency_factor", 1.0))
+
+    # Accept both the canonical 4-lever mental model (resource/velocity/autonomy/risk_tolerance)
+    # and the raw factor shortcuts (cost_factor/value_factor/latency_factor) so
+    # downstream tools can call this endpoint without knowing the cockpit's
+    # lever semantics.
+    resource = _as_float(levers.get("resource"), default=None)
+    velocity = _as_float(levers.get("velocity"), default=None)
+    autonomy = _as_float(levers.get("autonomy"), default=None)
+    risk_tol = _as_float(levers.get("risk_tolerance"), default=None)
+
+    cost_mult = _as_float(levers.get("cost_factor"), default=None)
+    value_mult = _as_float(levers.get("value_factor"), default=None)
+    latency_mult = _as_float(levers.get("latency_factor"), default=None)
+
+    # Derive factors from the canonical levers when no explicit factor is sent.
+    # Deep resources add cost but deliver more value; rapid velocity cuts latency
+    # at a slight quality cost; high autonomy trims cost (fewer HITL loops) but
+    # only when risk tolerance allows for it.
+    if cost_mult is None:
+        base_cost = 1.0
+        if resource is not None:
+            base_cost *= 0.65 + 0.75 * resource        # lean -40% → deep +40%
+        if autonomy is not None:
+            base_cost *= 1.05 - 0.20 * autonomy        # HITL +5% → full −15%
+        cost_mult = base_cost
+
+    if value_mult is None:
+        base_value = 1.0
+        if resource is not None:
+            base_value *= 0.85 + 0.35 * resource       # deep +35%
+        if risk_tol is not None:
+            base_value *= 0.95 + 0.15 * risk_tol       # bolder +15%
+        value_mult = base_value
+
+    if latency_mult is None:
+        base_latency = 1.0
+        if velocity is not None:
+            base_latency = 1.55 - 1.10 * velocity      # thorough 1.55× → rapid 0.45×
+        value_mult *= 0.95 + 0.05 * (velocity or 0.5) if velocity is not None else 1.0
+        latency_mult = max(0.1, base_latency)
 
     projected_cost = base["total_cost"] * cost_mult
     projected_value = base["estimated_value"] * value_mult
-    projected_roi = ((projected_value - projected_cost) / projected_cost) if projected_cost else None
+    projected_roi = (
+        ((projected_value - projected_cost) / projected_cost) if projected_cost else None
+    )
     return {
         "scope": body.scope,
         "target_id": body.target_id,
@@ -160,17 +199,17 @@ async def simulate_what_if(
     }
 
 
-@router.get("/decisions")
-async def list_decisions(
-    status: Optional[str] = None,
-    workspace: Workspace = Depends(get_current_workspace),
-    db: DBSession = Depends(get_db),
-):
-    q = db.query(Decision).filter(Decision.workspace_id == workspace.id)
-    if status:
-        q = q.filter(Decision.status == status)
-    rows = q.order_by(Decision.created_at.desc()).limit(100).all()
-    return {"items": [{
+def _as_float(v: Any, default: Optional[float] = None) -> Optional[float]:
+    try:
+        if v is None:
+            return default
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _serialize_decision(d: Decision, *, full: bool = False) -> dict:
+    base = {
         "id": d.id,
         "scope": d.scope,
         "target_id": d.target_id,
@@ -179,4 +218,63 @@ async def list_decisions(
         "title": d.title,
         "created_at": d.created_at.isoformat() if d.created_at else None,
         "approved_by": d.approved_by,
-    } for d in rows]}
+    }
+    if full:
+        base.update({
+            "rationale": d.rationale or {},
+            "impact_estimate": d.impact_estimate or {},
+            "notes": d.notes or "",
+            "approved_at": d.approved_at.isoformat() if d.approved_at else None,
+        })
+    return base
+
+
+@router.get("/decisions")
+async def list_decisions(
+    status: Optional[str] = None,
+    scope: Optional[str] = None,
+    kind: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Paginated feed of decisions, newest first.
+
+    The Hypervisor cockpit uses this to render the Decisions stream.
+    `limit` is clamped to 200 and `offset` supports incremental paging.
+    """
+    limit = max(1, min(int(limit or 50), 200))
+    offset = max(0, int(offset or 0))
+    q = db.query(Decision).filter(Decision.workspace_id == workspace.id)
+    if status:
+        q = q.filter(Decision.status == status)
+    if scope:
+        q = q.filter(Decision.scope == scope)
+    if kind:
+        q = q.filter(Decision.kind == kind)
+    total = q.count()
+    rows = q.order_by(Decision.created_at.desc()).offset(offset).limit(limit).all()
+    return {
+        "items": [_serialize_decision(d) for d in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/decisions/{decision_id}")
+async def get_decision(
+    decision_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    d = (
+        db.query(Decision)
+        .filter(Decision.id == decision_id, Decision.workspace_id == workspace.id)
+        .first()
+    )
+    if not d:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Decision not found")
+    return _serialize_decision(d, full=True)

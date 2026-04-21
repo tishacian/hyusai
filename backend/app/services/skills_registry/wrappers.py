@@ -1,162 +1,391 @@
 """Callable wrappers for canonical Skills.
 
-Each wrapper translates a typed canonical-skill input into an actual
-call against the existing OmniRAG service layer. The mapping is kept
-here (not in the seed metadata) so the registry can be queried before
-the runtime is wired in Phase 6.
+Each wrapper translates a typed canonical-skill input into a real call
+against the existing OmniRAG service layer. Wrappers are intentionally
+thin — they never introduce new business logic.
 
-The `resolve(slug)` helper returns an async callable with the signature:
+Runtime status (returned by `bound_slugs()`) is tri-state:
+ - ``bound``     : an actual implementation module is resolvable and will be invoked.
+ - ``stub``      : a placeholder that logs + returns a degraded payload (no hard-fail).
+ - ``unbound``   : no wrapper declared for that slug (falls through to `_unimplemented`).
 
-    async def invoke(payload: dict, *, ctx: dict | None = None) -> dict
-
-Wrappers are intentionally thin — they never introduce new business
-logic. If the underlying service does not exist yet the wrapper is
-marked `UNIMPLEMENTED` and raises `NotImplementedError` at call time.
+The check happens lazily on first use, cached in
+``_RESOLVED_STATUS`` so the admin `/skills/runtime-health` endpoint is
+cheap to call. Imports of the underlying services stay lazy to avoid
+pulling heavy deps at registry introspection time.
 """
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, Dict, Optional
+import importlib
+import uuid
+from datetime import datetime
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 SkillCallable = Callable[[Dict[str, Any], Optional[Dict[str, Any]]], Awaitable[Dict[str, Any]]]
 
 
+# ---------------------------------------------------------------------------
+# Fallbacks
+# ---------------------------------------------------------------------------
 async def _unimplemented(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     raise NotImplementedError(
-        "This canonical skill has no runtime wrapper bound yet. Wire it in Phase 6 (runtime engine)."
+        "This canonical skill has no runtime wrapper bound. Add it to `_REGISTRY` in "
+        "`skills_registry/wrappers.py` or mark it as a stub."
     )
 
 
-# -- Concrete wrappers (lazy-imported so importing this module stays light). --
-
-async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    # Lazy import to avoid heavy deps when the registry is only introspected.
-    try:
-        from app.services.rag.rag_service import answer  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    result = await answer(query=payload["query"], context_id=payload.get("context_id"))
+async def _stub(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Degraded placeholder for skills whose runtime is not yet available."""
+    logger.info("skills_registry: stub invocation", payload_keys=list(payload.keys()))
     return {
-        "answer": result.get("answer"),
+        "status": "degraded",
+        "warning": "runtime_unavailable",
+        "input_echo": payload,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Concrete wrappers
+# ---------------------------------------------------------------------------
+async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.rag.rag_service import answer
+
+    ctx = ctx or {}
+    result = await answer(
+        query=payload["query"],
+        context_id=payload.get("context_id"),
+        workspace_id=ctx.get("workspace_id"),
+        session_id=payload.get("session_id"),
+        rag_mode_override=(
+            payload.get("rag_pipeline_mode")
+            or payload.get("rag_mode_override")
+            or ctx.get("retrieval_mode_default")
+        ),
+        prompt_type=payload.get("prompt_type") or ctx.get("default_prompt_type"),
+        model=payload.get("model") or ctx.get("default_model"),
+        provider=payload.get("provider"),
+    )
+    return {
+        "answer": result.get("answer", ""),
         "citations": result.get("citations", []),
         "decision_steps": result.get("decision_steps", []),
+        "meta": result.get("meta", {}),
     }
 
 
 async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.retrieval.retrieval_service import search  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    results = await search(query=payload["query"], top_k=payload.get("top_k", 5))
-    return {"results": results}
+    from app.services.rag.document_service import DocumentService
+    from app.services.rag.pipeline_retrieval import retrieve_for_mode
 
-
-async def _eval_radar_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.evaluation.evaluation_service import radar  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    return await radar(answer=payload["answer"], ground_truth=payload.get("ground_truth"))
-
-
-async def _claim_audit_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.evaluation.evaluation_service import claim_audit  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    return await claim_audit(answer=payload["answer"], citations=payload.get("citations", []))
-
-
-async def _intelligence_batch_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.intelligence.intelligence_service import run_batch  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    return await run_batch(feed_ids=payload.get("feed_ids") or [])
-
-
-async def _sharepoint_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.connectors.sharepoint import sync_library  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    return await sync_library(site_url=payload["site_url"], library=payload.get("library"))
+    ctx = ctx or {}
+    workspace_slug = ctx.get("workspace_slug")
+    doc_svc = DocumentService(workspace_slug=workspace_slug)
+    top_k = int(payload.get("top_k", 5))
+    mode = payload.get("mode") or "hybrid"
+    result = await retrieve_for_mode(
+        doc_svc,
+        payload["query"],
+        mode=mode,
+        top_k=top_k,
+        use_hybrid=mode != "naive",
+    )
+    return {
+        "results": [
+            {"content": c, "score": s} for c, s in zip(result.chunks, result.scores)
+        ],
+        "pipeline": result.pipeline,
+        "label": result.label,
+        "reason": result.reason,
+        "detail": result.detail,
+    }
 
 
 async def _document_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.document_parser.ingest import ingest_file  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    return await ingest_file(filename=payload["filename"], collection=payload.get("collection"))
+    from app.services.rag.document_service import DocumentService
+
+    ctx = ctx or {}
+    doc_svc = DocumentService(workspace_slug=ctx.get("workspace_slug"))
+    file_path = payload.get("file_path") or payload.get("filename")
+    if not file_path:
+        raise ValueError("document_ingestion_v1: 'file_path' or 'filename' required")
+    result = await doc_svc.ingest_document(file_path)
+    return {
+        "doc_id": result.get("document_id"),
+        "chunks": result.get("chunks_processed", 0),
+        "status": result.get("status"),
+    }
+
+
+async def _eval_radar_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.evaluation.judge import get_judge_service
+
+    judge = get_judge_service()
+    evaluation = await judge.evaluate(
+        query=payload.get("query", ""),
+        response=payload["answer"],
+        system_prompt=payload.get("system_prompt", ""),
+        context_chunks=payload.get("context_chunks"),
+        turn_number=payload.get("turn_number", 1),
+    )
+    return {
+        "axes": evaluation.get("scores", {}),
+        "overall": evaluation.get("composite_score"),
+        "hallucination_rate": evaluation.get("hallucination_rate"),
+        "drift_rate": evaluation.get("drift_rate"),
+        "note": evaluation.get("overall_note"),
+    }
+
+
+async def _claim_audit_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.evaluation.judge import get_judge_service
+
+    judge = get_judge_service()
+    evaluation = await judge.evaluate(
+        query=payload.get("query", ""),
+        response=payload["answer"],
+        system_prompt=payload.get("system_prompt", ""),
+        context_chunks=payload.get("citations"),
+        turn_number=payload.get("turn_number", 1),
+    )
+    audit = evaluation.get("claim_audit") or {}
+    claims = audit.get("claims", [])
+    supported = audit.get("supported", 0)
+    total = max(1, len(claims))
+    verdict = "supported" if supported / total >= 0.8 else "partial" if supported else "unsupported"
+    return {
+        "claims": claims,
+        "verdict": verdict,
+        "supported": supported,
+        "unsupported": audit.get("unsupported", 0),
+    }
+
+
+async def _intelligence_batch_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.intelligence.batch import run_batch
+
+    ctx = ctx or {}
+    ingested = 0
+    errors = 0
+    events: list[str] = []
+    target_id = (payload.get("target_id") or (payload.get("feed_ids") or [None])[0])
+    async for event in run_batch(
+        target_id=target_id,
+        workspace_id=ctx.get("workspace_id"),
+    ):
+        kind = event.get("type") or event.get("status")
+        if kind:
+            events.append(str(kind))
+        if event.get("type") == "article_stored":
+            ingested += 1
+        if event.get("type") == "error" or event.get("status") == "error":
+            errors += 1
+    return {"ingested": ingested, "errors": errors, "events": events}
+
+
+async def _sharepoint_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    # Real ingestion goes through the OAuth/MSAL flow in
+    # `app.services.connectors.sharepoint_otp.ingester`. Triggering that
+    # flow from a background skill still needs a tenant-scoped token
+    # context, which is not currently passed in. Until the builder
+    # surfaces that, we return a structured degraded response rather
+    # than crash the run.
+    logger.info(
+        "sharepoint_ingestion_v1: degraded (missing tenant token context)",
+        site_url=payload.get("site_url"),
+    )
+    return {
+        "files": 0,
+        "skipped": 0,
+        "status": "degraded",
+        "warning": "sharepoint_token_context_unavailable",
+    }
 
 
 async def _voice_transcribe_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.connectors.voice import transcribe  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    return await transcribe(audio_ref=payload["audio_ref"])
+    return {
+        "transcript": "",
+        "status": "degraded",
+        "warning": "voice_runtime_not_available",
+    }
 
 
 async def _voice_tts_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.connectors.voice import synthesize  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    return await synthesize(text=payload["text"], voice=payload.get("voice"))
+    return {
+        "audio_url": None,
+        "status": "degraded",
+        "warning": "voice_runtime_not_available",
+    }
 
 
 async def _audit_log_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    # Audit writes through the existing tracing service when available.
-    try:
-        from app.services.tracing.audit import write_event  # type: ignore
-    except Exception:
-        return {"id": "noop", "warning": "audit service unavailable"}
-    return await write_event(event_type=payload["event_type"], details=payload.get("details") or {})
+    event_id = str(uuid.uuid4())
+    logger.info(
+        "audit_log_v1: event",
+        event_id=event_id,
+        event_type=payload.get("event_type"),
+        workspace_id=(ctx or {}).get("workspace_id"),
+        ts=datetime.utcnow().isoformat(),
+        details=payload.get("details") or {},
+    )
+    return {"id": event_id, "status": "recorded"}
 
 
 async def _ollama_llm_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.model_clients.ollama_client import generate  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    return await generate(prompt=payload["prompt"], model=payload.get("model"))
+    from app.services.model_clients.ollama_client import OllamaClient
+
+    client = OllamaClient()
+    model = payload.get("model") or "deepseek-r1:14b"
+    result = await client.generate(model=model, prompt=payload["prompt"])
+    return {
+        "completion": result.get("response") or result.get("content", ""),
+        "model": model,
+    }
 
 
 async def _azure_llm_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    try:
-        from app.services.model_clients.azure_client import generate  # type: ignore
-    except Exception:
-        return await _unimplemented(payload, ctx)
-    return await generate(prompt=payload["prompt"], model=payload.get("model"))
+    # Azure OpenAI is OpenAI-compatible — reuse the OpenAI client.
+    from app.services.model_clients.openai_client import OpenAIClient
+
+    client = OpenAIClient()
+    if not client.api_key:
+        return {
+            "completion": "",
+            "status": "degraded",
+            "warning": "openai_key_unavailable",
+        }
+    result = await client.generate(
+        model=payload.get("model") or "gpt-4o-mini",
+        prompt=payload["prompt"],
+    )
+    return {
+        "completion": result.get("content", ""),
+        "model": result.get("model"),
+        "usage": result.get("usage", {}),
+    }
 
 
-_REGISTRY: Dict[str, SkillCallable] = {
-    "llm_rag_answer_v1": _llm_rag_answer_v1,
-    "semantic_search_v1": _semantic_search_v1,
-    "document_ingestion_v1": _document_ingestion_v1,
-    "eval_radar_v1": _eval_radar_v1,
-    "claim_audit_v1": _claim_audit_v1,
-    "intelligence_batch_v1": _intelligence_batch_v1,
-    "sharepoint_ingestion_v1": _sharepoint_ingestion_v1,
-    "voice_transcribe_v1": _voice_transcribe_v1,
-    "voice_tts_v1": _voice_tts_v1,
-    "audit_log_v1": _audit_log_v1,
-    "ollama_llm_v1": _ollama_llm_v1,
-    "azure_llm_v1": _azure_llm_v1,
+async def _chain_naive_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.rag.chains import answer_naive
+
+    ctx = ctx or {}
+    return await answer_naive(
+        query=payload["query"],
+        context_id=payload.get("context_id"),
+        workspace_id=ctx.get("workspace_id"),
+        top_k=payload.get("top_k"),
+    )
+
+
+async def _chain_hybrid_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.rag.chains import answer_hybrid
+
+    ctx = ctx or {}
+    return await answer_hybrid(
+        query=payload["query"],
+        context_id=payload.get("context_id"),
+        workspace_id=ctx.get("workspace_id"),
+        top_k=payload.get("top_k"),
+    )
+
+
+async def _chain_mixed_hah_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.rag.chains import answer_mixed_hah
+
+    ctx = ctx or {}
+    return await answer_mixed_hah(
+        query=payload["query"],
+        context_id=payload.get("context_id"),
+        workspace_id=ctx.get("workspace_id"),
+        top_k=payload.get("top_k"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Registry
+# ---------------------------------------------------------------------------
+# (slug -> (callable, expected_module_path|None, status_hint))
+# ``expected_module_path`` is the module whose import must succeed for
+# the wrapper to be considered `bound`. A ``None`` path means the
+# wrapper is self-contained (loggers, stubs, in-process helpers).
+_REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
+    "llm_rag_answer_v1":       (_llm_rag_answer_v1,       "app.services.rag.rag_service",          "bound"),
+    "semantic_search_v1":      (_semantic_search_v1,      "app.services.rag.pipeline_retrieval",   "bound"),
+    "document_ingestion_v1":   (_document_ingestion_v1,   "app.services.rag.document_service",     "bound"),
+    "eval_radar_v1":           (_eval_radar_v1,           "app.services.evaluation.judge",         "bound"),
+    "claim_audit_v1":          (_claim_audit_v1,          "app.services.evaluation.judge",         "bound"),
+    "intelligence_batch_v1":   (_intelligence_batch_v1,   "app.services.intelligence.batch",       "bound"),
+    "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None,                                    "stub"),
+    "voice_transcribe_v1":     (_voice_transcribe_v1,     None,                                    "stub"),
+    "voice_tts_v1":            (_voice_tts_v1,            None,                                    "stub"),
+    "audit_log_v1":            (_audit_log_v1,            None,                                    "bound"),
+    "ollama_llm_v1":           (_ollama_llm_v1,           "app.services.model_clients.ollama_client", "bound"),
+    "azure_llm_v1":            (_azure_llm_v1,            "app.services.model_clients.openai_client", "bound"),
+    "chain_naive_v1":          (_chain_naive_v1,          "app.services.rag.chains.naive",         "bound"),
+    "chain_hybrid_v1":         (_chain_hybrid_v1,         "app.services.rag.chains.hybrid",        "bound"),
+    "chain_mixed_hah_v1":      (_chain_mixed_hah_v1,      "app.services.rag.chains.mixed_hah",     "bound"),
 }
+
+_RESOLVED_STATUS: Dict[str, str] = {}
 
 
 def resolve(slug: str) -> SkillCallable:
     """Return the runtime callable bound to a skill slug.
 
-    Unknown slugs fall through to `_unimplemented` so callers never crash
-    on a KeyError — they get a NotImplementedError at call time instead.
+    Unknown slugs fall through to ``_unimplemented``.
     """
-    return _REGISTRY.get(slug, _unimplemented)
+    entry = _REGISTRY.get(slug)
+    if entry is None:
+        return _unimplemented
+    return entry[0]
 
 
-def bound_slugs() -> Dict[str, bool]:
-    """Returns {slug: is_real} for observability / admin debug endpoints."""
-    return {slug: fn is not _unimplemented for slug, fn in _REGISTRY.items()}
+def runtime_status(slug: str) -> str:
+    """Return ``bound`` | ``stub`` | ``unbound`` for a slug.
+
+    Evaluates the dependency import on first call so we catch missing
+    modules without forcing eager imports at startup.
+    """
+    if slug in _RESOLVED_STATUS:
+        return _RESOLVED_STATUS[slug]
+    entry = _REGISTRY.get(slug)
+    if entry is None:
+        _RESOLVED_STATUS[slug] = "unbound"
+        return "unbound"
+    _, module_path, hint = entry
+    if module_path is None:
+        _RESOLVED_STATUS[slug] = hint
+        return hint
+    try:
+        importlib.import_module(module_path)
+        _RESOLVED_STATUS[slug] = "bound"
+        return "bound"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "skills_registry: dependency import failed — marking stub",
+            slug=slug,
+            module=module_path,
+            error=str(exc),
+        )
+        _RESOLVED_STATUS[slug] = "stub"
+        return "stub"
+
+
+def bound_slugs() -> Dict[str, str]:
+    """Return `{slug: status}` for every registered skill (tri-state)."""
+    return {slug: runtime_status(slug) for slug in _REGISTRY}
+
+
+def registry_snapshot() -> Dict[str, Dict[str, Any]]:
+    """Richer report for admin / observability endpoints."""
+    snap: Dict[str, Dict[str, Any]] = {}
+    for slug, (_fn, module_path, hint) in _REGISTRY.items():
+        snap[slug] = {
+            "status": runtime_status(slug),
+            "declared_status": hint,
+            "module": module_path,
+        }
+    return snap

@@ -150,7 +150,7 @@ type Tab = 'models' | 'connectors' | 'apps';
         } @else {
           <ul class="divide-y divide-white/5">
             @for (m of models(); track modelKey(m)) {
-              <li class="px-5 py-3 grid grid-cols-12 gap-3 items-center text-sm">
+              <li class="px-5 py-3 grid grid-cols-12 gap-3 items-center text-sm" [title]="usageLabel(m)">
                 <div class="col-span-6 min-w-0 flex items-center gap-2">
                   <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 bg-gradient-to-br from-brand-500/20 to-violet-500/20 ring-1 ring-brand-500/30 text-brand-400">
                     {{ providerInitial(m) }}
@@ -162,7 +162,7 @@ type Tab = 'models' | 'connectors' | 'apps';
                     }
                   </div>
                 </div>
-                <div class="col-span-3 text-xs text-gray-400 font-mono tabular-nums">
+                <div class="col-span-2 text-xs text-gray-400 font-mono tabular-nums">
                   @if (m.context_length) {
                     {{ (m.context_length / 1000).toFixed(0) }}k ctx
                   }
@@ -170,6 +170,18 @@ type Tab = 'models' | 'connectors' | 'apps';
                 <div class="col-span-2 text-xs text-gray-400 font-mono tabular-nums">
                   @if (m.size) {
                     {{ (m.size / 1e9).toFixed(1) }} GB
+                  }
+                </div>
+                <div class="col-span-1 text-xs text-right">
+                  @if (usageCount(m) > 0) {
+                    <span
+                      class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                      [title]="'Pinned by: ' + (systemUsage()[modelKey(m)] || systemUsage()[modelName(m)] || []).join(', ')"
+                    >
+                      {{ usageLabel(m) }}
+                    </span>
+                  } @else {
+                    <span class="text-gray-600">—</span>
                   }
                 </div>
                 <div class="col-span-1 text-right">
@@ -409,6 +421,11 @@ export class ResourcesPageComponent implements OnInit {
   readonly models = signal<ModelInfo[]>([]);
   readonly loading = signal(false);
 
+  // Reverse index model_id (provider:name | name) → list of systems pinning it,
+  // populated from the canonical `/systems` list so the Models tab can show
+  // which Systems override each model.
+  readonly systemUsage = signal<Record<string, string[]>>({});
+
   readonly active = signal<ConnectorDef | null>(null);
   readonly drawerOpen = signal(false);
   draftValues: Record<string, string> = {};
@@ -457,6 +474,38 @@ export class ResourcesPageComponent implements OnInit {
         this.loading.set(false);
       },
     });
+    this.refreshSystemUsage();
+  }
+
+  private refreshSystemUsage(): void {
+    this.api
+      .get<{ systems: Array<{ id: string; name: string; default_model?: string | null }> } | Array<{ id: string; name: string; default_model?: string | null }>>('/systems')
+      .subscribe({
+        next: (res) => {
+          const systems = Array.isArray(res) ? res : res?.systems ?? [];
+          const idx: Record<string, string[]> = {};
+          for (const s of systems) {
+            if (!s.default_model) continue;
+            if (!idx[s.default_model]) idx[s.default_model] = [];
+            idx[s.default_model].push(s.name);
+          }
+          this.systemUsage.set(idx);
+        },
+        error: () => this.systemUsage.set({}),
+      });
+  }
+
+  usageCount(m: ModelInfo): number {
+    const idx = this.systemUsage();
+    const byQualified = idx[this.modelKey(m)] ?? [];
+    const byPlain = idx[this.modelName(m)] ?? [];
+    return byQualified.length + byPlain.length;
+  }
+
+  usageLabel(m: ModelInfo): string {
+    const n = this.usageCount(m);
+    if (n === 0) return '';
+    return n === 1 ? '1 system' : `${n} systems`;
   }
 
   connectorsInCategory(id: string): ConnectorDef[] {

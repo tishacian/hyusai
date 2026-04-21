@@ -38,6 +38,26 @@ def _serialize(s: Skill, metrics: Optional[Dict[str, Any]] = None) -> Dict[str, 
     }
 
 
+@router.get("/runtime-health")
+async def runtime_health(
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Report the live runtime status of every registered skill wrapper.
+
+    Tri-state: ``bound`` (real implementation), ``stub`` (degraded stand-in)
+    or ``unbound`` (no wrapper declared). The frontend uses this to warn
+    operators when an otherwise-seeded skill will return empty payloads.
+    """
+    from app.services.skills_registry import registry_snapshot
+
+    snapshot = registry_snapshot()
+    summary = {"bound": 0, "stub": 0, "unbound": 0}
+    for entry in snapshot.values():
+        summary[entry["status"]] = summary.get(entry["status"], 0) + 1
+    return {"skills": snapshot, "summary": summary}
+
+
 @router.get("")
 async def list_skills(
     skill_type: Optional[str] = None,

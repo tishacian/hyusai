@@ -38,6 +38,14 @@ class System(Base):
     status = Column(String(20), default="draft", index=True)  # draft | active | paused | retired
     created_by = Column(String(255), default="demo-user")
 
+    # Per-system defaults exposed by the Builder (Wave B + C).
+    #   default_prompt_type      -> SystemPromptType slug (factual / analytical / ...)
+    #   default_model            -> LLM model override (provider/model string)
+    #   retrieval_mode_default   -> naive | hybrid | hah | chah | auto
+    default_prompt_type = Column(String(40), nullable=True)
+    default_model = Column(String(120), nullable=True)
+    retrieval_mode_default = Column(String(20), nullable=True, default="auto")
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

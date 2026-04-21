@@ -8,11 +8,11 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { forkJoin, of } from 'rxjs';
+import { forkJoin, of, type Observable } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
-import { CanonicalApiService, type Capability, type Skill, type System } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Capability, type Context, type Skill, type System } from '@app/core/canonical-api.service';
 import { SettingsService } from '@app/core/settings.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -34,12 +34,43 @@ interface WizardStep {
   glyph: CkGlyphName;
 }
 
-const RAG_PIPELINES = [
-  { id: 'OmniRAG', label: 'OmniRAG', description: 'Hybrid dense + BM25 + rerank' },
-  { id: 'Semantic', label: 'Semantic', description: 'Dense vectors only' },
-  { id: 'Hybrid', label: 'Hybrid', description: 'Dense + lexical merge' },
-  { id: 'None', label: 'Direct LLM', description: 'No retrieval' },
+const RAG_PIPELINES: { id: string; canonical: string; label: string; description: string }[] = [
+  { id: 'OmniRAG', canonical: 'chah', label: 'OmniRAG (C-HAH)', description: 'Composite hybrid, parallel variants + RRF' },
+  { id: 'HAH', canonical: 'hah', label: 'HAH', description: 'Two-pass hybrid answer harvesting' },
+  { id: 'Hybrid', canonical: 'hybrid', label: 'Hybrid', description: 'BM25 + dense, single-pass' },
+  { id: 'Semantic', canonical: 'naive', label: 'Semantic', description: 'Dense vectors only, single-pass' },
+  { id: 'None', canonical: 'auto', label: 'Direct LLM', description: 'No retrieval — LLM only' },
 ];
+
+interface ReasoningTemplateOpt {
+  slug: string;
+  label: string;
+  description: string;
+}
+
+interface ModelOpt {
+  id: string;
+  label: string;
+  provider?: string;
+  name?: string;
+}
+
+function normalizeModels(raw: Array<Record<string, unknown>>): ModelOpt[] {
+  const out: ModelOpt[] = [];
+  for (const m of raw) {
+    const provider = (m['provider'] as string | undefined) ?? '';
+    const name =
+      (m['name'] as string | undefined) ??
+      (m['model'] as string | undefined) ??
+      (m['id'] as string | undefined) ??
+      '';
+    if (!name) continue;
+    const id = provider ? `${provider}:${name}` : name;
+    const label = provider ? `${provider} · ${name}` : name;
+    out.push({ id, label, provider, name });
+  }
+  return out;
+}
 
 const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
   universal: 'pos',
@@ -279,9 +310,45 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                 Context
               </h2>
               <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Knowledge collections and the retrieval pipeline. This becomes the versioned Context attached to every Run.
+                Knowledge collections and the retrieval pipeline. Becomes the versioned Context attached to every Run —
+                or pick an existing one to reuse.
               </p>
             </header>
+
+            <!-- Reuse existing context -->
+            @if (existingContexts().length > 0) {
+              <div style="border-bottom: 1px solid var(--ck-hair); padding-bottom:16px;">
+                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
+                  Reuse an existing context
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  @for (ctx of existingContexts(); track ctx.id) {
+                    <button
+                      type="button"
+                      (click)="pickExistingContext(ctx.id)"
+                      class="text-left ck-surface rounded"
+                      style="padding:10px 12px;"
+                      [style.borderColor]="draft.reuse_context_id === ctx.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
+                    >
+                      <div class="text-sm font-medium text-white truncate">{{ ctx.name }}</div>
+                      <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:2px;">
+                        v{{ ctx.version ?? 1 }} · {{ (ctx.data_refs?.length ?? 0) }} refs
+                      </div>
+                    </button>
+                  }
+                </div>
+                @if (draft.reuse_context_id) {
+                  <button
+                    type="button"
+                    class="mt-2 text-[11px] ck-mono"
+                    style="color: var(--ck-signal-warn);"
+                    (click)="clearContextReuse()"
+                  >
+                    Clear selection — create a new context instead
+                  </button>
+                }
+              </div>
+            }
 
             @if (loadingCollections()) {
               <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -395,6 +462,45 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                   <span class="ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.temperature.toFixed(2) }}</span>
                 </label>
                 <input type="range" min="0" max="2" step="0.05" [(ngModel)]="draft.temperature" class="w-full accent-violet-400" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5" style="border-top: 1px solid var(--ck-hair); padding-top:16px;">
+              <div>
+                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
+                  Reasoning template (default)
+                </div>
+                <select
+                  [(ngModel)]="draft.default_prompt_type"
+                  class="w-full ck-surface rounded"
+                  style="padding:10px 12px; background:var(--ck-bg-inset); color:var(--ck-fg-1); font-size:13px;"
+                >
+                  <option value="auto">Auto — heuristic selector per run</option>
+                  @for (t of reasoningTemplates(); track t.slug) {
+                    <option [value]="t.slug">{{ t.label }} — {{ t.description }}</option>
+                  }
+                </select>
+                <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
+                  Drives the system prompt on every run; chat can still override per-message.
+                </p>
+              </div>
+              <div>
+                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
+                  Model override (optional)
+                </div>
+                <select
+                  [(ngModel)]="draft.default_model"
+                  class="w-full ck-surface rounded"
+                  style="padding:10px 12px; background:var(--ck-bg-inset); color:var(--ck-fg-1); font-size:13px;"
+                >
+                  <option value="">Workspace default</option>
+                  @for (m of availableModels(); track m.id) {
+                    <option [value]="m.id">{{ m.label }}</option>
+                  }
+                </select>
+                <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
+                  Pins a specific provider/model for every Run of this System.
+                </p>
               </div>
             </div>
 
@@ -623,6 +729,13 @@ export class SystemBuilderComponent implements OnInit {
     capability_id: '' as string | null,
     collections: [] as string[],
     rag_mode: 'OmniRAG',
+    // If set, the new System reuses this Context id instead of creating a
+    // fresh one from the chosen collections.
+    reuse_context_id: '' as string | null,
+    // Per-System defaults surfaced in the Policy step; picked up by the run
+    // engine / RAG skill wrappers when a run is triggered.
+    default_prompt_type: 'auto',
+    default_model: '' as string | '',
     temperature: 0.3,
     max_cost: 0.5,
     max_latency_ms: 8000,
@@ -630,6 +743,10 @@ export class SystemBuilderComponent implements OnInit {
     require_citations: true,
     enable_audit: true,
   };
+
+  readonly reasoningTemplates = signal<ReasoningTemplateOpt[]>([]);
+  readonly availableModels = signal<ModelOpt[]>([]);
+  readonly existingContexts = signal<Context[]>([]);
 
   readonly currentGlyph = computed<CkGlyphName>(() => this.steps[this.currentStep()]?.glyph ?? 'focus');
 
@@ -668,6 +785,22 @@ export class SystemBuilderComponent implements OnInit {
     this.settings.refresh();
     this.loadingCaps.set(true);
     this.loadingCollections.set(true);
+    this.api
+      .get<{ templates: ReasoningTemplateOpt[] }>('/reasoning/templates')
+      .subscribe({
+        next: (res) => this.reasoningTemplates.set(res?.templates ?? []),
+        error: () => this.reasoningTemplates.set([]),
+      });
+    this.api
+      .get<{ models: Array<Record<string, unknown>> }>('/models')
+      .subscribe({
+        next: (res) => this.availableModels.set(normalizeModels(res?.models ?? [])),
+        error: () => this.availableModels.set([]),
+      });
+    this.canonical.listContexts().subscribe({
+      next: (list) => this.existingContexts.set(list ?? []),
+      error: () => this.existingContexts.set([]),
+    });
     forkJoin({
       caps: this.canonical.listCapabilities().pipe(catchError(() => of([] as Capability[]))),
       skills: this.canonical.listSkills().pipe(catchError(() => of([] as Skill[]))),
@@ -704,6 +837,22 @@ export class SystemBuilderComponent implements OnInit {
 
   isCollectionChecked(name: string): boolean {
     return this.draft.collections.includes(name);
+  }
+
+  pickExistingContext(id: string): void {
+    this.draft.reuse_context_id = this.draft.reuse_context_id === id ? null : id;
+    if (this.draft.reuse_context_id) {
+      const ctx = this.existingContexts().find((c) => c.id === id);
+      if (ctx?.data_refs?.length) {
+        // Mirror the reused context's refs into the collection picker so the
+        // review pane shows a meaningful count even when reusing.
+        this.draft.collections = [...ctx.data_refs];
+      }
+    }
+  }
+
+  clearContextReuse(): void {
+    this.draft.reuse_context_id = null;
   }
 
   toggleCollection(name: string): void {
@@ -766,44 +915,76 @@ export class SystemBuilderComponent implements OnInit {
     if (!this.allStepsValid() || this.launching()) return;
     this.launching.set(true);
     const cap = this.selectedCapability();
-    const body: Partial<System> & { flow_definition?: Record<string, unknown> } = {
-      name: this.draft.name.trim(),
-      objective: this.draft.objective.trim(),
-      capability_id: this.draft.capability_id ?? null,
-      skill_ids: cap?.skill_ids ?? [],
-      flow_definition: {
-        collections: this.draft.collections,
-        rag_mode: this.draft.rag_mode,
-        policy: {
-          max_cost: this.draft.max_cost,
-          max_latency_ms: this.draft.max_latency_ms,
-          confidence_threshold: this.draft.confidence_threshold,
-          temperature: this.draft.temperature,
-          require_citations: this.draft.require_citations,
-          enable_audit: this.draft.enable_audit,
-        },
-      },
-      status: 'active',
-    };
-    this.canonical.createSystem(body).subscribe((sys) => {
-      this.launching.set(false);
-      if (sys) {
-        this.toast.success(`"${sys.name}" is live`, 'System created');
-        this.router.navigate(['/systems', sys.id]);
-        return;
-      }
-      // Fallback: persist a local draft so the user isn't blocked when the backend
-      // write path is offline (e.g. seeded DB but auth disabled).
-      const draft = this.store.createDraft({
+    const pipeline = this.ragPipelines.find((p) => p.id === this.draft.rag_mode);
+    const canonicalRagMode = pipeline?.canonical ?? 'auto';
+    const promptType = this.draft.default_prompt_type && this.draft.default_prompt_type !== 'auto'
+      ? this.draft.default_prompt_type
+      : null;
+    const defaultModel = this.draft.default_model?.trim() || null;
+
+    // If the user picked an existing context we pass its id straight through;
+    // otherwise we spin a fresh one from the selected collections so every
+    // Run has an attached, versioned Context (mental-model contract).
+    const reuseId = this.draft.reuse_context_id || null;
+    const contextOp: Observable<Context | null> = reuseId
+      ? of({ id: reuseId } as Context)
+      : this.draft.collections.length > 0
+      ? this.canonical.createContext({
+          name: `${this.draft.name.trim() || 'System'} context`,
+          data_refs: [...this.draft.collections],
+        })
+      : of(null);
+
+    contextOp.subscribe((ctx) => {
+      const body: Partial<System> & {
+        flow_definition?: Record<string, unknown>;
+        default_prompt_type?: string | null;
+        default_model?: string | null;
+        retrieval_mode_default?: string | null;
+        context_id?: string | null;
+      } = {
         name: this.draft.name.trim(),
-        description: this.draft.objective.trim(),
-        model: 'gpt-4o-mini',
-        rag_mode: this.draft.rag_mode,
-        skills: cap?.skill_ids ?? [],
-        collections: [...this.draft.collections],
+        objective: this.draft.objective.trim(),
+        capability_id: this.draft.capability_id ?? null,
+        skill_ids: cap?.skill_ids ?? [],
+        context_id: ctx?.id ?? null,
+        default_prompt_type: promptType,
+        default_model: defaultModel,
+        retrieval_mode_default: canonicalRagMode,
+        flow_definition: {
+          collections: this.draft.collections,
+          rag_mode: this.draft.rag_mode,
+          canonical_rag_mode: canonicalRagMode,
+          context_reused: !!reuseId,
+          policy: {
+            max_cost: this.draft.max_cost,
+            max_latency_ms: this.draft.max_latency_ms,
+            confidence_threshold: this.draft.confidence_threshold,
+            temperature: this.draft.temperature,
+            require_citations: this.draft.require_citations,
+            enable_audit: this.draft.enable_audit,
+          },
+        },
+        status: 'active',
+      };
+      this.canonical.createSystem(body).subscribe((sys) => {
+        this.launching.set(false);
+        if (sys) {
+          this.toast.success(`"${sys.name}" is live`, 'System created');
+          this.router.navigate(['/systems', sys.id]);
+          return;
+        }
+        const draft = this.store.createDraft({
+          name: this.draft.name.trim(),
+          description: this.draft.objective.trim(),
+          model: 'gpt-4o-mini',
+          rag_mode: this.draft.rag_mode,
+          skills: cap?.skill_ids ?? [],
+          collections: [...this.draft.collections],
+        });
+        this.toast.warning('Created as local draft (API unreachable)', 'System draft');
+        this.router.navigate(['/systems', draft.id]);
       });
-      this.toast.warning('Created as local draft (API unreachable)', 'System draft');
-      this.router.navigate(['/systems', draft.id]);
     });
   }
 

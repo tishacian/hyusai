@@ -16,11 +16,10 @@ export const observabilityRoutes: Routes = [
         loadComponent: () =>
           import('./performance-dashboard.component').then((m) => m.PerformanceDashboardComponent),
       },
-      {
-        path: 'traces',
-        loadComponent: () =>
-          import('./traces-list.component').then((m) => m.TracesListComponent),
-      },
+      // Legacy `/observability/traces` is replaced by the canonical `/runs`
+      // browser. We keep the path so bookmarks keep working, but redirect to
+      // the new home of the execution log.
+      { path: 'traces', redirectTo: '/runs', pathMatch: 'full' },
     ],
   },
 ];

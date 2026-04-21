@@ -15,6 +15,10 @@ export interface SystemAgent {
   collections?: string[];
   draft?: boolean;
   created_at?: string;
+  // Canonical per-System defaults exposed by the backend (migration 005).
+  default_prompt_type?: string | null;
+  default_model?: string | null;
+  retrieval_mode_default?: string | null;
 }
 
 const LS_KEY = 'agentium_system_drafts';
@@ -52,10 +56,11 @@ export class SystemsStore {
 
   load(): Observable<SystemAgent[]> {
     this.loading.set(true);
+    // Canonical `/systems` — the legacy `/agents` path has been retired.
     return this.api
-      .get<{ agents: SystemAgent[] } | SystemAgent[]>('/agents')
+      .get<{ systems: SystemAgent[] } | SystemAgent[]>('/systems')
       .pipe(
-        map((res) => (Array.isArray(res) ? res : res?.agents ?? [])),
+        map((res) => (Array.isArray(res) ? res : res?.systems ?? [])),
         map((list) =>
           list.map((a) => ({
             ...a,
@@ -77,7 +82,7 @@ export class SystemsStore {
     const local = this.findById(id);
     if (local) return of(local);
     return this.api
-      .get<SystemAgent>(`/agents/${id}`)
+      .get<SystemAgent>(`/systems/${id}`)
       .pipe(
         map((a) => ({ ...a, description: a.description ?? '' })),
         tap(() => {}),

@@ -44,6 +44,12 @@ class AdaptivePolicy(Base):
     enabled = Column(Boolean, default=False)
     adaptation_level = Column(String(20), default="moderate")  # off | conservative | moderate | aggressive
 
+    # Canonical scope binding: policies apply to a portfolio, capability or
+    # specific system. `target_id` points at the capability/system (nullable
+    # when scope is "portfolio").
+    scope = Column(String(20), nullable=True)
+    target_id = Column(String(36), nullable=True)
+
     triggers = Column(JSON, default=dict)        # e.g. {confidence_below: 0.7, latency_above_ms: 5000}
     allowed_actions = Column(JSON, default=list) # e.g. ["switch_model","escalate_hitl","fallback_skill"]
     constraints = Column(JSON, default=dict)

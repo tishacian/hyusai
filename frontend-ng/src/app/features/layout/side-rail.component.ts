@@ -195,6 +195,7 @@ export class SideRailComponent {
       items: [
         { label: 'Intelligence',  glyph: 'pulse',     route: '/intelligence' },
         { label: 'Observability', glyph: 'telemetry', route: '/observability' },
+        { label: 'Runs',          glyph: 'ledger',    route: '/runs' },
       ],
     },
     {

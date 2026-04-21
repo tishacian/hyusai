@@ -27,6 +27,11 @@ export const routes: Routes = [
           import('./features/steering/steering.component').then((m) => m.SteeringComponent),
       },
       {
+        path: 'steering/contexts',
+        loadComponent: () =>
+          import('./features/contexts/contexts-page.component').then((m) => m.ContextsPageComponent),
+      },
+      {
         path: 'capabilities',
         loadComponent: () =>
           import('./features/capabilities/capabilities.component').then((m) => m.CapabilitiesComponent),
@@ -55,6 +60,11 @@ export const routes: Routes = [
         path: 'observability',
         loadChildren: () =>
           import('./features/observability/observability.routes').then((m) => m.observabilityRoutes),
+      },
+      {
+        path: 'runs',
+        loadChildren: () =>
+          import('./features/runs/runs.routes').then((m) => m.runsRoutes),
       },
       {
         path: 'intelligence',
