@@ -48,6 +48,7 @@ import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
       ><ck-kbd>⌘K</ck-kbd>Command</span>
       <span
         class="ck-mono"
+        title="⌘Z zoom out · ⇧⌘Z zoom in  (Portfolio › Capability › System › Skill › Run)"
         [style.fontSize.px]="9"
         [style.letterSpacing]="'0.14em'"
         [style.textTransform]="'uppercase'"
@@ -55,6 +56,7 @@ import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
         [style.display]="'inline-flex'"
         [style.alignItems]="'center'"
         [style.gap.px]="6"
+        [style.cursor]="'help'"
       ><ck-kbd>⌘Z</ck-kbd>Zoom</span>
       <span class="ck-hairline-v" [style.height.px]="14"></span>
       <span

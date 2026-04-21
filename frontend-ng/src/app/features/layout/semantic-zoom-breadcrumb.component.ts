@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
@@ -128,5 +128,46 @@ export class SemanticZoomBreadcrumbComponent {
     if (!lv.href) return;
     if (Array.isArray(lv.href)) this.router.navigate(lv.href);
     else this.router.navigateByUrl(lv.href);
+  }
+
+  /**
+   * Global keyboard handler for semantic zoom:
+   *   - ⌘Z  (or Ctrl+Z on Windows)        → zoom out one level (towards Portfolio)
+   *   - ⇧⌘Z (or Ctrl+Shift+Z on Windows)  → zoom in  one level (towards Run)
+   *
+   * We deliberately skip the shortcut when the user is typing in an input,
+   * textarea, select, or contenteditable element so native undo/redo keeps
+   * working inside forms and the chat composer.
+   */
+  @HostListener('window:keydown', ['$event'])
+  onZoomKey(ev: KeyboardEvent): void {
+    if (ev.key !== 'z' && ev.key !== 'Z') return;
+    if (!(ev.metaKey || ev.ctrlKey)) return;
+    if (ev.altKey) return;
+
+    const target = ev.target as HTMLElement | null;
+    if (target && this.isEditable(target)) return;
+
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const levels = this.levels();
+    const currentIdx = levels.findIndex((lv) => lv.active);
+    const fallback = 0; // Portfolio when nothing is active (e.g. on root redirect).
+    const idx = currentIdx === -1 ? fallback : currentIdx;
+
+    const nextIdx = ev.shiftKey
+      ? Math.min(levels.length - 1, idx + 1) // zoom in
+      : Math.max(0, idx - 1);                 // zoom out
+
+    if (nextIdx === idx && currentIdx !== -1) return;
+    this.goto(levels[nextIdx]);
+  }
+
+  private isEditable(el: HTMLElement): boolean {
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (el.isContentEditable) return true;
+    return false;
   }
 }
