@@ -5,9 +5,8 @@ import { forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
-import { RunOutcomeCardComponent, ImpactPreviewComponent } from '@app/shared/cockpit';
+import { RunOutcomeCardComponent, ImpactPreviewComponent, StatReadoutComponent } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -91,7 +90,7 @@ interface PipelineStage {
     RouterLink,
     ChatPanelComponent,
     IconComponent,
-    StatTileComponent,
+    StatReadoutComponent,
     StatusPulseComponent,
     RunOutcomeCardComponent,
     ImpactPreviewComponent,
@@ -187,7 +186,7 @@ interface PipelineStage {
 
         <!-- KPI row — each tile is actionable and routes to observability -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <app-stat-tile
+          <ck-stat-readout variant="tile"
             label="Requests"
             [value]="kpiRequests()"
             hint="since restart"
@@ -195,7 +194,7 @@ interface PipelineStage {
             [interactive]="true"
             (click)="goto('/observability/performance')"
           />
-          <app-stat-tile
+          <ck-stat-readout variant="tile"
             label="Errors"
             [value]="kpiErrors()"
             [trend]="errorsTrend()"
@@ -203,7 +202,7 @@ interface PipelineStage {
             [interactive]="true"
             (click)="goto('/observability/performance')"
           />
-          <app-stat-tile
+          <ck-stat-readout variant="tile"
             label="Avg latency"
             [value]="kpiLatency()"
             unit="ms"
@@ -211,7 +210,7 @@ interface PipelineStage {
             [interactive]="true"
             (click)="goto('/runs')"
           />
-          <app-stat-tile
+          <ck-stat-readout variant="tile"
             label="Quality"
             [value]="kpiQuality()"
             unit="/100"
@@ -219,7 +218,7 @@ interface PipelineStage {
             [interactive]="true"
             (click)="goto('/observability')"
           />
-          <app-stat-tile
+          <ck-stat-readout variant="tile"
             label="Error rate"
             [value]="kpiErrorRate()"
             unit="%"
@@ -228,7 +227,7 @@ interface PipelineStage {
             [interactive]="true"
             (click)="goto('/observability/performance')"
           />
-          <app-stat-tile
+          <ck-stat-readout variant="tile"
             label="Runs"
             [value]="kpiTraces()"
             icon="git-commit"

@@ -11,10 +11,9 @@ import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
-import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
+import { GlyphComponent, PageFrameComponent, StatReadoutComponent } from '@app/shared/cockpit';
 
 interface Agent {
   id: string;
@@ -65,7 +64,7 @@ interface TaskEvent {
   imports: [
     FormsModule,
     IconComponent,
-    StatTileComponent,
+    StatReadoutComponent,
     EmptyStateComponent,
     DrawerComponent,
     PageFrameComponent,
@@ -125,15 +124,15 @@ interface TaskEvent {
       </div>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <app-stat-tile label="Total" [value]="tasks().length" icon="list-todo" />
-      <app-stat-tile
+      <ck-stat-readout variant="tile" label="Total" [value]="tasks().length" icon="list-todo" />
+      <ck-stat-readout variant="tile"
         label="Running"
         [value]="runningCount()"
         icon="loader-2"
         [trend]="runningCount() > 0 ? 'up' : null"
       />
-      <app-stat-tile label="Completed" [value]="completedCount()" icon="check-circle-2" />
-      <app-stat-tile label="Failed" [value]="failedCount()" icon="x-circle" />
+      <ck-stat-readout variant="tile" label="Completed" [value]="completedCount()" icon="check-circle-2" />
+      <ck-stat-readout variant="tile" label="Failed" [value]="failedCount()" icon="x-circle" />
     </div>
 
     <section class="t-card t-elevated rounded-md overflow-hidden">

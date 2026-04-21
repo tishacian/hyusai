@@ -13,7 +13,7 @@ import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
-import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
+import { StatReadoutComponent } from '@app/shared/cockpit';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
@@ -51,7 +51,7 @@ type Tab = 'models' | 'connectors' | 'apps';
     RouterLink,
     IconComponent,
     SectionHeaderComponent,
-    StatTileComponent,
+    StatReadoutComponent,
     EmptyStateComponent,
     StatusPulseComponent,
     DrawerComponent,
@@ -76,19 +76,19 @@ type Tab = 'models' | 'connectors' | 'apps';
 
     <!-- KPIs -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <app-stat-tile label="Models" [value]="models().length" icon="cpu" />
-      <app-stat-tile
+      <ck-stat-readout variant="tile" label="Models" [value]="models().length" icon="cpu" />
+      <ck-stat-readout variant="tile"
         label="Providers"
         [value]="providers().length"
         icon="server"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Connectors"
         [value]="connectorsAvailable()"
         icon="plug"
         [hint]="connectorsActive() + ' configured · ' + connectorsComingSoon() + ' coming'"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Apps enabled"
         [value]="appsEnabled()"
         icon="sparkles"

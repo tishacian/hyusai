@@ -15,7 +15,7 @@ import { ApiService } from '@app/core/api.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
-import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
+import { StatReadoutComponent } from '@app/shared/cockpit';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
@@ -85,7 +85,7 @@ interface BatchProgress {
     BaseChartDirective,
     IconComponent,
     SectionHeaderComponent,
-    StatTileComponent,
+    StatReadoutComponent,
     DrawerComponent,
     EmptyStateComponent,
     ConfirmDialogComponent,
@@ -162,23 +162,23 @@ interface BatchProgress {
 
     <!-- KPIs -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Active feeds"
         [value]="dashboard()?.kpis?.active_feeds ?? 0"
         icon="rss"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Articles ingested"
         [value]="dashboard()?.kpis?.total_articles ?? 0"
         icon="newspaper"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Analyzed"
         [value]="dashboard()?.kpis?.analyzed ?? 0"
         icon="brain"
         [hint]="analyzedRatio() + '%'"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="High-risk"
         [value]="dashboard()?.kpis?.high_risk ?? 0"
         icon="alert-triangle"

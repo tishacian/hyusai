@@ -9,9 +9,8 @@ import {
 } from '@angular/core';
 import { ApiService } from '@app/core/api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
+import { GlyphComponent, PageFrameComponent, StatReadoutComponent } from '@app/shared/cockpit';
 
 interface MetricSummary {
   total_requests: number;
@@ -43,7 +42,7 @@ interface MetricsResponse {
   selector: 'app-performance-dashboard',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, StatTileComponent, EmptyStateComponent, PageFrameComponent, GlyphComponent],
+  imports: [IconComponent, StatReadoutComponent, EmptyStateComponent, PageFrameComponent, GlyphComponent],
   template: `
     <ck-page-frame
       eyebrow="Measure · Observability"
@@ -80,7 +79,7 @@ interface MetricsResponse {
       </div>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Total requests"
         [value]="summary()?.total_requests ?? 0"
         icon="activity"
@@ -90,7 +89,7 @@ interface MetricsResponse {
         trendSentiment="positive"
         [delta]="seriesDelta(requestsSeries())"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Total errors"
         [value]="summary()?.total_errors ?? 0"
         icon="alert-triangle"
@@ -100,7 +99,7 @@ interface MetricsResponse {
         trendSentiment="negative"
         [delta]="seriesDelta(errorsSeries())"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Error rate"
         [value]="errorRateDisplay()"
         unit="%"
@@ -110,7 +109,7 @@ interface MetricsResponse {
         [trend]="seriesTrend(errorRateSeries())"
         trendSentiment="negative"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Cache usage"
         [value]="cacheUsageDisplay()"
         unit="%"

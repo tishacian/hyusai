@@ -12,9 +12,8 @@ import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
+import { GlyphComponent, PageFrameComponent, StatReadoutComponent } from '@app/shared/cockpit';
 
 interface DimensionsResponse {
   dimensions: Record<string, string>;
@@ -56,7 +55,7 @@ const PALETTE = {
   imports: [
     BaseChartDirective,
     IconComponent,
-    StatTileComponent,
+    StatReadoutComponent,
     EmptyStateComponent,
     PageFrameComponent,
     GlyphComponent,
@@ -117,7 +116,7 @@ const PALETTE = {
       </div>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Composite score"
         [value]="compositeDisplay()"
         unit="/100"
@@ -128,14 +127,14 @@ const PALETTE = {
         [sparkline]="compositeSeries()"
         sparklineTone="positive"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Evaluations run"
         [value]="history().length.toString()"
         icon="history"
         [sparkline]="evaluationsSeries()"
         sparklineTone="neutral"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Hallucination rate"
         [value]="hallucinationDisplay()"
         unit="%"
@@ -145,7 +144,7 @@ const PALETTE = {
         [sparkline]="hallucinationSeries()"
         sparklineTone="negative"
       />
-      <app-stat-tile
+      <ck-stat-readout variant="tile"
         label="Drift rate"
         [value]="driftDisplay()"
         unit="%"

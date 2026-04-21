@@ -1,7 +1,6 @@
 export * from './icon.component';
 export * from './icon-registry';
 export * from './card.component';
-export * from './stat-tile.component';
 export * from './section-header.component';
 export * from './status-pulse.component';
 export * from './empty-state.component';
