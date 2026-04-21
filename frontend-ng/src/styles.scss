@@ -4,6 +4,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CDK overlay base styles — required for floating panels (ck-help, menus, etc.)
+   so overlays position correctly and escape overflow-clipping ancestors. */
+@import '@angular/cdk/overlay-prebuilt.css';
+
 /* Cockpit (hybrid A+B) design system — tokens + utilities. */
 @import 'styles/cockpit-tokens.scss';
 @import 'styles/cockpit-utilities.scss';

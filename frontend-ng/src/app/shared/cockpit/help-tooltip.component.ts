@@ -9,6 +9,11 @@ import {
   signal,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  CdkConnectedOverlay,
+  CdkOverlayOrigin,
+  type ConnectedPosition,
+} from '@angular/cdk/overlay';
 
 import {
   HelpService,
@@ -36,9 +41,12 @@ import {
   selector: 'ck-help',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CdkOverlayOrigin, CdkConnectedOverlay],
   template: `
     <span class="ck-help-root" (click)="$event.stopPropagation()">
       <button
+        #origin="cdkOverlayOrigin"
+        cdkOverlayOrigin
         type="button"
         class="ck-help-button"
         (click)="toggleOpen()"
@@ -48,7 +56,19 @@ import {
         ?
       </button>
 
-      @if (open()) {
+      <ng-template
+        cdkConnectedOverlay
+        [cdkConnectedOverlayOrigin]="origin"
+        [cdkConnectedOverlayOpen]="open()"
+        [cdkConnectedOverlayPositions]="overlayPositions"
+        [cdkConnectedOverlayHasBackdrop]="false"
+        [cdkConnectedOverlayViewportMargin]="8"
+        [cdkConnectedOverlayPush]="true"
+        [cdkConnectedOverlayFlexibleDimensions]="true"
+        cdkConnectedOverlayPanelClass="ck-help-overlay-panel"
+        (overlayOutsideClick)="onOutsideClick($event)"
+        (detach)="open.set(false)"
+      >
         <div
           class="ck-help-panel"
           [style.width.px]="width()"
@@ -137,7 +157,7 @@ import {
             }
           }
         </div>
-      }
+      </ng-template>
     </span>
   `,
   styles: [
@@ -171,11 +191,6 @@ import {
         background: var(--ck-bg-raised);
       }
       .ck-help-panel {
-        position: absolute;
-        top: calc(100% + 8px);
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 60;
         padding: 14px 16px;
         border-radius: 6px;
         background: var(--ck-bg-raised, #0f1117);
@@ -184,6 +199,9 @@ import {
         color: var(--ck-fg-1);
         font-size: 12px;
         line-height: 1.55;
+        max-height: min(70vh, 640px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
       }
       .ck-help-header {
         display: flex;
@@ -283,7 +301,7 @@ import {
 })
 export class HelpTooltipComponent {
   readonly help = inject(HelpService);
-  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
 
   readonly id = input.required<string>();
   readonly width = input<number>(320);
@@ -292,6 +310,20 @@ export class HelpTooltipComponent {
   readonly open = signal(false);
   protected readonly personas: Persona[] = ['builder', 'operator', 'executive'];
   protected readonly languages: Language[] = ['en', 'fr'];
+
+  /**
+   * Flexible connected positions for the overlay. The first that fits the
+   * viewport wins; CDK auto-flips to the fallbacks so the tooltip is always
+   * entirely visible (bottom → top → right → left).
+   */
+  protected readonly overlayPositions: ConnectedPosition[] = [
+    { originX: 'center', originY: 'bottom', overlayX: 'center', overlayY: 'top', offsetY: 8 },
+    { originX: 'center', originY: 'top', overlayX: 'center', overlayY: 'bottom', offsetY: -8 },
+    { originX: 'end', originY: 'center', overlayX: 'start', overlayY: 'center', offsetX: 8 },
+    { originX: 'start', originY: 'center', overlayX: 'end', overlayY: 'center', offsetX: -8 },
+    { originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top', offsetY: 8 },
+    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top', offsetY: 8 },
+  ];
 
   private readonly index = toSignal(this.help.load(), { initialValue: null as HelpContentIndex | null });
 
@@ -341,8 +373,7 @@ export class HelpTooltipComponent {
     this.help.setLanguage(lang);
   }
 
-  @HostListener('document:click', ['$event'])
-  protected onDocumentClick(event: MouseEvent): void {
+  protected onOutsideClick(event: MouseEvent): void {
     if (!this.open()) return;
     if (!this.host.nativeElement.contains(event.target as Node)) {
       this.open.set(false);
