@@ -31,90 +31,103 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
   imports: [FormsModule, RouterLink, IconComponent],
   template: `
     @if (!mfaChallenge()) {
-      <h2 class="text-xl font-semibold text-white mb-6">Sign in</h2>
+      <header class="ck-auth-head">
+        <span class="ck-auth-eyebrow">COCKPIT ACCESS</span>
+        <h2 class="ck-auth-title">Sign in</h2>
+        <p class="ck-auth-sub">Operator authentication · single workspace session.</p>
+      </header>
 
-      <form (ngSubmit)="onSubmit()" class="space-y-4">
-        <div>
-          <label class="block text-sm text-brand-200 mb-1">Email</label>
+      <form (ngSubmit)="onSubmit()" class="ck-auth-form">
+        <div class="ck-field">
+          <label class="ck-label" for="signin-email">Email</label>
           <input
+            id="signin-email"
             type="email"
             [(ngModel)]="email"
             name="email"
             required
             autocomplete="username"
-            class="w-full px-4 py-2.5 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-brand-400"
+            class="ck-input"
             placeholder="you&#64;company.com"
           />
         </div>
 
-        <div>
-          <label class="block text-sm text-brand-200 mb-1">Password</label>
-          <div class="relative">
+        <div class="ck-field">
+          <label class="ck-label" for="signin-password">Password</label>
+          <div class="ck-input-wrap">
             <input
+              id="signin-password"
               [type]="showPassword() ? 'text' : 'password'"
               [(ngModel)]="password"
               name="password"
               required
               autocomplete="current-password"
-              class="w-full px-4 py-2.5 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-brand-400 pr-10"
+              class="ck-input ck-input-with-suffix"
               placeholder="••••••••"
             />
             <button
               type="button"
               (click)="showPassword.set(!showPassword())"
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
+              class="ck-input-suffix"
+              [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
             >
               <app-icon [name]="showPassword() ? 'eye-off' : 'eye'" [size]="16" />
             </button>
           </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <label class="ck-check">
           <input
             type="checkbox"
             [(ngModel)]="rememberMe"
             name="rememberMe"
-            id="rememberMe"
-            class="rounded border-white/30"
           />
-          <label for="rememberMe" class="text-sm text-brand-200">Remember me</label>
-        </div>
+          <span class="ck-check-box" aria-hidden="true"></span>
+          <span class="ck-check-label">Keep me signed in on this workstation</span>
+        </label>
 
         @if (error()) {
-          <p class="text-red-300 text-sm">{{ error() }}</p>
+          <p class="ck-auth-error" role="alert">{{ error() }}</p>
         }
 
         <button
           type="submit"
           [disabled]="loading()"
-          class="w-full py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-medium rounded-lg transition"
+          class="ck-btn-primary"
         >
-          @if (loading()) { Signing in... } @else { Sign in }
+          @if (loading()) {
+            <span class="ck-btn-spinner" aria-hidden="true"></span>
+            <span>SIGNING IN…</span>
+          } @else {
+            <span>SIGN IN</span>
+            <span class="ck-btn-chevron" aria-hidden="true">→</span>
+          }
         </button>
       </form>
 
-      <div class="mt-6 text-center text-sm text-brand-200 space-y-1">
-        <p>
-          <a routerLink="/auth/password-reset" class="hover:text-white underline">Forgot password?</a>
-        </p>
-        <p>
-          Don't have an account?
-          <a routerLink="/auth/signup" class="hover:text-white underline">Sign up</a>
-        </p>
-      </div>
+      <nav class="ck-auth-links" aria-label="Account actions">
+        <a routerLink="/auth/password-reset" class="ck-auth-link">Forgot password?</a>
+        <span class="ck-auth-links-sep" aria-hidden="true"></span>
+        <span class="ck-auth-links-meta">
+          New to Agentium?
+          <a routerLink="/auth/signup" class="ck-auth-link ck-auth-link-strong">Request access</a>
+        </span>
+      </nav>
     } @else {
-      <div class="text-center mb-2">
-        <div class="mx-auto w-12 h-12 rounded-full bg-brand-500/15 ring-1 ring-brand-500/30 flex items-center justify-center text-brand-400">
+      <header class="ck-auth-head ck-auth-head-mfa">
+        <div class="ck-auth-mfa-icon" aria-hidden="true">
           <app-icon name="shield-check" [size]="22" />
         </div>
-        <h2 class="text-xl font-semibold text-white mt-4">Two-factor authentication</h2>
-        <p class="text-sm text-brand-200 mt-2">
-          We sent a 6-digit code to <span class="text-white font-medium">{{ mfaChallenge()!.email_hint }}</span>
+        <span class="ck-auth-eyebrow">STEP-UP AUTH</span>
+        <h2 class="ck-auth-title">Two-factor verification</h2>
+        <p class="ck-auth-sub">
+          We sent a 6-digit code to
+          <span class="ck-auth-sub-strong">{{ mfaChallenge()!.email_hint }}</span>.
         </p>
-      </div>
+      </header>
 
-      <form (ngSubmit)="onSubmitMfa()" class="mt-6 space-y-4">
-        <div class="flex justify-center gap-2" (paste)="onPaste($event)">
+      <form (ngSubmit)="onSubmitMfa()" class="ck-auth-form">
+        <div class="ck-otp-grid" (paste)="onPaste($event)">
           @for (i of [0,1,2,3,4,5]; track i) {
             <input
               #otpInput
@@ -124,41 +137,376 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
               [value]="otpDigits()[i]"
               (input)="onDigitInput(i, $event)"
               (keydown)="onDigitKeydown(i, $event)"
-              class="w-12 h-14 text-center text-2xl font-bold bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-brand-400"
+              class="ck-otp-cell"
+              [attr.aria-label]="'Digit ' + (i + 1) + ' of 6'"
             />
           }
         </div>
 
-        <p class="text-center text-sm text-brand-200">
+        <div class="ck-otp-meta">
           @if (secondsLeft() > 0) {
-            Code valid for {{ formatCountdown() }}
+            <span class="ck-otp-meta-dot ck-otp-meta-dot-live" aria-hidden="true"></span>
+            <span class="ck-otp-meta-text">CODE VALID · {{ formatCountdown() }}</span>
           } @else {
-            <span class="text-red-300">Code expired. Please sign in again.</span>
+            <span class="ck-otp-meta-dot ck-otp-meta-dot-neg" aria-hidden="true"></span>
+            <span class="ck-otp-meta-text ck-otp-meta-text-neg">CODE EXPIRED · SIGN IN AGAIN</span>
           }
-        </p>
+        </div>
 
         @if (error()) {
-          <p class="text-red-300 text-sm text-center">{{ error() }}</p>
+          <p class="ck-auth-error" role="alert">{{ error() }}</p>
         }
 
         <button
           type="submit"
           [disabled]="loading() || otpDigits().join('').length !== 6 || secondsLeft() <= 0"
-          class="w-full py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-medium rounded-lg transition"
+          class="ck-btn-primary"
         >
-          @if (loading()) { Verifying... } @else { Verify }
+          @if (loading()) {
+            <span class="ck-btn-spinner" aria-hidden="true"></span>
+            <span>VERIFYING…</span>
+          } @else {
+            <span>VERIFY</span>
+            <span class="ck-btn-chevron" aria-hidden="true">→</span>
+          }
         </button>
 
         <button
           type="button"
           (click)="resetToLogin()"
-          class="w-full text-sm text-brand-200 hover:text-white underline"
+          class="ck-btn-ghost"
         >
-          Back to sign in
+          ← Back to sign in
         </button>
       </form>
     }
   `,
+  styles: [
+    `
+      :host { display: block; color: var(--ck-fg-1); font-family: var(--ck-font-sans); }
+
+      .ck-auth-head { margin-bottom: 20px; }
+      .ck-auth-head-mfa { text-align: center; }
+      .ck-auth-mfa-icon {
+        width: 44px;
+        height: 44px;
+        margin: 0 auto 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: rgba(125, 211, 252, 0.08);
+        border: 1px solid var(--ck-stroke-hot);
+        color: var(--ck-signal-cool);
+        box-shadow: var(--ck-glow-cool);
+      }
+      .ck-auth-eyebrow {
+        display: block;
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--ck-signal-cool);
+        margin-bottom: 6px;
+      }
+      .ck-auth-title {
+        font-family: var(--ck-font-sans);
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--ck-fg-1);
+        margin: 0 0 6px;
+      }
+      .ck-auth-sub {
+        font-size: 12.5px;
+        color: var(--ck-fg-3);
+        line-height: 1.55;
+        margin: 0;
+      }
+      .ck-auth-sub-strong { color: var(--ck-fg-1); font-weight: 500; }
+
+      .ck-auth-form {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      /* ---- Fields ---- */
+      .ck-field { display: flex; flex-direction: column; gap: 6px; }
+      .ck-label {
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--ck-fg-3);
+      }
+      .ck-input-wrap { position: relative; }
+      .ck-input {
+        width: 100%;
+        padding: 11px 12px;
+        background: var(--ck-bg-inset);
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: var(--ck-radius-md);
+        color: var(--ck-fg-1);
+        font-family: var(--ck-font-sans);
+        font-size: 13.5px;
+        line-height: 1.2;
+        outline: none;
+        transition:
+          border-color var(--ck-dur-fast) var(--ck-ease-out),
+          box-shadow var(--ck-dur-fast) var(--ck-ease-out),
+          background var(--ck-dur-fast) var(--ck-ease-out);
+      }
+      .ck-input::placeholder { color: var(--ck-fg-5); }
+      .ck-input:hover { border-color: var(--ck-stroke-3); }
+      .ck-input:focus,
+      .ck-input:focus-visible {
+        border-color: var(--ck-stroke-hot);
+        background: var(--ck-bg-panel-hi);
+        box-shadow: 0 0 0 1px var(--ck-signal-cool), 0 0 18px rgba(125, 211, 252, 0.18);
+      }
+      .ck-input-with-suffix { padding-right: 38px; }
+      .ck-input-suffix {
+        position: absolute;
+        right: 6px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        background: transparent;
+        color: var(--ck-fg-4);
+        cursor: pointer;
+        border-radius: var(--ck-radius-sm);
+        transition: color var(--ck-dur-fast), background var(--ck-dur-fast);
+      }
+      .ck-input-suffix:hover { color: var(--ck-fg-1); background: var(--ck-bg-panel-hi); }
+
+      /* ---- Checkbox ---- */
+      .ck-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .ck-check input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+        width: 0;
+        height: 0;
+      }
+      .ck-check-box {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        border: 1px solid var(--ck-stroke-3);
+        background: var(--ck-bg-inset);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: border-color var(--ck-dur-fast), background var(--ck-dur-fast);
+      }
+      .ck-check input:focus-visible + .ck-check-box {
+        box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.25);
+      }
+      .ck-check input:checked + .ck-check-box {
+        background: var(--ck-signal-cool);
+        border-color: var(--ck-signal-cool);
+      }
+      .ck-check input:checked + .ck-check-box::after {
+        content: "";
+        width: 7px;
+        height: 4px;
+        border-left: 1.5px solid var(--ck-bg-void);
+        border-bottom: 1.5px solid var(--ck-bg-void);
+        transform: translateY(-1px) rotate(-45deg);
+      }
+      .ck-check-label {
+        font-size: 12px;
+        color: var(--ck-fg-3);
+      }
+
+      /* ---- Buttons ---- */
+      .ck-btn-primary {
+        position: relative;
+        width: 100%;
+        padding: 11px 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        background: linear-gradient(180deg, rgba(125, 211, 252, 0.22), rgba(125, 211, 252, 0.12));
+        border: 1px solid var(--ck-stroke-hot);
+        color: var(--ck-fg-1);
+        font-family: var(--ck-font-mono);
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        border-radius: var(--ck-radius-md);
+        cursor: pointer;
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.06) inset,
+          0 0 24px rgba(125, 211, 252, 0.18);
+        transition:
+          background var(--ck-dur-fast) var(--ck-ease-out),
+          border-color var(--ck-dur-fast) var(--ck-ease-out),
+          box-shadow var(--ck-dur-fast) var(--ck-ease-out),
+          transform var(--ck-dur-fast) var(--ck-ease-out);
+      }
+      .ck-btn-primary:hover:not(:disabled) {
+        background: linear-gradient(180deg, rgba(125, 211, 252, 0.30), rgba(125, 211, 252, 0.18));
+        border-color: rgba(125, 211, 252, 0.55);
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.08) inset,
+          0 0 32px rgba(125, 211, 252, 0.28);
+      }
+      .ck-btn-primary:active:not(:disabled) { transform: translateY(1px); }
+      .ck-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+      .ck-btn-chevron {
+        font-family: var(--ck-font-mono);
+        font-size: 12px;
+        color: var(--ck-signal-cool);
+      }
+      .ck-btn-spinner {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 1.5px solid var(--ck-stroke-3);
+        border-top-color: var(--ck-signal-cool);
+        animation: ck-btn-spin 0.7s linear infinite;
+      }
+      @keyframes ck-btn-spin { to { transform: rotate(360deg); } }
+
+      .ck-btn-ghost {
+        width: 100%;
+        padding: 8px 10px;
+        background: transparent;
+        border: 0;
+        color: var(--ck-fg-3);
+        font-family: var(--ck-font-mono);
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        cursor: pointer;
+        border-radius: var(--ck-radius-sm);
+        transition: color var(--ck-dur-fast), background var(--ck-dur-fast);
+      }
+      .ck-btn-ghost:hover { color: var(--ck-fg-1); background: var(--ck-bg-panel-hi); }
+
+      /* ---- Error ---- */
+      .ck-auth-error {
+        display: flex;
+        padding: 9px 11px;
+        background: rgba(239, 90, 111, 0.08);
+        border: 1px solid rgba(239, 90, 111, 0.35);
+        border-radius: var(--ck-radius-sm);
+        color: var(--ck-signal-neg);
+        font-family: var(--ck-font-mono);
+        font-size: 11.5px;
+        letter-spacing: 0.02em;
+        margin: 0;
+      }
+
+      /* ---- Links row ---- */
+      .ck-auth-links {
+        margin-top: 18px;
+        padding-top: 14px;
+        border-top: 1px dashed var(--ck-stroke-2);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .ck-auth-links-sep {
+        flex: 1;
+        height: 1px;
+        background: transparent;
+      }
+      .ck-auth-links-meta {
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ck-fg-4);
+      }
+      .ck-auth-link {
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--ck-fg-3);
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: color var(--ck-dur-fast), border-color var(--ck-dur-fast);
+      }
+      .ck-auth-link:hover { color: var(--ck-fg-1); border-bottom-color: var(--ck-signal-cool); }
+      .ck-auth-link-strong { color: var(--ck-signal-cool); }
+      .ck-auth-link-strong:hover { color: var(--ck-signal-ice); }
+
+      /* ---- OTP ---- */
+      .ck-otp-grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .ck-otp-cell {
+        height: 52px;
+        width: 100%;
+        background: var(--ck-bg-inset);
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: var(--ck-radius-md);
+        color: var(--ck-fg-1);
+        text-align: center;
+        font-family: var(--ck-font-mono);
+        font-size: 22px;
+        font-weight: 600;
+        outline: none;
+        transition: border-color var(--ck-dur-fast), background var(--ck-dur-fast), box-shadow var(--ck-dur-fast);
+      }
+      .ck-otp-cell:focus,
+      .ck-otp-cell:focus-visible {
+        border-color: var(--ck-stroke-hot);
+        background: var(--ck-bg-panel-hi);
+        box-shadow: 0 0 0 1px var(--ck-signal-cool);
+      }
+      .ck-otp-meta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin: 2px auto 0;
+      }
+      .ck-otp-meta-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--ck-fg-4);
+      }
+      .ck-otp-meta-dot-live {
+        background: var(--ck-signal-cool);
+        box-shadow: 0 0 8px var(--ck-signal-cool);
+      }
+      .ck-otp-meta-dot-neg {
+        background: var(--ck-signal-neg);
+        box-shadow: 0 0 8px var(--ck-signal-neg);
+      }
+      .ck-otp-meta-text {
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--ck-fg-3);
+      }
+      .ck-otp-meta-text-neg { color: var(--ck-signal-neg); }
+    `,
+  ],
 })
 export class SigninComponent implements OnDestroy {
   private readonly authApi = inject(AuthApiService);
