@@ -9,6 +9,16 @@ from app.models.evaluation import EvaluationScore
 from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, SafetyFilter
 from app.models.sharepoint_sync_job import SharePointSyncJob
 
+# Canonical (mental-model) layer.
+from app.models.capability import Capability
+from app.models.skill import Skill
+from app.models.context import Context
+from app.models.policy import ControlPolicy, AdaptivePolicy
+from app.models.system import System
+from app.models.run import Run, SkillInvocation
+from app.models.impact import Impact
+from app.models.decision import Decision
+
 __all__ = [
     "User", "Session", "Message",
     "Workspace", "WorkspaceMember",
@@ -17,4 +27,7 @@ __all__ = [
     "Task", "EvaluationScore",
     "FeedSource", "FeedArticle", "SemanticTarget", "SafetyFilter",
     "SharePointSyncJob",
+    # Canonical
+    "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
+    "System", "Run", "SkillInvocation", "Impact", "Decision",
 ]

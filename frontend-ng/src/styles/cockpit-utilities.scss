@@ -1,0 +1,145 @@
+/* ============================================================================
+   AGENTIUM — Cockpit Utility Classes
+   --------------------------------------------------------------------------
+   Drop-in helpers for cockpit-grade markup. All consume the --ck-* tokens
+   from cockpit-tokens.scss. Use ONLY inside cockpit components — legacy
+   pages keep using Tailwind utilities and design tokens from styles.scss.
+   ============================================================================ */
+
+/* ---------- Typography helpers ---------- */
+.ck-mono {
+  font-family: var(--ck-font-mono);
+  font-feature-settings: "tnum", "zero";
+}
+
+.ck-tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.ck-label {
+  font-family: var(--ck-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4);
+}
+
+.ck-label-sm {
+  font-family: var(--ck-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ck-fg-5);
+}
+
+/* ---------- Hairlines ---------- */
+.ck-hairline { background: var(--ck-stroke-2); }
+.ck-hairline-h { height: 1px; background: var(--ck-stroke-2); }
+.ck-hairline-v { width: 1px; background: var(--ck-stroke-2); }
+
+/* ---------- Surfaces ---------- */
+.ck-surface {
+  background: var(--ck-bg-panel);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-md);
+}
+
+.ck-surface-hi {
+  background: var(--ck-bg-panel-hi);
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: var(--ck-radius-md);
+}
+
+.ck-inset {
+  background: var(--ck-bg-inset);
+  border: 1px solid var(--ck-stroke-2);
+}
+
+/* ---------- Hero ambient — touches Concept B ---------- */
+/* Subtle radial gradient reserved for executive surfaces (Hypervisor hero,
+   Steering header, balance-sheet net-value tile). Never apply to dense
+   list/table views. */
+.ck-hero-ambient {
+  position: relative;
+  isolation: isolate;
+}
+.ck-hero-ambient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(125, 211, 252, 0.06), transparent 60%),
+    radial-gradient(ellipse at 80% 70%, rgba(167, 139, 250, 0.04), transparent 55%);
+}
+
+/* ---------- Ambient grid (faint 48px graph paper background) ---------- */
+.ck-ambient-grid {
+  position: relative;
+  isolation: isolate;
+}
+.ck-ambient-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.30;
+  background-image:
+    linear-gradient(var(--ck-stroke-1) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ck-stroke-1) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* ---------- LIVE pulse ---------- */
+@keyframes ck-live-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+.ck-live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ck-signal-pos);
+  /* Touches Concept B: double box-shadow (close + far) for richer glow. */
+  box-shadow:
+    0 0 6px var(--ck-signal-pos),
+    0 0 14px var(--ck-signal-pos);
+  animation: ck-live-pulse 1.6s var(--ck-ease-in-out) infinite;
+}
+.ck-live-dot.cool   { background: var(--ck-signal-cool);   box-shadow: 0 0 6px var(--ck-signal-cool),   0 0 14px var(--ck-signal-cool); }
+.ck-live-dot.violet { background: var(--ck-signal-violet); box-shadow: 0 0 6px var(--ck-signal-violet), 0 0 14px var(--ck-signal-violet); }
+.ck-live-dot.warn   { background: var(--ck-signal-warn);   box-shadow: 0 0 6px var(--ck-signal-warn),   0 0 14px var(--ck-signal-warn); }
+.ck-live-dot.neg    { background: var(--ck-signal-neg);    box-shadow: 0 0 6px var(--ck-signal-neg),    0 0 14px var(--ck-signal-neg); }
+
+/* ---------- Crosshair signal ---------- */
+.ck-glow-cool   { filter: drop-shadow(0 0 6px var(--ck-signal-cool)); }
+.ck-glow-pos    { filter: drop-shadow(0 0 6px var(--ck-signal-pos)); }
+.ck-glow-violet { filter: drop-shadow(0 0 6px var(--ck-signal-violet)); }
+
+/* ---------- Scrollbar (cockpit-flavored) ---------- */
+.ck-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ck-stroke-2) transparent;
+}
+.ck-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.ck-scroll::-webkit-scrollbar-track { background: transparent; }
+.ck-scroll::-webkit-scrollbar-thumb {
+  background: var(--ck-stroke-2);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.ck-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ck-stroke-3);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ck-live-dot { animation: none; }
+}

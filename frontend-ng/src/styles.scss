@@ -4,6 +4,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Cockpit (hybrid A+B) design system — tokens + utilities. */
+@import 'styles/cockpit-tokens.scss';
+@import 'styles/cockpit-utilities.scss';
+
 /* ============================================================================
    Design tokens (CSS vars) — mirror the legacy Agentium palette
    ============================================================================ */

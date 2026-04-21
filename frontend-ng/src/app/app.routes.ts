@@ -15,7 +15,27 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/layout/shell.component').then((m) => m.ShellComponent),
     children: [
-      { path: '', redirectTo: 'systems', pathMatch: 'full' },
+      { path: '', redirectTo: 'hypervisor', pathMatch: 'full' },
+      {
+        path: 'hypervisor',
+        loadComponent: () =>
+          import('./features/hypervisor/hypervisor.component').then((m) => m.HypervisorComponent),
+      },
+      {
+        path: 'steering',
+        loadComponent: () =>
+          import('./features/steering/steering.component').then((m) => m.SteeringComponent),
+      },
+      {
+        path: 'capabilities',
+        loadComponent: () =>
+          import('./features/capabilities/capabilities.component').then((m) => m.CapabilitiesComponent),
+      },
+      {
+        path: 'skills',
+        loadComponent: () =>
+          import('./features/skills/skills.component').then((m) => m.SkillsComponent),
+      },
       {
         path: 'systems',
         loadChildren: () =>

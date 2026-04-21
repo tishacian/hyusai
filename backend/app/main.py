@@ -52,6 +52,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Knowledge base seeding failed (non-blocking)", error=str(e))
 
+    # Seed canonical Skills + Capabilities registry (idempotent)
+    try:
+        from app.db.base import SessionLocal
+        from app.services.skills_registry import seed_skills_and_capabilities
+
+        with SessionLocal() as _db:
+            report = seed_skills_and_capabilities(_db)
+        logger.info("Canonical registry seeded", **report)
+    except Exception as e:
+        logger.warning("Canonical registry seeding failed (non-blocking)", error=str(e))
+
     logger.info("Application started", agents_count=len(orchestrator.agents))
 
     # Start intelligence RSS scheduler (1h interval, daemon thread)

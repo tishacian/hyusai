@@ -1,0 +1,111 @@
+/* ============================================================================
+   AGENTIUM — Cockpit Design Tokens (Hybrid A+B)
+   --------------------------------------------------------------------------
+   Operating System for Intelligence.
+   Base: Concept A (Instrument Panel) — dense cockpit, precision, tabular nums.
+   Touches: Concept B (Living Organism) — generous glows, radial ambient on hero.
+   --------------------------------------------------------------------------
+   Drives every cockpit-grade surface (chrome, hypervisor, steering, run, …).
+   Coexists with the legacy Tailwind tokens in styles.scss; the cockpit grammar
+   only uses --ck-* variables to remain isolated and easily themable.
+   ============================================================================ */
+
+:root {
+  /* ---- SURFACES (deep cockpit blacks) ---- */
+  --ck-bg-void:      #05070a;
+  --ck-bg-base:      #07090c;
+  --ck-bg-panel:     #0c1014;
+  --ck-bg-panel-hi:  #11161c;
+  --ck-bg-inset:     #0a0d11;
+  --ck-bg-code:      #050709;
+
+  /* ---- STROKES ---- */
+  --ck-stroke-1:     rgba(255, 255, 255, 0.04);
+  --ck-stroke-2:     rgba(255, 255, 255, 0.08);
+  --ck-stroke-3:     rgba(255, 255, 255, 0.14);
+  --ck-stroke-hot:   rgba(125, 211, 252, 0.32);
+
+  /* ---- TEXT ---- */
+  --ck-fg-1:         #f2f5f8;
+  --ck-fg-2:         #c8cdd4;
+  --ck-fg-3:         #8891a0;
+  --ck-fg-4:         #5a6270;
+  --ck-fg-5:         #3a4049;
+
+  /* ---- SIGNALS (semantic palette) ---- */
+  --ck-signal-pos:    #34d399;
+  --ck-signal-neg:    #ef5a6f;
+  --ck-signal-warn:   #f5b84a;
+  --ck-signal-cool:   #7dd3fc;
+  --ck-signal-violet: #a78bfa;
+  --ck-signal-ice:    #e0f2fe;
+
+  /* ---- GLOWS (touches Concept B: generous halos on live surfaces) ---- */
+  --ck-glow-cool:    0 0 32px rgba(125, 211, 252, 0.32);
+  --ck-glow-pos:     0 0 32px rgba(52, 211, 153, 0.28);
+  --ck-glow-violet:  0 0 32px rgba(167, 139, 250, 0.30);
+  --ck-glow-warn:    0 0 28px rgba(245, 184, 74, 0.28);
+  --ck-glow-neg:     0 0 28px rgba(239, 90, 111, 0.30);
+
+  /* ---- TYPE STACKS ---- */
+  --ck-font-sans: "Inter Tight", "Inter", -apple-system, "Helvetica Neue", system-ui, sans-serif;
+  --ck-font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* ---- RADII ---- */
+  --ck-radius-sm: 4px;
+  --ck-radius-md: 6px;
+  --ck-radius-lg: 10px;
+  --ck-radius-xl: 14px;
+
+  /* ---- MOTION ---- */
+  --ck-ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ck-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ck-dur-fast:    120ms;
+  --ck-dur-med:     240ms;
+  --ck-dur-slow:    520ms;
+
+  /* ---- LAYOUT ---- */
+  --ck-rail-w:        56px;
+  --ck-titlebar-h:    48px;
+  --ck-commandbar-h:  28px;
+}
+
+/* ============================================================================
+   Light variant — papier-chaud overrides for `[data-theme="light"]` and
+   the legacy `:not(.dark)` class to remain backward compatible during the
+   migration window.
+   ============================================================================ */
+html:not(.dark),
+[data-theme="light"] {
+  --ck-bg-void:     #e8e6df;
+  --ck-bg-base:     #f4f2eb;
+  --ck-bg-panel:    #fafaf6;
+  --ck-bg-panel-hi: #ffffff;
+  --ck-bg-inset:    #efede6;
+  --ck-bg-code:     #1a1c20;
+
+  --ck-stroke-1:    rgba(0, 0, 0, 0.06);
+  --ck-stroke-2:    rgba(0, 0, 0, 0.10);
+  --ck-stroke-3:    rgba(0, 0, 0, 0.18);
+  --ck-stroke-hot:  rgba(14, 116, 144, 0.40);
+
+  --ck-fg-1:        #0a0c10;
+  --ck-fg-2:        #2a2f36;
+  --ck-fg-3:        #5c6370;
+  --ck-fg-4:        #8a909a;
+  --ck-fg-5:        #b8bcc3;
+
+  --ck-signal-pos:    #0e9f6e;
+  --ck-signal-neg:    #d93a52;
+  --ck-signal-warn:   #c27803;
+  --ck-signal-cool:   #0e7490;
+  --ck-signal-violet: #7c3aed;
+  --ck-signal-ice:    #0c4a6e;
+
+  /* Glows are noisy on light surfaces — disable them by default. */
+  --ck-glow-cool:    0 0 0 transparent;
+  --ck-glow-pos:     0 0 0 transparent;
+  --ck-glow-violet:  0 0 0 transparent;
+  --ck-glow-warn:    0 0 0 transparent;
+  --ck-glow-neg:     0 0 0 transparent;
+}

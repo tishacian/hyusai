@@ -1,0 +1,397 @@
+import { Injectable, inject } from '@angular/core';
+import { Observable, catchError, map, of } from 'rxjs';
+import { ApiService } from './api.service';
+
+/** Canonical mental-model types — kept flat and permissive so the UI can
+ *  degrade gracefully when any field is missing (e.g. before a run
+ *  completes or while the runtime engine is still being wired in). */
+export interface Capability {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string;
+  tier?: 'universal' | 'industry' | 'client';
+  industry?: string | null;
+  input_unit?: string;
+  output_unit?: string;
+  skill_ids?: string[];
+  pricing?: { unit: string; unit_price: number; currency: string };
+  value_per_outcome?: number | null;
+  confidence_threshold?: number | null;
+  sla?: Record<string, unknown>;
+  roi_model?: Record<string, unknown>;
+  is_seeded?: 'Y' | 'N';
+}
+
+export interface Skill {
+  id: string;
+  slug: string;
+  version?: string;
+  name: string;
+  description?: string;
+  type?: string;
+  provider?: string;
+  certification_level?: 'basic' | 'production' | 'enterprise';
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+  execution?: {
+    mode?: 'sync' | 'async' | 'stream';
+    timeout_ms?: number;
+    retryable?: boolean;
+    idempotent?: boolean;
+  };
+  pricing?: { unit: string; unit_price: number; currency: string };
+  metrics?: {
+    calls?: number;
+    avg_latency_ms?: number;
+    total_cost?: number;
+    success_rate?: number;
+  };
+  is_seeded?: 'Y' | 'N';
+}
+
+export interface Outcome {
+  decision?: string | null;
+  confidence?: number | null;
+  value_estimated?: number | null;
+  cost_internal?: number | null;
+  revenue_allocated?: number | null;
+  efficiency?: number | null;
+  currency?: string;
+}
+
+export interface SkillInvocation {
+  id?: string;
+  skill_slug?: string;
+  skill_id?: string;
+  status?: 'completed' | 'failed' | 'pending' | 'running';
+  latency_ms?: number;
+  cost?: number;
+  started_at?: string;
+  ended_at?: string;
+  error?: string | null;
+}
+
+export interface Run {
+  id: string;
+  system_id: string;
+  capability_id?: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  started_at?: string;
+  ended_at?: string;
+  duration_ms?: number;
+  outcome?: Outcome;
+  checkpoints?: Array<Record<string, unknown>>;
+  retries?: number;
+  error?: string | null;
+  trigger?: string;
+  skill_invocations?: SkillInvocation[];
+}
+
+export interface System {
+  id: string;
+  name: string;
+  objective?: string;
+  capability_id?: string | null;
+  skill_ids?: string[];
+  context_id?: string | null;
+  control_policy_id?: string | null;
+  adaptive_policy_id?: string | null;
+  flow?: Record<string, unknown>;
+  status?: 'draft' | 'active' | 'paused' | 'archived';
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ImpactAggregate {
+  scope?: 'portfolio' | 'capability' | 'system';
+  period?: string;
+  runs_count?: number;
+  total_cost?: number;
+  estimated_value?: number;
+  total_revenue?: number;
+  roi?: number | null;
+  avg_confidence?: number | null;
+  avg_efficiency?: number | null;
+}
+
+export interface CapabilityRow extends ImpactAggregate {
+  capability_id: string;
+  slug?: string;
+  name?: string;
+  tier?: string;
+  trend?: Array<{ t: string; value: number; cost: number }>;
+}
+
+export interface HypervisorSignal {
+  id: string;
+  tone: 'pos' | 'neg' | 'warn' | 'neutral';
+  kind: string;
+  system_id?: string;
+  timestamp?: string | null;
+  label: string;
+}
+
+export interface HypervisorBalance {
+  period: string;
+  portfolio: ImpactAggregate;
+  capabilities: CapabilityRow[];
+  signals: HypervisorSignal[];
+}
+
+export interface Recommendation {
+  id: string;
+  scope: string;
+  target_id?: string | null;
+  title: string;
+  rationale: Record<string, unknown>;
+  impact_estimate: Record<string, number>;
+  status?: 'pending' | 'approved' | 'rejected' | 'applied';
+  created_at?: string;
+}
+
+export interface WhatIfResult {
+  scope: string;
+  target_id?: string | null;
+  base: ImpactAggregate;
+  projected: {
+    total_cost: number;
+    estimated_value: number;
+    roi: number | null;
+    latency_index: number;
+  };
+}
+
+@Injectable({ providedIn: 'root' })
+export class CanonicalApiService {
+  private readonly api = inject(ApiService);
+
+  // ---- Capabilities --------------------------------------------------------
+  private unwrap<T>(raw: T[] | { [key: string]: T[] } | null | undefined, key: string): T[] {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    return ((raw as Record<string, T[]>)[key] ?? []) as T[];
+  }
+
+  listCapabilities(): Observable<Capability[]> {
+    return this.api
+      .get<Capability[] | { capabilities: Capability[] }>('/capabilities')
+      .pipe(
+        map((r) => this.unwrap<Capability>(r, 'capabilities')),
+        catchError(() => of([] as Capability[])),
+      );
+  }
+
+  catalog(): Observable<Capability[]> {
+    return this.api
+      .get<Capability[] | { capabilities: Capability[] }>('/capabilities/catalog')
+      .pipe(
+        map((r) => this.unwrap<Capability>(r, 'capabilities')),
+        catchError(() => of([] as Capability[])),
+      );
+  }
+
+  // ---- Skills --------------------------------------------------------------
+  listSkills(): Observable<Skill[]> {
+    return this.api
+      .get<Skill[] | { skills: Skill[] }>('/skills')
+      .pipe(
+        map((r) => this.unwrap<Skill>(r, 'skills')),
+        catchError(() => of([] as Skill[])),
+      );
+  }
+
+  getSkill(id: string): Observable<Skill | null> {
+    return this.api.get<Skill>(`/skills/${id}`).pipe(catchError(() => of(null)));
+  }
+
+  // ---- Systems -------------------------------------------------------------
+  listSystems(): Observable<System[]> {
+    return this.api
+      .get<System[] | { systems: System[] }>('/systems')
+      .pipe(
+        map((r) => this.unwrap<System>(r, 'systems')),
+        catchError(() => of([] as System[])),
+      );
+  }
+
+  getSystem(id: string): Observable<System | null> {
+    return this.api.get<System>(`/systems/${id}`).pipe(catchError(() => of(null)));
+  }
+
+  createSystem(body: Partial<System>): Observable<System | null> {
+    return this.api.post<System>('/systems', body).pipe(catchError(() => of(null)));
+  }
+
+  updateSystem(id: string, body: Partial<System>): Observable<System | null> {
+    return this.api.patch<System>(`/systems/${id}`, body).pipe(catchError(() => of(null)));
+  }
+
+  deleteSystem(id: string): Observable<boolean> {
+    return this.api.delete<void>(`/systems/${id}`).pipe(
+      map(() => true),
+      catchError(() => of(false)),
+    );
+  }
+
+  // ---- Runs ----------------------------------------------------------------
+  triggerRun(systemId: string, payload?: Record<string, unknown>): Observable<Run | null> {
+    return this.api
+      .post<Run>(`/systems/${systemId}/runs`, payload ?? {})
+      .pipe(catchError(() => of(null)));
+  }
+
+  listRuns(params?: { system_id?: string; capability_id?: string }): Observable<Run[]> {
+    const p: Record<string, string> = {};
+    if (params?.system_id) p['system_id'] = params.system_id;
+    if (params?.capability_id) p['capability_id'] = params.capability_id;
+    return this.api
+      .get<Run[] | { runs: Run[] }>('/runs', p)
+      .pipe(
+        map((r) => this.unwrap<Run>(r, 'runs')),
+        catchError(() => of([] as Run[])),
+      );
+  }
+
+  getRun(id: string): Observable<Run | null> {
+    return this.api.get<Run & { invocations?: SkillInvocation[] }>(`/runs/${id}`).pipe(
+      map((r) => {
+        if (!r) return null;
+        // Backend returns `invocations`; UI expects `skill_invocations`.
+        return {
+          ...r,
+          skill_invocations: r.skill_invocations ?? r.invocations ?? [],
+        } as Run;
+      }),
+      catchError(() => of(null)),
+    );
+  }
+
+  // ---- Impact / Hypervisor -------------------------------------------------
+  impactPortfolio(period = 'qtd'): Observable<ImpactAggregate | null> {
+    return this.api
+      .get<ImpactAggregate>('/impact/portfolio', { period })
+      .pipe(catchError(() => of(null)));
+  }
+
+  impactByCapability(period = 'qtd'): Observable<CapabilityRow[]> {
+    return this.api
+      .get<{ items: CapabilityRow[] }>('/impact/by-capability', { period })
+      .pipe(
+        map((r) => r?.items ?? []),
+        catchError(() => of([] as CapabilityRow[])),
+      );
+  }
+
+  impactBySystem(period = 'qtd'): Observable<Array<ImpactAggregate & { system_id: string; name?: string; status?: string }>> {
+    return this.api
+      .get<{ items: Array<ImpactAggregate & { system_id: string; name?: string; status?: string }> }>(
+        '/impact/by-system',
+        { period },
+      )
+      .pipe(
+        map((r) => r?.items ?? []),
+        catchError(() => of([])),
+      );
+  }
+
+  hypervisorBalanceSheet(period = 'qtd'): Observable<HypervisorBalance | null> {
+    return this.api
+      .get<HypervisorBalance>('/hypervisor/balance-sheet', { period })
+      .pipe(catchError(() => of(null)));
+  }
+
+  hypervisorRecommendations(): Observable<Recommendation[]> {
+    return this.api
+      .get<{ items: Recommendation[] }>('/hypervisor/recommendations')
+      .pipe(
+        map((r) => r?.items ?? []),
+        catchError(() => of([] as Recommendation[])),
+      );
+  }
+
+  hypervisorWhatIf(body: {
+    scope: string;
+    target_id?: string | null;
+    levers: Record<string, unknown>;
+  }): Observable<WhatIfResult | null> {
+    return this.api
+      .post<WhatIfResult>('/hypervisor/what-if', body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  // ---- Control plane ------------------------------------------------------
+  controlPolicies(params?: { scope?: string; target_id?: string }): Observable<ControlPolicy[]> {
+    const p: Record<string, string> = {};
+    if (params?.scope) p['scope'] = params.scope;
+    if (params?.target_id) p['target_id'] = params.target_id;
+    return this.api
+      .get<{ policies: ControlPolicy[] }>('/control-plane/policies', p)
+      .pipe(
+        map((r) => r?.policies ?? []),
+        catchError(() => of([] as ControlPolicy[])),
+      );
+  }
+
+  createControlPolicy(body: Partial<ControlPolicy>): Observable<ControlPolicy | null> {
+    return this.api
+      .post<ControlPolicy>('/control-plane/policies', body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  adaptivePolicies(): Observable<AdaptivePolicy[]> {
+    return this.api
+      .get<{ policies: AdaptivePolicy[] }>('/control-plane/adaptive')
+      .pipe(
+        map((r) => r?.policies ?? []),
+        catchError(() => of([] as AdaptivePolicy[])),
+      );
+  }
+
+  simulate(body: {
+    scope: string;
+    target_id?: string | null;
+    levers: { resource?: number; velocity?: number; autonomy?: number };
+  }): Observable<SimulateResult | null> {
+    return this.api
+      .post<SimulateResult>('/control-plane/simulate', body)
+      .pipe(catchError(() => of(null)));
+  }
+}
+
+// ---- Control plane types (appended here so they stay with the service) ----
+export interface ControlPolicy {
+  id: string;
+  name: string;
+  scope: 'workspace' | 'capability' | 'system' | string;
+  target_id?: string | null;
+  max_cost_per_decision?: number | null;
+  max_latency_ms?: number | null;
+  mandatory_hitl_if_confidence_below?: number | null;
+  allowed_models?: string[];
+  allowed_skills?: string[];
+  extra?: Record<string, unknown>;
+}
+
+export interface AdaptivePolicy {
+  id: string;
+  name: string;
+  enabled: boolean;
+  adaptation_level: 'conservative' | 'moderate' | 'aggressive' | string;
+  triggers?: Record<string, unknown>;
+  allowed_actions?: string[];
+  constraints?: Record<string, unknown>;
+}
+
+export interface SimulateResult {
+  scope: string;
+  target_id?: string | null;
+  base: ImpactAggregate;
+  projected: {
+    total_cost: number;
+    estimated_value: number;
+    roi: number | null;
+    latency_index: number;
+    risk_index: number;
+  };
+}

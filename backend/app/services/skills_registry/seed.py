@@ -1,0 +1,422 @@
+"""Seed catalog of canonical Skills + universal Capabilities.
+
+Each entry in `SEED_SKILLS` is a wrapper around an existing OmniRAG
+endpoint. The actual `invoke()` callable is registered in
+`backend/app/services/skills_registry/wrappers.py`; here we only declare
+the typed contracts so the registry is queryable from `/skills` without
+the runtime needing to be alive.
+"""
+from datetime import datetime
+from typing import Any, Dict, List
+
+from sqlalchemy.orm import Session as DBSession
+
+from app.models.capability import Capability
+from app.models.skill import Skill
+
+
+# ---- Skills ----------------------------------------------------------------
+# (slug, version, name, description, type, provider, certification, execution,
+#  pricing, input_schema, output_schema)
+SEED_SKILLS: List[Dict[str, Any]] = [
+    {
+        "slug": "llm_rag_answer_v1",
+        "version": "1",
+        "name": "RAG Answer",
+        "description": "Streamed retrieval-augmented answer with citations and decision steps.",
+        "type": "rag",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_call", "unit_price": 0.012, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string"},
+            "context_id": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "answer": {"type": "string"},
+            "citations": {"type": "array"},
+            "decision_steps": {"type": "array"},
+        }},
+    },
+    {
+        "slug": "semantic_search_v1",
+        "version": "1",
+        "name": "Semantic Search",
+        "description": "Vector + lexical hybrid search over the knowledge base.",
+        "type": "retrieval",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 8_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0008, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string"},
+            "top_k": {"type": "integer", "default": 5},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "results": {"type": "array"},
+        }},
+    },
+    {
+        "slug": "document_ingestion_v1",
+        "version": "1",
+        "name": "Document Ingestion",
+        "description": "Parse and embed a document into the knowledge base.",
+        "type": "ingestion",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "async", "timeout_ms": 120_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_doc", "unit_price": 0.04, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["filename"], "properties": {
+            "filename": {"type": "string"},
+            "collection": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "doc_id": {"type": "string"},
+            "chunks": {"type": "integer"},
+        }},
+    },
+    {
+        "slug": "eval_radar_v1",
+        "version": "1",
+        "name": "Evaluation Radar",
+        "description": "Multi-axis evaluation (groundedness, relevance, recall, latency, safety).",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.02, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["answer"], "properties": {
+            "answer": {"type": "string"},
+            "ground_truth": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "axes": {"type": "object"},
+            "overall": {"type": "number"},
+        }},
+    },
+    {
+        "slug": "claim_audit_v1",
+        "version": "1",
+        "name": "Claim Audit",
+        "description": "Verifies factual claims in an answer against the citations.",
+        "type": "analysis",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "sync", "timeout_ms": 30_000, "retryable": False, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.025, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["answer"], "properties": {
+            "answer": {"type": "string"},
+            "citations": {"type": "array"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "claims": {"type": "array"},
+            "verdict": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "intelligence_batch_v1",
+        "version": "1",
+        "name": "Intelligence Batch",
+        "description": "Pulls feeds, deduplicates, scores and stores articles for a campaign.",
+        "type": "ingestion",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "async", "timeout_ms": 600_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_batch", "unit_price": 0.5, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {
+            "feed_ids": {"type": "array"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "ingested": {"type": "integer"},
+            "errors": {"type": "integer"},
+        }},
+    },
+    {
+        "slug": "sharepoint_ingestion_v1",
+        "version": "1",
+        "name": "SharePoint Ingestion",
+        "description": "Synchronizes a SharePoint library into a knowledge collection.",
+        "type": "ingestion",
+        "provider": "microsoft",
+        "certification_level": "production",
+        "execution": {"mode": "async", "timeout_ms": 1_800_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_file", "unit_price": 0.06, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["site_url"], "properties": {
+            "site_url": {"type": "string"},
+            "library": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "files": {"type": "integer"},
+            "skipped": {"type": "integer"},
+        }},
+    },
+    {
+        "slug": "voice_transcribe_v1",
+        "version": "1",
+        "name": "Voice Transcribe",
+        "description": "Streaming speech-to-text (whisper / azure / openai).",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_minute", "unit_price": 0.012, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["audio_ref"], "properties": {
+            "audio_ref": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "transcript": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "voice_tts_v1",
+        "version": "1",
+        "name": "Voice TTS",
+        "description": "Text-to-speech with selectable voices.",
+        "type": "voice",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "stream", "timeout_ms": 30_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_char", "unit_price": 0.00002, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["text"], "properties": {
+            "text": {"type": "string"},
+            "voice": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "audio_url": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "audit_log_v1",
+        "version": "1",
+        "name": "Audit Log",
+        "description": "Persists a typed audit event for compliance and replay.",
+        "type": "compliance",
+        "provider": "internal",
+        "certification_level": "enterprise",
+        "execution": {"mode": "sync", "timeout_ms": 5_000, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_call", "unit_price": 0.0001, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["event_type"], "properties": {
+            "event_type": {"type": "string"},
+            "details": {"type": "object"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "id": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "ollama_llm_v1",
+        "version": "1",
+        "name": "Ollama LLM",
+        "description": "Generic LLM call routed through the Ollama provider.",
+        "type": "llm",
+        "provider": "ollama",
+        "certification_level": "basic",
+        "execution": {"mode": "stream", "timeout_ms": 120_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
+            "prompt": {"type": "string"},
+            "model": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "completion": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "azure_llm_v1",
+        "version": "1",
+        "name": "Azure OpenAI LLM",
+        "description": "LLM call routed through Azure OpenAI.",
+        "type": "llm",
+        "provider": "azure",
+        "certification_level": "production",
+        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
+            "prompt": {"type": "string"},
+            "model": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "completion": {"type": "string"},
+        }},
+    },
+]
+
+
+# ---- Universal Capabilities -------------------------------------------------
+SEED_CAPABILITIES: List[Dict[str, Any]] = [
+    {
+        "slug": "intelligent_qa",
+        "name": "Intelligent Q&A",
+        "tier": "universal",
+        "description": "Answers questions over your knowledge base with citations and a verifiable reasoning trail.",
+        "input_unit": "question",
+        "output_unit": "answer",
+        "skill_slugs": ["llm_rag_answer_v1", "semantic_search_v1", "claim_audit_v1", "audit_log_v1"],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.05, "currency": "USD"},
+        "value_per_outcome": 1.20,
+        "confidence_threshold": 0.65,
+        "sla": {"max_latency_ms": 8000, "uptime": 0.995},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+    {
+        "slug": "knowledge_curation",
+        "name": "Knowledge Curation",
+        "tier": "universal",
+        "description": "Continuously ingests, deduplicates and indexes documents from any source (uploads, SharePoint, web feeds).",
+        "input_unit": "document",
+        "output_unit": "indexed_chunk",
+        "skill_slugs": ["document_ingestion_v1", "sharepoint_ingestion_v1", "intelligence_batch_v1"],
+        "pricing": {"unit": "per_doc", "unit_price": 0.05, "currency": "USD"},
+        "value_per_outcome": 0.40,
+        "confidence_threshold": None,
+        "sla": {"freshness_minutes": 60},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
+        "slug": "voice_assistant",
+        "name": "Voice Assistant",
+        "tier": "universal",
+        "description": "Transcribe a question, retrieve an answer, speak it back. End-to-end voice loop.",
+        "input_unit": "audio_minute",
+        "output_unit": "answer",
+        "skill_slugs": ["voice_transcribe_v1", "llm_rag_answer_v1", "voice_tts_v1"],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.10, "currency": "USD"},
+        "value_per_outcome": 0.60,
+        "confidence_threshold": 0.70,
+        "sla": {"max_latency_ms": 4000},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+    {
+        "slug": "answer_quality_audit",
+        "name": "Answer Quality Audit",
+        "tier": "universal",
+        "description": "Continuously evaluates answer quality (groundedness, relevance, safety) and alerts on regressions.",
+        "input_unit": "answer",
+        "output_unit": "evaluation",
+        "skill_slugs": ["eval_radar_v1", "claim_audit_v1"],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.04, "currency": "USD"},
+        "value_per_outcome": 0.20,
+        "confidence_threshold": None,
+        "sla": {},
+        "roi_model": {"type": "risk_avoided"},
+    },
+    {
+        "slug": "market_signal_brief",
+        "name": "Market Signal Brief",
+        "tier": "industry",
+        "industry": "finance",
+        "description": "Aggregates intelligence feeds into a periodic decision-grade brief with semantic targets.",
+        "input_unit": "feed_batch",
+        "output_unit": "brief",
+        "skill_slugs": ["intelligence_batch_v1", "llm_rag_answer_v1", "audit_log_v1"],
+        "pricing": {"unit": "per_brief", "unit_price": 1.20, "currency": "USD"},
+        "value_per_outcome": 8.00,
+        "confidence_threshold": 0.65,
+        "sla": {"freshness_minutes": 240},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+    {
+        "slug": "compliance_assistant",
+        "name": "Compliance Assistant",
+        "tier": "industry",
+        "industry": "legal",
+        "description": "Answers compliance questions with full citation, audit log and HITL escalation when confidence is low.",
+        "input_unit": "question",
+        "output_unit": "answer",
+        "skill_slugs": ["llm_rag_answer_v1", "claim_audit_v1", "audit_log_v1"],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.20, "currency": "USD"},
+        "value_per_outcome": 4.00,
+        "confidence_threshold": 0.80,
+        "sla": {"max_latency_ms": 10_000, "uptime": 0.999},
+        "roi_model": {"type": "value_minus_cost"},
+    },
+]
+
+
+def seed_skills_and_capabilities(db: DBSession) -> Dict[str, int]:
+    """Idempotent upsert of the seed registry. Safe to call on every boot.
+
+    Returns a small report so the startup log can show what changed.
+    """
+    now = datetime.utcnow()
+    skills_added = 0
+    skills_updated = 0
+    skill_id_by_slug: Dict[str, str] = {}
+
+    # Skills first.
+    for entry in SEED_SKILLS:
+        existing = db.query(Skill).filter(Skill.slug == entry["slug"]).first()
+        if existing:
+            for key in ("name", "description", "type", "provider", "certification_level",
+                        "execution", "pricing", "input_schema", "output_schema", "version"):
+                if entry.get(key) is not None:
+                    setattr(existing, key, entry[key])
+            existing.is_seeded = "Y"
+            existing.updated_at = now
+            skill_id_by_slug[existing.slug] = existing.id
+            skills_updated += 1
+        else:
+            sk = Skill(
+                slug=entry["slug"],
+                version=entry["version"],
+                name=entry["name"],
+                description=entry["description"],
+                type=entry["type"],
+                provider=entry["provider"],
+                certification_level=entry["certification_level"],
+                execution=entry["execution"],
+                pricing=entry["pricing"],
+                input_schema=entry["input_schema"],
+                output_schema=entry["output_schema"],
+                is_seeded="Y",
+                workspace_id=None,
+            )
+            db.add(sk)
+            db.flush()
+            skill_id_by_slug[sk.slug] = sk.id
+            skills_added += 1
+
+    # Capabilities reference skill ids.
+    caps_added = 0
+    caps_updated = 0
+    for entry in SEED_CAPABILITIES:
+        skill_ids = [skill_id_by_slug[s] for s in entry["skill_slugs"] if s in skill_id_by_slug]
+        existing = db.query(Capability).filter(Capability.slug == entry["slug"]).first()
+        if existing:
+            for key in ("name", "description", "tier", "industry", "input_unit", "output_unit",
+                        "pricing", "value_per_outcome", "confidence_threshold", "sla", "roi_model"):
+                if entry.get(key) is not None:
+                    setattr(existing, key, entry[key])
+            existing.skill_ids = skill_ids
+            existing.is_seeded = "Y"
+            existing.updated_at = now
+            caps_updated += 1
+        else:
+            cap = Capability(
+                slug=entry["slug"],
+                name=entry["name"],
+                description=entry["description"],
+                tier=entry["tier"],
+                industry=entry.get("industry"),
+                input_unit=entry["input_unit"],
+                output_unit=entry["output_unit"],
+                skill_ids=skill_ids,
+                pricing=entry["pricing"],
+                value_per_outcome=entry["value_per_outcome"],
+                confidence_threshold=entry["confidence_threshold"],
+                sla=entry["sla"],
+                roi_model=entry["roi_model"],
+                is_seeded="Y",
+                workspace_id=None,
+            )
+            db.add(cap)
+            caps_added += 1
+
+    db.commit()
+    return {
+        "skills_added": skills_added,
+        "skills_updated": skills_updated,
+        "capabilities_added": caps_added,
+        "capabilities_updated": caps_updated,
+    }

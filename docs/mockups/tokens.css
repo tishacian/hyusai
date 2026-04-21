@@ -1,0 +1,153 @@
+/* ============================================
+   AGENTIUM — Design Tokens
+   Operating System for Intelligence
+   ============================================ */
+
+:root {
+  /* — SURFACE — */
+  --bg-void:       #05070a;    /* the abyss behind everything */
+  --bg-base:       #07090c;    /* app background */
+  --bg-panel:      #0c1014;    /* raised surface */
+  --bg-panel-hi:   #11161c;    /* elevated surface */
+  --bg-inset:      #0a0d11;    /* recessed */
+  --bg-code:       #050709;    /* terminal / trace */
+
+  /* — STROKE — */
+  --stroke-1:      rgba(255,255,255,0.04);
+  --stroke-2:      rgba(255,255,255,0.08);
+  --stroke-3:      rgba(255,255,255,0.14);
+  --stroke-hot:    rgba(125,211,252,0.28);
+
+  /* — TEXT — */
+  --fg-1:          #f2f5f8;    /* headline */
+  --fg-2:          #c8cdd4;    /* body */
+  --fg-3:          #8891a0;    /* secondary */
+  --fg-4:          #5a6270;    /* tertiary */
+  --fg-5:          #3a4049;    /* muted */
+
+  /* — SIGNAL — */
+  --signal-pos:    #34d399;    /* value, confidence, success */
+  --signal-neg:    #ef5a6f;    /* risk, anomaly */
+  --signal-warn:   #f5b84a;    /* attention */
+  --signal-cool:   #7dd3fc;    /* system / steering / primary */
+  --signal-violet: #a78bfa;    /* intelligence / ai */
+  --signal-ice:    #e0f2fe;    /* high-emphasis cool */
+
+  /* glow halos */
+  --glow-cool:     0 0 24px rgba(125,211,252,0.28);
+  --glow-pos:      0 0 24px rgba(52,211,153,0.22);
+  --glow-violet:   0 0 24px rgba(167,139,250,0.25);
+
+  /* — TYPE — */
+  --font-sans: "Inter Tight", "Söhne", -apple-system, "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* — GRID / SPACE — */
+  --u: 4px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* — MOTION — */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-med: 240ms;
+  --dur-slow: 520ms;
+}
+
+/* Light variant */
+[data-theme="light"] {
+  --bg-void:       #e8e6df;
+  --bg-base:       #f4f2eb;
+  --bg-panel:      #fafaf6;
+  --bg-panel-hi:   #ffffff;
+  --bg-inset:      #efede6;
+  --bg-code:       #1a1c20;
+
+  --stroke-1:      rgba(0,0,0,0.06);
+  --stroke-2:      rgba(0,0,0,0.10);
+  --stroke-3:      rgba(0,0,0,0.18);
+  --stroke-hot:    rgba(14,116,144,0.35);
+
+  --fg-1:          #0a0c10;
+  --fg-2:          #2a2f36;
+  --fg-3:          #5c6370;
+  --fg-4:          #8a909a;
+  --fg-5:          #b8bcc3;
+
+  --signal-pos:    #0e9f6e;
+  --signal-neg:    #d93a52;
+  --signal-warn:   #c27803;
+  --signal-cool:   #0e7490;
+  --signal-violet: #7c3aed;
+  --signal-ice:    #0c4a6e;
+
+  --glow-cool:     0 0 0 transparent;
+  --glow-pos:      0 0 0 transparent;
+  --glow-violet:   0 0 0 transparent;
+}
+
+/* ============================================
+   RESET / BASE
+   ============================================ */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11", "tnum";
+  background: var(--bg-base);
+  color: var(--fg-2);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
+}
+::selection { background: var(--signal-cool); color: var(--bg-base); }
+
+.mono { font-family: var(--font-mono); font-feature-settings: "tnum", "zero"; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+button { font-family: inherit; cursor: pointer; }
+input, textarea { font-family: inherit; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--stroke-2); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--stroke-3); background-clip: padding-box; border: 2px solid transparent; }
+
+/* Utility */
+.hairline { background: var(--stroke-2); }
+.hairline-v { width: 1px; background: var(--stroke-2); }
+.hairline-h { height: 1px; background: var(--stroke-2); }
+
+/* Ambient live pulse */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--signal-pos);
+  box-shadow: 0 0 8px var(--signal-pos);
+  animation: live-pulse 1.6s var(--ease-in-out) infinite;
+  display: inline-block;
+}
+.live-dot.cool { background: var(--signal-cool); box-shadow: 0 0 8px var(--signal-cool); }
+.live-dot.violet { background: var(--signal-violet); box-shadow: 0 0 8px var(--signal-violet); }
+.live-dot.warn { background: var(--signal-warn); box-shadow: 0 0 8px var(--signal-warn); }
+
+@keyframes stream-shift {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+@keyframes grid-drift {
+  0% { background-position: 0 0; }
+  100% { background-position: 48px 48px; }
+}
+
+/* Reactive motion-reduce respects brand word "alive" but not annoying */
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}

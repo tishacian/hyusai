@@ -8,8 +8,11 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatTileComponent } from '@app/shared/ui/stat-tile.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
+import { RunOutcomeCardComponent } from '@app/shared/cockpit';
 import { ApiService } from '@app/core/api.service';
+import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
 import { SettingsService } from '@app/core/settings.service';
+import { ToastrService } from 'ngx-toastr';
 import { SystemsStore } from './systems.store';
 
 interface MetricsSummary {
@@ -34,7 +37,7 @@ interface TraceRow {
 }
 
 interface TabDef {
-  id: 'overview' | 'design' | 'runs' | 'settings';
+  id: 'overview' | 'design' | 'runs' | 'outcomes' | 'settings';
   label: string;
   icon: string;
 }
@@ -71,6 +74,7 @@ interface PipelineStage {
     SectionHeaderComponent,
     StatTileComponent,
     StatusPulseComponent,
+    RunOutcomeCardComponent,
   ],
   template: `
     <app-section-header
@@ -83,10 +87,21 @@ interface PipelineStage {
       <app-status-pulse [tone]="isDraft() ? 'warning' : 'success'" [label]="isDraft() ? 'Draft' : 'Ready'" />
       <button
         type="button"
+        (click)="triggerRun()"
+        [disabled]="triggering() || isDraft()"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium ck-mono transition"
+        style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:#020617;"
+        [style.opacity]="triggering() || isDraft() ? '0.4' : '1'"
+      >
+        <app-icon name="play" [size]="12" />
+        {{ triggering() ? 'Queueing…' : 'Run now' }}
+      </button>
+      <button
+        type="button"
         (click)="activeTab.set('runs')"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
       >
-        <app-icon name="message-square" [size]="14" /> Open playground
+        <app-icon name="message-square" [size]="14" /> Open chat
       </button>
     </app-section-header>
 
@@ -322,7 +337,50 @@ interface PipelineStage {
       </div>
     }
 
-    <!-- Runs -->
+    <!-- Outcomes -->
+    @if (activeTab() === 'outcomes') {
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-semibold text-white">Run outcomes</h3>
+            <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); letter-spacing:0.08em; margin-top:2px;">
+              Decision · Confidence · Value · Cost · Efficiency — the canonical Outcome block.
+            </p>
+          </div>
+          <button
+            type="button"
+            (click)="loadRuns()"
+            class="ck-mono inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition"
+            style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-3); letter-spacing:0.12em; text-transform:uppercase;"
+          >
+            <app-icon name="refresh-cw" [size]="12" />
+            Refresh
+          </button>
+        </div>
+
+        @if (runsLoading()) {
+          <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">Loading runs…</div>
+        } @else if (runs().length === 0) {
+          <div class="ck-surface rounded-md" style="padding:32px; text-align:center;">
+            <div class="ck-mono" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
+              NO RUNS YET
+            </div>
+            <p class="text-sm text-white mb-1">This system has not produced any outcome.</p>
+            <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">
+              Click <span class="text-white">Run now</span> above to trigger a canonical run.
+            </p>
+          </div>
+        } @else {
+          <div class="space-y-3">
+            @for (run of runs(); track run.id) {
+              <ck-run-outcome-card [run]="run" />
+            }
+          </div>
+        }
+      </div>
+    }
+
+    <!-- Chat -->
     @if (activeTab() === 'runs') {
       <div class="t-card t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
         <app-chat-panel [systemId]="systemId" />
@@ -404,7 +462,13 @@ export class SystemViewComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly store = inject(SystemsStore);
   private readonly api = inject(ApiService);
+  private readonly canonical = inject(CanonicalApiService);
+  private readonly toast = inject(ToastrService);
   readonly settings = inject(SettingsService);
+
+  readonly runs = signal<Run[]>([]);
+  readonly runsLoading = signal(false);
+  readonly triggering = signal(false);
 
   systemId = '';
   agentName = signal('System');
@@ -448,8 +512,9 @@ export class SystemViewComponent implements OnInit {
 
   readonly tabs: TabDef[] = [
     { id: 'overview', label: 'Overview', icon: 'layout-dashboard' },
+    { id: 'outcomes', label: 'Outcomes', icon: 'activity' },
     { id: 'design', label: 'Design', icon: 'workflow' },
-    { id: 'runs', label: 'Runs', icon: 'message-square' },
+    { id: 'runs', label: 'Chat', icon: 'message-square' },
     { id: 'settings', label: 'Settings', icon: 'settings' },
   ];
 
@@ -572,6 +637,32 @@ export class SystemViewComponent implements OnInit {
       });
     }
     this.loadKpis();
+    this.loadRuns();
+  }
+
+  loadRuns(): void {
+    if (!this.systemId) return;
+    this.runsLoading.set(true);
+    this.canonical.listRuns({ system_id: this.systemId }).subscribe((list) => {
+      this.runs.set(list);
+      this.runsLoading.set(false);
+    });
+  }
+
+  triggerRun(): void {
+    if (this.triggering() || !this.systemId || this.isDraft()) return;
+    this.triggering.set(true);
+    this.canonical.triggerRun(this.systemId, { trigger: 'manual', input_ref: {} }).subscribe((run) => {
+      this.triggering.set(false);
+      if (!run) {
+        this.toast.warning('Could not reach the run engine', 'Run not triggered');
+        return;
+      }
+      this.toast.success(`Run ${run.id.slice(0, 8)} scheduled`, 'Run triggered');
+      this.loadRuns();
+      // Refresh once the engine has had time to execute the sequence.
+      setTimeout(() => this.loadRuns(), 3500);
+    });
   }
 
   private loadKpis(): void {
