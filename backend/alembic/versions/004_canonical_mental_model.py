@@ -111,7 +111,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(length=36), primary_key=True),
         sa.Column("workspace_id", sa.String(length=36), nullable=True),
         sa.Column("name", sa.String(length=200), nullable=False, server_default="default"),
-        sa.Column("enabled", sa.Boolean(), nullable=True, server_default=sa.text("0")),
+        sa.Column("enabled", sa.Boolean(), nullable=True, server_default=sa.text("false")),
         sa.Column("adaptation_level", sa.String(length=20), nullable=True, server_default="moderate"),
         sa.Column("triggers", sa.JSON(), nullable=True),
         sa.Column("allowed_actions", sa.JSON(), nullable=True),
