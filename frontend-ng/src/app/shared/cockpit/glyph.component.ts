@@ -22,7 +22,9 @@ export type CkGlyphName =
   | 'play'
   | 'pause'
   | 'orbit'
-  | 'brand';
+  | 'brand'
+  | 'shield'
+  | 'layers';
 
 /**
  * Custom 14×14 line glyphs ported from docs/mockups (chrome.jsx, primitives.jsx).
@@ -129,4 +131,11 @@ const GLYPHS: Record<CkGlyphName, string> = {
     `<circle cx="7" cy="7" r="6" />` +
     `<circle cx="7" cy="7" r="3" />` +
     `<path d="M7 0 V14 M0 7 H14" />`,
+  shield:
+    `<path d="M7 1 L12 3 V7.5 C12 10 9.5 12.5 7 13 C4.5 12.5 2 10 2 7.5 V3 Z" />` +
+    `<path d="M5 7 L6.5 8.5 L9 6" />`,
+  layers:
+    `<path d="M7 1.5 L12.5 4 L7 6.5 L1.5 4 Z" />` +
+    `<path d="M1.5 7 L7 9.5 L12.5 7" />` +
+    `<path d="M1.5 10 L7 12.5 L12.5 10" />`,
 };

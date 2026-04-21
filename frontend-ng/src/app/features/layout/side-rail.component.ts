@@ -1,31 +1,134 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal,
+  HostListener,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { WorkspaceService, type WorkspaceMode } from '@app/core/workspace.service';
 
-interface RailItem {
-  key: string;
+/**
+ * A cockpit "verb" — what the operator *does* in this mode. Verbs are the
+ * functional axis of the cockpit, orthogonal to the semantic-zoom axis
+ * (Portfolio › Capability › System › Skill › Run) which lives in the title
+ * bar. Every canonical route belongs to exactly one verb so users never
+ * wonder "where did Systems go?".
+ */
+export interface CockpitVerb {
+  key: 'hypervisor' | 'build' | 'operate' | 'steer' | 'govern';
   label: string;
   hint: string;
   glyph: CkGlyphName;
-  route: string;
+  /** Route activated when the verb icon is clicked. */
+  primaryRoute: string;
+  /** All route prefixes that keep this verb selected. */
   matches: string[];
+  /** Optional sub-sections rendered as a mini-rail when this verb is active. */
+  sections?: CockpitSection[];
   hiddenInModes?: WorkspaceMode[];
 }
 
-interface ExtraGroup {
-  title: string;
-  items: { label: string; glyph: CkGlyphName; route: string }[];
+export interface CockpitSection {
+  key: string;
+  label: string;
+  glyph: CkGlyphName;
+  route: string;
+  matches?: string[];
 }
 
 /**
- * 56px-wide icon-only navigation rail. Hosts the 5 cockpit views
- * (Hypervisor / Zoom / Steering / Builder / Run). Active view is marked
- * by a glowing vertical bar on the left edge. The "More" affordance at
- * the bottom opens a slide-over with the full secondary nav (Knowledge,
- * Intelligence, Apps, Settings, …) so legacy areas stay one click away.
+ * Canonical cockpit verb catalog.
+ *
+ * Exported so the `<app-mini-rail>` component (which renders the second-
+ * level navigation inside the content area) can resolve the active verb
+ * from the current URL without duplicating the routing rules.
+ */
+export const COCKPIT_VERBS: CockpitVerb[] = [
+  {
+    key: 'hypervisor',
+    label: 'Hypervisor',
+    hint: 'Strategic — balance sheet, decisions, what-if',
+    glyph: 'ledger',
+    primaryRoute: '/hypervisor',
+    matches: ['/hypervisor'],
+    hiddenInModes: ['builder'],
+  },
+  {
+    key: 'build',
+    label: 'Build',
+    hint: 'Authoring — systems, capabilities, skills, knowledge',
+    glyph: 'cube',
+    primaryRoute: '/systems',
+    matches: ['/systems', '/capabilities', '/skills', '/knowledge', '/orchestration'],
+    sections: [
+      { key: 'systems',      label: 'Systems',      glyph: 'cube',    route: '/systems' },
+      { key: 'capabilities', label: 'Capabilities', glyph: 'focus',   route: '/capabilities' },
+      { key: 'skills',       label: 'Skills',       glyph: 'bolt',    route: '/skills' },
+      { key: 'knowledge',    label: 'Knowledge',    glyph: 'layers',  route: '/knowledge' },
+      { key: 'flows',        label: 'Flow builder', glyph: 'flow',    route: '/orchestration' },
+    ],
+  },
+  {
+    key: 'operate',
+    label: 'Operate',
+    hint: 'Runtime — runs, observability, intelligence, missions',
+    glyph: 'telemetry',
+    primaryRoute: '/runs',
+    matches: ['/runs', '/observability', '/intelligence', '/tasks'],
+    sections: [
+      { key: 'runs',          label: 'Runs',          glyph: 'ledger',    route: '/runs' },
+      { key: 'observability', label: 'Observability', glyph: 'telemetry', route: '/observability' },
+      { key: 'intelligence',  label: 'Intelligence',  glyph: 'pulse',     route: '/intelligence' },
+      { key: 'missions',      label: 'Missions',      glyph: 'play',      route: '/tasks' },
+    ],
+  },
+  {
+    key: 'steer',
+    label: 'Steer',
+    hint: 'Control plane — levers, policies, contexts',
+    glyph: 'sliders',
+    primaryRoute: '/steering',
+    matches: ['/steering'],
+    sections: [
+      { key: 'levers',   label: 'Control plane', glyph: 'sliders',   route: '/steering' },
+      { key: 'contexts', label: 'Contexts',      glyph: 'crosshair', route: '/steering/contexts' },
+    ],
+    hiddenInModes: ['builder'],
+  },
+  {
+    key: 'govern',
+    label: 'Govern',
+    hint: 'Policy — audit, access, apps, resources, settings',
+    glyph: 'shield',
+    primaryRoute: '/governance',
+    matches: ['/governance', '/apps', '/resources', '/settings'],
+    sections: [
+      { key: 'audit',     label: 'Governance', glyph: 'shield',  route: '/governance' },
+      { key: 'apps',      label: 'Apps',       glyph: 'bolt',    route: '/apps' },
+      { key: 'resources', label: 'Resources',  glyph: 'orbit',   route: '/resources' },
+      { key: 'settings',  label: 'Settings',   glyph: 'sliders', route: '/settings' },
+    ],
+  },
+];
+
+/**
+ * Primary rail — 5 cockpit verbs in a compact 56px column, hybrid expand.
+ *
+ * Replaces the former 5-view rail + slide-over "secondary views" panel.
+ * Every canonical route now lives under exactly one verb and the rail
+ * becomes the single functional entry point. The semantic-zoom breadcrumb
+ * in the title bar remains the single hierarchical entry point.
+ *
+ * Hybrid behaviour: by default the rail is 56px (icons only). When the
+ * pointer enters, the rail expands to 200px after a short hold to reveal
+ * labels + hints. It collapses back on leave. The second-level mini-rail
+ * is rendered separately by `<app-mini-rail>` inside the content area so
+ * the shell can compose layout decisions cleanly.
  */
 @Component({
   selector: 'app-side-rail',
@@ -34,137 +137,187 @@ interface ExtraGroup {
   imports: [RouterLink, GlyphComponent],
   template: `
     <aside
-      [style.position]="'relative'"
-      [style.width.px]="56"
-      [style.flex]="'0 0 56px'"
-      [style.height]="'100%'"
-      [style.display]="'flex'"
-      [style.flexDirection]="'column'"
-      [style.alignItems]="'center'"
-      [style.padding]="'10px 0'"
-      [style.background]="'var(--ck-bg-base)'"
-      [style.borderRight]="'1px solid var(--ck-stroke-2)'"
-      [style.zIndex]="30"
+      class="ck-rail"
+      [class.ck-rail-expanded]="expanded()"
+      (mouseenter)="onEnter()"
+      (mouseleave)="onLeave()"
     >
-      <nav [style.display]="'flex'" [style.flexDirection]="'column'" [style.alignItems]="'center'" [style.gap.px]="6" [style.flex]="'1 1 auto'">
-        @for (it of visibleItems(); track it.key) {
+      <nav class="ck-rail-nav" aria-label="Cockpit workspaces">
+        @for (v of visibleVerbs(); track v.key) {
           <a
-            [routerLink]="it.route"
-            [title]="it.label + ' — ' + it.hint"
+            [routerLink]="v.primaryRoute"
             class="ck-rail-item"
-            [class.active]="isActive(it)"
-            [style.position]="'relative'"
-            [style.display]="'inline-flex'"
-            [style.alignItems]="'center'"
-            [style.justifyContent]="'center'"
-            [style.width.px]="38"
-            [style.height.px]="38"
-            [style.borderRadius.px]="6"
-            [style.color]="isActive(it) ? 'var(--ck-signal-cool)' : 'var(--ck-fg-3)'"
-            [style.background]="isActive(it) ? 'rgba(125,211,252,0.06)' : 'transparent'"
-            [style.transition]="'color 120ms var(--ck-ease-out), background 120ms'"
+            [class.ck-rail-item-active]="isActive(v)"
+            [title]="v.label + ' — ' + v.hint"
+            [attr.aria-current]="isActive(v) ? 'page' : null"
           >
-            @if (isActive(it)) {
-              <span
-                [style.position]="'absolute'"
-                [style.left.px]="-10"
-                [style.top.px]="6"
-                [style.bottom.px]="6"
-                [style.width.px]="2"
-                [style.background]="'var(--ck-signal-cool)'"
-                [style.boxShadow]="'var(--ck-glow-cool)'"
-                [style.borderRadius.px]="2"
-              ></span>
+            @if (isActive(v)) {
+              <span class="ck-rail-active-bar" aria-hidden="true"></span>
             }
-            <ck-glyph [name]="it.glyph" [size]="18" />
-
-            <!-- Hover fly-out label (shown on hover via sibling CSS) -->
-            <span
-              class="ck-rail-flyout ck-mono"
-            >
-              <span [style.fontSize.px]="11" [style.fontWeight]="600" [style.color]="'var(--ck-fg-1)'" [style.letterSpacing]="'0.06em'" [style.textTransform]="'uppercase'">{{ it.label }}</span>
-              <span [style.fontSize.px]="10" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="2">{{ it.hint }}</span>
+            <span class="ck-rail-glyph" aria-hidden="true">
+              <ck-glyph [name]="v.glyph" [size]="18" />
+            </span>
+            <span class="ck-rail-label">
+              <span class="ck-rail-label-name">{{ v.label }}</span>
+              <span class="ck-rail-label-hint">{{ v.hint }}</span>
             </span>
           </a>
         }
       </nav>
 
-      <div [style.display]="'flex'" [style.flexDirection]="'column'" [style.alignItems]="'center'" [style.gap.px]="6" [style.padding]="'8px 0'">
+      <div class="ck-rail-footer">
         <button
           type="button"
-          (click)="toggleMore($event)"
-          title="More views (⌘K)"
-          [style.width.px]="38"
-          [style.height.px]="38"
-          [style.borderRadius.px]="6"
-          [style.background]="moreOpen() ? 'var(--ck-bg-panel-hi)' : 'transparent'"
-          [style.border]="'1px solid ' + (moreOpen() ? 'var(--ck-stroke-3)' : 'transparent')"
-          [style.color]="'var(--ck-fg-3)'"
-          [style.cursor]="'pointer'"
-          [style.display]="'inline-flex'"
-          [style.alignItems]="'center'"
-          [style.justifyContent]="'center'"
+          class="ck-rail-item ck-rail-item-ghost"
+          (click)="openPalette()"
+          [title]="'Command palette · ⌘K'"
         >
-          <ck-glyph name="orbit" [size]="18" />
+          <span class="ck-rail-glyph" aria-hidden="true">
+            <ck-glyph name="crosshair" [size]="16" />
+          </span>
+          <span class="ck-rail-label">
+            <span class="ck-rail-label-name">Jump to…</span>
+            <span class="ck-rail-label-hint">⌘K palette</span>
+          </span>
         </button>
       </div>
     </aside>
-
-    @if (moreOpen()) {
-      <div
-        (click)="moreOpen.set(false)"
-        [style.position]="'fixed'"
-        [style.inset]="'0'"
-        [style.background]="'rgba(0,0,0,0.45)'"
-        [style.zIndex]="50"
-      ></div>
-      <div
-        (click)="$event.stopPropagation()"
-        [style.position]="'fixed'"
-        [style.left.px]="56"
-        [style.top.px]="48"
-        [style.bottom.px]="28"
-        [style.width.px]="320"
-        [style.background]="'var(--ck-bg-panel-hi)'"
-        [style.borderRight]="'1px solid var(--ck-stroke-3)'"
-        [style.padding]="'18px 16px'"
-        [style.zIndex]="51"
-        [style.overflowY]="'auto'"
-        class="ck-scroll"
-      >
-        <div class="ck-label" [style.marginBottom.px]="10">Secondary views</div>
-        @for (g of extras; track g.title) {
-          <div [style.marginBottom.px]="12">
-            <div class="ck-label-sm" [style.color]="'var(--ck-fg-4)'" [style.marginBottom.px]="6">{{ g.title }}</div>
-            <div [style.display]="'flex'" [style.flexDirection]="'column'" [style.gap.px]="2">
-              @for (it of g.items; track it.route) {
-                <a
-                  [routerLink]="it.route"
-                  (click)="moreOpen.set(false)"
-                  [style.display]="'flex'"
-                  [style.alignItems]="'center'"
-                  [style.gap.px]="10"
-                  [style.padding]="'6px 8px'"
-                  [style.borderRadius.px]="4"
-                  [style.color]="'var(--ck-fg-2)'"
-                  [style.fontSize.px]="12"
-                  [style.transition]="'background 120ms'"
-                >
-                  <ck-glyph [name]="it.glyph" [size]="14" color="var(--ck-fg-3)" />
-                  <span>{{ it.label }}</span>
-                </a>
-              }
-            </div>
-          </div>
-        }
-      </div>
-    }
   `,
+  styles: [
+    `
+      :host { display: contents; }
+
+      .ck-rail {
+        position: relative;
+        width: 56px;
+        flex: 0 0 56px;
+        height: 100%;
+        background: var(--ck-bg-base);
+        border-right: 1px solid var(--ck-stroke-2);
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        padding: 10px 0;
+        z-index: 30;
+        transition:
+          width var(--ck-dur-med, 240ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+          flex-basis var(--ck-dur-med, 240ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+        overflow: hidden;
+      }
+      .ck-rail-expanded {
+        width: 200px;
+        flex: 0 0 200px;
+      }
+
+      .ck-rail-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 0 8px;
+        flex: 1 1 auto;
+      }
+      .ck-rail-footer {
+        padding: 10px 8px 0;
+        border-top: 1px dashed var(--ck-stroke-2);
+      }
+
+      .ck-rail-item {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px;
+        border-radius: var(--ck-radius-md, 6px);
+        color: var(--ck-fg-3);
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        text-decoration: none;
+        transition:
+          color var(--ck-dur-fast, 120ms),
+          background var(--ck-dur-fast, 120ms);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .ck-rail-item:hover {
+        color: var(--ck-fg-1);
+        background: var(--ck-bg-panel-hi);
+      }
+      .ck-rail-item-active {
+        color: var(--ck-signal-cool);
+        background: rgba(125, 211, 252, 0.06);
+      }
+      .ck-rail-item-active:hover { color: var(--ck-signal-cool); }
+
+      .ck-rail-active-bar {
+        position: absolute;
+        left: -8px;
+        top: 8px;
+        bottom: 8px;
+        width: 2px;
+        border-radius: 2px;
+        background: var(--ck-signal-cool);
+        box-shadow: var(--ck-glow-cool);
+      }
+
+      .ck-rail-glyph {
+        flex: 0 0 auto;
+        width: 22px;
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .ck-rail-label {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        opacity: 0;
+        transform: translateX(-6px);
+        transition:
+          opacity var(--ck-dur-fast, 120ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+          transform var(--ck-dur-fast, 120ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+        pointer-events: none;
+      }
+      .ck-rail-expanded .ck-rail-label {
+        opacity: 1;
+        transform: translateX(0);
+        pointer-events: auto;
+      }
+      .ck-rail-label-name {
+        font-family: var(--ck-font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: inherit;
+      }
+      .ck-rail-label-hint {
+        font-size: 10px;
+        color: var(--ck-fg-4);
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .ck-rail-item-ghost {
+        color: var(--ck-fg-4);
+        width: 100%;
+        text-align: left;
+      }
+    `,
+  ],
 })
 export class SideRailComponent {
   private readonly router = inject(Router);
   private readonly workspace = inject(WorkspaceService);
-  moreOpen = signal(false);
+
+  readonly expanded = signal(false);
+  private expandTimer: ReturnType<typeof setTimeout> | null = null;
+  private collapseTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -175,57 +328,49 @@ export class SideRailComponent {
     { initialValue: this.router.url },
   );
 
-  readonly items: RailItem[] = [
-    { key: 'hypervisor', label: 'Hypervisor', hint: 'Balance sheet',  glyph: 'ledger',    route: '/hypervisor',    matches: ['/hypervisor'], hiddenInModes: ['builder'] },
-    { key: 'zoom',       label: 'Zoom',       hint: 'Capabilities & skills', glyph: 'focus', route: '/capabilities', matches: ['/capabilities', '/skills'] },
-    { key: 'steering',   label: 'Steering',   hint: 'Control plane',  glyph: 'sliders',   route: '/steering',       matches: ['/steering'], hiddenInModes: ['builder'] },
-    { key: 'builder',    label: 'Builder',    hint: 'Compose systems', glyph: 'flow',     route: '/systems',        matches: ['/systems', '/orchestration', '/knowledge'] },
-    { key: 'run',        label: 'Run',        hint: 'Observability & missions', glyph: 'telemetry', route: '/observability', matches: ['/observability', '/runs', '/intelligence', '/tasks'] },
-  ];
-
-  readonly visibleItems = computed(() => {
-    const mode = this.workspace.mode();
-    return this.items.filter((it) => !it.hiddenInModes || !it.hiddenInModes.includes(mode));
-  });
-
-  readonly extras: ExtraGroup[] = [
-    {
-      title: 'Knowledge & Build',
-      items: [
-        { label: 'Systems',       glyph: 'cube',  route: '/systems' },
-        { label: 'Knowledge',     glyph: 'cube',  route: '/knowledge' },
-        { label: 'Flow builder',  glyph: 'flow',  route: '/orchestration' },
-        { label: 'Missions',      glyph: 'play',  route: '/tasks' },
-      ],
-    },
-    {
-      title: 'Measure',
-      items: [
-        { label: 'Intelligence',  glyph: 'pulse',     route: '/intelligence' },
-        { label: 'Observability', glyph: 'telemetry', route: '/observability' },
-        { label: 'Runs',          glyph: 'ledger',    route: '/runs' },
-      ],
-    },
-    {
-      title: 'Govern & Configure',
-      items: [
-        { label: 'Governance', glyph: 'warn',     route: '/governance' },
-        { label: 'Resources',  glyph: 'orbit',    route: '/resources' },
-        { label: 'Apps',       glyph: 'bolt',     route: '/apps' },
-        { label: 'Settings',   glyph: 'sliders',  route: '/settings' },
-      ],
-    },
-  ];
-
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
 
-  isActive(it: RailItem): boolean {
+  readonly visibleVerbs = computed(() => {
+    const mode = this.workspace.mode();
+    return COCKPIT_VERBS.filter((v) => !v.hiddenInModes || !v.hiddenInModes.includes(mode));
+  });
+
+  isActive(v: CockpitVerb): boolean {
     const path = this.currentPath();
-    return it.matches.some((m) => path === m || path.startsWith(m + '/'));
+    return v.matches.some((m) => path === m || path.startsWith(m + '/'));
   }
 
-  toggleMore(ev: Event): void {
-    ev.stopPropagation();
-    this.moreOpen.update((v) => !v);
+  onEnter(): void {
+    if (this.collapseTimer) {
+      clearTimeout(this.collapseTimer);
+      this.collapseTimer = null;
+    }
+    if (this.expanded()) return;
+    this.expandTimer = setTimeout(() => {
+      this.expanded.set(true);
+      this.expandTimer = null;
+    }, 220);
+  }
+
+  onLeave(): void {
+    if (this.expandTimer) {
+      clearTimeout(this.expandTimer);
+      this.expandTimer = null;
+    }
+    this.collapseTimer = setTimeout(() => {
+      this.expanded.set(false);
+      this.collapseTimer = null;
+    }, 180);
+  }
+
+  openPalette(): void {
+    window.dispatchEvent(new CustomEvent('ck:command-palette:open'));
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  onKey(ev: KeyboardEvent): void {
+    if (ev.key === 'Escape' && this.expanded()) {
+      this.expanded.set(false);
+    }
   }
 }

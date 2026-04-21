@@ -278,6 +278,16 @@ export class CommandPaletteComponent implements OnInit {
     }
   }
 
+  /**
+   * Programmatic open hook — consumed by the side-rail footer affordance
+   * ("Jump to…") which dispatches `ck:command-palette:open` on the window
+   * so it does not have to duplicate the ⌘K keybinding logic.
+   */
+  @HostListener('window:ck:command-palette:open')
+  onExternalOpen(): void {
+    if (!this.open()) this.toggle();
+  }
+
   toggle(): void {
     this.open.update((o) => !o);
     if (this.open()) {

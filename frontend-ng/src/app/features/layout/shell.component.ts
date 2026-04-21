@@ -3,6 +3,7 @@ import { RouterOutlet } from '@angular/router';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { TitleBarComponent } from './title-bar.component';
 import { SideRailComponent } from './side-rail.component';
+import { MiniRailComponent } from './mini-rail.component';
 import { CommandBarComponent } from './command-bar.component';
 import { CommandPaletteComponent } from './command-palette.component';
 
@@ -19,6 +20,7 @@ import { CommandPaletteComponent } from './command-palette.component';
     RouterOutlet,
     TitleBarComponent,
     SideRailComponent,
+    MiniRailComponent,
     CommandBarComponent,
     CommandPaletteComponent,
   ],
@@ -35,6 +37,7 @@ import { CommandPaletteComponent } from './command-palette.component';
 
       <div [style.display]="'flex'" [style.minHeight]="'0'" [style.position]="'relative'">
         <app-side-rail></app-side-rail>
+        <app-mini-rail></app-mini-rail>
         <main
           [style.flex]="'1 1 auto'"
           [style.minWidth]="'0'"
