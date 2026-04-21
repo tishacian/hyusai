@@ -32,6 +32,11 @@ export const routes: Routes = [
           import('./features/contexts/contexts-page.component').then((m) => m.ContextsPageComponent),
       },
       {
+        path: 'steering/contexts/:id',
+        loadComponent: () =>
+          import('./features/contexts/context-view.component').then((m) => m.ContextViewComponent),
+      },
+      {
         path: 'capabilities',
         loadChildren: () =>
           import('./features/capabilities/capabilities.routes').then((m) => m.capabilitiesRoutes),
