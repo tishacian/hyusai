@@ -12,7 +12,9 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { GlyphComponent, LiveDotComponent, StatReadoutComponent } from '@app/shared/cockpit';
+import { IconComponent } from '@app/shared/ui/icon.component';
 import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.component';
+import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 
 /**
  * Cockpit title bar (48px tall). Hosts the brand mark, the semantic zoom
@@ -28,6 +30,7 @@ import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.comp
     GlyphComponent,
     LiveDotComponent,
     StatReadoutComponent,
+    IconComponent,
     SemanticZoomBreadcrumbComponent,
   ],
   template: `
@@ -83,6 +86,28 @@ import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.comp
       </div>
 
       <span class="ck-hairline-v" [style.height.px]="22" [style.flex]="'0 0 auto'"></span>
+
+      <!-- Chat overlay trigger (Vague D / D0) — omnipresent chat entry
+           point. Matches ⌘J global shortcut so operators never wonder
+           where the playground went: icon stays in view on every route. -->
+      <button
+        type="button"
+        (click)="openChat()"
+        [style.background]="chatOverlay.isOpen() ? 'var(--ck-bg-panel-hi)' : 'transparent'"
+        [style.border]="'1px solid var(--ck-stroke-2)'"
+        [style.borderRadius.px]="4"
+        [style.height.px]="28"
+        [style.width.px]="28"
+        [style.display]="'inline-flex'"
+        [style.alignItems]="'center'"
+        [style.justifyContent]="'center'"
+        [style.color]="chatOverlay.isOpen() ? 'var(--ck-signal-cool)' : 'var(--ck-fg-2)'"
+        [style.cursor]="'pointer'"
+        title="Chat · ⌘J"
+        aria-label="Open chat"
+      >
+        <app-icon name="message-square" [size]="14" />
+      </button>
 
       <!-- Theme cycle: light → dark → system → … -->
       <button
@@ -322,6 +347,7 @@ export class TitleBarComponent {
   protected readonly themeService = inject(ThemeService);
   protected readonly workspaceService = inject(WorkspaceService);
   protected readonly authStore = inject(AuthStore);
+  protected readonly chatOverlay = inject(ChatOverlayService);
   private readonly authBootstrap = inject(AuthBootstrapService);
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authApi = inject(AuthApiService);
@@ -329,6 +355,10 @@ export class TitleBarComponent {
   private readonly toastr = inject(ToastrService);
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
+
+  openChat(): void {
+    this.chatOverlay.toggle();
+  }
 
   userMenuOpen = signal(false);
   workspaceMenuOpen = signal(false);

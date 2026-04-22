@@ -7,6 +7,7 @@ import { MiniRailComponent } from './mini-rail.component';
 import { CommandBarComponent } from './command-bar.component';
 import { CommandPaletteComponent } from './command-palette.component';
 import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
+import { ChatOverlayComponent } from '@app/features/chat/chat-overlay.component';
 
 /**
  * Cockpit shell — assembles the title bar, side rail and command bar
@@ -25,6 +26,7 @@ import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
     CommandBarComponent,
     CommandPaletteComponent,
     CkPanelHostComponent,
+    ChatOverlayComponent,
   ],
   template: `
     <div
@@ -54,6 +56,7 @@ import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
       <app-command-bar></app-command-bar>
       <app-command-palette></app-command-palette>
       <app-panel-host></app-panel-host>
+      <app-chat-overlay></app-chat-overlay>
     </div>
   `,
 })

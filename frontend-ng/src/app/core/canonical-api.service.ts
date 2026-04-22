@@ -134,6 +134,15 @@ export interface Context {
   environment_state?: Record<string, unknown>;
   business_constraints?: Record<string, unknown>;
   permissions?: Record<string, unknown>;
+  /**
+   * Ephemeral drop-and-ask session context (Vague D / D0). When true, the
+   * backend auto-purges the row past `ttl_expires_at`.
+   */
+  ephemeral?: boolean;
+  /** Absolute expiration (ISO 8601) for ephemeral contexts. */
+  ttl_expires_at?: string | null;
+  /** Only honoured by `POST /contexts` when `ephemeral=true`. */
+  ttl_hours?: number;
   created_at?: string;
 }
 
@@ -325,6 +334,16 @@ export class CanonicalApiService {
       map(() => true),
       catchError(() => of(false)),
     );
+  }
+
+  /**
+   * Promote an ephemeral drop-and-ask Context to permanent. Idempotent on
+   * already-permanent contexts. See Vague D / D0 plan.
+   */
+  persistContext(id: string): Observable<Context | null> {
+    return this.api
+      .post<Context>(`/contexts/${id}/persist`, {})
+      .pipe(catchError(() => of(null)));
   }
 
   // ---- Runs ----------------------------------------------------------------

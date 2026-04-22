@@ -590,7 +590,20 @@ const STEP_ICONS: Record<string, string> = {
   `,
 })
 export class ChatPanelComponent {
-  readonly systemId = input.required<string>();
+  /**
+   * System id to scope the chat to. Optional since Vague D / D0 — the
+   * `/chat` workspace surface mounts this component in *Quick ask* mode
+   * with no system selected, in which case the backend falls back to
+   * workspace defaults. Audit events still carry the id (or `null`) so
+   * downstream analytics can bucket conversations by system.
+   */
+  readonly systemId = input<string | null>(null);
+  /**
+   * Optional ephemeral Context id (drop-and-ask). When set, the chat
+   * automatically attaches the context ids to every outgoing query so
+   * the orchestrator knows to ground answers on the dropped documents.
+   */
+  readonly contextId = input<string | null>(null);
 
   private readonly sse = inject(SseService);
   private readonly api = inject(ApiService);

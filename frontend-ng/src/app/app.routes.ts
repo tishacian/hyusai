@@ -82,6 +82,11 @@ export const routes: Routes = [
           import('./features/orchestration/orchestration.routes').then((m) => m.orchestrationRoutes),
       },
       {
+        path: 'chat',
+        loadComponent: () =>
+          import('./features/chat/chat-workspace.component').then((m) => m.ChatWorkspaceComponent),
+      },
+      {
         path: 'workspace',
         loadChildren: () =>
           import('./features/workspace/workspace.routes').then((m) => m.workspaceRoutes),

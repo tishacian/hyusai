@@ -2,11 +2,16 @@
 
 Contexts version explicitly so that adaptive policies can roll back to a
 known-good context if confidence collapses.
+
+Ephemeral contexts (Vague D / D0): the chat workspace surface creates
+temporary drop-and-ask contexts scoped to a session, expiring after a TTL
+(24h by default). These are purged opportunistically by `GET /contexts`
+and by the drop-and-ask flow itself — no background worker required.
 """
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Integer, JSON, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, JSON, String
 
 from app.db.base import Base
 
@@ -27,6 +32,13 @@ class Context(Base):
     environment_state = Column(JSON, default=dict)
     business_constraints = Column(JSON, default=dict)
     permissions = Column(JSON, default=dict)
+
+    # D0 — ephemeral session contexts (drop-and-ask). When true, the
+    # context is auto-purged by opportunistic cleanup past `ttl_expires_at`.
+    # A user can call `POST /contexts/{id}/persist` to flip the flag and
+    # keep it permanently.
+    ephemeral = Column(Boolean, default=False, nullable=False, index=True)
+    ttl_expires_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

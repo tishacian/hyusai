@@ -15,6 +15,7 @@ import {
   type Skill,
   type System,
 } from '@app/core/canonical-api.service';
+import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { GlyphComponent, KbdComponent, TagComponent } from '@app/shared/cockpit';
 
 type Tone = 'pos' | 'cool' | 'violet' | 'warn' | 'neg';
@@ -24,10 +25,16 @@ interface CommandItem {
   label: string;
   hint: string;
   tone: Tone;
-  kind: 'view' | 'system' | 'capability' | 'skill' | 'action';
+  kind: 'view' | 'system' | 'capability' | 'skill' | 'action' | 'chat';
   route: string;
   fragment?: string;
   keywords: string;
+  /**
+   * Optional imperative action triggered instead of navigating. Used by the
+   * chat commands (Vague D / D0) which open the global overlay rather than
+   * pushing a route.
+   */
+  action?: () => void;
 }
 
 /**
@@ -181,6 +188,7 @@ interface CommandItem {
 export class CommandPaletteComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly chatOverlay = inject(ChatOverlayService);
 
   readonly open = signal(false);
   readonly query = signal('');
@@ -191,6 +199,10 @@ export class CommandPaletteComponent implements OnInit {
   private readonly skills = signal<Skill[]>([]);
   private readonly systems = signal<System[]>([]);
 
+  // Imperative chat actions — open the global overlay instead of navigating.
+  // Bound lazily (constructor) so `this.chatOverlay` is available.
+  private chatCommands: CommandItem[] = [];
+
   private readonly viewCommands: CommandItem[] = [
     { id: 'view.hypervisor', label: 'Hypervisor · Executive cockpit', hint: 'Portfolio balance · ROI · signals', tone: 'cool', kind: 'view', route: '/hypervisor', keywords: 'dashboard balance overview portfolio' },
     { id: 'view.steering', label: 'Steering · Control plane', hint: 'Levers · policies · simulate', tone: 'violet', kind: 'view', route: '/steering', keywords: 'levers policy control governance' },
@@ -198,6 +210,7 @@ export class CommandPaletteComponent implements OnInit {
     { id: 'view.skills', label: 'Skill registry', hint: 'Atomic certified skills', tone: 'cool', kind: 'view', route: '/skills', keywords: 'skills registry atomic' },
     { id: 'view.systems', label: 'Systems · Compositions', hint: 'All deployed systems', tone: 'cool', kind: 'view', route: '/systems', keywords: 'system composition deployments' },
     { id: 'view.knowledge', label: 'Knowledge base', hint: 'Contexts & collections', tone: 'violet', kind: 'view', route: '/knowledge', keywords: 'knowledge rag documents collections' },
+    { id: 'view.chat', label: 'Chat workspace', hint: 'Full-screen chat · drop-and-ask · session', tone: 'pos', kind: 'view', route: '/chat', keywords: 'chat ask question playground session test' },
     { id: 'view.observability', label: 'Observability', hint: 'Quality · performance · signals', tone: 'warn', kind: 'view', route: '/observability', keywords: 'observability quality performance metrics' },
     { id: 'view.runs', label: 'Runs · Execution log', hint: 'Every system execution — input · trail · outcome', tone: 'warn', kind: 'view', route: '/runs', keywords: 'runs traces executions logs history' },
     { id: 'action.new-system', label: 'New system builder', hint: 'Objective → Capability → Context → Policy', tone: 'pos', kind: 'action', route: '/systems/new', keywords: 'create new build wizard' },
@@ -233,7 +246,7 @@ export class CommandPaletteComponent implements OnInit {
       keywords: `${s.objective || ''} ${s.status || ''}`.toLowerCase(),
     }));
 
-    const all = [...this.viewCommands, ...caps, ...sys, ...sks];
+    const all = [...this.chatCommands, ...this.viewCommands, ...caps, ...sys, ...sks];
     if (!q) return all.slice(0, 40);
     return all
       .filter(
@@ -250,6 +263,38 @@ export class CommandPaletteComponent implements OnInit {
       const _ = this.results();
       this.selectedIndex.set(0);
     });
+    this.chatCommands = [
+      {
+        id: 'chat.ask',
+        label: 'Ask a question…',
+        hint: 'Quick ask · workspace defaults · no system scope',
+        tone: 'pos',
+        kind: 'chat',
+        route: '',
+        keywords: 'ask quick question chat playground rag',
+        action: () => this.chatOverlay.open({ mode: 'quick' }),
+      },
+      {
+        id: 'chat.system',
+        label: 'Chat with a system…',
+        hint: 'Pick a system, chat with its policy / skills / knowledge',
+        tone: 'cool',
+        kind: 'chat',
+        route: '',
+        keywords: 'chat system scoped test demo',
+        action: () => this.chatOverlay.open({ mode: 'system' }),
+      },
+      {
+        id: 'chat.drop',
+        label: 'Drop files and ask…',
+        hint: 'Upload docs into an ephemeral context, ground answers on them',
+        tone: 'violet',
+        kind: 'chat',
+        route: '',
+        keywords: 'drop upload files documents ephemeral context session pdf rag',
+        action: () => this.chatOverlay.open({ mode: 'drop' }),
+      },
+    ];
   }
 
   ngOnInit(): void {
@@ -324,15 +369,20 @@ export class CommandPaletteComponent implements OnInit {
 
   go(r: CommandItem): void {
     this.close();
+    if (r.action) {
+      r.action();
+      return;
+    }
     this.router.navigateByUrl(r.route);
   }
 
-  glyphFor(kind: CommandItem['kind']): 'flow' | 'cube' | 'sliders' | 'bolt' | 'focus' {
+  glyphFor(kind: CommandItem['kind']): 'flow' | 'cube' | 'sliders' | 'bolt' | 'focus' | 'pulse' {
     switch (kind) {
       case 'system':     return 'flow';
       case 'capability': return 'cube';
       case 'skill':      return 'sliders';
       case 'action':     return 'bolt';
+      case 'chat':       return 'pulse';
       case 'view':
       default:           return 'focus';
     }
