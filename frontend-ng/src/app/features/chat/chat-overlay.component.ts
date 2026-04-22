@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, HostListener, computed, inject } from '@angular/core';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
+import { I18nService } from '@app/core/i18n.service';
 import { ChatOverlayService } from './chat-overlay.service';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
 
@@ -28,7 +29,7 @@ import { ChatWorkspaceComponent } from './chat-workspace.component';
       [open]="overlay.isOpen()"
       (openChange)="onOpenChange($event)"
       position="side"
-      eyebrow="Chat · ⌘J"
+      [eyebrow]="i18n.t('titlebar.chat.tooltip')"
       [title]="title()"
       width="560px"
     >
@@ -54,13 +55,16 @@ import { ChatWorkspaceComponent } from './chat-workspace.component';
 })
 export class ChatOverlayComponent {
   readonly overlay = inject(ChatOverlayService);
+  protected readonly i18n = inject(I18nService);
 
   readonly title = computed<string>(() => {
+    // Read locale so the title re-renders when the user toggles FR/EN.
+    this.i18n.locale();
     switch (this.overlay.startMode()) {
-      case 'drop':   return 'Drop-and-ask';
-      case 'system': return 'Chat with system';
+      case 'drop':   return this.i18n.t('palette.hint.drop_files');
+      case 'system': return this.i18n.t('palette.hint.chat_system');
       case 'quick':
-      default:       return 'Ask a question';
+      default:       return this.i18n.t('palette.hint.ask');
     }
   });
 

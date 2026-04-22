@@ -4,6 +4,7 @@ import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   COCKPIT_VERBS,
   type CockpitScopeType,
@@ -52,7 +53,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         <aside class="ck-mini-rail" aria-label="Object index">
           <header class="ck-mini-head">
             <span class="ck-mini-eyebrow">SCOPE</span>
-            <span class="ck-mini-verb">{{ verb.label }}</span>
+            <span class="ck-mini-verb">{{ i18n.t('nav.' + verb.key) }}</span>
             @if (scopeSuffix()) {
               <span class="ck-mini-scope" [title]="scopeSuffixFull()">{{ scopeSuffix() }}</span>
             }
@@ -186,6 +187,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
 export class MiniRailComponent {
   private readonly router = inject(Router);
   private readonly ctx = inject(ZoomContextService);
+  protected readonly i18n = inject(I18nService);
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -270,11 +272,15 @@ export class MiniRailComponent {
    * `Systems · of cap:3a4f9c` when a capability is focused.
    */
   sectionLabel(s: CockpitSection): string {
+    // Translate first, fall back to the hard-coded label when the dict
+    // has no entry for this section key (long-tail verbs like "flows",
+    // "missions", etc. are defined in the nav.* surface).
+    const base = this.i18n.t(`nav.${s.key}`) || s.label;
     const deepest = this.deepestResolvedScope();
-    if (!deepest) return s.label;
+    if (!deepest) return base;
     const idx = SCOPE_ORDER.indexOf(s.scopeType);
     const cutoff = SCOPE_ORDER.indexOf(deepest);
-    if (idx === -1 || cutoff === -1 || idx <= cutoff) return s.label;
+    if (idx === -1 || cutoff === -1 || idx <= cutoff) return base;
     // Section is a descendant of the resolved breadcrumb — annotate.
     const anchor =
       deepest === 'capability'
@@ -284,7 +290,7 @@ export class MiniRailComponent {
           : deepest === 'run'
             ? `run:${this.ctx.runId()!.slice(0, 6)}`
             : `skl:${this.ctx.skillId()!.slice(0, 6)}`;
-    return `${s.label} · of ${anchor}`;
+    return `${base} · of ${anchor}`;
   }
 
   /**

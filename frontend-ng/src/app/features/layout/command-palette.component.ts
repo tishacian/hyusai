@@ -16,6 +16,7 @@ import {
   type System,
 } from '@app/core/canonical-api.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+import { I18nService } from '@app/core/i18n.service';
 import { GlyphComponent, KbdComponent, TagComponent } from '@app/shared/cockpit';
 
 type Tone = 'pos' | 'cool' | 'violet' | 'warn' | 'neg';
@@ -88,7 +89,7 @@ interface CommandItem {
               [value]="query()"
               (input)="onQuery($event)"
               (keydown)="onKey($event)"
-              placeholder="Jump to capability, system, skill or view…"
+              [placeholder]="i18n.t('palette.placeholder')"
               class="ck-mono"
               [style.flex]="'1 1 auto'"
               [style.background]="'transparent'"
@@ -113,7 +114,7 @@ interface CommandItem {
                 [style.letterSpacing]="'0.14em'"
                 [style.textTransform]="'uppercase'"
               >
-                @if (loading()) { Indexing the cockpit… } @else { Nothing matches "{{ query() }}" }
+                @if (loading()) { {{ i18n.t('common.loading') }} } @else { {{ i18n.t('palette.empty') }} · "{{ query() }}" }
               </div>
             }
             @for (r of results(); track r.id; let i = $index) {
@@ -189,6 +190,7 @@ export class CommandPaletteComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
   private readonly chatOverlay = inject(ChatOverlayService);
+  protected readonly i18n = inject(I18nService);
 
   readonly open = signal(false);
   readonly query = signal('');

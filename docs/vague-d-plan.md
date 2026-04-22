@@ -64,7 +64,7 @@ D0 qui rétablit cette surface.
 | **D0** | **Chat workspace surface : route `/chat` plein écran + icône title-bar + ⌘J + commandes palette + context éphémère drop-and-ask** | **P0** | **M** | — |
 | D1 | Keycloak OIDC multi-tenant (full auth + workspace scope backend + picker UI) | P0 | L | — |
 | ~~D2~~ | ~~Streaming LLM token-by-token via SSE `token_delta`~~ ✅ livré | ~~P1~~ | ~~M~~ | C7 (event bus) |
-| D3 | i18n FR / EN (`@angular/localize` + extraction + switcher) | P2 | M | — |
+| ~~D3~~ | ~~i18n FR / EN~~ — infra runtime + switcher livrés, passe complète en backlog | P2 | M | — |
 | D4 | Light theme (`ThemeService` + tokens light + toggle) | P2 | S | — |
 | D5 | Dette C11 : Sass `@import` → `@use`, drawflow CJS allowlist, signin budget | P3 | S | — |
 | D6 | Tests d'intégration walker DAG (pytest e2e + Playwright UI fork/join/HITL/debug) | P1 | M | C6/C8 |
@@ -310,28 +310,78 @@ d'isolation et de clore le cycle onboarding/offboarding.
 - Le walker sequential (sans subscriber SSE) reste inchangé à cost-0.
 - Les tests unitaires couvrent publication + coalescing + flush.
 
-### D3 — i18n FR / EN
+### D3 — i18n FR / EN — infra livrée, passe complète en backlog
 
 **Contrat produit**
-- Switcher dans l'account menu : FR (défaut) / EN.
+- Switcher dans l'account menu : FR (défaut) / EN, swap instantané.
 - Toutes les chaînes statiques de l'UI sont traduites ; pas de
   traduction des données utilisateur (noms de systèmes, prompts, etc.).
 
-**Implémentation**
-- `ng add @angular/localize`.
-- Passe automatisée : marquer toutes les chaînes avec `i18n` ou
-  `$localize` ; priorité aux feature modules livrés (hypervisor,
-  steering, systems, runs, knowledge, governance, observability,
-  orchestration, workspace).
-- Deux bundles `browser/fr` et `browser/en` servis via nginx
-  `map $http_accept_language $lang` ou via route préfixée
-  `/en/...` (choix produit).
-- Tokens d'accessibilité / ARIA aussi traduits (`aria-label`).
+**Stratégie retenue — Option C (hybride runtime + passe progressive)**
 
-**Done quand**
-- Toggle = `document.documentElement.lang` bascule + recharge locale.
-- Pas de chaîne hardcodée détectable par `ng extract-i18n` sur les
-  features livrées.
+Angular i18n "officiel" aurait imposé : `ng add @angular/localize`, passe
+`i18n=` sur **chaque** template inline de 80 composants, bundles par
+locale, et surtout **pas de live switch** (reload requis pour changer
+de locale). Effort réaliste : 3-5 jours pour un résultat rigide.
+
+À la place on livre un service i18n runtime signal-based : un seul
+bundle, switch live, dictionnaires flat JSON-like, annotation
+progressive. C'est ce que font la majorité des cockpits SaaS parce que
+l'UX du switcher est supérieure et l'infra build/nginx reste inchangée.
+
+**Infra livrée**
+- `frontend-ng/src/app/core/i18n.service.ts` :
+  - `locale: signal<Locale>` persisté en `localStorage`, initialisé
+    depuis la clé stockée, `?lang=` query-string, ou `navigator.language`.
+  - `t(key, params?) = string` qui lit le signal → toute template qui
+    appelle `i18n.t('…')` re-render au flip FR/EN.
+  - Fallback chain : `EN[key] → FR[key] → key` — FR est 1st-class,
+    EN a le droit d'avoir des trous, la clé brute reste visible pour
+    audit.
+  - Interpolation minimaliste `{name}` placeholders, pas de pluralisation.
+  - Effet side-effect : `document.documentElement.lang = locale`.
+- `frontend-ng/src/app/core/i18n.dict.ts` : ~140 clés FR + EN couvrant
+  common actions, title-bar, nav/rail, account menu, auth, chat,
+  palette, systems/runs shells, workspace shell, empty/error states.
+  Export du type `I18nKey` pour vérification compile-time des appels.
+
+**Switcher livré**
+- Section "Langue / Language" dans le popover du menu utilisateur
+  (title-bar) : deux boutons pill `FR` / `EN` au-dessus de "Sign out".
+  Swap instantané via `I18nService.setLocale()`. Persistance automatique.
+
+**Première passe livrée — surfaces critiques**
+- Title-bar : tooltip chat, toutes les entrées du menu utilisateur,
+  label du switcher.
+- Side-rail : les 5 verbes cockpit (Hypervisor/Build/Operate/Steer/Govern)
+  + leurs hints + le footer "Jump to…".
+- Mini-rail : header `SCOPE <verb>` + labels de sections
+  (Systems, Capabilities, Skills, Knowledge, Flows, Runs, Observability,
+  Intelligence, Missions, Control plane, Contexts, Apps, Resources,
+  Presets…).
+- Command palette : placeholder input + état vide / chargement.
+- Chat overlay : eyebrow `Chat · ⌘J` + title dynamique selon le mode.
+
+**Backlog explicite (hors scope D3)**
+- Passe complète sur les 70+ composants restants : systems-builder,
+  workflow-editor, runs-list, run-view, knowledge-base, governance,
+  observability dashboards, presets, contexts, chat-workspace body,
+  all empty-state components, all confirm dialogs, auth screens
+  (signin/signup/reset), account shell.
+- Les strings internes aux composants (labels in-code dans des tableaux
+  de config comme `COCKPIT_VERBS.sections`, `CommandItem.label`,
+  `NodeTypeDef.label` de `workflow-editor`) sont déjà couverts quand
+  un key `nav.<key>` existe ; pour les autres il faut ajouter
+  l'entrée au dict puis switcher en template `i18n.t(…)`.
+- ToastrService messages (`toastr.success('Workspace created')` etc.)
+  restent en anglais — un pass dédié viendra quand le backlog passe.
+- Dates / nombres : pas encore formatés par locale (`DatePipe` avec
+  `LOCALE_ID` dynamique) — à ajouter si un client demande.
+
+**Done quand — ✅ infra**
+- Switcher visible, persisté, swap live sans reload.
+- Premier lot (~140 clés) traduit FR+EN sur les surfaces structurelles.
+- Zéro régression tsc (`npx tsc --noEmit` clean hors `icon-registry` pré-existant).
 
 ### D4 — Light theme
 

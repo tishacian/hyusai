@@ -9,6 +9,7 @@ import { ApiService } from '@app/core/api.service';
 import { ThemeService } from '@app/core/theme.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { I18nService, type Locale } from '@app/core/i18n.service';
 import { AuthStore } from '@app/store/auth.store';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { GlyphComponent, LiveDotComponent, StatReadoutComponent } from '@app/shared/cockpit';
@@ -103,8 +104,8 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
         [style.justifyContent]="'center'"
         [style.color]="chatOverlay.isOpen() ? 'var(--ck-signal-cool)' : 'var(--ck-fg-2)'"
         [style.cursor]="'pointer'"
-        title="Chat · ⌘J"
-        aria-label="Open chat"
+        [title]="i18n.t('titlebar.chat.tooltip')"
+        [attr.aria-label]="i18n.t('titlebar.chat')"
       >
         <app-icon name="message-square" [size]="14" />
       </button>
@@ -329,14 +330,39 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
               <div class="ck-mono" [style.fontSize.px]="9" [style.color]="'var(--ck-fg-4)'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.12em'" [style.marginTop.px]="2">{{ authStore.role() || 'user' }}</div>
             </div>
             <div class="ck-hairline-h" [style.margin]="'4px 4px'"></div>
-            <button type="button" (click)="navigate('/account/profile')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">My profile</button>
-            <button type="button" (click)="navigate('/account/security')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">Security</button>
-            <button type="button" (click)="navigate('/settings')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">Preferences</button>
+            <button type="button" (click)="navigate('/account/profile')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('account.profile') }}</button>
+            <button type="button" (click)="navigate('/account/security')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('account.security') }}</button>
+            <button type="button" (click)="navigate('/settings')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('nav.settings') }}</button>
             @if (workspaceService.current(); as cur) {
-              <button type="button" (click)="navigate(['/workspace', cur.slug, 'settings'])" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">Workspace settings</button>
+              <button type="button" (click)="navigate(['/workspace', cur.slug, 'settings'])" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('titlebar.workspace') }} · {{ i18n.t('nav.settings') }}</button>
             }
             <div class="ck-hairline-h" [style.margin]="'4px 4px'"></div>
-            <button type="button" (click)="logout()" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-signal-neg)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">Sign out</button>
+            <!-- Locale switcher (Vague D / D3). Live swap, no reload. -->
+            <div [style.padding]="'6px 8px 4px'">
+              <div class="ck-label" [style.marginBottom.px]="4">{{ i18n.t('account.locale') }}</div>
+              <div [style.display]="'flex'" [style.gap.px]="4">
+                @for (lc of i18n.supported; track lc) {
+                  <button
+                    type="button"
+                    (click)="setLocale(lc)"
+                    class="ck-mono"
+                    [style.flex]="'1 1 0'"
+                    [style.padding]="'4px 6px'"
+                    [style.background]="i18n.locale() === lc ? 'var(--ck-signal-cool)' : 'transparent'"
+                    [style.color]="i18n.locale() === lc ? 'var(--ck-bg-base)' : 'var(--ck-fg-2)'"
+                    [style.border]="'1px solid var(--ck-stroke-2)'"
+                    [style.borderRadius.px]="3"
+                    [style.fontSize.px]="10"
+                    [style.fontWeight]="600"
+                    [style.textTransform]="'uppercase'"
+                    [style.letterSpacing]="'0.12em'"
+                    [style.cursor]="'pointer'"
+                  >{{ lc }}</button>
+                }
+              </div>
+            </div>
+            <div class="ck-hairline-h" [style.margin]="'4px 4px'"></div>
+            <button type="button" (click)="logout()" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-signal-neg)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('account.signout') }}</button>
           </div>
         }
       </div>
@@ -348,6 +374,7 @@ export class TitleBarComponent {
   protected readonly workspaceService = inject(WorkspaceService);
   protected readonly authStore = inject(AuthStore);
   protected readonly chatOverlay = inject(ChatOverlayService);
+  protected readonly i18n = inject(I18nService);
   private readonly authBootstrap = inject(AuthBootstrapService);
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authApi = inject(AuthApiService);
@@ -433,6 +460,10 @@ export class TitleBarComponent {
     if (m === 'light') this.themeService.setMode('dark');
     else if (m === 'dark') this.themeService.setMode('system');
     else this.themeService.setMode('light');
+  }
+
+  setLocale(locale: Locale): void {
+    this.i18n.setLocale(locale);
   }
 
   @HostListener('document:click')

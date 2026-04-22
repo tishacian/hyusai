@@ -11,6 +11,7 @@ import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { WorkspaceService, type WorkspaceMode } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 
 /**
  * A cockpit "verb" — what the operator *does* in this mode. Verbs are the
@@ -175,7 +176,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
             [routerLink]="v.primaryRoute"
             class="ck-rail-item"
             [class.ck-rail-item-active]="isActive(v)"
-            [title]="v.label + ' — ' + v.hint"
+            [title]="i18n.t('nav.' + v.key) + ' — ' + i18n.t('nav.hint.' + v.key)"
             [attr.aria-current]="isActive(v) ? 'page' : null"
           >
             @if (isActive(v)) {
@@ -185,8 +186,8 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
               <ck-glyph [name]="v.glyph" [size]="18" />
             </span>
             <span class="ck-rail-label">
-              <span class="ck-rail-label-name">{{ v.label }}</span>
-              <span class="ck-rail-label-hint">{{ v.hint }}</span>
+              <span class="ck-rail-label-name">{{ i18n.t('nav.' + v.key) }}</span>
+              <span class="ck-rail-label-hint">{{ i18n.t('nav.hint.' + v.key) }}</span>
             </span>
           </a>
         }
@@ -197,14 +198,14 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
           type="button"
           class="ck-rail-item ck-rail-item-ghost"
           (click)="openPalette()"
-          [title]="'Command palette · ⌘K'"
+          [title]="i18n.t('titlebar.palette') + ' · ⌘K'"
         >
           <span class="ck-rail-glyph" aria-hidden="true">
             <ck-glyph name="crosshair" [size]="16" />
           </span>
           <span class="ck-rail-label">
-            <span class="ck-rail-label-name">Jump to…</span>
-            <span class="ck-rail-label-hint">⌘K palette</span>
+            <span class="ck-rail-label-name">{{ i18n.t('nav.palette') }}</span>
+            <span class="ck-rail-label-hint">{{ i18n.t('nav.palette.hint') }}</span>
           </span>
         </button>
       </div>
@@ -341,6 +342,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
 export class SideRailComponent {
   private readonly router = inject(Router);
   private readonly workspace = inject(WorkspaceService);
+  protected readonly i18n = inject(I18nService);
 
   readonly expanded = signal(false);
   private expandTimer: ReturnType<typeof setTimeout> | null = null;
