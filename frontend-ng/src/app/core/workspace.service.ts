@@ -38,6 +38,19 @@ export interface WorkspaceMemberDetail {
   is_current_user: boolean;
 }
 
+/**
+ * Response from ``POST /auth/workspaces/{slug}/members``. When
+ * ``invitation_email_sent`` is ``true`` the backend had to provision the
+ * user in Keycloak and dispatched the onboarding email, so the UI can
+ * nudge admins about the email requirement (SMTP must be configured).
+ */
+export interface InviteMemberResponse {
+  status: 'ok';
+  user_id: string;
+  role: 'admin' | 'member';
+  invitation_email_sent: boolean;
+}
+
 const WS_KEY = 'agentium_workspace_slug';
 
 @Injectable({ providedIn: 'root' })
@@ -150,8 +163,15 @@ export class WorkspaceService {
     return this.http.get<WorkspaceMemberDetail[]>(`/api/v1/auth/workspaces/${slug}/members`);
   }
 
-  inviteMember(slug: string, email: string, role: 'admin' | 'member' = 'member'): Observable<unknown> {
-    return this.http.post(`/api/v1/auth/workspaces/${slug}/members`, { email, role });
+  inviteMember(
+    slug: string,
+    email: string,
+    role: 'admin' | 'member' = 'member'
+  ): Observable<InviteMemberResponse> {
+    return this.http.post<InviteMemberResponse>(
+      `/api/v1/auth/workspaces/${slug}/members`,
+      { email, role }
+    );
   }
 
   updateMemberRole(slug: string, userId: string, role: 'admin' | 'member'): Observable<unknown> {

@@ -6,6 +6,12 @@ the workspace-default row of the ``rag_presets`` catalog. The table
 ``SettingsManager`` singleton and any caller relying on it keep working.
 All modern clients should migrate to ``/api/v1/presets`` for multi-scope
 CRUD and set-default semantics.
+
+Vague D / D1 — every call is scoped to the caller's active workspace via
+``get_current_workspace``. Before this pass the proxy silently targeted
+``workspace_id=None`` which is a global singleton row — meaning any user
+could mutate the platform-wide defaults. Now writes only touch the
+caller's own workspace-default preset.
 """
 from typing import Any, Dict
 
@@ -13,9 +19,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_workspace
 from app.core.logging import get_logger
 from app.core.settings_manager import reload_app_settings
 from app.db.base import get_db
+from app.models.workspace import Workspace
 from app.services.rag_preset_service import RagPresetService
 from app.services.settings_service import SettingsService
 
@@ -35,16 +43,21 @@ class SettingsResponse(BaseModel):
 
 
 @router.get("")
-async def get_settings(db: Session = Depends(get_db)) -> SettingsResponse:
+async def get_settings(
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+) -> SettingsResponse:
     """Get current application settings.
 
     Resolution order:
-      1. workspace-default ``rag_presets`` row
-      2. ``app_settings`` singleton (legacy)
+      1. workspace-default ``rag_presets`` row (scoped to caller tenant)
+      2. ``app_settings`` singleton (legacy, process-wide fallback)
       3. in-memory ``SettingsManager`` defaults
     """
     try:
-        preset = RagPresetService.get_or_create_workspace_default(db, workspace_id=None)
+        preset = RagPresetService.get_or_create_workspace_default(
+            db, workspace_id=workspace.id
+        )
         return SettingsResponse(
             settings=dict(preset.config or {}), version="1.0"
         )
@@ -73,13 +86,16 @@ async def get_settings(db: Session = Depends(get_db)) -> SettingsResponse:
 
 
 def _persist_update(
-    db: Session, patch: Dict[str, Any]
+    db: Session, patch: Dict[str, Any], workspace_id: str
 ) -> Dict[str, Any]:
     """Apply the frontend patch to both the legacy ``app_settings`` row and
-    the workspace-default preset, then return the merged config."""
+    the workspace-default preset (scoped to ``workspace_id``), then return
+    the merged config."""
     SettingsService.update_settings(db, patch)
 
-    preset = RagPresetService.get_or_create_workspace_default(db, workspace_id=None)
+    preset = RagPresetService.get_or_create_workspace_default(
+        db, workspace_id=workspace_id
+    )
     RagPresetService.update_preset(db, preset.id, config_patch=patch)
     preset = RagPresetService.get_preset(db, preset.id)
     return dict(preset.config or {})
@@ -88,15 +104,17 @@ def _persist_update(
 @router.post("")
 async def update_settings(
     request: SettingsUpdate,
+    workspace: Workspace = Depends(get_current_workspace),
     db: Session = Depends(get_db),
 ) -> SettingsResponse:
     """Update application settings (persisted to database)."""
     try:
-        merged = _persist_update(db, request.settings)
+        merged = _persist_update(db, request.settings, workspace.id)
         reload_app_settings()
         logger.info(
             "Settings updated and persisted",
             updated_keys=list(request.settings.keys()),
+            workspace_id=workspace.id,
         )
         return SettingsResponse(settings=merged, version="1.0")
     except Exception as e:
@@ -113,11 +131,12 @@ async def update_settings(
 @router.patch("")
 async def partial_update_settings(
     request: SettingsUpdate,
+    workspace: Workspace = Depends(get_current_workspace),
     db: Session = Depends(get_db),
 ) -> SettingsResponse:
     """Partially update application settings."""
     try:
-        merged = _persist_update(db, request.settings)
+        merged = _persist_update(db, request.settings, workspace.id)
         reload_app_settings()
         return SettingsResponse(settings=merged, version="1.0")
     except Exception as e:

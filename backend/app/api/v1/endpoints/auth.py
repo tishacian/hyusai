@@ -1019,6 +1019,91 @@ async def list_members(
     return result
 
 
+async def _find_or_create_kc_user(
+    email: str, admin_token: str
+) -> tuple[str, bool]:
+    """Look up a Keycloak user by email, provisioning one with the
+    ``UPDATE_PASSWORD`` + ``VERIFY_EMAIL`` required actions when missing.
+
+    Returns ``(keycloak_sub, was_created)``. Raises ``HTTPException`` on
+    hard failures (bad admin token, 5xx from Keycloak).
+    """
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{_get_admin_url()}/users",
+            params={"email": email, "exact": "true"},
+            headers=headers,
+            timeout=10,
+        )
+    if resp.status_code == 200:
+        existing = resp.json() or []
+        if existing:
+            return existing[0]["id"], False
+
+    kc_user = {
+        "username": email,
+        "email": email,
+        "enabled": True,
+        "emailVerified": False,
+        "requiredActions": ["UPDATE_PASSWORD", "VERIFY_EMAIL"],
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{_get_admin_url()}/users",
+            json=kc_user,
+            headers={**headers, "Content-Type": "application/json"},
+            timeout=15,
+        )
+    if resp.status_code not in (201, 204):
+        logger.error(
+            "Keycloak invite provisioning failed: %s %s",
+            resp.status_code,
+            resp.text,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to provision the invitee in Keycloak",
+        )
+    location = resp.headers.get("Location", "")
+    kc_sub = location.rsplit("/", 1)[-1] if location else ""
+    if not kc_sub:
+        raise HTTPException(
+            status_code=502,
+            detail="Keycloak did not return the newly created user id",
+        )
+    return kc_sub, True
+
+
+async def _send_invitation_email(kc_sub: str, admin_token: str) -> None:
+    """Trigger the ``UPDATE_PASSWORD``/``VERIFY_EMAIL`` action email.
+
+    Fails silent (logged warning) because the membership has already been
+    created at this point — the operator can re-trigger via the password
+    reset endpoint if SMTP is unavailable.
+    """
+    headers = {
+        "Authorization": f"Bearer {admin_token}",
+        "Content-Type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(
+                f"{_get_admin_url()}/users/{kc_sub}/execute-actions-email",
+                json=["UPDATE_PASSWORD", "VERIFY_EMAIL"],
+                headers=headers,
+                timeout=10,
+            )
+        if resp.status_code not in (200, 204):
+            logger.warning(
+                "Keycloak invitation email not sent (status=%s, body=%s)",
+                resp.status_code,
+                resp.text,
+            )
+    except Exception:
+        logger.warning("Keycloak invitation email delivery failed", exc_info=True)
+
+
 @router.post("/workspaces/{slug}/members")
 async def invite_member(
     slug: str,
@@ -1026,15 +1111,51 @@ async def invite_member(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    """Invite a teammate into the workspace.
+
+    Resolution order:
+      1. Local ``User`` row exists → just add the membership.
+      2. Keycloak user exists (by email) but no local row → stub a local
+         ``User`` linked to that ``keycloak_sub`` + add the membership.
+      3. Neither → provision a fresh Keycloak user with
+         ``UPDATE_PASSWORD`` + ``VERIFY_EMAIL`` required actions, trigger
+         the onboarding email, then create the local stub + membership.
+
+    The caller must be ``owner`` or ``admin`` of the workspace.
+    """
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_admin(membership)
 
-    target_user = db.query(User).filter(User.email == body.email).first()
+    if body.role not in ("admin", "member"):
+        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
+
+    email = body.email.lower()
+    target_user = db.query(User).filter(User.email == email).first()
+    created_in_kc = False
+
     if not target_user:
-        raise HTTPException(
-            status_code=404,
-            detail="User not found. They must sign up first. (Email invites coming soon.)",
-        )
+        admin_token = await _get_admin_token()
+        if not admin_token:
+            raise HTTPException(
+                status_code=503,
+                detail="Cannot reach Keycloak admin API to provision the invitee",
+            )
+        kc_sub, created_in_kc = await _find_or_create_kc_user(email, admin_token)
+        if created_in_kc:
+            await _send_invitation_email(kc_sub, admin_token)
+
+        target_user = db.query(User).filter(User.keycloak_sub == kc_sub).first()
+        if not target_user:
+            target_user = User(
+                id=str(uuid4()),
+                keycloak_sub=kc_sub,
+                username=email,
+                email=email,
+                role="user",
+                is_active=True,
+            )
+            db.add(target_user)
+            db.flush()
 
     existing = db.query(WorkspaceMember).filter(
         WorkspaceMember.user_id == target_user.id,
@@ -1043,13 +1164,26 @@ async def invite_member(
     if existing:
         raise HTTPException(status_code=409, detail="User is already a member")
 
-    if body.role not in ("admin", "member"):
-        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
-
-    new_member = WorkspaceMember(user_id=target_user.id, workspace_id=workspace.id, role=body.role)
+    new_member = WorkspaceMember(
+        user_id=target_user.id,
+        workspace_id=workspace.id,
+        role=body.role,
+    )
     db.add(new_member)
     db.commit()
-    return {"status": "ok", "user_id": target_user.id, "role": body.role}
+    logger.info(
+        "Invited teammate to workspace",
+        workspace_id=workspace.id,
+        target_user=target_user.id,
+        role=body.role,
+        provisioned_in_keycloak=created_in_kc,
+    )
+    return {
+        "status": "ok",
+        "user_id": target_user.id,
+        "role": body.role,
+        "invitation_email_sent": created_in_kc,
+    }
 
 
 @router.patch("/workspaces/{slug}/members/{user_id}")

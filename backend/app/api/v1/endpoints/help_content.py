@@ -1,8 +1,14 @@
-"""Help content endpoint — serves persona-aware tooltips for the cockpit."""
+"""Help content endpoint — serves persona-aware tooltips for the cockpit.
+
+``GET`` is intentionally public (the frontend fetches it on boot, before
+the user is authenticated, to populate static UI copy). ``POST /reload``
+is admin/operator-only and therefore auth-gated.
+"""
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.core.auth import get_current_user
 from app.schemas.help import HelpContentIndex
 from app.services.help_content import get_help_index, load_help_index
 
@@ -22,7 +28,7 @@ async def list_help_content(
     return get_help_index(ids)
 
 
-@router.post("/reload")
+@router.post("/reload", dependencies=[Depends(get_current_user)])
 async def reload_help_content():
     """Hot-reload the registry — useful in dev / after content edits."""
     index = load_help_index(force=True)

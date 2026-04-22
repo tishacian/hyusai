@@ -7,6 +7,7 @@ observe any residual calls in production logs.
 """
 from fastapi import APIRouter, Depends, HTTPException, Response
 from typing import List, Dict, Any
+from app.core.auth import get_current_user
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -24,7 +25,14 @@ def _stamp_deprecated(response: Response) -> Response:
     return response
 
 
-router = APIRouter(dependencies=[Depends(_stamp_deprecated)])
+router = APIRouter(
+    dependencies=[
+        Depends(_stamp_deprecated),
+        # Gate the deprecated surface behind auth so anonymous callers can
+        # not enumerate the in-memory orchestrator inventory.
+        Depends(get_current_user),
+    ]
+)
 
 # This will be set by the main app
 _orchestrator = None

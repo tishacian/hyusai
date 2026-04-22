@@ -1,13 +1,19 @@
-"""Voice endpoints: STT (Whisper) and TTS (OpenAI)"""
+"""Voice endpoints: STT (Whisper) and TTS (OpenAI).
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+Auth gated (Vague D / D1): this router proxies paid OpenAI APIs, so
+unauthenticated callers would be a cost-abuse vector. Both transcription
+and synthesis now require a valid session token.
+"""
+
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import openai
 
+from app.core.auth import get_current_user
 from app.core.config import settings
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 _client = None
 

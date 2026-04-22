@@ -9,6 +9,7 @@ from this router is stamped with three RFC-8594 style headers:
 """
 from fastapi import APIRouter, Depends, HTTPException, Response
 from typing import Optional
+from app.core.auth import get_current_user
 from app.services.tracing.rag_tracer import get_tracer
 from app.core.logging import get_logger
 
@@ -27,7 +28,14 @@ def _stamp_deprecated(response: Response) -> Response:
     return response
 
 
-router = APIRouter(dependencies=[Depends(_stamp_deprecated)])
+router = APIRouter(
+    dependencies=[
+        Depends(_stamp_deprecated),
+        # Gate the deprecated surface behind auth so anonymous callers can
+        # not scrape the in-memory tracer across tenants.
+        Depends(get_current_user),
+    ]
+)
 
 
 @router.get("/traces")

@@ -1,11 +1,17 @@
-"""Metrics and monitoring endpoints"""
-from fastapi import APIRouter
+"""Metrics and monitoring endpoints.
+
+Auth gated (Vague D / D1): process-level metrics (query counts, cache
+stats) could leak customer activity if left open, so the whole router
+requires an authenticated user.
+"""
+from fastapi import APIRouter, Depends
+from app.core.auth import get_current_user
 from app.core.monitoring import metrics_collector
 from app.core.cache import cache
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.get("")

@@ -34,7 +34,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             <div>
               <h2 class="text-base font-semibold text-white">Invite member</h2>
               <p class="text-sm text-gray-400 mt-0.5">
-                The person must already have an Agentium account. Email invites for new users coming soon.
+                Invite anyone by email. Existing Agentium users are added instantly; new addresses are provisioned in Keycloak and receive a password-setup email.
               </p>
             </div>
           </div>
@@ -224,9 +224,12 @@ export class WorkspaceMembersComponent {
     if (!email) return;
     this.inviting.set(true);
     this.workspaceService.inviteMember(slug, email, this.inviteRole).subscribe({
-      next: () => {
+      next: (res) => {
         this.inviting.set(false);
-        this.toastr.success(`Invited ${email} as ${this.inviteRole}`, 'Member added');
+        const verb = res?.invitation_email_sent
+          ? 'Invitation email sent'
+          : 'Member added';
+        this.toastr.success(`${email} is now ${this.inviteRole}`, verb);
         this.inviteEmail = '';
         this.load(slug);
       },

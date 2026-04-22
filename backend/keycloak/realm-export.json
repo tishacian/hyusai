@@ -165,6 +165,44 @@
       "clientRoles": {
         "core-service": ["organization_admin"]
       }
+    },
+    {
+      "username": "alice@acme.test",
+      "email": "alice@acme.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Acme",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice-demo",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "company": ["Acme Corp"],
+        "job_title": ["Head of Data"]
+      }
+    },
+    {
+      "username": "bob@globex.test",
+      "email": "bob@globex.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Globex",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob-demo",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "company": ["Globex"],
+        "job_title": ["Data Scientist"]
+      }
     }
   ]
 }

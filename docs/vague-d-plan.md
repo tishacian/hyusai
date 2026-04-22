@@ -161,50 +161,80 @@ surface :
 - Chaque message produit un `Run` réel observable dans `/runs`.
 - Aucun changement sur la side-rail 5-verbes (cockpit taxonomy intact).
 
-### D1 — Keycloak OIDC multi-tenant
+### D1 — Keycloak OIDC multi-tenant (hardening)
 
-**Contrat produit**
-- L'utilisateur s'authentifie via Keycloak (realm `agentium`), pas de
-  compte local.
+**Contexte**
+L'audit d'avril 2026 a révélé que l'infra OIDC est déjà en place : flux
+Authorization Code + PKCE frontend, `get_current_workspace` backend,
+`WorkspacePickerComponent` title-bar. D1 passe donc de
+« implémentation » à « hardening pour vrais clients ». L'objectif est
+d'éliminer les chemins latéraux restants, d'automatiser la preuve
+d'isolation et de clore le cycle onboarding/offboarding.
+
+**Contrat produit (inchangé)**
+- L'utilisateur s'authentifie via Keycloak (realm `agentium`).
 - Un user peut appartenir à N workspaces ; le workspace actif est
-  stocké côté backend dans la session + reflété dans
-  `X-Workspace-Slug` côté front.
+  stocké côté backend + reflété dans `X-Workspace-Slug` côté front.
 - Toute requête API hors `/api/v1/auth/*` exige un JWT valide + un
   workspace résolu (sinon 401 / 400 explicite).
 
-**Backend**
-- Câblage réel de `keycloak-py` / `python-jose` dans
-  `backend/app/core/security.py` (aujourd'hui shim).
-- Middleware `resolve_workspace` qui, à partir de `X-Workspace-Slug`,
-  charge le `Workspace` en scope, refuse si l'utilisateur n'en est pas
-  membre, expose via `request.state.workspace`.
-- Toutes les requêtes ORM `Run`, `System`, `Skill`, `Knowledge`,
-  `Decision`, `Outcome`, `SkillInvocation` filtrent sur
-  `workspace_id` (audit des endpoints existants).
-- `POST /api/v1/workspaces` + `POST /api/v1/workspaces/{id}/members`
-  + `DELETE` + `PATCH role` + invitations email (stub SMTP pour la
-  démo, pluggable en prod).
-- Migration Alembic : FK `workspace_id NOT NULL` + backfill des
-  workspaces existants vers un `default` puis contrainte stricte.
+**Backend — hardening livré**
+- Audit exhaustif des 28 fichiers d'endpoints (`agents`, `audit`,
+  `settings`, `metrics`, `models`, `voice`, `help_content`, `traces`,
+  `reasoning`) : tout ce qui touche à de la donnée tenant passe par
+  `get_current_workspace`, le reste est au minimum gated par
+  `get_current_user`.
+- Correction de deux fuites réelles :
+  - `POST/GET /audit` ne posait ni filtre `workspace_id` ni stampe
+    d'acteur fiable → le modèle `AuditLog` exposait tous les audits de
+    tous les tenants. Corrigé : écriture stampée serveur-side (username
+    authentifié), lecture filtrée sur `workspace_id`.
+  - Le proxy legacy `/settings` écrivait sur la ligne singleton
+    `rag_presets(workspace_id = NULL)` — toute mutation touchait les
+    defaults plateforme. Corrigé : scoping via `get_current_workspace`.
+- Flow `Invite teammate` finalisé : si l'email cible existe déjà en
+  Keycloak → stub le `User` local + ajoute la membership ; sinon →
+  provisionne l'user Keycloak avec les required actions
+  `UPDATE_PASSWORD` + `VERIFY_EMAIL` et déclenche
+  `execute-actions-email`. La réponse remonte `invitation_email_sent`
+  pour que l'UI annonce « Invitation email sent » vs « Member added ».
 
-**Frontend**
-- `AuthInterceptor` existant : remplacer le flow password-grant shim
-  par Authorization Code + PKCE, `code_challenge_method=S256`.
-- `TokenStorageService` : stocker `access_token`, `refresh_token`,
-  `expires_at`. Silent refresh 60 s avant expiration.
-- Nouveau `WorkspacePickerComponent` dans la side-rail footer
-  (dropdown) + `CreateWorkspaceDialogComponent` (modal `MatDialog`).
-- Page `/workspace` déjà existante → peupler réellement via
-  `GET /workspaces/{id}/members` + `POST /invitations`.
-- `AuthGuard` → redirect `/auth/login` si token invalide avec
-  `queryParams: { redirectURL }`.
+**Frontend — hardening livré**
+- Copy de `WorkspaceMembersComponent` mis à jour : plus de message
+  « Email invites coming soon » — l'invitation mail est gérée par le
+  backend.
+- Toast adapté : distingue provisioning Keycloak (email envoyé) et
+  simple ajout d'un user existant.
+
+**Onboarding opérateur livré**
+- `docs/operator-tenant-provisioning.md` : playbook end-to-end
+  (self-service, VIP-driven, offboarding, backup/restore, smoke).
+- Seeds réalistes dans `backend/keycloak/realm-export.json` :
+  `alice@acme.test` / `alice-demo` et `bob@globex.test` / `bob-demo`
+  pour alimenter les POC et le script d'isolation.
+
+**Preuve d'isolation livrée**
+- `backend/scripts/test_tenant_isolation.sh` : script bash paramétrable
+  qui log Alice + Bob, crée leurs workspaces/systèmes, vérifie qu'aucun
+  ne voit l'autre (list, GET direct, PATCH direct, spoof de
+  `X-Workspace-Slug`, isolation des audit logs). Exit-code non-nul
+  dès la première fuite — à brancher en CI / en smoke post-deploy.
+
+**Reste à faire côté VM (manuel, hors agent)**
+- Exposer Keycloak sur un hostname dédié (p. ex.
+  `auth.agentium.papai.ai`) ou router `/realms/*` vers le conteneur
+  via le reverse-proxy — la sonde externe actuelle renvoie la SPA.
+- Lancer `test_tenant_isolation.sh` en prod après exposition publique
+  de Keycloak et configuration SMTP.
 
 **Done quand**
 - Deux comptes Keycloak distincts voient chacun leurs propres `Run`,
-  `System`, `Skill`, `Knowledge` — vérifié par test e2e Playwright
-  (workspace isolation).
-- Un workspace supprimé supprime en cascade ses runs / systèmes /
-  décisions (ou refuse si policies actives, au choix produit).
+  `System`, `Skill`, `Knowledge` (vérifié par
+  `test_tenant_isolation.sh`, 0 fail).
+- Un admin peut inviter un email inexistant en Keycloak et le
+  destinataire reçoit un lien d'onboarding.
+- Plus aucun endpoint hors `/auth`/`/health`/`/help_content GET` ne
+  répond à un appel anonyme.
 
 ### D2 — Streaming LLM token-by-token
 

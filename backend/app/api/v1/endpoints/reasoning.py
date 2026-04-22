@@ -10,11 +10,12 @@ introspection concerns.
 """
 from typing import Any, Dict, List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.core.auth import get_current_user
 from app.services.system_prompts import SYSTEM_PROMPT_TEMPLATES, SystemPromptType
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 _DESCRIPTIONS: Dict[str, str] = {
