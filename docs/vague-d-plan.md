@@ -63,7 +63,7 @@ D0 qui rétablit cette surface.
 | - | ----- | -------- | ------ | --------- |
 | **D0** | **Chat workspace surface : route `/chat` plein écran + icône title-bar + ⌘J + commandes palette + context éphémère drop-and-ask** | **P0** | **M** | — |
 | D1 | Keycloak OIDC multi-tenant (full auth + workspace scope backend + picker UI) | P0 | L | — |
-| D2 | Streaming LLM token-by-token via SSE `token_delta` | P1 | M | C7 (event bus) |
+| ~~D2~~ | ~~Streaming LLM token-by-token via SSE `token_delta`~~ ✅ livré | ~~P1~~ | ~~M~~ | C7 (event bus) |
 | D3 | i18n FR / EN (`@angular/localize` + extraction + switcher) | P2 | M | — |
 | D4 | Light theme (`ThemeService` + tokens light + toggle) | P2 | S | — |
 | D5 | Dette C11 : Sass `@import` → `@use`, drawflow CJS allowlist, signin budget | P3 | S | — |
@@ -236,7 +236,7 @@ d'isolation et de clore le cycle onboarding/offboarding.
 - Plus aucun endpoint hors `/auth`/`/health`/`/help_content GET` ne
   répond à un appel anonyme.
 
-### D2 — Streaming LLM token-by-token
+### D2 — Streaming LLM token-by-token ✅ livré
 
 **Contrat produit**
 - Pendant un `node.kind = task` dont la skill appelle un LLM, le SSE
@@ -245,30 +245,70 @@ d'isolation et de clore le cycle onboarding/offboarding.
 - Le terminal Execution rend chaque delta en mode typewriter dans le
   message courant ; `node_end` fige la version finale.
 
-**Backend**
-- `RunEventBus.publish({"type": "token_delta", "node_id": …,
-  "invocation_id": …, "text": "…"})` — non bloquant.
-- Adapter `SkillInvocation` → exposer un callback `on_token(chunk)`
-  quand le skill sous-jacent est streaming (`rag_service.chat_stream`
-  p.ex.).
-- `_execute_task_node` accepte un `token_sink=event_bus.publish_token`
-  optionnel ; défaut = no-op pour préserver le sequential walker.
-- Un flag workspace `features.llm_streaming = true` gouverne l'émission
-  (fallback propre pour les tenants qui préfèrent les logs bruts).
+**Backend — livré**
+- Nouveau module `backend/app/services/run_engine/streaming.py` :
+  - `TokenSink` (alias `Callable[[str], None]`).
+  - `make_token_sink(run_id, node_id, invocation_id, bus)` : closure
+    qui publie `{"kind": "token_delta", "node_id", "invocation_id",
+    "text", "seq"}` sur `RunEventBus`.
+  - Coalescing interne (`min_flush_chars=8`, `min_flush_interval_s=0.04`)
+    pour éviter la surcharge SSE quand un LLM crache 100+ tokens/s.
+  - `flush_token_sink(sink)` draine le buffer résiduel juste avant
+    `node_end` pour garantir que la dernière rafale passe.
+- `_execute_task_node` (`engine.py`) :
+  - Fork du ctx via `skill_ctx = dict(ctx)` pour éviter qu'un sibling
+    DAG ne récupère le sink d'un autre branche.
+  - Injecte `ctx["token_sink"]` UNIQUEMENT si `event_bus.is_live(run.id)`
+    — donc sequential walker (sans subscriber SSE) reste à coût zéro.
+  - Appelle `flush_token_sink()` dans `finally`.
+- Skills streamées :
+  - `_azure_llm_v1` : consomme `ctx["token_sink"]` via
+    `OpenAIClient.stream()` (fallback propre sur `generate()` en cas
+    d'erreur de stream).
+  - `_llm_rag_answer_v1` : propage le sink à `rag_service.answer()`.
+  - `rag_service.answer()` : nouveau param `token_sink` qui ré-émet
+    chaque `chunk_type = "text"` de l'orchestrateur.
+- Pas de flag workspace — le plumbing est no-op tant que personne
+  n'écoute le bus. On ajoutera un `features.llm_streaming = false`
+  côté settings si un tenant demande le fallback "logs bruts".
 
-**Frontend**
-- `RunStreamService` : reconnaître le type `token_delta` dans le
-  parser SSE existant.
-- `workflow-editor.component` (terminal block) : buffer par
-  `(node_id, invocation_id)`, rendre incrémental, figer au `node_end`.
-- Respecter le mode `replay` : les deltas persistés sur des runs
-  complétés peuvent être rejoués au même rythme (ou en burst si
-  `replay.speed = instant`).
+**Frontend — livré**
+- `RunStreamService` : déjà agnostique — `token_delta` passe via le
+  parser SSE existant (champ `event.event = "token_delta"`).
+- `workflow-editor.component` (terminal block) :
+  - Nouveau champ `streamId` sur `TerminalEntry`.
+  - Nouvel helper `appendStreamToken(streamId, delta, tag, tone)` :
+    append in-place si une entrée avec le même `streamId` existe
+    déjà, sinon créé une entrée neuve. Groupé par `invocation_id`
+    (fallback `node_id`, puis `run_id`).
+  - Case `token_delta` dans `emitStreamEvent` : appelle l'helper
+    avec tag `LLM` et tone `cyan`.
+  - Cap à 200 entrées du terminal conservé.
 
-**Done quand**
-- Un run `task` avec LLM affiche un flux token visible à l'écran.
-- `replay` cinématique restitue le même flux token (et non juste le
-  résultat final) sur un run déjà complété.
+**Tests — livré**
+- `backend/app/tests/services/test_run_engine_streaming.py` :
+  - Publication basique (`run_id / node_id / invocation_id / seq`).
+  - Coalescing (`min_flush_chars` bloque puis libère).
+  - `flush_token_sink` draine le résidu.
+  - Safe sur `None` et chunks vides.
+
+**Hors scope / reporté**
+- **Replay cinématique** : le frontend simule le typewriter à partir
+  de l'output finalisé (`SkillInvocation.output_ref`). Persister les
+  deltas pour rejouer au rythme exact serait un gros bloat
+  (checkpoint JSON qui explose). Sera ré-examiné si un vrai besoin
+  produit apparaît.
+- **Flag workspace `features.llm_streaming`** : pas livré — le
+  plumbing est déjà opt-in (nécessite un subscriber SSE actif).
+- **Chat overlay (D0)** : le panel utilise déjà son propre stream
+  via `rag_service` direct ; pas de token_delta à propager. Le
+  stream actuel (`chat_stream`) remplit déjà le même rôle côté UX.
+
+**Done quand — ✅**
+- Un run `task` avec LLM affiche un flux token visible à l'écran
+  via `/runs/:id/stream?event=token_delta`.
+- Le walker sequential (sans subscriber SSE) reste inchangé à cost-0.
+- Les tests unitaires couvrent publication + coalescing + flush.
 
 ### D3 — i18n FR / EN
 

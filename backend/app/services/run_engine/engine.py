@@ -37,6 +37,9 @@ from app.models.system import System
 from app.services.outcome.derive import derive_outcome
 from app.services.skills_registry import resolve as resolve_skill
 
+from .events import bus as event_bus
+from .streaming import flush_token_sink, make_token_sink
+
 logger = get_logger(__name__)
 
 
@@ -252,10 +255,22 @@ async def _execute_task_node(
     db.add(invocation)
     db.commit()
 
+    # Wire a token sink into ctx iff someone is actually listening on the
+    # run's live bus. Skills that don't know about streaming simply
+    # ignore the extra key; streaming-capable ones (see
+    # ``_azure_llm_v1`` / ``_llm_rag_answer_v1``) dispatch deltas to it
+    # token-by-token. We build a shallow copy so sibling DAG branches
+    # don't pick up each other's sinks through a shared ctx reference.
+    skill_ctx: Dict[str, Any] = dict(ctx) if ctx is not None else {}
+    token_sink = None
+    if event_bus.is_live(run.id):
+        token_sink = make_token_sink(run.id, node_id, invocation.id)
+        skill_ctx["token_sink"] = token_sink
+
     t0 = time.monotonic()
     try:
         fn = resolve_skill(slug)
-        output = await fn(invocation.input_ref, ctx)
+        output = await fn(invocation.input_ref, skill_ctx)
         invocation.output_ref = output or {}
         invocation.status = "completed"
     except NotImplementedError as nie:
@@ -268,6 +283,11 @@ async def _execute_task_node(
         logger.warning(
             "run_engine: skill failed", run_id=run.id, skill=slug, error=str(exc)
         )
+    finally:
+        # Drain whatever small residual burst is still in the sink's
+        # coalescing buffer so the SSE client sees the tail of the
+        # completion before `node_end` lands.
+        flush_token_sink(token_sink)
 
     invocation.latency_ms = (time.monotonic() - t0) * 1000
     invocation.completed_at = datetime.utcnow()

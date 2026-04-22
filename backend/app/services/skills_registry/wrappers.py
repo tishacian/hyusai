@@ -68,6 +68,11 @@ async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, An
         prompt_type=payload.get("prompt_type") or ctx.get("default_prompt_type"),
         model=payload.get("model") or ctx.get("default_model"),
         provider=payload.get("provider"),
+        # Forward the run-engine sink so the orchestrator's text
+        # chunks are rebroadcast as SSE token_delta events in real
+        # time (Vague D / D2). Non-streaming callers simply don't pass
+        # the sink and observe no behavioural change.
+        token_sink=ctx.get("token_sink"),
     )
     return {
         "answer": result.get("answer", ""),
@@ -257,10 +262,37 @@ async def _azure_llm_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] =
             "status": "degraded",
             "warning": "openai_key_unavailable",
         }
-    result = await client.generate(
-        model=payload.get("model") or "gpt-4o-mini",
-        prompt=payload["prompt"],
-    )
+
+    ctx = ctx or {}
+    token_sink = ctx.get("token_sink")
+    model = payload.get("model") or "gpt-4o-mini"
+    prompt = payload["prompt"]
+
+    # Stream token-by-token when the run engine provided a sink (Vague D
+    # / D2). Every delta is pushed to the live SSE bus so the cockpit's
+    # Execution terminal can render a typewriter effect; we also
+    # accumulate the final text so the non-streaming contract
+    # (`completion` field) keeps working for replay.
+    if callable(token_sink):
+        try:
+            parts: list[str] = []
+            async for chunk in client.stream(model=model, prompt=prompt):
+                delta = chunk.get("delta") or ""
+                if delta:
+                    parts.append(delta)
+                    token_sink(delta)
+            return {
+                "completion": "".join(parts),
+                "model": model,
+                "streamed": True,
+            }
+        except Exception as exc:  # noqa: BLE001 — fall back to non-streaming
+            logger.warning(
+                "azure_llm_v1: streaming failed, falling back",
+                error=str(exc),
+            )
+
+    result = await client.generate(model=model, prompt=prompt)
     return {
         "completion": result.get("content", ""),
         "model": result.get("model"),

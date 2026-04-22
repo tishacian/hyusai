@@ -13,7 +13,7 @@ trail as the live chat endpoint.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from app.core.logging import get_logger
 
@@ -43,12 +43,19 @@ async def answer(
     max_tokens: Optional[int] = None,
     system_prompt: Optional[str] = None,
     extra_preferences: Optional[Dict[str, Any]] = None,
+    token_sink: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """Run one RAG request end-to-end and return an aggregated payload.
 
     This is the facade that canonical skills + programmatic callers use.
     The HTTP chat endpoints keep streaming directly from the orchestrator;
     this helper simply consumes that stream and folds it back into a dict.
+
+    When ``token_sink`` is provided (Vague D / D2), every ``chunk_type =
+    text`` segment is also forwarded to the sink in arrival order, so
+    the Run engine can rebroadcast the answer token-by-token through
+    the SSE bus without breaking the aggregated return contract used
+    by non-streaming callers.
     """
     orchestrator = _get_orchestrator()
     if orchestrator is None:
@@ -113,7 +120,16 @@ async def answer(
             if first_id is None:
                 first_id = chunk.get("id")
             if chunk.get("chunk_type") == "text":
-                text_parts.append(chunk.get("content", ""))
+                content = chunk.get("content", "")
+                text_parts.append(content)
+                if token_sink is not None and content:
+                    try:
+                        token_sink(content)
+                    except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "rag_service.answer: token_sink raised, dropping chunk",
+                            exc_info=True,
+                        )
             if chunk.get("reasoning_trace"):
                 reasoning_trace = chunk.get("reasoning_trace")
             if chunk.get("sources"):

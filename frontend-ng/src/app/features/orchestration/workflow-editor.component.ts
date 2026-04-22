@@ -65,6 +65,12 @@ interface TerminalEntry {
   tag: string; // [System], [Skill], ...
   tone: NodeTone | 'pos' | 'neg' | 'warn' | 'info';
   text: string;
+  /**
+   * Optional stream id used by token_delta events (Vague D / D2) to
+   * append deltas to a single entry instead of flooding the terminal
+   * with one line per chunk. Typically the invocation id.
+   */
+  streamId?: string;
 }
 
 interface FlowTemplate {
@@ -1006,6 +1012,33 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     });
   }
 
+  /**
+   * Append a token delta to an existing streaming entry, or create a
+   * new one when the first delta for an invocation arrives. Keeps the
+   * Execution Terminal from exploding when an LLM emits dozens of
+   * chunks per second — only the tail line grows, character-by-character.
+   */
+  private appendStreamToken(
+    streamId: string,
+    delta: string,
+    tag: string,
+    tone: TerminalEntry['tone'],
+  ): void {
+    if (!delta) return;
+    this.terminalLog.update((log) => {
+      for (let i = log.length - 1; i >= 0; i--) {
+        if (log[i].streamId === streamId) {
+          const next = [...log];
+          next[i] = { ...next[i], text: next[i].text + delta };
+          return next;
+        }
+      }
+      const t = new Date().toTimeString().slice(0, 8);
+      const next = [...log, { t, tag, tone, text: delta, streamId }];
+      return next.length > 200 ? next.slice(next.length - 200) : next;
+    });
+  }
+
   clearTerminal(): void {
     this.terminalLog.set([]);
   }
@@ -1593,6 +1626,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       reason?: string;
       outcome?: Run['outcome'];
       checkpoints_emitted?: number;
+      invocation_id?: string;
+      text?: string;
+      seq?: number;
     };
     const ts = data.t;
     if (typeof ts === 'string') {
@@ -1690,6 +1726,14 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           }
         }
         break;
+      case 'token_delta': {
+        // Live LLM chunks (Vague D / D2). Group by invocation id so
+        // each streaming node owns exactly one terminal line that
+        // grows in place instead of flooding the log.
+        const streamId = data.invocation_id ?? data.node_id ?? runId;
+        this.appendStreamToken(streamId, data.text ?? '', 'LLM', 'cyan');
+        break;
+      }
       case 'close':
         // Noop — stream will `complete()` right after this frame.
         break;
