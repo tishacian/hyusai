@@ -97,7 +97,7 @@ expect_code 401 GET "$BACKEND_URL/api/v1/settings"            "GET /settings  (n
 expect_code 401 GET "$BACKEND_URL/api/v1/skills"              "GET /skills    (no token → 401)"
 expect_code 401 GET "$BACKEND_URL/api/v1/capabilities"        "GET /caps      (no token → 401)"
 expect_code 401 GET "$BACKEND_URL/api/v1/models"              "GET /models    (no token → 401)"
-expect_code 401 GET "$BACKEND_URL/api/v1/voice/transcribe"    "GET /voice     (no token → 401/405)"
+expect_code 401 POST "$BACKEND_URL/api/v1/voice/transcribe"   "POST /voice/transcribe (no token → 401)"
 expect_code 401 GET "$BACKEND_URL/api/v1/contexts"            "GET /contexts  (no token → 401)"
 expect_code 401 GET "$BACKEND_URL/api/v1/auth/workspaces"     "GET /auth/workspaces (no token → 401)"
 
@@ -161,11 +161,12 @@ else
     ko "EN dictionary NOT found in bundle"
   fi
 
-  # D4 — light theme tokens compiled into styles.
-  if grep -qr 'data-theme="light"' "$FRONTEND_DIST" --include='*.css' 2>/dev/null; then
+  # D4 — light theme tokens compiled into styles. The Angular CSS
+  # optimiser strips attribute-selector quotes, so accept both forms.
+  if grep -qrE 'data-theme=("?)light\1]' "$FRONTEND_DIST" --include='*.css' 2>/dev/null; then
     ok "light theme tokens compiled in CSS"
   else
-    ko "light theme selector [data-theme=\"light\"] missing from CSS"
+    ko "light theme selector [data-theme=light] missing from CSS"
   fi
   if grep -qr '\-\-ck-on-signal' "$FRONTEND_DIST" --include='*.css' 2>/dev/null; then
     ok "--ck-on-signal token present (D4 signal contrast)"
