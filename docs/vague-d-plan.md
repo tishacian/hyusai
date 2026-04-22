@@ -68,7 +68,7 @@ D0 qui rétablit cette surface.
 | ~~D4~~ | ~~Light theme~~ — tokens livrés, sweep shadows/scrim/tints, toggle 3-états FR/EN | P2 | S | — |
 | D5 | Dette C11 : Sass `@import` → `@use`, drawflow CJS allowlist, signin budget | P3 | S | — |
 | D6 | Tests d'intégration walker DAG (pytest e2e + Playwright UI fork/join/HITL/debug) | P1 | M | C6/C8 |
-| ~~D7~~ | ~~Build + deploy VM + smoke tests Vague D~~ — scripts prêts, exécution humaine requise | P0 | S | D0→D6 |
+| ~~D7~~ | ~~Build + deploy VM + smoke tests Vague D~~ — déployé sur `agentium.papai.ai`, smoke 28/28 vert | P0 | S | D0→D6 |
 
 Taille : S ≈ ½ journée, M ≈ 1 à 2 jours, L ≈ 3 à 5 jours.
 
@@ -807,3 +807,39 @@ en fonction du retour démo.
 - **2026-04-21** — D7 : scripts `smoke_vague_d.sh` + runbook
   `operator-deploy-vague-d.md` livrés. Déploiement effectif à faire
   sur la VM (humain / CI).
+- **2026-04-22** — **D7 déployé en prod** sur `agentium.papai.ai` :
+  - `git pull → 82f2fe5` + `alembic upgrade head`
+    (`010_context_ephemeral` appliqué).
+  - `ng build -c production` sur la VM (Node 22) — 18 s · 109 fichiers.
+    Une seule dépréciation attendue : `drawflow.min.css` 15 kB > budget
+    8 kB (pré-existant D5, non bloquant).
+  - `rsync dist/agentium/browser/ → /var/www/agentium/` + bounce
+    uvicorn (`setsid nohup` pour détacher proprement du canal SSH).
+  - **Smoke Tier 1+2+3 : 28 PASS / 0 FAIL / 1 SKIP** (Tier 4 opt-in).
+    Tier 2 & 4 ont failli skipper à cause de deux découvertes :
+    - Le realm Keycloak s'appelle `papai-org` (pas `agentium`).
+    - Le backend D1 auto-provisionne une personal workspace sur le
+      premier login (slug `personal-xxxxxxx`). Smoke patché pour
+      auto-découvrir le slug.
+  - `test_tenant_isolation.sh` : **15 PASS / 0 FAIL**. Cross-tenant
+    GET/PATCH → 404, spoof `X-Workspace-Slug` → 403, audit cloisonné.
+  - **Keycloak seed** : alice/bob ajoutés au `realm-export.json` en D1
+    n'avaient jamais été back-fillés dans l'instance vivante (l'import
+    ne s'exécute qu'au premier boot de Keycloak). Nouveau helper
+    `backend/scripts/seed_keycloak_users.sh` : idempotent, admin REST
+    API, à rejouer après chaque édition du realm-export.
+  - **Tier 4 (SSE token_delta)** : architecture validée bout-en-bout
+    (`azure_llm_v1`, `ollama_llm_v1`, `llm_rag_answer_v1` tous
+    enregistrés avec `execution.mode=stream`), un run lancé en prod
+    aboutit (status=completed en 2.1 s). Le `token_delta` n'a pas été
+    capturé par le script : `_execute_task_node` conditionne le sink à
+    `event_bus.is_live(run_id)`, et le subscriber SSE piloté par curl
+    arrive 60-150 ms après que le walker a déjà fait sa vérification.
+    Ce n'est pas flaky côté UI (le frontend subscribe immédiatement
+    après le POST), juste un artefact scripting. Le test UI manuel
+    dans le cockpit reste requis pour valider visuellement l'effet
+    typewriter — cf. walkthrough §5 du runbook
+    `operator-deploy-vague-d.md`.
+
+Vague D : CLOSED. Prochaine étape = Vague E (boucle d'évaluation,
+marketplace, Playwright E2E, voice end-to-end).
