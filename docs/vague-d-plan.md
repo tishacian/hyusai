@@ -554,44 +554,95 @@ les warnings build prod accumulés depuis C6.
 - `npx tsc --noEmit -p tsconfig.app.json` : inchangé (seulement les
   erreurs `icon-registry` pré-existantes — voir suite C/D).
 
-### D6 — Tests d'intégration walker DAG
+### D6 — Tests d'intégration walker DAG ✅
 
-**Pytest end-to-end** (le smoke C11 a validé les routes + 401, pas le
-comportement runtime) :
-- `test_run_engine_dag_e2e.py` :
-  - `task → task → task` séquentiel : même outcome que
-    `execute_run` (parité de sortie).
-  - `source → fork → [task, task] → join → sink` : les deux branches
-    s'exécutent, `join` attend le dernier, outcome agrégé.
-  - `decision` avec condition vraie / fausse : branche active
-    cohérente, l'autre marquée inactive dans les checkpoints.
-  - `retry(attempts=3, backoff=…)` autour d'un skill qui fail 2 fois
-    puis réussit : outcome `completed`, 3 `SkillInvocation` persistées.
-  - `loop` sur une liste de 3 items : 3 `SkillInvocation`, outputs
-    concaténés dans le context.
-  - `hitl` : run → `hitl_pending` → `POST /hitl accept` → reprise →
-    outcome final. Même run avec `reject` → `failed` avec
-    `error.reason = "hitl_rejected"`.
-  - `subflow` inlined : skills du target system s'exécutent dans le
-    contexte du run parent.
-- `test_run_engine_events.py` étendu : `token_delta` plug en place
-  après D2.
+**Livré (commit `feat(d6)`)** : 8 scénarios pytest e2e qui couvrent le
+runtime complet du walker DAG + deux bugs de walker corrigés au passage.
+Playwright reporté (cf. backlog ci-dessous).
 
-**Playwright e2e** (UI smoke) :
-- Connexion Keycloak → `/orchestration` → DAG fork/join → Execute →
-  terminal stream `node_start`/`node_end` des deux branches → outcome
-  tile rendered.
-- DAG avec HITL → run → carte HITL visible → Approve → run complète.
-- Debug mode ON + breakpoint sur 1 node → Execute → `debug_pending`
-  visible → Step / Continue → complete.
-- Replay sur run complété → events cinématiques.
+**Test harness — `backend/app/tests/conftest.py`**
+- Force `DATABASE_URL=sqlite:///tmp/pytest_omnirag.db` avant le premier
+  `from app.*` (l'env dev local n'a pas `psycopg2`, Postgres n'est pas
+  requis pour les tests d'engine).
+- Neutralise `QDRANT_URL` et `REDIS_URL` pour que l'import des models
+  et services ne déclenche pas d'appels réseau au collection-time.
+- Fixture session `_provision_schema` : `Base.metadata.create_all(engine)`
+  une seule fois, 26 tables créées.
+- Fixture function `db_session` : TRUNCATE des tables runtime entre
+  chaque test (systems, runs, skill_invocations, decisions, skills,
+  capabilities, workspaces) — faster qu'un drop/create complet sur
+  SQLite.
 
-**Done quand**
-- `pytest backend/app/tests/services/test_run_engine_dag_e2e.py`
-  vert avec ≥ 7 scénarios.
-- `npx playwright test` vert avec ≥ 4 scénarios UI.
-- Integration dans le CI existant ou un `scripts/test-vm.sh` à lancer
-  avant chaque deploy.
+**Scénarios — `test_run_engine_dag_e2e.py` (8 tests verts)**
+1. **`task → task → task` séquentiel** — chaque task reçoit l'output du
+   précédent, Run.output_ref reflète le dernier. 3 invocations
+   persistées en ordre, checkpoints `run_start` / `run_end` présents.
+2. **`source → fork → [task, task] → join → sink`** — les deux branches
+   s'exécutent en parallèle, join fusionne les outputs, sink reçoit les
+   deux.
+3. **`decision` avec condition vraie / fausse** — seule la branche
+   `score > 0.5` fire sa task ; le checkpoint `node_end` de la decision
+   contient `chosen_branch: "hi"` ; la task de la branche inactive
+   n'apparaît jamais dans le ledger.
+4. **`retry(max_attempts=3, backoff=0)`** — skill qui fail 2 fois puis
+   réussit : 3 `SkillInvocation` rows persistées en ordre
+   (`failed, failed, completed`), run `completed` au final.
+5. **`loop` sur `ctx.items=[a,b,c]`** — 3 invocations, chacune avec le
+   `_loop_index` et `_loop_item` correct dans ctx. Output agrégé
+   contient `count: 3`.
+6. **`hitl` accept** — premier pass s'arrête en `hitl_pending`, le
+   checkpoint `hitl_pause` est bien persisté. On flippe la Decision
+   à `accepted`, `resume_run_dag` redémarre, la task post-HITL voit
+   `ctx.hitl_approved = True` et le run termine en `completed`.
+7. **`hitl` reject** — même pause, mais Decision passée à `rejected` ;
+   resume termine le run (pas de hard-stop) avec
+   `ctx.hitl_approved = False` propagé à la task aval.
+8. **`subflow` inlined** — un System B avec 2 skills, référencé par un
+   node `subflow` du System A. Les 2 `SkillInvocation` de B sont bien
+   persistées sur le `run_id` de A, et l'output de run contient
+   `subflow_system_id` + l'output du dernier skill.
+
+**Bugs walker corrigés au passage (commit inclus)**
+- **`_execute_node` : pas de short-circuit sur dead-branches.** Un task
+  dont toutes les incoming edges avaient été tuées par une décision
+  upstream exécutait quand même son handler (avec input vide). Le
+  commentaire explicite de `_settle_node` promettait pourtant le
+  contraire. Ajout d'un court-circuit : si `all(in_edges in dead_edges)`,
+  on émet un `node_end` avec `status: "skipped", skipped_reason:
+  "all_inputs_dead"` et on retourne sans invoquer le skill.
+- **`_merge_predecessor_outputs_from_state` retournait `ctx["input"]`
+  au lieu de l'output upstream.** Les handlers `_run_task` / `_run_retry`
+  / `_run_loop` / `_run_hitl` / `_run_subflow` l'utilisaient → les
+  tasks chaînées recevaient l'input run original au lieu de la sortie
+  du prédécesseur. Fix : `_execute_node` calcule `merged_input` une
+  fois (ce qu'il faisait déjà) puis le passe en param `upstream=` aux
+  handlers. Helper mort supprimé.
+
+**Fichiers créés / modifiés**
+- `backend/app/tests/conftest.py` (créé) — bootstrap SQLite + fixtures.
+- `backend/app/tests/services/test_run_engine_dag_e2e.py` (créé) —
+  8 scénarios runtime.
+- `backend/app/services/run_engine/dag.py` (modifié) — court-circuit
+  dead-branch, param `upstream=` threading dans handlers, suppression
+  du helper buggé `_merge_predecessor_outputs_from_state`.
+
+**Done quand — ✅**
+- `pytest backend/app/tests/services/test_run_engine_dag_e2e.py` : 8/8
+  verts (`8 passed in 0.94s`).
+- Pas de régression sur les tests pré-existants : 53 passent, 1 flaky
+  pré-existant (`test_subscribe_after_close_resolves_immediately` —
+  async timeout indépendant, vérifié sans la branche D6).
+
+**Backlog Playwright (hors scope D6, repoussé à D7+)**
+Les scénarios UI (connexion Keycloak → DAG fork/join → terminal
+stream → outcome tile ; HITL Approve ; Debug Step/Continue ; Replay)
+nécessitent :
+- Stack complète up (Keycloak, Qdrant, Postgres) — infra non disponible
+  dans l'env dev local qui n'a que Node 17.
+- `@playwright/test` + fixtures projet absentes à ce jour.
+→ À traiter en bloc avec D7 (deploy VM + smoke) où la stack sera déjà
+up ; les 4 flows Playwright deviennent alors un script `test-vm.sh`
+post-deploy plutôt qu'une suite CI locale.
 
 ### D7 — Build + deploy VM + smoke Vague D
 

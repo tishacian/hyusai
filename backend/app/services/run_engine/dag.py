@@ -791,6 +791,33 @@ async def _execute_node(
         },
     )
 
+    # Short-circuit: if every incoming edge was killed by an upstream
+    # decision/fork, the node sits on a dead branch and must not fire
+    # its handler. `_settle_node` already decremented the pending count
+    # so the walker can still make progress downstream; we just refuse
+    # to run the handler here. Without this guard, tasks on inactive
+    # decision branches would execute with empty input — the exact
+    # behaviour the comment in `_settle_node` promised *not* to happen.
+    # We emit the matching `node_end` inline (skipping the shared
+    # summary block) so the UI gets one clean skipped marker.
+    in_edges = graph.in_edges.get(node.id, [])
+    if in_edges and all(
+        (e.source, e.target, e.branch_label) in state.dead_edges for e in in_edges
+    ):
+        _append_checkpoint(
+            db,
+            run,
+            {
+                "kind": "node_end",
+                "t": datetime.utcnow().isoformat(),
+                "node_id": node.id,
+                "node_kind": node.kind,
+                "status": "skipped",
+                "skipped_reason": "all_inputs_dead",
+            },
+        )
+        return {"output": {}, "skipped_reason": "all_inputs_dead"}
+
     merged_input = _merge_predecessor_outputs(graph, state, node.id)
     # Expose the merged upstream output to the ctx so downstream decision
     # nodes can reference fields produced by any ancestor (e.g.
@@ -811,7 +838,9 @@ async def _execute_node(
             return result
 
         if node.kind == "task":
-            result = await _run_task(db, run, node, state, control=control)
+            result = await _run_task(
+                db, run, node, state, control=control, upstream=merged_input
+            )
             return result
 
         if node.kind == "decision":
@@ -827,19 +856,25 @@ async def _execute_node(
             return result
 
         if node.kind == "retry":
-            result = await _run_retry(db, run, node, state, control=control)
+            result = await _run_retry(
+                db, run, node, state, control=control, upstream=merged_input
+            )
             return result
 
         if node.kind == "loop":
-            result = await _run_loop(db, run, node, state, control=control)
+            result = await _run_loop(
+                db, run, node, state, control=control, upstream=merged_input
+            )
             return result
 
         if node.kind == "hitl":
-            result = _run_hitl(db, run, node, state)
+            result = _run_hitl(db, run, node, state, upstream=merged_input)
             return result
 
         if node.kind == "subflow":
-            result = await _run_subflow(db, run, node, state, control=control)
+            result = await _run_subflow(
+                db, run, node, state, control=control, upstream=merged_input
+            )
             return result
 
         # Unknown kind → treat as pass-through with a warning.
@@ -872,14 +907,20 @@ async def _execute_node(
 # Handlers
 # ---------------------------------------------------------------------------
 async def _run_task(
-    db: DBSession, run: Run, node: DagNode, state: WalkerState, *, control
+    db: DBSession,
+    run: Run,
+    node: DagNode,
+    state: WalkerState,
+    *,
+    control,
+    upstream: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     slug = node.skill_slug
     if not slug:
         # Task with no bound skill is a frontend authoring stub; pass through
         # the merged upstream output so downstream nodes still receive data.
-        return {"output": _merge_predecessor_outputs_from_state(state, node.id)}
-    last_output = _merge_predecessor_outputs_from_state(state, node.id)
+        return {"output": upstream or {}}
+    last_output = upstream or {}
     invocation = await _execute_task_node(
         db,
         run,
@@ -964,15 +1005,21 @@ def _run_join(node: DagNode, merged_input: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _run_retry(
-    db: DBSession, run: Run, node: DagNode, state: WalkerState, *, control
+    db: DBSession,
+    run: Run,
+    node: DagNode,
+    state: WalkerState,
+    *,
+    control,
+    upstream: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     config = node.config or {}
     max_attempts = int(config.get("max_attempts") or 3)
     backoff_ms = float(config.get("backoff_ms") or 200)
     slug = node.skill_slug or config.get("skill_slug")
     if not slug:
-        return {"output": _merge_predecessor_outputs_from_state(state, node.id)}
-    last_output = _merge_predecessor_outputs_from_state(state, node.id)
+        return {"output": upstream or {}}
+    last_output = upstream or {}
     last_error: Optional[str] = None
     for attempt in range(1, max_attempts + 1):
         invocation = await _execute_task_node(
@@ -1009,14 +1056,20 @@ async def _run_retry(
 
 
 async def _run_loop(
-    db: DBSession, run: Run, node: DagNode, state: WalkerState, *, control
+    db: DBSession,
+    run: Run,
+    node: DagNode,
+    state: WalkerState,
+    *,
+    control,
+    upstream: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     config = node.config or {}
     max_iterations = int(config.get("max_iterations") or 1)
     iterator_key = config.get("iterator")
     break_on = config.get("break_on")
     slug = node.skill_slug or config.get("skill_slug")
-    merged = _merge_predecessor_outputs_from_state(state, node.id)
+    merged = upstream or {}
     base_ctx = {**state.ctx, **merged}
     items: List[Any] = []
     if iterator_key:
@@ -1073,13 +1126,18 @@ async def _run_loop(
 
 
 def _run_hitl(
-    db: DBSession, run: Run, node: DagNode, state: WalkerState
+    db: DBSession,
+    run: Run,
+    node: DagNode,
+    state: WalkerState,
+    *,
+    upstream: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Persist a ``proposed`` Decision, then ask the walker to pause."""
     config = node.config or {}
     prompt = config.get("prompt") or f"Approval required for step {node.label or node.id}"
     approvers = config.get("approvers") or []
-    merged = _merge_predecessor_outputs_from_state(state, node.id)
+    merged = upstream or {}
     rationale = {
         "node_id": node.id,
         "node_label": node.label,
@@ -1106,7 +1164,13 @@ def _run_hitl(
 
 
 async def _run_subflow(
-    db: DBSession, run: Run, node: DagNode, state: WalkerState, *, control
+    db: DBSession,
+    run: Run,
+    node: DagNode,
+    state: WalkerState,
+    *,
+    control,
+    upstream: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Execute the target System's sequential skill sequence as a nested
     task list under the current Run. Avoids DAG re-entrancy on purpose for
@@ -1133,8 +1197,7 @@ async def _run_subflow(
     by_id = {s.id: s for s in rows}
     slugs = [by_id[i].slug for i in skill_ids if i in by_id]
 
-    merged = _merge_predecessor_outputs_from_state(state, node.id)
-    last_output = merged or {}
+    last_output = upstream or {}
     for slug in slugs:
         invocation = await _execute_task_node(
             db,
@@ -1168,15 +1231,6 @@ def _merge_predecessor_outputs(
         if upstream:
             merged.update(upstream)
     return merged
-
-
-def _merge_predecessor_outputs_from_state(
-    state: WalkerState, node_id: str
-) -> Dict[str, Any]:
-    """Variant that doesn't need the graph — used once the walker already
-    pulled the upstream in `_execute_node`. Falls back to the ctx ``input``.
-    """
-    return dict(state.ctx.get("input") or {})
 
 
 def _collect_terminal_output(graph: DagGraph, state: WalkerState) -> Dict[str, Any]:
