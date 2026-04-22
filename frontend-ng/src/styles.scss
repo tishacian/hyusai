@@ -1,16 +1,19 @@
 @use '@angular/material' as mat;
 
+/* Cockpit (hybrid A+B) design system — tokens + utilities.
+   `@use` (Dart Sass) replaces the deprecated `@import`. Both files emit
+   only CSS custom properties / utility classes at `:root`/global scope,
+   so namespacing has no functional impact on the cascade. */
+@use 'styles/cockpit-tokens';
+@use 'styles/cockpit-utilities';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* CDK overlay base styles — required for floating panels (ck-help, menus, etc.)
-   so overlays position correctly and escape overflow-clipping ancestors. */
+/* CDK overlay base styles — a pure CSS file, so regular `@import` remains
+   correct (Sass's `@import` deprecation applies to `.scss` modules only). */
 @import '@angular/cdk/overlay-prebuilt.css';
-
-/* Cockpit (hybrid A+B) design system — tokens + utilities. */
-@import 'styles/cockpit-tokens.scss';
-@import 'styles/cockpit-utilities.scss';
 
 /* ============================================================================
    Design tokens (CSS vars) — mirror the legacy Agentium palette

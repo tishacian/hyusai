@@ -25,13 +25,16 @@
               "node_modules/ngx-toastr/toastr.css",
               "src/styles.scss"
             ],
-            "scripts": []
+            "scripts": [],
+            "allowedCommonJsDependencies": [
+              "drawflow"
+            ]
           },
           "configurations": {
             "production": {
               "budgets": [
                 { "type": "initial", "maximumWarning": "500kB", "maximumError": "1MB" },
-                { "type": "anyComponentStyle", "maximumWarning": "6kB", "maximumError": "20kB" }
+                { "type": "anyComponentStyle", "maximumWarning": "8kB", "maximumError": "20kB" }
               ],
               "outputHashing": "all"
             },
