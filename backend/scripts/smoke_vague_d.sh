@@ -35,7 +35,10 @@ CLIENT_SECRET=${CLIENT_SECRET:-}
 
 ALICE_USER=${ALICE_USER:-alice@acme.test}
 ALICE_PASS=${ALICE_PASS:-alice-demo}
-ALICE_WS_SLUG=${ALICE_WS_SLUG:-acme}
+# Workspace slug — the real realm auto-provisions a personal workspace
+# on first login (slug like `personal-xxxxxxx`). Leave empty to
+# auto-discover via GET /api/v1/auth/workspaces.
+ALICE_WS_SLUG=${ALICE_WS_SLUG:-}
 
 FRONTEND_DIST=${FRONTEND_DIST:-}
 SMOKE_RUN_SSE=${SMOKE_RUN_SSE:-0}
@@ -119,12 +122,22 @@ if [[ -z "${ALICE_TOKEN}" ]]; then
   skip "Tier 2 & 4 — no Keycloak token for $ALICE_USER (realm / client not reachable at $KEYCLOAK_URL)"
 else
   AUTH_H="Authorization: Bearer $ALICE_TOKEN"
-  WS_H="X-Workspace-Slug: $ALICE_WS_SLUG"
 
   expect_code 200 GET "$BACKEND_URL/api/v1/auth/workspaces"   "list Alice's workspaces"               -H "$AUTH_H"
-  grep -q "\"$ALICE_WS_SLUG\"" /tmp/smoke-body \
-    && ok "workspace list contains $ALICE_WS_SLUG" \
-    || ko "workspace list does NOT contain $ALICE_WS_SLUG"
+
+  # Auto-discover the first workspace slug if the caller didn't pin one.
+  if [[ -z "$ALICE_WS_SLUG" ]]; then
+    ALICE_WS_SLUG=$(python3 -c 'import json;d=json.load(open("/tmp/smoke-body"));print(d[0]["slug"] if d else "")' 2>/dev/null || echo "")
+    [[ -n "$ALICE_WS_SLUG" ]] && ok "auto-discovered workspace slug: $ALICE_WS_SLUG" \
+                              || ko "no workspace returned for Alice"
+  fi
+  WS_H="X-Workspace-Slug: $ALICE_WS_SLUG"
+
+  if [[ -n "$ALICE_WS_SLUG" ]]; then
+    grep -q "\"slug\":\"$ALICE_WS_SLUG\"" /tmp/smoke-body \
+      && ok "workspace list contains $ALICE_WS_SLUG" \
+      || ko "workspace list does NOT contain $ALICE_WS_SLUG"
+  fi
 
   expect_code 200 GET "$BACKEND_URL/api/v1/auth/workspaces/$ALICE_WS_SLUG" \
     "get workspace detail $ALICE_WS_SLUG" -H "$AUTH_H"
