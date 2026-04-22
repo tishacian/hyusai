@@ -97,9 +97,22 @@ class RunEventBus:
 
         Each subscriber's iterator ends naturally after draining the
         remaining events in its queue.
+
+        If the channel doesn't exist yet (walker finished before any
+        HTTP consumer connected), we still materialise it in a closed
+        state so any *late* subscriber resolves immediately on its
+        first ``next_event`` instead of hanging on an empty queue.
+        Without this, there's a tight race where ``close()`` looks like
+        a no-op and the subsequent ``subscribe()`` creates a fresh
+        open channel that never gets a sentinel.
         """
         channel = self._channels.get(run_id)
-        if not channel or channel.closed:
+        if channel is None:
+            channel = _RunChannel()
+            channel.closed = True
+            self._channels[run_id] = channel
+            return
+        if channel.closed:
             return
         channel.closed = True
         for q in list(channel.subscribers):
