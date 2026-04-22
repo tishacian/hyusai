@@ -68,7 +68,7 @@ D0 qui rétablit cette surface.
 | ~~D4~~ | ~~Light theme~~ — tokens livrés, sweep shadows/scrim/tints, toggle 3-états FR/EN | P2 | S | — |
 | D5 | Dette C11 : Sass `@import` → `@use`, drawflow CJS allowlist, signin budget | P3 | S | — |
 | D6 | Tests d'intégration walker DAG (pytest e2e + Playwright UI fork/join/HITL/debug) | P1 | M | C6/C8 |
-| D7 | Build + deploy VM + smoke tests Vague D | P0 | S | D0→D6 |
+| ~~D7~~ | ~~Build + deploy VM + smoke tests Vague D~~ — scripts prêts, exécution humaine requise | P0 | S | D0→D6 |
 
 Taille : S ≈ ½ journée, M ≈ 1 à 2 jours, L ≈ 3 à 5 jours.
 
@@ -644,12 +644,80 @@ nécessitent :
 up ; les 4 flows Playwright deviennent alors un script `test-vm.sh`
 post-deploy plutôt qu'une suite CI locale.
 
-### D7 — Build + deploy VM + smoke Vague D
+### D7 — Build + deploy VM + smoke Vague D — ⚙️ READY-TO-DEPLOY
 
-Miroir de C11 : `ng build -c production` sur VM, rsync dist,
-`pkill / uvicorn restart`, smoke automatisé sur les routes + 401 + nouveaux
-endpoints (`/api/v1/workspaces`, `/api/v1/workspaces/{id}/members`,
-`token_delta` dans un run, switch locale, switch thème).
+**Livrables code (prêts, sans accès VM requis) :**
+
+1. **`backend/scripts/smoke_vague_d.sh`** — smoke automatisé en 4 tiers :
+   - *Tier 1* : 12 routes canoniques + gating 401 sur `/systems`,
+     `/runs`, `/audit`, `/settings`, `/skills`, `/capabilities`,
+     `/models`, `/voice`, `/contexts`, `/auth/workspaces` ; `GET /chat`
+     sert la SPA (content-type `text/html`).
+   - *Tier 2* (auth Alice via Keycloak) : `GET /auth/workspaces`,
+     `/auth/workspaces/{slug}`, `/auth/workspaces/{slug}/members`,
+     `/systems`, `/audit`, `/settings`, `/contexts` scopés
+     `X-Workspace-Slug`. Confirme que la liste workspaces contient bien
+     `acme`.
+   - *Tier 3* (via `FRONTEND_DIST=…` pointant sur le `dist/` déployé) :
+     dictionnaires FR + EN compilés (D3), tokens `data-theme="light"`,
+     `--ck-on-signal`, `--ck-shadow-panel` (D4), chunk `chat-workspace`
+     (D0).
+   - *Tier 4* (opt-in `SMOKE_RUN_SSE=1`) : programme un run, subscribe
+     à `/runs/{id}/stream` 6 s, vérifie la présence de frames
+     `token_delta` (D2) et d'événements structurels (`node_end` /
+     `run_end`).
+2. **`docs/operator-deploy-vague-d.md`** — runbook opérateur qui
+   déroule pré-flight → build SPA → rsync → bounce uvicorn → smoke →
+   walkthrough UI manuel (≤ 3 min) → rollback. Inclut la migration
+   Alembic `010_context_ephemeral` (D0) et pointe vers
+   `test_tenant_isolation.sh` (D1) pour la vérif multi-tenant.
+
+**À exécuter sur la VM (humain / CI) :**
+
+```bash
+# 1. build local
+cd frontend-ng && npm ci && npx ng build -c production
+
+# 2. push SPA + backend
+rsync -az --delete frontend-ng/dist/frontend-ng/browser/ \
+  deploy@agentium.papai.ai:/srv/agentium/frontend/
+ssh deploy@agentium.papai.ai \
+  'cd /srv/agentium/omnirag && git pull && \
+   .venv/bin/pip install -q -r backend/requirements.txt && \
+   .venv/bin/alembic -c backend/alembic.ini upgrade head && \
+   sudo systemctl restart agentium-backend'
+
+# 3. smoke (depuis laptop)
+BACKEND_URL=https://agentium.papai.ai \
+KEYCLOAK_URL=https://auth.agentium.papai.ai \
+ALICE_USER=alice@acme.test ALICE_PASS=alice-demo \
+FRONTEND_DIST=/tmp/agentium-dist SMOKE_RUN_SSE=1 \
+  backend/scripts/smoke_vague_d.sh
+
+# 4. isolation multi-tenant
+backend/scripts/test_tenant_isolation.sh
+```
+
+**Pourquoi le déploiement n'est pas exécuté automatiquement :** le
+build Angular échoue localement (Node 17, cf. note D5), la VM
+`agentium.papai.ai` requiert un accès SSH/Keycloak qui n'est pas dans
+le workspace de l'agent, et le rollout production est un point de
+décision humain. Tout ce qui est scriptable est scripté ; il reste un
+enchaînement de 4 commandes côté opérateur.
+
+**Critères d'acceptation (identiques au §CA global)** :
+- Tier 1 = 11 PASS (routes 401 + `/chat` SPA + `/health`).
+- Tier 2 = 7 PASS (workspaces, members, audit/settings/systems/
+  contexts scopés).
+- Tier 3 = 5 PASS (2× i18n + 3× tokens + 1× chat chunk).
+- Tier 4 = 2 PASS (`token_delta` + événements structurels) quand un
+  système streaming est seedé.
+- `test_tenant_isolation.sh` = 0 FAIL.
+
+→ Couvre indirectement les scénarios Playwright déferrés en D6
+(tenant isolation, chat overlay, streaming, i18n, thème) via tests
+HTTP + bundle introspection + walkthrough manuel. Une vraie suite
+Playwright reste un chantier Vague E.
 
 ## Ordre conseillé
 
@@ -731,4 +799,11 @@ en fonction du retour démo.
 - [`post-demo-roadmap.md`](./post-demo-roadmap.md) — chantiers long terme
 - [`mental-model.md`](./mental-model.md) — source normative sémantique
 - Commits Vague C : `0da259f` (C1) · `c927af8` (C2) · `b706cc6` (C3) · `29413f7` (C6) · `00d8ee0` (C7) · `b8962ac` (C8) · `5f726dd` (C9) · `68657b1` (C10)
+- Commits Vague D : `b08e19e` (D0) · `f230c97` (D1) · `5953dde` (D2) · `c83ec46` (D3) · `80dc9d6` + `824b65c` (D4) · `363db52` (D5) · `2fc1a02` + `453da57` (D6) · D7 livré ci-dessous
 - Démo : `https://agentium.papai.ai`
+
+## Journal
+
+- **2026-04-21** — D7 : scripts `smoke_vague_d.sh` + runbook
+  `operator-deploy-vague-d.md` livrés. Déploiement effectif à faire
+  sur la VM (humain / CI).
