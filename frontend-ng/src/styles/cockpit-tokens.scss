@@ -47,6 +47,28 @@
   --ck-glow-warn:    0 0 28px rgba(245, 184, 74, 0.28);
   --ck-glow-neg:     0 0 28px rgba(239, 90, 111, 0.30);
 
+  /* ---- SHADOWS (depth, panels, popovers) ----
+     Dark cockpit: deep diffuse black. On light these get softened
+     in the `[data-theme="light"]` block below so panels don't read as
+     "punched out" on warm paper. Consumers MUST use var(--ck-shadow-*)
+     rather than inlining `rgba(0,0,0,0.5)` so the theme travels. */
+  --ck-shadow-panel:   0 20px 60px rgba(0, 0, 0, 0.50);
+  --ck-shadow-popover: 0 18px 40px rgba(0, 0, 0, 0.45);
+  --ck-shadow-card:    0 6px 18px rgba(0, 0, 0, 0.35);
+  /* Scrim beneath overlays (panels, modals, palette). */
+  --ck-scrim:          rgba(0, 0, 0, 0.45);
+
+  /* Text color to render on top of a saturated signal background
+     (ck-tag variant="solid", primary signal buttons). Dark theme →
+     bright signal bg → dark text reads best. Flipped on light. */
+  --ck-on-signal: #05070a;
+
+  /* Subtle tint for faintly-accented surfaces (neutral soft tag bg,
+     hover washes, empty-state wells). Dark theme uses a white wash;
+     light theme swaps to a black wash below. */
+  --ck-tint-faint: rgba(255, 255, 255, 0.04);
+  --ck-tint-soft:  rgba(255, 255, 255, 0.06);
+
   /* ---- TYPE STACKS ---- */
   --ck-font-sans: "Inter Tight", "Inter", -apple-system, "Helvetica Neue", system-ui, sans-serif;
   --ck-font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -108,4 +130,22 @@ html:not(.dark),
   --ck-glow-violet:  0 0 0 transparent;
   --ck-glow-warn:    0 0 0 transparent;
   --ck-glow-neg:     0 0 0 transparent;
+
+  /* Softened shadows on warm paper — a 50 % black shadow would shout;
+     we drop the alpha to keep panels grounded without bruising. */
+  --ck-shadow-panel:   0 18px 48px rgba(17, 24, 39, 0.14), 0 2px 6px rgba(17, 24, 39, 0.08);
+  --ck-shadow-popover: 0 12px 32px rgba(17, 24, 39, 0.12), 0 2px 4px rgba(17, 24, 39, 0.06);
+  --ck-shadow-card:    0 4px 12px rgba(17, 24, 39, 0.08);
+  /* Scrim — stays dark-ish so the overlay reads as "modal" even on paper. */
+  --ck-scrim:          rgba(17, 24, 39, 0.28);
+
+  /* On light the signal tones are already dark-saturated (see the
+     --ck-signal-* block above — #0e9f6e, #0e7490…), so white text on
+     top of a solid pill is the only legible combo. */
+  --ck-on-signal: #ffffff;
+
+  /* Tints flip to a black wash so neutral-soft pills & hovers stay
+     visible against the warm paper. */
+  --ck-tint-faint: rgba(17, 24, 39, 0.05);
+  --ck-tint-soft:  rgba(17, 24, 39, 0.08);
 }

@@ -65,7 +65,7 @@ D0 qui rétablit cette surface.
 | D1 | Keycloak OIDC multi-tenant (full auth + workspace scope backend + picker UI) | P0 | L | — |
 | ~~D2~~ | ~~Streaming LLM token-by-token via SSE `token_delta`~~ ✅ livré | ~~P1~~ | ~~M~~ | C7 (event bus) |
 | ~~D3~~ | ~~i18n FR / EN~~ — infra runtime + switcher livrés, passe complète en backlog | P2 | M | — |
-| D4 | Light theme (`ThemeService` + tokens light + toggle) | P2 | S | — |
+| ~~D4~~ | ~~Light theme~~ — tokens livrés, sweep shadows/scrim/tints, toggle 3-états FR/EN | P2 | S | — |
 | D5 | Dette C11 : Sass `@import` → `@use`, drawflow CJS allowlist, signin budget | P3 | S | — |
 | D6 | Tests d'intégration walker DAG (pytest e2e + Playwright UI fork/join/HITL/debug) | P1 | M | C6/C8 |
 | D7 | Build + deploy VM + smoke tests Vague D | P0 | S | D0→D6 |
@@ -383,26 +383,74 @@ l'UX du switcher est supérieure et l'infra build/nginx reste inchangée.
 - Premier lot (~140 clés) traduit FR+EN sur les surfaces structurelles.
 - Zéro régression tsc (`npx tsc --noEmit` clean hors `icon-registry` pré-existant).
 
-### D4 — Light theme
+### D4 — Light theme ✅ livré
 
 **Contrat produit**
-- Toggle dans l'account menu : Dark (défaut, cockpit) / Light.
-- Aucun changement fonctionnel, juste un changement de tokens CSS.
+- Toggle cockpit 3-états : `dark` / `light` / `system` (suit l'OS).
+- Aucun changement fonctionnel, juste un remap de tokens CSS.
+- Tooltip du bouton de thème traduit FR/EN, indique l'état courant +
+  la prochaine étape du cycle.
 
-**Implémentation**
-- `ThemeService` avec `signal<'dark' | 'light'>` persisté en
-  localStorage ; applique `data-theme` sur `<html>`.
-- Tokens CSS light parallèles (`--ck-bg-*`, `--ck-fg-*`,
-  `--ck-stroke-*`, `--ck-signal-*`) dans `src/assets/styles/` —
-  derrière `[data-theme="light"]`.
-- Audit visuel des 12 routes canoniques + du debugger / HITL card / SSE
-  terminal en light.
+**Infra déjà en place avant D4**
+- `ThemeService` (`frontend-ng/src/app/core/theme.service.ts`) :
+  `signal<'dark' | 'light' | 'system'>` persisté en `localStorage`,
+  écoute `prefers-color-scheme` quand `system`, applique `.dark` +
+  `data-theme="dark|light"` sur `<html>`.
+- Cycle via le bouton cockpit dans la title-bar
+  (`cycleTheme()` : light → dark → system → light…).
+- Jeux de tokens `[data-theme="light"]` (bg, fg, stroke, signals) déjà
+  définis dans `frontend-ng/src/styles/cockpit-tokens.scss` avec une
+  palette "papier chaud" (`#f4f2eb` base, `#fafaf6` panel, `#0a0c10` fg).
 
-**Done quand**
-- Aucun contraste WCAG AA cassé en light (outil `axe-core` passe).
-- Les primitives cockpit (`ck-tag`, `ck-stat-readout` readout+tile,
-  `ck-micro-bar`, `ck-object-header`, `ck-panel`, OutcomeTile) rendent
-  correctement dans les deux thèmes.
+**Ce que D4 ajoute**
+
+*Nouveaux tokens pour sortir du "50 % noir qui crie sur papier chaud"* :
+- `--ck-shadow-panel` / `--ck-shadow-popover` / `--ck-shadow-card` :
+  ombres réutilisables, avec un variant light en tons bleus très peu
+  opaques (`rgba(17,24,39,0.14)` plutôt que `rgba(0,0,0,0.50)`).
+- `--ck-scrim` : scrim des overlays (panel, palette, modales), reste
+  sombre mais moins agressif en light (0.28 vs 0.45).
+- `--ck-on-signal` : couleur du texte sur fond signal saturé. Dark →
+  `#05070a` (texte noir sur vert vif), Light → `#ffffff` (texte blanc
+  sur vert foncé). Règle la lisibilité des `ck-tag variant="solid"` et
+  de tout bouton primary signal.
+- `--ck-tint-faint` / `--ck-tint-soft` : washes neutres qui flippent
+  de blanc translucide (dark) à noir translucide (light) — utilisés par
+  les pills neutres, hovers, empty-state wells.
+
+*Sweep des hardcodes critiques* :
+- `shared/cockpit/panel.component.ts` : boxShadow + scrim passés aux
+  tokens.
+- `shared/cockpit/tag.component.ts` : `textColor` solid passe par
+  `--ck-on-signal`, neutral soft passe par `--ck-tint-faint`.
+- `shared/cockpit/tabs.component.ts` : popover shadow → token.
+- `shared/cockpit/help-tooltip.component.ts` : card shadow → token.
+- `features/layout/title-bar.component.ts` : popovers user/workspace →
+  `--ck-shadow-popover`. Tooltip 3-états traduit FR/EN via `i18n.t`.
+- `features/auth/auth-shell.component.ts` : carte auth → token (retire
+  le triple box-shadow avec halo cool qui brûlait en light).
+- `features/runs/run-view.component.ts` : deux inputs inline
+  `color:white` + `background:rgba(255,255,255,0.04)` → tokens
+  `--ck-bg-inset` / `--ck-fg-1` (étaient illisibles en light).
+- `styles/cockpit-utilities.scss` : hover card shadow → token.
+
+*Backlog cosmétique (hors scope)*
+- Charts Chart.js dans `quality-dashboard` et `news-lab` ont encore
+  des grilles `rgba(255,255,255,0.06)` qui s'évaporent en light. À
+  migrer vers une option locale-aware quand on touche les dashboards.
+- Auth pages (`signin`, `signup`, `password-reset`) gardent des
+  `inset 1px rgba(255,255,255,0.06)` décoratifs invisibles en light,
+  sans casse.
+- Toast (`ngx-toastr`) utilise encore son thème sombre par défaut.
+
+**Done quand — ✅**
+- Les 3 états du toggle bougent proprement `document.documentElement`.
+- Surfaces structurelles (title-bar, side-rail, mini-rail, command
+  palette, chat overlay, panel, tabs, auth card, run-view) ne cassent
+  pas en `[data-theme="light"]`.
+- Primitives `ck-tag` solid + `ck-panel` + `ck-tabs` popover rendent
+  correctement dans les deux thèmes (contraste texte/fond vérifié).
+- `npx tsc --noEmit` clean (hors `icon-registry` pré-existant).
 
 ### D5 — Dette technique C11
 

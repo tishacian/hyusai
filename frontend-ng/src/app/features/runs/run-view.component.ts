@@ -119,7 +119,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
                     (input)="overrideValue.set(+asInput($event).value)"
                     placeholder="Actual value"
                     class="font-mono text-xs tabular-nums"
-                    style="width:110px; padding:4px 8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:3px; color:white;"
+                    style="width:110px; padding:4px 8px; background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2); border-radius:3px; color:var(--ck-fg-1);"
                   />
                   <input
                     type="text"
@@ -127,7 +127,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
                     (input)="overrideNote.set(asInput($event).value)"
                     placeholder="Why this override?"
                     class="font-mono text-xs"
-                    style="min-width:200px; padding:4px 8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:3px; color:white;"
+                    style="min-width:200px; padding:4px 8px; background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2); border-radius:3px; color:var(--ck-fg-1);"
                   />
                   <button
                     type="button"

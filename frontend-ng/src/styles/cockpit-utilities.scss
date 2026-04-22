@@ -161,7 +161,7 @@
   background: var(--ck-bg-panel-hi);
   border: 1px solid var(--ck-stroke-3);
   border-radius: 4px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
+  box-shadow: var(--ck-shadow-card);
   opacity: 0;
   pointer-events: none;
   display: flex;

@@ -156,7 +156,7 @@ export class CkTabComponent {
               [style.background]="'var(--ck-bg-2, #0a0e14)'"
               [style.border]="'1px solid var(--ck-stroke-2, rgba(255,255,255,0.08))'"
               [style.borderRadius.px]="6"
-              [style.boxShadow]="'0 10px 30px rgba(0,0,0,0.35)'"
+              [style.boxShadow]="'var(--ck-shadow-card)'"
               [style.zIndex]="20"
             >
               @for (t of overflow(); track t.id) {

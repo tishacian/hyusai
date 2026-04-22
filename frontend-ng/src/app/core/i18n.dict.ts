@@ -51,6 +51,9 @@ export const FR_DICT = {
   'titlebar.help': 'Aide',
   'titlebar.notifications': 'Notifications',
   'titlebar.theme.toggle': 'Basculer le thème',
+  'titlebar.theme.light': 'Thème : Clair · cliquer → Sombre',
+  'titlebar.theme.dark': 'Thème : Sombre · cliquer → Système',
+  'titlebar.theme.system': 'Thème : Système · cliquer → Clair',
   'titlebar.workspace': 'Workspace',
 
   // --- Side rail / primary navigation ------------------------------
@@ -210,6 +213,9 @@ export const EN_DICT: Partial<Record<I18nKey, string>> & Record<string, string> 
   'titlebar.help': 'Help',
   'titlebar.notifications': 'Notifications',
   'titlebar.theme.toggle': 'Toggle theme',
+  'titlebar.theme.light': 'Theme: Light · click → Dark',
+  'titlebar.theme.dark': 'Theme: Dark · click → System',
+  'titlebar.theme.system': 'Theme: System · click → Light',
   'titlebar.workspace': 'Workspace',
 
   // --- Side rail / primary navigation ------------------------------

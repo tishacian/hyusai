@@ -51,6 +51,11 @@ export class TagComponent {
   }
 
   private get rgba(): string {
+    // Tone-biased washes keep a consistent hint of the signal color
+    // on both themes. The saturated signal rgbas work on light because
+    // alpha is < 15 % — they read as faint colored tints on paper.
+    // Neutral uses the theme-aware --ck-tint-faint token so the pill
+    // remains visible against warm paper backgrounds.
     switch (this.tone) {
       case 'pos':    return 'rgba(52,211,153,0.12)';
       case 'neg':    return 'rgba(239,90,111,0.14)';
@@ -58,12 +63,15 @@ export class TagComponent {
       case 'violet': return 'rgba(167,139,250,0.14)';
       case 'warn':   return 'rgba(245,184,74,0.12)';
       case 'neutral':
-      default:       return 'rgba(255,255,255,0.04)';
+      default:       return 'var(--ck-tint-faint)';
     }
   }
 
   get textColor(): string {
-    return this.variant === 'solid' ? '#05070a' : this.color;
+    // On solid pills we need max contrast against a fully-saturated
+    // signal bg. Dark mode uses a near-black (#05070a), light mode flips
+    // to white — both travel through --ck-on-signal.
+    return this.variant === 'solid' ? 'var(--ck-on-signal)' : this.color;
   }
 
   get bg(): string {

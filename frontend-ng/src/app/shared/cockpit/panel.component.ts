@@ -91,7 +91,7 @@ let panelCounter = 0;
         [style.borderTop]="position === 'bottom' ? '1px solid var(--ck-stroke-2, rgba(255,255,255,0.08))' : 'none'"
         [style.border]="position === 'floating' ? '1px solid var(--ck-stroke-2, rgba(255,255,255,0.08))' : 'initial'"
         [style.borderRadius.px]="position === 'floating' ? 10 : 0"
-        [style.boxShadow]="'0 20px 60px rgba(0,0,0,0.5)'"
+        [style.boxShadow]="'var(--ck-shadow-panel)'"
         [style.display]="'flex'"
         [style.flexDirection]="'column'"
         [style.zIndex]="40"
@@ -157,7 +157,7 @@ let panelCounter = 0;
         <div
           [style.position]="'fixed'"
           [style.inset]="'0'"
-          [style.background]="'rgba(0,0,0,0.45)'"
+          [style.background]="'var(--ck-scrim)'"
           [style.zIndex]="39"
           [style.animation]="'ckPanelFade 160ms var(--ck-ease-out, ease-out)'"
           (click)="close()"

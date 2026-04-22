@@ -186,7 +186,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
             [style.background]="'var(--ck-bg-panel-hi)'"
             [style.border]="'1px solid var(--ck-stroke-3)'"
             [style.borderRadius.px]="6"
-            [style.boxShadow]="'0 18px 40px rgba(0,0,0,0.45)'"
+            [style.boxShadow]="'var(--ck-shadow-popover)'"
             [style.zIndex]="60"
             [style.padding]="'6px'"
             class="ck-scroll"
@@ -321,7 +321,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
             [style.background]="'var(--ck-bg-panel-hi)'"
             [style.border]="'1px solid var(--ck-stroke-3)'"
             [style.borderRadius.px]="6"
-            [style.boxShadow]="'0 18px 40px rgba(0,0,0,0.45)'"
+            [style.boxShadow]="'var(--ck-shadow-popover)'"
             [style.zIndex]="60"
             [style.padding]="'6px'"
           >
@@ -450,9 +450,11 @@ export class TitleBarComponent {
 
   readonly themeTooltip = computed(() => {
     const mode = this.themeService.mode();
-    if (mode === 'light') return 'Theme: Light  (click → Dark)';
-    if (mode === 'dark')  return 'Theme: Dark  (click → System)';
-    return 'Theme: System  (click → Light)';
+    // Read the i18n locale signal so the tooltip re-renders on flip.
+    this.i18n.locale();
+    if (mode === 'light') return this.i18n.t('titlebar.theme.light');
+    if (mode === 'dark')  return this.i18n.t('titlebar.theme.dark');
+    return this.i18n.t('titlebar.theme.system');
   });
 
   cycleTheme(): void {

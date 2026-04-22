@@ -195,7 +195,7 @@ import {
         border-radius: 6px;
         background: var(--ck-bg-raised, #0f1117);
         border: 1px solid var(--ck-stroke, rgba(255,255,255,0.12));
-        box-shadow: 0 18px 48px rgba(0,0,0,0.45);
+        box-shadow: var(--ck-shadow-popover);
         color: var(--ck-fg-1);
         font-size: 12px;
         line-height: 1.55;

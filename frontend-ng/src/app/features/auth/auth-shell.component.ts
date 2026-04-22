@@ -233,10 +233,7 @@ import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
         border: 1px solid var(--ck-stroke-2);
         border-radius: var(--ck-radius-lg);
         padding: 28px 28px 24px;
-        box-shadow:
-          0 1px 0 rgba(255, 255, 255, 0.02) inset,
-          0 24px 48px rgba(0, 0, 0, 0.45),
-          0 0 0 1px rgba(125, 211, 252, 0.04);
+        box-shadow: var(--ck-shadow-panel);
       }
       .ck-auth-card-rail {
         position: absolute;
