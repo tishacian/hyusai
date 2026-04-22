@@ -109,7 +109,7 @@ interface TaskEvent {
           [style.height.px]="28"
           [style.padding]="'0 12px'"
           [style.background]="'var(--ck-signal-cool)'"
-          [style.color]="'var(--ck-bg-base)'"
+          [style.color]="'var(--ck-on-signal)'"
           [style.border]="'none'"
           [style.borderRadius.px]="4"
           [style.fontSize.px]="11"

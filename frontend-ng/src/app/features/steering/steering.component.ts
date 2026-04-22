@@ -243,7 +243,7 @@ import {
                 (click)="apply()"
                 [disabled]="applying() || !sim()"
                 class="ck-mono"
-                style="padding:8px 16px; border-radius:4px; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:#020617; font-weight:600;"
+                style="padding:8px 16px; border-radius:4px; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal); font-weight:600;"
                 [style.opacity]="applying() || !sim() ? '0.4' : '1'"
               >
                 <ck-glyph name="bolt" [size]="12" />

@@ -160,7 +160,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           (click)="launch()"
           [disabled]="!allGatesValid() || launching()"
           class="ck-mono inline-flex items-center gap-2 px-3 py-2 rounded text-xs font-semibold transition"
-          style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:#020617;"
+          style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal);"
           [style.opacity]="!allGatesValid() || launching() ? '0.4' : '1'"
           [title]="allGatesValid() ? (editingSystemId() ? 'Save this system' : 'Create this system') : firstInvalidGateMessage()"
         >
@@ -487,7 +487,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                 <a
                   routerLink="/knowledge"
                   class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium text-white transition"
-                  style="background: var(--ck-signal-cool); color: #0a0a0a;"
+                  style="background: var(--ck-signal-cool); color: var(--ck-on-signal);"
                 >
                   Open Knowledge
                 </a>

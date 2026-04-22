@@ -514,9 +514,9 @@
 
 .df-hitl-btn--accept {
   background: var(--ck-signal-pos, #34d399);
-  color: #0f172a;
+  color: var(--ck-on-signal, #0f172a);
   &:not(:disabled):hover {
-    background: #6ee7b7;
+    filter: brightness(1.08);
   }
 }
 

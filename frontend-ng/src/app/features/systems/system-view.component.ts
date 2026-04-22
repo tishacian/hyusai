@@ -118,7 +118,7 @@ interface PipelineStage {
         (click)="triggerRun()"
         [disabled]="triggering() || isDraft()"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium ck-mono transition"
-        style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:#020617;"
+        style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal);"
         [style.opacity]="triggering() || isDraft() ? '0.4' : '1'"
       >
         <app-icon name="play" [size]="12" />

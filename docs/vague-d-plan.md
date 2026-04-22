@@ -434,13 +434,49 @@ l'UX du switcher est supérieure et l'infra build/nginx reste inchangée.
   `--ck-bg-inset` / `--ck-fg-1` (étaient illisibles en light).
 - `styles/cockpit-utilities.scss` : hover card shadow → token.
 
-*Backlog cosmétique (hors scope)*
-- Charts Chart.js dans `quality-dashboard` et `news-lab` ont encore
-  des grilles `rgba(255,255,255,0.06)` qui s'évaporent en light. À
-  migrer vers une option locale-aware quand on touche les dashboards.
+*Audit complémentaire post-commit `80dc9d6` → `TBD`*
+
+Un second passage dédié a élargi la couverture des **boutons primary
+signal** après vérification exhaustive. Tous les sites où un bouton /
+badge avatar utilisait `background: var(--ck-signal-X); color: #020617`
+(ou `#0a0a0a`, `#0f172a`, `var(--ck-bg-base)`) ont été convertis à
+`color: var(--ck-on-signal)` — blanc en light, noir en dark, APCA safe
+dans les deux sens. Sites corrigés :
+
+- `features/orchestration/workflow-editor.styles.scss` — bouton HITL
+  accept (`.df-hitl-btn--accept`) qui aurait rendu dark text sur dark
+  green en light.
+- `features/runs/run-view.component.ts` — "Submit override" button.
+- `features/orchestration/workflow-editor.component.ts` — primary
+  action bouton du builder.
+- `features/systems/system-view.component.ts`,
+  `features/systems/system-builder.component.ts` (×2),
+  `features/systems/systems-grid.component.ts` (×3) — boutons "Create",
+  "Save", avatar initial.
+- `features/steering/steering.component.ts` — bouton "Apply levers".
+- `features/tasks/tasks-page.component.ts` — bouton "Run task".
+- `features/observability/quality-dashboard.component.ts` — bouton
+  "Run evaluation".
+- `features/layout/title-bar.component.ts` — 5 sites (workspace initial
+  badges, user initial avatar, "Create workspace" submit, locale
+  switcher pill).
+
+*Backlog documenté (hors scope D4)*
+- Charts Chart.js (`quality-dashboard`, `news-lab`) ont des grilles
+  `rgba(255,255,255,0.06)` qui s'évaporent en light. À migrer vers
+  une option locale-aware quand on touche les dashboards.
 - Auth pages (`signin`, `signup`, `password-reset`) gardent des
   `inset 1px rgba(255,255,255,0.06)` décoratifs invisibles en light,
-  sans casse.
+  sans casse structurelle.
+- Feature pages legacy rédigées en Tailwind classique (`news-lab` 19
+  occurrences, `presets-list` 13, `chat-panel` 8, `rag-settings` 8,
+  `workflow-editor` 7 en Tailwind pur) utilisent `text-white`,
+  `bg-slate-900`, `bg-black/20` etc. sans préfixe `dark:`. Ces pages
+  seraient illisibles en light — à migrer vers la grammaire cockpit
+  (`--ck-bg-panel`, `--ck-fg-1`, `ck-tag`…) dans un pass dédié, pas
+  à coup de sed Tailwind. Certaines (comme `chat-panel`) sont déjà
+  partiellement theme-aware via `dark:text-white` / `text-gray-900`,
+  elles n'ont donc pas besoin d'être touchées en priorité.
 - Toast (`ngx-toastr`) utilise encore son thème sombre par défaut.
 
 **Done quand — ✅**

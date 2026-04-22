@@ -156,7 +156,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
               [style.borderRadius.px]="3"
               [style.fontSize.px]="10"
               [style.fontWeight]="600"
-              [style.color]="'var(--ck-bg-base)'"
+              [style.color]="'var(--ck-on-signal)'"
               [style.background]="'var(--ck-signal-cool)'"
             >{{ workspaceInitial(ws.name) }}</span>
             <span
@@ -217,7 +217,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
                   [style.borderRadius.px]="3"
                   [style.fontSize.px]="10"
                   [style.fontWeight]="600"
-                  [style.color]="'var(--ck-bg-base)'"
+                  [style.color]="'var(--ck-on-signal)'"
                   [style.background]="'var(--ck-signal-cool)'"
                 >{{ workspaceInitial(ws.name) }}</span>
                 <div [style.flex]="'1 1 auto'" [style.minWidth]="'0'">
@@ -268,7 +268,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
                   [disabled]="!newWorkspaceName.trim() || creating()"
                   [style.padding]="'4px 10px'"
                   [style.background]="'var(--ck-signal-cool)'"
-                  [style.color]="'var(--ck-bg-base)'"
+                  [style.color]="'var(--ck-on-signal)'"
                   [style.border]="'none'"
                   [style.borderRadius.px]="3"
                   [style.fontSize.px]="11"
@@ -306,7 +306,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
             [style.borderRadius]="'50%'"
             [style.fontSize.px]="10"
             [style.fontWeight]="600"
-            [style.color]="'var(--ck-bg-base)'"
+            [style.color]="'var(--ck-on-signal)'"
             [style.background]="'var(--ck-signal-violet)'"
           >{{ initials() }}</span>
           <ck-glyph name="arrow-down" [size]="10" color="var(--ck-fg-4)" />
@@ -349,7 +349,7 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
                     [style.flex]="'1 1 0'"
                     [style.padding]="'4px 6px'"
                     [style.background]="i18n.locale() === lc ? 'var(--ck-signal-cool)' : 'transparent'"
-                    [style.color]="i18n.locale() === lc ? 'var(--ck-bg-base)' : 'var(--ck-fg-2)'"
+                    [style.color]="i18n.locale() === lc ? 'var(--ck-on-signal)' : 'var(--ck-fg-2)'"
                     [style.border]="'1px solid var(--ck-stroke-2)'"
                     [style.borderRadius.px]="3"
                     [style.fontSize.px]="10"

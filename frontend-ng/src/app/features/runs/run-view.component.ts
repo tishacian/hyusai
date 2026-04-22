@@ -134,7 +134,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
                     (click)="submitOverride()"
                     [disabled]="submittingOverride()"
                     class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-medium font-mono tracking-wider"
-                    style="background:var(--ck-signal-pos); color:#020617;"
+                    style="background:var(--ck-signal-pos); color:var(--ck-on-signal);"
                     [style.opacity]="submittingOverride() ? '0.4' : '1'"
                   >
                     {{ submittingOverride() ? 'SAVING…' : 'SAVE' }}
