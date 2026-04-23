@@ -569,17 +569,38 @@ const STEP_ICONS: Record<string, string> = {
                       @for (src of msg.sources; track $index; let i = $index) {
                         <li
                           [id]="sourceDomId(msg.id, i + 1)"
-                          class="rounded-md px-3 py-2 text-[12px] bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5 transition-all"
+                          [class]="isSourceCited(msg, i + 1)
+                            ? 'rounded-md px-3 py-2 text-[12px] transition-all bg-brand-500/10 ring-1 ring-brand-500/25'
+                            : 'rounded-md px-3 py-2 text-[12px] transition-all bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5 opacity-70'"
+                          [attr.aria-label]="isSourceCited(msg, i + 1) ? 'Cited source' : 'Retrieved but not cited in answer'"
                         >
                           <div class="flex items-center gap-2 mb-0.5">
                             <span
-                              class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-brand-500/15 text-brand-400"
+                              [class]="isSourceCited(msg, i + 1)
+                                ? 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-brand-500/25 text-brand-400'
+                                : 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-white/5 text-gray-400'"
                             >
                               {{ i + 1 }}
                             </span>
+                            @if (!isSourceCited(msg, i + 1)) {
+                              <span
+                                class="text-[9px] uppercase tracking-wider text-gray-500 font-mono shrink-0"
+                                title="This chunk was retrieved but the model did not cite it"
+                              >
+                                not cited
+                              </span>
+                            }
                             <span class="font-medium text-gray-900 dark:text-white truncate">
                               {{ sourceTitle(src) }}
                             </span>
+                            @if (sourceLocator(src); as loc) {
+                              <span
+                                class="font-mono text-[10px] text-brand-400/80 shrink-0"
+                                [title]="loc.tooltip"
+                              >
+                                · {{ loc.label }}
+                              </span>
+                            }
                             @if (sourceCollection(src); as col) {
                               <span
                                 class="text-[9px] uppercase tracking-wider text-gray-500 font-mono shrink-0"
@@ -1176,13 +1197,36 @@ export class ChatPanelComponent {
     return Array.from(seen).sort((a, b) => a - b);
   }
 
+  /**
+   * Set of source indices (1-based) that the assistant actually cited in
+   * the answer body. Used to visually distinguish cited sources from
+   * retrieved-but-unused context in the Sources panel — otherwise 5
+   * entries for 2 chips reads like "duplicates".
+   */
+  private citedIndicesCache = new Map<string, Set<number>>();
+  citedIndices(msg: ChatMessage): Set<number> {
+    const key = `${msg.id}:${(msg.content ?? '').length}`;
+    const cached = this.citedIndicesCache.get(key);
+    if (cached) return cached;
+    const set = new Set<number>();
+    for (const tok of this.renderAnswer(msg.content)) {
+      if (tok.kind === 'cite') set.add(tok.n);
+    }
+    this.citedIndicesCache.set(key, set);
+    return set;
+  }
+
+  isSourceCited(msg: ChatMessage, index1Based: number): boolean {
+    return this.citedIndices(msg).has(index1Based);
+  }
+
   /** Short preview shown in a chip's native ``title`` tooltip on hover. */
   citationTooltip(msg: ChatMessage, n: number): string {
     const src = msg.sources?.[n - 1];
     if (!src) return `Source [${n}] — not available`;
     const title = this.sourceTitle(src);
-    const page = (src.page as number | undefined) ?? (src.metadata as any)?.page;
-    return page ? `${title} · p. ${page}` : title;
+    const loc = this.sourceLocator(src);
+    return loc ? `${title} · ${loc.label}` : title;
   }
 
   /**
@@ -1220,6 +1264,32 @@ export class ChatPanelComponent {
       ((src.metadata as any)?.collection as string | undefined) ||
       ''
     );
+  }
+
+  /**
+   * Produce a compact locator chip to disambiguate sources that share a
+   * title. Prefers an actual page number (``p. 4``), then a chunk
+   * identifier, then the short document id. Returns ``null`` when we
+   * have no extra info to display — caller omits the chip entirely.
+   */
+  sourceLocator(src: Source): { label: string; tooltip: string } | null {
+    const meta = (src.metadata ?? {}) as Record<string, unknown>;
+    const page = (src.page as number | string | undefined) ?? (meta['page'] as number | string | undefined);
+    if (page !== undefined && page !== null && `${page}`.trim() !== '') {
+      return { label: `p. ${page}`, tooltip: `Page ${page}` };
+    }
+    const chunkIdx =
+      (src['chunk_index'] as number | undefined) ??
+      (meta['chunk_index'] as number | undefined) ??
+      (meta['chunk_id'] as number | undefined);
+    if (typeof chunkIdx === 'number' && Number.isFinite(chunkIdx)) {
+      return { label: `chunk ${chunkIdx}`, tooltip: `Chunk index ${chunkIdx}` };
+    }
+    const docId = (src.document_id as string | undefined) ?? (meta['document_id'] as string | undefined);
+    if (docId && typeof docId === 'string' && docId.length >= 6) {
+      return { label: `#${docId.slice(0, 6)}`, tooltip: `Document id ${docId}` };
+    }
+    return null;
   }
 
   sourceSnippet(src: Source): string {

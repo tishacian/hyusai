@@ -2,13 +2,18 @@
 import asyncio
 import os
 import tempfile
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from app.services.document_parser.base import BaseDocumentParser, ParsedDocument, DocumentType
 from app.services.document_parser.text_processor import TextProcessor
 from app.services.document_parser.chunker import DocumentChunker, ChunkingMethod
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+# Separator inserted between pages when joining per-page texts. Kept in sync
+# with pdf_parser.py so char offsets line up with the char→page map below.
+_PAGE_SEP = "\n\n"
 
 
 class AdvancedPDFParser(BaseDocumentParser):
@@ -24,32 +29,35 @@ class AdvancedPDFParser(BaseDocumentParser):
         
         metadata = await self.extract_metadata(file_path)
         
-        # Try markdown converter first (better quality), fallback to OCR
+        # Extractors now return a list of per-page ``(page_number, text)``
+        # tuples instead of a single blob, so every chunk can be pinned to the
+        # source page. This fixes the issue where all PDF chunks were being
+        # indexed with ``page=1`` and shown as indistinguishable duplicates in
+        # the Chat UI sources panel.
+        pages_data: List[Dict] = []
         try:
             if use_markdown_converter:
-                content = await self._extract_with_markdown_converter(file_path)
+                pages_data = await self._extract_with_markdown_converter(file_path)
             else:
-                content = await self._extract_with_ocr(file_path)
+                pages_data = await self._extract_with_ocr(file_path)
         except Exception as e:
             logger.warning(f"Primary extraction method failed: {e}, trying fallback")
-            # Fallback to OCR if markdown converter fails
             if use_markdown_converter:
                 try:
-                    content = await self._extract_with_ocr(file_path)
+                    pages_data = await self._extract_with_ocr(file_path)
                 except Exception as fallback_error:
                     logger.error(f"Both extraction methods failed: {fallback_error}")
-                    # Final fallback to basic PDF extraction
-                    content = await self._extract_basic(file_path)
+                    pages_data = await self._extract_basic(file_path)
             else:
-                content = await self._extract_basic(file_path)
-        
-        # Clean and process text (preserves paragraph breaks)
-        cleaned_content = TextProcessor.clean_text(content)
+                pages_data = await self._extract_basic(file_path)
+
+        raw_content = _PAGE_SEP.join(p.get("text", "") for p in pages_data)
+
+        cleaned_content = TextProcessor.clean_text(raw_content)
         if not cleaned_content:
             logger.warning(f"No content extracted from {file_path} after cleaning")
             cleaned_content = "No content could be extracted from this document."
         
-        # Create chunks using the chunker service
         chunker = DocumentChunker(default_chunk_size=chunk_size, default_overlap=chunk_overlap)
         chunk_texts = chunker.chunk(
             cleaned_content,
@@ -57,26 +65,9 @@ class AdvancedPDFParser(BaseDocumentParser):
             chunk_size=chunk_size,
             overlap=chunk_overlap
         )
-        
-        # Convert to chunk dict format
-        chunks = []
-        current_pos = 0
-        for i, chunk_text in enumerate(chunk_texts):
-            chunk_start = cleaned_content.find(chunk_text, current_pos)
-            if chunk_start == -1:
-                chunk_start = current_pos
-            chunk_end = chunk_start + len(chunk_text)
-            current_pos = chunk_end
-            
-            chunks.append({
-                "content": chunk_text,
-                "start_char": chunk_start,
-                "end_char": chunk_end,
-                "chunk_index": i,
-                "page": 1,  # Will be updated if page info is available
-            })
-        
-        # Process chunks to remove low-quality content
+
+        chunks = self._map_chunks_to_pages(chunk_texts, pages_data, cleaned_content)
+
         processed_chunks = TextProcessor.process_chunks(chunks)
         
         if not processed_chunks:
@@ -86,7 +77,7 @@ class AdvancedPDFParser(BaseDocumentParser):
                 "start_char": 0,
                 "end_char": len(cleaned_content),
                 "chunk_index": 0,
-                "page": 1,
+                "page": pages_data[0].get("page_number", 1) if pages_data else 1,
             }]
         
         language = self._detect_language(cleaned_content)
@@ -98,7 +89,7 @@ class AdvancedPDFParser(BaseDocumentParser):
             document_type=DocumentType.PDF,
             raw_content=cleaned_content,
             structured_content={
-                "pages": metadata.get("pages", 1),
+                "pages": metadata.get("pages", len(pages_data) or 1),
                 "chunks_count": len(processed_chunks),
                 "total_chars": len(cleaned_content),
             },
@@ -115,25 +106,67 @@ class AdvancedPDFParser(BaseDocumentParser):
             created_at=metadata.get("created_at"),
             modified_at=metadata.get("modified_at"),
         )
-    
-    async def _extract_with_markdown_converter(self, file_path: str) -> str:
+
+    def _map_chunks_to_pages(
+        self,
+        chunk_texts: List[str],
+        pages_data: List[Dict],
+        full_text: str,
+    ) -> List[Dict]:
+        """Map chunk texts to pages and create chunk dictionaries.
+
+        Mirrors ``PDFParser._map_chunks_to_pages`` so both parsers expose
+        the same chunk schema. Falls back to page 1 when the char→page
+        map cannot locate a chunk (e.g. heavy cleaning collapsed it).
+        """
+        chunks: List[Dict] = []
+
+        char_to_page: Dict[int, int] = {}
+        cursor = 0
+        for page_data in pages_data:
+            page_text = page_data.get("text", "") or ""
+            page_num = page_data.get("page_number", 0) or 0
+            for i in range(len(page_text)):
+                char_to_page[cursor + i] = page_num
+            cursor += len(page_text) + len(_PAGE_SEP)
+
+        current_pos = 0
+        fallback_page = pages_data[0].get("page_number", 1) if pages_data else 1
+        for i, chunk_text in enumerate(chunk_texts):
+            chunk_start = full_text.find(chunk_text, current_pos)
+            if chunk_start == -1:
+                chunk_start = current_pos
+            chunk_end = chunk_start + len(chunk_text)
+            current_pos = chunk_end
+
+            page_num = char_to_page.get(chunk_start, fallback_page)
+
+            chunks.append({
+                "content": chunk_text,
+                "start_char": chunk_start,
+                "end_char": chunk_end,
+                "chunk_index": i,
+                "page": page_num,
+            })
+
+        return chunks
+
+    async def _extract_with_markdown_converter(self, file_path: str) -> List[Dict]:
         """Extract text using markdown converter (best quality)"""
         try:
-            # Try to use markdown converter if available
-            # This is a simplified version - full implementation would use the markdown_converter module
             import pdfplumber
-            
+
             loop = asyncio.get_event_loop()
-            
-            def _extract():
-                text_parts = []
+
+            def _extract() -> List[Dict]:
+                pages: List[Dict] = []
                 with pdfplumber.open(file_path) as pdf:
-                    for page in pdf.pages:
+                    for page_num, page in enumerate(pdf.pages, 1):
                         text = page.extract_text()
                         if text:
-                            text_parts.append(text)
-                return "\n\n".join(text_parts)
-            
+                            pages.append({"page_number": page_num, "text": text})
+                return pages
+
             return await loop.run_in_executor(None, _extract)
         except ImportError:
             logger.warning("pdfplumber not available, falling back to basic extraction")
@@ -141,38 +174,36 @@ class AdvancedPDFParser(BaseDocumentParser):
         except Exception as e:
             logger.error(f"Markdown converter extraction failed: {e}")
             raise
-    
-    async def _extract_with_ocr(self, file_path: str) -> str:
+
+    async def _extract_with_ocr(self, file_path: str) -> List[Dict]:
         """Extract text using OCR (for scanned PDFs)"""
         try:
-            # Try to use OCR if available
             import pytesseract
             import pymupdf
             from PIL import Image
-            
+
             loop = asyncio.get_event_loop()
-            
-            def _extract():
-                text_parts = []
+
+            def _extract() -> List[Dict]:
+                pages: List[Dict] = []
                 doc = pymupdf.open(file_path)
                 try:
-                    for page_num in range(len(doc)):
-                        page = doc[page_num]
-                        # Try text extraction first
+                    for idx in range(len(doc)):
+                        page = doc[idx]
+                        page_num = idx + 1
                         text = page.get_text("text")
-                        if text.strip():
-                            text_parts.append(text)
-                        else:
-                            # Use OCR for pages without text
-                            pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
-                            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                            ocr_text = pytesseract.image_to_string(img)
-                            if ocr_text.strip():
-                                text_parts.append(ocr_text)
+                        if text and text.strip():
+                            pages.append({"page_number": page_num, "text": text})
+                            continue
+                        pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
+                        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                        ocr_text = pytesseract.image_to_string(img)
+                        if ocr_text and ocr_text.strip():
+                            pages.append({"page_number": page_num, "text": ocr_text})
                 finally:
                     doc.close()
-                return "\n\n".join(text_parts)
-            
+                return pages
+
             return await loop.run_in_executor(None, _extract)
         except ImportError:
             logger.warning("OCR dependencies not available, falling back to basic extraction")
@@ -180,33 +211,33 @@ class AdvancedPDFParser(BaseDocumentParser):
         except Exception as e:
             logger.error(f"OCR extraction failed: {e}")
             raise
-    
-    async def _extract_basic(self, file_path: str) -> str:
+
+    async def _extract_basic(self, file_path: str) -> List[Dict]:
         """Basic PDF extraction fallback"""
         loop = asyncio.get_event_loop()
-        
-        def _extract():
-            text_parts = []
+
+        def _extract() -> List[Dict]:
+            pages: List[Dict] = []
             try:
                 import pdfplumber
                 with pdfplumber.open(file_path) as pdf:
-                    for page in pdf.pages:
+                    for page_num, page in enumerate(pdf.pages, 1):
                         text = page.extract_text()
                         if text:
-                            text_parts.append(text)
+                            pages.append({"page_number": page_num, "text": text})
             except ImportError:
                 try:
                     import PyPDF2
                     with open(file_path, 'rb') as file:
                         pdf_reader = PyPDF2.PdfReader(file)
-                        for page in pdf_reader.pages:
+                        for page_num, page in enumerate(pdf_reader.pages, 1):
                             text = page.extract_text()
                             if text:
-                                text_parts.append(text)
+                                pages.append({"page_number": page_num, "text": text})
                 except ImportError:
                     raise ImportError("Neither pdfplumber nor PyPDF2 is installed")
-            return "\n\n".join(text_parts)
-        
+            return pages
+
         return await loop.run_in_executor(None, _extract)
     
     
