@@ -203,17 +203,43 @@ class ChromaVectorDB(VectorDBBase):
     async def get_by_document_id(self, document_id: str) -> List[str]:
         """Get all chunk IDs for a specific document"""
         import asyncio
-        
+
         loop = asyncio.get_event_loop()
-        
+
         def _get_by_doc():
             # Query by document_id in metadata
             results = self.collection.get(
                 where={"document_id": document_id}
             )
             return results['ids'] if results and 'ids' in results else []
-        
+
         return await loop.run_in_executor(None, _get_by_doc)
+
+    async def get_document_metadata(self, document_id: str) -> dict:
+        """Return the metadata of a single chunk matching ``document_id``.
+
+        Chunks of the same document share all ``document_*`` fields (set
+        once at ingestion time by the docmeta adapter), so picking the first
+        one is enough to feed the UI's Doc-facts panel.
+        """
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+
+        def _first_meta():
+            results = self.collection.get(
+                where={"document_id": document_id},
+                include=["metadatas"],
+                limit=1,
+            )
+            if not results or not results.get("metadatas"):
+                return {}
+            metas = results["metadatas"]
+            if not metas:
+                return {}
+            return dict(metas[0] or {})
+
+        return await loop.run_in_executor(None, _first_meta)
     
     async def list_documents(self) -> List[Dict]:
         """List all unique documents in the collection"""

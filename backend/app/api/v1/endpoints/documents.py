@@ -139,11 +139,25 @@ async def upload_documents_batch(
         )
         result = await doc_service.ingest_documents_batch(file_paths)
 
+        # Surface per-document ids + filenames so the UI can request
+        # docmeta for each (Doc-facts panel) without re-uploading or
+        # re-listing the whole collection.
+        documents = [
+            {
+                "document_id": r.get("document_id"),
+                "filename": r.get("filename"),
+                "status": r.get("status"),
+                "chunks_processed": r.get("chunks_processed"),
+            }
+            for r in (result.get("results") or [])
+        ]
+
         return {
             "status": "success",
             "total": result["total"],
             "successful": result["successful"],
             "failed": result["failed"],
+            "documents": documents,
         }
 
     except Exception as e:
@@ -211,6 +225,46 @@ def _find_original_file(document_id: str, filename: str) -> Optional[str]:
         return candidate
 
     return None
+
+
+@router.get("/{document_id}/metadata")
+async def get_document_metadata(
+    document_id: str,
+    collection_name: str = Query("documents"),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Return docmeta-enriched metadata for a single document.
+
+    Surfaces the ``document_*`` fields persisted at ingestion time (title,
+    author, num_pages, token_count, TF-IDF keywords, language, ...). The
+    UI's "Doc facts" panel calls this endpoint for every document it
+    renders in the sources list; callers that only need the filename stay
+    on the cheaper ``GET /documents`` listing.
+    """
+    try:
+        app_settings = get_resolved_settings(workspace_id=workspace.id)
+        db_type = (
+            app_settings.get("ragVectorDBType")
+            or settings.default_vector_db_type
+            or "faiss"
+        )
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
+        metadata = await doc_service.get_document_metadata(document_id)
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return {
+            "document_id": document_id,
+            "metadata": metadata,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching document metadata: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/preview/{document_id}")

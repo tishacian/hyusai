@@ -17,6 +17,39 @@ import { ChatPanelComponent } from './chat-panel.component';
 import { type ChatStartMode } from './chat-overlay.service';
 
 /**
+ * Shape of the docmeta payload returned by
+ * `GET /api/v1/documents/{id}/metadata`. All fields are optional because
+ * docmeta degrades gracefully (missing PDF author, missing NLTK corpus, …)
+ * and the UI must never blow up on a partial response.
+ */
+interface DocFacts {
+  document_title?: string;
+  document_filename?: string;
+  document_author?: string;
+  document_num_pages?: number;
+  document_num_slides?: number;
+  document_num_sheets?: number;
+  document_word_count?: number;
+  document_line_count?: number;
+  document_token_count?: number;
+  document_language?: string;
+  document_extracted_keywords?: string[];
+  chunks_count?: number;
+  [key: string]: unknown;
+}
+
+interface SessionDoc {
+  /** Backend document_id; undefined while the upload is in flight. */
+  id?: string;
+  /** Display name (original filename). */
+  filename: string;
+  /** Whether we're currently fetching docmeta for this doc. */
+  metaLoading: boolean;
+  /** Resolved docmeta payload, or `null` if the endpoint returned 404. */
+  meta: DocFacts | null;
+}
+
+/**
  * `ChatWorkspaceComponent` — the global chat surface (Vague D / D0).
  *
  * Three modes co-exist on the same layout:
@@ -117,7 +150,11 @@ import { type ChatStartMode } from './chat-overlay.service';
               }
             </div>
 
-            <!-- Attached docs -->
+            <!-- Attached docs — each entry carries an expandable "Doc facts"
+                 panel populated by GET /documents/{id}/metadata. We render
+                 title + filename, and on docmeta arrival show top keywords
+                 + page/token counts so operators can eyeball retrieval at
+                 a glance without leaving the chat. -->
             @if (sessionDocs().length > 0) {
               <div class="t-docs">
                 <div class="t-docs-head">
@@ -138,10 +175,52 @@ import { type ChatStartMode } from './chat-overlay.service';
                   }
                 </div>
                 <ul class="t-docs-list">
-                  @for (d of sessionDocs(); track d) {
+                  @for (d of sessionDocs(); track (d.id || d.filename)) {
                     <li class="t-doc-item">
-                      <app-icon name="file-text" [size]="11" />
-                      <span class="t-doc-name">{{ d }}</span>
+                      <div class="t-doc-row">
+                        <app-icon name="file-text" [size]="11" />
+                        <span class="t-doc-name" [title]="displayTitle(d)">
+                          {{ displayTitle(d) }}
+                        </span>
+                        @if (d.metaLoading) {
+                          <app-icon name="loader-2" [size]="10" class="animate-spin t-doc-spin" />
+                        }
+                      </div>
+                      @if (d.meta) {
+                        <div class="t-doc-facts">
+                          <!-- Counts line: pages · tokens · chunks. We keep
+                               it glyph-free (the icon registry curates only
+                               the icons shipped with the app bundle) and
+                               rely on labels + mono font for scannability. -->
+                          <div class="t-doc-stats">
+                            @if (pageCount(d); as p) {
+                              <span class="t-doc-stat">
+                                {{ p }} page{{ p === 1 ? '' : 's' }}
+                              </span>
+                            }
+                            @if (d.meta.document_token_count !== undefined) {
+                              <span class="t-doc-stat">
+                                {{ formatTokens(d.meta.document_token_count) }} tokens
+                              </span>
+                            }
+                            @if (d.meta.chunks_count !== undefined && d.meta.chunks_count !== null) {
+                              <span class="t-doc-stat">
+                                {{ d.meta.chunks_count }} chunks
+                              </span>
+                            }
+                          </div>
+                          @if (d.meta.document_author) {
+                            <div class="t-doc-author">by {{ d.meta.document_author }}</div>
+                          }
+                          @if (topKeywords(d).length > 0) {
+                            <div class="t-doc-keywords">
+                              @for (kw of topKeywords(d); track kw) {
+                                <span class="t-doc-kw">{{ kw }}</span>
+                              }
+                            </div>
+                          }
+                        </div>
+                      }
                     </li>
                   }
                 </ul>
@@ -368,20 +447,86 @@ import { type ChatStartMode } from './chat-overlay.service';
       padding: 0;
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 6px;
     }
     .t-doc-item {
       display: flex;
-      align-items: center;
-      gap: 6px;
+      flex-direction: column;
+      gap: 4px;
       font-size: 11px;
       color: var(--ck-fg-2);
-      padding: 2px 4px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      transition: border-color 120ms, background 120ms;
+    }
+    .t-doc-item:hover {
+      border-color: var(--ck-stroke-2);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .t-doc-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
     }
     .t-doc-name {
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .t-doc-spin {
+      color: var(--ck-fg-4);
+      flex-shrink: 0;
+    }
+    /* "Doc facts" panel: compact readout of docmeta-sourced fields. */
+    .t-doc-facts {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-left: 17px;
+      font-size: 10px;
+      color: var(--ck-fg-3);
+    }
+    .t-doc-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--ck-fg-4);
+      font-family: var(--ck-font-mono);
+      font-size: 9px;
+      letter-spacing: 0.04em;
+    }
+    .t-doc-stat {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .t-doc-stat + .t-doc-stat::before {
+      content: '·';
+      color: var(--ck-fg-4);
+      margin-right: 3px;
+      opacity: 0.6;
+    }
+    .t-doc-author {
+      font-style: italic;
+      color: var(--ck-fg-4);
+      font-size: 10px;
+    }
+    .t-doc-keywords {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+    }
+    .t-doc-kw {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 8px;
+      background: rgba(125, 211, 252, 0.08);
+      color: var(--ck-signal-cool);
+      border: 1px solid rgba(125, 211, 252, 0.2);
     }
     .t-empty-hint {
       font-size: 10px;
@@ -423,7 +568,12 @@ export class ChatWorkspaceComponent implements OnInit {
   selectedSystemId: string | null = null;
 
   readonly ephemeralContextId = signal<string | null>(null);
-  readonly sessionDocs = signal<string[]>([]);
+  /**
+   * Docs attached to the current drop-and-ask session. Each entry is
+   * hydrated asynchronously with its docmeta payload so the "Doc facts"
+   * panel can render title / author / pages / tokens / keywords.
+   */
+  readonly sessionDocs = signal<SessionDoc[]>([]);
 
   readonly dragging = signal(false);
   readonly uploading = signal(false);
@@ -516,17 +666,54 @@ export class ChatWorkspaceComponent implements OnInit {
     Array.from(files).forEach((f) => formData.append('files', f));
     formData.append('collection_name', 'documents');
 
+    interface UploadResponse {
+      total: number;
+      successful: number;
+      failed: number;
+      documents?: Array<{
+        document_id: string | null;
+        filename: string | null;
+        status: string | null;
+        chunks_processed: number | null;
+      }>;
+    }
+
     this.http
-      .post<{ total: number; successful: number; failed: number }>(
-        '/api/v1/documents/upload-batch',
-        formData,
-      )
+      .post<UploadResponse>('/api/v1/documents/upload-batch', formData)
       .subscribe({
         next: (res) => {
           this.uploading.set(false);
-          const added = Array.from(files).map((f) => f.name);
-          this.sessionDocs.update((prev) => [...prev, ...added]);
-          this.ensureEphemeralContext(added);
+          const addedDocs: SessionDoc[] = (res.documents ?? [])
+            .filter((d) => d.status === 'success')
+            .map((d) => ({
+              id: d.document_id ?? undefined,
+              filename: d.filename ?? 'unknown',
+              metaLoading: !!d.document_id,
+              meta: null,
+            }));
+          // Fallback in case the backend omitted per-doc ids (older deploys
+          // or error path): still surface the filenames so the UI reflects
+          // the drop.
+          if (addedDocs.length === 0) {
+            const fallback = Array.from(files).map<SessionDoc>((f) => ({
+              filename: f.name,
+              metaLoading: false,
+              meta: null,
+            }));
+            this.sessionDocs.update((prev) => [...prev, ...fallback]);
+          } else {
+            this.sessionDocs.update((prev) => [...prev, ...addedDocs]);
+            // Hydrate each newly-indexed doc's docmeta in parallel. Failures
+            // silently leave `meta: null` so the row renders without facts.
+            addedDocs.forEach((doc) => {
+              if (!doc.id) return;
+              this.fetchDocMetadata(doc.id);
+            });
+          }
+          const added = (res.documents ?? []).map((d) => d.filename ?? '');
+          this.ensureEphemeralContext(
+            added.filter((n): n is string => !!n),
+          );
           if (res.failed > 0) {
             this.toast.warning(
               `${res.successful}/${res.total} indexed · ${res.failed} failed`,
@@ -549,12 +736,80 @@ export class ChatWorkspaceComponent implements OnInit {
       });
   }
 
+  /**
+   * Fetch docmeta for a single document and patch the corresponding
+   * ``SessionDoc`` entry in place. Runs out-of-band from the upload flow
+   * so a slow metadata endpoint never blocks the "file indexed" toast.
+   */
+  private fetchDocMetadata(documentId: string): void {
+    this.http
+      .get<{ document_id: string; metadata: DocFacts }>(
+        `/api/v1/documents/${documentId}/metadata`,
+      )
+      .subscribe({
+        next: (res) => {
+          this.sessionDocs.update((prev) =>
+            prev.map((d) =>
+              d.id === documentId
+                ? { ...d, meta: res.metadata ?? null, metaLoading: false }
+                : d,
+            ),
+          );
+        },
+        error: () => {
+          this.sessionDocs.update((prev) =>
+            prev.map((d) =>
+              d.id === documentId
+                ? { ...d, meta: null, metaLoading: false }
+                : d,
+            ),
+          );
+        },
+      });
+  }
+
+  /** Compact display title for a session doc (docmeta title > filename). */
+  displayTitle(doc: SessionDoc): string {
+    return (
+      doc.meta?.document_title?.trim() ||
+      doc.meta?.document_filename?.trim() ||
+      doc.filename
+    );
+  }
+
+  /** Top N keywords for inline chips ("cockpit · stockage vectoriel · …"). */
+  topKeywords(doc: SessionDoc, limit = 4): string[] {
+    const raw = doc.meta?.document_extracted_keywords ?? [];
+    return raw.slice(0, limit);
+  }
+
+  /** Best-effort "pages" value — PDFs, Office slides, Office sheets, or ø. */
+  pageCount(doc: SessionDoc): number | null {
+    return (
+      doc.meta?.document_num_pages ??
+      doc.meta?.document_num_slides ??
+      doc.meta?.document_num_sheets ??
+      null
+    );
+  }
+
+  /** Short formatted number (e.g. 1342 → "1.3k tokens"). */
+  formatTokens(count: number | undefined): string {
+    if (!count && count !== 0) return '—';
+    if (count >= 10_000) return `${(count / 1000).toFixed(1)}k`;
+    return `${count}`;
+  }
+
   private ensureEphemeralContext(newDocs: string[]): void {
     const existing = this.ephemeralContextId();
+    // Flatten SessionDoc[] → string[] (filenames) for the Context's
+    // ``data_refs`` audit trail. Filenames are good enough for traceability;
+    // the backend already links chunks back to document_ids via metadata.
+    const allFilenames = this.sessionDocs().map((d) => d.filename);
     if (existing) {
       this.canonical
         .updateContext(existing, {
-          data_refs: [...this.sessionDocs()],
+          data_refs: allFilenames,
         })
         .subscribe();
       return;

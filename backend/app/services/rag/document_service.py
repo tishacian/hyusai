@@ -605,6 +605,38 @@ class DocumentService:
     async def list_documents(self) -> List[Dict]:
         """List all documents in the collection"""
         return await self.vector_db.list_documents()
+
+    async def get_document_metadata(self, document_id: str) -> Dict:
+        """Return docmeta-enriched metadata for a single document.
+
+        Thin wrapper over ``vector_db.get_document_metadata`` that strips
+        chunk-level noise (``content``, ``chunk_index``, char offsets) so
+        the HTTP layer can return a clean payload to the UI without shipping
+        the full chunk text. ``document_*`` and ``filename`` fields are kept
+        as-is.
+        """
+        raw = await self.vector_db.get_document_metadata(document_id)
+        if not raw:
+            return {}
+
+        chunk_only_keys = {
+            "content",
+            "chunk_index",
+            "start_char",
+            "end_char",
+            "page",
+            "chunk_id",
+        }
+        cleaned = {k: v for k, v in raw.items() if k not in chunk_only_keys}
+        # ``chunks_count`` is a cheap aggregate the UI uses in the Doc-facts
+        # panel ("12 chunks · 3124 tokens"). We recompute it from the same
+        # index so we never report a stale number.
+        try:
+            chunk_ids = await self.vector_db.get_by_document_id(document_id)
+            cleaned["chunks_count"] = len(chunk_ids)
+        except Exception:
+            cleaned["chunks_count"] = None
+        return cleaned
     
     async def delete_document(self, document_id: str) -> bool:
         """Delete a document and all its chunks"""

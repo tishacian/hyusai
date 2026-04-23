@@ -255,6 +255,34 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _scroll)
 
+    async def get_document_metadata(self, document_id: str) -> dict:
+        """Return the payload of a single chunk matching ``document_id``.
+
+        Used by ``GET /documents/{id}/metadata`` to surface docmeta-sourced
+        fields (title, author, keywords, token count) to the UI — all chunks
+        of a document share these fields so one payload is enough.
+        """
+        if self.client is None or not self.client.collection_exists(self.collection_name):
+            return {}
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+        loop = asyncio.get_event_loop()
+        flt = Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))])
+
+        def _scroll_first():
+            records, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=flt,
+                limit=1,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not records:
+                return {}
+            return dict(records[0].payload or {})
+
+        return await loop.run_in_executor(None, _scroll_first)
+
     async def list_documents(self) -> List[dict]:
         if self.client is None or not self.client.collection_exists(self.collection_name):
             return []

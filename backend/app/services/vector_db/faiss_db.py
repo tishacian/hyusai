@@ -235,6 +235,21 @@ class FAISSVectorDB(VectorDBBase):
             if self.metadatas.get(vec_id, {}).get("document_id") == document_id
         ]
 
+    async def get_document_metadata(self, document_id: str) -> dict:
+        """Return the full metadata dict of the first chunk for ``document_id``.
+
+        Chunks of the same document share all ``document_*`` fields (set once
+        at ingestion time by the docmeta adapter) so picking one is enough to
+        surface title / author / keywords / token count to the UI.
+        """
+        for vec_id in self.ids:
+            meta = self.metadatas.get(vec_id, {})
+            if meta.get("document_id") == document_id:
+                # Return a shallow copy so callers can mutate freely without
+                # corrupting our in-memory index.
+                return dict(meta)
+        return {}
+
     async def list_documents(self) -> list[dict]:
         """List all unique documents in the collection"""
         seen_docs = {}
