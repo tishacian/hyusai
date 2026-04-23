@@ -92,6 +92,90 @@ const RAG_SLUG_TO_PRESET: Record<RagModeChoice, string> = {
   chah: 'OmniRAG',
 };
 
+/**
+ * Metric registry for the reasoning-trail evaluation step. Each entry
+ * declares:
+ *  - ``polarity``  — whether a HIGHER or LOWER raw value is considered
+ *    good. All cosine-sim based scores (relevance, factuality, coherence,
+ *    hhem, adv_hhem) are "higher is better"; future entries like
+ *    ``hallucination_rate`` or ``*_error`` should flip to ``lower``.
+ *  - ``max``       — theoretical upper bound of the raw value. Used to
+ *    normalise the bar width so that e.g. HHEM (which is bounded at 0.5
+ *    by the formula ``mf / (1 + mf)``) can visually reach 100% on a
+ *    perfectly-grounded response.
+ *  - ``good``      — normalised threshold [0..1] above which the metric
+ *    is shown in emerald.
+ *  - ``fair``      — normalised threshold above which it's shown in amber;
+ *    anything below drops to red.
+ *  - ``description`` — operator-facing tooltip text.
+ *
+ * Keep the keys in sync with ``backend/app/services/metrics/evaluator.py``
+ * (and any future evaluator plugged in). Unknown keys fall back to the
+ * ``default`` entry so we degrade gracefully on new metrics.
+ */
+interface MetricSpec {
+  polarity: 'higher' | 'lower';
+  max: number;
+  good: number;
+  fair: number;
+  description: string;
+}
+
+const METRIC_REGISTRY: Record<string, MetricSpec> = {
+  relevance: {
+    polarity: 'higher',
+    max: 1,
+    good: 0.7,
+    fair: 0.4,
+    description: 'Cosine similarity between query and response embeddings.',
+  },
+  factuality: {
+    polarity: 'higher',
+    max: 1,
+    good: 0.7,
+    fair: 0.4,
+    description: 'Max cosine similarity between response and retrieved chunks.',
+  },
+  coherence: {
+    polarity: 'higher',
+    max: 1,
+    good: 0.7,
+    fair: 0.4,
+    description: 'Mean cosine similarity between consecutive response sentences.',
+  },
+  hhem: {
+    polarity: 'higher',
+    // hhem = mf / (1 + mf) is bounded at 0.5 when mf → 1.
+    max: 0.5,
+    good: 0.7,
+    fair: 0.4,
+    description: 'Grounding score (HHEM proxy). Bounded at 0.5 — bar is normalised.',
+  },
+  adv_hhem: {
+    polarity: 'higher',
+    // adv_hhem = mf * coherence * relevance / (1 + mf) — same 0.5 ceiling.
+    max: 0.5,
+    good: 0.7,
+    fair: 0.4,
+    description: 'Grounding × coherence × relevance. Bounded at 0.5 — bar is normalised.',
+  },
+  hallucination_rate: {
+    polarity: 'lower',
+    max: 1,
+    good: 0.7,
+    fair: 0.4,
+    description: 'Share of claims that could not be grounded. Lower is better.',
+  },
+};
+
+const DEFAULT_METRIC_SPEC: MetricSpec = {
+  polarity: 'higher',
+  max: 1,
+  good: 0.7,
+  fair: 0.4,
+  description: '',
+};
+
 const STEP_ICONS: Record<string, string> = {
   query_received: 'log-in',
   query_rewrite: 'wand-2',
@@ -322,11 +406,13 @@ const STEP_ICONS: Record<string, string> = {
                               @if (isEvalOpen(msg.id, step.id)) {
                                 <div class="mt-2 space-y-1.5">
                                   @for (m of scoreMetrics(step); track m.key) {
-                                    @let tone = scoreTone(m.value);
+                                    @let tone = scoreTone(m.key, m.value);
+                                    @let spec = metricSpec(m.key);
                                     <div
                                       class="grid grid-cols-[96px_1fr_auto] items-center gap-2 text-[11px]"
+                                      [title]="spec.description"
                                     >
-                                      <!-- Label -->
+                                      <!-- Label + polarity marker -->
                                       <div class="flex items-center gap-1.5 min-w-0">
                                         <span
                                           class="w-1.5 h-1.5 rounded-full shrink-0"
@@ -335,19 +421,33 @@ const STEP_ICONS: Record<string, string> = {
                                         <span class="font-mono text-[10px] uppercase tracking-wider text-gray-400 truncate">
                                           {{ metricLabel(m.key) }}
                                         </span>
+                                        @if (spec.polarity === 'lower') {
+                                          <span
+                                            class="text-[9px] font-mono text-gray-500 shrink-0"
+                                            title="Lower is better"
+                                          >↓</span>
+                                        } @else if (spec.max < 1) {
+                                          <span
+                                            class="text-[9px] font-mono text-gray-500 shrink-0"
+                                            [title]="'Max ' + spec.max.toFixed(2)"
+                                          >·{{ spec.max.toFixed(2) }}</span>
+                                        }
                                       </div>
-                                      <!-- Bar -->
+                                      <!-- Bar (width = normalised quality, not raw value,
+                                           so metrics capped at 0.5 or flipped polarity
+                                           still fill the track when optimal). -->
                                       <div
                                         class="relative h-1.5 rounded-full overflow-hidden"
                                         [class]="tone.barBg"
                                       >
                                         <div
-                                          class="absolute inset-y-0 left-0 rounded-full"
+                                          class="absolute inset-y-0 left-0 rounded-full transition-[width]"
                                           [class]="tone.bar"
-                                          [style.width.%]="m.value * 100"
+                                          [style.width.%]="barFraction(m.key, m.value) * 100"
                                         ></div>
                                       </div>
-                                      <!-- Value -->
+                                      <!-- Raw value (always displayed in metric's own
+                                           units so operators can correlate with logs). -->
                                       <span
                                         class="font-mono text-[10px] shrink-0 tabular-nums w-10 text-right"
                                         [class]="tone.text"
@@ -859,18 +959,47 @@ export class ChatPanelComponent {
       .join(' ');
   }
 
-  /** Pre-computed Tailwind class bundles for the score rows. */
-  scoreTone(value: number): {
+  /** Resolve the declarative spec for a metric (falls back to defaults). */
+  metricSpec(key: string): MetricSpec {
+    return METRIC_REGISTRY[key] ?? DEFAULT_METRIC_SPEC;
+  }
+
+  /**
+   * Normalise a raw metric value into a "quality in [0..1]" where 1 means
+   * "as good as it gets". This is what drives both the bar width and the
+   * color bucket, so metrics with different ranges/polarities remain
+   * comparable on the same UI grid.
+   */
+  metricQuality(key: string, value: number): number {
+    const spec = this.metricSpec(key);
+    const max = spec.max || 1;
+    const clamped = Math.max(0, Math.min(value, max));
+    const fraction = clamped / max;
+    return spec.polarity === 'lower' ? 1 - fraction : fraction;
+  }
+
+  /**
+   * Tailwind class bundles for the score rows. Works off the normalised
+   * quality so that:
+   *  - HHEM = 0.50 (perfect grounding, formula ceiling) → emerald
+   *  - hallucination_rate = 0.05 (tiny rate) → emerald
+   *  - factuality = 0.00 (no claim to ground) → gray (null / no-signal)
+   */
+  scoreTone(
+    key: string,
+    value: number,
+  ): {
     bar: string;
     barBg: string;
     text: string;
     dot: string;
     label: 'good' | 'fair' | 'poor' | 'null';
   } {
-    if (value <= 0) {
-      // factuality = 0 / hhem = 0 are common "no-signal" defaults; we tone
-      // them down (gray) rather than painting them red, which would over-
-      // signal a problem the evaluator never actually detected.
+    const spec = this.metricSpec(key);
+    // Raw 0 on a "higher is better" metric is the evaluator's "no signal"
+    // default (e.g. factuality when nothing was retrieved). Painting it
+    // red would over-signal a problem we never actually detected.
+    if (spec.polarity === 'higher' && value <= 0) {
       return {
         bar: 'bg-gray-500/50',
         barBg: 'bg-gray-500/10',
@@ -879,7 +1008,8 @@ export class ChatPanelComponent {
         label: 'null',
       };
     }
-    if (value >= 0.7) {
+    const quality = this.metricQuality(key, value);
+    if (quality >= spec.good) {
       return {
         bar: 'bg-emerald-500/70',
         barBg: 'bg-emerald-500/10',
@@ -888,7 +1018,7 @@ export class ChatPanelComponent {
         label: 'good',
       };
     }
-    if (value >= 0.4) {
+    if (quality >= spec.fair) {
       return {
         bar: 'bg-amber-500/70',
         barBg: 'bg-amber-500/10',
@@ -906,6 +1036,11 @@ export class ChatPanelComponent {
     };
   }
 
+  /** Fraction [0..1] driving the bar fill width (normalised by spec.max). */
+  barFraction(key: string, value: number): number {
+    return this.metricQuality(key, value);
+  }
+
   /** Aggregate quality hint used in the collapsed row (e.g. 3 good / 2 null). */
   scoreSummary(step: DecisionStep): string {
     const buckets: Record<'good' | 'fair' | 'poor' | 'null', number> = {
@@ -915,7 +1050,7 @@ export class ChatPanelComponent {
       null: 0,
     };
     for (const m of this.scoreMetrics(step)) {
-      buckets[this.scoreTone(m.value).label] += 1;
+      buckets[this.scoreTone(m.key, m.value).label] += 1;
     }
     const parts: string[] = [];
     if (buckets.good) parts.push(`${buckets.good} good`);
