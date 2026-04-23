@@ -44,6 +44,14 @@ interface Source {
   [key: string]: unknown;
 }
 
+/**
+ * Token emitted by ``renderAnswer`` — either a chunk of plain text or a
+ * citation marker like ``[3]`` that we upgrade into a clickable chip.
+ */
+export type AnswerToken =
+  | { kind: 'text'; value: string }
+  | { kind: 'cite'; n: number };
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -492,7 +500,27 @@ const STEP_ICONS: Record<string, string> = {
                 <div
                   class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5"
                 >
-                  {{ msg.content || '(no response)' }}
+                  @for (tok of renderAnswer(msg.content); track $index) {
+                    @if (tok.kind === 'text') {
+                      <span>{{ tok.value }}</span>
+                    } @else if (isValidCitation(msg, tok.n)) {
+                      <button
+                        type="button"
+                        class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-brand-500/15 text-brand-500 dark:text-brand-300 hover:bg-brand-500/30 hover:text-brand-200 transition ring-1 ring-brand-500/30 cursor-pointer"
+                        [title]="citationTooltip(msg, tok.n)"
+                        (click)="gotoSource(msg, tok.n)"
+                      >
+                        {{ tok.n }}
+                      </button>
+                    } @else {
+                      <span
+                        class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono bg-gray-400/15 text-gray-500 ring-1 ring-gray-400/20"
+                        [title]="'Source [' + tok.n + '] referenced by the model but not available'"
+                      >
+                        {{ tok.n }}
+                      </span>
+                    }
+                  }
                 </div>
               </div>
 
@@ -515,7 +543,8 @@ const STEP_ICONS: Record<string, string> = {
                     <ol class="space-y-1.5 pl-1">
                       @for (src of msg.sources; track $index; let i = $index) {
                         <li
-                          class="rounded-md px-3 py-2 text-[12px] bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5"
+                          [id]="sourceDomId(msg.id, i + 1)"
+                          class="rounded-md px-3 py-2 text-[12px] bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5 transition-all"
                         >
                           <div class="flex items-center gap-2 mb-0.5">
                             <span
@@ -1065,6 +1094,71 @@ export class ChatPanelComponent {
     if (ms >= 10_000) return `${(ms / 1000).toFixed(1)}s`;
     if (ms >= 1_000) return `${(ms / 1000).toFixed(2)}s`;
     return `${Math.round(ms)}ms`;
+  }
+
+  // ─── Inline citation rendering ───────────────────────────────────────
+  /**
+   * Split an assistant answer into plain-text runs and citation markers
+   * so the template can render ``[N]`` as clickable chips wired to the
+   * ``sources`` panel. Supports stacked refs like ``[1][2][3]`` and also
+   * the ``[1, 2]`` form sometimes produced by models.
+   */
+  renderAnswer(content: string | undefined | null): AnswerToken[] {
+    if (!content) return [{ kind: 'text', value: '(no response)' }];
+    const tokens: AnswerToken[] = [];
+    const re = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+    let last = 0;
+    for (const m of content.matchAll(re)) {
+      const idx = m.index ?? 0;
+      if (idx > last) {
+        tokens.push({ kind: 'text', value: content.slice(last, idx) });
+      }
+      for (const part of m[1].split(',')) {
+        const n = parseInt(part.trim(), 10);
+        if (Number.isFinite(n) && n > 0) tokens.push({ kind: 'cite', n });
+      }
+      last = idx + m[0].length;
+    }
+    if (last < content.length) {
+      tokens.push({ kind: 'text', value: content.slice(last) });
+    }
+    return tokens.length ? tokens : [{ kind: 'text', value: content }];
+  }
+
+  /** DOM id we attach to each source ``<li>`` so chips can scroll to it. */
+  sourceDomId(msgId: string, n: number): string {
+    return `msg-${msgId}-src-${n}`;
+  }
+
+  /** Whether a citation ``[n]`` resolves to a real entry in ``msg.sources``. */
+  isValidCitation(msg: ChatMessage, n: number): boolean {
+    return !!msg.sources && n >= 1 && n <= msg.sources.length;
+  }
+
+  /** Short preview shown in a chip's native ``title`` tooltip on hover. */
+  citationTooltip(msg: ChatMessage, n: number): string {
+    const src = msg.sources?.[n - 1];
+    if (!src) return `Source [${n}] — not available`;
+    const title = this.sourceTitle(src);
+    const page = (src.page as number | undefined) ?? (src.metadata as any)?.page;
+    return page ? `${title} · p. ${page}` : title;
+  }
+
+  /**
+   * Open the sources panel for this message and scroll the clicked
+   * citation target into view with a brief highlight ring. Defensive:
+   * no-op if the citation index is out of bounds.
+   */
+  gotoSource(msg: ChatMessage, n: number): void {
+    if (!this.isValidCitation(msg, n)) return;
+    if (!this.isSourcesOpen(msg.id)) this.toggleSources(msg.id);
+    setTimeout(() => {
+      const el = document.getElementById(this.sourceDomId(msg.id, n));
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-brand-400', 'ring-2');
+      setTimeout(() => el.classList.remove('ring-brand-400', 'ring-2'), 1600);
+    }, 50);
   }
 
   sourceTitle(src: Source): string {
