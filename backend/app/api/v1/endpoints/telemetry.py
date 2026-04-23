@@ -33,10 +33,13 @@ async def live_telemetry(
     """
     since = datetime.utcnow() - timedelta(minutes=window_minutes)
 
+    # Run exposes ``duration_ms`` (wall-clock of the run). ``latency_ms``
+    # only lives on SkillInvocation — an earlier refactor conflated the
+    # two and the endpoint 500'd on every poll.
     total, completed, avg_latency = db.query(
         func.count(Run.id),
         func.sum(case((Run.status == "completed", 1), else_=0)),
-        func.avg(Run.latency_ms),
+        func.avg(Run.duration_ms),
     ).filter(
         Run.workspace_id == workspace.id,
         Run.started_at >= since,
