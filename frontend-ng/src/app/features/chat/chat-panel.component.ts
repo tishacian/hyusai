@@ -153,19 +153,30 @@ const METRIC_REGISTRY: Record<string, MetricSpec> = {
   },
   hhem: {
     polarity: 'higher',
-    // hhem = mf / (1 + mf) is bounded at 0.5 when mf → 1.
+    // hhem = mf / (1 + mf) with mf = mean_sim * factuality. Theoretical
+    // ceiling is 0.5 (mf → 1) but realistic operating range for a
+    // well-grounded RAG response is ~0.28–0.38 (mean_sim ≈ factuality ≈
+    // 0.75 → mf ≈ 0.56 → hhem ≈ 0.36). Thresholds below are expressed as
+    // "quality fraction" = raw / max, so good=0.55 ↔ raw ≥ 0.275 and
+    // fair=0.25 ↔ raw ≥ 0.125 — matches what a solid response actually
+    // produces instead of the unreachable "70 % of theoretical ceiling".
     max: 0.5,
-    good: 0.7,
-    fair: 0.4,
-    description: 'Grounding score (HHEM proxy). Bounded at 0.5 — bar is normalised.',
+    good: 0.55,
+    fair: 0.25,
+    description: 'Grounding = mean_sim × factuality, squashed by 1/(1+mf). Higher = less hallucinated. Realistic band ~0.28–0.38.',
   },
   adv_hhem: {
     polarity: 'higher',
-    // adv_hhem = mf * coherence * relevance / (1 + mf) — same 0.5 ceiling.
+    // adv_hhem = (mf * coherence * relevance) / (1 + mf). Four [0,1]
+    // factors compounded: the ceiling is also 0.5, but realistic range
+    // for a well-scored response is ~0.10–0.20 (mf≈0.5, coh≈0.7,
+    // rel≈0.7 → adv_hhem ≈ 0.16). Thresholds calibrated on that band so
+    // a good answer reads green, not catastrophic red, while genuinely
+    // weak grounding/coherence/relevance still surfaces in amber.
     max: 0.5,
-    good: 0.7,
-    fair: 0.4,
-    description: 'Grounding × coherence × relevance. Bounded at 0.5 — bar is normalised.',
+    good: 0.3,
+    fair: 0.1,
+    description: 'Compound grounding × coherence × relevance. Very penalising by design (product of 4 cosine scores). Realistic band ~0.10–0.20.',
   },
   hallucination_rate: {
     polarity: 'lower',
