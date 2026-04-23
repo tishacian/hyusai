@@ -524,6 +524,31 @@ const STEP_ICONS: Record<string, string> = {
                 </div>
               </div>
 
+              <!-- Missing-citations banner: model cited [N] but the retrieval
+                   returned fewer (or zero) chunks. Surface it so operators
+                   do not mistake disabled grey chips for a styling bug. -->
+              @if (missingCitations(msg); as missing) {
+                @if (missing.length > 0) {
+                  <div
+                    class="ml-0 mt-1 flex items-start gap-2 rounded-md px-3 py-2 text-[11px] bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/25"
+                  >
+                    <app-icon name="alert-triangle" [size]="13" class="mt-0.5 shrink-0 text-amber-400" />
+                    <div class="leading-relaxed">
+                      The model referenced
+                      @for (n of missing; track n; let last = $last) {
+                        <span class="font-mono text-amber-200">[{{ n }}]</span>{{ last ? '' : ', ' }}
+                      }
+                      but
+                      @if (!msg.sources || msg.sources.length === 0) {
+                        no retrieval source was returned for this answer.
+                      } @else {
+                        only {{ msg.sources.length }} source{{ msg.sources.length > 1 ? 's were' : ' was' }} returned, so these citations are likely hallucinated.
+                      }
+                    </div>
+                  </div>
+                }
+              }
+
               <!-- Sources / citations -->
               @if (msg.sources && msg.sources.length > 0) {
                 <div class="ml-0 space-y-1.5">
@@ -1135,6 +1160,22 @@ export class ChatPanelComponent {
     return !!msg.sources && n >= 1 && n <= msg.sources.length;
   }
 
+  /**
+   * Set of citation indices that the model cited but that are out of
+   * range of ``msg.sources`` (empty list or fewer entries than expected).
+   * Used to surface a "hallucinated references" banner so operators do
+   * not have to eyeball disabled chips to realise no retrieval landed.
+   */
+  missingCitations(msg: ChatMessage): number[] {
+    if (!msg.content) return [];
+    const available = msg.sources?.length ?? 0;
+    const seen = new Set<number>();
+    for (const tok of this.renderAnswer(msg.content)) {
+      if (tok.kind === 'cite' && tok.n > available) seen.add(tok.n);
+    }
+    return Array.from(seen).sort((a, b) => a - b);
+  }
+
   /** Short preview shown in a chip's native ``title`` tooltip on hover. */
   citationTooltip(msg: ChatMessage, n: number): string {
     const src = msg.sources?.[n - 1];
@@ -1261,6 +1302,13 @@ export class ChatPanelComponent {
       })
       .subscribe({
         next: (chunk: SseChunk) => {
+          // Sources can ride along any chunk type (backend attaches them on
+          // the first text chunk of the stream). Extract them eagerly so
+          // the final assistant message always ends up with the source list
+          // even though an `if/else if` cascade is used below.
+          if (chunk.sources && Array.isArray(chunk.sources) && chunk.sources.length > 0) {
+            sources = chunk.sources as Source[];
+          }
           if (chunk.chunk_type === 'text' && typeof chunk.content === 'string') {
             buffer += chunk.content;
             this.streamBuffer.set(buffer);
