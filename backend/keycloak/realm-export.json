@@ -14,6 +14,20 @@
   "ssoSessionMaxLifespan": 604800,
   "offlineSessionIdleTimeout": 2592000,
   "accessTokenLifespanForImplicitFlow": 900,
+  "loginTheme": "agentium",
+  "emailTheme": "agentium",
+  "accountTheme": "agentium",
+  "smtpServer": {
+    "host": "ssl0.ovh.net",
+    "port": "465",
+    "ssl": "true",
+    "starttls": "false",
+    "auth": "true",
+    "from": "noreply@datategy.net",
+    "fromDisplayName": "Agentium",
+    "replyTo": "noreply@datategy.net",
+    "replyToDisplayName": "Agentium"
+  },
   "roles": {
     "realm": [
       { "name": "default-roles-papai-org", "composite": true, "composites": { "client": { "core-service": ["organization_member"] } } }

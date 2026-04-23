@@ -1,0 +1,28 @@
+[Unit]
+Description=Agentium backend (FastAPI + Uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+# WorkingDirectory MUST be backend/ so pydantic-settings resolves .env correctly.
+WorkingDirectory=/home/ubuntu/omnirag/backend
+EnvironmentFile=/home/ubuntu/omnirag/backend/.env
+ExecStart=/home/ubuntu/omnirag/venv/bin/uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 2 \
+    --proxy-headers \
+    --forwarded-allow-ips=*
+Restart=on-failure
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=15
+StandardOutput=append:/home/ubuntu/omnirag/uvicorn.log
+StandardError=append:/home/ubuntu/omnirag/uvicorn.log
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
