@@ -113,17 +113,35 @@ def _results_to_chunks_scores(results: List[dict[str, Any]]) -> tuple[list[str],
 
 def _results_to_chunks_scores_metas(
     results: List[dict[str, Any]],
+    *,
+    dedup: bool = True,
 ) -> tuple[list[str], list[float], list[dict]]:
-    """Same as ``_results_to_chunks_scores`` but preserves per-chunk metadata."""
+    """Convert raw retrieval hits into aligned chunks/scores/metas lists.
+
+    When ``dedup=True`` (default), identical chunk content is collapsed
+    to a single entry — keeping the first (highest-ranked) occurrence.
+    This protects against the common foot-gun where the same source
+    document was ingested multiple times (fresh ``document_id`` each
+    upload) and the UI ends up showing 4× the same snippet. RRF merges
+    in ``_merge_rrf`` already dedup by content hash, so this only
+    applies to the non-HAH/CHAH path (hybrid search).
+    """
     chunks: list[str] = []
     scores: list[float] = []
     metas: list[dict] = []
+    seen: set[str] = set()
     for r in results:
         c, s = _result_content_score(r)
-        if c:
-            chunks.append(c)
-            scores.append(s)
-            metas.append(r.get("metadata") or {})
+        if not c:
+            continue
+        if dedup:
+            key = _content_key(c)
+            if key in seen:
+                continue
+            seen.add(key)
+        chunks.append(c)
+        scores.append(s)
+        metas.append(r.get("metadata") or {})
     return chunks, scores, metas
 
 
