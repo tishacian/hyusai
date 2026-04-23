@@ -263,6 +263,19 @@ const STEP_ICONS: Record<string, string> = {
           </select>
         </div>
         <div class="flex items-center gap-1.5">
+          @if (ttsEnabled() && ttsSpeaking()) {
+            <button
+              type="button"
+              class="p-1.5 rounded hover:bg-white/5 text-brand-300 hover:text-brand-200 transition"
+              [title]="ttsPaused() ? 'Resume voice playback' : 'Pause voice playback'"
+              (click)="pauseResumeTts()"
+            >
+              <app-icon
+                [name]="ttsPaused() ? 'play' : 'pause'"
+                [size]="14"
+              />
+            </button>
+          }
           <button
             type="button"
             class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition"
@@ -951,6 +964,14 @@ export class ChatPanelComponent {
   private ttsQueue: HTMLAudioElement[] = [];
   private ttsPlaying = false;
   private ttsAborted = false;
+  /**
+   * Signals reflecting TTS transport state so the template can show a
+   * pause/resume button only while audio is actually being played or
+   * queued up. ``ttsSpeaking`` is OR of (currentAudio active || queue
+   * non-empty); ``ttsPaused`` flips when the user hits pause/resume.
+   */
+  readonly ttsSpeaking = signal(false);
+  readonly ttsPaused = signal(false);
 
   readonly suggestions: SuggestionCard[] = [
     {
@@ -1616,11 +1637,37 @@ export class ChatPanelComponent {
     this.ttsQueue = [];
     this.ttsPlaying = false;
     this.ttsFlushedIdx = 0;
+    this.ttsSpeaking.set(false);
+    this.ttsPaused.set(false);
     // Re-open the gate on the next animation frame so freshly-issued
     // requests from the next call to ``send()`` aren't dropped.
     queueMicrotask(() => {
       this.ttsAborted = false;
     });
+  }
+
+  /**
+   * Pause or resume the currently playing TTS audio. While paused, the
+   * chunk queue keeps accepting new MP3s from in-flight requests but
+   * they don't start playing until the user hits resume (the current
+   * audio's ``onended`` is what drives queue advancement, and a paused
+   * audio never fires that event).
+   */
+  pauseResumeTts(): void {
+    if (!this.ttsSpeaking()) return;
+    if (this.ttsPaused()) {
+      this.currentAudio?.play().catch(() => {
+        /* ignore — browser may block autoplay resume */
+      });
+      this.ttsPaused.set(false);
+    } else {
+      try {
+        this.currentAudio?.pause();
+      } catch {
+        /* ignore */
+      }
+      this.ttsPaused.set(true);
+    }
   }
 
   /**
@@ -1680,7 +1727,8 @@ export class ChatPanelComponent {
           this.playNextInQueue();
         };
         this.ttsQueue.push(audio);
-        if (!this.ttsPlaying) this.playNextInQueue();
+        this.ttsSpeaking.set(true);
+        if (!this.ttsPlaying && !this.ttsPaused()) this.playNextInQueue();
       },
       error: () => {
         // Skip this chunk and let the next one play. We don't toast —
@@ -1691,11 +1739,18 @@ export class ChatPanelComponent {
   }
 
   private playNextInQueue(): void {
-    if (this.ttsAborted) return;
+    if (this.ttsAborted || this.ttsPaused()) return;
     const next = this.ttsQueue.shift();
-    if (!next) return;
+    if (!next) {
+      // Queue drained and current audio finished — flip the speaking
+      // flag so the pause/resume button disappears.
+      this.ttsPlaying = false;
+      this.ttsSpeaking.set(false);
+      return;
+    }
     this.ttsPlaying = true;
     this.currentAudio = next;
+    this.ttsSpeaking.set(true);
     next.play().catch(() => {
       this.ttsPlaying = false;
       this.playNextInQueue();
