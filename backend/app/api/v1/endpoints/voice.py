@@ -25,6 +25,9 @@ import openai
 
 from app.core.auth import get_current_user
 from app.core.config import settings
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -65,6 +68,13 @@ async def transcribe_audio(file: UploadFile = File(...)):
     audio_bytes = await file.read()
     filename = file.filename or "recording.webm"
     content_type = file.content_type or "audio/webm"
+    logger.info(
+        "transcribe: received audio",
+        filename=filename,
+        content_type=content_type,
+        bytes=len(audio_bytes),
+        model=_TRANSCRIBE_MODEL,
+    )
 
     async def _call(model: str) -> dict:
         client = _get_async_client()
@@ -72,17 +82,30 @@ async def transcribe_audio(file: UploadFile = File(...)):
             model=model,
             file=(filename, audio_bytes, content_type),
         )
-        return {"text": result.text, "model": model}
+        text = result.text or ""
+        logger.info(
+            "transcribe: completed",
+            model=model,
+            text_chars=len(text),
+            preview=text[:80],
+        )
+        return {"text": text, "model": model}
 
     try:
         return await _call(_TRANSCRIBE_MODEL)
     except Exception as primary_err:
+        logger.warning(
+            "transcribe: primary model failed",
+            model=_TRANSCRIBE_MODEL,
+            error=str(primary_err),
+        )
         # Some accounts haven't been rolled the GPT-4o audio family yet —
         # retry with the legacy whisper-1 before surfacing the failure.
         if _TRANSCRIBE_MODEL != "whisper-1":
             try:
                 return {**(await _call("whisper-1")), "fallback": True}
             except Exception as fallback_err:
+                logger.error("transcribe: fallback failed", error=str(fallback_err))
                 raise HTTPException(status_code=500, detail=str(fallback_err))
         raise HTTPException(status_code=500, detail=str(primary_err))
 

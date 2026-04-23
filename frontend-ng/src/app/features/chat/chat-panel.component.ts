@@ -1,5 +1,6 @@
 import {
   ChangeDetectionStrategy,
+  ChangeDetectorRef,
   Component,
   DestroyRef,
   computed,
@@ -887,6 +888,7 @@ export class ChatPanelComponent {
   private readonly toast = inject(ToastrService);
   private readonly health = inject(RuntimeHealthService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly cdr = inject(ChangeDetectorRef);
   readonly settings = inject(SettingsService);
 
   messages = signal<ChatMessage[]>([]);
@@ -1560,14 +1562,24 @@ export class ChatPanelComponent {
     this.transcribing.set(true);
     this.api.transcribeAudio(blob).subscribe({
       next: (res) => {
-        if (res?.text) {
-          this.userInput = (this.userInput ? this.userInput + ' ' : '') + res.text;
+        // The response-side mutation of a plain property (``userInput``)
+        // doesn't propagate through OnPush change detection on its own
+        // — NgModel only re-reads on an input/event tick. We force a
+        // re-check so the textarea picks up the transcribed text and
+        // emit a small toast when Whisper returned nothing (silence).
+        if (res?.text && res.text.trim()) {
+          this.userInput = (this.userInput ? this.userInput + ' ' : '') + res.text.trim();
+        } else {
+          this.toast.info('No speech detected in the recording', 'Voice');
         }
         this.transcribing.set(false);
+        this.cdr.markForCheck();
       },
-      error: () => {
+      error: (err) => {
         this.transcribing.set(false);
-        this.toast.error('Transcription failed', 'Voice');
+        this.cdr.markForCheck();
+        const detail = err?.error?.detail || err?.message || 'Transcription failed';
+        this.toast.error(detail, 'Voice');
       },
     });
   }
