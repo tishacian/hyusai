@@ -32,6 +32,13 @@ export const routes: Routes = [
           import('./features/contexts/contexts-page.component').then((m) => m.ContextsPageComponent),
       },
       {
+        path: 'steering/review-queue',
+        loadComponent: () =>
+          import('./features/steering/review-queue.component').then(
+            (m) => m.SteeringReviewQueueComponent,
+          ),
+      },
+      {
         path: 'steering/contexts/:id',
         loadComponent: () =>
           import('./features/contexts/context-view.component').then((m) => m.ContextViewComponent),

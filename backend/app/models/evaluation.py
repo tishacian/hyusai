@@ -9,6 +9,11 @@ class EvaluationScore(Base):
 
     id = Column(String(36), primary_key=True)
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
+    # Vague E / E1 — when the auto-eval loop scores a completed run, we
+    # link the row back to it so the review queue can join without
+    # string-matching session ids. Nullable: the manual POST
+    # /evaluation/score endpoint still produces detached rows.
+    run_id = Column(String(36), nullable=True, index=True)
     session_id = Column(String(36), nullable=True)
     agent_id = Column(String(100), nullable=True)
     turn_number = Column(Integer, default=0)

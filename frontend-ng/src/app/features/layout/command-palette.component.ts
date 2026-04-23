@@ -208,6 +208,8 @@ export class CommandPaletteComponent implements OnInit {
   private readonly viewCommands: CommandItem[] = [
     { id: 'view.hypervisor', label: 'Hypervisor · Executive cockpit', hint: 'Portfolio balance · ROI · signals', tone: 'cool', kind: 'view', route: '/hypervisor', keywords: 'dashboard balance overview portfolio' },
     { id: 'view.steering', label: 'Steering · Control plane', hint: 'Levers · policies · simulate', tone: 'violet', kind: 'view', route: '/steering', keywords: 'levers policy control governance' },
+    { id: 'view.review-queue', label: 'Review queue · Eval triage', hint: 'Runs flagged by auto-eval · accept · reject', tone: 'warn', kind: 'view', route: '/steering/review-queue', keywords: 'review eval evaluation queue triage hallucination threshold' },
+    { id: 'view.eval-thresholds', label: 'Evaluation thresholds', hint: 'Composite · hallucination · dimension floors', tone: 'violet', kind: 'view', route: '/presets/evaluation', keywords: 'evaluation thresholds preset composite hallucination' },
     { id: 'view.capabilities', label: 'Capability catalog', hint: 'Universal · Industry · Client', tone: 'pos', kind: 'view', route: '/capabilities', keywords: 'catalog capability marketplace' },
     { id: 'view.skills', label: 'Skill registry', hint: 'Atomic certified skills', tone: 'cool', kind: 'view', route: '/skills', keywords: 'skills registry atomic' },
     { id: 'view.systems', label: 'Systems · Compositions', hint: 'All deployed systems', tone: 'cool', kind: 'view', route: '/systems', keywords: 'system composition deployments' },

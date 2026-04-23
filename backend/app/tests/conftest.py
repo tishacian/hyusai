@@ -61,6 +61,8 @@ def db_session():
     _TRUNCATE_ORDER = [
         "skill_invocations",
         "decisions",
+        "evaluation_scores",
+        "evaluation_presets",
         "runs",
         "systems",
         "capabilities",

@@ -123,8 +123,9 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     primaryRoute: '/steering',
     matches: ['/steering'],
     sections: [
-      { key: 'levers',   label: 'Control plane', glyph: 'sliders',   route: '/steering',          scopeType: 'system' },
-      { key: 'contexts', label: 'Contexts',      glyph: 'crosshair', route: '/steering/contexts', scopeType: 'context' },
+      { key: 'levers',   label: 'Control plane', glyph: 'sliders',   route: '/steering',               scopeType: 'system' },
+      { key: 'contexts', label: 'Contexts',      glyph: 'crosshair', route: '/steering/contexts',      scopeType: 'context' },
+      { key: 'review',   label: 'Review queue',  glyph: 'warn',      route: '/steering/review-queue',  scopeType: 'system' },
     ],
     hiddenInModes: ['builder'],
   },

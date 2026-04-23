@@ -330,6 +330,23 @@ def _finalize_run(
     if control:
         _apply_control_postchecks(db, system, run, control)
     db.commit()
+
+    # Vague E / E1 — schedule post-run auto-evaluation. Fire-and-forget,
+    # swallows its own exceptions, runs on its own DB session so we're
+    # safe whether this _finalize_run was called from the async engine,
+    # the DAG walker, or a sync test harness.
+    if run.status == "completed":
+        try:
+            from app.services.evaluation.auto_eval import schedule_eval
+
+            schedule_eval(run.id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "auto_eval: failed to schedule",
+                run_id=run.id,
+                error=str(exc),
+            )
+
     return {
         "id": run.id,
         "status": run.status,

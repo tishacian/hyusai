@@ -946,3 +946,142 @@ marketplace, Playwright E2E, voice end-to-end).
   `document_extracted_keywords: ["cockpit", "slides admin", "stockage
   vectoriel", "sécurité tokens", …]`. Prochain drop-and-ask sur la VM
   affichera le titre dans le panneau sources au lieu du placeholder.
+
+- **2026-04-23 (après-midi/soir)** — **Rafale post-D7 hardening**. Vague D
+  reste CLOSED ; ce qui suit est l'ensemble des ajustements démo-ready
+  déclenchés par l'usage réel d'Agentium sur la journée. Groupé par
+  thème pour traçabilité.
+
+  **Retrieval / chat quality (suite du matin)**
+  - *Doc facts panel* — endpoint `GET /documents/{id}/metadata` +
+    panneau latéral du `chat-workspace` qui affiche titre, auteur,
+    pages, tokens, top keywords dès qu'un doc est drop-and-ask.
+    `upload-batch` retourne désormais un array de résultats
+    individuels au lieu d'un agrégat, ce qui permet le fan-out par
+    fichier côté UI.
+  - *Citation linkage* — le `[N]` dans la réponse LLM devient un
+    chip cliquable qui scroll + highlight l'item correspondant dans
+    le panneau Sources. Parser `renderAnswer` qui découpe le stream
+    en `text | cite` tokens ; helpers `isValidCitation`,
+    `citationTooltip`, `gotoSource`.
+  - *SSE sources fix* — le backend émet la liste de sources sur le
+    **premier** chunk de texte mais le parser SSE du front utilisait
+    un `if/else if` qui loupait ce cas → le panneau Sources restait
+    vide. Extraction déplacée avant la cascade. Ajout d'un bandeau
+    ambre "Missing citations" quand le modèle cite `[N]` avec N >
+    `sources.length` (garde-fou hallucination).
+  - *Source deduplication et page mapping* —
+    `_results_to_chunks_scores_metas` gagne un `dedup: bool = True`
+    qui colapse les chunks par hash de contenu (foot-gun classique :
+    upload multiple du même PDF → `document_id` différent à chaque
+    fois → 4× la même source à l'écran). Deux bugs annexes dans
+    `AdvancedPDFParser` : toutes les pages étaient hardcodées
+    `page: 1` (vs. basic `PDFParser` qui mappait correctement via
+    offsets de caractères). Le parser avancé adopte la même stratégie
+    `_map_chunks_to_pages` que le basic. Panneau Sources gagne un
+    locator (`· p.4`, `· chunk 12`, `· #abcdef`) et des marqueurs
+    "cité / retrieved mais non-cité" (brand ring vs opacity 70).
+  - *Response quality evaluation* — expandable avec barres
+    horizontales et code couleur. Nouveau `METRIC_REGISTRY` qui déclare
+    pour chaque métrique sa `polarity: higher|lower`, son `max`
+    théorique, et les seuils `good/fair` à partir de bandes réalistes
+    (pas des max théoriques). Correctif ciblé sur HHEM et adv_hhem
+    dont le rouge apparaissait sur des scores pourtant acceptables
+    (recalibration `good: 0.55 → 0.3`, `fair: 0.25 → 0.1` selon la
+    polarité correcte).
+
+  **Voice end-to-end (perf + UX)**
+  - *STT (transcription)* — passage de `whisper-1` à
+    `gpt-4o-mini-transcribe` (~3× plus rapide, tarif inférieur),
+    fallback automatique sur `whisper-1` si l'account n'a pas encore
+    l'accès GPT-4o audio. Migration du client synchrone à
+    `openai.AsyncOpenAI` pour ne plus bloquer l'event loop FastAPI
+    pendant la transcription.
+  - *TTS (synthèse)* — passage à `gpt-4o-mini-tts`, fallback `tts-1`.
+    Surtout : **sentence-streaming pendant la génération LLM**. Le
+    front détecte les bornes de phrase (`.!?…` + trailing
+    quotes/brackets + whitespace) dans le buffer de streaming et
+    flush chaque phrase complète (≥ 40 chars) à `/voice/synthesize`
+    pendant que le LLM continue. Les MP3 reçus alimentent une queue
+    d'`HTMLAudioElement` jouée séquentiellement. First-audio
+    latency ~300-600 ms (vs 5-8 s quand on attendait la fin du
+    stream). Bouton **pause/resume** dédié visible uniquement quand
+    un audio est en cours.
+  - *UX indicator* — bouton micro affiche un spinner `loader-2`
+    pulse pendant la transcription (`transcribing: signal<boolean>`)
+    + toast explicite `"No speech detected"` quand Whisper retourne
+    une chaîne vide (silence). Bug Angular corrigé au passage : la
+    textarea (`userInput` propriété classique) ne se rafraîchissait
+    pas après transcription parce que le composant est en OnPush ;
+    ajout d'un `cdr.markForCheck()` après mutation.
+
+  **Infrastructure / sécurité**
+  - *Systemd unit* pour le backend (`deploy/agentium-backend.service`
+    + `deploy/install-backend-service.sh`) : `User=ubuntu`,
+    `WorkingDirectory=/home/ubuntu/omnirag/backend`,
+    `EnvironmentFile=/home/ubuntu/omnirag/backend/.env`. Un bug
+    tenace qui mangeait 2 heures avait pour cause `uvicorn` démarré
+    depuis `~/omnirag` au lieu de `~/omnirag/backend`, ce qui
+    empêchait `pydantic-settings` de charger `backend/.env` et
+    cassait l'URL Keycloak (absence du préfixe `/kc`). Le unit
+    force la CWD et coche ça une fois pour toutes.
+  - *Keycloak themes Agentium* — `backend/keycloak/themes/agentium/`
+    (login + email + account) avec templates Freemarker custom
+    (`executeActions.ftl` HTML + text, `messages_en.properties`).
+    Correctif syntaxe `<#if requiredActions?? && requiredActions?size
+    gt 1>s</#if>` (Freemarker ne supporte pas `?string("s","")` sur
+    le résultat d'un `?size` chaîné).
+  - *SMTP* — `backend/keycloak/bootstrap-smtp.sh` : authentifie sur
+    Keycloak admin, PATCH la config `smtpServer` du realm `papai-org`
+    via l'API REST (`kcadm.sh -s` ne tenait pas), plus un
+    `testSMTPConnection` qui valide `HTTP 204`. Credentials lus depuis
+    env vars, jamais commités.
+  - *DNS / email deliverability* — `docs/ops/email-deliverability.md` :
+    audit SPF/DKIM/DMARC pour `datategy.net`, gap identifié (DKIM OVH
+    pas activé), étapes manager OVH pas-à-pas, propositions
+    d'enregistrements DNS à publier. Option A (guidage pendant que
+    l'utilisateur clique dans le manager) documentée, pas encore
+    exécutée.
+  - *Rotation admin Keycloak* (option B) — `admin/admin` était une
+    surface d'attaque triviale dès qu'on exposait à des clients. Flow
+    2-étapes via `deploy/rotate-keycloak-admin.sh` : (1) créer
+    `tib-admin` + rôle admin + vérif token ; (2) désactiver le
+    bootstrap `admin` avec le token du nouvel admin. Staging sur VM
+    effectué. Hardening repo associé :
+    `backend/keycloak/bootstrap-smtp.sh` et
+    `backend/scripts/seed_keycloak_users.sh` requièrent maintenant
+    `KC_ADMIN`/`KC_ADMIN_PASSWORD` (plus de défaut `admin/admin`), le
+    fallback `admin/admin` dans `backend/app/api/v1/endpoints/auth.py
+    :_get_admin_token` est supprimé (fail closed vers 503 si
+    `keycloak_client_secret` absent), runbook
+    `docs/ops/keycloak-admin.md` livré. Exécution finale
+    (`--disable-bootstrap`) est l'étape opérateur, hors agent.
+  - *Nginx fix `^~ /kc/`* — la conf `/etc/nginx/sites-enabled/agentium`
+    avait un `location ~* \.(js|css|…)$` qui volait tous les assets
+    Keycloak à cause de la priorité plus haute des regex sur les
+    prefix locations. La console admin KC restait bloquée sur
+    "Loading the Administration Console" avec un 404 sur le CSS.
+    Fix : `location /kc/` → `location ^~ /kc/` (le modificateur
+    `^~` dit à nginx de ne PAS tomber en regex après le match du
+    prefix). Conf canonique versionnée dans
+    `deploy/nginx/agentium.conf` pour que le prochain re-provisioning
+    n'ait pas à re-patcher.
+
+  **Stabilité / bugs latents**
+  - *Telemetry 500 en boucle* — `/api/v1/telemetry/live` pétait toutes
+    les 3 s (poll title-bar) avec `AttributeError: type object 'Run'
+    has no attribute 'latency_ms'`. Le modèle `Run` a `duration_ms` ;
+    `latency_ms` est sur `SkillInvocation`. Fix trivial mais
+    prérequis pour que le front ne pourrisse pas les logs.
+  - *Chat overlay layout* — l'expansion de "Session docs" dans le
+    panneau side poussait la barre d'input sous le viewport. CSS :
+    `.t-inline .t-sidebar { flex: 0 1 auto; max-height: 45vh;
+    overflow-y: auto }` + `.t-inline .t-chat { min-height: 280px }`.
+
+  **État infra après cette rafale** : système démo-ready avec un chat
+  qui comprend vraiment les documents qu'on lui drop, une voix qui
+  répond en ~500 ms au lieu de 8 s, une console KC accessible, un
+  backend supervisé par systemd, et un compte `tib-admin` prêt à
+  remplacer `admin/admin` dès que l'utilisateur run l'étape 3. Pas de
+  nouvelle fonctionnalité produit : la surface est la même qu'en fin
+  D7, elle est juste beaucoup plus rôdée pour des vrais clients.

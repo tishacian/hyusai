@@ -46,6 +46,14 @@ class Run(Base):
     retries = Column(Integer, default=0)
     error = Column(Text, nullable=True)
 
+    # Vague E / E1 — snapshot of the auto-eval pass fired at run completion.
+    # Shape: {"composite_score": float, "hallucination_rate": float,
+    #         "scores": {...dimension->0-100...}, "threshold_breach": bool,
+    #         "preset_id": str | None, "evaluation_id": str | None}.
+    # Nullable because eval runs off for most systems (gated by workspace
+    # preset + capability.eval_enabled) and pre-E1 runs never produced one.
+    evaluation_scores = Column(JSON, nullable=True)
+
     trigger = Column(String(40), default="manual")  # manual | scheduler | webhook | adaptive | hitl
 
     system = relationship("System", back_populates="runs")

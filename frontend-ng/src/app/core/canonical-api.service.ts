@@ -233,6 +233,86 @@ export interface WhatIfResult {
   };
 }
 
+// ---- Evaluation loop (Vague E / E1) ---------------------------------------
+
+/** Threshold config persisted on `EvaluationPreset`. Mirrors
+ *  `DEFAULT_EVAL_CONFIG` in `backend/app/services/evaluation_preset_service.py`. */
+export interface EvaluationPresetConfig {
+  enabled?: boolean;
+  composite_min?: number;
+  hallucination_max?: number;
+  dimension_min?: Record<string, number>;
+  sample_rate?: number;
+}
+
+export interface EvaluationPresetResponse {
+  defaults: EvaluationPresetConfig;
+  workspace: {
+    id: string | null;
+    name: string | null;
+    config: EvaluationPresetConfig | null;
+  };
+  effective: EvaluationPresetConfig;
+}
+
+export interface ReviewQueueItem {
+  decision: {
+    id: string;
+    kind: string;
+    status: 'proposed' | 'accepted' | 'rejected' | 'applied';
+    title: string;
+    rationale: Record<string, unknown>;
+    created_at: string | null;
+    approved_by: string | null;
+    approved_at: string | null;
+  };
+  run: {
+    id: string;
+    system_id: string | null;
+    capability_id: string | null;
+    status: string | null;
+    decision: string | null;
+    confidence: number | null;
+    started_at: string | null;
+    completed_at: string | null;
+    evaluation_scores: {
+      composite_score?: number;
+      hallucination_rate?: number;
+      scores?: Record<string, number>;
+      threshold_breach?: boolean;
+      reasons?: Array<{
+        metric: string;
+        observed: number;
+        threshold: number;
+        direction: 'above' | 'below';
+      }>;
+      evaluation_id?: string;
+    } | null;
+    input_ref: Record<string, unknown> | null;
+    output_ref: Record<string, unknown> | null;
+  } | null;
+}
+
+export interface EvaluationReviewQueueResponse {
+  items: ReviewQueueItem[];
+  count: number;
+}
+
+export interface EvaluationTrendBucket {
+  bucket: string;
+  count: number;
+  avg_composite: number;
+  avg_hallucination: number;
+}
+
+export interface EvaluationTrendResponse {
+  since: string;
+  group_by: 'day' | 'capability' | 'system';
+  thresholds: { composite_min: number; hallucination_max: number };
+  totals: { runs_evaluated: number; breaches: number; breach_rate: number };
+  series: EvaluationTrendBucket[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class CanonicalApiService {
   private readonly api = inject(ApiService);
@@ -547,6 +627,59 @@ export class CanonicalApiService {
   ): Observable<DecisionDetail | null> {
     return this.api
       .post<DecisionDetail>(`/hypervisor/decisions/${id}/apply`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  // ---- Evaluation loop (Vague E / E1) -------------------------------------
+  // Review queue and threshold presets. The backend already has a legacy
+  // `/evaluation/score` manual endpoint (wired into the chat fact-check
+  // button); these are additive, see `backend/app/api/v1/endpoints/evaluation.py`.
+  getEvaluationReviewQueue(
+    params: { status?: 'proposed' | 'accepted' | 'rejected' | 'applied' | 'all'; limit?: number } = {},
+  ): Observable<EvaluationReviewQueueResponse | null> {
+    const q: Record<string, string> = {};
+    if (params.status) q['status'] = params.status;
+    if (params.limit != null) q['limit'] = String(params.limit);
+    return this.api
+      .get<EvaluationReviewQueueResponse>('/evaluation/review-queue', q)
+      .pipe(catchError(() => of(null)));
+  }
+
+  getEvaluationPresets(
+    params: { capability_id?: string; system_id?: string } = {},
+  ): Observable<EvaluationPresetResponse | null> {
+    const q: Record<string, string> = {};
+    if (params.capability_id) q['capability_id'] = params.capability_id;
+    if (params.system_id) q['system_id'] = params.system_id;
+    return this.api
+      .get<EvaluationPresetResponse>('/evaluation/presets', q)
+      .pipe(catchError(() => of(null)));
+  }
+
+  updateEvaluationPreset(body: Partial<EvaluationPresetConfig> & { name?: string }): Observable<{
+    id: string;
+    name: string;
+    config: EvaluationPresetConfig;
+    updated_at: string | null;
+  } | null> {
+    return this.api
+      .put<{
+        id: string;
+        name: string;
+        config: EvaluationPresetConfig;
+        updated_at: string | null;
+      }>('/evaluation/presets', body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  getEvaluationTrend(
+    params: { since?: string; group_by?: 'day' | 'capability' | 'system' } = {},
+  ): Observable<EvaluationTrendResponse | null> {
+    const q: Record<string, string> = {};
+    if (params.since) q['since'] = params.since;
+    if (params.group_by) q['group_by'] = params.group_by;
+    return this.api
+      .get<EvaluationTrendResponse>('/evaluation/trend', q)
       .pipe(catchError(() => of(null)));
   }
 
