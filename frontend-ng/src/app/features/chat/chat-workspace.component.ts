@@ -326,14 +326,26 @@ interface SessionDoc {
     }
     .t-inline .t-sidebar {
       width: 100%;
-      flex: 0 0 auto;
+      /* Let the sidebar grow up to ~45% of the overlay height, then scroll
+         internally. Without this cap, expanding 'Session docs' with a
+         multi-page Doc facts panel pushes the chat transcript (and the
+         input bar) below the viewport. */
+      flex: 0 1 auto;
+      max-height: 45vh;
       border-right: 0;
       border-bottom: 1px solid var(--ck-stroke-2);
       padding: 10px 12px;
       gap: 8px;
+      overflow-y: auto;
     }
     .t-inline .t-sidebar-collapsed {
       padding: 6px 12px;
+      max-height: none;
+    }
+    /* Guarantee the chat pane always keeps a viable slice of the panel
+       even when session docs expand, so the input bar stays reachable. */
+    .t-inline .t-chat {
+      min-height: 280px;
     }
     .t-sidebar-head {
       display: flex;
