@@ -292,7 +292,89 @@ const STEP_ICONS: Record<string, string> = {
                                 >
                               }
                             </div>
-                            @if (step.description) {
+                            <!-- Evaluation step: compact summary line +
+                                 expand affordance. The description is
+                                 suppressed in favor of a richer bar view
+                                 so numeric scores stay scannable. -->
+                            @if (isEvaluationStep(step)) {
+                              <button
+                                type="button"
+                                class="group mt-1 flex items-center gap-1.5 text-[10px] text-gray-400 hover:text-gray-200"
+                                (click)="toggleEval(msg.id, step.id)"
+                                [title]="isEvalOpen(msg.id, step.id) ? 'Collapse metrics' : 'Expand metrics'"
+                              >
+                                <app-icon
+                                  [name]="isEvalOpen(msg.id, step.id) ? 'chevron-down' : 'chevron-right'"
+                                  [size]="10"
+                                  class="text-gray-500 group-hover:text-gray-300"
+                                />
+                                <span class="font-mono">
+                                  {{ scoreSummary(step) || 'metrics' }}
+                                </span>
+                                @for (m of latencyMetrics(step); track m.key) {
+                                  <span class="text-gray-500">·</span>
+                                  <span class="font-mono text-gray-500">
+                                    {{ metricLabel(m.key).replace(' Latency', '') }}
+                                    {{ formatLatency(m.value) }}
+                                  </span>
+                                }
+                              </button>
+                              @if (isEvalOpen(msg.id, step.id)) {
+                                <div class="mt-2 space-y-1.5">
+                                  @for (m of scoreMetrics(step); track m.key) {
+                                    @let tone = scoreTone(m.value);
+                                    <div
+                                      class="grid grid-cols-[96px_1fr_auto] items-center gap-2 text-[11px]"
+                                    >
+                                      <!-- Label -->
+                                      <div class="flex items-center gap-1.5 min-w-0">
+                                        <span
+                                          class="w-1.5 h-1.5 rounded-full shrink-0"
+                                          [class]="tone.dot"
+                                        ></span>
+                                        <span class="font-mono text-[10px] uppercase tracking-wider text-gray-400 truncate">
+                                          {{ metricLabel(m.key) }}
+                                        </span>
+                                      </div>
+                                      <!-- Bar -->
+                                      <div
+                                        class="relative h-1.5 rounded-full overflow-hidden"
+                                        [class]="tone.barBg"
+                                      >
+                                        <div
+                                          class="absolute inset-y-0 left-0 rounded-full"
+                                          [class]="tone.bar"
+                                          [style.width.%]="m.value * 100"
+                                        ></div>
+                                      </div>
+                                      <!-- Value -->
+                                      <span
+                                        class="font-mono text-[10px] shrink-0 tabular-nums w-10 text-right"
+                                        [class]="tone.text"
+                                      >
+                                        {{ m.value.toFixed(2) }}
+                                      </span>
+                                    </div>
+                                  }
+                                  @if (latencyMetrics(step).length > 0) {
+                                    <div class="flex flex-wrap gap-1.5 pt-1 border-t border-white/5">
+                                      @for (m of latencyMetrics(step); track m.key) {
+                                        <span
+                                          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.04] font-mono text-[10px] text-gray-400 ring-1 ring-white/5"
+                                        >
+                                          <span class="uppercase tracking-wider text-gray-500">
+                                            {{ metricLabel(m.key).replace(' Latency', '') }}
+                                          </span>
+                                          <span class="tabular-nums text-gray-200">
+                                            {{ formatLatency(m.value) }}
+                                          </span>
+                                        </span>
+                                      }
+                                    </div>
+                                  }
+                                </div>
+                              }
+                            } @else if (step.description) {
                               <div class="text-gray-400 text-[11px] mt-0.5 whitespace-pre-wrap">
                                 {{ step.description }}
                               </div>
@@ -646,6 +728,12 @@ export class ChatPanelComponent {
 
   private readonly openTrails = signal<Set<string>>(new Set());
   private readonly openSources = signal<Set<string>>(new Set());
+  /**
+   * Expanded evaluation steps, keyed by ``"${messageId}:${stepId}"``. Kept
+   * separate from ``openTrails`` so operators can dive into a specific
+   * metric card without expanding every other step below it.
+   */
+  private readonly openEvals = signal<Set<string>>(new Set());
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
   private currentAudio: HTMLAudioElement | null = null;
@@ -713,6 +801,135 @@ export class ChatPanelComponent {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     this.openSources.set(next);
+  }
+
+  // ─── Evaluation step expand/render helpers ──────────────────────────
+  /** Any step with a structured ``metrics`` dict is treated as evaluable. */
+  isEvaluationStep(step: DecisionStep): boolean {
+    return !!step.metrics && Object.keys(step.metrics).length > 0;
+  }
+
+  private evalKey(messageId: string, stepId: string): string {
+    return `${messageId}:${stepId}`;
+  }
+
+  isEvalOpen(messageId: string, stepId: string): boolean {
+    return this.openEvals().has(this.evalKey(messageId, stepId));
+  }
+
+  toggleEval(messageId: string, stepId: string): void {
+    const key = this.evalKey(messageId, stepId);
+    const next = new Set(this.openEvals());
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    this.openEvals.set(next);
+  }
+
+  /**
+   * Split ``step.metrics`` into quality scores (0-1) and latency measurements
+   * (ms). The classification key is the suffix ``_latency``; everything else
+   * is rendered as a bar. This keeps the heuristic robust even when a score
+   * metric legitimately evaluates to 0.00 (e.g. factuality = 0).
+   */
+  scoreMetrics(step: DecisionStep): Array<{ key: string; value: number }> {
+    const metrics = step.metrics ?? {};
+    return Object.entries(metrics)
+      .filter(
+        ([k, v]) =>
+          typeof v === 'number' && !k.endsWith('_latency') && k !== 'duration',
+      )
+      .map(([key, value]) => ({ key, value: value as number }));
+  }
+
+  latencyMetrics(step: DecisionStep): Array<{ key: string; value: number }> {
+    const metrics = step.metrics ?? {};
+    return Object.entries(metrics)
+      .filter(([k, v]) => typeof v === 'number' && k.endsWith('_latency'))
+      .map(([key, value]) => ({ key, value: value as number }));
+  }
+
+  /** Human-friendly label for a metric key (``adv_hhem`` → ``Adv HHEM``). */
+  metricLabel(key: string): string {
+    const cleaned = key.replace(/_/g, ' ').trim();
+    return cleaned
+      .split(' ')
+      .map((w) =>
+        w === 'hhem' || w === 'llm' ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1),
+      )
+      .join(' ');
+  }
+
+  /** Pre-computed Tailwind class bundles for the score rows. */
+  scoreTone(value: number): {
+    bar: string;
+    barBg: string;
+    text: string;
+    dot: string;
+    label: 'good' | 'fair' | 'poor' | 'null';
+  } {
+    if (value <= 0) {
+      // factuality = 0 / hhem = 0 are common "no-signal" defaults; we tone
+      // them down (gray) rather than painting them red, which would over-
+      // signal a problem the evaluator never actually detected.
+      return {
+        bar: 'bg-gray-500/50',
+        barBg: 'bg-gray-500/10',
+        text: 'text-gray-400',
+        dot: 'bg-gray-500',
+        label: 'null',
+      };
+    }
+    if (value >= 0.7) {
+      return {
+        bar: 'bg-emerald-500/70',
+        barBg: 'bg-emerald-500/10',
+        text: 'text-emerald-400',
+        dot: 'bg-emerald-500',
+        label: 'good',
+      };
+    }
+    if (value >= 0.4) {
+      return {
+        bar: 'bg-amber-500/70',
+        barBg: 'bg-amber-500/10',
+        text: 'text-amber-400',
+        dot: 'bg-amber-500',
+        label: 'fair',
+      };
+    }
+    return {
+      bar: 'bg-red-500/70',
+      barBg: 'bg-red-500/10',
+      text: 'text-red-400',
+      dot: 'bg-red-500',
+      label: 'poor',
+    };
+  }
+
+  /** Aggregate quality hint used in the collapsed row (e.g. 3 good / 2 null). */
+  scoreSummary(step: DecisionStep): string {
+    const buckets: Record<'good' | 'fair' | 'poor' | 'null', number> = {
+      good: 0,
+      fair: 0,
+      poor: 0,
+      null: 0,
+    };
+    for (const m of this.scoreMetrics(step)) {
+      buckets[this.scoreTone(m.value).label] += 1;
+    }
+    const parts: string[] = [];
+    if (buckets.good) parts.push(`${buckets.good} good`);
+    if (buckets.fair) parts.push(`${buckets.fair} fair`);
+    if (buckets.poor) parts.push(`${buckets.poor} poor`);
+    if (buckets.null) parts.push(`${buckets.null} null`);
+    return parts.join(' · ');
+  }
+
+  /** Inline "1170ms" formatter for latency pills. */
+  formatLatency(ms: number): string {
+    if (ms >= 10_000) return `${(ms / 1000).toFixed(1)}s`;
+    if (ms >= 1_000) return `${(ms / 1000).toFixed(2)}s`;
+    return `${Math.round(ms)}ms`;
   }
 
   sourceTitle(src: Source): string {
