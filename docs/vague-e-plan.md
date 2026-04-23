@@ -575,6 +575,45 @@ précisé après Vague D :
 
 ## Journal
 
+- **2026-04-24 — E2 Playwright scaffolding livré (tests non encore
+  exécutés sur la VM).** Opt-in volontaire : `@playwright/test` pas
+  ajouté aux deps (pour ne pas forcer un `npm install` de 150 Mo
+  overnight sans le user) ; installation en 2 commandes documentée
+  dans `frontend-ng/e2e/README.md`.
+  - `frontend-ng/playwright.config.ts` — baseURL par défaut
+    `https://agentium.papai.ai`, override via `E2E_BASE_URL`,
+    `webServer` spawn auto si localhost, retries=2 sur CI,
+    trace/video `retain-on-failure`.
+  - `frontend-ng/e2e/fixtures/auth.ts` — `loginAsAlice(page)`
+    réutilisable, sélecteurs sémantiques (`input#username`) pour
+    survivre aux retouches du thème Keycloak "agentium".
+  - `e2e/tests/01-auth-keycloak.spec.ts` — 3 tests (login /
+    survie reload / creds invalides).
+  - `e2e/tests/02-chat-drop-and-ask.spec.ts` — drop 2 PDF, ask,
+    citation chip cliquable, panneau sources visible. Dépend de
+    `e2e/fixtures/docs/sample-{a,b}.pdf` non encore générés
+    (placeholder `.gitkeep`, TODO dans `scripts/test-vm.sh
+    seed:e2e`).
+  - `e2e/tests/03-hitl-approve.spec.ts` + `04-debug-step-continue
+    .spec.ts` — `test.skip` gracieux si la fixture (`hitl-demo`
+    / `debug-demo` system) n'est pas seedée, donc l'harness reste
+    green sur un env pristine.
+  - `frontend-ng/e2e/tsconfig.json` isolé pour que l'IDE
+    comprenne les fichiers sans polluer le build Angular
+    (`tsconfig.app.json` ne les inclut pas).
+  - `package.json` : scripts `test:e2e` + `test:e2e:ui` ajoutés,
+    pas de devDep (activation = `npm i -D @playwright/test && npx
+    playwright install chromium`).
+
+  **Reste à livrer pour fermer E2 :**
+  1. `scripts/test-vm.sh seed:e2e` — seed alice/workspace +
+     systems `hitl-demo` + `debug-demo` + PDFs sample.
+  2. Run initial des 4 flows contre staging, stabiliser
+     sélecteurs (data-cite-chip, data-sources-panel à exposer
+     côté composants).
+  3. Wire dans CI hebdomadaire (workflow GitHub Actions /
+     Bitbucket Pipelines).
+
 - **2026-04-24 — E1 Boucle d'évaluation — backend + UI minimale livrés
   (branche locale, non encore pushée/déployée).** L'utilisateur a
   demandé d'enchaîner pendant la nuit ; E0 (secret rotation + DKIM) a
