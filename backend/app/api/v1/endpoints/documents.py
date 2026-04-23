@@ -53,7 +53,14 @@ async def upload_document(
     """Upload and index a document"""
     try:
         app_settings = get_resolved_settings(workspace_id=workspace.id)
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        # Keep symmetric with the RAG agent read path (`get("ragVectorDBType",
+        # "faiss")`) so upload and retrieval never land in different backends.
+        db_type = (
+            vector_db_type
+            or app_settings.get("ragVectorDBType")
+            or settings.default_vector_db_type
+            or "faiss"
+        )
 
         safe_name = file.filename.replace("/", "_").replace("\\", "_")
         tmp_dir = tempfile.mkdtemp()
@@ -98,20 +105,32 @@ async def upload_documents_batch(
 ):
     """Upload and index multiple documents"""
     app_settings = get_resolved_settings(workspace_id=workspace.id)
-    db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+    # Ultimate fallback is "faiss" to stay symmetric with the RAG agent retrieval
+    # path. The per-workspace preset still wins and the env-level
+    # `DEFAULT_VECTOR_DB_TYPE` can override it via the request param — but when
+    # nothing is set, we no longer diverge from the read side.
+    db_type = (
+        vector_db_type
+        or app_settings.get("ragVectorDBType")
+        or settings.default_vector_db_type
+        or "faiss"
+    )
 
-    temp_files = []
-
+    # We write each upload into a fresh tmpdir using its *original* filename so
+    # downstream parsers surface `slides_admin_cockpit.pdf` in chunk metadata
+    # rather than `tmp73klgow9.pdf`. The drop-and-ask flow relies on this for
+    # filename-based questions ("what is slides_admin_cockpit.pdf about?").
+    temp_dirs: list[str] = []
     try:
         file_paths = []
         for file in files:
-            tmp_file = tempfile.NamedTemporaryFile(
-                delete=False, suffix=os.path.splitext(file.filename)[1]
-            )
-            shutil.copyfileobj(file.file, tmp_file)
-            tmp_file.close()
-            temp_files.append(tmp_file.name)
-            file_paths.append(tmp_file.name)
+            safe_name = (file.filename or "upload").replace("/", "_").replace("\\", "_")
+            tmp_dir = tempfile.mkdtemp()
+            temp_dirs.append(tmp_dir)
+            tmp_path = os.path.join(tmp_dir, safe_name)
+            with open(tmp_path, "wb") as out:
+                shutil.copyfileobj(file.file, out)
+            file_paths.append(tmp_path)
 
         doc_service = DocumentService(
             collection_name=collection_name,
@@ -132,10 +151,8 @@ async def upload_documents_batch(
         raise HTTPException(status_code=500, detail=str(e))
 
     finally:
-        # Clean up temp files
-        for tmp_path in temp_files:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+        for tmp_dir in temp_dirs:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @router.post("/search")

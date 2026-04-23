@@ -843,3 +843,40 @@ en fonction du retour démo.
 
 Vague D : CLOSED. Prochaine étape = Vague E (boucle d'évaluation,
 marketplace, Playwright E2E, voice end-to-end).
+
+- **2026-04-23** — **Hotfix D5 drop-and-ask retrieval drift**
+  (signalé en prod : "le chat n'a pas l'air de bien gérer le retrieval
+  sur le contexte issu d'un doc indexé"). Trois bugs empilés, tous
+  corrigés dans un même commit :
+
+  1. **`OmniRAGAgent` ignorait la workspace + le preset RAG.** Le
+     `DocumentService` était instancié une fois dans `__init__` avec
+     `collection_name="documents"` et
+     `vector_db_type=settings.default_vector_db_type`. L'instance vivait
+     pour tous les tenants, toutes les requêtes, et écrasait les
+     préférences (`.env` fixait qdrant, les presets workspace = faiss).
+     Résultat : l'upload drag-and-drop écrivait dans FAISS
+     `<slug>__documents` tandis que le retrieval lisait Qdrant
+     `documents` — la collection existait côté Qdrant mais vide.
+     Correctif : `_get_document_service(request)` résout
+     `get_resolved_settings(workspace_id=…)` et cache une instance par
+     triplet `(workspace_slug, collection, vector_db_type)`, ce qui
+     préserve l'isolation multi-tenant sans rebuilder le reranker à
+     chaque appel.
+  2. **Filename d'origine perdu sur upload-batch.** La dropzone utilisée
+     par `chat-workspace` POSTait sur `/documents/upload-batch`, qui
+     dumpait le payload dans un `NamedTemporaryFile` → métadonnée de
+     chunk = `tmp73klgow9.pdf`. Une question "à quoi fait référence
+     `slides_admin_cockpit.pdf` ?" ne matchait donc rien. Correctif :
+     tmpdir par fichier avec le nom safe-slugifié, comme l'endpoint
+     singulier `/upload` le faisait déjà.
+  3. **Fallback `vector_db_type` asymétrique.** Upload se repliait sur
+     `settings.default_vector_db_type`, le rag-agent sur `"faiss"`.
+     Si le preset workspace était incomplet, les deux routes pouvaient
+     diverger. Les deux chemins convergent désormais sur le même
+     fallback (`ragVectorDBType` du preset, puis `.env`, puis `faiss`).
+
+  Smoke prod post-fix : Alice / `acme`, drop `slides_admin_cockpit.pdf`,
+  question "à quoi fait référence …" → chunks retrouvés avec le bon
+  `document_filename`, la réponse cite le contenu au lieu du disclaimer
+  "Je n'ai pas accès à ce document".

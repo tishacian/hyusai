@@ -30,7 +30,13 @@ class OmniRAGAgent(BaseAgent):
             agent_type="rag",
         )
         self._llm = None
-        self._document_service = None
+        # Cache DocumentService instances by (workspace_slug, collection, vector_db_type)
+        # so we don't rebuild the reranker + BM25 on every request, but still keep
+        # each tenant's index isolated. A single shared instance (the pre-D8
+        # behaviour) routed every workspace to the same unscoped collection and
+        # never honored the per-workspace `ragVectorDBType` preset — drop-and-ask
+        # uploads went to FAISS while this agent read from Qdrant.
+        self._document_services: dict[tuple[str | None, str, str], Any] = {}
 
     async def initialize(self) -> None:
         self.status = "active"
@@ -46,18 +52,59 @@ class OmniRAGAgent(BaseAgent):
             )
         return self._llm
 
-    def _get_document_service(self):
-        if self._document_service is None:
-            try:
-                from app.services.rag.document_service import DocumentService
+    def _get_document_service(self, request: dict[str, Any] | None = None):
+        """Return a DocumentService scoped to the request's workspace.
 
-                self._document_service = DocumentService(
-                    collection_name="documents",
-                    vector_db_type=settings.default_vector_db_type,
-                )
-            except Exception as e:
-                logger.warning("Document service init failed, RAG disabled", error=str(e))
-        return self._document_service
+        Resolution order for ``vector_db_type`` / ``collection_name``:
+          1. The workspace's resolved RAG preset (`get_resolved_settings`).
+          2. Static defaults (`faiss` / `documents`) — matches
+             ``_get_default_settings`` and keeps upload and retrieval
+             symmetric.
+
+        ``workspace_slug`` is taken verbatim from the request so that the
+        FAISS/Qdrant/Chroma factory can prefix the collection with
+        ``<slug>__``, giving the same isolation the dropzone upload path
+        already uses.
+        """
+        from app.core.settings_manager import get_resolved_settings
+        from app.services.rag.document_service import DocumentService
+
+        request = request or {}
+        workspace_slug = request.get("workspace_slug")
+        app_settings = get_resolved_settings(
+            workspace_id=request.get("workspace_id"),
+            capability_id=request.get("capability_id"),
+            system_id=request.get("system_id"),
+        )
+        collection_name = app_settings.get("ragCollectionName", "documents")
+        vector_db_type = app_settings.get("ragVectorDBType", "faiss")
+
+        cache_key = (workspace_slug, collection_name, vector_db_type)
+        svc = self._document_services.get(cache_key)
+        if svc is not None:
+            return svc
+
+        try:
+            svc = DocumentService(
+                collection_name=collection_name,
+                vector_db_type=vector_db_type,
+                workspace_slug=workspace_slug,
+            )
+            self._document_services[cache_key] = svc
+            logger.info(
+                "rag_agent: DocumentService ready",
+                workspace_slug=workspace_slug,
+                collection=collection_name,
+                vector_db=vector_db_type,
+            )
+            return svc
+        except Exception as e:
+            logger.warning(
+                "Document service init failed, RAG disabled",
+                error=str(e),
+                workspace_slug=workspace_slug,
+            )
+            return None
 
     async def process(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         query = request.get("query", "")
@@ -172,7 +219,7 @@ class OmniRAGAgent(BaseAgent):
         rag_mode = request.get("rag_pipeline_mode") or (
             request.get("agent_preferences") or {}
         ).get("rag_pipeline_mode")
-        doc_svc = self._get_document_service()
+        doc_svc = self._get_document_service(request)
         use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
             doc_svc, rewritten, rag_mode
         )
@@ -447,8 +494,13 @@ Answer the user's question using the context above. If the context is not releva
 
     # ── Helpers ──
 
-    async def _retrieve_context(self, query: str, use_hybrid: bool = True) -> dict[str, Any]:
-        doc_svc = self._get_document_service()
+    async def _retrieve_context(
+        self,
+        query: str,
+        use_hybrid: bool = True,
+        request: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        doc_svc = self._get_document_service(request)
         if doc_svc is None:
             return {"chunks": [], "scores": []}
         try:
