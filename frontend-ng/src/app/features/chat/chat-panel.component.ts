@@ -823,17 +823,26 @@ const STEP_ICONS: Record<string, string> = {
       >
         <button
           type="button"
-          class="p-2.5 rounded-xl transition ring-1"
+          class="p-2.5 rounded-xl transition ring-1 relative"
           [class.bg-red-500\\/20]="recording()"
           [class.ring-red-500\\/40]="recording()"
           [class.text-red-300]="recording()"
-          [class.bg-white\\/5]="!recording()"
-          [class.ring-white\\/10]="!recording()"
-          [class.text-gray-300]="!recording()"
-          [title]="recording() ? 'Stop recording' : 'Record voice'"
+          [class.bg-brand-500\\/20]="transcribing()"
+          [class.ring-brand-500\\/40]="transcribing()"
+          [class.text-brand-300]="transcribing()"
+          [class.animate-pulse]="transcribing()"
+          [class.bg-white\\/5]="!recording() && !transcribing()"
+          [class.ring-white\\/10]="!recording() && !transcribing()"
+          [class.text-gray-300]="!recording() && !transcribing()"
+          [disabled]="transcribing()"
+          [title]="transcribing() ? 'Transcribing…' : (recording() ? 'Stop recording' : 'Record voice')"
           (click)="toggleMic()"
         >
-          <app-icon [name]="recording() ? 'square' : 'mic'" [size]="15" />
+          <app-icon
+            [name]="transcribing() ? 'loader-2' : (recording() ? 'square' : 'mic')"
+            [size]="15"
+            [class.animate-spin]="transcribing()"
+          />
         </button>
         <textarea
           #inputEl
@@ -910,6 +919,13 @@ export class ChatPanelComponent {
   });
 
   recording = signal(false);
+  /**
+   * True between the moment the user stops recording and the
+   * transcription response lands. Drives a pulse state on the mic
+   * button so the user knows we're waiting on Whisper rather than
+   * assuming the app froze.
+   */
+  transcribing = signal(false);
   ttsEnabled = signal(false);
 
   private readonly openTrails = signal<Set<string>>(new Set());
@@ -1541,13 +1557,18 @@ export class ChatPanelComponent {
   }
 
   private transcribe(blob: Blob): void {
+    this.transcribing.set(true);
     this.api.transcribeAudio(blob).subscribe({
       next: (res) => {
         if (res?.text) {
           this.userInput = (this.userInput ? this.userInput + ' ' : '') + res.text;
         }
+        this.transcribing.set(false);
       },
-      error: () => this.toast.error('Transcription failed', 'Voice'),
+      error: () => {
+        this.transcribing.set(false);
+        this.toast.error('Transcription failed', 'Voice');
+      },
     });
   }
 
