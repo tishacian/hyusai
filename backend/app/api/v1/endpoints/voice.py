@@ -53,6 +53,7 @@ def _get_async_client() -> openai.AsyncOpenAI:
 # is the fastest general-purpose STT as of April 2026; ``whisper-1`` is
 # the slower legacy fallback.
 _TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
+_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 
 
 class SynthesizeRequest(BaseModel):
@@ -121,17 +122,39 @@ async def synthesize_speech(req: SynthesizeRequest):
     # Sync client in a threadpool so we don't block the event loop while
     # OpenAI serialises the MP3 — the streaming iterator is then safe to
     # consume from the FastAPI worker thread.
-    def _create():
+    # ``gpt-4o-mini-tts`` is the current fastest TTS model (April 2026);
+    # ``tts-1`` is kept as an automatic fallback when the model is not
+    # available on the account.
+    def _create(model: str):
         client = _get_client()
         return client.audio.speech.create(
-            model="tts-1",
+            model=model,
             input=req.text,
             voice=req.voice,
             response_format="mp3",
         )
 
+    loop = asyncio.get_running_loop()
     try:
-        response = await asyncio.get_running_loop().run_in_executor(None, _create)
+        try:
+            response = await loop.run_in_executor(None, _create, _TTS_MODEL)
+            chosen_model = _TTS_MODEL
+        except Exception as primary_err:
+            logger.warning(
+                "synthesize: primary model failed, falling back to tts-1",
+                model=_TTS_MODEL,
+                error=str(primary_err),
+            )
+            if _TTS_MODEL == "tts-1":
+                raise
+            response = await loop.run_in_executor(None, _create, "tts-1")
+            chosen_model = "tts-1"
+
+        logger.info(
+            "synthesize: streaming",
+            model=chosen_model,
+            text_chars=len(req.text),
+        )
 
         def _stream():
             for chunk in response.iter_bytes(4096):
@@ -139,4 +162,5 @@ async def synthesize_speech(req: SynthesizeRequest):
 
         return StreamingResponse(_stream(), media_type="audio/mpeg")
     except Exception as e:
+        logger.error("synthesize: failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))

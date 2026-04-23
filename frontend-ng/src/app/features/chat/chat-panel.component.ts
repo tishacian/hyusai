@@ -943,6 +943,15 @@ export class ChatPanelComponent {
   private currentAudio: HTMLAudioElement | null = null;
   private streamStart = 0;
 
+  // TTS pipeline state — we flush completed sentences from the LLM
+  // stream to OpenAI TTS as they come in, then play the resulting MP3
+  // chunks sequentially so the user hears the first sentence while the
+  // model is still generating the last one.
+  private ttsFlushedIdx = 0;
+  private ttsQueue: HTMLAudioElement[] = [];
+  private ttsPlaying = false;
+  private ttsAborted = false;
+
   readonly suggestions: SuggestionCard[] = [
     {
       icon: 'file-search',
@@ -1366,6 +1375,7 @@ export class ChatPanelComponent {
     this.streamBuffer.set('');
     this.liveSteps.set([]);
     this.streamStart = Date.now();
+    this.resetTtsPipeline();
 
     const s = this.settings.settings();
     let buffer = '';
@@ -1411,6 +1421,7 @@ export class ChatPanelComponent {
           if (chunk.chunk_type === 'text' && typeof chunk.content === 'string') {
             buffer += chunk.content;
             this.streamBuffer.set(buffer);
+            if (this.ttsEnabled()) this.maybeFlushSentences(buffer);
           } else if (chunk.chunk_type === 'decision_step' && chunk.decision_step) {
             const step = chunk.decision_step as DecisionStep;
             reasoning = upsertStep(reasoning, step);
@@ -1449,7 +1460,7 @@ export class ChatPanelComponent {
               steps: reasoning.length,
               duration_ms: durationMs,
             });
-            if (this.ttsEnabled() && buffer.trim()) this.playTTS(buffer);
+            if (this.ttsEnabled() && buffer.trim()) this.flushTrailingTts(buffer);
           }
         },
         error: () => {
@@ -1529,7 +1540,11 @@ export class ChatPanelComponent {
     const next = !this.ttsEnabled();
     this.ttsEnabled.set(next);
     this.toast.info(next ? 'Voice output enabled' : 'Voice output disabled');
-    if (!next) this.currentAudio?.pause();
+    if (!next) {
+      // Stop any playing audio and drop queued chunks so the user isn't
+      // surprised by lagging TTS coming through after they muted.
+      this.resetTtsPipeline();
+    }
   }
 
   async toggleMic(): Promise<void> {
@@ -1584,20 +1599,106 @@ export class ChatPanelComponent {
     });
   }
 
-  private playTTS(text: string): void {
-    const clean = text.replace(/[#*_`\[\]|]/g, '').slice(0, 2000);
+  /**
+   * Reset the sentence-streaming TTS pipeline at the start of each new
+   * answer (or when the user mutes). Stops any playing audio, clears the
+   * queue, and arms the abort flag so in-flight HTTP responses drop
+   * their blobs instead of auto-playing.
+   */
+  private resetTtsPipeline(): void {
+    this.ttsAborted = true;
+    try {
+      this.currentAudio?.pause();
+    } catch {
+      /* ignore */
+    }
+    this.currentAudio = null;
+    this.ttsQueue = [];
+    this.ttsPlaying = false;
+    this.ttsFlushedIdx = 0;
+    // Re-open the gate on the next animation frame so freshly-issued
+    // requests from the next call to ``send()`` aren't dropped.
+    queueMicrotask(() => {
+      this.ttsAborted = false;
+    });
+  }
+
+  /**
+   * Scan the in-flight assistant buffer for the last completed sentence
+   * boundary past ``ttsFlushedIdx`` and queue a TTS chunk for it. We
+   * only flush when the pending slice is at least 40 chars long to
+   * avoid spamming OpenAI with 3-word sentences — a single TTS call
+   * with 2 short sentences is both cheaper and less choppy than two.
+   */
+  private maybeFlushSentences(buffer: string): void {
+    const pending = buffer.slice(this.ttsFlushedIdx);
+    if (pending.length < 40) return;
+    // Match sentence-ending punctuation (accepting trailing quotes/brackets)
+    // followed by whitespace.
+    const sentenceEnd = /[.!?…]["'\)\]]*(\s|$)/g;
+    let lastEnd = -1;
+    let m: RegExpExecArray | null;
+    while ((m = sentenceEnd.exec(pending)) !== null) {
+      lastEnd = m.index + m[0].length;
+    }
+    if (lastEnd < 40) return;
+    const toSend = pending.slice(0, lastEnd).trim();
+    this.ttsFlushedIdx += lastEnd;
+    if (toSend) this.queueTtsChunk(toSend);
+  }
+
+  /**
+   * After the LLM stream completes, flush whatever text hasn't yet been
+   * sent to TTS — typically the last partial sentence that didn't end
+   * with punctuation, or a very short answer that never hit the 40-char
+   * threshold.
+   */
+  private flushTrailingTts(buffer: string): void {
+    const remainder = buffer.slice(this.ttsFlushedIdx).trim();
+    this.ttsFlushedIdx = buffer.length;
+    if (remainder) this.queueTtsChunk(remainder);
+  }
+
+  private queueTtsChunk(text: string): void {
+    // Strip markdown noise that would be pronounced literally ("star
+    // star bold star star"), and cap at the backend limit.
+    const clean = text.replace(/[#*_`\[\]|]/g, '').slice(0, 4000);
+    if (!clean.trim()) return;
     this.api.synthesizeSpeech(clean).subscribe({
       next: (blob) => {
+        if (this.ttsAborted) return;
         const url = URL.createObjectURL(blob);
-        this.currentAudio?.pause();
         const audio = new Audio(url);
-        this.currentAudio = audio;
-        audio.onended = () => URL.revokeObjectURL(url);
-        audio.play().catch(() => URL.revokeObjectURL(url));
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          this.ttsPlaying = false;
+          this.playNextInQueue();
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          this.ttsPlaying = false;
+          this.playNextInQueue();
+        };
+        this.ttsQueue.push(audio);
+        if (!this.ttsPlaying) this.playNextInQueue();
       },
       error: () => {
-        /* non-blocking */
+        // Skip this chunk and let the next one play. We don't toast —
+        // this is non-blocking and toasting on every sentence would be
+        // noisy if the quota is hit.
       },
+    });
+  }
+
+  private playNextInQueue(): void {
+    if (this.ttsAborted) return;
+    const next = this.ttsQueue.shift();
+    if (!next) return;
+    this.ttsPlaying = true;
+    this.currentAudio = next;
+    next.play().catch(() => {
+      this.ttsPlaying = false;
+      this.playNextInQueue();
     });
   }
 
