@@ -21,6 +21,7 @@ except ImportError:
 from app.services.retrieval.fusion_method import FusionMethod
 from app.services.tracing.rag_tracer import get_tracer, TraceStepType
 from app.services.rag.cache import get_cache
+from app.services.document_meta import extract_document_metadata
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 
@@ -110,7 +111,19 @@ class DocumentService:
             })
             
             logger.info(f"Parsed document: {parsed_doc.filename} ({len(parsed_doc.chunks)} chunks)")
-            
+
+            # Enrich chunk metadata once per document via the docmeta pipeline
+            # (title, author, num_pages, token_count, TF-IDF keywords, ...).
+            # The helper is fail-safe: returns {} if a dep is missing or the
+            # file can't be parsed by docmeta — ingestion keeps working on
+            # parser-only metadata in that case.
+            keyword_language = app_settings.get("ragKeywordLanguage") or "english"
+            document_meta = extract_document_metadata(
+                file_path,
+                extract_keywords_language=keyword_language,
+                count_tokens=True,
+            )
+
             # Generate embeddings for chunks
             chunk_texts = [chunk["content"] for chunk in parsed_doc.chunks]
             
@@ -152,6 +165,11 @@ class DocumentService:
                     "page": chunk.get("page"),
                     "document_type": parsed_doc.document_type.value,
                     **{k: v for k, v in parsed_doc.metadata.items() if v is not None},
+                    # docmeta-sourced fields last so they override any
+                    # parser-supplied value for the same key (e.g. PDF
+                    # title surfaced from embedded metadata rather than
+                    # derived from filename heuristics).
+                    **document_meta,
                 })
                 chunk_ids.append(f"{parsed_doc.id}_chunk_{i}")
             
@@ -206,6 +224,12 @@ class DocumentService:
         Ingest multiple documents in parallel.
         Each document is processed asynchronously: parse -> chunk -> embed -> index
         """
+        # Resolve keyword language once for the whole batch — cheaper than
+        # re-reading app_settings per document and keeps drop-and-ask consistent
+        # with the single-document path above.
+        batch_settings = get_resolved_settings()
+        keyword_language = batch_settings.get("ragKeywordLanguage") or "english"
+
         async def process_single_document(file_path: str) -> Dict:
             """Process a single document through the full pipeline"""
             try:
@@ -221,7 +245,17 @@ class DocumentService:
                         "filename": parsed_doc.filename,
                         "message": "No chunks to index",
                     }
-                
+
+                # Enrich chunk metadata once per document (title, author,
+                # num_pages, token_count, TF-IDF keywords). See the
+                # single-document path for the full rationale; the helper is
+                # fail-safe and returns {} when docmeta cannot process the file.
+                document_meta = extract_document_metadata(
+                    file_path,
+                    extract_keywords_language=keyword_language,
+                    count_tokens=True,
+                )
+
                 # Step 2: Generate embeddings for chunks (async batch)
                 chunk_texts = [chunk["content"] for chunk in parsed_doc.chunks]
                 embeddings = await self.embedder.embed_batch(chunk_texts)
@@ -240,6 +274,7 @@ class DocumentService:
                         "page": chunk.get("page"),
                         "document_type": parsed_doc.document_type.value,
                         **{k: v for k, v in parsed_doc.metadata.items() if v is not None},
+                        **document_meta,
                     })
                     chunk_ids.append(f"{parsed_doc.id}_chunk_{i}")
                 

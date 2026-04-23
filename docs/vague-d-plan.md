@@ -880,3 +880,69 @@ marketplace, Playwright E2E, voice end-to-end).
   question "à quoi fait référence …" → chunks retrouvés avec le bon
   `document_filename`, la réponse cite le contenu au lieu du disclaimer
   "Je n'ai pas accès à ce document".
+
+- **2026-04-23** — **Docmeta enrichment wiring**. Le hotfix du matin avait
+  préservé le `document_filename` côté upload mais la chunk metadata
+  restait pauvre (pas de titre, pas de keywords, pas de compte de tokens) —
+  les sources du chat s'affichaient encore "Policy chunk 1/2/3" et le
+  prompt LLM n'avait aucun ancrage thématique pour les questions floues
+  type "c'est quoi ce doc ?". On avait pourtant déjà un package mûr dans
+  `src/metadata_extraction/docmeta` (PDF / Office / ODT / texte / markup /
+  structured / images, avec TF-IDF keywords + tiktoken token count) mais
+  le backend ne l'importait nulle part.
+
+  Intégration (scope "B" : wiring + sources + prompt) :
+
+  1. **Nouvel adapter `backend/app/services/document_meta/__init__.py`**
+     qui ajoute `src/metadata_extraction` à `sys.path` une seule fois
+     (thread-safe), expose `extract_document_metadata(path, …)` et
+     préfixe toutes les clés en `document_*` avant de les rendre au
+     caller. Fail-safe : retourne `{}` si une dep optionnelle manque
+     (`nltk` corpora, `PyMuPDF` sur image slim, …) ou si le fichier est
+     corrompu — aucune régression possible, l'ingestion retombe juste
+     sur les métadonnées parseur.
+  2. **Wiring dans `DocumentService`**. L'enrichissement tombe une fois
+     par document (et non par chunk) juste après `parser.parse(...)` ;
+     le résultat est spreadé en queue du dict chunk_metadata pour
+     prendre le pas sur d'éventuels `title` dérivés du nom de fichier
+     par le parseur. Les deux chemins — `ingest_document` et la closure
+     `process_single_document` de `ingest_documents_batch` — sont
+     couverts, et la langue TF-IDF vient de `ragKeywordLanguage`
+     (fallback `"english"`).
+  3. **Propagation jusqu'aux sources du chat**. `RetrievalPipelineResult`
+     gagne un champ `metadatas: list[dict]` (default_factory=list),
+     populé par `_results_to_chunks_scores_metas()` dans les trois
+     pipelines (`retrieve_hah_like`, `retrieve_chah_like`,
+     `retrieve_for_mode`). Dans `procurement_agent.py`, le tri par
+     seuil + RRF manipule désormais des triples
+     `(chunk, score, metadata)` pour ne jamais décorréler ; la
+     construction des sources consomme `document_title` (fallback
+     `document_filename`, fallback `"Untitled document"`) et embarque
+     `filename`, `page`, `keywords[:5]`, `author`, `num_pages` dès que
+     disponibles.
+  4. **Keyword hint dans le prompt LLM**. Les `document_extracted_keywords`
+     agrégés sur les 5 top chunks (dédupliqués, plafonnés à 10) sont
+     injectés en suffixe du bloc contexte. Coût prompt négligeable sur
+     les cas normaux, vraie aide pour les questions globales ("résume
+     ce doc", "quels sont les points clés ?") où la similarité cosine
+     pure ramenait des passages aléatoires. Les chunks eux-mêmes sont
+     maintenant titrés `[i] <document_title> (p. N)` pour que le modèle
+     cite par numéro et par source.
+
+  Deps : `backend/requirements.txt` gagne `tiktoken`, `scikit-learn`,
+  `nltk`, `chardet`, `Pillow`, `openpyxl`, `python-pptx`, `pymupdf`,
+  `PyPDF2`, `python-docx`, `odfpy`, `beautifulsoup4`, `tomli`. À
+  installer sur VM avec un `pip install -r requirements.txt` puis
+  `python -c "import nltk; nltk.download('stopwords')"` au premier
+  déploiement (le keyword extractor a déjà un fallback silencieux si
+  le corpus manque, l'impact est juste une liste de stopwords vide).
+
+  Tests : nouveau fichier `app/tests/services/test_document_meta.py`
+  (3 cas — happy path markdown, fichier inexistant, désactivation
+  des keywords), `test_pipeline_retrieval` et `test_rag_service`
+  verts (59 tests services au total). Le smoke manuel sur
+  `slides_admin_cockpit.md` ressort
+  `document_token_count: 74`,
+  `document_extracted_keywords: ["cockpit", "slides admin", "stockage
+  vectoriel", "sécurité tokens", …]`. Prochain drop-and-ask sur la VM
+  affichera le titre dans le panneau sources au lieu du placeholder.

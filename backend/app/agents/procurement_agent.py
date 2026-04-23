@@ -261,7 +261,11 @@ class OmniRAGAgent(BaseAgent):
             use_hybrid=use_hybrid,
             hah_chah_enabled=settings.rag_hah_chah_enabled,
         )
-        retrieval_context = {"chunks": pr.chunks, "scores": pr.scores}
+        retrieval_context = {
+            "chunks": pr.chunks,
+            "scores": pr.scores,
+            "metadatas": pr.metadatas,
+        }
         n_chunks = len(retrieval_context["chunks"])
         scores = retrieval_context.get("scores", [])
         top_score = f"{scores[0]:.3f}" if scores else "—"
@@ -309,18 +313,30 @@ class OmniRAGAgent(BaseAgent):
 
         filtered_chunks = retrieval_context["chunks"]
         filtered_scores = scores
+        filtered_metadatas = retrieval_context.get("metadatas", []) or []
+        # Make sure we always have a metadata entry per chunk even if the
+        # retrieval pipeline is an older build that never populated it —
+        # sources/prompt paths below rely on index alignment.
+        if len(filtered_metadatas) < len(filtered_chunks):
+            filtered_metadatas = filtered_metadatas + [{}] * (
+                len(filtered_chunks) - len(filtered_metadatas)
+            )
         if n_chunks > 0 and scores:
             threshold = 0.1
             before = n_chunks
-            pairs = list(zip(retrieval_context["chunks"], scores))
-            pairs = [(c, s) for c, s in pairs if s >= threshold]
-            pairs.sort(key=lambda x: x[1], reverse=True)
-            if pairs:
-                filtered_chunks = [c for c, _ in pairs]
-                filtered_scores = [s for _, s in pairs]
+            triples = list(zip(retrieval_context["chunks"], scores, filtered_metadatas))
+            triples = [(c, s, m) for c, s, m in triples if s >= threshold]
+            triples.sort(key=lambda x: x[1], reverse=True)
+            if triples:
+                filtered_chunks = [c for c, _, _ in triples]
+                filtered_scores = [s for _, s, _ in triples]
+                filtered_metadatas = [m for _, _, m in triples]
             else:
                 filtered_chunks = retrieval_context["chunks"]
                 filtered_scores = scores
+                filtered_metadatas = retrieval_context.get("metadatas", []) or [
+                    {} for _ in filtered_chunks
+                ]
             after = len(filtered_chunks)
         else:
             before = after = 0
@@ -350,19 +366,67 @@ class OmniRAGAgent(BaseAgent):
             f"Assembling {after} chunks for synthesis…",
         )
 
-        context_text = (
-            "\n\n".join(filtered_chunks)
-            if filtered_chunks
-            else "No documents found in the knowledge base."
+        # Build a citation-friendly context block: each chunk is prefixed with
+        # its document title (docmeta-sourced when available, filename
+        # otherwise). This helps the LLM attribute quotes back to the right
+        # source and lets follow-up questions reference by name.
+        def _display_title(meta: dict[str, Any]) -> str:
+            title = (meta.get("document_title") or "").strip()
+            if title:
+                return title
+            filename = (meta.get("document_filename") or "").strip()
+            return filename or "Untitled document"
+
+        if filtered_chunks:
+            context_blocks: list[str] = []
+            for idx, chunk in enumerate(filtered_chunks):
+                meta = filtered_metadatas[idx] if idx < len(filtered_metadatas) else {}
+                title = _display_title(meta)
+                page = meta.get("page")
+                header = f"[{idx + 1}] {title}"
+                if page is not None:
+                    header = f"{header} (p. {page})"
+                context_blocks.append(f"{header}\n{chunk}")
+            context_text = "\n\n".join(context_blocks)
+        else:
+            context_text = "No documents found in the knowledge base."
+
+        # Aggregate docmeta TF-IDF keywords across the top chunks so the LLM
+        # can anchor on document topics even when the user's query is fuzzy
+        # ("c'est quoi ce doc ?"). We keep it short (top 10 unique) so it
+        # adds zero cost to the prompt in normal cases and degrades
+        # gracefully when docmeta didn't run (empty list).
+        keyword_seen: set[str] = set()
+        aggregated_keywords: list[str] = []
+        for meta in filtered_metadatas[:5]:
+            for kw in meta.get("document_extracted_keywords") or []:
+                if not isinstance(kw, str):
+                    continue
+                normalised = kw.strip().lower()
+                if not normalised or normalised in keyword_seen:
+                    continue
+                keyword_seen.add(normalised)
+                aggregated_keywords.append(kw.strip())
+                if len(aggregated_keywords) >= 10:
+                    break
+            if len(aggregated_keywords) >= 10:
+                break
+
+        keyword_hint = (
+            f"\n\nDocument keywords (from TF-IDF over retrieved chunks): "
+            f"{', '.join(aggregated_keywords)}"
+            if aggregated_keywords
+            else ""
         )
 
         user_prompt = f"""User message:
 {query}
 
 Knowledge base context:
-{context_text}
+{context_text}{keyword_hint}
 
-Answer the user's question using the context above. If the context is not relevant, say so clearly."""
+Answer the user's question using the context above. Cite sources by their
+[number] when relevant. If the context is not relevant, say so clearly."""
 
         await asyncio.sleep(0.03)
         yield self._step(
@@ -390,16 +454,41 @@ Answer the user's question using the context above. If the context is not releva
             has_text=True,
         )
 
-        sources = [
-            {
+        # Build real citations from the chunk metadata we now keep in lockstep
+        # with ``filtered_chunks``. Prefer docmeta-sourced ``document_title``
+        # (e.g. the PDF's embedded title), fall back to the filename, and
+        # surface page numbers + docmeta keywords when available so the UI
+        # source panel can render something useful instead of the legacy
+        # "Policy chunk N" placeholder.
+        sources: list[dict[str, Any]] = []
+        for i, c in enumerate(filtered_chunks[:5]):
+            meta = filtered_metadatas[i] if i < len(filtered_metadatas) else {}
+            source_entry: dict[str, Any] = {
                 "id": f"chunk-{i}",
                 "type": "document",
-                "title": f"Policy chunk {i + 1}",
+                "title": _display_title(meta),
                 "snippet": c[:200],
                 "relevance_score": filtered_scores[i] if i < len(filtered_scores) else 0.0,
             }
-            for i, c in enumerate(filtered_chunks[:5])
-        ]
+            document_id = meta.get("document_id")
+            if document_id:
+                source_entry["document_id"] = document_id
+            filename = meta.get("document_filename")
+            if filename:
+                source_entry["filename"] = filename
+            page = meta.get("page")
+            if page is not None:
+                source_entry["page"] = page
+            keywords = meta.get("document_extracted_keywords")
+            if keywords:
+                source_entry["keywords"] = list(keywords)[:5]
+            author = meta.get("document_author")
+            if author:
+                source_entry["author"] = author
+            num_pages = meta.get("document_num_pages")
+            if num_pages is not None:
+                source_entry["num_pages"] = num_pages
+            sources.append(source_entry)
 
         sequence = 0
         accumulated = ""
@@ -502,19 +591,24 @@ Answer the user's question using the context above. If the context is not releva
     ) -> dict[str, Any]:
         doc_svc = self._get_document_service(request)
         if doc_svc is None:
-            return {"chunks": [], "scores": []}
+            return {"chunks": [], "scores": [], "metadatas": []}
         try:
             results = await doc_svc.search(query, top_k=5, use_hybrid=use_hybrid)
-            chunks, scores = [], []
+            chunks, scores, metadatas = [], [], []
             for r in results:
-                content = r.get("content") or r.get("metadata", {}).get("content", "")
+                metadata = r.get("metadata", {}) or {}
+                content = r.get("content") or metadata.get("content", "")
                 if content:
                     chunks.append(content)
                     scores.append(r.get("combined_score") or r.get("score", 0.0))
-            return {"chunks": chunks, "scores": scores}
+                    # Keep the full chunk metadata alongside the text so the
+                    # caller can build real citations (document_title, page,
+                    # docmeta-sourced keywords) instead of "Policy chunk N".
+                    metadatas.append(metadata)
+            return {"chunks": chunks, "scores": scores, "metadatas": metadatas}
         except Exception as e:
             logger.warning("Retrieval failed", error=str(e))
-            return {"chunks": [], "scores": []}
+            return {"chunks": [], "scores": [], "metadatas": []}
 
     @staticmethod
     def _step(

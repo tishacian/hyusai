@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, List, Literal, Optional
 
 from app.core.logging import get_logger
@@ -47,6 +47,11 @@ class RetrievalPipelineResult:
     label: str
     reason: str
     detail: str
+    # Per-chunk metadata kept in lockstep with ``chunks``/``scores`` so the
+    # caller can build real citations (document title, page, docmeta keywords)
+    # instead of the legacy "Policy chunk N" placeholder. ``default_factory``
+    # keeps back-compat for callers that only read chunks/scores.
+    metadatas: List[dict] = field(default_factory=list)
 
 
 def _content_key(content: str) -> str:
@@ -106,6 +111,22 @@ def _results_to_chunks_scores(results: List[dict[str, Any]]) -> tuple[list[str],
     return chunks, scores
 
 
+def _results_to_chunks_scores_metas(
+    results: List[dict[str, Any]],
+) -> tuple[list[str], list[float], list[dict]]:
+    """Same as ``_results_to_chunks_scores`` but preserves per-chunk metadata."""
+    chunks: list[str] = []
+    scores: list[float] = []
+    metas: list[dict] = []
+    for r in results:
+        c, s = _result_content_score(r)
+        if c:
+            chunks.append(c)
+            scores.append(s)
+            metas.append(r.get("metadata") or {})
+    return chunks, scores, metas
+
+
 async def retrieve_hah_like(
     doc_svc: "DocumentService",
     query: str,
@@ -119,19 +140,26 @@ async def retrieve_hah_like(
     q = (query or "").strip()
     if not q:
         return RetrievalPipelineResult(
-            [], [], "hah_backend", "HAH (backend)", "Empty query", "No search performed"
+            chunks=[],
+            scores=[],
+            pipeline="hah_backend",
+            label="HAH (backend)",
+            reason="Empty query",
+            detail="No search performed",
+            metadatas=[],
         )
 
     first_k = min(max(top_k * 2, top_k), HAH_FIRST_PASS_CAP)
     pass1 = await doc_svc.search(q, top_k=first_k, use_hybrid=True)
     if not pass1:
         return RetrievalPipelineResult(
-            [],
-            [],
-            "hah_backend",
-            "HAH (backend)",
-            "First pass returned no chunks",
-            "Pass1: hybrid search",
+            chunks=[],
+            scores=[],
+            pipeline="hah_backend",
+            label="HAH (backend)",
+            reason="First pass returned no chunks",
+            detail="Pass1: hybrid search",
+            metadatas=[],
         )
 
     parts: list[str] = []
@@ -143,19 +171,20 @@ async def retrieve_hah_like(
     pass2 = await doc_svc.search(pseudo, top_k=min(HAH_SECOND_PASS_CAP, first_k + 8), use_hybrid=True)
 
     merged = _merge_rrf([pass1, pass2] if pass2 else [pass1], top_k=top_k)
-    chunks, scores = _results_to_chunks_scores(merged)
+    chunks, scores, metas = _results_to_chunks_scores_metas(merged)
     detail = (
         f"Pass1: hybrid top_{first_k}; pseudo-doc ~{len(pseudo)} chars; "
         f"Pass2: hybrid top_{min(HAH_SECOND_PASS_CAP, first_k + 8)}; RRF merge → {len(chunks)} chunks"
     )
     logger.info("HAH-like retrieval complete", pass1=len(pass1), pass2=len(pass2), merged=len(chunks))
     return RetrievalPipelineResult(
-        chunks,
-        scores,
-        "hah_backend",
-        "HAH (backend)",
-        "Two-pass hybrid retrieval + RRF merge (aligned with customchain invoke_async pattern)",
-        detail,
+        chunks=chunks,
+        scores=scores,
+        pipeline="hah_backend",
+        label="HAH (backend)",
+        reason="Two-pass hybrid retrieval + RRF merge (aligned with customchain invoke_async pattern)",
+        detail=detail,
+        metadatas=metas,
     )
 
 
@@ -190,14 +219,20 @@ async def retrieve_chah_like(
     q = (query or "").strip()
     if not q:
         return RetrievalPipelineResult(
-            [], [], "chah_backend", "C-HAH (backend)", "Empty query", "No search performed"
+            chunks=[],
+            scores=[],
+            pipeline="chah_backend",
+            label="C-HAH (backend)",
+            reason="Empty query",
+            detail="No search performed",
+            metadatas=[],
         )
 
     variants = _query_variants(q)
     searches = [doc_svc.search(v, top_k=min(12, top_k + 7), use_hybrid=True) for v in variants]
     lists = await asyncio.gather(*searches)
     merged = _merge_rrf(list(lists), top_k=top_k)
-    chunks, scores = _results_to_chunks_scores(merged)
+    chunks, scores, metas = _results_to_chunks_scores_metas(merged)
     v_preview = repr(variants)[:200]
     detail = (
         f"Parallel hybrid searches: {len(variants)} query variant(s); "
@@ -205,12 +240,13 @@ async def retrieve_chah_like(
     )
     logger.info("C-HAH-like retrieval complete", variants=len(variants), merged=len(chunks))
     return RetrievalPipelineResult(
-        chunks,
-        scores,
-        "chah_backend",
-        "C-HAH (backend)",
-        "Parallel hybrid retrieval over query variants + RRF merge",
-        detail,
+        chunks=chunks,
+        scores=scores,
+        pipeline="chah_backend",
+        label="C-HAH (backend)",
+        reason="Parallel hybrid retrieval over query variants + RRF merge",
+        detail=detail,
+        metadatas=metas,
     )
 
 
@@ -235,12 +271,13 @@ async def retrieve_for_mode(
     """
     if doc_svc is None:
         return RetrievalPipelineResult(
-            [],
-            [],
-            "fallback_hybrid",
-            "none",
-            "DocumentService unavailable",
-            "RAG disabled",
+            chunks=[],
+            scores=[],
+            pipeline="fallback_hybrid",
+            label="none",
+            reason="DocumentService unavailable",
+            detail="RAG disabled",
+            metadatas=[],
         )
 
     m = _normalize_mode(mode)
@@ -251,13 +288,14 @@ async def retrieve_for_mode(
         return await retrieve_chah_like(doc_svc, query, top_k=top_k)
 
     results = await doc_svc.search(query, top_k=top_k, use_hybrid=use_hybrid)
-    chunks, scores = _results_to_chunks_scores(results)
+    chunks, scores, metas = _results_to_chunks_scores_metas(results)
     pipe: Literal["naive", "hybrid"] = "hybrid" if use_hybrid else "naive"
     return RetrievalPipelineResult(
-        chunks,
-        scores,
-        pipe,
-        "vector_only" if not use_hybrid else "hybrid_rrf",
-        "Standard DocumentService.search",
-        f"use_hybrid={use_hybrid} top_k={top_k}",
+        chunks=chunks,
+        scores=scores,
+        pipeline=pipe,
+        label="vector_only" if not use_hybrid else "hybrid_rrf",
+        reason="Standard DocumentService.search",
+        detail=f"use_hybrid={use_hybrid} top_k={top_k}",
+        metadatas=metas,
     )

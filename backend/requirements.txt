@@ -23,6 +23,24 @@ qdrant-client>=1.12.0
 # Document parsing
 pypdf>=4.0.0
 
+# Document metadata extraction (src/metadata_extraction/docmeta)
+# Keep the dep list in sync with docmeta/README.md so drop-and-ask, batch
+# ingestion and the preview panel all surface title/author/keywords/token-count
+# instead of falling back to filename-only metadata.
+tiktoken>=0.7.0
+scikit-learn>=1.4.0
+nltk>=3.9.0
+chardet>=5.2.0
+Pillow>=10.0.0
+openpyxl>=3.1.0
+python-pptx>=0.6.23
+pymupdf>=1.24.0
+PyPDF2>=3.0.0
+python-docx>=1.1.0
+odfpy>=1.4.1
+beautifulsoup4>=4.12.0
+tomli>=2.0.0
+
 # Auth (Keycloak JWT)
 PyJWT[crypto]>=2.8.0
 email-validator>=2.0.0
