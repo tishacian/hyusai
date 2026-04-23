@@ -1278,28 +1278,42 @@ async def _get_kc_user(kc_sub: Optional[str]) -> dict:
 
 
 async def _get_admin_token() -> Optional[str]:
-    """Get a Keycloak admin token using the resource server client credentials."""
+    """Get a Keycloak admin token using the resource server client credentials.
+
+    The legacy fallback to ``admin/admin`` via admin-cli has been
+    removed: in prod we rotate the master-realm admin away from the
+    default, so silently falling back would either fail in a
+    hard-to-diagnose way or, worse, keep working against an
+    un-rotated cluster and hide a misconfiguration. If the
+    resource-server client secret is missing, this function now
+    returns ``None`` and logs a clear error — callers already handle
+    that as a 503.
+    """
     if not settings.keycloak_client_secret:
-        data = {
-            "grant_type": "password",
-            "client_id": "admin-cli",
-            "username": "admin",
-            "password": "admin",
-        }
-        url = f"{_kc_base_internal()}/realms/master/protocol/openid-connect/token"
-    else:
-        data = {
-            "grant_type": "client_credentials",
-            "client_id": settings.keycloak_resource_server_id,
-            "client_secret": settings.keycloak_client_secret,
-        }
-        url = _get_token_url()
+        logger.error(
+            "Keycloak client_secret not configured — admin API calls "
+            "(signup, password reset, user management) are disabled. "
+            "Set KEYCLOAK_CLIENT_SECRET in backend/.env."
+        )
+        return None
+
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": settings.keycloak_resource_server_id,
+        "client_secret": settings.keycloak_client_secret,
+    }
+    url = _get_token_url()
 
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, data=data, timeout=10)
         if resp.status_code == 200:
             return resp.json()["access_token"]
+        logger.error(
+            "Admin token request returned %s: %s",
+            resp.status_code,
+            resp.text[:200],
+        )
     except Exception as e:
         logger.error("Failed to get admin token: %s", e)
     return None

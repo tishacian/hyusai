@@ -6,25 +6,30 @@
 # authentication credentials at runtime so they never land in git.
 #
 # Required env vars (source /etc/agentium/smtp.env or similar):
-#   SMTP_USER       e.g. noreply@datategy.net
-#   SMTP_PASSWORD   the OVH mailbox password
+#   SMTP_USER          e.g. noreply@datategy.net
+#   SMTP_PASSWORD      the OVH mailbox password
+#   KC_ADMIN           master-realm admin (e.g. tib-admin after rotation)
+#   KC_ADMIN_PASSWORD  password for KC_ADMIN — store in secret manager
 # Optional:
 #   KC_URL          default http://localhost:8080/kc
-#   KC_ADMIN        default admin
-#   KC_ADMIN_PASSWORD default admin
 #   KC_REALM        default papai-org
 #
 # Usage:
-#   SMTP_USER=... SMTP_PASSWORD=... ./bootstrap-smtp.sh
+#   KC_ADMIN=... KC_ADMIN_PASSWORD=... \
+#     SMTP_USER=... SMTP_PASSWORD=... ./bootstrap-smtp.sh
+#
+# The admin credentials are required (no admin/admin fallback) so a
+# misconfigured env fails loudly instead of silently using the
+# bootstrap defaults that should have been rotated away.
 
 set -euo pipefail
 
 : "${SMTP_USER:?SMTP_USER is required}"
 : "${SMTP_PASSWORD:?SMTP_PASSWORD is required}"
+: "${KC_ADMIN:?KC_ADMIN is required (master-realm admin username)}"
+: "${KC_ADMIN_PASSWORD:?KC_ADMIN_PASSWORD is required}"
 
 KC_URL="${KC_URL:-http://localhost:8080/kc}"
-KC_ADMIN="${KC_ADMIN:-admin}"
-KC_ADMIN_PASSWORD="${KC_ADMIN_PASSWORD:-admin}"
 KC_REALM="${KC_REALM:-papai-org}"
 
 echo "[bootstrap-smtp] Authenticating against ${KC_URL}"

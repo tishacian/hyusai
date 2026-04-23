@@ -16,19 +16,24 @@
 # Usage:
 #   KC_URL=http://127.0.0.1:8080/kc \
 #   KC_REALM=papai-org \
-#   KC_ADMIN_USER=admin KC_ADMIN_PASS=admin \
+#   KC_ADMIN_USER=... KC_ADMIN_PASS=... \
 #   REALM_EXPORT=backend/keycloak/realm-export.json \
 #   ./backend/scripts/seed_keycloak_users.sh
+#
+# Admin credentials are required (no admin/admin fallback) so a run
+# against a rotated cluster fails loudly instead of probing the old
+# bootstrap creds.
 #
 # Run this from the VM where Keycloak is reachable on localhost, OR
 # point KC_URL at the public URL if admin-cli is exposed.
 
 set -euo pipefail
 
+: "${KC_ADMIN_USER:?KC_ADMIN_USER is required (master-realm admin username)}"
+: "${KC_ADMIN_PASS:?KC_ADMIN_PASS is required}"
+
 KC_URL=${KC_URL:-http://127.0.0.1:8080/kc}
 KC_REALM=${KC_REALM:-papai-org}
-KC_ADMIN_USER=${KC_ADMIN_USER:-admin}
-KC_ADMIN_PASS=${KC_ADMIN_PASS:-admin}
 REALM_EXPORT=${REALM_EXPORT:-backend/keycloak/realm-export.json}
 
 if [[ ! -f "$REALM_EXPORT" ]]; then
