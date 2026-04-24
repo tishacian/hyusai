@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -366,6 +366,7 @@ type Tab = 'models' | 'connectors';
 export class ResourcesPageComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastrService);
+  private readonly router = inject(Router);
 
   readonly APPS = APPS;
   readonly categories = CONNECTOR_CATEGORIES;
@@ -472,6 +473,12 @@ export class ResourcesPageComponent implements OnInit {
   }
 
   openConnector(c: ConnectorDef): void {
+    // SharePoint has a dedicated page (E4.1 — full sync + ingest + audit
+    // flow). The generic drawer is for connectors without a bespoke UI.
+    if (c.id === 'sharepoint') {
+      this.router.navigate(['/connectors', 'sharepoint']);
+      return;
+    }
     this.active.set(c);
     this.draftValues = { ...readConnectorConfig(c.id) };
     this.drawerOpen.set(true);

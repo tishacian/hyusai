@@ -32,6 +32,17 @@ class SharePointSyncJob(Base):
     files_total = Column(Integer, default=0)
     files_downloaded = Column(Integer, default=0)
     bytes_total = Column(Integer, default=0)
+    # Populated after the sync completes and files are piped through
+    # DocumentService.ingest_document. `ingested_count` counts successes,
+    # `ingest_failed_count` counts parser/embedder rejections. These tell
+    # apart "sync worked but some PDFs won't parse" from "sync itself
+    # failed". See migration 013.
+    ingested_count = Column(Integer, nullable=False, default=0, server_default="0")
+    ingest_failed_count = Column(Integer, nullable=False, default=0, server_default="0")
+    # Which logical collection the ingested docs landed in (symmetric with
+    # POST /documents/upload's `collection_name` form field). NULL while
+    # the job is running or if ingest was skipped entirely.
+    collection_name = Column(String(100), nullable=True)
     login_required_detail = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
     output_dir = Column(Text, nullable=True)

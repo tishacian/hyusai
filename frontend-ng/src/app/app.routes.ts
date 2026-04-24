@@ -129,6 +129,11 @@ export const routes: Routes = [
           import('./features/resources/resources.routes').then((m) => m.resourcesRoutes),
       },
       {
+        path: 'connectors',
+        loadChildren: () =>
+          import('./features/connectors/connectors.routes').then((m) => m.connectorsRoutes),
+      },
+      {
         path: 'apps',
         loadChildren: () =>
           import('./features/apps/apps.routes').then((m) => m.appsRoutes),
