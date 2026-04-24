@@ -1,10 +1,20 @@
 """Persisted state for SharePoint sync jobs.
 
-We keep this simple (single table, no FK to Task/Workspace for now) because
-the SharePoint connector runs at the platform level rather than per-workspace,
-and the demo VM has only one operator. Progress / result metadata is stored
-as text columns so we can query them from any worker without serialisation
-surprises.
+Single table, scoped to a workspace via ``workspace_id`` so each tenant
+only sees its own sync history through the listing endpoint. Progress
+and result metadata live in plain columns (strings + ints) so any
+worker — the API process or a future Celery consumer — can update them
+without needing a shared JSON schema.
+
+Schema evolution:
+    - 012: initial table (id, session_key, auth_mode, state, progress,
+      files_*, bytes_total, login_required_detail, error, output_dir,
+      folder_server_relative_url, created_at, updated_at).
+    - df4cf80 introduced ``workspace_id`` in the SQL model but shipped
+      *without* a migration; catch-up shipped as 014 after the drift
+      was caught during E4.1 smoke.
+    - 013: added ``ingested_count`` / ``ingest_failed_count`` /
+      ``collection_name`` for the RAG wiring step of E4.1.
 """
 
 from datetime import datetime
