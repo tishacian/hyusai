@@ -3,20 +3,35 @@
 A System is the deployable composition (Objective + Capability + Context +
 Skills + Policies). `POST /systems/{id}/runs` enqueues a Run; the actual
 execution loop lives in `app.services.run_engine`.
+
+Vague E / E3.1 — versioning + DAG validation:
+
+- ``PATCH /systems/{id}`` is now validated before it touches the DB.
+  Structural errors (cycle, orphan, unreachable node, decision without
+  branches, …) are returned as HTTP 400 with the same shape the editor
+  displays (``FlowValidationIssue``). Warnings (task without skill,
+  fork/join imbalance, …) pass through but are echoed in the response.
+- Every change to ``flow_definition`` spawns a new ``SystemVersion``
+  row. Rolling window of 500 per system (see
+  ``services.chains.version_service``).
+- New routes ``/systems/{id}/versions`` + ``/rollback`` expose the
+  history and restore flow.
 """
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.run import Run
 from app.models.system import System
+from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.chains import dag_validator, version_service
 from app.services.run_engine import schedule_run
 
 router = APIRouter()
@@ -64,6 +79,47 @@ class RunCreate(BaseModel):
     trigger: str = "manual"
 
 
+class SystemUpdateOptions(BaseModel):
+    """Optional controls piggy-backing on the PATCH body.
+
+    Kept separate from :class:`SystemUpdate` so clients that don't care
+    about versioning can keep their existing payload shape. The editor
+    sends ``version_message`` to attach a changelog note; tests and
+    background jobs can set ``skip_validation`` to bypass the DAG gate
+    when they know the payload is already trusted.
+    """
+
+    version_message: Optional[str] = Field(
+        default=None,
+        description="Optional changelog note saved alongside the new version.",
+        max_length=2000,
+    )
+    skip_validation: bool = False
+
+
+class RollbackBody(BaseModel):
+    message: Optional[str] = Field(
+        default=None,
+        description="Optional note attached to the rollback version.",
+        max_length=2000,
+    )
+
+
+def _actor_display_name(user: User) -> str:
+    """Pick a stable, human-readable actor label for audit/version rows.
+
+    Prefer ``email`` then ``username`` then ``keycloak_sub``, falling
+    back to the DB id so the field is never empty. Matches the spirit
+    of ``emit_audit_event.actor`` in the SharePoint endpoints.
+    """
+    return (
+        getattr(user, "email", None)
+        or getattr(user, "username", None)
+        or getattr(user, "keycloak_sub", None)
+        or getattr(user, "id", "demo-user")
+    )
+
+
 # ---------------- Helpers ----------------
 def _serialize(s: System) -> Dict[str, Any]:
     return {
@@ -109,8 +165,24 @@ async def list_systems(
 async def create_system(
     body: SystemCreate,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    # Validate the initial flow_definition the same way PATCH does so
+    # a chain can't be born invalid. Empty flow_definition is valid
+    # (draft) — the validator treats no-nodes as zero issues.
+    issues = dag_validator.validate_flow(body.flow_definition or {})
+    if dag_validator.has_errors(issues):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "flow_invalid",
+                "message": "Flow definition has structural errors.",
+                "issues": dag_validator.issues_to_payload(issues),
+            },
+        )
+
+    actor = _actor_display_name(user)
     s = System(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -126,14 +198,32 @@ async def create_system(
         adaptive_policy_id=body.adaptive_policy_id,
         context_id=body.context_id,
         status=body.status,
+        created_by=actor,
         default_prompt_type=body.default_prompt_type,
         default_model=body.default_model,
         retrieval_mode_default=body.retrieval_mode_default or "auto",
     )
     db.add(s)
+    db.flush()
+
+    # Seed v1 for every new chain so the history is never empty — the
+    # UI's "Versions" panel always has at least the starting point to
+    # compare against or roll back to.
+    version_service.record_new_version(
+        db=db,
+        system=s,
+        flow_definition=body.flow_definition or {},
+        created_by=actor,
+        message="Initial version",
+    )
+
     db.commit()
     db.refresh(s)
-    return _serialize(s)
+    payload = _serialize(s)
+    payload["validation_warnings"] = dag_validator.issues_to_payload(
+        [i for i in issues if i.level == "warn"]
+    )
+    return payload
 
 
 @router.get("/{system_id}")
@@ -152,17 +242,58 @@ async def get_system(
 async def update_system(
     system_id: str,
     body: SystemUpdate,
+    options: SystemUpdateOptions = Depends(),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
     if not s:
         raise HTTPException(404, "System not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+
+    updates = body.model_dump(exclude_unset=True)
+    new_flow = updates.get("flow_definition") if "flow_definition" in updates else None
+
+    issues: list = []
+    if new_flow is not None and not options.skip_validation:
+        issues = dag_validator.validate_flow(new_flow)
+        if dag_validator.has_errors(issues):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "flow_invalid",
+                    "message": "Flow definition has structural errors.",
+                    "issues": dag_validator.issues_to_payload(issues),
+                },
+            )
+
+    for k, v in updates.items():
         setattr(s, k, v)
+
+    created_version = None
+    if new_flow is not None:
+        created_version = version_service.record_new_version(
+            db=db,
+            system=s,
+            flow_definition=new_flow,
+            created_by=_actor_display_name(user),
+            message=options.version_message,
+        )
+
     db.commit()
     db.refresh(s)
-    return _serialize(s)
+    payload = _serialize(s)
+    if issues:
+        payload["validation_warnings"] = dag_validator.issues_to_payload(
+            [i for i in issues if i.level == "warn"]
+        )
+    if created_version is not None:
+        payload["new_version"] = version_service.serialize_version_summary(created_version)
+    return payload
 
 
 @router.delete("/{system_id}", status_code=204)
@@ -209,6 +340,113 @@ async def trigger_run(
     # Hand the actual execution to the canonical run_engine (Phase 6).
     background_tasks.add_task(schedule_run, run.id)
     return {"id": run.id, "status": run.status, "system_id": s.id, "trigger": body.trigger}
+
+
+@router.get("/{system_id}/versions")
+async def list_system_versions(
+    system_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Paginated history of ``flow_definition`` snapshots for a system.
+
+    Returns summaries (no full ``flow_definition`` payload) so the
+    panel can stay responsive even at the 500-row window ceiling.
+    Fetch the full body with ``GET /systems/{id}/versions/{n}``.
+    """
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
+    if not s:
+        raise HTTPException(404, "System not found")
+    rows, total = version_service.list_versions(
+        db=db,
+        system_id=system_id,
+        workspace_id=workspace.id,
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "window": None,  # filled by the client from the config endpoint if needed
+        "versions": [version_service.serialize_version_summary(v) for v in rows],
+    }
+
+
+@router.get("/{system_id}/versions/{version_number}")
+async def get_system_version(
+    system_id: str,
+    version_number: int,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Full version payload including ``flow_definition``. Used by the
+    editor when hovering a row to preview, or when starting a
+    rollback to confirm the target.
+    """
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
+    if not s:
+        raise HTTPException(404, "System not found")
+    v = version_service.get_version(
+        db=db,
+        system_id=system_id,
+        workspace_id=workspace.id,
+        version_number=version_number,
+    )
+    if v is None:
+        raise HTTPException(404, "Version not found (may have been purged by the rolling window).")
+    return version_service.serialize_version(v)
+
+
+@router.post("/{system_id}/versions/{version_number}/rollback")
+async def rollback_system_version(
+    system_id: str,
+    version_number: int,
+    body: RollbackBody = RollbackBody(),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Roll the system back to a specific version.
+
+    Implemented as "append a new version whose ``flow_definition``
+    equals the target"; we never rewrite history. Returns the
+    newly created version (or the target itself if the rollback is
+    a no-op because the target is already the current flow).
+    """
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
+    if not s:
+        raise HTTPException(404, "System not found")
+    try:
+        new_version = version_service.rollback_to_version(
+            db=db,
+            system=s,
+            version_number=version_number,
+            created_by=_actor_display_name(user),
+            message=body.message,
+        )
+    except version_service.ChainVersionError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    db.commit()
+    db.refresh(s)
+    return {
+        "system": _serialize(s),
+        "new_version": version_service.serialize_version(new_version),
+    }
 
 
 @router.get("/{system_id}/runs")

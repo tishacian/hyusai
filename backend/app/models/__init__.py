@@ -17,6 +17,7 @@ from app.models.skill import Skill
 from app.models.context import Context
 from app.models.policy import ControlPolicy, AdaptivePolicy
 from app.models.system import System
+from app.models.system_version import SystemVersion
 from app.models.run import Run, SkillInvocation
 from app.models.impact import Impact
 from app.models.decision import Decision
@@ -31,5 +32,5 @@ __all__ = [
     "SharePointSyncJob",
     # Canonical
     "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
-    "System", "Run", "SkillInvocation", "Impact", "Decision",
+    "System", "SystemVersion", "Run", "SkillInvocation", "Impact", "Decision",
 ]

@@ -195,29 +195,79 @@ mais :
 - Pas de validation `fork/join` cohérents.
 - Pas de versioning des flows sauvés (save écrase, pas de diff).
 
-**Scope :**
-1. Node-props complets (skill picker via `/skills` scopé workspace,
-   param form auto-généré depuis `Skill.schema_input`).
-2. Validation bloquante : fork sans join correspondant, cycle, node
-   orphelin, decision sans `true_branch_id`.
-3. Versioning : chaque save crée un `SystemVersion` (id + created_at +
-   created_by + dag_json), UI pour naviguer l'historique et rollback.
-   **Rolling window 500 versions par chaîne** (décision 2026-04-24) :
-   historique assez profond pour retrouver un flow d'il y a plusieurs
-   mois de modifs, plafonné pour ne pas faire exploser la table
-   `system_versions`. Purge FIFO : au 501ᵉ save d'une chaîne, la
-   version la plus ancienne est supprimée (cascade sur les runs qui
-   la référencent → les runs gardent un snapshot `dag_json` inline
-   pour rester rejouables). Configurable via
-   `CUSTOM_CHAIN_VERSION_WINDOW` (default 500) pour ajuster plus tard
-   sans migration.
-4. Export JSON → round-trip import (permet partage flow entre
-   workspaces).
+**Audit 2026-04-24 — état des lieux réel** (à partir des subagents
+`explore` backend + frontend, 2110 lignes de `workflow-editor` lues) :
+
+- **Backend** : aucune table `system_versions`, `chains` ou
+  `workflows`. Les chaînes vivent comme `systems.flow_definition`
+  (JSON) mutée en place par `PATCH /api/v1/systems/{id}`. **Aucun
+  historique**, aucun rollback possible.
+- **Run ↔ version** : `Run.system_id` seul, **pas** de snapshot DAG
+  inline. Les runs relisent `system.flow_definition` à l'exécution
+  (`run_engine/dag.py:266-271`). Muter une chaîne après un run rend
+  le replay de ce run silencieusement incorrect.
+- **Validation** : `validateFlow` existe côté front
+  (`core/flow-serializer.service.ts:681-799`), mais (a) `save` n'est
+  jamais gaté dessus — seul `execute` l'est, (b) deux types d'issues
+  sont déclarés (`unreachable_node`, `port_type_mismatch`) mais
+  **jamais émis**, (c) zéro validation côté backend — `PATCH` accepte
+  n'importe quel `flow_definition`.
+- **Node-props** : seul le skill picker est réel (task nodes).
+  Pour decision/fork/join/loop/retry/hitl/subflow, l'inspecteur
+  affiche `configSummary()` en **read-only**. Les nouveaux nodes
+  sortent avec `config: {}` → validation errors indébloquables.
+- **Export/import** : zéro UI, pas de route backend dédiée.
+- **Audit events** : aucun `chain.*` / `workflow.*` émis aujourd'hui.
+
+**Scope (décomposé en tranches livrables indépendamment) :**
+
+- **E3.1 — Fondations backend versioning + validation** : table
+  `system_versions` (FK `systems.id`, `workspace_id`, `version_number`
+  auto-incrémenté par système, `flow_definition` JSON, `created_at`,
+  `created_by`, `message`), colonne `runs.flow_snapshot` JSON pour
+  garder les runs rejouables après purge d'une version, migration
+  Alembic, rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW` (purge
+  FIFO à chaque nouvelle version), service de validation DAG partagé
+  avec le front (cycle, decision sans ≥2 branches, fork sans join,
+  node orphelin, edge vers node inexistant, unreachable_node,
+  task sans skill), intégration dans `PATCH /systems/{id}` pour
+  bloquer les saves invalides (400 structuré), nouvelles routes
+  `GET /systems/{id}/versions`, `GET /systems/{id}/versions/{n}`,
+  `POST /systems/{id}/versions/{n}/rollback`. Audits
+  `chain.version.created`, `chain.rollback`, `chain.version.purged`.
+
+- **E3.2 — UI versioning + rollback** : panneau "Versions" dans le
+  `workflow-editor`, liste paginée avec auteur + date + message +
+  diff count (node/edge delta vs. courante), bouton "Roll back to"
+  qui ouvre un modal de confirmation puis appelle `/rollback` et
+  reload la chaîne. Save gate côté UI via la validation serveur
+  (affichage structuré des erreurs 400 dans la issues strip).
+
+- **E3.3 — Node-props complets** : formulaires éditables par kind.
+  Task : form auto-généré depuis `Skill.input_schema` (ne pas
+  réinventer un JSON-schema renderer — récup `ngx-formly` ou un
+  petit renderer maison clefs-plates si l'arbo reste simple).
+  Decision : éditeur de conditions + true/false branches (picker de
+  target node). Fork/join : éditeur de parallelism + strategy.
+  Loop : `max_iterations`, break condition. Retry : `max_attempts`,
+  backoff. HITL : prompt. Subflow : system picker.
+
+- **E3.4 — Export / import JSON** : `GET /systems/{id}/export`
+  serialize flow + `skill_slugs` (pas d'ids cross-workspace),
+  `POST /systems/import` re-bind skills par slug dans le workspace
+  cible, crée la chaîne + sa version 1. Upload JSON côté UI via
+  file picker.
+
+**Ordre d'exécution** : E3.1 → E3.2 → E3.3 → E3.4. E3.1 débloque
+tout le reste (le versioning est la fondation).
 
 **Done quand :** un builder peut construire un flow fork/join/decision
-depuis zéro, le valider, le lancer, le rollback d'une version, et le
-plafond des 500 versions est atteint sans que la table explose ni
-que les anciens runs deviennent orphelins.
+depuis zéro, le valider (save bloqué si invalide), le lancer, naviguer
+l'historique des versions, rollback à une version antérieure,
+l'exporter en JSON, et le réimporter dans un autre workspace — tout
+cela sans que la table `system_versions` explose quand on dépasse
+les 500 versions par chaîne, et sans que les anciens runs deviennent
+orphelins.
 
 ### E4 — SharePoint ingestion v1
 

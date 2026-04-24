@@ -50,6 +50,18 @@ class Run(Base):
     retries = Column(Integer, default=0)
     error = Column(Text, nullable=True)
 
+    # Vague E / E3.1 — immutable snapshot of the flow_definition the
+    # run executed against. Written at run start by the engine so that:
+    #   - editing the parent System after a run doesn't change what
+    #     that run represents (replayability),
+    #   - purging old SystemVersion rows (rolling window 500) never
+    #     orphans runs: even after v34 is gone, run #abc still has
+    #     its dag_json inline.
+    # Optional flow_version_id links back to the exact SystemVersion
+    # row when still present, NULL once purged (snapshot still usable).
+    flow_snapshot = Column(JSON, nullable=True)
+    flow_version_id = Column(String(36), nullable=True, index=True)
+
     # Vague E / E1 — snapshot of the auto-eval pass fired at run completion.
     # Shape: {"composite_score": float, "hallucination_rate": float,
     #         "scores": {...dimension->0-100...}, "threshold_breach": bool,

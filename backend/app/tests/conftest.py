@@ -64,9 +64,11 @@ def db_session():
         "evaluation_scores",
         "evaluation_presets",
         "runs",
+        "system_versions",
         "systems",
         "capabilities",
         "skills",
+        "audit_logs",
         "workspaces",
     ]
     db = SessionLocal()

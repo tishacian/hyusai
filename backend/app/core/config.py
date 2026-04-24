@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     sharepoint_connector_fernet_key: Optional[str] = None
     sharepoint_connector_require_encryption: bool = False
 
+    # Custom chain (System.flow_definition) versioning — Vague E / E3.1.
+    # Rolling window of SystemVersion rows kept per system. At each save
+    # past this cap, the oldest version_number is purged (FIFO). 500 is
+    # the default agreed on 2026-04-24 (profondeur large pour retrouver
+    # un flow d'il y a plusieurs mois de modifs, plafond dur pour que
+    # la table n'explose pas). Lower it for tests or raise it if a
+    # client demands deeper history without re-migration.
+    custom_chain_version_window: int = 500
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,
