@@ -263,7 +263,11 @@ export interface FlowValidationIssue {
     | 'port_type_mismatch'
     | 'hitl_no_prompt'
     | 'loop_no_budget'
-    | 'retry_no_target';
+    | 'retry_no_target'
+    // Emitted server-side by ``dag_validator.validate_flow`` when a
+    // node has zero inbound *and* zero outbound edges in a multi-node
+    // flow (leftover of a half-finished drag/drop). Vague E / E3.1.
+    | 'node_orphan';
   message: string;
 }
 

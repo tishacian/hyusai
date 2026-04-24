@@ -1,4 +1,5 @@
 import { Injectable, inject } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, map, of } from 'rxjs';
 import { ApiService } from './api.service';
 
@@ -173,6 +174,74 @@ export interface System {
   created_at?: string;
   updated_at?: string;
 }
+
+/** Structured validation diagnostic for a flow graph. Mirrors
+ *  ``FlowValidationIssue`` from ``flow-serializer.service.ts`` and the
+ *  backend ``services.chains.dag_validator.ValidationIssue`` shape so a
+ *  server-side 400 can be spliced into the same issues strip without
+ *  translation. The two enumerations stay in lockstep — when the
+ *  backend adds a new ``code``, mirror it in both places. */
+export interface FlowValidationIssue {
+  level: 'error' | 'warn';
+  code: string;
+  message: string;
+  node_id?: string | null;
+  edge_index?: number | null;
+}
+
+/** Summary row returned by ``GET /systems/{id}/versions`` — drops the
+ *  heavyweight ``flow_definition`` so the listing stays snappy even at
+ *  the 500-row rolling window ceiling (decision 2026-04-24). Fetch
+ *  the full payload through ``getSystemVersion`` when previewing or
+ *  confirming a rollback. */
+export interface SystemVersionSummary {
+  id: string;
+  system_id: string;
+  version_number: number;
+  message?: string | null;
+  rolled_back_from_id?: string | null;
+  created_at: string;
+  created_by: string;
+  node_count: number;
+  edge_count: number;
+}
+
+export interface SystemVersionFull extends Omit<SystemVersionSummary, 'node_count' | 'edge_count'> {
+  workspace_id: string | null;
+  flow_definition: Record<string, unknown>;
+}
+
+export interface SystemVersionList {
+  total: number;
+  limit: number;
+  offset: number;
+  versions: SystemVersionSummary[];
+}
+
+export interface SystemRollbackResult {
+  system: System;
+  new_version: SystemVersionFull;
+}
+
+/** Discriminated union returned by ``saveSystemFlow``. ``ok=true`` means
+ *  the PATCH landed (warnings may still be present); ``ok=false`` with
+ *  ``reason='invalid'`` carries the structured DAG errors the editor
+ *  surfaces in the validation strip; ``reason='network'`` is everything
+ *  else (HTTP non-400 or transport failure) — the UI only needs to
+ *  toast that one. */
+export type SaveSystemFlowResult =
+  | {
+      ok: true;
+      system: System;
+      warnings: FlowValidationIssue[];
+      new_version: SystemVersionSummary | null;
+    }
+  | {
+      ok: false;
+      reason: 'invalid' | 'network';
+      message: string;
+      issues: FlowValidationIssue[];
+    };
 
 export interface ImpactAggregate {
   scope?: 'portfolio' | 'capability' | 'system';
@@ -403,6 +472,94 @@ export class CanonicalApiService {
       map(() => true),
       catchError(() => of(false)),
     );
+  }
+
+  // ---- Custom chain versioning (Vague E / E3) ----------------------------
+  // Purpose-built save-with-errors wrapper. Unlike ``updateSystem`` which
+  // swallows every failure into ``null``, this one surfaces the structured
+  // 400 payload emitted by the DAG validator so the editor can pipe server
+  // issues into its validation strip exactly the way client-side issues
+  // are displayed.
+  saveSystemFlow(
+    id: string,
+    flow_definition: Record<string, unknown>,
+    opts?: { version_message?: string },
+  ): Observable<SaveSystemFlowResult> {
+    const params: Record<string, string> = {};
+    if (opts?.version_message) params['version_message'] = opts.version_message;
+    let url = `/systems/${id}`;
+    const qs = new URLSearchParams(params).toString();
+    if (qs) url = `${url}?${qs}`;
+    return this.api
+      .patch<System & { validation_warnings?: FlowValidationIssue[]; new_version?: SystemVersionSummary }>(url, {
+        flow_definition,
+      })
+      .pipe(
+        map((system) => ({
+          ok: true as const,
+          system: system as System,
+          warnings: (system as { validation_warnings?: FlowValidationIssue[] }).validation_warnings ?? [],
+          new_version:
+            (system as { new_version?: SystemVersionSummary }).new_version ?? null,
+        })),
+        catchError((err: HttpErrorResponse) => {
+          if (err?.status === 400) {
+            const detail = (err.error?.detail ?? err.error) as {
+              error?: string;
+              message?: string;
+              issues?: FlowValidationIssue[];
+            } | undefined;
+            if (detail?.error === 'flow_invalid' || Array.isArray(detail?.issues)) {
+              return of<SaveSystemFlowResult>({
+                ok: false,
+                reason: 'invalid',
+                message: detail?.message ?? 'Flow definition has structural errors.',
+                issues: detail?.issues ?? [],
+              });
+            }
+          }
+          return of<SaveSystemFlowResult>({
+            ok: false,
+            reason: 'network',
+            message: err?.statusText || err?.message || 'Unknown backend error.',
+            issues: [],
+          });
+        }),
+      );
+  }
+
+  listSystemVersions(
+    id: string,
+    params?: { limit?: number; offset?: number },
+  ): Observable<SystemVersionList> {
+    const q: Record<string, string> = {};
+    if (params?.limit != null) q['limit'] = String(params.limit);
+    if (params?.offset != null) q['offset'] = String(params.offset);
+    return this.api
+      .get<SystemVersionList>(`/systems/${id}/versions`, q)
+      .pipe(
+        catchError(() =>
+          of<SystemVersionList>({ total: 0, limit: 0, offset: 0, versions: [] }),
+        ),
+      );
+  }
+
+  getSystemVersion(id: string, versionNumber: number): Observable<SystemVersionFull | null> {
+    return this.api
+      .get<SystemVersionFull>(`/systems/${id}/versions/${versionNumber}`)
+      .pipe(catchError(() => of(null)));
+  }
+
+  rollbackSystemVersion(
+    id: string,
+    versionNumber: number,
+    message?: string,
+  ): Observable<SystemRollbackResult | null> {
+    return this.api
+      .post<SystemRollbackResult>(`/systems/${id}/versions/${versionNumber}/rollback`, {
+        message: message ?? null,
+      })
+      .pipe(catchError(() => of(null)));
   }
 
   // ---- Contexts ------------------------------------------------------------

@@ -27,6 +27,8 @@ import {
   CanonicalApiService,
   type Run,
   type Skill,
+  type SystemVersionFull,
+  type SystemVersionSummary,
   type System,
 } from '@app/core/canonical-api.service';
 import {
@@ -125,6 +127,19 @@ interface FlowTemplate {
         >
           <app-icon name="save" [size]="12" />
           {{ saving() ? 'Saving…' : 'Save to System' }}
+        </button>
+      }
+      @if (systemId()) {
+        <button
+          actions
+          type="button"
+          (click)="openVersionsPanel()"
+          [class.bg-white/5]="!versionsPanelOpen()"
+          [class.bg-brand-500/20]="versionsPanelOpen()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          title="Browse version history — roll back to any prior snapshot."
+        >
+          <app-icon name="history" [size]="14" /> Versions
         </button>
       }
       <button
@@ -588,16 +603,30 @@ interface FlowTemplate {
     </div>
 
     <!-- Validation issues strip -->
-    @if (issues().length > 0) {
+    @if (allIssues().length > 0) {
       <div class="mt-3 t-card t-elevated rounded-md p-3">
         <div class="flex items-center gap-2 mb-2">
           <app-icon name="alert-triangle" [size]="14" class="text-amber-400" />
-          <span class="text-xs font-medium text-white">Flow validation — {{ issues().length }} issue{{ issues().length > 1 ? 's' : '' }}</span>
+          <span class="text-xs font-medium text-white">Flow validation — {{ allIssues().length }} issue{{ allIssues().length > 1 ? 's' : '' }}</span>
+          @if (serverIssues().length > 0) {
+            <span class="df-tag df-tag-neg">SERVER REJECTED</span>
+          }
         </div>
         <div class="space-y-1">
           @for (issue of issues(); track $index) {
             <div class="flex items-start gap-2 text-[11px]">
               <span class="df-tag" [attr.data-tone]="issue.level === 'error' ? 'neg' : 'warn'">{{ issue.level === 'error' ? 'ERR' : 'WARN' }}</span>
+              <span class="ck-mono text-[9px] text-gray-500 uppercase tracking-wider">client</span>
+              <span class="text-gray-300">{{ issue.message }}</span>
+              @if (issue.node_id) {
+                <span class="ck-mono text-[10px] text-gray-500">· {{ issue.node_id }}</span>
+              }
+            </div>
+          }
+          @for (issue of serverIssues(); track $index) {
+            <div class="flex items-start gap-2 text-[11px]">
+              <span class="df-tag" [attr.data-tone]="issue.level === 'error' ? 'neg' : 'warn'">{{ issue.level === 'error' ? 'ERR' : 'WARN' }}</span>
+              <span class="ck-mono text-[9px] text-brand-300 uppercase tracking-wider">server</span>
               <span class="text-gray-300">{{ issue.message }}</span>
               @if (issue.node_id) {
                 <span class="ck-mono text-[10px] text-gray-500">· {{ issue.node_id }}</span>
@@ -605,6 +634,141 @@ interface FlowTemplate {
             </div>
           }
         </div>
+      </div>
+    }
+
+    <!-- Versions panel (Vague E / E3.2) -->
+    @if (versionsPanelOpen()) {
+      <div
+        class="df-versions-backdrop"
+        (click)="closeVersionsPanel()"
+        aria-hidden="true"
+      ></div>
+      <aside
+        class="df-versions-panel t-card t-elevated"
+        role="dialog"
+        aria-label="Flow versions"
+      >
+        <header class="df-versions-head">
+          <div class="flex items-center gap-2">
+            <app-icon name="history" [size]="14" class="text-brand-400" />
+            <span class="text-xs font-medium text-white">Flow history</span>
+            <span class="df-tag df-tag-cool">{{ versionsTotal() }}</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              class="df-tool-btn df-tool-btn--small"
+              (click)="refreshVersions()"
+              [disabled]="versionsLoading()"
+              title="Refresh"
+            >
+              <app-icon name="refresh-cw" [size]="12" />
+            </button>
+            <button
+              type="button"
+              class="df-tool-btn df-tool-btn--small"
+              (click)="closeVersionsPanel()"
+              title="Close"
+            >
+              <app-icon name="x" [size]="12" />
+            </button>
+          </div>
+        </header>
+        <div class="df-versions-body">
+          @if (versionsLoading() && versions().length === 0) {
+            <div class="text-[11px] text-gray-500 ck-mono p-3">Loading…</div>
+          } @else if (versions().length === 0) {
+            <div class="text-[11px] text-gray-500 ck-mono p-3">
+              No history yet. The first save on this System will seed v1.
+            </div>
+          } @else {
+            @for (v of versions(); track v.id) {
+              <div class="df-version-row" [attr.data-current]="$index === 0 ? 'true' : 'false'">
+                <div class="df-version-row__head">
+                  <span class="df-version-num">v{{ v.version_number }}</span>
+                  @if ($index === 0) {
+                    <span class="df-tag df-tag-pos">CURRENT</span>
+                  }
+                  @if (v.rolled_back_from_id) {
+                    <span class="df-tag df-tag-warn">ROLLBACK</span>
+                  }
+                  <span class="ck-mono text-[9px] text-gray-500">{{ formatVersionTimestamp(v.created_at) }}</span>
+                </div>
+                <div class="df-version-row__meta">
+                  <span class="ck-mono text-[10px] text-gray-400">{{ v.created_by }}</span>
+                  <span class="df-version-dot"></span>
+                  <span class="ck-mono text-[10px] text-gray-500">{{ v.node_count }}n · {{ v.edge_count }}e</span>
+                  @if (versionDiffLabel(v); as d) {
+                    <span class="df-version-dot"></span>
+                    <span class="ck-mono text-[10px] text-brand-300">{{ d }}</span>
+                  }
+                </div>
+                @if (v.message) {
+                  <div class="df-version-row__msg">{{ v.message }}</div>
+                }
+                <div class="df-version-row__actions">
+                  <button
+                    type="button"
+                    class="df-version-btn"
+                    (click)="beginRollback(v)"
+                    [disabled]="$index === 0 || rollbackPending()"
+                    [title]="$index === 0 ? 'Already current' : 'Roll back to this version'"
+                  >
+                    <app-icon name="rotate-ccw" [size]="11" /> Roll back
+                  </button>
+                </div>
+              </div>
+            }
+          }
+        </div>
+      </aside>
+    }
+
+    @if (rollbackTarget(); as tgt) {
+      <div class="df-modal-backdrop" (click)="cancelRollback()" aria-hidden="true"></div>
+      <div class="df-modal t-card t-elevated" role="dialog" aria-label="Confirm rollback">
+        <header class="df-modal-head">
+          <app-icon name="rotate-ccw" [size]="14" class="text-amber-300" />
+          <span class="text-xs font-medium text-white">Roll back to v{{ tgt.version_number }}</span>
+        </header>
+        <div class="df-modal-body">
+          <p class="text-[12px] text-gray-300 leading-snug">
+            This will create a new version on top of history whose graph is an exact copy of
+            <span class="ck-mono text-brand-300">v{{ tgt.version_number }}</span>.
+            The current canvas will be replaced. Nothing is deleted — history is append-only.
+          </p>
+          <label class="df-modal-label" for="rollback-msg">Message (optional)</label>
+          <input
+            id="rollback-msg"
+            type="text"
+            class="df-modal-input"
+            [value]="rollbackMessage()"
+            (input)="onRollbackMessageChange($event)"
+            [placeholder]="'rollback to v' + tgt.version_number"
+            maxlength="280"
+          />
+        </div>
+        <footer class="df-modal-actions">
+          <button
+            type="button"
+            class="df-modal-btn df-modal-btn--ghost"
+            (click)="cancelRollback()"
+            [disabled]="rollbackPending()"
+          >Cancel</button>
+          <button
+            type="button"
+            class="df-modal-btn df-modal-btn--primary"
+            (click)="confirmRollback()"
+            [disabled]="rollbackPending()"
+          >
+            @if (rollbackPending()) {
+              <app-icon name="loader-2" [size]="12" class="animate-spin" /> Rolling back…
+            } @else {
+              <app-icon name="rotate-ccw" [size]="12" /> Confirm rollback
+            }
+          </button>
+        </footer>
       </div>
     }
   `,
@@ -638,6 +802,36 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly source = signal<'form' | 'flow'>('flow');
   readonly extended = signal(false);
   readonly issues = signal<FlowValidationIssue[]>([]);
+  // Server-side issues returned by ``PATCH /systems/{id}`` when the DAG
+  // validator rejects the flow (400 ``flow_invalid``) or emits warnings.
+  // Kept separate from ``issues`` so they survive across canvas edits
+  // until the next save attempt. Vague E / E3.2.
+  readonly serverIssues = signal<FlowValidationIssue[]>([]);
+  readonly allIssues = computed<FlowValidationIssue[]>(() => [
+    ...this.issues(),
+    ...this.serverIssues(),
+  ]);
+
+  // Version panel — opens over the right rail. ``versions`` is capped at
+  // whatever the backend rolling window enforces (default 500, see
+  // ``CUSTOM_CHAIN_VERSION_WINDOW``). Pagination is server-driven.
+  readonly versionsPanelOpen = signal(false);
+  readonly versions = signal<SystemVersionSummary[]>([]);
+  readonly versionsTotal = signal(0);
+  readonly versionsLoading = signal(false);
+  /** Cached full payload keyed by ``version_number`` — lets the UI
+   *  short-circuit repeated previews without re-hitting the backend. */
+  readonly versionPreviews = signal<Record<number, SystemVersionFull>>({});
+  readonly rollbackTarget = signal<SystemVersionSummary | null>(null);
+  readonly rollbackPending = signal(false);
+  readonly rollbackMessage = signal('');
+  /** Baseline diff reference — the graph the canvas currently holds,
+   *  captured once when the version panel opens so diff counts don't
+   *  oscillate while the user browses. */
+  private versionsDiffBaseline: { nodes: Set<string>; edges: Set<string> } = {
+    nodes: new Set(),
+    edges: new Set(),
+  };
 
   // Inspector / Terminal state.
   readonly selectedNodeId = signal<string | null>(null);
@@ -669,10 +863,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private seenCheckpoints = new Set<string>();
   private streamFellBackToPoll = false;
   readonly errorCount = computed(
-    () => this.issues().filter((i) => i.level === 'error').length,
+    () => this.allIssues().filter((i) => i.level === 'error').length,
   );
   readonly warnCount = computed(
-    () => this.issues().filter((i) => i.level === 'warn').length,
+    () => this.allIssues().filter((i) => i.level === 'warn').length,
   );
 
   readonly headerEyebrow = computed(() =>
@@ -1869,24 +2063,229 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       variant: existing.variant,
       source: 'flow',
     });
+    // Reset any previous server-side rejection so a clean retry doesn't
+    // leave stale issues glued under the canvas.
+    this.serverIssues.set([]);
     this.saving.set(true);
     this.canonical
-      .updateSystem(sid, { flow_definition: merged as unknown as Record<string, unknown> })
+      .saveSystemFlow(sid, merged as unknown as Record<string, unknown>)
       .subscribe({
+        next: (res) => {
+          this.saving.set(false);
+          if (!res.ok) {
+            if (res.reason === 'invalid') {
+              // Map backend codes to the local issue type — the two
+              // enumerations are kept in sync (see ``flow-serializer`` +
+              // ``dag_validator``). The cast is safe by construction.
+              this.serverIssues.set(res.issues as unknown as FlowValidationIssue[]);
+              const errs = res.issues.filter((i) => i.level === 'error').length;
+              this.toastr.error(
+                `Backend rejected the flow — ${errs} structural error${errs > 1 ? 's' : ''}. See validation strip.`,
+                'Save blocked',
+              );
+            } else {
+              this.toastr.error(
+                res.message || 'Could not save flow — network error.',
+                'Save failed',
+              );
+            }
+            return;
+          }
+          this.system.set(res.system);
+          this.source.set('flow');
+          this.extended.set(!!merged.extended);
+          // Server-side warnings survive the save — surface them in the
+          // strip alongside client issues so the user sees the full
+          // picture (e.g. missing HITL prompt that the backend tolerates
+          // but still flags).
+          this.serverIssues.set(
+            (res.warnings ?? []) as unknown as FlowValidationIssue[],
+          );
+          const versionTag = res.new_version ? ` (v${res.new_version.version_number})` : '';
+          this.toastr.success(
+            `Flow saved to "${res.system.name}"${versionTag}.`,
+            'Saved',
+          );
+          // Bust the version cache so the panel reflects the new tip
+          // the next time the user opens it.
+          if (this.versionsPanelOpen()) {
+            this.refreshVersions();
+          } else {
+            this.versions.set([]);
+            this.versionsTotal.set(0);
+            this.versionPreviews.set({});
+          }
+        },
+        error: () => {
+          this.saving.set(false);
+          this.toastr.error('Could not save flow — network error.', 'Save failed');
+        },
+      });
+  }
+
+  // ---------- Versions panel (Vague E / E3.2) ----------
+
+  /** Open the right-rail Versions drawer. Loads the first page lazily
+   *  and captures the canvas as diff baseline so node/edge deltas stay
+   *  stable while the user scrolls through history. */
+  openVersionsPanel(): void {
+    const sid = this.systemId();
+    if (!sid) return;
+    this.captureDiffBaseline();
+    this.versionsPanelOpen.set(true);
+    if (this.versions().length === 0) this.refreshVersions();
+  }
+
+  closeVersionsPanel(): void {
+    this.versionsPanelOpen.set(false);
+  }
+
+  private captureDiffBaseline(): void {
+    const graph = this.exportGraph();
+    const flow = this.serializer.project(graph);
+    this.versionsDiffBaseline = {
+      nodes: new Set(flow.nodes.map((n: CanonicalFlowNode) => String(n.id))),
+      edges: new Set(
+        flow.edges.map((e: CanonicalFlowEdge) => `${e.from}->${e.to}`),
+      ),
+    };
+  }
+
+  refreshVersions(): void {
+    const sid = this.systemId();
+    if (!sid) return;
+    this.versionsLoading.set(true);
+    this.canonical.listSystemVersions(sid, { limit: 50, offset: 0 }).subscribe({
       next: (res) => {
-        this.saving.set(false);
-        if (!res) {
-          this.toastr.error('Could not save flow — backend rejected the update.', 'Save failed');
-          return;
-        }
-        this.system.set(res);
-        this.source.set('flow');
-        this.extended.set(!!merged.extended);
-        this.toastr.success(`Flow saved to "${res.name}".`, 'Saved');
+        this.versionsLoading.set(false);
+        this.versions.set(res.versions ?? []);
+        this.versionsTotal.set(res.total ?? 0);
       },
       error: () => {
-        this.saving.set(false);
-        this.toastr.error('Could not save flow — network error.', 'Save failed');
+        this.versionsLoading.set(false);
+        this.toastr.error('Could not load version history.', 'Versions');
+      },
+    });
+  }
+
+  /** Friendly relative timestamp — ``3m ago`` / ``2d ago`` / ``Apr 12``.
+   *  Falls back to the raw ISO string if parsing fails. */
+  formatVersionTimestamp(iso: string): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const t = d.getTime();
+    if (Number.isNaN(t)) return iso;
+    const diffMs = Date.now() - t;
+    const sec = Math.round(diffMs / 1000);
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.round(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.round(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const day = Math.round(hr / 24);
+    if (day < 14) return `${day}d ago`;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  /** Lightweight symmetric-difference count vs the baseline graph. Returns
+   *  ``null`` when the baseline hasn't been captured yet (panel never
+   *  opened) so the template can skip rendering. Missing the row's own
+   *  full payload still gives a directional count via node/edge totals. */
+  versionDiffLabel(v: SystemVersionSummary): string | null {
+    const base = this.versionsDiffBaseline;
+    if (base.nodes.size === 0 && base.edges.size === 0) return null;
+    const preview = this.versionPreviews()[v.version_number];
+    if (!preview) {
+      const dn = v.node_count - base.nodes.size;
+      const de = v.edge_count - base.edges.size;
+      if (dn === 0 && de === 0) return '= canvas';
+      const parts: string[] = [];
+      if (dn !== 0) parts.push(`${dn > 0 ? '+' : ''}${dn}n`);
+      if (de !== 0) parts.push(`${de > 0 ? '+' : ''}${de}e`);
+      return parts.join(' ');
+    }
+    const flow = preview.flow_definition as unknown as CanonicalFlow;
+    const otherNodes = new Set((flow?.nodes ?? []).map((n: CanonicalFlowNode) => String(n.id)));
+    const otherEdges = new Set(
+      (flow?.edges ?? []).map((e: CanonicalFlowEdge) => `${e.from}->${e.to}`),
+    );
+    let added = 0;
+    let removed = 0;
+    for (const n of otherNodes) if (!base.nodes.has(n)) added++;
+    for (const n of base.nodes) if (!otherNodes.has(n)) removed++;
+    let edgeAdded = 0;
+    let edgeRemoved = 0;
+    for (const e of otherEdges) if (!base.edges.has(e)) edgeAdded++;
+    for (const e of base.edges) if (!otherEdges.has(e)) edgeRemoved++;
+    if (added + removed + edgeAdded + edgeRemoved === 0) return '= canvas';
+    const parts: string[] = [];
+    if (added || removed) parts.push(`${added ? '+' + added : ''}${removed ? ' -' + removed : ''} n`);
+    if (edgeAdded || edgeRemoved) parts.push(`${edgeAdded ? '+' + edgeAdded : ''}${edgeRemoved ? ' -' + edgeRemoved : ''} e`);
+    return parts.join(' · ').trim();
+  }
+
+  beginRollback(v: SystemVersionSummary): void {
+    const sid = this.systemId();
+    if (!sid) return;
+    this.rollbackTarget.set(v);
+    this.rollbackMessage.set('');
+    // Prefetch the full payload so the diff count hardens into exact
+    // symmetric-difference math while the modal is open.
+    if (!this.versionPreviews()[v.version_number]) {
+      this.canonical.getSystemVersion(sid, v.version_number).subscribe((full) => {
+        if (!full) return;
+        this.versionPreviews.update((m) => ({ ...m, [v.version_number]: full }));
+      });
+    }
+  }
+
+  cancelRollback(): void {
+    if (this.rollbackPending()) return;
+    this.rollbackTarget.set(null);
+    this.rollbackMessage.set('');
+  }
+
+  onRollbackMessageChange(ev: Event): void {
+    const t = ev.target as HTMLInputElement | null;
+    this.rollbackMessage.set(t?.value ?? '');
+  }
+
+  confirmRollback(): void {
+    const sid = this.systemId();
+    const tgt = this.rollbackTarget();
+    if (!sid || !tgt) return;
+    this.rollbackPending.set(true);
+    const msg = this.rollbackMessage().trim() || `rollback to v${tgt.version_number}`;
+    this.canonical.rollbackSystemVersion(sid, tgt.version_number, msg).subscribe({
+      next: (res) => {
+        this.rollbackPending.set(false);
+        if (!res) {
+          this.toastr.error('Rollback failed — see backend logs.', 'Rollback');
+          return;
+        }
+        this.rollbackTarget.set(null);
+        this.rollbackMessage.set('');
+        // Reload the System + canvas from the rolled-back state and
+        // refresh the version list (a new rollback version was just
+        // appended on top of history).
+        this.system.set(res.system);
+        this.importFlow(
+          (res.system.flow_definition ?? {}) as unknown as CanonicalFlow,
+        );
+        this.source.set('flow');
+        this.extended.set(
+          !!(res.system.flow_definition as { extended?: boolean } | undefined)?.extended,
+        );
+        this.serverIssues.set([]);
+        this.refreshVersions();
+        this.toastr.success(
+          `Rolled back to v${tgt.version_number} (new v${res.new_version.version_number}).`,
+          'Rollback',
+        );
+      },
+      error: () => {
+        this.rollbackPending.set(false);
+        this.toastr.error('Rollback failed — network error.', 'Rollback');
       },
     });
   }
