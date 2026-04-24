@@ -64,7 +64,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI | P0 | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
 | E3 | Custom chains editor — finition (node props, validation, save/load versions) | P1 | L | C6 |
-| E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), UI + ingestion RAG commune + CLI packagée deep-link à construire ; E4a activable dès admin consent Andritz ou premier client avec Entra app. | P1 | L | D0 |
+| E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). Reste E4.2 Agentium Connector binaire (E4b) + E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
 | E5 | Recommandations proactives — Decision générée depuis l'analyse agrégée multi-runs | P2 | L | E1 |
 | E6 | Simulation offline — rejouer un run sur une policy alternative | P3 | M | C6 |
 | E7 | Deploy + smoke Vague E | P0 | S | E0..E6 |
@@ -980,3 +980,83 @@ précisé après Vague D :
       Graph site/library picker, sync périodique configurable.
       Première prod en attente d'un client avec admin consent
       (Andritz sollicité 2026-04-20, en attente).
+
+- **2026-04-24 — E4.1 (scope commun E4a/E4b) livré : UI SharePoint
+  dédiée + ingestion RAG + audit + catch-up migration.** Tout le scope
+  commun E4a + E4b identifié le 2026-04-20 est désormais fermé sur
+  `demo/agentic` et déployé sur `omnirag-demo`. Les opérateurs peuvent
+  enchaîner capture session (Guest Link) ou config tenant (OAuth) →
+  sync → ingestion RAG → interrogation chat sans quitter la WebUI.
+  - **Backend** :
+    - `backend/app/services/audit_logger.py` — helper `emit_audit_event`
+      pour écrire `AuditLog` hors contexte HTTP (BackgroundTasks n'a pas
+      de `Request` donc `record_audit_log` ne suffisait plus). Ouvre
+      son propre `SessionLocal`, commit dédié, exceptions avalées pour
+      ne jamais casser le métier.
+    - `backend/app/api/v1/endpoints/sharepoint.py` :
+      - `SharePointSyncRequest.collection_name` (default `"documents"`)
+        — aligne E4.1 avec le flux drop-and-ask qui lit cette
+        collection par défaut.
+      - `_ingest_downloaded_files()` appelé post-sync sur chaque fichier
+        dans `IngestionResult.downloaded_paths`, passe par
+        `DocumentService.ingest_document`, tallie succès/échecs.
+      - `_run_sync_job()` émet `sharepoint.sync.failed` /
+        `sharepoint.sync.completed` / `sharepoint.sync.login_required`
+        avec `job_id`, `session_key`, `workspace_id` dans les détails
+        (pas de secret). `enqueue_sharepoint_sync` émet
+        `sharepoint.sync.enqueued`.
+      - Upload/delete session PUT/DELETE émettent
+        `sharepoint.session.uploaded` / `sharepoint.session.deleted`
+        avec `has_storage_state: bool` (jamais le cookie clair).
+    - `backend/app/models/sharepoint_sync_job.py` + migration
+      `013_sp_ingest_columns` : colonnes `ingested_count`,
+      `ingest_failed_count`, `collection_name` exposées dans
+      `SharePointJobSummary`.
+    - Migration catch-up `014_sp_workspace_id` : `workspace_id` avait
+      été ajouté au modèle dans `df4cf80` **sans migration Alembic**.
+      Les environnements où la table avait été créée par `create_all`
+      (dont `omnirag-demo`) se vautraient sur `UndefinedColumn:
+      workspace_id` au premier `POST /sharepoint/sync`. 014 rattrape
+      le coup, idempotent (détecte une éventuelle correction manuelle).
+      Docstring du modèle réécrite pour tracer l'historique et éviter
+      une prochaine dérive silencieuse.
+  - **Frontend** : nouvelle page dédiée
+    `frontend-ng/src/app/features/connectors/sharepoint/` (service +
+    composant), mountée sur `/connectors/sharepoint` via
+    `connectors.routes.ts` (intégrée à `app.routes.ts`). La carte
+    SharePoint de `resources-page.component.ts` navigue désormais vers
+    cette page au lieu du drawer générique.
+    - Mode picker Standard (OAuth/MSAL) vs Guest Link (OTP/session) —
+      formulaire spécialisé selon le mode.
+    - Mode Guest Link : upload session via bouton avec instructions CLI
+      (`scripts/sharepoint_connector_demo.py capture`) affichées
+      inline.
+    - Champs sync : session key, folder URL, sharing URL (GL) ou
+      client_id/tenant_host (OAuth), collection name, toggle prune.
+    - Live polling des jobs en cours (2 s), badges colorés par état,
+      erreurs affichées en clair.
+  - **Smoke VM `omnirag-demo`** (`/tmp/e41_smoke.py`, TestClient avec
+    overrides Keycloak) — toutes les assertions vertes :
+    - Payloads rejetés : `sharing_url` manquant → 400, prefix invalide
+      → 405.
+    - Session PUT → 204 + audit `sharepoint.session.uploaded` (détails
+      ne contiennent **pas** `storage_state`), GET → 200 `exists=true`.
+    - Sync POST → 202 avec `job_id`, réponse inclut bien les 3 nouvelles
+      colonnes (`ingested_count`, `ingest_failed_count`,
+      `collection_name`), `collection_name` roundtrip OK.
+    - Job de bout-en-bout terminal (état `failed` attendu — DNS sur
+      `example.sharepoint.com` échoue, sync se ferme proprement au
+      lieu de rester `running`), audits `sharepoint.sync.enqueued` +
+      `sharepoint.sync.failed` émis avec le bon `job_id`.
+    - Isolation multi-tenant : workspace B → session GET `exists=false`,
+      job GET 404.
+    - Session DELETE → 204 + audit `sharepoint.session.deleted`.
+  - **Reste pour clôturer E4 après E4.1** :
+    - *E4.2* (E4b seul) : Agentium Connector — binaire PyInstaller +
+      URL scheme `agentium-connector://`, TTL sessions, hashed session
+      fingerprint. Dépend du process de signing (cert Apple Developer +
+      SmartScreen Windows) — à lever côté client.
+    - *E4.3* (E4a seul) : OAuth UI (redirect Entra ID + callback),
+      Graph site/library picker, sync périodique configurable.
+      Déblocable dès qu'un client accorde admin consent (Andritz
+      relancé 2026-04-20, en attente).
