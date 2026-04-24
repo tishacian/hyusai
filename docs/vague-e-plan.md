@@ -667,18 +667,25 @@ précisé après Vague D :
     container live garde les vars pour l'instant (ignorées tant
     que `tib-admin` existe en DB) et sera propre au prochain
     redeploy naturel.
-  - **E0.5 DKIM OVH** : ⏸ bloqué sur dépendance admin externe.
-    User n'a pas les droits sur le domaine `datategy.net` (vs.
-    `octocity.net` qu'il gère). Le formulaire DNS zone OVH
-    demande une pubkey base64 que seul le service mail OVH peut
-    générer (cas B, keypair générée + stockée côté plateforme
-    mail, BYOK non supporté par MX Plan). Package complet
-    envoyé à l'admin datategy.net (génération dans MX Plan
-    → Security → Activate DKIM, puis publication auto/manuelle
-    dans la zone DNS). DNS actuel : SPF OK
-    (`include:mx.ovh.com`), DMARC OK (`p=quarantine; pct=90`),
-    DKIM absent. Pas de boucle de retry côté agent — on reprend
-    dès que l'admin a publié le TXT.
+  - **E0.5 DKIM** : ⏸ **parké** (décision user 2026-04-24 09:20).
+    Investigation complète : OVH MX Plan ne supporte pas DKIM
+    self-service sur le SMTP sortant (limitation historique
+    du produit, DKIM dispo uniquement sur Email Pro /
+    Hosted Exchange). Le formulaire DNS zone OVH demande une
+    pubkey base64 que la plateforme mail MX Plan ne génère
+    jamais (BYOK non supporté). "Manage elements shared" dans
+    MX Plan redirige sur la page de délégation admin, pas DKIM.
+    **Insight découvert** : le SPF datategy.net autorise déjà
+    `include:spf.mailjet.com` — Mailjet est donc déjà en place
+    comme relais potentiel. Chemin propre quand on rouvrira
+    le sujet : switcher `SMTP_HOST` Agentium de `ssl0.ovh.net`
+    vers `in-v3.mailjet.com` (DKIM natif côté Mailjet, SPF déjà
+    aligné, zéro dépendance sur le tier MX Plan OVH). Creds
+    Mailjet Datategy à récupérer avant de reprendre. État
+    actuel acceptable pour démo : SPF OK + DMARC
+    `p=quarantine; pct=90` → ~10% des mails en quarantaine,
+    gérable pour démos de faible volume. Ré-ouverture du
+    sujet quand premier client production.
   - **E0.6 secret manager runbook** : ✅ `docs/ops/secrets.md`
     livré — inventaire complet (8 secrets), conventions vault
     agnostiques, procédure PG rotation détaillée avec rollback,

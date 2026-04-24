@@ -7,13 +7,23 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import {
+  CanonicalApiService,
+  type EvaluationTrendResponse,
+} from '@app/core/canonical-api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { GlyphComponent, PageFrameComponent, StatReadoutComponent } from '@app/shared/cockpit';
+import {
+  GlyphComponent,
+  PageFrameComponent,
+  StatReadoutComponent,
+  TagComponent,
+} from '@app/shared/cockpit';
 
 interface DimensionsResponse {
   dimensions: Record<string, string>;
@@ -53,12 +63,14 @@ const PALETTE = {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    RouterLink,
     BaseChartDirective,
     IconComponent,
     StatReadoutComponent,
     EmptyStateComponent,
     PageFrameComponent,
     GlyphComponent,
+    TagComponent,
   ],
   template: `
     <ck-page-frame
@@ -114,6 +126,121 @@ const PALETTE = {
           {{ running() ? 'Scoring…' : 'Run evaluation' }}
         </button>
       </div>
+
+    <!-- Vague E / E1 — Threshold monitoring strip (7d aggregate).
+         Sits above the per-run tiles because "are we drifting over time?"
+         is the question an operator asks first when opening Quality. -->
+    @if (trend(); as t) {
+      <section
+        class="t-card t-elevated rounded-md p-4 mb-4"
+        [style.display]="'grid'"
+        [style.gridTemplateColumns]="'1fr 1fr 1fr auto'"
+        [style.gap.px]="16"
+        [style.alignItems]="'center'"
+      >
+        <div>
+          <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="6" [style.marginBottom.px]="4">
+            <ck-glyph name="pulse" [size]="12" />
+            <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'">
+              Threshold monitoring · 7d
+            </span>
+          </div>
+          <div [style.display]="'flex'" [style.alignItems]="'baseline'" [style.gap.px]="10">
+            <span [style.fontSize.px]="22" [style.fontWeight]="600" [style.color]="'var(--ck-fg-1)'">
+              {{ trendRuns() }}
+            </span>
+            <span [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'">
+              runs evaluated
+            </span>
+          </div>
+          <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="2">
+            Avg composite {{ trendAvgComposite() }} / 100
+          </div>
+        </div>
+
+        <div>
+          <div [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'" [style.marginBottom.px]="4">
+            Breaches
+          </div>
+          <div [style.display]="'flex'" [style.alignItems]="'baseline'" [style.gap.px]="10">
+            <span
+              [style.fontSize.px]="22"
+              [style.fontWeight]="600"
+              [style.color]="trendBreaches() > 0 ? 'var(--ck-signal-warm)' : 'var(--ck-fg-1)'"
+            >
+              {{ trendBreaches() }}
+            </span>
+            <ck-tag [tone]="trendHealthTone()" variant="soft">
+              {{ trendBreachRate() }}% of runs
+            </ck-tag>
+          </div>
+          <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="2">
+            Thresholds: composite ≥ {{ t.thresholds.composite_min }},
+            hallucination ≤ {{ (t.thresholds.hallucination_max * 100).toFixed(0) }}%
+          </div>
+        </div>
+
+        <div>
+          <div [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'" [style.marginBottom.px]="6">
+            Daily breach count
+          </div>
+          @if (trendBars().length > 0) {
+            <div [style.display]="'flex'" [style.alignItems]="'flex-end'" [style.gap.px]="3" [style.height.px]="28">
+              @for (bar of trendBars(); track bar.bucket) {
+                <div
+                  [title]="bar.bucket + ' — ' + bar.count + ' run(s)'"
+                  [style.flex]="'1 1 0'"
+                  [style.minHeight.px]="2"
+                  [style.height.px]="bar.heightPx"
+                  [style.background]="bar.isBreach ? 'var(--ck-signal-warm)' : 'var(--ck-signal-cool)'"
+                  [style.borderRadius.px]="2"
+                  [style.opacity]="bar.count > 0 ? 1 : 0.25"
+                ></div>
+              }
+            </div>
+          } @else {
+            <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-4)'" [style.fontStyle]="'italic'">
+              No runs evaluated in the window.
+            </div>
+          }
+        </div>
+
+        <a
+          routerLink="/steering/review-queue"
+          class="ck-mono"
+          [style.display]="'inline-flex'"
+          [style.alignItems]="'center'"
+          [style.gap.px]="8"
+          [style.height.px]="40"
+          [style.padding]="'0 14px'"
+          [style.background]="reviewQueueCount() > 0 ? 'var(--ck-signal-warm)' : 'transparent'"
+          [style.color]="reviewQueueCount() > 0 ? 'var(--ck-on-signal)' : 'var(--ck-fg-2)'"
+          [style.border]="'1px solid ' + (reviewQueueCount() > 0 ? 'var(--ck-signal-warm)' : 'var(--ck-stroke-2)')"
+          [style.borderRadius.px]="4"
+          [style.fontSize.px]="11"
+          [style.fontWeight]="600"
+          [style.letterSpacing]="'0.08em'"
+          [style.textTransform]="'uppercase'"
+          [style.textDecoration]="'none'"
+          [title]="reviewQueueCount() + ' proposed decisions awaiting review'"
+        >
+          <ck-glyph name="crosshair" [size]="14" />
+          Review queue
+          @if (reviewQueueCount() > 0) {
+            <span
+              [style.background]="'rgba(0,0,0,0.25)'"
+              [style.color]="'inherit'"
+              [style.padding]="'1px 6px'"
+              [style.borderRadius.px]="8"
+              [style.fontSize.px]="10"
+              [style.fontWeight]="700"
+            >
+              {{ reviewQueueCount() }}
+            </span>
+          }
+        </a>
+      </section>
+    }
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       <ck-stat-readout variant="tile"
@@ -281,6 +408,7 @@ const PALETTE = {
 })
 export class QualityDashboardComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly canonical = inject(CanonicalApiService);
   private readonly zone = inject(NgZone);
   private readonly toast = inject(ToastrService);
 
@@ -291,6 +419,60 @@ export class QualityDashboardComponent implements OnInit {
   latest = signal<EvaluationRow | null>(null);
   history = signal<EvaluationRow[]>([]);
   dimensions = signal<Record<string, string>>({});
+
+  /** Aggregate trend (Vague E / E1) — feeds the "Threshold monitoring" strip. */
+  trend = signal<EvaluationTrendResponse | null>(null);
+  /** Count of review_required decisions with status=proposed, for the deeplink badge. */
+  reviewQueueCount = signal<number>(0);
+
+  readonly trendBreaches = computed<number>(
+    () => this.trend()?.totals.breaches ?? 0,
+  );
+  readonly trendRuns = computed<number>(
+    () => this.trend()?.totals.runs_evaluated ?? 0,
+  );
+  readonly trendBreachRate = computed<string>(() => {
+    const r = this.trend()?.totals.breach_rate;
+    return typeof r === 'number' ? (r * 100).toFixed(1) : '—';
+  });
+  readonly trendAvgComposite = computed<string>(() => {
+    const buckets = this.trend()?.series ?? [];
+    if (!buckets.length) return '—';
+    const weighted = buckets.reduce((acc, b) => acc + (b.avg_composite ?? 0) * (b.count ?? 0), 0);
+    const total = buckets.reduce((acc, b) => acc + (b.count ?? 0), 0);
+    return total > 0 ? (weighted / total).toFixed(1) : '—';
+  });
+  readonly trendHealthTone = computed<'pos' | 'warn' | 'neg'>(() => {
+    const rate = this.trend()?.totals.breach_rate ?? 0;
+    if (rate === 0) return 'pos';
+    if (rate < 0.1) return 'warn';
+    return 'neg';
+  });
+
+  /**
+   * Pre-computed per-bucket render info for the mini breach bars so the
+   * template doesn't have to call `Math.max`/`Math.round` (Angular
+   * templates have no access to the global Math unless explicitly
+   * exposed). Height is normalized to the busiest day.
+   */
+  readonly trendBars = computed(() => {
+    const series = this.trend()?.series ?? [];
+    const threshold = this.trend()?.thresholds?.composite_min ?? 0;
+    if (!series.length) return [];
+    const maxCount = series.reduce((acc, b) => Math.max(acc, b.count ?? 0), 0);
+    const safe = maxCount > 0 ? maxCount : 1;
+    return series.map((b) => {
+      const ratio = (b.count ?? 0) / safe;
+      const isBreach =
+        typeof b.avg_composite === 'number' && b.avg_composite < threshold;
+      return {
+        bucket: b.bucket,
+        count: b.count ?? 0,
+        heightPx: Math.max(2, Math.round(ratio * 28)),
+        isBreach,
+      };
+    });
+  });
 
   readonly dimensionLabels = computed(() => Object.values(this.dimensions()));
   readonly dimensionKeys = computed(() => Object.keys(this.dimensions()));
@@ -499,6 +681,15 @@ export class QualityDashboardComponent implements OnInit {
         this.history.set([]);
         this.loading.set(false);
       },
+    });
+    // Vague E / E1 — aggregate trend + review queue count
+    this.canonical.getEvaluationTrend({ since: '7d', group_by: 'day' }).subscribe({
+      next: (res) => this.trend.set(res),
+      error: () => this.trend.set(null),
+    });
+    this.canonical.getEvaluationReviewQueue({ status: 'proposed', limit: 200 }).subscribe({
+      next: (res) => this.reviewQueueCount.set(res?.count ?? 0),
+      error: () => this.reviewQueueCount.set(0),
     });
   }
 
