@@ -84,7 +84,12 @@ bootstrap).
    ```
 
    The redeploy script filters `KC_BOOTSTRAP_ADMIN_*` automatically
-   since Vague E / E0, so the new container won't carry stale creds.
+   since Vague E / E0 and supports env-var overrides for rotatable
+   secrets via its `OVERRIDABLE_VARS` mechanism (`KC_DB_PASSWORD`,
+   `KEYCLOAK_ADMIN_PASSWORD`, `SMTP_USER`, `SMTP_PASSWORD`). Any var
+   in that list exported in the shell replaces the value captured
+   from the existing container; otherwise the old value is preserved.
+   First full cycle validated on 2026-04-24 during PG rotation.
 
 5. **Restart the backend :**
 

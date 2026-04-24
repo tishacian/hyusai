@@ -42,6 +42,31 @@ if [[ ${#ENV_LINES[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# E0 hardening (Vague E) — allow rotating secrets via env-var override
+# without touching the currently-running container's config. If a known
+# secret is exported in the shell (e.g.
+# `sudo KC_DB_PASSWORD=<new> ./redeploy-keycloak.sh`), we drop the
+# captured value and replace it with the override so the new container
+# picks up the rotated credential.
+OVERRIDABLE_VARS=(KC_DB_PASSWORD KEYCLOAK_ADMIN_PASSWORD SMTP_USER SMTP_PASSWORD)
+for var in "${OVERRIDABLE_VARS[@]}"; do
+  override_value="${!var:-}"
+  if [[ -z "${override_value}" ]]; then
+    continue
+  fi
+  echo "[redeploy-kc] Overriding ${var} from environment"
+  replaced=0
+  for i in "${!ENV_LINES[@]}"; do
+    if [[ "${ENV_LINES[$i]}" == "${var}="* ]]; then
+      ENV_LINES[$i]="${var}=${override_value}"
+      replaced=1
+    fi
+  done
+  if [[ "${replaced}" -eq 0 ]]; then
+    ENV_LINES+=("${var}=${override_value}")
+  fi
+done
+
 ENV_ARGS=()
 for e in "${ENV_LINES[@]}"; do
   ENV_ARGS+=( -e "$e" )

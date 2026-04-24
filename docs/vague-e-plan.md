@@ -575,8 +575,8 @@ précisé après Vague D :
 
 ## Journal
 
-- **2026-04-24 — E0 démarré en live avec l'utilisateur, étapes 1–3
-  livrées (KC cleanup + doc runbook). PG rotation + DKIM en cours.**
+- **2026-04-24 — E0 quasi complet : PG rotation exécutée, KC
+  cleanup + runbook livrés. Reste DKIM OVH en propagation DNS.**
   Audit préalable sur `omnirag-demo` a clarifié le scope réel :
   - **E0.1 KC admin rotation** : ✅ déjà fait dans la rafale
     post-D7 (`admin/admin` → 404, `tib-admin` opérationnel). Rien à
@@ -589,8 +589,29 @@ précisé après Vague D :
     + programmatic password reset. Tant que ces endpoints ne sont
     pas utilisés, rien à rotater. Documenté comme activation
     optionnelle dans `docs/ops/secrets.md`.
-  - **E0.3 rotation PG password** : à faire, user fournit le
-    nouveau. Script + runbook prêts.
+  - **E0.3 rotation PG password** : ✅ exécutée à 06:32 UTC.
+    `ALTER USER agentium` en one-shot, backend `.env` patché
+    (`DATABASE_URL`), backend restart → `/health: 200` en 5s,
+    container `agentium-kc` redéployé via
+    `sudo KC_DB_PASSWORD=<new> ./redeploy-keycloak.sh` et
+    reconnecté proprement (OIDC discovery 200 sur master +
+    papai-org, aucune erreur `password authentication failed`
+    dans les logs post-restart). Le redeploy script a dû être
+    patché (cf. E0.7) parce qu'il capturait l'ancien password
+    depuis `docker inspect` et ignorait l'override d'env.
+    Rollback file (8 chars ancien) stashé en `/root/pg-rollback-
+    <ts>.txt` chmod 600, à nuker après 24h sans incident. Ancien
+    mdp encore accepté sur Unix socket local du container
+    (`POSTGRES_HOST_AUTH_METHOD=trust` au loopback) — documenté
+    dans `secrets.md`, aucune surface externe.
+  - **E0.7 hardening `redeploy-keycloak.sh`** (découvert pendant
+    E0.3) : ✅ ajout du mécanisme `OVERRIDABLE_VARS` qui permet à
+    `KC_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`, `SMTP_USER`,
+    `SMTP_PASSWORD` d'être injectés depuis l'env shell et de
+    remplacer la valeur capturée depuis `docker inspect`. Sans
+    ça, toute rotation de secret forçait une édition manuelle
+    du container env ou un wipe. Pattern réutilisable pour les
+    futures rotations SMTP + client_secret.
   - **E0.4 cleanup** `KC_BOOTSTRAP_ADMIN_*` : ✅ livré —
     `deploy/redeploy-keycloak.sh` filtre désormais
     `KC_BOOTSTRAP_ADMIN_*` de la capture env avant redeploy.
