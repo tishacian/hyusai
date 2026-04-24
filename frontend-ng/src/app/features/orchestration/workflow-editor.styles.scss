@@ -753,6 +753,162 @@
 }
 
 /* ============================================================
+   Node-props editor (Vague E / E3.3)
+   ============================================================ */
+.df-inspector-title {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 15px;
+  font-weight: 300;
+  color: #fff;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.df-inspector-title:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.df-inspector-title:focus {
+  outline: none;
+  border-color: rgba(139, 92, 246, 0.45);
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.df-kind-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.df-field-label {
+  margin-top: 6px;
+  margin-bottom: 0;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
+  font-family: var(--ck-mono, ui-monospace, monospace);
+}
+
+.df-field-hint {
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.7);
+  line-height: 1.35;
+  margin-bottom: 2px;
+}
+
+.df-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: #fff;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.df-input:focus {
+  border-color: rgba(139, 92, 246, 0.45);
+}
+
+.df-input--mono {
+  font-family: var(--ck-mono, ui-monospace, monospace);
+}
+
+.df-textarea {
+  resize: vertical;
+  min-height: 54px;
+  line-height: 1.45;
+}
+
+.df-branch-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 110px) 1fr auto;
+  gap: 4px;
+  align-items: center;
+}
+
+.df-branch-row:last-of-type {
+  margin-bottom: 2px;
+}
+
+.df-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(226, 232, 240, 0.7);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.df-icon-btn:hover:not(:disabled) {
+  background: rgba(244, 63, 94, 0.15);
+  color: rgb(253, 164, 175);
+}
+
+.df-icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.df-ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  color: rgba(203, 213, 225, 0.7);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: border-color 120ms ease, color 120ms ease;
+  align-self: flex-start;
+}
+
+.df-ghost-btn:hover:not(:disabled) {
+  border-color: rgba(139, 92, 246, 0.45);
+  color: rgb(196, 181, 253);
+}
+
+.df-ghost-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.df-param-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 110px) 1fr;
+  gap: 4px;
+  align-items: center;
+}
+
+.df-param-label {
+  font-size: 10px;
+  color: rgba(203, 213, 225, 0.85);
+  font-family: var(--ck-mono, ui-monospace, monospace);
+  cursor: help;
+  word-break: break-word;
+}
+
+.df-checkbox {
+  width: 14px;
+  height: 14px;
+  accent-color: rgba(139, 92, 246, 0.7);
+  cursor: pointer;
+}
+
+/* ============================================================
    Versions panel + rollback modal (Vague E / E3.2)
    ============================================================ */
 .df-versions-backdrop {

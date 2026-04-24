@@ -468,9 +468,17 @@ interface FlowTemplate {
               </div>
             } @else {
               <div class="df-inspector-body">
-                <!-- Title -->
-                <div class="text-lg text-white font-light mb-1">{{ selectedNode()!.label || selectedNode()!.type }}</div>
-                <div class="ck-mono text-[10px] text-gray-500">id: {{ selectedNode()!.id }}</div>
+                <!-- Title (editable label — Vague E / E3.3) -->
+                <input
+                  type="text"
+                  class="df-inspector-title"
+                  [value]="selectedNode()!.label || selectedNode()!.type"
+                  (change)="onNodeLabelChange($event)"
+                  [placeholder]="selectedNode()!.type"
+                  maxlength="120"
+                  title="Rename this node"
+                />
+                <div class="ck-mono text-[10px] text-gray-500 mt-1">id: {{ selectedNode()!.id }}</div>
 
                 <!-- Debugger breakpoint toggle — only visible when debug mode is active -->
                 @if (debugMode() !== 'off') {
@@ -548,20 +556,353 @@ interface FlowTemplate {
                   </div>
                 }
 
-                <!-- Kind-specific config preview -->
+                <!-- Kind-specific config editor (Vague E / E3.3) -->
                 <div class="df-inspector-section">
                   <div class="df-inspector-label">Config · {{ kindLabel(selectedNode()!.kind) }}</div>
-                  <div class="df-inspector-config ck-mono">
-                    @if (configSummary(selectedNode()!).length === 0) {
-                      <span class="text-gray-500">— no config —</span>
-                    }
-                    @for (row of configSummary(selectedNode()!); track row.key) {
-                      <div class="df-config-row">
-                        <span class="text-gray-400">{{ row.key }}</span>
-                        <span class="text-gray-200">{{ row.value }}</span>
+
+                  @switch (selectedNode()!.kind ?? 'task') {
+                    <!-- DECISION: branch label + condition rows, drop / add -->
+                    @case ('decision') {
+                      <div class="df-kind-editor">
+                        <div class="df-field-hint">Each branch emits a <span class="ck-mono text-brand-300">branch</span> edge whose label is routed by the condition.</div>
+                        @for (b of decisionBranches(); track $index) {
+                          <div class="df-branch-row">
+                            <input
+                              type="text"
+                              class="df-input df-input--mono"
+                              [value]="b.label"
+                              (change)="patchDecisionBranch($index, 'label', $event)"
+                              placeholder="branch label"
+                              maxlength="64"
+                            />
+                            <input
+                              type="text"
+                              class="df-input"
+                              [value]="b.condition"
+                              (change)="patchDecisionBranch($index, 'condition', $event)"
+                              placeholder="context.score > 0.5"
+                              maxlength="240"
+                            />
+                            <button
+                              type="button"
+                              class="df-icon-btn"
+                              (click)="removeDecisionBranch($index)"
+                              [disabled]="decisionBranches().length <= 2"
+                              title="Remove branch (minimum 2)"
+                            >
+                              <app-icon name="x" [size]="11" />
+                            </button>
+                          </div>
+                        }
+                        <button
+                          type="button"
+                          class="df-ghost-btn"
+                          (click)="addDecisionBranch()"
+                          [disabled]="decisionBranches().length >= 8"
+                        >
+                          <app-icon name="plus" [size]="11" /> Add branch
+                        </button>
+                        <label class="df-field-label">Default branch (optional)</label>
+                        <select
+                          class="df-input"
+                          [value]="decisionDefault() ?? ''"
+                          (change)="onDecisionDefaultChange($event)"
+                        >
+                          <option value="">— none —</option>
+                          @for (b of decisionBranches(); track $index) {
+                            <option [value]="b.label">{{ b.label }}</option>
+                          }
+                        </select>
                       </div>
                     }
-                  </div>
+
+                    <!-- FORK: free-form branch name list -->
+                    @case ('fork') {
+                      <div class="df-kind-editor">
+                        <div class="df-field-hint">Each label names one parallel branch. Order matters only for display.</div>
+                        @for (name of forkBranches(); track $index) {
+                          <div class="df-branch-row">
+                            <input
+                              type="text"
+                              class="df-input df-input--mono"
+                              [value]="name"
+                              (change)="patchForkBranch($index, $event)"
+                              placeholder="branch-name"
+                              maxlength="48"
+                            />
+                            <button
+                              type="button"
+                              class="df-icon-btn"
+                              (click)="removeForkBranch($index)"
+                              [disabled]="forkBranches().length <= 2"
+                              title="Remove branch (minimum 2)"
+                            >
+                              <app-icon name="x" [size]="11" />
+                            </button>
+                          </div>
+                        }
+                        <button
+                          type="button"
+                          class="df-ghost-btn"
+                          (click)="addForkBranch()"
+                          [disabled]="forkBranches().length >= 8"
+                        >
+                          <app-icon name="plus" [size]="11" /> Add branch
+                        </button>
+                      </div>
+                    }
+
+                    <!-- JOIN: strategy picker -->
+                    @case ('join') {
+                      <div class="df-kind-editor">
+                        <label class="df-field-label">Wait strategy</label>
+                        <select
+                          class="df-input"
+                          [value]="joinStrategy()"
+                          (change)="onJoinStrategyChange($event)"
+                        >
+                          <option value="all">all — block until every inbound branch completes</option>
+                          <option value="any">any — continue as soon as one branch completes</option>
+                          <option value="race">race — first branch wins, others get cancelled</option>
+                        </select>
+                      </div>
+                    }
+
+                    <!-- LOOP: iterator expression + budget + break condition -->
+                    @case ('loop') {
+                      <div class="df-kind-editor">
+                        <label class="df-field-label">Iterator (context expression)</label>
+                        <input
+                          type="text"
+                          class="df-input df-input--mono"
+                          [value]="loopIterator()"
+                          (change)="patchLoopField('iterator', $event)"
+                          placeholder="context.chunks"
+                          maxlength="240"
+                        />
+                        <label class="df-field-label">Max iterations (budget)</label>
+                        <input
+                          type="number"
+                          class="df-input"
+                          min="1"
+                          max="1000"
+                          [value]="loopMaxIterations()"
+                          (change)="patchLoopField('max_iterations', $event)"
+                        />
+                        <label class="df-field-label">Break when (optional)</label>
+                        <input
+                          type="text"
+                          class="df-input df-input--mono"
+                          [value]="loopBreakOn()"
+                          (change)="patchLoopField('break_on', $event)"
+                          placeholder="context.done === true"
+                          maxlength="240"
+                        />
+                      </div>
+                    }
+
+                    <!-- RETRY: attempts + backoff + on_errors filter -->
+                    @case ('retry') {
+                      <div class="df-kind-editor">
+                        <label class="df-field-label">Max attempts</label>
+                        <input
+                          type="number"
+                          class="df-input"
+                          min="1"
+                          max="20"
+                          [value]="retryMaxAttempts()"
+                          (change)="patchRetryField('max_attempts', $event)"
+                        />
+                        <label class="df-field-label">Backoff (ms)</label>
+                        <input
+                          type="number"
+                          class="df-input"
+                          min="0"
+                          max="60000"
+                          step="100"
+                          [value]="retryBackoffMs()"
+                          (change)="patchRetryField('backoff_ms', $event)"
+                        />
+                        <label class="df-field-label">Only retry on (optional, CSV)</label>
+                        <input
+                          type="text"
+                          class="df-input df-input--mono"
+                          [value]="retryOnErrors()"
+                          (change)="patchRetryField('on_errors', $event)"
+                          placeholder="TimeoutError, RateLimitError"
+                          maxlength="240"
+                        />
+                      </div>
+                    }
+
+                    <!-- HITL: prompt + timeout + approvers roles -->
+                    @case ('hitl') {
+                      <div class="df-kind-editor">
+                        <label class="df-field-label">Prompt to the operator</label>
+                        <textarea
+                          class="df-input df-textarea"
+                          [value]="hitlPrompt()"
+                          (change)="patchHitlField('prompt', $event)"
+                          placeholder="Approve the draft before it's sent to the client."
+                          rows="3"
+                          maxlength="2000"
+                        ></textarea>
+                        <label class="df-field-label">Timeout (ms, optional)</label>
+                        <input
+                          type="number"
+                          class="df-input"
+                          min="0"
+                          step="1000"
+                          [value]="hitlTimeoutMs()"
+                          (change)="patchHitlField('timeout_ms', $event)"
+                          placeholder="0 = wait forever"
+                        />
+                        <label class="df-field-label">Approver roles (CSV, optional)</label>
+                        <input
+                          type="text"
+                          class="df-input df-input--mono"
+                          [value]="hitlApprovers()"
+                          (change)="patchHitlField('approvers', $event)"
+                          placeholder="reviewer, compliance"
+                          maxlength="240"
+                        />
+                      </div>
+                    }
+
+                    <!-- SUBFLOW: pick another System + simple input map -->
+                    @case ('subflow') {
+                      <div class="df-kind-editor">
+                        <label class="df-field-label">Target system</label>
+                        <select
+                          class="df-input ck-mono"
+                          [value]="subflowSystemId() ?? ''"
+                          (change)="onSubflowSystemChange($event)"
+                          (focus)="ensureOtherSystemsLoaded()"
+                        >
+                          <option value="">— unset —</option>
+                          @for (s of otherSystems(); track s.id) {
+                            <option [value]="s.id">{{ s.name }}</option>
+                          }
+                        </select>
+                        @if (otherSystemsLoading()) {
+                          <div class="text-[10px] text-gray-500 mt-1 ck-mono">Loading systems…</div>
+                        } @else if (otherSystems().length === 0) {
+                          <div class="text-[10px] text-gray-500 mt-1">Focus the picker to load the catalog.</div>
+                        }
+                        <label class="df-field-label">Input map (one <span class="ck-mono">key = expr</span> per line)</label>
+                        <textarea
+                          class="df-input df-textarea ck-mono"
+                          [value]="subflowInputMap()"
+                          (change)="onSubflowInputMapChange($event)"
+                          placeholder="query = context.query&#10;lang = context.lang"
+                          rows="3"
+                        ></textarea>
+                      </div>
+                    }
+
+                    <!-- Default case — task / source / sink / untyped -->
+                    @default {
+                      <div class="df-kind-editor">
+                        @if ((selectedNode()!.kind ?? 'task') === 'task') {
+                          <!-- Task input params (rendered from Skill.input_schema) -->
+                          @if (taskParamFields().length > 0) {
+                            <label class="df-field-label">Skill parameters</label>
+                            @for (field of taskParamFields(); track field.key) {
+                              <div class="df-param-row">
+                                <label class="df-param-label" [title]="field.description ?? ''">
+                                  {{ field.key }}
+                                  @if (field.required) { <span class="text-rose-400">*</span> }
+                                  <span class="ck-mono text-[9px] text-gray-500 ml-1">{{ field.type }}</span>
+                                </label>
+                                @switch (field.type) {
+                                  @case ('boolean') {
+                                    <input
+                                      type="checkbox"
+                                      class="df-checkbox"
+                                      [checked]="$any(field.value) === true"
+                                      (change)="onTaskParamChange(field.key, $event, field.type)"
+                                    />
+                                  }
+                                  @case ('number') {
+                                    <input
+                                      type="number"
+                                      class="df-input"
+                                      [value]="field.value ?? ''"
+                                      (change)="onTaskParamChange(field.key, $event, field.type)"
+                                    />
+                                  }
+                                  @case ('integer') {
+                                    <input
+                                      type="number"
+                                      class="df-input"
+                                      step="1"
+                                      [value]="field.value ?? ''"
+                                      (change)="onTaskParamChange(field.key, $event, field.type)"
+                                    />
+                                  }
+                                  @default {
+                                    @if ((field.enum ?? []).length > 0) {
+                                      <select
+                                        class="df-input"
+                                        [value]="field.value ?? ''"
+                                        (change)="onTaskParamChange(field.key, $event, field.type)"
+                                      >
+                                        <option value="">—</option>
+                                        @for (opt of field.enum ?? []; track opt) {
+                                          <option [value]="opt">{{ opt }}</option>
+                                        }
+                                      </select>
+                                    } @else {
+                                      <input
+                                        type="text"
+                                        class="df-input"
+                                        [value]="field.value ?? ''"
+                                        (change)="onTaskParamChange(field.key, $event, field.type)"
+                                        [placeholder]="field.description ?? ''"
+                                      />
+                                    }
+                                  }
+                                }
+                              </div>
+                            }
+                          } @else if (currentSkillId(selectedNode()!)) {
+                            <div class="text-[10px] text-gray-500">Bound skill exposes no input schema.</div>
+                          }
+
+                          <!-- inputs_map / outputs_map (advanced, always editable) -->
+                          <label class="df-field-label">Inputs map (<span class="ck-mono">key = expr</span>)</label>
+                          <textarea
+                            class="df-input df-textarea ck-mono"
+                            [value]="taskInputsMap()"
+                            (change)="onTaskInputsMapChange($event)"
+                            placeholder="query = context.query"
+                            rows="2"
+                          ></textarea>
+                          <label class="df-field-label">Outputs map (<span class="ck-mono">port = ctx_key</span>)</label>
+                          <textarea
+                            class="df-input df-textarea ck-mono"
+                            [value]="taskOutputsMap()"
+                            (change)="onTaskOutputsMapChange($event)"
+                            placeholder="answer = context.answer"
+                            rows="2"
+                          ></textarea>
+                        } @else {
+                          @if (configSummary(selectedNode()!).length === 0) {
+                            <div class="text-[11px] text-gray-500">— no config —</div>
+                          } @else {
+                            <div class="df-inspector-config ck-mono">
+                              @for (row of configSummary(selectedNode()!); track row.key) {
+                                <div class="df-config-row">
+                                  <span class="text-gray-400">{{ row.key }}</span>
+                                  <span class="text-gray-200">{{ row.value }}</span>
+                                </div>
+                              }
+                            </div>
+                          }
+                        }
+                      </div>
+                    }
+                  }
                 </div>
 
                 <!-- Local metrics placeholder -->
@@ -1053,6 +1394,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly skills = signal<Skill[]>([]);
   readonly skillsLoading = signal(false);
   readonly boundSkillId = signal<string | null>(null);
+
+  // Subflow picker state — other Systems in the workspace, loaded lazily
+  // the first time a subflow node is inspected. Always excludes the
+  // current system id to prevent trivial self-recursion (Vague E / E3.3).
+  readonly otherSystems = signal<System[]>([]);
+  readonly otherSystemsLoading = signal(false);
 
   private pendingDrop: PaletteItem | null = null;
   private ids = 0;
@@ -2360,6 +2707,390 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   onSkillBinderChange(ev: Event): void {
     const value = (ev.target as HTMLSelectElement | null)?.value ?? '';
     this.bindSkill(value || null);
+  }
+
+  // ---------- Kind-specific node-props editors (Vague E / E3.3) ----------
+  //
+  // The editors below all follow the same two-step pattern the Skill
+  // binder uses: (1) mutate ``canonical_config`` on the Drawflow node
+  // data through ``updateNodeDataFromId`` so the next ``project()``
+  // picks up the change; (2) mirror the mutation into ``selectedNode``
+  // so the inspector re-renders without waiting for the canvas event.
+  // ``refreshKpis`` at the end re-runs validation (client-side) so the
+  // issues strip updates in real time.
+
+  /** Rename the currently selected node. Writes to both the Drawflow
+   *  node data (``name`` + ``data.label``) and the canonical projection. */
+  onNodeLabelChange(ev: Event): void {
+    const rawId = this.selectedNodeId();
+    const node = this.selectedNode();
+    if (!rawId || !node || !this.editor) return;
+    const next = (ev.target as HTMLInputElement | null)?.value?.trim() ?? '';
+    const graph = this.exportGraph();
+    const nodeData = graph?.drawflow?.Home?.data?.[rawId];
+    if (!nodeData) return;
+    const nextData = {
+      ...(nodeData.data ?? {}),
+      label: next || node.type,
+    };
+    try {
+      this.editor.updateNodeDataFromId(rawId, nextData);
+      const el = document.querySelector(`#node-${rawId} .df-node-title`);
+      if (el) (el as HTMLElement).textContent = next || node.type;
+    } catch {
+      return;
+    }
+    this.selectedNode.set({ ...node, label: next || node.type });
+    this.refreshKpis();
+  }
+
+  /** Generic ``canonical_config`` merge — pushes a partial update into
+   *  the selected node and keeps the inspector signal in sync. */
+  private patchSelectedConfig(partial: Record<string, unknown>): void {
+    const rawId = this.selectedNodeId();
+    const node = this.selectedNode();
+    if (!rawId || !node || !this.editor) return;
+    const graph = this.exportGraph();
+    const nodeData = graph?.drawflow?.Home?.data?.[rawId];
+    if (!nodeData) return;
+    const prevCfg = (nodeData.data?.['canonical_config'] as Record<string, unknown>) ?? {};
+    const nextCfg: Record<string, unknown> = { ...prevCfg, ...partial };
+    // Strip keys whose value is explicitly set to ``undefined`` — lets
+    // callers request a clean removal (e.g. clearing ``break_on``).
+    for (const k of Object.keys(partial)) {
+      if (partial[k] === undefined) delete nextCfg[k];
+    }
+    const nextData = { ...(nodeData.data ?? {}), canonical_config: nextCfg };
+    try {
+      this.editor.updateNodeDataFromId(rawId, nextData);
+    } catch {
+      return;
+    }
+    this.selectedNode.set({
+      ...node,
+      config: nextCfg as CanonicalFlowNode['config'],
+    });
+    this.refreshKpis();
+  }
+
+  // ── Decision ──────────────────────────────────────────────────────
+  decisionBranches(): { label: string; condition: string }[] {
+    const cfg = (this.selectedNode()?.config ?? {}) as {
+      branches?: { label: string; condition: string }[];
+    };
+    const b = Array.isArray(cfg.branches) ? cfg.branches : [];
+    return b.length >= 2 ? b : [...b, ...Array(2 - b.length).fill({ label: '', condition: '' })];
+  }
+
+  decisionDefault(): string | null {
+    const cfg = (this.selectedNode()?.config ?? {}) as { default_branch?: string };
+    return cfg.default_branch ?? null;
+  }
+
+  patchDecisionBranch(index: number, field: 'label' | 'condition', ev: Event): void {
+    const value = (ev.target as HTMLInputElement | null)?.value ?? '';
+    const current = [...this.decisionBranches()];
+    if (!current[index]) return;
+    current[index] = { ...current[index], [field]: value };
+    this.patchSelectedConfig({ branches: current });
+  }
+
+  addDecisionBranch(): void {
+    const current = [...this.decisionBranches()];
+    current.push({ label: `branch_${current.length + 1}`, condition: '' });
+    this.patchSelectedConfig({ branches: current });
+  }
+
+  removeDecisionBranch(index: number): void {
+    const current = [...this.decisionBranches()];
+    if (current.length <= 2) return;
+    current.splice(index, 1);
+    this.patchSelectedConfig({ branches: current });
+  }
+
+  onDecisionDefaultChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement | null)?.value ?? '';
+    this.patchSelectedConfig({ default_branch: v || undefined });
+  }
+
+  // ── Fork ──────────────────────────────────────────────────────────
+  forkBranches(): string[] {
+    const cfg = (this.selectedNode()?.config ?? {}) as { branches?: string[] };
+    const b = Array.isArray(cfg.branches) ? cfg.branches : [];
+    return b.length >= 2 ? b : [...b, ...Array(2 - b.length).fill('')];
+  }
+
+  patchForkBranch(index: number, ev: Event): void {
+    const value = (ev.target as HTMLInputElement | null)?.value ?? '';
+    const current = [...this.forkBranches()];
+    current[index] = value;
+    this.patchSelectedConfig({ branches: current });
+  }
+
+  addForkBranch(): void {
+    const current = [...this.forkBranches()];
+    current.push(`branch_${current.length + 1}`);
+    this.patchSelectedConfig({ branches: current });
+  }
+
+  removeForkBranch(index: number): void {
+    const current = [...this.forkBranches()];
+    if (current.length <= 2) return;
+    current.splice(index, 1);
+    this.patchSelectedConfig({ branches: current });
+  }
+
+  // ── Join ──────────────────────────────────────────────────────────
+  joinStrategy(): string {
+    const cfg = (this.selectedNode()?.config ?? {}) as { strategy?: string };
+    return cfg.strategy ?? 'all';
+  }
+
+  onJoinStrategyChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement | null)?.value ?? 'all';
+    this.patchSelectedConfig({ strategy: v });
+  }
+
+  // ── Loop ──────────────────────────────────────────────────────────
+  loopIterator(): string {
+    const cfg = (this.selectedNode()?.config ?? {}) as { iterator?: string };
+    return cfg.iterator ?? '';
+  }
+  loopMaxIterations(): number {
+    const cfg = (this.selectedNode()?.config ?? {}) as { max_iterations?: number };
+    return Number.isFinite(cfg.max_iterations) ? (cfg.max_iterations as number) : 10;
+  }
+  loopBreakOn(): string {
+    const cfg = (this.selectedNode()?.config ?? {}) as { break_on?: string };
+    return cfg.break_on ?? '';
+  }
+  patchLoopField(field: 'iterator' | 'max_iterations' | 'break_on', ev: Event): void {
+    const raw = (ev.target as HTMLInputElement | null)?.value ?? '';
+    if (field === 'max_iterations') {
+      const n = Number.parseInt(raw, 10);
+      this.patchSelectedConfig({
+        max_iterations: Number.isFinite(n) && n > 0 ? n : undefined,
+      });
+      return;
+    }
+    this.patchSelectedConfig({ [field]: raw.trim() || undefined });
+  }
+
+  // ── Retry ─────────────────────────────────────────────────────────
+  retryMaxAttempts(): number {
+    const cfg = (this.selectedNode()?.config ?? {}) as { max_attempts?: number };
+    return Number.isFinite(cfg.max_attempts) ? (cfg.max_attempts as number) : 3;
+  }
+  retryBackoffMs(): number {
+    const cfg = (this.selectedNode()?.config ?? {}) as { backoff_ms?: number };
+    return Number.isFinite(cfg.backoff_ms) ? (cfg.backoff_ms as number) : 1000;
+  }
+  retryOnErrors(): string {
+    const cfg = (this.selectedNode()?.config ?? {}) as { on_errors?: string[] };
+    return Array.isArray(cfg.on_errors) ? cfg.on_errors.join(', ') : '';
+  }
+  patchRetryField(field: 'max_attempts' | 'backoff_ms' | 'on_errors', ev: Event): void {
+    const raw = (ev.target as HTMLInputElement | null)?.value ?? '';
+    if (field === 'on_errors') {
+      const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      this.patchSelectedConfig({ on_errors: list.length > 0 ? list : undefined });
+      return;
+    }
+    const n = Number.parseInt(raw, 10);
+    if (!Number.isFinite(n) || n < 0) return;
+    this.patchSelectedConfig({ [field]: n });
+  }
+
+  // ── HITL ──────────────────────────────────────────────────────────
+  hitlPrompt(): string {
+    const cfg = (this.selectedNode()?.config ?? {}) as { prompt?: string };
+    return cfg.prompt ?? '';
+  }
+  hitlTimeoutMs(): number {
+    const cfg = (this.selectedNode()?.config ?? {}) as { timeout_ms?: number };
+    return Number.isFinite(cfg.timeout_ms) ? (cfg.timeout_ms as number) : 0;
+  }
+  hitlApprovers(): string {
+    const cfg = (this.selectedNode()?.config ?? {}) as { approvers?: string[] };
+    return Array.isArray(cfg.approvers) ? cfg.approvers.join(', ') : '';
+  }
+  patchHitlField(field: 'prompt' | 'timeout_ms' | 'approvers', ev: Event): void {
+    const raw = (ev.target as HTMLInputElement | HTMLTextAreaElement | null)?.value ?? '';
+    if (field === 'approvers') {
+      const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      this.patchSelectedConfig({ approvers: list.length > 0 ? list : undefined });
+      return;
+    }
+    if (field === 'timeout_ms') {
+      const n = Number.parseInt(raw, 10);
+      this.patchSelectedConfig({
+        timeout_ms: Number.isFinite(n) && n > 0 ? n : undefined,
+      });
+      return;
+    }
+    this.patchSelectedConfig({ prompt: raw });
+  }
+
+  // ── Subflow ───────────────────────────────────────────────────────
+  subflowSystemId(): string | null {
+    const cfg = (this.selectedNode()?.config ?? {}) as { system_id?: string };
+    return cfg.system_id ?? null;
+  }
+
+  subflowInputMap(): string {
+    const cfg = (this.selectedNode()?.config ?? {}) as {
+      input_map?: Record<string, string>;
+    };
+    const m = cfg.input_map ?? {};
+    return Object.entries(m)
+      .map(([k, v]) => `${k} = ${v}`)
+      .join('\n');
+  }
+
+  /** Load the other systems catalog once per inspector session. */
+  ensureOtherSystemsLoaded(): void {
+    if (this.otherSystems().length > 0 || this.otherSystemsLoading()) return;
+    this.otherSystemsLoading.set(true);
+    const currentId = this.systemId();
+    this.canonical.listSystems().subscribe({
+      next: (rows) => {
+        this.otherSystems.set((rows ?? []).filter((s) => s.id !== currentId));
+        this.otherSystemsLoading.set(false);
+      },
+      error: () => {
+        this.otherSystemsLoading.set(false);
+        this.toastr.warning('Could not load systems catalog — subflow picker offline.', 'Inspector');
+      },
+    });
+  }
+
+  onSubflowSystemChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement | null)?.value ?? '';
+    this.patchSelectedConfig({ system_id: v || undefined });
+  }
+
+  onSubflowInputMapChange(ev: Event): void {
+    const raw = (ev.target as HTMLTextAreaElement | null)?.value ?? '';
+    const map = this.parseKvBlock(raw);
+    this.patchSelectedConfig({
+      input_map: Object.keys(map).length > 0 ? map : undefined,
+    });
+  }
+
+  // ── Task (Skill params + inputs/outputs map) ──────────────────────
+  /** Rendered field descriptors derived from the bound skill's
+   *  ``input_schema``. JSON-schema-lite support only: we handle
+   *  ``type`` ∈ {string, number, integer, boolean} and optional
+   *  ``enum`` lists. Anything more complex falls back to the textarea
+   *  advanced editor below (``inputs_map``). */
+  taskParamFields(): {
+    key: string;
+    type: string;
+    required: boolean;
+    description?: string;
+    enum?: string[];
+    value: unknown;
+  }[] {
+    const node = this.selectedNode();
+    if (!node) return [];
+    const skillId = this.currentSkillId(node);
+    if (!skillId) return [];
+    const skill = this.skills().find((s) => s.id === skillId);
+    if (!skill) return [];
+    const schema = (skill.input_schema ?? {}) as {
+      properties?: Record<string, { type?: string; description?: string; enum?: string[] }>;
+      required?: string[];
+    };
+    const props = schema.properties ?? {};
+    const required = new Set(schema.required ?? []);
+    const cfg = (node.config ?? {}) as { params?: Record<string, unknown> };
+    const values = cfg.params ?? {};
+    return Object.entries(props).map(([key, def]) => ({
+      key,
+      type: (def?.type ?? 'string').toString(),
+      required: required.has(key),
+      description: def?.description,
+      enum: Array.isArray(def?.enum) ? def.enum.map(String) : undefined,
+      value: values[key],
+    }));
+  }
+
+  onTaskParamChange(key: string, ev: Event, type: string): void {
+    const tgt = ev.target as HTMLInputElement | HTMLSelectElement | null;
+    if (!tgt) return;
+    let parsed: unknown;
+    if (type === 'boolean') {
+      parsed = (tgt as HTMLInputElement).checked;
+    } else if (type === 'number' || type === 'integer') {
+      const raw = tgt.value;
+      if (raw === '') {
+        parsed = undefined;
+      } else {
+        const n = type === 'integer' ? Number.parseInt(raw, 10) : Number.parseFloat(raw);
+        parsed = Number.isFinite(n) ? n : undefined;
+      }
+    } else {
+      parsed = tgt.value || undefined;
+    }
+    const node = this.selectedNode();
+    const cfg = (node?.config ?? {}) as { params?: Record<string, unknown> };
+    const nextParams = { ...(cfg.params ?? {}) };
+    if (parsed === undefined) delete nextParams[key];
+    else nextParams[key] = parsed;
+    this.patchSelectedConfig({
+      params: Object.keys(nextParams).length > 0 ? nextParams : undefined,
+    });
+  }
+
+  taskInputsMap(): string {
+    const cfg = (this.selectedNode()?.config ?? {}) as {
+      inputs_map?: Record<string, string>;
+    };
+    return Object.entries(cfg.inputs_map ?? {})
+      .map(([k, v]) => `${k} = ${v}`)
+      .join('\n');
+  }
+
+  taskOutputsMap(): string {
+    const cfg = (this.selectedNode()?.config ?? {}) as {
+      outputs_map?: Record<string, string>;
+    };
+    return Object.entries(cfg.outputs_map ?? {})
+      .map(([k, v]) => `${k} = ${v}`)
+      .join('\n');
+  }
+
+  onTaskInputsMapChange(ev: Event): void {
+    const raw = (ev.target as HTMLTextAreaElement | null)?.value ?? '';
+    const map = this.parseKvBlock(raw);
+    this.patchSelectedConfig({
+      inputs_map: Object.keys(map).length > 0 ? map : undefined,
+    });
+  }
+
+  onTaskOutputsMapChange(ev: Event): void {
+    const raw = (ev.target as HTMLTextAreaElement | null)?.value ?? '';
+    const map = this.parseKvBlock(raw);
+    this.patchSelectedConfig({
+      outputs_map: Object.keys(map).length > 0 ? map : undefined,
+    });
+  }
+
+  /** Parse a ``key = value`` textarea block into a flat map. Empty lines
+   *  and lines without ``=`` are silently skipped so the user can type
+   *  comments or drafts without the map going half-broken mid-edit. */
+  private parseKvBlock(raw: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const k = trimmed.slice(0, eq).trim();
+      const v = trimmed.slice(eq + 1).trim();
+      if (k && v) out[k] = v;
+    }
+    return out;
   }
 
   // ---------- Auto-layout (topological layered) ----------
