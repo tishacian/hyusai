@@ -575,6 +575,41 @@ précisé après Vague D :
 
 ## Journal
 
+- **2026-04-24 — E0 démarré en live avec l'utilisateur, étapes 1–3
+  livrées (KC cleanup + doc runbook). PG rotation + DKIM en cours.**
+  Audit préalable sur `omnirag-demo` a clarifié le scope réel :
+  - **E0.1 KC admin rotation** : ✅ déjà fait dans la rafale
+    post-D7 (`admin/admin` → 404, `tib-admin` opérationnel). Rien à
+    refaire.
+  - **E0.2 rotation client_secret** : scope revu — le backend
+    n'utilise PAS de `KEYCLOAK_CLIENT_SECRET` actuellement (`pgrep
+    -f uvicorn` ne le montre pas, `.env` non plus). Le secret est
+    seulement requis pour activer l'admin API (`_get_admin_token`
+    dans `backend/app/api/v1/endpoints/auth.py`) qui couvre signup
+    + programmatic password reset. Tant que ces endpoints ne sont
+    pas utilisés, rien à rotater. Documenté comme activation
+    optionnelle dans `docs/ops/secrets.md`.
+  - **E0.3 rotation PG password** : à faire, user fournit le
+    nouveau. Script + runbook prêts.
+  - **E0.4 cleanup** `KC_BOOTSTRAP_ADMIN_*` : ✅ livré —
+    `deploy/redeploy-keycloak.sh` filtre désormais
+    `KC_BOOTSTRAP_ADMIN_*` de la capture env avant redeploy.
+    `docker/test_env_files/keycloak.env` + `backend/keycloak/
+    keycloak.env` vidés de leurs defaults `admin/admin`. Le
+    container live garde les vars pour l'instant (ignorées tant
+    que `tib-admin` existe en DB) et sera propre au prochain
+    redeploy naturel.
+  - **E0.5 DKIM OVH** : en cours, user clique dans le Manager
+    (OVH DNS zone + SMTP relay → activation automatique de la TXT
+    `<selector>._domainkey.datategy.net`). DNS actuel :
+    SPF OK (`include:mx.ovh.com`), DMARC OK (`p=quarantine;
+    pct=90`), DKIM absent. Polling propagation côté agent.
+  - **E0.6 secret manager runbook** : ✅ `docs/ops/secrets.md`
+    livré — inventaire complet (8 secrets), conventions vault
+    agnostiques, procédure PG rotation détaillée avec rollback,
+    clarification sur KEYCLOAK_CLIENT_SECRET (activation
+    optionnelle vs "rotation"), calendrier rotation trimestrielle.
+
 - **2026-04-24 — E2 Playwright scaffolding livré (tests non encore
   exécutés sur la VM).** Opt-in volontaire : `@playwright/test` pas
   ajouté aux deps (pour ne pas forcer un `npm install` de 150 Mo

@@ -25,9 +25,17 @@ if [[ ! -d "${THEME_DIR}" ]]; then
 fi
 
 echo "[redeploy-kc] Capturing current env from ${CONTAINER}"
+# E0 hardening (Vague E) — drop KC_BOOTSTRAP_ADMIN_* from every
+# redeploy. They're only consulted by Keycloak on first start against
+# an empty DB; the bootstrap admin has been disabled in the DB so
+# these vars are dead code, but they still show up in `docker
+# inspect` output as admin/admin, which looks alarming and leaks a
+# known-weak credential shape. Drop them.
 mapfile -t ENV_LINES < <(docker inspect "${CONTAINER}" \
   --format '{{range .Config.Env}}{{.}}{{"\n"}}{{end}}' \
-  | grep -E '^(KC_|KEYCLOAK_|LANG=)' || true)
+  | grep -E '^(KC_|KEYCLOAK_|LANG=)' \
+  | grep -v -E '^KC_BOOTSTRAP_ADMIN_' \
+  || true)
 
 if [[ ${#ENV_LINES[@]} -eq 0 ]]; then
   echo "[redeploy-kc] Could not capture env from ${CONTAINER} — aborting" >&2
