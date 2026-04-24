@@ -202,11 +202,22 @@ mais :
    orphelin, decision sans `true_branch_id`.
 3. Versioning : chaque save crée un `SystemVersion` (id + created_at +
    created_by + dag_json), UI pour naviguer l'historique et rollback.
+   **Rolling window 500 versions par chaîne** (décision 2026-04-24) :
+   historique assez profond pour retrouver un flow d'il y a plusieurs
+   mois de modifs, plafonné pour ne pas faire exploser la table
+   `system_versions`. Purge FIFO : au 501ᵉ save d'une chaîne, la
+   version la plus ancienne est supprimée (cascade sur les runs qui
+   la référencent → les runs gardent un snapshot `dag_json` inline
+   pour rester rejouables). Configurable via
+   `CUSTOM_CHAIN_VERSION_WINDOW` (default 500) pour ajuster plus tard
+   sans migration.
 4. Export JSON → round-trip import (permet partage flow entre
    workspaces).
 
 **Done quand :** un builder peut construire un flow fork/join/decision
-depuis zéro, le valider, le lancer, le rollback d'une version.
+depuis zéro, le valider, le lancer, le rollback d'une version, et le
+plafond des 500 versions est atteint sans que la table explose ni
+que les anciens runs deviennent orphelins.
 
 ### E4 — SharePoint ingestion v1
 
@@ -362,6 +373,27 @@ Fréquence : 1× par TTL de session (~8–24 h selon politique tenant).
      SharePoint — premier module d'une future famille de
      connecteurs à capture locale : Google Drive OTP, Dropbox
      Business SSO, etc.).
+   - **Signing (décision 2026-04-24)** :
+     - Linux : signature GPG sur tarball + checksum SHA256
+       publiés avec la release (rapide, gratuit, suffisant pour les
+       cibles serveur/poweruser).
+     - macOS : **pas de cert Apple Developer** (99 USD/an non
+       engagés). Binaire unsigned → l'opérateur doit faire "right-
+       click > Open" au premier lancement pour passer Gatekeeper.
+       Documenté dans le README de l'installer, acceptable pour un
+       outil administrateur qu'on déploie ponctuellement.
+     - Windows : **pas de cert EV non plus** (~300 USD/an + démarche
+       identité HSM, pas engagés). Le binaire unsigned déclenchera
+       SmartScreen "Windows protected your PC" → "More info" → "Run
+       anyway". **Conséquence assumée : Windows n'est pas une cible
+       réaliste pour une démo client** — on bloque sur Linux +
+       macOS (ops internes DATATEGY + Andritz tech lead qui a du
+       macOS). Pour un client Windows-only on rebascule sur le flow
+       CLI textarea (copy-paste JSON) qui reste le chemin fallback
+       universel — ou on signe à ce moment-là, quand un deal
+       justifie le cert EV.
+     - Conséquence budget : E4.2 ne dépense rien en certs, le code
+       signing est reporté au premier deal qui le demande.
 
 2. **Hardening spécifique E4b** :
    - TTL configurable sur les sessions chiffrées (purge auto 7 j
@@ -560,7 +592,7 @@ précisé après Vague D :
 | Aucun client n'accorde d'admin consent à court terme | E4a "Standard" sans première prod visible | E4b couvre tous les partages externes type Andritz ; E4a reste prêt "on shelf", activation < 1 j dès qu'un client consent |
 | Session SharePoint fuitée via logs/backups | Cookies valides entre des mains tierces | Fernet au repos + dérivation par tenant + `SHAREPOINT_CONNECTOR_REQUIRE_ENCRYPTION=true` sur prod ; plus : log-only d'empreintes hashées |
 | Session Guest Link expire pendant un sync long | Job mi-parcours échoue, fichiers partiels | Ingester détecte `SharePointLoginRequired`, marque job `status=login_required` sans pertes (manifest reprend au prochain sync) ; UI relance capture via Agentium Connector |
-| Agentium Connector bloqué par antivirus / SmartScreen | Deep-link inutilisable sur Windows | Code signing EV (Windows) + notarization (macOS) ; fallback textarea JSON systématique maintenu comme chemin dégradé |
+| Agentium Connector bloqué par antivirus / SmartScreen | Deep-link inutilisable sur Windows | **Décision 2026-04-24 : cible initiale Linux + macOS (unsigned, passage Gatekeeper au premier lancement documenté). Windows non prioritaire**, rebascule sur le flow CLI textarea JSON en fallback ou signature EV différée au premier deal qui la justifie (pas de cert engagé dans le budget E4.2) |
 | Confusion opérateur entre Standard et Guest Link | Mauvais mode choisi, connecteur qui ne marche pas | UI guide avec question unique "Votre IT a-t-il consenti une app Entra ID ?" → choix auto ; possible de basculer a posteriori |
 | Marketplace : question produit non tranchée | Paralysie spec | Hors Vague E tant que décision produit manquante |
 
@@ -1054,9 +1086,34 @@ précisé après Vague D :
   - **Reste pour clôturer E4 après E4.1** :
     - *E4.2* (E4b seul) : Agentium Connector — binaire PyInstaller +
       URL scheme `agentium-connector://`, TTL sessions, hashed session
-      fingerprint. Dépend du process de signing (cert Apple Developer +
-      SmartScreen Windows) — à lever côté client.
+      fingerprint. **Décision signing (2026-04-24)** : Linux signé GPG
+      (gratuit), macOS + Windows unsigned (pas de cert Apple Developer
+      ni EV engagé dans le budget). macOS documente le right-click >
+      Open pour passer Gatekeeper au premier lancement. **Windows
+      n'est pas une cible viable** pour une démo client avec binaire
+      unsigned (SmartScreen bloque) → on se limite à Linux + macOS
+      et on rebascule sur le flow CLI textarea JSON comme fallback
+      Windows si besoin. Pas de dépendance externe à lever, E4.2 est
+      déblocable quand on veut.
     - *E4.3* (E4a seul) : OAuth UI (redirect Entra ID + callback),
       Graph site/library picker, sync périodique configurable.
       Déblocable dès qu'un client accorde admin consent (Andritz
       relancé 2026-04-20, en attente).
+
+- **2026-04-24 — Décisions roadmap E3 + E4.2 confirmées par le lead
+  produit.**
+  - **E3 versioning** : rolling window fixe de **500 versions par
+    chaîne** (au lieu de full history illimité ou last-N configurable
+    par workspace). Profondeur d'historique très large (plusieurs mois
+    de modifs quotidiennes) avec un plafond dur qui garantit que la
+    table `system_versions` ne fera pas dérailler Postgres à long
+    terme. Exposé via `CUSTOM_CHAIN_VERSION_WINDOW` (default 500) pour
+    ajuster sans migration si un client demande plus/moins.
+  - **E4.2 signing** : pas de cert Apple Developer ni cert EV Windows.
+    Linux : GPG signé (gratuit). macOS : unsigned, Gatekeeper bypass
+    documenté. Windows : non prioritaire (SmartScreen bloque, fallback
+    CLI textarea maintenu). Budget certs = 0 USD jusqu'au premier deal
+    qui justifie l'engagement.
+  - Conséquence : **E3 et E4.2 sont désormais tous deux déblocables
+    sans dépendance externe**. La file prioritaire devient E3 → E4.2
+    → E4.3 (ce dernier reste en attente d'admin consent client).
