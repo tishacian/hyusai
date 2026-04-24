@@ -63,7 +63,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | **E0** | **Security hardening — rotation secrets (KC admin, KC client_secret, PG), DKIM activation, secret manager** | **P0** | **M** | — |
 | E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI | P0 | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
-| E3 | Custom chains editor — finition (node props, validation, save/load versions) | P1 | L | C6 |
+| E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 scope commun backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). Reste E3.2 UI versioning + E3.3 node-props + E3.4 export/import. | P1 | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). Reste E4.2 Agentium Connector binaire (E4b) + E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
 | E5 | Recommandations proactives — Decision générée depuis l'analyse agrégée multi-runs | P2 | L | E1 |
 | E6 | Simulation offline — rejouer un run sur une policy alternative | P3 | M | C6 |
@@ -1149,6 +1149,64 @@ précisé après Vague D :
       Graph site/library picker, sync périodique configurable.
       Déblocable dès qu'un client accorde admin consent (Andritz
       relancé 2026-04-20, en attente).
+
+- **2026-04-24 — E3.1 (fondations backend versioning + validation)
+  livré + smoke vert sur `omnirag-demo`.**
+  Scope backend du "custom chains editor" finition est clos : les
+  chaînes ont désormais un historique réel (rolling window 500) et
+  ne peuvent plus être sauvegardées dans un état structurellement
+  cassé. Reste E3.2 (UI versioning panel), E3.3 (node-props
+  éditables) et E3.4 (export/import JSON).
+  - **Backend** :
+    - Nouvelle table `system_versions` (migration
+      `015_system_versions`) + colonnes `runs.flow_snapshot` et
+      `runs.flow_version_id` pour que les runs restent rejouables
+      même après purge de leur version d'origine.
+    - `backend/app/services/chains/dag_validator.py` : miroir exact
+      de `FlowSerializer.validateFlow` côté frontend + les checks
+      qu'il déclarait sans les émettre (`unreachable_node`,
+      `node_orphan`). `PATCH /systems/{id}` gate les erreurs en 400
+      structuré ; les warnings passent mais sont renvoyés au client.
+    - `backend/app/services/chains/version_service.py` :
+      `record_new_version` (idempotent sur flows identiques),
+      `_purge_window` (FIFO à chaque dépassement du cap
+      `CUSTOM_CHAIN_VERSION_WINDOW`), `rollback_to_version` (crée
+      une nouvelle version dont `flow_definition` = la cible, ne
+      réécrit jamais l'historique).
+    - API : `GET /systems/{id}/versions` (paginé, summary), `GET
+      /systems/{id}/versions/{n}` (payload complet), `POST
+      /systems/{id}/versions/{n}/rollback`. `POST /systems` seede
+      désormais v1 à la création.
+    - Audits `chain.version.created`, `chain.version.purged`,
+      `chain.rollback` émis via session partagée au caller (évite
+      le "database is locked" de SQLite en test ; Postgres prod
+      reste inchangé).
+  - **Tests** : 26 unitaires verts (validator exhaustif + versioning
+    rolling window + rollback + isolation workspace). `pytest
+    app/tests/services/` reste vert (73 passed).
+  - **Smoke VM** (`/tmp/e31_smoke.py`, TestClient avec overrides
+    Keycloak) — 22 assertions vertes :
+    - Création empty → v1 seedée.
+    - POST avec orphan → 400 `node_orphan`.
+    - PATCH valide → v2 créée + `new_version` dans la réponse.
+    - PATCH identique → no-op (pas de nouvelle version).
+    - PATCH avec cycle → 400 `cycle_detected`, versions non mutées.
+    - GET /versions latest-first, GET /versions/{n} payload complet.
+    - Rollback → v3 avec `rolled_back_from_id` pointant v1, et
+      `System.flow_definition` mis à jour en place.
+    - Window = 3 : 4 saves supplémentaires, table plafonne à 3,
+      `chain.version.purged` émis 4 fois.
+    - Isolation multi-tenant : workspace B → 404 sur
+      `GET /versions` et `POST /rollback`.
+  - **Reste pour clôturer E3 après E3.1** :
+    - *E3.2* : panel "Versions" dans `workflow-editor` (liste +
+      diff count + CTA rollback), gate du save côté UI sur la
+      validation serveur (affichage structuré des erreurs 400).
+    - *E3.3* : formulaires éditables par kind (decision branches,
+      fork/join strategy, loop budget, retry config, HITL prompt,
+      subflow picker, task params depuis `Skill.input_schema`).
+    - *E3.4* : `GET /systems/{id}/export` + `POST /systems/import`
+      avec re-binding des skills par slug.
 
 - **2026-04-24 — Décisions roadmap E3 + E4.2 confirmées par le lead
   produit.**
