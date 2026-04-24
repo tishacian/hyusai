@@ -575,8 +575,55 @@ précisé après Vague D :
 
 ## Journal
 
+- **2026-04-24 — E1 auto-eval loop validé bout-en-bout sur la VM
+  live. Toutes les briques ship, seul le câblage preset
+  workspace-par-défaut reste à activer.** Smoke en 2 passes sur
+  `omnirag-demo` :
+  - **Passe 1 — pas de breach** : `evaluate_run_async` invoqué
+    sur un run existant (`38915b18-…`, prompt "Streaming LLM UX"
+    + completion 3 raisons) avec preset permissif. Judge OpenAI
+    réel retourne `composite=99.6`, aucune breach. `EvaluationScore`
+    row créée avec workspace_id + run_id. `Run.evaluation_scores`
+    JSON posé.
+  - **Passe 2 — breach forcée** : même run, preset
+    ultra-strict (`composite_min=99.99`, `dimension_min.drift=100`,
+    `dimension_min.task_success=101`). Judge retourne
+    `composite=98.3`, threshold check logge 4 reasons. Hook
+    `_file_review_decision` crée la `Decision`
+    `1774f960-d4c0-4218-9e1e-237d318463fa` avec
+    `scope=run`, `kind=review_required`, `status=proposed`,
+    `title="Run below composite threshold (98/100)"`,
+    `rationale` contenant {composite_score, hallucination_rate,
+    reasons[4]}. Exactement ce que la review queue UI attend.
+  - **Endpoints live** (via TestClient avec override
+    `get_current_workspace` → workspace "Acme") :
+    - `GET /api/v1/evaluation/review-queue?status=proposed`
+      → 200, `count=1`, Decision + Run joints.
+    - `GET /api/v1/evaluation/trend?since=1d&group_by=day`
+      → 200, série `[{bucket:"2026-04-24", count:2,
+      avg_composite:98.95, avg_hallucination:0.0}]`,
+      `thresholds.composite_min=60` (défauts corrects).
+    - `GET /api/v1/evaluation/presets` → 200, renvoie
+      `defaults` + `workspace` (null) + `effective` (merged).
+    - `GET /api/v1/evaluation/history?since=1d` → 200.
+  - **Insight produit** : `DEFAULT_EVAL_CONFIG.enabled = false`
+    par défaut. Conséquence : le hook `_finalize_run →
+    schedule_eval → evaluate_run_async → preset resolver →
+    enabled=false → early return` n'appelle PAS le judge tant
+    que le workspace n'a pas fait un `PUT /presets` avec
+    `enabled=true`. C'est un choix safe (zéro facture OpenAI
+    surprise à l'activation de la feature) mais implique que
+    le premier client qui veut l'auto-eval doit explicitement
+    opt-in. À surfacer dans l'UI settings `EvaluationPresetComponent`
+    livré dans le commit `2930dbe` (master switch déjà présent).
+  - **Reste E1 UI** (pas bloquant) : widget "Eval trend 7d"
+    dans `/observability` (backend ready), toast "⚠ Reply
+    scored below threshold" + deeplink review-queue depuis
+    le chat, lien depuis la review queue vers le run dans
+    le runs inspector.
+
 - **2026-04-24 — E0 quasi complet : PG rotation exécutée, KC
-  cleanup + runbook livrés. Reste DKIM OVH en propagation DNS.**
+  cleanup + runbook livrés. DKIM OVH bloqué sur admin externe.**
   Audit préalable sur `omnirag-demo` a clarifié le scope réel :
   - **E0.1 KC admin rotation** : ✅ déjà fait dans la rafale
     post-D7 (`admin/admin` → 404, `tib-admin` opérationnel). Rien à
@@ -620,11 +667,18 @@ précisé après Vague D :
     container live garde les vars pour l'instant (ignorées tant
     que `tib-admin` existe en DB) et sera propre au prochain
     redeploy naturel.
-  - **E0.5 DKIM OVH** : en cours, user clique dans le Manager
-    (OVH DNS zone + SMTP relay → activation automatique de la TXT
-    `<selector>._domainkey.datategy.net`). DNS actuel :
-    SPF OK (`include:mx.ovh.com`), DMARC OK (`p=quarantine;
-    pct=90`), DKIM absent. Polling propagation côté agent.
+  - **E0.5 DKIM OVH** : ⏸ bloqué sur dépendance admin externe.
+    User n'a pas les droits sur le domaine `datategy.net` (vs.
+    `octocity.net` qu'il gère). Le formulaire DNS zone OVH
+    demande une pubkey base64 que seul le service mail OVH peut
+    générer (cas B, keypair générée + stockée côté plateforme
+    mail, BYOK non supporté par MX Plan). Package complet
+    envoyé à l'admin datategy.net (génération dans MX Plan
+    → Security → Activate DKIM, puis publication auto/manuelle
+    dans la zone DNS). DNS actuel : SPF OK
+    (`include:mx.ovh.com`), DMARC OK (`p=quarantine; pct=90`),
+    DKIM absent. Pas de boucle de retry côté agent — on reprend
+    dès que l'admin a publié le TXT.
   - **E0.6 secret manager runbook** : ✅ `docs/ops/secrets.md`
     livré — inventaire complet (8 secrets), conventions vault
     agnostiques, procédure PG rotation détaillée avec rollback,
