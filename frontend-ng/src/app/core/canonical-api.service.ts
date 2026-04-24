@@ -313,6 +313,26 @@ export interface EvaluationTrendResponse {
   series: EvaluationTrendBucket[];
 }
 
+/**
+ * Shape returned by ``GET /evaluation/by-run/{run_id}`` — consumed by
+ * the chat panel polling loop after it receives the SSE
+ * ``eval_pending`` chunk. ``status`` drives the client state machine:
+ * pending → keep polling; skipped → stop silently; completed → stop
+ * and optionally render a breach toast.
+ */
+export interface EvaluationByRunResponse {
+  status: 'pending' | 'skipped' | 'completed';
+  run_id: string;
+  breach?: boolean;
+  composite_score?: number;
+  hallucination_rate?: number;
+  scores?: Record<string, number>;
+  reasons?: Array<{ metric: string; [k: string]: unknown }>;
+  evaluation_id?: string | null;
+  decision_id?: string | null;
+  reason?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CanonicalApiService {
   private readonly api = inject(ApiService);
@@ -680,6 +700,18 @@ export class CanonicalApiService {
     if (params.group_by) q['group_by'] = params.group_by;
     return this.api
       .get<EvaluationTrendResponse>('/evaluation/trend', q)
+      .pipe(catchError(() => of(null)));
+  }
+
+  /**
+   * Polled by the chat panel after a reply streams back, so a
+   * threshold breach can be surfaced as a toast within a few seconds
+   * of the judge finishing. Returns ``null`` on network error so the
+   * caller just stops polling rather than crashing the panel.
+   */
+  getEvaluationByRun(runId: string): Observable<EvaluationByRunResponse | null> {
+    return this.api
+      .get<EvaluationByRunResponse>(`/evaluation/by-run/${encodeURIComponent(runId)}`)
       .pipe(catchError(() => of(null)));
   }
 

@@ -10,12 +10,16 @@ import { WorkspaceService } from './workspace.service';
  * to `decision_step`, `sources`, `reasoning_trace`, etc.
  */
 export interface SseChunk {
-  chunk_type?: 'text' | 'decision_step' | 'error' | string;
+  chunk_type?: 'text' | 'decision_step' | 'error' | 'eval_pending' | string;
   content?: string;
   decision_step?: unknown;
   sources?: unknown;
   reasoning_trace?: unknown;
   is_final?: boolean;
+  // Emitted by ``/api/v1/chat/stream`` at the end of a turn, carrying
+  // the canonical Run id so the chat panel can poll
+  // ``/evaluation/by-run/{run_id}`` and surface a breach toast.
+  run_id?: string;
   // Sentinel emitted by this service once the stream closes cleanly.
   type?: 'done';
   // Back-compat alias some callers used before the chunk_type migration.

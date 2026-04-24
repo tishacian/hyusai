@@ -3,11 +3,14 @@ import {
   Component,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { map } from 'rxjs/operators';
 import {
   CanonicalApiService,
   type EvaluationReviewQueueResponse,
@@ -123,11 +126,19 @@ import {
             <ul style="display:flex; flex-direction:column; gap:0;">
               @for (item of items(); track item.decision.id) {
                 <li
-                  style="padding:16px 22px; border-bottom:1px solid var(--ck-hair);"
+                  [id]="'decision-' + item.decision.id"
+                  style="padding:16px 22px; border-bottom:1px solid var(--ck-hair); transition:background 400ms ease;"
                   [style.background]="
-                    pendingId() === item.decision.id
-                      ? 'var(--ck-bg-inset)'
-                      : 'transparent'
+                    focusedDecisionId() === item.decision.id
+                      ? 'var(--ck-bg-focus, rgba(253, 190, 0, 0.08))'
+                      : pendingId() === item.decision.id
+                        ? 'var(--ck-bg-inset)'
+                        : 'transparent'
+                  "
+                  [style.box-shadow]="
+                    focusedDecisionId() === item.decision.id
+                      ? 'inset 2px 0 0 var(--ck-signal-warn, #fdbe00)'
+                      : 'none'
                   "
                 >
                   <div class="flex items-start gap-4">
@@ -261,11 +272,19 @@ import {
 })
 export class SteeringReviewQueueComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
+  private readonly route = inject(ActivatedRoute);
 
   readonly items = signal<ReviewQueueItem[]>([]);
   readonly loading = signal(false);
   readonly pendingId = signal<string | null>(null);
   readonly status = signal<'proposed' | 'accepted' | 'rejected' | 'all'>('proposed');
+  /**
+   * Decision id the user deeplinked in via the chat auto-QA toast
+   * (``?decision=<id>``). When it matches an item in the current
+   * queue, the row is highlighted + scrolled into view. Cleared on
+   * filter change so the highlight doesn't stick around.
+   */
+  readonly focusedDecisionId = signal<string | null>(null);
 
   protected readonly statusOptions = [
     { value: 'proposed' as const, label: 'OPEN' },
@@ -273,6 +292,32 @@ export class SteeringReviewQueueComponent implements OnInit {
     { value: 'rejected' as const, label: 'REJECTED' },
     { value: 'all' as const, label: 'ALL' },
   ];
+
+  constructor() {
+    // Pick up ?decision=<id> deeplinks coming from the chat auto-QA
+    // toast so the reviewer lands directly on the breached row.
+    this.route.queryParamMap
+      .pipe(
+        map((p) => p.get('decision')),
+        takeUntilDestroyed(),
+      )
+      .subscribe((id) => this.focusedDecisionId.set(id));
+
+    // When either the focus id changes or the queue items load,
+    // scroll the matching row into view (if any). We run this in
+    // an effect so it re-fires on both signals + plays nicely with
+    // OnPush change detection.
+    effect(() => {
+      const focus = this.focusedDecisionId();
+      const list = this.items();
+      if (!focus || !list.length) return;
+      if (!list.some((i) => i.decision.id === focus)) return;
+      queueMicrotask(() => {
+        const el = document.getElementById(`decision-${focus}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+  }
 
   ngOnInit(): void {
     this.refresh();
@@ -297,6 +342,9 @@ export class SteeringReviewQueueComponent implements OnInit {
   setStatus(s: 'proposed' | 'accepted' | 'rejected' | 'all'): void {
     if (this.status() === s) return;
     this.status.set(s);
+    // Drop the deeplink highlight — the user explicitly moved away
+    // from the filter the toast sent them to.
+    this.focusedDecisionId.set(null);
     this.refresh();
   }
 

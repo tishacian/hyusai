@@ -19,7 +19,11 @@ class Run(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id = Column(String(36), nullable=True, index=True)
-    system_id = Column(String(36), ForeignKey("systems.id"), nullable=False, index=True)
+    # Nullable since migration 012 — chat turns without a System
+    # attachment are still first-class Runs (audit/eval on workspace
+    # scope). Set to the System id when chat is launched from a
+    # System-scoped UI (/systems/:id), NULL otherwise.
+    system_id = Column(String(36), ForeignKey("systems.id"), nullable=True, index=True)
     capability_id = Column(String(36), nullable=True, index=True)
 
     input_ref = Column(JSON, default=dict)

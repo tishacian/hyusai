@@ -258,6 +258,92 @@ async def upsert_workspace_preset(
 
 
 # ---------------------------------------------------------------------------
+# Vague E / E1 — per-run eval lookup (chat toast polling)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/by-run/{run_id}")
+async def evaluation_by_run(
+    run_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Return the auto-eval snapshot for a specific Run.
+
+    Called by the chat panel in a short polling loop after it
+    receives the ``eval_pending`` SSE chunk. Three possible shapes:
+
+    - ``{"status": "pending", ...}`` — Run exists but the judge task
+      hasn't persisted a score yet. Front keeps polling.
+    - ``{"status": "skipped"}`` — preset is disabled or sample_rate
+      excluded this run. Front stops polling silently.
+    - ``{"status": "completed", "breach": bool, ...}`` — score is
+      persisted. Front stops polling and optionally shows a toast
+      when ``breach`` is true.
+
+    Workspace scoping is enforced on both the Run and the
+    EvaluationScore row to prevent cross-tenant lookup via guessed
+    run ids.
+    """
+    run = (
+        db.query(Run)
+        .filter(Run.id == run_id, Run.workspace_id == workspace.id)
+        .first()
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # ``evaluation_scores`` is snapshotted directly onto the Run at the
+    # end of auto_eval (nullable). When present it's the fastest path
+    # for the dashboard / chat toast: no join.
+    if run.evaluation_scores:
+        snap = run.evaluation_scores
+        # Find the linked review-queue decision if we breached — the
+        # chat toast deeplinks straight to it for a 1-click review.
+        decision_id = None
+        if snap.get("threshold_breach"):
+            decision = (
+                db.query(Decision)
+                .filter(
+                    Decision.workspace_id == workspace.id,
+                    Decision.kind == "review_required",
+                    Decision.target_id == run.id,
+                )
+                .order_by(Decision.created_at.desc())
+                .first()
+            )
+            decision_id = decision.id if decision else None
+        return {
+            "status": "completed",
+            "run_id": run.id,
+            "breach": bool(snap.get("threshold_breach")),
+            "composite_score": snap.get("composite_score"),
+            "hallucination_rate": snap.get("hallucination_rate"),
+            "scores": snap.get("scores"),
+            "reasons": snap.get("reasons") or [],
+            "evaluation_id": snap.get("evaluation_id"),
+            "decision_id": decision_id,
+        }
+
+    # No snapshot yet — decide whether we're still waiting or whether
+    # the eval was skipped (preset disabled / sample_rate). We check
+    # the resolved preset: if enabled=False we know the judge will
+    # never run, so return ``skipped`` immediately instead of making
+    # the client poll indefinitely.
+    service = get_evaluation_preset_service()
+    config = service.resolve(
+        db,
+        workspace_id=workspace.id,
+        capability_id=run.capability_id,
+        system_id=run.system_id,
+    )
+    if not config.get("enabled"):
+        return {"status": "skipped", "run_id": run.id, "reason": "preset_disabled"}
+
+    return {"status": "pending", "run_id": run.id}
+
+
+# ---------------------------------------------------------------------------
 # Vague E / E1 — review queue
 # ---------------------------------------------------------------------------
 

@@ -1,4 +1,12 @@
-"""Chat/completion endpoints"""
+"""Chat/completion endpoints.
+
+Every successful chat turn persists a canonical :class:`Run` so the
+auto-eval loop (``schedule_eval → evaluate_run_async``) fires on the
+reply. See ``docs/vague-e-plan.md`` 2026-04-25 journal for the product
+decision: chat is not a second-class surface, its traffic is the main
+driver of Impact + quality metrics, so it must participate in the
+same Run ledger as explicit ``/runs/launch`` triggers.
+"""
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -9,9 +17,12 @@ from app.core.validation import QueryValidator, ResponseValidator
 from app.core.errors import ValidationError
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
+from app.models.run import Run
+from app.models.system import System
 from app.models.user import Message
 from app.models.workspace import Workspace
 from app.api.v1.endpoints.agents import get_orchestrator
+from app.services.evaluation.auto_eval import schedule_eval
 from datetime import datetime
 import uuid
 
@@ -25,6 +36,12 @@ class ChatRequest(BaseModel):
     """Chat completion request"""
     query: str
     session_id: Optional[str] = None
+    # System (papAI canonical entity) the chat is scoped to — used to
+    # bind the resulting Run to a System for preset resolution +
+    # per-System Impact aggregation. Front sends
+    # ``agent_id: this.systemId()`` from chat-panel.component.ts;
+    # can be NULL for workspace-wide chats (Run is still created).
+    agent_id: Optional[str] = None
     agent_preferences: Optional[Dict[str, Any]] = None
     stream: bool = True
     include_reasoning: bool = True
@@ -43,6 +60,86 @@ class ChatRequest(BaseModel):
     # hypothetical | trivial | auto). When unset or "auto" the orchestrator
     # runs the mode_selector heuristic.
     prompt_type: Optional[str] = None
+
+
+def _resolve_system_id(
+    db: Session,
+    workspace_id: str,
+    candidate: Optional[str],
+) -> Optional[str]:
+    """Validate ``candidate`` as a System FK the current workspace owns.
+
+    Returns the id if it resolves to a real System row scoped to the
+    workspace, otherwise ``None``. Prevents cross-workspace FK leaks
+    (a malicious client sending another tenant's system_id) and
+    gracefully degrades when the front sends a stale id after a
+    System was deleted — the Run is still persisted, just unscoped.
+    """
+    if not candidate:
+        return None
+    row = (
+        db.query(System.id)
+        .filter(System.id == candidate, System.workspace_id == workspace_id)
+        .first()
+    )
+    return row[0] if row else None
+
+
+def _persist_chat_run(
+    db: Session,
+    *,
+    workspace_id: str,
+    system_id: Optional[str],
+    query: str,
+    response_text: str,
+    sources: Any,
+    reasoning_trace: Any,
+    started_at: datetime,
+    completed_at: datetime,
+    duration_ms: Optional[float],
+) -> Optional[str]:
+    """Persist a canonical Run for a completed chat turn + kick off eval.
+
+    Returns the run id, or ``None`` if the Run couldn't be created (we
+    swallow errors to keep chat bulletproof — audit trail is best-effort,
+    a failed insert must never break the user's reply). The auto-eval
+    loop is fire-and-forget: ``schedule_eval`` returns immediately and
+    the judge pass runs on a background task/thread.
+    """
+    if not response_text.strip():
+        return None
+    try:
+        run = Run(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace_id,
+            system_id=system_id,
+            status="completed",
+            input_ref={"query": query},
+            output_ref={
+                "response": response_text,
+                "sources": sources or [],
+                "reasoning_trace": reasoning_trace or None,
+            },
+            started_at=started_at,
+            completed_at=completed_at,
+            duration_ms=duration_ms,
+            trigger="chat",
+        )
+        db.add(run)
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.error("chat: failed to persist Run", error=str(exc))
+        return None
+
+    # Fire-and-forget — will no-op if the workspace preset is disabled,
+    # or if sample_rate excluded this turn.
+    try:
+        schedule_eval(run.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("chat: schedule_eval failed", run_id=run.id, error=str(exc))
+
+    return run.id
 
 
 @router.post("/completion")
@@ -99,7 +196,9 @@ async def chat_completion(
         import time
         pipeline_start_time = None
         pipeline_end_time = None
-        
+        run_started_at = datetime.utcnow()
+        run_started_ts = time.time()
+
         async for chunk in orchestrator.process_request(request_dict):
             chunks.append(chunk)
             
@@ -172,13 +271,31 @@ async def chat_completion(
             )
             db.add(assistant_message)
             db.commit()
-        
+
+        # Persist a canonical Run for this chat turn and kick the
+        # auto-eval loop — every chat reply participates in the same
+        # ledger as explicit /runs/launch triggers.
+        run_completed_at = datetime.utcnow()
+        run_id = _persist_chat_run(
+            db,
+            workspace_id=workspace.id,
+            system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+            query=validated_query,
+            response_text=content,
+            sources=chunks[0].get("sources") if chunks else None,
+            reasoning_trace=chunks[0].get("reasoning_trace") if chunks else None,
+            started_at=run_started_at,
+            completed_at=run_completed_at,
+            duration_ms=(time.time() - run_started_ts) * 1000.0,
+        )
+
         return {
             "id": chunks[0].get("id") if chunks else None,
+            "run_id": run_id,
             "content": content,
             "reasoning_trace": chunks[0].get("reasoning_trace") if chunks else None,
             "sources": chunks[0].get("sources") if chunks else None,
-            "status": "completed"
+            "status": "completed",
         }
     except HTTPException:
         raise
@@ -231,6 +348,9 @@ async def chat_stream(
             decision_steps = []  # Collect all decision pipeline steps
             pipeline_start_time = None
             pipeline_end_time = None
+            import time as _time
+            run_started_at = datetime.utcnow()
+            run_started_ts = _time.time()
             
             # Load conversation history for context (long-term memory)
             conversation_history = []
@@ -349,7 +469,39 @@ async def chat_stream(
                     session.last_activity = datetime.utcnow()
                 
                 db.commit()
-            
+
+            # Persist canonical Run + kick auto-eval. The front polls
+            # /evaluation/by-run/{run_id} when it receives the
+            # ``eval_pending`` chunk below so a breach can surface as
+            # a toast while the judge runs in the background.
+            run_id = None
+            if full_content:
+                run_completed_at = datetime.utcnow()
+                run_id = _persist_chat_run(
+                    db,
+                    workspace_id=workspace.id,
+                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    query=request.query,
+                    response_text="".join(full_content),
+                    sources=sources,
+                    reasoning_trace=reasoning_trace,
+                    started_at=run_started_at,
+                    completed_at=run_completed_at,
+                    duration_ms=(_time.time() - run_started_ts) * 1000.0,
+                )
+            if run_id:
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "chunk_type": "eval_pending",
+                            "run_id": run_id,
+                            "is_final": False,
+                        }
+                    )
+                    + "\n\n"
+                )
+
             yield "data: [DONE]\n\n"
         except Exception as e:
             logger.error("Streaming error", error=str(e))

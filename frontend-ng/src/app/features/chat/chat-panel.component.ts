@@ -9,9 +9,10 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-import { ToastrService } from 'ngx-toastr';
+import { Router, RouterLink } from '@angular/router';
+import { ToastrService, ActiveToast } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { SettingsService } from '@app/core/settings.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -898,7 +899,9 @@ export class ChatPanelComponent {
 
   private readonly sse = inject(SseService);
   private readonly api = inject(ApiService);
+  private readonly canonicalApi = inject(CanonicalApiService);
   private readonly toast = inject(ToastrService);
+  private readonly router = inject(Router);
   private readonly health = inject(RuntimeHealthService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
@@ -1450,6 +1453,11 @@ export class ChatPanelComponent {
           } else if (chunk.chunk_type === 'error' && chunk.content) {
             buffer += `\n\n⚠ ${chunk.content}`;
             this.streamBuffer.set(buffer);
+          } else if (chunk.chunk_type === 'eval_pending' && chunk.run_id) {
+            // Backend persisted a Run for this turn and kicked the
+            // auto-eval loop; start polling so we can surface a
+            // breach-toast within a few seconds of the judge finishing.
+            this.startEvalPolling(chunk.run_id);
           } else if (chunk.sources && Array.isArray(chunk.sources)) {
             sources = chunk.sources as Source[];
           } else if (chunk.type === 'done') {
@@ -1498,6 +1506,81 @@ export class ChatPanelComponent {
     this.streamBuffer.set('');
     this.liveSteps.set([]);
     this.openTrails.set(new Set());
+  }
+
+  /**
+   * Poll ``/evaluation/by-run/:runId`` until the auto-eval judge has
+   * persisted a score or explicitly skipped, then surface a toast
+   * when the reply breached the workspace thresholds.
+   *
+   * Budget: ~30s total (20 attempts × 1.5s). The judge typically
+   * lands in 3-6s on GPT-4o-mini; we give it room for a slow cold
+   * start without spamming the review queue with retries. A silent
+   * ``status: "skipped"`` response ends the loop immediately — those
+   * workspaces just haven't turned auto-eval on yet.
+   */
+  private startEvalPolling(runId: string): void {
+    let attempts = 0;
+    const maxAttempts = 20;
+    const tick = (): void => {
+      if (attempts >= maxAttempts) return;
+      attempts += 1;
+      this.canonicalApi.getEvaluationByRun(runId).subscribe({
+        next: (res) => {
+          if (!res) return; // network hiccup — stop quietly
+          if (res.status === 'pending') {
+            window.setTimeout(tick, 1500);
+            return;
+          }
+          if (res.status === 'skipped') return;
+          if (res.status === 'completed' && res.breach) {
+            this.showBreachToast(res);
+          }
+        },
+        error: () => {
+          // Stop polling on hard error — transient 5xx will be
+          // retried by the next chat turn's polling loop.
+        },
+      });
+    };
+    window.setTimeout(tick, 1500);
+  }
+
+  private showBreachToast(res: {
+    composite_score?: number;
+    reasons?: Array<{ metric: string }>;
+    decision_id?: string | null;
+    run_id: string;
+  }): void {
+    const metricList = (res.reasons ?? [])
+      .map((r) => r.metric)
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(', ');
+    const score = res.composite_score != null ? Math.round(res.composite_score) : '—';
+    const title = 'Reply flagged by auto-QA';
+    const msg = metricList
+      ? `Composite ${score}/100 · breaches: ${metricList} · tap to review`
+      : `Composite ${score}/100 · tap to review`;
+    const t: ActiveToast<unknown> = this.toast.warning(msg, title, {
+      timeOut: 10000,
+      closeButton: true,
+      tapToDismiss: false,
+      enableHtml: false,
+    });
+    t.onTap.subscribe(() => {
+      // Deeplink priority: if the breach already produced a
+      // Decision row we jump to the review queue (so the reviewer
+      // can accept/reject inline); otherwise we fall back to the
+      // Run inspector for raw context.
+      if (res.decision_id) {
+        this.router.navigate(['/steering', 'review-queue'], {
+          queryParams: { decision: res.decision_id },
+        });
+      } else {
+        this.router.navigate(['/runs', res.run_id]);
+      }
+    });
   }
 
   rate(msg: ChatMessage, verdict: 'up' | 'down'): void {

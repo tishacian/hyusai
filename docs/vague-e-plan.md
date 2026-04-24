@@ -157,6 +157,14 @@ déclenche une **action** au lieu de juste s'afficher.
   actions fonctionnelles.
 - Le widget "Eval trend 7d" reflète les scores passés.
 
+**Statut (2026-04-25) : ✅ FERMÉ.** Migration 012 +
+`_persist_chat_run` + SSE `eval_pending` + `GET /evaluation/by-run`
++ toast ngx-toastr avec deeplink `/steering/review-queue?decision=…`
+livrés. Smoke VM validé — chat → Run → `schedule_eval` → judge →
+Decision → toast reviewer. Isolation multi-tenant testée
+(cross-workspace → 404, pas de leak). Voir journal 2026-04-25
+pour le détail.
+
 ### E2 — Playwright E2E
 
 Reporté de D6 (cf. note `backlog Playwright` du vague-d-plan). Stack
@@ -574,6 +582,108 @@ précisé après Vague D :
 - Démo : `https://agentium.papai.ai`
 
 ## Journal
+
+- **2026-04-25 — Changement de cap produit : sortie du mode démo,
+  construction du vrai produit.** Décision explicite user : on arrête
+  de framer les features par "ce qui rend la démo convaincante" et on
+  les implémente comme des capacités produit de bout en bout. En
+  pratique, trois conséquences immédiates sur le plan :
+  - Les features désormais s'évaluent sur leur cohérence avec le
+    **mental model canonique** (Workspace → System → Capability →
+    Run → Outcome → Decision), pas sur leur seul poids scénique dans
+    un pitch. Exemple concret qui a déclenché le shift : E1 était
+    marqué "92% — toast chat parké" alors que le vrai problème était
+    architectural (chat ne produisait pas de Run → toute la boucle
+    dormait). On ne parke plus un gap sémantique parce qu'il tombe
+    hors d'un sprint ; on le ferme.
+  - La DoD passe de "démo convaincante sur le happy path seed" à
+    "multi-tenant sûr + audit complet + observabilité de prod". Les
+    garde-fous (workspace scoping des FK, isolation cross-tenant
+    sur tous les lookups, rollback propre sur les migrations) sont
+    désormais des critères d'acceptation, plus des "bonus plus tard".
+  - On maintient les invariants déjà actés (SPF/DKIM parked OVH,
+    `admin/admin` disparu, backup post-rotation) mais on arrête de
+    compter "DKIM parké" comme un blocker à E0.5 — c'est une **limite
+    produit** à documenter auprès du client, pas un trou roadmap.
+    `secrets.md` + `vague-e-plan` journal sont les points d'ancrage
+    pour justifier ces décisions en audit client.
+  - Décision induite sur le produit : tout workspace hébergeant du
+    chat aura désormais un `Run` par tour (cf. E1 closure
+    ci-dessous). C'est la source de vérité pour l'audit ET la base
+    factuelle sur laquelle la Hypervisor Balance Sheet s'appuiera
+    quand on ouvrira le scope cost/value/confidence en Vague F.
+
+- **2026-04-25 — E1 FERMETURE : le chat produit maintenant des Runs,
+  toute la boucle d'auto-eval vit pour de vrai. Migration 012 +
+  endpoints chat + polling SSE + toast + deeplink review queue.**
+  Retour sur le gap exposé la veille (voir entrée 2026-04-24 E1
+  journal) : `orchestrator.process_request` streamait la réponse
+  mais ne persistait jamais de `Run`, donc `evaluate_run_async`
+  ne voyait rien à scorer sur la surface principale du produit.
+  Fix end-to-end, stack-wide :
+  - **Migration 012 `chat_runs_nullable_sys`** : `runs.system_id`
+    passe en nullable. Décision produit : un `Run` est canonique
+    à une `Workspace`, optionnel à une `System`. Chat workspace-wide
+    (sans System sélectionné) = Run quand même, scope
+    workspace. Tous les call-sites downstream vérifient déjà
+    `if run.system_id` (audité avant migration : `impact.py`,
+    `systems.py`, `auto_eval.py`, `run_engine/*`). Limite du
+    rollback documentée dans la migration (purge préalable des
+    chat Runs si on veut revenir à NOT NULL).
+  - **Backend chat endpoints** : `/chat/completion` et
+    `/chat/stream` persistent un `Run(status=completed,
+    trigger="chat", system_id=<valid FK or None>,
+    input_ref={query}, output_ref={response, sources,
+    reasoning_trace})` puis appellent `schedule_eval(run.id)`. Un
+    helper `_resolve_system_id` valide que le `agent_id` reçu
+    appartient bien au workspace courant (prévient toute tentative
+    de FK leak cross-tenant). Le helper `_persist_chat_run`
+    avale toute exception de la création Run pour ne jamais
+    casser la réponse utilisateur — l'audit est best-effort, la
+    réponse est critique.
+  - **SSE chunk `eval_pending`** : le stream émet un chunk final
+    `{chunk_type: "eval_pending", run_id}` après `[DONE]` pour
+    que le front puisse démarrer son polling. Le non-streaming
+    endpoint retourne `run_id` dans la réponse JSON.
+  - **Endpoint `GET /evaluation/by-run/{run_id}`** : nouveau,
+    triple état — `pending` (judge pas encore terminé), `skipped`
+    (preset désactivé ou sample_rate exclu le run) ou `completed`
+    (scores + breach + decision_id éventuel). Filtrage strict
+    sur `workspace_id` + 404 pour tout run d'un autre tenant
+    (validé par smoke : cross-workspace run → 404, pas 200).
+  - **Frontend chat-panel** : consomme `eval_pending`, poll
+    `/evaluation/by-run/:id` toutes les 1.5s (20 tentatives max =
+    30s budget), arrêt immédiat sur `skipped`. Sur breach, toast
+    warning ngx-toastr cliquable avec deeplink intelligent :
+    `/steering/review-queue?decision=:id` si une Decision a été
+    filée, sinon `/runs/:id` (raw context). Tap-to-dismiss
+    désactivé pour que le reviewer clique réellement au lieu de
+    balayer.
+  - **Review queue** : lit `?decision=:id`, highlight la row
+    correspondante (bordure gauche warn + fond soft) et
+    `scrollIntoView` smooth. La surbrillance disparaît au
+    changement de filtre — l'utilisateur a "quitté" le contexte
+    du toast. "Open run" déjà présent, aucune modif côté actions.
+  - **Smoke VM** (`/tmp/e1_chat_smoke.py` + `/tmp/e1_api_probe.py`) :
+    2 Runs chat persistés via helper → preset STRICT
+    (`composite_min=99.99`) → `composite=99.6` → breach=True,
+    `Decision(review_required)` filée, `EvaluationScore(run_id=...)`
+    posée, `Run.evaluation_scores.threshold_breach=True`. Preset
+    PERMISSIVE → breach=False, aucune Decision, snapshot posé.
+    Endpoint `/evaluation/by-run/:id` renvoie `200 completed
+    breach=true decision_id=...` sur le Run breaché, `200
+    completed breach=false` sur le permissif, `404` sur id
+    inconnu ET sur un Run d'un autre tenant. Runs de test
+    purgés après validation (workspace revient à l'état
+    production-clean).
+  - **Ce qui reste en backlog E1** : rien de bloquant. Le flow
+    d'activation preset (`enabled=true` sur un workspace client
+    depuis le Settings UI) est déjà livré (`EvaluationPresetComponent`,
+    commit `2930dbe`), le widget Eval trend 7d tourne en live.
+    Le nice-to-have "badge évaluation inline dans la bulle
+    assistant" est une itération UX pour Vague F ou après,
+    pas un trou fonctionnel : le toast + deeplink ferme la
+    boucle actionnable sur la breach.
 
 - **2026-04-24 — E1 auto-eval loop validé bout-en-bout sur la VM
   live. Toutes les briques ship, seul le câblage preset
