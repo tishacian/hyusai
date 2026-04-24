@@ -31,7 +31,8 @@ from app.models.run import Run
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services.chains import dag_validator, version_service
+from app.services.audit_logger import emit_audit_event
+from app.services.chains import dag_validator, export_service, version_service
 from app.services.run_engine import schedule_run
 
 router = APIRouter()
@@ -447,6 +448,143 @@ async def rollback_system_version(
         "system": _serialize(s),
         "new_version": version_service.serialize_version(new_version),
     }
+
+
+# ---------------- Export / Import (Vague E / E3.4) ----------------
+
+
+class SystemImportBody(BaseModel):
+    """Import payload — the envelope produced by ``GET /{id}/export``.
+
+    ``target_name`` lets the caller override the system name at import
+    time (useful for cloning: "Chain X (copy)"). Validation and version
+    seeding mirror ``POST /systems``.
+    """
+
+    envelope: Dict[str, Any]
+    target_name: Optional[str] = None
+
+
+@router.get("/{system_id}/export")
+async def export_system(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Serialize ``system_id`` into a portable JSON envelope.
+
+    The payload strips DB-scoped identifiers (``id``, ``workspace_id``,
+    audit metadata) and replaces per-node ``skill_id`` with ``skill_slug``
+    so the receiver can rebind against its own catalog.
+    """
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
+    if not s:
+        raise HTTPException(404, "System not found")
+    actor = _actor_display_name(user)
+    payload = export_service.serialize_for_export(
+        db=db, system=s, exported_by=actor
+    )
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="chain.export",
+        actor=actor,
+        details={"system_id": s.id, "system_name": s.name},
+        db=db,
+    )
+    return payload
+
+
+@router.post("/import")
+async def import_system(
+    body: SystemImportBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Create a new System from an exported envelope.
+
+    The flow is validated through the same DAG validator as PATCH, so
+    a malformed envelope cannot sneak a broken chain into the
+    workspace. Skill slugs that don't resolve in the target workspace
+    are reported under ``unresolved_skills`` in the response — the
+    import still succeeds, the operator rebinds manually afterwards.
+    """
+    try:
+        create_kwargs, report = export_service.prepare_import(
+            db=db,
+            envelope=body.envelope,
+            workspace_id=workspace.id,
+            target_name=body.target_name,
+        )
+    except export_service.ChainExportError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_envelope", "message": str(exc)},
+        ) from exc
+
+    flow = create_kwargs.get("flow_definition") or {}
+    issues = dag_validator.validate_flow(flow)
+    if dag_validator.has_errors(issues):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "flow_invalid",
+                "message": "Imported flow has structural errors.",
+                "issues": dag_validator.issues_to_payload(issues),
+            },
+        )
+
+    actor = _actor_display_name(user)
+    s = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name=create_kwargs["name"],
+        objective=create_kwargs["objective"],
+        skill_ids=create_kwargs["skill_ids"],
+        flow_definition=flow,
+        execution_mode=create_kwargs["execution_mode"],
+        execution_profile=create_kwargs["execution_profile"] or None,
+        coordination_pattern=create_kwargs["coordination_pattern"],
+        status="draft",
+        created_by=actor,
+        default_prompt_type=create_kwargs["default_prompt_type"],
+        default_model=create_kwargs["default_model"],
+        retrieval_mode_default=create_kwargs["retrieval_mode_default"] or "auto",
+    )
+    db.add(s)
+    db.flush()
+    version_service.record_new_version(
+        db=db,
+        system=s,
+        flow_definition=flow,
+        created_by=actor,
+        message="Imported from envelope",
+    )
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="chain.import",
+        actor=actor,
+        details={
+            "system_id": s.id,
+            "source": report.get("source", {}),
+            "unresolved_skills": report.get("unresolved_skills", []),
+            "task_rebind_count": len(report.get("task_node_rebinds", [])),
+        },
+        db=db,
+    )
+    db.commit()
+    db.refresh(s)
+    payload = _serialize(s)
+    payload["import_report"] = report
+    payload["validation_warnings"] = dag_validator.issues_to_payload(
+        [i for i in issues if i.level == "warn"]
+    )
+    return payload
 
 
 @router.get("/{system_id}/runs")

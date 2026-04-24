@@ -223,6 +223,55 @@ export interface SystemRollbackResult {
   new_version: SystemVersionFull;
 }
 
+/** Export envelope shape — mirrors ``services.chains.export_service``.
+ *  The UI keeps it as an opaque ``Record<string, unknown>`` for upload
+ *  but validates the top-level keys before shipping it to the import
+ *  endpoint (Vague E / E3.4). */
+export interface SystemExportEnvelope {
+  kind: 'agentium.system.export';
+  schema_version: number;
+  exported_at: string;
+  exported_by: string;
+  source: { workspace_id: string | null; system_id: string };
+  system: {
+    name: string;
+    objective: string;
+    flow_definition: Record<string, unknown>;
+    skill_slugs: string[];
+    execution_mode: string;
+    execution_profile: Record<string, unknown>;
+    coordination_pattern: string;
+    default_prompt_type: string | null;
+    default_model: string | null;
+    retrieval_mode_default: string | null;
+  };
+}
+
+export interface SystemImportReport {
+  resolved_skills: { slug: string; skill_id: string }[];
+  unresolved_skills: string[];
+  task_node_rebinds: {
+    node_id: string | null;
+    slug: string;
+    skill_id: string | null;
+  }[];
+  source?: { workspace_id?: string | null; system_id?: string };
+}
+
+export type SystemImportResult =
+  | {
+      ok: true;
+      system: System;
+      import_report: SystemImportReport;
+      validation_warnings: FlowValidationIssue[];
+    }
+  | {
+      ok: false;
+      reason: 'invalid_envelope' | 'flow_invalid' | 'network';
+      message: string;
+      issues: FlowValidationIssue[];
+    };
+
 /** Discriminated union returned by ``saveSystemFlow``. ``ok=true`` means
  *  the PATCH landed (warnings may still be present); ``ok=false`` with
  *  ``reason='invalid'`` carries the structured DAG errors the editor
@@ -560,6 +609,83 @@ export class CanonicalApiService {
         message: message ?? null,
       })
       .pipe(catchError(() => of(null)));
+  }
+
+  /** Fetch the portable JSON envelope for a system (Vague E / E3.4). */
+  exportSystem(id: string): Observable<SystemExportEnvelope | null> {
+    return this.api
+      .get<SystemExportEnvelope>(`/systems/${id}/export`)
+      .pipe(catchError(() => of(null)));
+  }
+
+  /** Import a system from an envelope. Mirrors the ``saveSystemFlow``
+   *  discriminated-union pattern so the UI can distinguish a malformed
+   *  envelope, a structurally-invalid flow, and a network failure. */
+  importSystem(
+    envelope: Record<string, unknown>,
+    targetName?: string | null,
+  ): Observable<SystemImportResult> {
+    return this.api
+      .post<System & {
+        import_report: SystemImportReport;
+        validation_warnings?: FlowValidationIssue[];
+      }>('/systems/import', {
+        envelope,
+        target_name: targetName ?? null,
+      })
+      .pipe(
+        map((res) => {
+          if (!res) {
+            return {
+              ok: false,
+              reason: 'network',
+              message: 'Empty backend response.',
+              issues: [],
+            } satisfies SystemImportResult;
+          }
+          const { import_report, validation_warnings, ...rest } = res;
+          return {
+            ok: true,
+            system: rest as System,
+            import_report,
+            validation_warnings: validation_warnings ?? [],
+          } satisfies SystemImportResult;
+        }),
+        catchError((err: HttpErrorResponse | unknown) => {
+          if (err instanceof HttpErrorResponse && err.status === 400) {
+            const detail = (err.error?.detail ?? err.error) as {
+              error?: string;
+              message?: string;
+              issues?: FlowValidationIssue[];
+            } | undefined;
+            if (detail?.error === 'flow_invalid') {
+              return of<SystemImportResult>({
+                ok: false,
+                reason: 'flow_invalid',
+                message: detail.message ?? 'Imported flow has structural errors.',
+                issues: detail.issues ?? [],
+              });
+            }
+            if (detail?.error === 'invalid_envelope') {
+              return of<SystemImportResult>({
+                ok: false,
+                reason: 'invalid_envelope',
+                message: detail.message ?? 'Envelope is malformed.',
+                issues: [],
+              });
+            }
+          }
+          return of<SystemImportResult>({
+            ok: false,
+            reason: 'network',
+            message:
+              (err as HttpErrorResponse)?.statusText ||
+              (err as Error)?.message ||
+              'Unknown backend error.',
+            issues: [],
+          });
+        }),
+      );
   }
 
   // ---- Contexts ------------------------------------------------------------

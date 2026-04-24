@@ -63,7 +63,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | **E0** | **Security hardening — rotation secrets (KC admin, KC client_secret, PG), DKIM activation, secret manager** | **P0** | **M** | — |
 | E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI | P0 | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
-| E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 scope commun backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). Reste E3.3 node-props + E3.4 export/import. | P1 | L | C6 |
+| E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). **E3.3 node-props kind-specific livré 2026-04-24** (decision/fork/join/loop/retry/HITL/subflow éditeurs + task params rendus depuis `Skill.input_schema`, label éditable, helper `patchSelectedConfig`). **E3.4 export/import JSON livré 2026-04-24** (`GET /systems/{id}/export` envelope canonique, `POST /systems/import` avec re-binding par skill_slug + fallback gracieux, UI download + upload modal avec report). **E3 CLOSED.** | ✅ | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). Reste E4.2 Agentium Connector binaire (E4b) + E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
 | E5 | Recommandations proactives — Decision générée depuis l'analyse agrégée multi-runs | P2 | L | E1 |
 | E6 | Simulation offline — rejouer un run sur une policy alternative | P3 | M | C6 |
@@ -1266,6 +1266,104 @@ précisé après Vague D :
   - **Reste pour clôturer E3 après E3.2** :
     - *E3.3* : formulaires éditables par kind dans l'inspector.
     - *E3.4* : export / import JSON avec re-binding des skills.
+
+- **2026-04-24 — E3.3 (node-props éditables par kind) livré + smoke
+  vert sur `omnirag-demo`.** L'inspector a cessé d'être un viewer en
+  lecture seule pour tout ce qui n'est pas le skill binder. Chaque kind
+  a désormais un formulaire dédié qui écrit directement sur
+  `canonical_config` via le helper mutualisé `patchSelectedConfig`
+  (même pattern que `bindSkill`) :
+  - *Label* : input éditable en tête d'inspector, avec sync du DOM
+    `.df-node-title` pour refléter immédiatement sur le node canvas.
+  - *Decision* : branches `{ label, condition }` avec add/remove (min 2,
+    max 8), default_branch dropdown.
+  - *Fork* : liste de branch-names free-form avec add/remove.
+  - *Join* : picker strategy `all` / `any` / `race` (inline doc dans
+    les `<option>` pour clarifier la sémantique).
+  - *Loop* : iterator (expression contexte), `max_iterations` borné
+    1..1000, `break_on` optionnel.
+  - *Retry* : `max_attempts` 1..20, `backoff_ms`, `on_errors` CSV
+    → normalisé en liste côté frontend avant write.
+  - *HITL* : `prompt` textarea (max 2000), `timeout_ms`, `approvers`
+    CSV. `timeout_ms === 0` sérialise `undefined` pour un wait infini.
+  - *Subflow* : picker System (lazy-load via `canonical.listSystems`,
+    exclut le `systemId` courant pour bloquer l'auto-récursion
+    triviale), `input_map` key=value multi-ligne.
+  - *Task* : `params` rendus depuis `Skill.input_schema` en
+    JSON-schema-lite (types `string` / `number` / `integer` /
+    `boolean`, `enum` → select, `required` → astérisque rouge) +
+    textareas `inputs_map` / `outputs_map` pour les routings avancés.
+  - Styles (`.df-kind-editor`, `.df-field-label`, `.df-branch-row`,
+    `.df-ghost-btn`, `.df-icon-btn`, `.df-param-row`) — cohérents avec
+    la palette existante (brand violet focus, amber pour les warnings).
+  - **Smoke** (`/tmp/e33_smoke.py`, TestClient) : flow de 10 nœuds
+    exerçant chaque kind, PATCH → 200 v2, relecture vérifie que les 8
+    shapes de config survivent round-trip. Toutes les assertions vertes.
+  - **Backend intact** : le DAG validator n'a rien à dire sur les
+    nouvelles clés (`params`, `inputs_map`, `outputs_map`, etc.) — il
+    vérifie la structure du graphe, pas la forme des configs, donc
+    E3.3 est 100% frontend.
+
+- **2026-04-24 — E3.4 (export / import JSON) livré, E3 CLOSED.**
+  Un chain peut désormais être emballé dans une enveloppe JSON portable
+  (aucun ID DB, skills par `slug`) et réimporté dans un autre workspace,
+  avec re-binding automatique contre le catalogue local.
+  - **Backend** :
+    - `services/chains/export_service.py` (nouveau) : `SCHEMA_VERSION=1`,
+      `ENVELOPE_KIND="agentium.system.export"`. `serialize_for_export`
+      strip `skill_id` de chaque node task (garde `skill_slug`) et
+      résout `skill_ids` → `skill_slugs` au niveau système.
+      `prepare_import` fait le chemin inverse : lookup Skill par slug
+      (préférence workspace-scoped > global), remplit
+      `skill_id` sur les task nodes, renvoie un report
+      `{ resolved_skills, unresolved_skills, task_node_rebinds }`. Les
+      slugs non-résolus ne bloquent PAS l'import — l'opérateur lie
+      manuellement après coup.
+    - `api/v1/endpoints/systems.py` : `GET /systems/{id}/export`
+      (audit `chain.export`) et `POST /systems/import`
+      (audit `chain.import` avec compteur `task_rebind_count` +
+      `unresolved_skills`). L'import passe le flow dans le DAG
+      validator — un flow structurellement cassé (cycle, orphan…)
+      renvoie le même 400 `flow_invalid` que `PATCH /systems`. Envelope
+      malformée → 400 `invalid_envelope` (distinct de flow_invalid).
+    - 7 tests unitaires dans `test_chain_export_service.py` : round-trip
+      export/import, unresolved slugs surfacés sans échec, wrong kind
+      / wrong schema_version → `ChainExportError`, override
+      `target_name`. **32 tests chains verts au total.**
+  - **Frontend** :
+    - `canonical-api.service.ts` : types `SystemExportEnvelope`,
+      `SystemImportReport`, discriminated union `SystemImportResult`
+      (`ok=true` avec system + report ; `ok=false` avec
+      `reason: 'invalid_envelope' | 'flow_invalid' | 'network'`).
+      Méthodes `exportSystem`, `importSystem`.
+    - `workflow-editor.component.ts` : deux nouveaux boutons toolbar
+      (**Export** visible seulement sur un System persisté ; **Import**
+      toujours dispo). Export déclenche un download Blob en deux clics,
+      nom de fichier slugifié. Import ouvre un modal (paste JSON OU
+      upload `.json` ≤ 2 MiB), champ optionnel `target_name`, validation
+      côté client (kind + schema_version) avant POST. En cas de succès,
+      toast + navigation vers le clone. Si des skills sont unresolved,
+      le report les liste sous forme de chips amber et le toast est
+      "warning" plutôt que "success" pour signaler qu'il reste du
+      binding à faire.
+    - Styles (`.df-modal--wide`, `.df-modal-textarea`, `.df-import-*`) :
+      modal plus large pour accueillir le textarea + le report.
+  - **Smoke HTTP** (`/tmp/e34_smoke.py`) : export d'un system avec un
+    task node skill-bound → envelope conforme (skill_id stripped,
+    skill_slug kept) → import en clone → skill re-binding automatique
+    sur le task node (même `skill_id` en target car skill globale),
+    params `{temperature: 0.2}` préservés, v1 seeded. Scénarios
+    d'erreur vérifiés : envelope `kind: bogus` → 400 `invalid_envelope`,
+    flow cyclique → 400 `flow_invalid`. Tous verts.
+  - **Résultat** : E3 est bouclé. Un praticien peut désormais construire
+    une chain, la valider en live via la strip d'issues, versionner
+    chaque save, parcourir et rejouer l'historique, éditer proprement
+    chaque kind-spécificité dans l'inspector, et l'exporter/importer
+    entre workspaces sans régénérer la config à la main. Les vraies
+    limitations restantes (params editor reste JSON-schema-lite, pas
+    de drag-drop pour réordonner les branches, pas de diff visuel
+    granulaire dans le panneau Versions) sont du polish, pas des gaps
+    produit.
 
 - **2026-04-24 — Décisions roadmap E3 + E4.2 confirmées par le lead
   produit.**

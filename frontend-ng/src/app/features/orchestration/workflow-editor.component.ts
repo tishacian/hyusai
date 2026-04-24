@@ -27,6 +27,8 @@ import {
   CanonicalApiService,
   type Run,
   type Skill,
+  type SystemExportEnvelope,
+  type SystemImportReport,
   type SystemVersionFull,
   type SystemVersionSummary,
   type System,
@@ -142,6 +144,27 @@ interface FlowTemplate {
           <app-icon name="history" [size]="14" /> Versions
         </button>
       }
+      @if (systemId()) {
+        <button
+          actions
+          type="button"
+          (click)="exportCurrentSystem()"
+          [disabled]="exporting()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          title="Download this system as a portable JSON envelope (no DB IDs, skills referenced by slug)."
+        >
+          <app-icon name="download" [size]="14" /> Export
+        </button>
+      }
+      <button
+        actions
+        type="button"
+        (click)="openImportModal()"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        title="Import a chain from a JSON envelope. Skills are rebound by slug against the current workspace."
+      >
+        <app-icon name="upload" [size]="14" /> Import
+      </button>
       <button
         actions
         type="button"
@@ -1112,6 +1135,102 @@ interface FlowTemplate {
         </footer>
       </div>
     }
+
+    <!-- Import modal (Vague E / E3.4) -->
+    @if (importModalOpen()) {
+      <div class="df-modal-backdrop" (click)="closeImportModal()" aria-hidden="true"></div>
+      <div class="df-modal df-modal--wide t-card t-elevated" role="dialog" aria-label="Import chain from envelope">
+        <header class="df-modal-head">
+          <app-icon name="upload" [size]="14" class="text-brand-300" />
+          <span class="text-xs font-medium text-white">Import chain from JSON</span>
+        </header>
+        <div class="df-modal-body">
+          <p class="text-[12px] text-gray-300 leading-snug">
+            Paste an envelope produced by <span class="ck-mono text-brand-300">Export</span>, or
+            pick a <span class="ck-mono">.json</span> file. Skills are rebound by slug against
+            the current workspace; any missing slugs are listed in the report below — you can
+            finish binding manually afterwards.
+          </p>
+          <label class="df-modal-label" for="import-name">Target name (optional)</label>
+          <input
+            id="import-name"
+            type="text"
+            class="df-modal-input"
+            [value]="importTargetName()"
+            (input)="onImportNameChange($event)"
+            placeholder="Imported chain"
+            maxlength="200"
+            [disabled]="importPending()"
+          />
+          <label class="df-modal-label" for="import-file">JSON file</label>
+          <input
+            id="import-file"
+            type="file"
+            accept="application/json,.json"
+            class="df-modal-input"
+            (change)="onImportFileChange($event)"
+            [disabled]="importPending()"
+          />
+          <label class="df-modal-label" for="import-paste">… or paste the envelope</label>
+          <textarea
+            id="import-paste"
+            class="df-modal-input df-modal-textarea ck-mono"
+            [value]="importPaste()"
+            (input)="onImportPasteChange($event)"
+            [placeholder]="importPastePlaceholder"
+            rows="6"
+            [disabled]="importPending()"
+          ></textarea>
+          @if (importError()) {
+            <div class="df-import-error">
+              <app-icon name="alert-triangle" [size]="12" class="text-rose-400" />
+              <span>{{ importError() }}</span>
+            </div>
+          }
+          @if (importReport(); as rep) {
+            <div class="df-import-report">
+              <div class="df-import-report-row">
+                <span class="text-gray-400">Skills resolved</span>
+                <span class="text-emerald-300 ck-mono">{{ rep.resolved_skills.length }}</span>
+              </div>
+              <div class="df-import-report-row">
+                <span class="text-gray-400">Skills unresolved</span>
+                <span [class.text-amber-300]="rep.unresolved_skills.length > 0" class="ck-mono">
+                  {{ rep.unresolved_skills.length }}
+                </span>
+              </div>
+              @if (rep.unresolved_skills.length > 0) {
+                <div class="df-import-report-slugs">
+                  @for (s of rep.unresolved_skills; track s) {
+                    <code class="df-import-slug-chip">{{ s }}</code>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+        <footer class="df-modal-actions">
+          <button
+            type="button"
+            class="df-modal-btn df-modal-btn--ghost"
+            (click)="closeImportModal()"
+            [disabled]="importPending()"
+          >Cancel</button>
+          <button
+            type="button"
+            class="df-modal-btn df-modal-btn--primary"
+            (click)="confirmImport()"
+            [disabled]="importPending() || !importPaste().trim()"
+          >
+            @if (importPending()) {
+              <app-icon name="loader-2" [size]="12" class="animate-spin" /> Importing…
+            } @else {
+              <app-icon name="upload" [size]="12" /> Import
+            }
+          </button>
+        </footer>
+      </div>
+    }
   `,
 })
 export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy {
@@ -1173,6 +1292,21 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     nodes: new Set(),
     edges: new Set(),
   };
+
+  // Export / Import state (Vague E / E3.4) — download current system as a
+  // portable envelope, or create a new system from an uploaded envelope.
+  // ``importPaste`` is the source of truth for the modal; file selection
+  // simply reads the file into the same signal so the "paste or upload"
+  // paths stay symmetric.
+  readonly exporting = signal(false);
+  readonly importModalOpen = signal(false);
+  readonly importPending = signal(false);
+  readonly importPaste = signal('');
+  readonly importTargetName = signal('');
+  readonly importError = signal<string | null>(null);
+  readonly importReport = signal<SystemImportReport | null>(null);
+  readonly importPastePlaceholder =
+    '{\n  "kind": "agentium.system.export",\n  "schema_version": 1,\n  ...\n}';
 
   // Inspector / Terminal state.
   readonly selectedNodeId = signal<string | null>(null);
@@ -2644,6 +2778,175 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       return;
     }
     this.router.navigate(['/systems', sid], { queryParams: { facet: 'overview' } });
+  }
+
+  // ---------- Export / Import (Vague E / E3.4) ----------
+
+  /** Download the current system as a portable JSON envelope. Uses the
+   *  browser's Blob + anchor download trick — zero new dependencies. */
+  exportCurrentSystem(): void {
+    const sid = this.systemId();
+    const name = this.system()?.name ?? 'chain';
+    if (!sid) return;
+    this.exporting.set(true);
+    this.canonical.exportSystem(sid).subscribe({
+      next: (envelope) => {
+        this.exporting.set(false);
+        if (!envelope) {
+          this.toastr.error('Export failed — backend rejected the request.', 'Export');
+          return;
+        }
+        this.downloadJson(envelope, this.slugifyFileName(name));
+        this.toastr.success(`Downloaded "${name}.json"`, 'Export');
+      },
+      error: () => {
+        this.exporting.set(false);
+        this.toastr.error('Export failed — network error.', 'Export');
+      },
+    });
+  }
+
+  openImportModal(): void {
+    this.importModalOpen.set(true);
+    this.importPaste.set('');
+    this.importTargetName.set('');
+    this.importError.set(null);
+    this.importReport.set(null);
+  }
+
+  closeImportModal(): void {
+    if (this.importPending()) return;
+    this.importModalOpen.set(false);
+  }
+
+  onImportNameChange(ev: Event): void {
+    this.importTargetName.set((ev.target as HTMLInputElement | null)?.value ?? '');
+  }
+
+  onImportPasteChange(ev: Event): void {
+    this.importPaste.set((ev.target as HTMLTextAreaElement | null)?.value ?? '');
+    this.importError.set(null);
+    this.importReport.set(null);
+  }
+
+  onImportFileChange(ev: Event): void {
+    const input = ev.target as HTMLInputElement | null;
+    const file = input?.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      this.importError.set('File is larger than 2 MiB — refusing to load.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? '');
+      this.importPaste.set(text);
+      if (!this.importTargetName().trim()) {
+        // Default the clone name to "<fileStem> (copy)" so the user sees
+        // a sensible value they can tweak before hitting Import.
+        const stem = file.name.replace(/\.json$/i, '').trim();
+        if (stem) this.importTargetName.set(`${stem} (copy)`);
+      }
+      this.importError.set(null);
+      this.importReport.set(null);
+    };
+    reader.onerror = () => {
+      this.importError.set('Could not read file.');
+    };
+    reader.readAsText(file);
+  }
+
+  confirmImport(): void {
+    const raw = this.importPaste().trim();
+    if (!raw) {
+      this.importError.set('Paste an envelope or pick a JSON file first.');
+      return;
+    }
+    let envelope: Record<string, unknown>;
+    try {
+      envelope = JSON.parse(raw);
+    } catch (err) {
+      this.importError.set(
+        `Invalid JSON: ${(err as Error)?.message ?? 'could not parse.'}`,
+      );
+      return;
+    }
+    if (envelope?.['kind'] !== 'agentium.system.export') {
+      this.importError.set(
+        'Payload is not an Agentium export envelope (wrong ``kind``).',
+      );
+      return;
+    }
+    this.importPending.set(true);
+    this.importError.set(null);
+    const target = this.importTargetName().trim() || null;
+    this.canonical.importSystem(envelope, target).subscribe({
+      next: (res) => {
+        this.importPending.set(false);
+        if (!res.ok) {
+          if (res.reason === 'flow_invalid') {
+            this.importError.set(
+              `Imported flow is invalid — ${res.issues.length} structural issue(s).`,
+            );
+            this.serverIssues.set(res.issues as unknown as FlowValidationIssue[]);
+          } else if (res.reason === 'invalid_envelope') {
+            this.importError.set(res.message);
+          } else {
+            this.importError.set(res.message || 'Network error during import.');
+          }
+          this.toastr.error(this.importError() ?? 'Import failed', 'Import');
+          return;
+        }
+        this.importReport.set(res.import_report);
+        const unresolved = res.import_report.unresolved_skills.length;
+        const msg = unresolved > 0
+          ? `Imported "${res.system.name}" — ${unresolved} unresolved skill(s).`
+          : `Imported "${res.system.name}".`;
+        if (unresolved > 0) {
+          this.toastr.warning(msg, 'Import');
+        } else {
+          this.toastr.success(msg, 'Import');
+        }
+        // Navigate to the newly-created system so the user lands on the
+        // editor with the imported flow already loaded. The modal stays
+        // open just long enough to show the report, then closes on nav.
+        setTimeout(() => {
+          this.importModalOpen.set(false);
+          this.router.navigate(['/workflow'], {
+            queryParams: { systemId: res.system.id },
+          });
+        }, 800);
+      },
+      error: () => {
+        this.importPending.set(false);
+        this.importError.set('Network error during import.');
+        this.toastr.error('Import failed — network error.', 'Import');
+      },
+    });
+  }
+
+  private downloadJson(payload: SystemExportEnvelope, baseName: string): void {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${baseName}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  private slugifyFileName(name: string): string {
+    const slug = name
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+    return slug || 'chain';
   }
 
   // ---------- Skills binder ----------

@@ -1057,6 +1057,67 @@
   overflow: hidden;
   z-index: 51;
   box-shadow: 0 30px 60px rgba(0, 0, 0, 0.55);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
+
+.df-modal--wide {
+  width: 560px;
+}
+
+.df-modal-body {
+  overflow-y: auto;
+}
+
+.df-modal-textarea {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.df-import-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 8px;
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.2);
+  border-radius: 4px;
+  font-size: 11px;
+  color: rgb(254, 205, 211);
+}
+
+.df-import-report {
+  margin-top: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+}
+
+.df-import-report-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 2px 0;
+}
+
+.df-import-report-slugs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.df-import-slug-chip {
+  padding: 1px 6px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 3px;
+  font-size: 10px;
+  color: rgb(253, 224, 71);
 }
 
 .df-modal-head {
