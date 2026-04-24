@@ -63,7 +63,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | **E0** | **Security hardening — rotation secrets (KC admin, KC client_secret, PG), DKIM activation, secret manager** | **P0** | **M** | — |
 | E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI | P0 | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
-| E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 scope commun backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). Reste E3.2 UI versioning + E3.3 node-props + E3.4 export/import. | P1 | L | C6 |
+| E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 scope commun backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). Reste E3.3 node-props + E3.4 export/import. | P1 | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). Reste E4.2 Agentium Connector binaire (E4b) + E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
 | E5 | Recommandations proactives — Decision générée depuis l'analyse agrégée multi-runs | P2 | L | E1 |
 | E6 | Simulation offline — rejouer un run sur une policy alternative | P3 | M | C6 |
@@ -1207,6 +1207,65 @@ précisé après Vague D :
       subflow picker, task params depuis `Skill.input_schema`).
     - *E3.4* : `GET /systems/{id}/export` + `POST /systems/import`
       avec re-binding des skills par slug.
+
+- **2026-04-24 — E3.2 (UI versioning + rollback panel + save gate)
+  livré + smoke vert sur `omnirag-demo`.**
+  Le builder peut désormais consommer tout ce que E3.1 a exposé :
+  le save n'avale plus les erreurs serveur, l'historique est visible
+  et parcourable, et le rollback se fait en deux clics. Reste E3.3 et
+  E3.4 pour clôturer E3.
+  - **Frontend** :
+    - `canonical-api.service.ts` : nouveaux types `SystemVersionSummary`,
+      `SystemVersionFull`, `SystemVersionList`, `SystemRollbackResult`,
+      `FlowValidationIssue` (mirror backend) et le **discriminated
+      union** `SaveSystemFlowResult` (`ok: true` + warnings optionnels
+      + `new_version` ; `ok: false` + `reason: 'invalid' | 'network'` +
+      `issues`). Méthodes `saveSystemFlow`, `listSystemVersions`,
+      `getSystemVersion`, `rollbackSystemVersion`.
+    - `workflow-editor.component.ts` : bouton toolbar "Versions"
+      (ouvre un drawer droit), signals `versions`, `versionsTotal`,
+      `versionsLoading`, `versionPreviews`, `rollbackTarget`,
+      `rollbackPending`, `rollbackMessage`, `serverIssues` +
+      computed `allIssues` (merge client + serveur). Le drawer affiche
+      v{n}, auteur, timestamp relatif, `node_count`/`edge_count` et un
+      diff count vs. canvas (symmetric diff si le payload complet est
+      déjà caché, sinon delta directionnel). Row courante marquée
+      `CURRENT`, rows issues d'un rollback marquées `ROLLBACK`.
+    - Modal de rollback : confirmation + message optionnel (pré-rempli
+      `rollback to v{n}`), CTA primary en `signal-warn`. Après succès :
+      reload du System, `importFlow` du payload rollback,
+      `refreshVersions`, `serverIssues.set([])`, toast confirmant
+      `v{old} → new v{new}`.
+    - Save gate : `saveToSystem` remplace `canonical.updateSystem` par
+      `saveSystemFlow`. Sur `ok: false, reason: 'invalid'`, on publie
+      les issues dans `serverIssues` (la strip au-dessus du canvas les
+      distingue des client issues avec un tag `SERVER`) et on toast
+      "Save blocked — N structural errors". Sur `ok: true`, warnings
+      serveur survivent dans la strip (info only).
+    - Styles `workflow-editor.styles.scss` : nouveau bloc E3.2
+      (`.df-versions-panel`, `.df-version-row[data-current]`,
+      `.df-version-row__msg`, `.df-version-btn`, `.df-modal*`).
+    - `flow-serializer.service.ts` : union `FlowValidationIssue.code`
+      étendue à `node_orphan` pour matcher le validator backend
+      (sinon TS rejetait la cast).
+  - **Pas de nouveau backend nécessaire** — E3.2 consomme tout ce que
+    E3.1 a exposé (`PATCH /systems/{id}` avec 400 structuré,
+    `GET /systems/{id}/versions`, `GET /systems/{id}/versions/{n}`,
+    `POST /systems/{id}/versions/{n}/rollback`).
+  - **Smoke backend** (`/tmp/e32_smoke.py`, TestClient avec overrides
+    Keycloak) — 5 scénarios end-to-end verts confirmant que l'enveloppe
+    d'erreur 400 est bien `{detail: {error: "flow_invalid", issues:
+    [...]}}` (ce que le client Angular parse via
+    `err.error.detail.issues`) :
+    - Création → 200
+    - PATCH invalid (2 tasks sans skill + sans arêtes) → 400 avec 4
+      issues (`task_no_skill` × 2, `node_orphan` × 2)
+    - PATCH valid (source → sink) → 200 avec `new_version.v=2`
+    - `GET /versions` → 2 rows
+    - `POST /rollback` vers v1 → 200 avec `new_version.v=3`
+  - **Reste pour clôturer E3 après E3.2** :
+    - *E3.3* : formulaires éditables par kind dans l'inspector.
+    - *E3.4* : export / import JSON avec re-binding des skills.
 
 - **2026-04-24 — Décisions roadmap E3 + E4.2 confirmées par le lead
   produit.**
