@@ -14,6 +14,7 @@ import { map } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import {
   CanonicalApiService,
+  type ActiveSuggestion,
   type EvaluationReviewQueueResponse,
   type ReviewQueueItem,
   type RunReplayResult,
@@ -240,6 +241,23 @@ import {
                           {{ suggestion(item) }}
                         </div>
                       }
+                      @if (activeSuggestion(item); as active) {
+                        <div
+                          class="ck-mono"
+                          style="font-size:11px; color:var(--ck-fg-2); margin-top:8px; padding:8px 10px; background:var(--ck-bg-inset); border-radius:3px; border-left:2px solid var(--ck-signal-warm); line-height:1.55;"
+                        >
+                          <div style="color:var(--ck-signal-warm); letter-spacing:0.12em; text-transform:uppercase; font-size:10px;">
+                            ACTIVE SUGGESTION · {{ (active.source || 'fallback').toUpperCase() }}
+                          </div>
+                          <div style="color:var(--ck-fg-1); margin-top:3px;">{{ active.title || 'Apply remediation' }}</div>
+                          @if (active.rationale) {
+                            <div style="color:var(--ck-fg-3); margin-top:3px;">{{ truncate(active.rationale, 220) }}</div>
+                          }
+                          @if (active.expected_effect) {
+                            <div style="color:var(--ck-signal-cool); margin-top:3px;">{{ active.expected_effect }}</div>
+                          }
+                        </div>
+                      }
                     </div>
 
                     <!-- Actions -->
@@ -269,6 +287,19 @@ import {
                         </button>
                       }
                       @if (item.run) {
+                        @if (activeSuggestion(item) && item.decision.status === 'proposed') {
+                          <button
+                            type="button"
+                            (click)="applySuggestion(item)"
+                            [disabled]="!!pendingId() || applyingSuggestionId() === item.decision.id"
+                            class="ck-mono"
+                            style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; background:var(--ck-signal-warm); color:var(--ck-on-signal); font-weight:600;"
+                            [style.opacity]="(!!pendingId() || applyingSuggestionId() === item.decision.id) ? '0.5' : '1'"
+                            title="Apply the active suggestion — creates a replay with the suggested overrides and marks this decision applied"
+                          >
+                            {{ applyingSuggestionId() === item.decision.id ? 'APPLYING…' : 'APPLY' }}
+                          </button>
+                        }
                         <button
                           type="button"
                           (click)="openReplayModal(item)"
@@ -434,6 +465,7 @@ export class SteeringReviewQueueComponent implements OnInit {
   readonly items = signal<ReviewQueueItem[]>([]);
   readonly loading = signal(false);
   readonly pendingId = signal<string | null>(null);
+  readonly applyingSuggestionId = signal<string | null>(null);
   readonly status = signal<'proposed' | 'accepted' | 'rejected' | 'all'>('proposed');
   readonly componentFilter = signal<string | null>(null);
 
@@ -556,6 +588,34 @@ export class SteeringReviewQueueComponent implements OnInit {
     });
   }
 
+  applySuggestion(item: ReviewQueueItem): void {
+    if (this.pendingId() || this.applyingSuggestionId()) return;
+    this.applyingSuggestionId.set(item.decision.id);
+    this.canonical.applyActiveSuggestion(item.decision.id, { actor: 'demo-user' }).subscribe({
+      next: (res) => {
+        this.applyingSuggestionId.set(null);
+        if (!res) {
+          this.toast.error('Active suggestion could not be applied', 'Suggestion');
+          return;
+        }
+        const replay = res.replay;
+        if (replay?.run_id) {
+          this.toast.success(
+            `Replay ${replay.run_id.slice(0, 8)} created from suggestion`,
+            'Suggestion applied',
+          );
+        } else {
+          this.toast.success('Suggestion applied', 'Evaluation');
+        }
+        this.refresh();
+      },
+      error: () => {
+        this.applyingSuggestionId.set(null);
+        this.toast.error('Active suggestion failed', 'Suggestion');
+      },
+    });
+  }
+
   // ---- Replay-with-override ----
 
   openReplayModal(item: ReviewQueueItem): void {
@@ -665,6 +725,14 @@ export class SteeringReviewQueueComponent implements OnInit {
     if (!rationale) return '';
     const s = rationale['suggestion'];
     return typeof s === 'string' ? s : '';
+  }
+
+  protected activeSuggestion(item: ReviewQueueItem): ActiveSuggestion | null {
+    const rationale = item.decision.rationale as Record<string, unknown> | null;
+    const raw = rationale?.['active_suggestion'];
+    if (!raw || typeof raw !== 'object') return null;
+    const suggestion = raw as ActiveSuggestion;
+    return suggestion.action_type ? suggestion : null;
   }
 
   protected formatScore(v: number | null): string {

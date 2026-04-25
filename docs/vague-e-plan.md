@@ -61,7 +61,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | # | Titre | Priorité | Taille | Dépend de |
 | - | ----- | -------- | ------ | --------- |
 | **E0** | **Security hardening — rotation secrets (KC admin, KC client_secret, PG), DKIM activation, secret manager** | **P0** | **M** | — |
-| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 (post-closure, "rendre la boucle game-changer") en cours.** E1.5.1 livré 2026-04-25 (table `evaluation_feedback` + service + audit `evaluation.feedback.recorded`, `accept`/`reject` write feedback row pour les Decisions `review_required`, route `GET /evaluation/feedback`, isolation cross-tenant testée). E1.5.2 livré 2026-04-25 (`POST /runs/{id}/replay` + `GET /runs/{id}/replays` + migration `017_run_replay_lineage` ajoutant `parent_run_id`/`replay_overrides`/`trigger=replay`, service `replay_service` qui re-drive l'orchestrator chat avec overrides operator, audit `run.replayed` avec `source_decision_id`/`source_feedback_id`, action **RE-RUN** dans la review queue avec modal query/RAG mode/model, smoke 8/8 vert sur la VM y compris cross-tenant + replay-of-replay + DAG-engine 400). **E1.5.3 livré VM 2026-04-25** : taxonomie Giskard/RAGET native (`generator`, `retriever`, `rewriter`, `router`, `knowledge_base`), migration `018_eval_component_analytics`, `question_type`/`failed_components`/`topic` sur `EvaluationScore`, `GET /evaluation/component-health`, filtre `review-queue?component=`, widget Quality "RAG component health", dépendance `giskard[llm]` isolée en extra offline (`requirements_giskard.txt`, adapter lazy import), smoke API 5/5 + build/deploy frontend VM OK, spike RAGET : install `giskard 2.19.1`, KnowledgeBase OK avec embedding OpenAI, testset 3 questions OK avec ≥8 chunks (2 chunks trop petit → guard adapter). **E1.5.4 livré VM 2026-04-25** : auto-onboard preset (`enabled=true`, `composite_min=70`) + migration `019_eval_default_onboard` qui seed les workspaces existants sans preset + opt-out explicite depuis `/presets/evaluation`, smoke API GET/PUT opt-out OK, frontend build/deploy VM OK. Reste E1.5.5 LLM-backed suggestion concrète / annotation reply. | P0 | L | D2, D6 |
+| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 CLOSED 2026-04-25 : boucle game-changer actionnable.** E1.5.1 livré (feedback signal : table `evaluation_feedback`, `accept`/`reject` write feedback, `GET /evaluation/feedback`). E1.5.2 livré (`POST /runs/{id}/replay`, `GET /runs/{id}/replays`, lineage `parent_run_id`/`replay_overrides`, bouton **RE-RUN** review queue, smoke 8/8 VM). E1.5.3 livré (taxonomie Giskard/RAGET native, `question_type`/`failed_components`/`topic`, `GET /evaluation/component-health`, filtre `review-queue?component=`, widget Quality, extra offline `giskard[llm]`, smoke 5/5 + spike RAGET OK avec ≥8 chunks). E1.5.4 livré (auto-onboard preset `enabled=true`, `composite_min=70`, migration `019_eval_default_onboard`, opt-out `/presets/evaluation`). E1.5.5 livré (migration `020_canonical_answers`, `CanonicalAnswer` Dify-style annotation reply, `GET/POST /evaluation/canonical-answers`, chat canonical hit bypass orchestrator, active suggestions LLM/fallback sur Decisions, bouton **APPLY** qui lance un replay avec overrides et marque la Decision applied, smoke VM 3/3, frontend build/deploy VM OK). | ✅ | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
 | E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). **E3.3 node-props kind-specific livré 2026-04-24** (decision/fork/join/loop/retry/HITL/subflow éditeurs + task params rendus depuis `Skill.input_schema`, label éditable, helper `patchSelectedConfig`). **E3.4 export/import JSON livré 2026-04-24** (`GET /systems/{id}/export` envelope canonique, `POST /systems/import` avec re-binding par skill_slug + fallback gracieux, UI download + upload modal avec report). **E3 CLOSED.** | ✅ | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). **E4.2 différé 2026-04-25** (release engineering, pas un blocker démo, voir Journal pour le backlog détaillé). Reste E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
@@ -1541,6 +1541,46 @@ précisé après Vague D :
     `test_auto_eval.py` 13/13 vert local + VM. Build Angular VM OK
     (warning vendor CSS drawflow connu), bundle Nginx déployé, backend
     redémarré.
+
+- **2026-04-25 — E1.5.5 livré : suggestion active + canonical answer
+  ferment la boucle.** Après E1.5.4, chaque workspace produit du signal
+  par défaut ; E1.5.5 transforme ce signal en action appliquer depuis
+  la review queue et en réponses déterministes réutilisables.
+  - **Active suggestion sur Decision** : l'auto-eval ajoute
+    `rationale.active_suggestion` aux Decisions `review_required`.
+    `suggestion_service.generate_active_suggestion()` tente un LLM
+    `gpt-4o-mini` pour produire un JSON d'action concret
+    (`action_type=rerun_with_overrides`, `overrides`, `expected_effect`,
+    `confidence`) et retombe sur un fallback déterministe si le LLM
+    échoue. Les suggestions ne changent pas la réponse utilisateur :
+    elles sont attachées au triage.
+  - **Apply button** : nouveau endpoint
+    `POST /hypervisor/decisions/{id}/apply-active-suggestion`. Pour
+    l'action MVP `rerun_with_overrides`, il appelle `replay_run_async`
+    avec les overrides suggérés, puis transitionne la Decision
+    `proposed -> accepted -> applied` avec `applied_patch` contenant
+    `new_run_id`, `parent_run_id`, `status` et le payload suggestion.
+    UI review queue : bloc **ACTIVE SUGGESTION** + bouton **APPLY**.
+  - **Canonical answers (pattern Dify annotation reply, natif)** :
+    migration 020 crée `canonical_answers` (`question`, `answer`,
+    `normalized_question`, source ids, threshold, hit_count). Service
+    `canonical_answer_service` expose create/find/hit/serialize avec
+    audit `canonical_answer.created` + `canonical_answer.hit`. API
+    `GET/POST /evaluation/canonical-answers`.
+  - **Chat bypass déterministe** : `/chat/completion` et `/chat/stream`
+    cherchent un canonical answer avant l'orchestrator. En hit, la
+    réponse canonique est retournée directement, `hit_count` est
+    incrémenté, un Run `trigger=canonical_answer` est persisté sans
+    re-scorer, et l'orchestrator n'est pas appelé. Le lookup reste
+    volontairement léger (normalisation + similarité token/Jaccard)
+    pour ne pas introduire Qdrant/Giskard dans le hot path.
+  - **Validation** : suite services locale 132 passed / 2 skipped.
+    VM migration 020 appliquée ; tests ciblés VM 16/16 ; smoke
+    `/tmp/e155_smoke.py` 3/3 : APPLY crée un replay avec overrides et
+    marque la Decision applied, POST canonical answer OK, chat completion
+    hit canonical et bypass orchestrator même si l'orchestrator stub
+    n'est pas initialisé dans le chemin normal. Build Angular VM OK
+    (warning drawflow connu), bundle Nginx déployé, backend redémarré.
 
 - **2026-04-25 — E4.2 (Agentium Connector binaire) explicitement
   différé après E3 closure ; décision : on ne code rien tant que les

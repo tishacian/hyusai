@@ -9,6 +9,7 @@ from app.models.task import Task
 from app.models.evaluation import EvaluationScore
 from app.models.evaluation_feedback import EvaluationFeedback, FEEDBACK_LABELS
 from app.models.evaluation_preset import EvaluationPreset
+from app.models.canonical_answer import CanonicalAnswer
 from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, SafetyFilter
 from app.models.sharepoint_sync_job import SharePointSyncJob
 
@@ -29,7 +30,7 @@ __all__ = [
     "MfaChallenge",
     "AppSettings", "RagPreset", "AuditLog",
     "Task", "EvaluationScore", "EvaluationFeedback", "FEEDBACK_LABELS",
-    "EvaluationPreset",
+    "EvaluationPreset", "CanonicalAnswer",
     "FeedSource", "FeedArticle", "SemanticTarget", "SafetyFilter",
     "SharePointSyncJob",
     # Canonical

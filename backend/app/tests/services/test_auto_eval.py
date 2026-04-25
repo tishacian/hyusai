@@ -330,6 +330,19 @@ def test_evaluate_run_files_review_decision_on_breach(db_session, monkeypatch):
         lambda: stub,
     )
 
+    async def _suggestion(**kwargs):
+        return {
+            "action_type": "rerun_with_overrides",
+            "title": "Retry with grounding",
+            "overrides": {"rag_pipeline_mode": "hybrid"},
+            "source": "test",
+        }
+
+    monkeypatch.setattr(
+        "app.services.evaluation.auto_eval.generate_active_suggestion",
+        _suggestion,
+    )
+
     override = dict(DEFAULT_EVAL_CONFIG)
     override["enabled"] = True
 
@@ -356,6 +369,7 @@ def test_evaluate_run_files_review_decision_on_breach(db_session, monkeypatch):
     assert decision.workspace_id == refreshed.workspace_id
     assert "reasons" in decision.rationale
     assert decision.rationale["composite_score"] == 40.0
+    assert decision.rationale["active_suggestion"]["action_type"] == "rerun_with_overrides"
 
 
 def test_evaluate_run_skips_non_completed(db_session, monkeypatch):

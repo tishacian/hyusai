@@ -43,6 +43,7 @@ from app.services.evaluation.rag_components import (
     infer_failed_components,
     normalize_question_type,
 )
+from app.services.evaluation.suggestion_service import generate_active_suggestion
 from app.services.evaluation_preset_service import get_evaluation_preset_service
 
 logger = get_logger(__name__)
@@ -340,6 +341,17 @@ async def evaluate_run_async(
         db.commit()
 
         if threshold_outcome["breach"]:
+            active_suggestion = await generate_active_suggestion(
+                run=run,
+                query=query,
+                response=response,
+                scores=scores,
+                composite_score=composite_score,
+                hallucination_rate=hallucination_rate,
+                question_type=question_type,
+                failed_components=failed_components,
+                reasons=threshold_outcome["reasons"],
+            )
             _file_review_decision(
                 db,
                 run=run,
@@ -350,6 +362,7 @@ async def evaluate_run_async(
                 question_type=question_type,
                 failed_components=failed_components,
                 topic=topic,
+                active_suggestion=active_suggestion,
             )
 
         logger.info(
@@ -383,6 +396,7 @@ def _file_review_decision(
     question_type: str,
     failed_components: List[str],
     topic: Optional[str],
+    active_suggestion: Optional[Dict[str, Any]] = None,
 ) -> Decision:
     """Persist a Decision(kind="review_required") pointing at the run.
 
@@ -403,6 +417,7 @@ def _file_review_decision(
         "question_type": question_type,
         "failed_components": failed_components,
         "topic": topic,
+        "active_suggestion": active_suggestion or {},
         "suggestion": _suggest_action(reasons),
     }
     decision = Decision(

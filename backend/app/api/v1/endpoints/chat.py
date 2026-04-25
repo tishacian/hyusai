@@ -23,6 +23,10 @@ from app.models.user import Message
 from app.models.workspace import Workspace
 from app.api.v1.endpoints.agents import get_orchestrator
 from app.services.evaluation.auto_eval import schedule_eval
+from app.services.evaluation.canonical_answer_service import (
+    find_canonical_answer,
+    record_hit,
+)
 from datetime import datetime
 import uuid
 
@@ -97,6 +101,9 @@ def _persist_chat_run(
     started_at: datetime,
     completed_at: datetime,
     duration_ms: Optional[float],
+    trigger: str = "chat",
+    schedule: bool = True,
+    extra_output: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     """Persist a canonical Run for a completed chat turn + kick off eval.
 
@@ -119,11 +126,12 @@ def _persist_chat_run(
                 "response": response_text,
                 "sources": sources or [],
                 "reasoning_trace": reasoning_trace or None,
+                **(extra_output or {}),
             },
             started_at=started_at,
             completed_at=completed_at,
             duration_ms=duration_ms,
-            trigger="chat",
+            trigger=trigger,
         )
         db.add(run)
         db.commit()
@@ -132,14 +140,25 @@ def _persist_chat_run(
         logger.error("chat: failed to persist Run", error=str(exc))
         return None
 
-    # Fire-and-forget — will no-op if the workspace preset is disabled,
-    # or if sample_rate excluded this turn.
-    try:
-        schedule_eval(run.id)
-    except Exception as exc:  # noqa: BLE001
-        logger.error("chat: schedule_eval failed", run_id=run.id, error=str(exc))
+    if schedule:
+        # Fire-and-forget — will no-op if the workspace preset is disabled,
+        # or if sample_rate excluded this turn.
+        try:
+            schedule_eval(run.id)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("chat: schedule_eval failed", run_id=run.id, error=str(exc))
 
     return run.id
+
+
+def _canonical_answer_hit(db: Session, *, workspace_id: str, query: str):
+    """Return a canonical answer match and record the hit in the session."""
+    match = find_canonical_answer(db, workspace_id=workspace_id, query=query)
+    if not match:
+        return None
+    row, score = match
+    record_hit(db, canonical_answer=row, query=query, score=score)
+    return row, score
 
 
 @router.post("/completion")
@@ -156,6 +175,69 @@ async def chat_completion(
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
         
+        canonical = _canonical_answer_hit(
+            db,
+            workspace_id=workspace.id,
+            query=validated_query,
+        )
+        if canonical:
+            canonical_answer, match_score = canonical
+            content = canonical_answer.answer
+            if request.session_id:
+                db.add(
+                    Message(
+                        id=str(uuid.uuid4()),
+                        session_id=request.session_id,
+                        role="user",
+                        content=request.query,
+                        meta_data={},
+                    )
+                )
+                db.add(
+                    Message(
+                        id=str(uuid.uuid4()),
+                        session_id=request.session_id,
+                        role="assistant",
+                        content=content,
+                        meta_data={
+                            "canonical_answer_id": canonical_answer.id,
+                            "canonical_answer_score": match_score,
+                        },
+                    )
+                )
+                db.commit()
+            run_completed_at = datetime.utcnow()
+            run_id = _persist_chat_run(
+                db,
+                workspace_id=workspace.id,
+                system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                query=validated_query,
+                response_text=content,
+                sources=[],
+                reasoning_trace=None,
+                started_at=run_completed_at,
+                completed_at=run_completed_at,
+                duration_ms=0.0,
+                trigger="canonical_answer",
+                schedule=False,
+                extra_output={
+                    "canonical_answer_id": canonical_answer.id,
+                    "canonical_answer_score": match_score,
+                },
+            )
+            db.commit()
+            return {
+                "id": canonical_answer.id,
+                "run_id": run_id,
+                "content": content,
+                "reasoning_trace": None,
+                "sources": [],
+                "status": "completed",
+                "canonical_answer_hit": True,
+                "canonical_answer_id": canonical_answer.id,
+                "canonical_answer_score": match_score,
+            }
+
         orchestrator = get_orchestrator()
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -328,6 +410,81 @@ async def chat_stream(
             request_dict["workspace_id"] = workspace.id
             if request.rag_mode_override:
                 request_dict["rag_pipeline_mode"] = request.rag_mode_override
+
+            try:
+                validated_query = query_validator.validate(request.query)
+            except ValidationError as e:
+                yield f"data: {json.dumps({'chunk_type': 'error', 'content': str(e), 'is_final': True})}\n\n"
+                return
+
+            canonical = _canonical_answer_hit(
+                db,
+                workspace_id=workspace.id,
+                query=validated_query,
+            )
+            if canonical:
+                canonical_answer, match_score = canonical
+                content = canonical_answer.answer
+                if request.session_id:
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="user",
+                            content=request.query,
+                            meta_data={},
+                        )
+                    )
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="assistant",
+                            content=content,
+                            meta_data={
+                                "canonical_answer_id": canonical_answer.id,
+                                "canonical_answer_score": match_score,
+                            },
+                        )
+                    )
+                    db.commit()
+                now = datetime.utcnow()
+                run_id = _persist_chat_run(
+                    db,
+                    workspace_id=workspace.id,
+                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    query=validated_query,
+                    response_text=content,
+                    sources=[],
+                    reasoning_trace=None,
+                    started_at=now,
+                    completed_at=now,
+                    duration_ms=0.0,
+                    trigger="canonical_answer",
+                    schedule=False,
+                    extra_output={
+                        "canonical_answer_id": canonical_answer.id,
+                        "canonical_answer_score": match_score,
+                    },
+                )
+                db.commit()
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "chunk_type": "text",
+                            "content": content,
+                            "canonical_answer_hit": True,
+                            "canonical_answer_id": canonical_answer.id,
+                            "canonical_answer_score": match_score,
+                            "run_id": run_id,
+                            "is_final": True,
+                        }
+                    )
+                    + "\n\n"
+                )
+                yield "data: [DONE]\n\n"
+                return
             
             # Apply settings defaults if not provided
             if not request_dict.get("agent_preferences"):

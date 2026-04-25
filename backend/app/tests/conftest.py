@@ -60,6 +60,7 @@ def db_session():
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
         "skill_invocations",
+        "canonical_answers",
         "evaluation_feedback",
         "decisions",
         "evaluation_scores",

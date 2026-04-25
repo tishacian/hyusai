@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
+from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
@@ -264,6 +265,10 @@ class DecisionApplyRequest(BaseModel):
     patch: Optional[Dict[str, Any]] = None
 
 
+class ActiveSuggestionApplyRequest(BaseModel):
+    actor: Optional[str] = None
+
+
 class DecisionCreate(BaseModel):
     scope: str = "capability"
     target_id: Optional[str] = None
@@ -495,3 +500,81 @@ async def apply_decision_endpoint(
     except InvalidTransition as exc:
         raise HTTPException(409, str(exc))
     return _serialize_decision(d, full=True)
+
+
+@router.post("/decisions/{decision_id}/apply-active-suggestion")
+async def apply_active_suggestion(
+    decision_id: str,
+    body: Optional[ActiveSuggestionApplyRequest] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Apply the concrete E1.5.5 suggestion stored on a review Decision.
+
+    MVP action: ``rerun_with_overrides``. Applying it creates a replay run
+    from the breached parent run, then records the Decision as applied with
+    the replay lineage in ``applied_patch``.
+    """
+    d = _get_decision_or_404(db, workspace.id, decision_id)
+    if d.kind != "review_required" or d.scope != "run" or not d.target_id:
+        raise HTTPException(400, "active suggestions are only available for run review decisions")
+    rationale = d.rationale or {}
+    suggestion = rationale.get("active_suggestion") or {}
+    if not isinstance(suggestion, dict) or not suggestion:
+        raise HTTPException(400, "decision has no active_suggestion")
+    action_type = suggestion.get("action_type")
+    if action_type != "rerun_with_overrides":
+        raise HTTPException(400, f"unsupported active suggestion action {action_type!r}")
+
+    parent = (
+        db.query(Run)
+        .filter(Run.id == d.target_id, Run.workspace_id == workspace.id)
+        .first()
+    )
+    if not parent:
+        raise HTTPException(404, "Parent run not found")
+
+    from app.services.runs.replay_service import ReplayError, replay_run_async
+
+    try:
+        new_run, response_text = await replay_run_async(
+            db=db,
+            parent=parent,
+            workspace_slug=workspace.slug,
+            overrides=suggestion.get("overrides") or {},
+            actor=(body.actor if body else None),
+            source_decision_id=d.id,
+        )
+    except ReplayError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    actor = body.actor if body else None
+    try:
+        if (d.status or "proposed") == "proposed":
+            sm_accept(db, d, actor=actor, note="Accepted by applying active suggestion.")
+        if (d.status or "") == "accepted":
+            sm_apply(
+                db,
+                d,
+                actor=actor,
+                patch={
+                    "action_type": action_type,
+                    "suggestion": suggestion,
+                    "new_run_id": new_run.id,
+                    "parent_run_id": parent.id,
+                    "status": new_run.status,
+                },
+            )
+    except InvalidTransition as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    payload = _serialize_decision(d, full=True)
+    payload["replay"] = {
+        "run_id": new_run.id,
+        "parent_run_id": parent.id,
+        "status": new_run.status,
+        "duration_ms": new_run.duration_ms,
+        "response_preview": (response_text[:500] if response_text else ""),
+        "eval_pending": new_run.status == "completed",
+    }
+    return payload

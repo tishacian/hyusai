@@ -27,11 +27,17 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.decision import Decision
+from app.models.canonical_answer import CanonicalAnswer
 from app.models.evaluation import EvaluationScore
 from app.models.evaluation_feedback import EvaluationFeedback
 from app.models.run import Run
 from app.models.workspace import Workspace
 from app.services.evaluation.feedback_service import serialize_feedback
+from app.services.evaluation.canonical_answer_service import (
+    CanonicalAnswerError,
+    create_canonical_answer,
+    serialize_canonical_answer,
+)
 from app.services.evaluation.judge import get_judge_service, DIMENSION_LABELS
 from app.services.evaluation.rag_components import (
     RAG_COMPONENT_LABELS,
@@ -210,6 +216,16 @@ class EvalPresetIn(BaseModel):
     dimension_min: Optional[Dict[str, float]] = None
     sample_rate: Optional[float] = Field(default=None, ge=0, le=1)
     name: Optional[str] = None
+
+
+class CanonicalAnswerIn(BaseModel):
+    question: str
+    answer: str
+    source_decision_id: Optional[str] = None
+    source_feedback_id: Optional[str] = None
+    source_run_id: Optional[str] = None
+    similarity_threshold: float = Field(default=0.9, ge=0.5, le=1.0)
+    actor: Optional[str] = None
 
 
 @router.get("/presets")
@@ -629,6 +645,58 @@ async def evaluation_taxonomy():
             key: targeted_components(key) for key in QUESTION_TYPE_LABELS
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# E1.5.5 — Canonical answers (Dify-style annotation reply)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/canonical-answers")
+async def list_canonical_answers(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    q = db.query(CanonicalAnswer).filter(CanonicalAnswer.workspace_id == workspace.id)
+    total = q.count()
+    rows = (
+        q.order_by(CanonicalAnswer.updated_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [serialize_canonical_answer(row) for row in rows],
+    }
+
+
+@router.post("/canonical-answers", status_code=201)
+async def create_canonical_answer_endpoint(
+    body: CanonicalAnswerIn,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        row = create_canonical_answer(
+            db,
+            workspace_id=workspace.id,
+            question=body.question,
+            answer=body.answer,
+            actor=body.actor,
+            source_decision_id=body.source_decision_id,
+            source_feedback_id=body.source_feedback_id,
+            source_run_id=body.source_run_id,
+            similarity_threshold=body.similarity_threshold,
+        )
+    except CanonicalAnswerError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db.commit()
+    return serialize_canonical_answer(row)
 
 
 # ---------------------------------------------------------------------------

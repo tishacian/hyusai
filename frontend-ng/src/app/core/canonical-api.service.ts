@@ -419,6 +419,17 @@ export interface EvaluationReviewQueueResponse {
   count: number;
 }
 
+export interface ActiveSuggestion {
+  version?: number;
+  source?: 'llm' | 'fallback' | string;
+  action_type?: 'rerun_with_overrides' | string;
+  title?: string;
+  rationale?: string;
+  overrides?: Record<string, unknown>;
+  expected_effect?: string;
+  confidence?: number;
+}
+
 export interface EvaluationTrendBucket {
   bucket: string;
   count: number;
@@ -475,6 +486,10 @@ export interface RunReplayResult {
   replay_overrides: Record<string, unknown>;
   response_preview: string;
   eval_pending: boolean;
+}
+
+export interface ActiveSuggestionApplyResult extends DecisionDetail {
+  replay?: RunReplayResult;
 }
 
 export interface RunReplayListResponse {
@@ -1021,6 +1036,18 @@ export class CanonicalApiService {
   ): Observable<DecisionDetail | null> {
     return this.api
       .post<DecisionDetail>(`/hypervisor/decisions/${id}/apply`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  applyActiveSuggestion(
+    id: string,
+    body: { actor?: string } = {},
+  ): Observable<ActiveSuggestionApplyResult | null> {
+    return this.api
+      .post<ActiveSuggestionApplyResult>(
+        `/hypervisor/decisions/${id}/apply-active-suggestion`,
+        body,
+      )
       .pipe(catchError(() => of(null)));
   }
 
