@@ -28,8 +28,10 @@ from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
+from app.models.evaluation_feedback import EvaluationFeedback
 from app.models.run import Run
 from app.models.workspace import Workspace
+from app.services.evaluation.feedback_service import serialize_feedback
 from app.services.evaluation.judge import get_judge_service, DIMENSION_LABELS
 from app.services.evaluation_preset_service import (
     DEFAULT_EVAL_CONFIG,
@@ -540,4 +542,46 @@ def _serialize_run_for_queue(run: Run) -> Dict[str, Any]:
         # Keep input_ref + output_ref for preview — UI will trim.
         "input_ref": run.input_ref,
         "output_ref": run.output_ref,
+    }
+
+
+# ---------------------------------------------------------------------------
+# E1.5.1 — Evaluation feedback (review-queue verdicts)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/feedback")
+async def list_feedback(
+    run_id: Optional[str] = Query(default=None),
+    decision_id: Optional[str] = Query(default=None),
+    label: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """List feedback rows for the current workspace.
+
+    Filters compose with AND. Returned newest-first. The endpoint is
+    intentionally read-only here — feedback is *written* through the
+    Decision accept/reject flow (single transactional write path).
+    """
+    q = (
+        db.query(EvaluationFeedback)
+        .filter(EvaluationFeedback.workspace_id == workspace.id)
+        .order_by(EvaluationFeedback.created_at.desc())
+    )
+    if run_id:
+        q = q.filter(EvaluationFeedback.run_id == run_id)
+    if decision_id:
+        q = q.filter(EvaluationFeedback.decision_id == decision_id)
+    if label:
+        q = q.filter(EvaluationFeedback.label == label)
+    total = q.count()
+    rows = q.offset(offset).limit(limit).all()
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [serialize_feedback(r) for r in rows],
     }

@@ -16,6 +16,8 @@ from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.capability import Capability
 from app.models.decision import Decision
+from app.models.evaluation import EvaluationScore
+from app.models.evaluation_feedback import FEEDBACK_LABELS
 from app.models.run import Run
 from app.models.workspace import Workspace
 from app.services.decisions import (
@@ -24,6 +26,11 @@ from app.services.decisions import (
     apply_decision as sm_apply,
     enact_decision,
     reject as sm_reject,
+)
+from app.services.evaluation.feedback_service import (
+    InvalidFeedback,
+    record_feedback,
+    serialize_feedback,
 )
 
 router = APIRouter()
@@ -242,6 +249,13 @@ def _serialize_decision(d: Decision, *, full: bool = False) -> dict:
 class DecisionTransition(BaseModel):
     note: Optional[str] = None
     actor: Optional[str] = None
+    # E1.5.1 — when the Decision is a `review_required` filed by the
+    # auto-eval loop, accept/reject can carry the reviewer's verdict
+    # so we persist a row in `evaluation_feedback`. All three fields
+    # are optional: the existing UI (which doesn't ship feedback yet)
+    # keeps working unchanged.
+    feedback_label: Optional[str] = None
+    feedback_corrected_output: Optional[Dict[str, Any]] = None
 
 
 class DecisionApplyRequest(BaseModel):
@@ -351,6 +365,70 @@ def _get_decision_or_404(db: DBSession, workspace_id: str, decision_id: str) -> 
     return d
 
 
+def _maybe_record_eval_feedback(
+    db: DBSession,
+    *,
+    decision: Decision,
+    body: Optional[DecisionTransition],
+    default_label: str,
+) -> Optional[Dict[str, Any]]:
+    """Persist an `EvaluationFeedback` row when the Decision is a
+    review-queue triage item.
+
+    Returns the serialized feedback row when written, ``None`` otherwise.
+    Silently no-op for non-eval Decisions (no scope=run, no target_id,
+    or kind != review_required) so generic Hypervisor recommendations
+    keep their existing accept/reject semantics.
+
+    Default label maps the reviewer's transition to a feedback verdict
+    (accept = "false_positive", reject = "true_breach"). An explicit
+    ``body.feedback_label`` overrides — useful for the
+    ``correct_with_fix`` case once the UI ships a correction textarea.
+    """
+    if decision.kind != "review_required":
+        return None
+    if (decision.scope or "") != "run":
+        return None
+    run_id = decision.target_id
+    if not run_id:
+        return None
+
+    label = (body.feedback_label if body else None) or default_label
+    if label not in FEEDBACK_LABELS:
+        from fastapi import HTTPException
+        raise HTTPException(
+            400,
+            f"unknown feedback_label {label!r}; expected one of {list(FEEDBACK_LABELS)}",
+        )
+
+    score = (
+        db.query(EvaluationScore)
+        .filter(
+            EvaluationScore.run_id == run_id,
+            EvaluationScore.workspace_id == decision.workspace_id,
+        )
+        .order_by(EvaluationScore.created_at.desc())
+        .first()
+    )
+
+    try:
+        fb = record_feedback(
+            db,
+            workspace_id=decision.workspace_id,
+            run_id=run_id,
+            label=label,
+            decision_id=decision.id,
+            evaluation_score_id=score.id if score else None,
+            notes=(body.note if body else None),
+            corrected_output=(body.feedback_corrected_output if body else None),
+            actor=(body.actor if body else None),
+        )
+    except InvalidFeedback as exc:
+        from fastapi import HTTPException
+        raise HTTPException(400, str(exc))
+    return serialize_feedback(fb)
+
+
 @router.post("/decisions/{decision_id}/accept")
 async def accept_decision(
     decision_id: str,
@@ -364,7 +442,14 @@ async def accept_decision(
         sm_accept(db, d, actor=(body.actor if body else None), note=(body.note if body else None))
     except InvalidTransition as exc:
         raise HTTPException(409, str(exc))
-    return _serialize_decision(d, full=True)
+    feedback = _maybe_record_eval_feedback(
+        db, decision=d, body=body, default_label="false_positive"
+    )
+    db.commit()
+    payload = _serialize_decision(d, full=True)
+    if feedback:
+        payload["feedback"] = feedback
+    return payload
 
 
 @router.post("/decisions/{decision_id}/reject")
@@ -380,7 +465,14 @@ async def reject_decision(
         sm_reject(db, d, actor=(body.actor if body else None), note=(body.note if body else None))
     except InvalidTransition as exc:
         raise HTTPException(409, str(exc))
-    return _serialize_decision(d, full=True)
+    feedback = _maybe_record_eval_feedback(
+        db, decision=d, body=body, default_label="true_breach"
+    )
+    db.commit()
+    payload = _serialize_decision(d, full=True)
+    if feedback:
+        payload["feedback"] = feedback
+    return payload
 
 
 @router.post("/decisions/{decision_id}/apply")
