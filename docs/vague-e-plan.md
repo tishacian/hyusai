@@ -61,7 +61,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | # | Titre | Priorité | Taille | Dépend de |
 | - | ----- | -------- | ------ | --------- |
 | **E0** | **Security hardening — rotation secrets (KC admin, KC client_secret, PG), DKIM activation, secret manager** | **P0** | **M** | — |
-| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI | P0 | L | D2, D6 |
+| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 (post-closure, "rendre la boucle game-changer") en cours.** E1.5.1 livré 2026-04-25 (table `evaluation_feedback` + service + audit `evaluation.feedback.recorded`, `accept`/`reject` write feedback row pour les Decisions `review_required`, route `GET /evaluation/feedback`, isolation cross-tenant testée). Reste E1.5.2 re-run with override + E1.5.3 per-skill breach analytics + E1.5.4 auto-onboard preset + E1.5.5 LLM-backed suggestion concrète. | P0 | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
 | E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). **E3.3 node-props kind-specific livré 2026-04-24** (decision/fork/join/loop/retry/HITL/subflow éditeurs + task params rendus depuis `Skill.input_schema`, label éditable, helper `patchSelectedConfig`). **E3.4 export/import JSON livré 2026-04-24** (`GET /systems/{id}/export` envelope canonique, `POST /systems/import` avec re-binding par skill_slug + fallback gracieux, UI download + upload modal avec report). **E3 CLOSED.** | ✅ | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). **E4.2 différé 2026-04-25** (release engineering, pas un blocker démo, voir Journal pour le backlog détaillé). Reste E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
@@ -1364,6 +1364,41 @@ précisé après Vague D :
     de drag-drop pour réordonner les branches, pas de diff visuel
     granulaire dans le panneau Versions) sont du polish, pas des gaps
     produit.
+
+- **2026-04-25 — E1.5.1 livré : la boucle d'éval n'est plus
+  read-only.** Avant ce patch, accept/reject sur une `Decision(kind=
+  review_required)` filée par l'auto-eval ne faisait que flipper le
+  status. La copie UI "Rejected = kept for retraining signal" était un
+  mensonge — aucune table ne portait ce signal. Maintenant :
+  - **Migration 016 `evaluation_feedback`** : `(workspace_id, decision_id?,
+    run_id, evaluation_score_id?, label, notes?, corrected_output?,
+    created_by, created_at)`. Label fermé enum
+    `{false_positive, true_breach, correct_with_fix}` validé app-side.
+    `decision_id` nullable pour qu'un futur 👍/👎 from-chat puisse
+    écrire ici sans passer par le state-machine Decision. Indexed sur
+    `(workspace, created_at desc)`, `run_id`, `decision_id`.
+  - **Service `feedback_service.record_feedback`** : single write path,
+    valide le label + flush + emit audit `evaluation.feedback.recorded`
+    via la session du caller pour transactional co-location.
+  - **Endpoints branchés** : `POST /hypervisor/decisions/{id}/accept|
+    reject` accepte maintenant `feedback_label`, `feedback_corrected_output`
+    dans le body. Default label mappe la transition (accept →
+    `false_positive` = "judge over-flagged", reject → `true_breach` =
+    "judge was right, response IS bad"). Le wiring est strictement
+    no-op sur les Decisions non-eval (scope!=run ou kind!=review_required)
+    pour ne pas polluer le canal Hypervisor recommendations
+    génériques. Nouveau `GET /evaluation/feedback?run_id|decision_id|
+    label` pour les consommateurs analytics (E1.5.3) + future
+    surface "this run was triaged by alice" sur le run-detail.
+  - **Tests** : 7 unit tests sur le service (108/108 vert sur la
+    suite services). Smoke VM `/tmp/e151_smoke.py` 7/7 vert :
+    accept/reject default labels, override correct_with_fix +
+    corrected_output, label invalide → 400, non-eval Decision skip
+    feedback, isolation cross-workspace → 0 rows visible.
+  - **Pourquoi c'est P0** : sans cette table, tout le reste de E1.5
+    (re-run with override, per-skill breach analytics, LLM-backed
+    suggestion) construit sur du sable. C'est la fondation factuelle
+    qui transforme le triage manuel en signal exploitable.
 
 - **2026-04-25 — E4.2 (Agentium Connector binaire) explicitement
   différé après E3 closure ; décision : on ne code rien tant que les
