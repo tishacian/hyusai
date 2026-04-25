@@ -64,7 +64,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI | P0 | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
 | E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). **E3.3 node-props kind-specific livré 2026-04-24** (decision/fork/join/loop/retry/HITL/subflow éditeurs + task params rendus depuis `Skill.input_schema`, label éditable, helper `patchSelectedConfig`). **E3.4 export/import JSON livré 2026-04-24** (`GET /systems/{id}/export` envelope canonique, `POST /systems/import` avec re-binding par skill_slug + fallback gracieux, UI download + upload modal avec report). **E3 CLOSED.** | ✅ | L | C6 |
-| E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). Reste E4.2 Agentium Connector binaire (E4b) + E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
+| E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). **E4.2 différé 2026-04-25** (release engineering, pas un blocker démo, voir Journal pour le backlog détaillé). Reste E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
 | E5 | Recommandations proactives — Decision générée depuis l'analyse agrégée multi-runs | P2 | L | E1 |
 | E6 | Simulation offline — rejouer un run sur une policy alternative | P3 | M | C6 |
 | E7 | Deploy + smoke Vague E | P0 | S | E0..E6 |
@@ -1364,6 +1364,86 @@ précisé après Vague D :
     de drag-drop pour réordonner les branches, pas de diff visuel
     granulaire dans le panneau Versions) sont du polish, pas des gaps
     produit.
+
+- **2026-04-25 — E4.2 (Agentium Connector binaire) explicitement
+  différé après E3 closure ; décision : on ne code rien tant que les
+  prérequis ops ne sont pas tranchés.** L'utilisateur veut prioriser
+  E1 (boucle d'évaluation, P0 game-changer) plutôt que E4.2 maintenant.
+  E4.2 n'est PAS abandonné : le scope est figé, les questions
+  bloquantes sont listées ici pour reprise propre.
+  - **Pourquoi le différer maintenant** :
+    - E4.2 est de la *release engineering* (PyInstaller spec + bundle
+      Playwright browsers ~200 MiB + workflow GitHub Actions + GPG key
+      + canal de distrib), pas du code feature. Aucune boucle de
+      feedback exerçable en session : impossible de builder un AppImage
+      sans Linux runner ni de déclencher le CI sans tag, qui
+      lui-même suppose la clé GPG provisionnée.
+    - Le fallback "copy-paste JSON dans la textarea" du connecteur Guest
+      Link existe déjà côté UI (cf. `sharepoint-connector.component.ts`)
+      donc E4b reste utilisable manuellement par un opérateur.
+      L'absence du binaire dégrade l'UX, ne casse pas la feature.
+  - **Scope figé pour E4.2 (rappel des décisions user 2026-04-24)** :
+    - **Linux** : AppImage GPG-signed (`detached .asc` + `.SHA256SUMS`).
+    - **macOS** : `.dmg` unsigned, doc Gatekeeper workaround au premier
+      lancement (`xattr -d com.apple.quarantine`).
+    - **Windows** : `.exe` unsigned dispo, doc SmartScreen +
+      *fallback recommandé = mode CLI textarea JSON existant*. Pas
+      d'EV cert (~400 €/an justifié seulement sur premier deal qui le
+      finance).
+  - **Ce qui reste à faire (livrables) — séquence de travail E4.2** :
+    1. *E4.2.1 — PyInstaller spec + build script* (pure code) :
+       - `tools/agentium-connector/build.spec` (spec PyInstaller,
+         entrypoint = `scripts/sharepoint_connector_demo.py`, bundle
+         Playwright browsers via `--collect-data playwright`).
+       - `tools/agentium-connector/build.sh` (Linux), `build.ps1`
+         (Windows fallback minimal). macOS partage `build.sh`.
+       - Smoke local : `./build.sh` produit un binaire qui se lance et
+         affiche `--help`. Pas de Playwright en CI sur cette étape (ça
+         vient en E4.2.2).
+    2. *E4.2.2 — GitHub Actions workflow* (release engineering, ne se
+       teste qu'en CI) :
+       - `.github/workflows/agentium-connector-release.yml` triggered
+         on tag `v-connector-*`, jobs `build-linux` (ubuntu-latest +
+         GPG sign si secret `GPG_SIGNING_KEY` présent), `build-macos`
+         (macos-13, unsigned), `build-windows` (windows-latest,
+         unsigned). Artefact upload sur GitHub Release.
+       - Workflow doit échouer *gracieusement* en l'absence de la clé
+         GPG (warning, pas error) pour que le premier dry-run sans
+         secret reste vert.
+    3. *E4.2.3 — Documentation utilisateur* :
+       - `docs/agentium-connector-install.md` : instructions par OS,
+         how-to GPG verify (Linux), Gatekeeper workaround (macOS),
+         SmartScreen workaround (Windows). Lien depuis l'UI
+         SharePoint connector quand auth=session.
+    4. *E4.2.4 — UI deep-link* (frontend) :
+       - Bouton "Launch Agentium Connector" qui ouvre `agentium://capture?token=<JWT>`
+         (custom URL scheme enregistré par le binaire à l'install).
+       - Fallback déjà présent (textarea copy-paste) si le binaire
+         n'est pas installé. Fenêtre 30 s pour résolution avant
+         timeout fallback.
+  - **Questions bloquantes ops à trancher avant E4.2.2** :
+    1. **Clé GPG** : (a) la clé Datategy corp existe-t-elle déjà,
+       (b) qui en est custodian (tien personnel, équipe sec, KMS),
+       (c) faut-il en générer une nouvelle dédiée
+       `agentium-releases@datategy.io` ?
+    2. **Canal de distribution** : (a) GitHub Releases sur le repo
+       Bitbucket (impossible, pas le même hosting), (b) Bitbucket
+       Downloads (limites de quota), (c) bucket S3 self-hosted
+       (`releases.agentium.papai.ai`), (d) page de download statique
+       sur `agentium.papai.ai/connector` qui tape un bucket privé ?
+       Décision orientant le workflow CI (cible upload).
+    3. **Apple Developer Program** : confirmé "non engagé" (~99 USD/an)
+       — donc macOS reste unsigned avec doc Gatekeeper. À reconsidérer
+       si un client réagit mal au warning au premier lancement.
+  - **Critère de "E4.2 livré"** : le binaire Linux téléchargeable depuis
+    la page `agentium.papai.ai/connector`, GPG-vérifiable via la clé
+    publique exposée à `agentium.papai.ai/connector/key.asc`,
+    se lance, ouvre Chromium, capture la session SharePoint, et POST
+    le payload sur `/api/v1/sharepoint/session/upload` du backend
+    cible. macOS + Windows livrables suivent dans la même release.
+  - **Sortie** : tickets E4.2.1 → E4.2.4 ouverts dès que ops a tranché
+    les 3 questions ci-dessus. En attendant, le fallback textarea reste
+    le path utilisable.
 
 - **2026-04-24 — Décisions roadmap E3 + E4.2 confirmées par le lead
   produit.**
