@@ -466,3 +466,149 @@ async def override_run_outcome(
     apply_operator_override(r, value=body.value, note=body.note)
     db.commit()
     return _row(r)
+
+
+# ---------------------------------------------------------------------------
+# E1.5.2 — Replay with override
+# ---------------------------------------------------------------------------
+
+
+class ReplayRequest(BaseModel):
+    overrides: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Override fields for the replay. Recognised keys: "
+            "`query`, `rag_pipeline_mode`, `model`, `provider`, "
+            "`system_prompt`, `temperature`, `max_tokens`, `top_k`, "
+            "`similarity_threshold`, `prompt_type`. Unknown keys are "
+            "forwarded into `agent_preferences.custom_overrides` so the "
+            "API stays stable as the orchestrator gains options."
+        ),
+    )
+    actor: Optional[str] = Field(
+        default=None,
+        description="Operator handle (Keycloak sub or display name).",
+    )
+    source_decision_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "When the replay was triggered from a review-queue Decision, "
+            "the Decision id — captured in the audit trail so we can "
+            "answer 'how many replays did the queue actually drive?'"
+        ),
+    )
+    source_feedback_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "When the replay followed a feedback row (E1.5.1), the "
+            "feedback id. Lets us correlate corrected_output against "
+            "what a replay produced for the same parent."
+        ),
+    )
+
+
+@router.post("/{run_id}/replay")
+async def replay_run(
+    run_id: str,
+    body: ReplayRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Re-run a settled chat-style Run with operator overrides applied.
+
+    Returns the new Run id (status is whatever the synchronous
+    orchestrator pass produced — typically ``completed``). The
+    front-end can then poll ``/evaluation/by-run/{new_run_id}`` to
+    surface the eval delta against the parent.
+
+    System-engine runs (DAG executions) are NOT yet supported and
+    return 400 with a clear message — see ``replay_service`` docs.
+    """
+    from app.services.runs.replay_service import (
+        ReplayError,
+        replay_run_async,
+    )
+
+    parent = (
+        db.query(Run)
+        .filter(Run.id == run_id, Run.workspace_id == workspace.id)
+        .first()
+    )
+    if not parent:
+        raise HTTPException(404, "Run not found")
+
+    try:
+        new_run, response_text = await replay_run_async(
+            db=db,
+            parent=parent,
+            workspace_slug=workspace.slug,
+            overrides=body.overrides or {},
+            actor=body.actor,
+            source_decision_id=body.source_decision_id,
+            source_feedback_id=body.source_feedback_id,
+        )
+    except ReplayError as exc:
+        raise HTTPException(400, str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("runs.replay: unhandled error", run_id=run_id)
+        raise HTTPException(500, f"replay failed: {exc!r}")
+
+    return {
+        "run_id": new_run.id,
+        "parent_run_id": parent.id,
+        "status": new_run.status,
+        "trigger": new_run.trigger,
+        "started_at": new_run.started_at.isoformat() if new_run.started_at else None,
+        "completed_at": (
+            new_run.completed_at.isoformat() if new_run.completed_at else None
+        ),
+        "duration_ms": new_run.duration_ms,
+        "replay_overrides": new_run.replay_overrides or {},
+        "response_preview": (response_text[:500] if response_text else ""),
+        "eval_pending": True,
+    }
+
+
+@router.get("/{run_id}/replays")
+async def list_run_replays(
+    run_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """List runs that were replayed from this run as parent.
+
+    Newest first. Used by the run-detail view to render a "Replays"
+    sub-list and by the review queue to indicate when a Decision's
+    breached run already has follow-up replays the reviewer can
+    compare against.
+    """
+    parent = (
+        db.query(Run)
+        .filter(Run.id == run_id, Run.workspace_id == workspace.id)
+        .first()
+    )
+    if not parent:
+        raise HTTPException(404, "Run not found")
+
+    children = (
+        db.query(Run)
+        .filter(
+            Run.parent_run_id == run_id,
+            Run.workspace_id == workspace.id,
+        )
+        .order_by(Run.started_at.desc())
+        .all()
+    )
+    return {
+        "parent_run_id": run_id,
+        "items": [
+            {
+                **_row(r),
+                "replay_overrides": r.replay_overrides or {},
+                "evaluation_scores": r.evaluation_scores,
+            }
+            for r in children
+        ],
+    }

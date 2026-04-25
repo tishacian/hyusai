@@ -70,7 +70,18 @@ class Run(Base):
     # preset + capability.eval_enabled) and pre-E1 runs never produced one.
     evaluation_scores = Column(JSON, nullable=True)
 
-    trigger = Column(String(40), default="manual")  # manual | scheduler | webhook | adaptive | hitl
+    trigger = Column(String(40), default="manual")  # manual | scheduler | webhook | adaptive | hitl | replay
+
+    # Vague E / E1.5.2 — replay lineage. ``parent_run_id`` points to the
+    # run that was the source for a "Re-run with override" replay
+    # triggered from the review queue or run-detail view. NULL on
+    # original (non-replay) runs. ``replay_overrides`` captures the
+    # dict of fields the operator changed (``query``, ``rag_pipeline_mode``,
+    # ``model``, …) so audit can answer "what did they tweak?" without
+    # diff'ing two ``input_ref`` blobs. NULL on non-replay runs.
+    # No FK to keep hard-deletes cheap (workspace teardown, GDPR purge).
+    parent_run_id = Column(String(36), nullable=True, index=True)
+    replay_overrides = Column(JSON, nullable=True)
 
     system = relationship("System", back_populates="runs")
     invocations = relationship(

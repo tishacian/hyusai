@@ -438,6 +438,27 @@ export interface EvaluationTrendResponse {
  * pending → keep polling; skipped → stop silently; completed → stop
  * and optionally render a breach toast.
  */
+export interface RunReplayResult {
+  run_id: string;
+  parent_run_id: string;
+  status: string;
+  trigger: string;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  replay_overrides: Record<string, unknown>;
+  response_preview: string;
+  eval_pending: boolean;
+}
+
+export interface RunReplayListResponse {
+  parent_run_id: string;
+  items: Array<Run & {
+    replay_overrides: Record<string, unknown>;
+    evaluation_scores: Record<string, unknown> | null;
+  }>;
+}
+
 export interface EvaluationByRunResponse {
   status: 'pending' | 'skipped' | 'completed';
   run_id: string;
@@ -912,15 +933,59 @@ export class CanonicalApiService {
       .pipe(catchError(() => of(null)));
   }
 
-  acceptDecision(id: string, body: { note?: string; actor?: string } = {}): Observable<DecisionDetail | null> {
+  acceptDecision(
+    id: string,
+    body: {
+      note?: string;
+      actor?: string;
+      feedback_label?: 'false_positive' | 'true_breach' | 'correct_with_fix';
+      feedback_corrected_output?: Record<string, unknown>;
+    } = {},
+  ): Observable<DecisionDetail | null> {
     return this.api
       .post<DecisionDetail>(`/hypervisor/decisions/${id}/accept`, body)
       .pipe(catchError(() => of(null)));
   }
 
-  rejectDecision(id: string, body: { note?: string; actor?: string } = {}): Observable<DecisionDetail | null> {
+  rejectDecision(
+    id: string,
+    body: {
+      note?: string;
+      actor?: string;
+      feedback_label?: 'false_positive' | 'true_breach' | 'correct_with_fix';
+      feedback_corrected_output?: Record<string, unknown>;
+    } = {},
+  ): Observable<DecisionDetail | null> {
     return this.api
       .post<DecisionDetail>(`/hypervisor/decisions/${id}/reject`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  /**
+   * Replay a settled run with operator overrides applied — E1.5.2.
+   *
+   * Returns the new run id and a short response preview so the UI can
+   * confirm the replay landed before the eval polling kicks in.
+   * Front-end keeps it simple: we always POST and trust the backend
+   * to validate the override keys.
+   */
+  replayRun(
+    runId: string,
+    body: {
+      overrides?: Record<string, unknown>;
+      actor?: string;
+      source_decision_id?: string;
+      source_feedback_id?: string;
+    } = {},
+  ): Observable<RunReplayResult | null> {
+    return this.api
+      .post<RunReplayResult>(`/runs/${runId}/replay`, body)
+      .pipe(catchError(() => of(null)));
+  }
+
+  listRunReplays(runId: string): Observable<RunReplayListResponse | null> {
+    return this.api
+      .get<RunReplayListResponse>(`/runs/${runId}/replays`)
       .pipe(catchError(() => of(null)));
   }
 
