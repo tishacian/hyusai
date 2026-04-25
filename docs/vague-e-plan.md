@@ -61,7 +61,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | # | Titre | Priorité | Taille | Dépend de |
 | - | ----- | -------- | ------ | --------- |
 | **E0** | **Security hardening — rotation secrets (KC admin, KC client_secret, PG), DKIM activation, secret manager** | **P0** | **M** | — |
-| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 (post-closure, "rendre la boucle game-changer") en cours.** E1.5.1 livré 2026-04-25 (table `evaluation_feedback` + service + audit `evaluation.feedback.recorded`, `accept`/`reject` write feedback row pour les Decisions `review_required`, route `GET /evaluation/feedback`, isolation cross-tenant testée). Reste E1.5.2 re-run with override + E1.5.3 per-skill breach analytics + E1.5.4 auto-onboard preset + E1.5.5 LLM-backed suggestion concrète. | P0 | L | D2, D6 |
+| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 (post-closure, "rendre la boucle game-changer") en cours.** E1.5.1 livré 2026-04-25 (table `evaluation_feedback` + service + audit `evaluation.feedback.recorded`, `accept`/`reject` write feedback row pour les Decisions `review_required`, route `GET /evaluation/feedback`, isolation cross-tenant testée). E1.5.2 livré 2026-04-25 (`POST /runs/{id}/replay` + `GET /runs/{id}/replays` + migration `017_run_replay_lineage` ajoutant `parent_run_id`/`replay_overrides`/`trigger=replay`, service `replay_service` qui re-drive l'orchestrator chat avec overrides operator, audit `run.replayed` avec `source_decision_id`/`source_feedback_id`, action **RE-RUN** dans la review queue avec modal query/RAG mode/model, smoke 8/8 vert sur la VM y compris cross-tenant + replay-of-replay + DAG-engine 400). Reste E1.5.3 per-skill breach analytics + E1.5.4 auto-onboard preset + E1.5.5 LLM-backed suggestion concrète. | P0 | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
 | E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). **E3.3 node-props kind-specific livré 2026-04-24** (decision/fork/join/loop/retry/HITL/subflow éditeurs + task params rendus depuis `Skill.input_schema`, label éditable, helper `patchSelectedConfig`). **E3.4 export/import JSON livré 2026-04-24** (`GET /systems/{id}/export` envelope canonique, `POST /systems/import` avec re-binding par skill_slug + fallback gracieux, UI download + upload modal avec report). **E3 CLOSED.** | ✅ | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). **E4.2 différé 2026-04-25** (release engineering, pas un blocker démo, voir Journal pour le backlog détaillé). Reste E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
@@ -1399,6 +1399,68 @@ précisé après Vague D :
     (re-run with override, per-skill breach analytics, LLM-backed
     suggestion) construit sur du sable. C'est la fondation factuelle
     qui transforme le triage manuel en signal exploitable.
+
+- **2026-04-25 — E1.5.2 livré : la review queue peut maintenant
+  *agir*, pas seulement triager.** Avant ce patch, un reviewer qui
+  voyait un run breaché avait deux options : accepter (= ignorer)
+  ou rejeter (= garder en signal). Aucune des deux ne produit une
+  meilleure réponse. Maintenant un troisième bouton **RE-RUN** ouvre
+  un modal qui re-exécute le run avec un prompt / RAG mode / model
+  tweakés, sans quitter la queue. C'est le passage du triage passif
+  à la remédiation directe.
+  - **Migration 017 `run_replay_lineage`** : `runs` gagne
+    `parent_run_id` (String(36) nullable, indexé) et `replay_overrides`
+    (JSON nullable). Le trigger enum accepte `"replay"` en plus des
+    valeurs existantes. Schéma minimal volontaire : on ne veut pas
+    re-modéliser tout le run en double, juste pouvoir répondre
+    "comment ce run a-t-il été dérivé d'un autre ?" et "qu'est-ce
+    que l'opérateur a changé ?" sans differ deux blobs JSON.
+  - **Service `replay_service.replay_run_async`** : assemble le
+    request_dict orchestrator depuis `parent.input_ref` + body
+    overrides (rule = overrides win, parent fills the rest), drive
+    le chat orchestrator, persiste le nouveau Run avec `parent_run_id`
+    pointant vers l'original, déclenche `schedule_eval` pour que le
+    reviewer ait un nouveau score à comparer. Override surface
+    explicite : `query`, `rag_pipeline_mode`, `model`, `provider`,
+    `system_prompt`, `temperature`, `max_tokens`, `top_k`,
+    `similarity_threshold`, `prompt_type`. Les clés inconnues filent
+    dans `agent_preferences.custom_overrides` pour forward-compat.
+    *Out of scope MVP* : runs DAG-engine (`flow_snapshot` set + system_id)
+    → 400 avec message "open the run and re-launch from the system
+    page" ; pas de mock-up silencieux d'un chemin différent.
+  - **Endpoints `/runs/{id}/replay` + `/runs/{id}/replays`** : POST
+    accepte `overrides` + `actor` + `source_decision_id` +
+    `source_feedback_id` (lineage audit pour répondre "combien de
+    replays la queue a-t-elle réellement déclenchés ?"). GET liste
+    les enfants (newest first) avec `replay_overrides` et
+    `evaluation_scores` joints, utilisé par le run-detail futur et
+    par la queue pour signaler "ce Decision a déjà X tentatives
+    de remédiation". Audit `run.replayed` capture parent / new run
+    / overrides / source / status / duration.
+  - **UI review queue (RE-RUN modal)** : 3ème bouton à côté de
+    ACCEPT / REJECT, désactivé si pas de run lié. Ouvre un modal
+    inline avec champs `QUESTION` (préfilled depuis le run parent),
+    `RAG MODE` (dropdown auto/naive/hybrid/hah/chah/keep), `MODEL`
+    (input texte free-form). Submit POST `/runs/{id}/replay`,
+    affiche inline `run_id` + `status` + `duration_ms` +
+    `response_preview` + hint "evaluation pending" + lien deep-link
+    vers le nouveau run. Toast ngx-toastr en parallèle pour la
+    confirmation visible quand le reviewer scroll la queue.
+  - **Tests** : 15 unit tests sur le service (123/123 vert sur la
+    suite services). Smoke VM `/tmp/e152_smoke.py` 8/8 vert : happy
+    path avec model+rag override (assert le request_dict
+    orchestrator réellement patché), GET /replays liste correctement,
+    replay-of-replay (chained lineage), pending parent → 400, DAG
+    engine → 400 avec message engine, run inconnu → 404, isolation
+    cross-tenant (POST + GET → 404 sur foreign workspace), audit
+    `run.replayed` contient `source_decision_id` et `new_run_id`.
+  - **Pourquoi c'est game-changer** : E1.5.1 a transformé "j'ai vu
+    le breach" en "j'ai un signal". E1.5.2 transforme "j'ai un
+    signal" en "je peux corriger sur place". Le reviewer reste
+    *dans la queue*, ne change pas de surface, et obtient une
+    nouvelle évaluation comparable au breach initial. Le reste de
+    E1.5 (per-skill analytics + auto-onboard + LLM-suggestion) peut
+    s'appuyer sur ces deux fondations sans nouvelle table.
 
 - **2026-04-25 — E4.2 (Agentium Connector binaire) explicitement
   différé après E3 closure ; décision : on ne code rien tant que les
