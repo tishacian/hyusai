@@ -398,6 +398,9 @@ export interface ReviewQueueItem {
       hallucination_rate?: number;
       scores?: Record<string, number>;
       threshold_breach?: boolean;
+      question_type?: string | null;
+      failed_components?: string[];
+      topic?: string | null;
       reasons?: Array<{
         metric: string;
         observed: number;
@@ -429,6 +432,29 @@ export interface EvaluationTrendResponse {
   thresholds: { composite_min: number; hallucination_max: number };
   totals: { runs_evaluated: number; breaches: number; breach_rate: number };
   series: EvaluationTrendBucket[];
+}
+
+export interface EvaluationComponentHealthItem {
+  component: string;
+  label: string;
+  evaluated: number;
+  breaches: number;
+  breach_rate: number;
+  avg_composite: number;
+  avg_hallucination: number;
+  question_types: Record<string, { count: number; breaches: number }>;
+}
+
+export interface EvaluationComponentHealthResponse {
+  since: string;
+  thresholds: { composite_min: number; hallucination_max: number };
+  totals: { evaluations: number; breaches: number };
+  components: EvaluationComponentHealthItem[];
+  taxonomy: {
+    components: Record<string, string>;
+    question_types: Record<string, string>;
+    question_type_components: Record<string, string[]>;
+  };
 }
 
 /**
@@ -1003,10 +1029,15 @@ export class CanonicalApiService {
   // `/evaluation/score` manual endpoint (wired into the chat fact-check
   // button); these are additive, see `backend/app/api/v1/endpoints/evaluation.py`.
   getEvaluationReviewQueue(
-    params: { status?: 'proposed' | 'accepted' | 'rejected' | 'applied' | 'all'; limit?: number } = {},
+    params: {
+      status?: 'proposed' | 'accepted' | 'rejected' | 'applied' | 'all';
+      component?: string;
+      limit?: number;
+    } = {},
   ): Observable<EvaluationReviewQueueResponse | null> {
     const q: Record<string, string> = {};
     if (params.status) q['status'] = params.status;
+    if (params.component) q['component'] = params.component;
     if (params.limit != null) q['limit'] = String(params.limit);
     return this.api
       .get<EvaluationReviewQueueResponse>('/evaluation/review-queue', q)
@@ -1048,6 +1079,16 @@ export class CanonicalApiService {
     if (params.group_by) q['group_by'] = params.group_by;
     return this.api
       .get<EvaluationTrendResponse>('/evaluation/trend', q)
+      .pipe(catchError(() => of(null)));
+  }
+
+  getEvaluationComponentHealth(
+    params: { since?: string } = {},
+  ): Observable<EvaluationComponentHealthResponse | null> {
+    const q: Record<string, string> = {};
+    if (params.since) q['since'] = params.since;
+    return this.api
+      .get<EvaluationComponentHealthResponse>('/evaluation/component-health', q)
       .pipe(catchError(() => of(null)));
   }
 

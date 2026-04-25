@@ -5,6 +5,11 @@ from datetime import datetime
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.evaluation.rag_components import (
+    heuristic_question_type,
+    infer_failed_components,
+    normalize_question_type,
+)
 
 logger = get_logger(__name__)
 
@@ -58,10 +63,24 @@ Score each dimension independently:
 Also extract 3-8 atomic claims from the response and label each as "supported" or "unsupported"
 based on the retrieved context and query.
 
+## RAG Component Attribution
+Classify the user query into exactly one question_type:
+- simple: direct factual question answerable from one excerpt
+- complex: paraphrased or indirect question that mainly stresses generation
+- distracting: includes irrelevant/distracting context that may confuse retrieval
+- situational: includes user context/persona/situation
+- double: asks for two distinct things in one turn
+- conversational: depends on previous turns or anaphora ("it", "that", "those")
+- unknown: not enough information
+
+Extract a short topic (2-5 words) when obvious; otherwise use null.
+
 Return ONLY valid JSON, no markdown:
 {{
   "scores": {{"task_success": N, "relevance": N, ...}},
   "claims": [{{"claim": "...", "supported": true/false}}, ...],
+  "question_type": "simple|complex|distracting|situational|double|conversational|unknown",
+  "topic": "short topic or null",
   "overall_note": "One sentence summary of quality"
 }}"""
 
@@ -121,6 +140,16 @@ class JudgeService:
         hallucination_rate = unsupported / max(1, len(claims))
 
         composite = sum(scores.values()) / len(scores)
+        question_type = normalize_question_type(
+            data.get("question_type") or heuristic_question_type(query or "")
+        )
+        failed_components = infer_failed_components(
+            question_type=question_type,
+            scores=scores,
+            composite_score=composite,
+            hallucination_rate=hallucination_rate,
+            threshold_breach=composite < 70 or hallucination_rate > 0.15,
+        )
 
         return {
             "id": str(uuid.uuid4()),
@@ -132,6 +161,9 @@ class JudgeService:
             "composite_score": round(composite, 1),
             "hallucination_rate": round(hallucination_rate, 3),
             "drift_rate": round((100 - scores.get("drift", 95)) / 100, 3),
+            "question_type": question_type,
+            "failed_components": failed_components,
+            "topic": data.get("topic") if isinstance(data.get("topic"), str) else None,
             "claim_audit": {
                 "supported": supported,
                 "unsupported": unsupported,
@@ -161,6 +193,9 @@ class JudgeService:
                 "composite_score": r.composite_score,
                 "hallucination_rate": r.hallucination_rate,
                 "drift_rate": r.drift_rate,
+                "question_type": r.question_type,
+                "failed_components": r.failed_components or [],
+                "topic": r.topic,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
             for r in rows

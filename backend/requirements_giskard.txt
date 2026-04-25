@@ -1,0 +1,7 @@
+# Optional offline eval dependency for E1.5.3+/E1.5.5b.
+#
+# Install only on workers/VMs that generate synthetic RAG testsets or run
+# Giskard RAGET reports. The main API process imports Giskard lazily through
+# app.services.evaluation.giskard_adapter, never in the chat hot path.
+-r requirements.txt
+giskard[llm]

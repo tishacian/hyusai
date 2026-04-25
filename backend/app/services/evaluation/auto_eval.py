@@ -38,6 +38,11 @@ from app.models.evaluation import EvaluationScore
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.services.evaluation.judge import get_judge_service
+from app.services.evaluation.rag_components import (
+    heuristic_question_type,
+    infer_failed_components,
+    normalize_question_type,
+)
 from app.services.evaluation_preset_service import get_evaluation_preset_service
 
 logger = get_logger(__name__)
@@ -288,6 +293,17 @@ async def evaluate_run_async(
             hallucination_rate=hallucination_rate,
             config=config,
         )
+        question_type = normalize_question_type(
+            result.get("question_type") or heuristic_question_type(query)
+        )
+        failed_components = infer_failed_components(
+            question_type=question_type,
+            scores=scores,
+            composite_score=composite_score,
+            hallucination_rate=hallucination_rate,
+            threshold_breach=threshold_outcome["breach"],
+        )
+        topic = result.get("topic") if isinstance(result.get("topic"), str) else None
 
         eval_row = EvaluationScore(
             id=result.get("id") or str(uuid4()),
@@ -301,6 +317,9 @@ async def evaluate_run_async(
             composite_score=composite_score,
             hallucination_rate=hallucination_rate,
             drift_rate=float(result.get("drift_rate") or 0.0),
+            question_type=question_type,
+            failed_components=failed_components,
+            topic=topic[:200] if topic else None,
             claim_audit=result.get("claim_audit") or {},
             created_at=datetime.utcnow(),
         )
@@ -312,6 +331,9 @@ async def evaluate_run_async(
             "scores": scores,
             "threshold_breach": threshold_outcome["breach"],
             "reasons": threshold_outcome["reasons"],
+            "question_type": question_type,
+            "failed_components": failed_components,
+            "topic": topic,
             "evaluation_id": eval_row.id,
             "evaluated_at": eval_row.created_at.isoformat(),
         }
@@ -325,6 +347,9 @@ async def evaluate_run_async(
                 hallucination_rate=hallucination_rate,
                 reasons=threshold_outcome["reasons"],
                 evaluation_id=eval_row.id,
+                question_type=question_type,
+                failed_components=failed_components,
+                topic=topic,
             )
 
         logger.info(
@@ -355,6 +380,9 @@ def _file_review_decision(
     hallucination_rate: float,
     reasons: List[Dict[str, Any]],
     evaluation_id: str,
+    question_type: str,
+    failed_components: List[str],
+    topic: Optional[str],
 ) -> Decision:
     """Persist a Decision(kind="review_required") pointing at the run.
 
@@ -372,6 +400,9 @@ def _file_review_decision(
         "hallucination_rate": hallucination_rate,
         "reasons": reasons,
         "evaluation_id": evaluation_id,
+        "question_type": question_type,
+        "failed_components": failed_components,
+        "topic": topic,
         "suggestion": _suggest_action(reasons),
     }
     decision = Decision(

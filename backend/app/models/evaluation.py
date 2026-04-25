@@ -22,6 +22,12 @@ class EvaluationScore(Base):
     composite_score = Column(Float, default=0.0)
     hallucination_rate = Column(Float, default=0.0)
     drift_rate = Column(Float, default=0.0)
+    # E1.5.3 — Giskard/RAGET-inspired attribution layer. Question type
+    # lets us infer which RAG component was under test; failed_components
+    # carries the concrete suspects when thresholds breach.
+    question_type = Column(String(40), nullable=True)
+    failed_components = Column(JSON, nullable=True)
+    topic = Column(String(200), nullable=True)
     claim_audit = Column(JSON, default=dict)
     metadata_ = Column("metadata", JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

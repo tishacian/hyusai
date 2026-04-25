@@ -82,6 +82,18 @@ import {
                 </button>
               }
             </div>
+            @if (componentFilter(); as component) {
+              <span class="ck-mono" style="font-size:10px; color:var(--ck-signal-cool); padding:4px 8px; border:1px solid var(--ck-signal-cool); border-radius:3px;">
+                COMPONENT · {{ component.toUpperCase() }}
+              </span>
+              <a
+                routerLink="/steering/review-queue"
+                class="ck-mono"
+                style="font-size:10px; color:var(--ck-fg-4); text-decoration:underline;"
+              >
+                CLEAR
+              </a>
+            }
             <span class="ml-auto ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
               {{ items().length }} ITEMS
             </span>
@@ -119,7 +131,11 @@ import {
               style="font-size:11px; padding:48px; text-align:center; color:var(--ck-fg-4);"
             >
               @if (status() === 'proposed') {
-                NO OPEN REVIEWS — EVAL LOOP IS CLEAN
+                @if (componentFilter()) {
+                  NO OPEN REVIEWS FOR COMPONENT "{{ componentFilter()?.toUpperCase() }}"
+                } @else {
+                  NO OPEN REVIEWS — EVAL LOOP IS CLEAN
+                }
               } @else {
                 NO ITEMS AT STATUS "{{ status().toUpperCase() }}"
               }
@@ -419,6 +435,7 @@ export class SteeringReviewQueueComponent implements OnInit {
   readonly loading = signal(false);
   readonly pendingId = signal<string | null>(null);
   readonly status = signal<'proposed' | 'accepted' | 'rejected' | 'all'>('proposed');
+  readonly componentFilter = signal<string | null>(null);
 
   // E1.5.2 — replay-with-override modal state. Kept in the component
   // (not a separate service) because the modal is tightly coupled to
@@ -454,6 +471,18 @@ export class SteeringReviewQueueComponent implements OnInit {
       )
       .subscribe((id) => this.focusedDecisionId.set(id));
 
+    this.route.queryParamMap
+      .pipe(
+        map((p) => p.get('component')),
+        takeUntilDestroyed(),
+      )
+      .subscribe((component) => {
+        const normalized = component?.trim().toLowerCase().replace(/[-\s]/g, '_') || null;
+        if (this.componentFilter() === normalized) return;
+        this.componentFilter.set(normalized);
+        this.refresh();
+      });
+
     // When either the focus id changes or the queue items load,
     // scroll the matching row into view (if any). We run this in
     // an effect so it re-fires on both signals + plays nicely with
@@ -477,7 +506,11 @@ export class SteeringReviewQueueComponent implements OnInit {
   refresh(): void {
     this.loading.set(true);
     this.canonical
-      .getEvaluationReviewQueue({ status: this.status(), limit: 100 })
+      .getEvaluationReviewQueue({
+        status: this.status(),
+        component: this.componentFilter() ?? undefined,
+        limit: 100,
+      })
       .subscribe({
         next: (response: EvaluationReviewQueueResponse | null) => {
           this.items.set(response?.items ?? []);

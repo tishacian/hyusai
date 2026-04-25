@@ -14,6 +14,7 @@ import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import {
   CanonicalApiService,
+  type EvaluationComponentHealthResponse,
   type EvaluationTrendResponse,
 } from '@app/core/canonical-api.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -242,6 +243,63 @@ const PALETTE = {
       </section>
     }
 
+    @if (componentHealthItems().length > 0) {
+      <section class="t-card t-elevated rounded-md p-4 mb-4">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+              <ck-glyph name="pulse" [size]="12" />
+              <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'">
+                RAG component health · Giskard taxonomy · 7d
+              </span>
+            </div>
+            <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="3">
+              Failed evals are attributed to Generator / Retriever / Rewriter / Router / Knowledge Base from question type + breach shape.
+            </div>
+          </div>
+          <ck-tag [tone]="componentHealthTone()" variant="soft">
+            {{ componentHealthBreaches() }} breached attributions
+          </ck-tag>
+        </div>
+
+        <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fit, minmax(170px, 1fr))'" [style.gap.px]="10">
+          @for (item of componentHealthItems(); track item.component) {
+            <a
+              routerLink="/steering/review-queue"
+              [queryParams]="{ component: item.component }"
+              [style.display]="'block'"
+              [style.textDecoration]="'none'"
+              [style.padding.px]="12"
+              [style.borderRadius.px]="5"
+              [style.border]="'1px solid var(--ck-stroke-2)'"
+              [style.background]="'var(--ck-bg-inset)'"
+              [title]="'Open review queue filtered on ' + item.label"
+            >
+              <div [style.display]="'flex'" [style.justifyContent]="'space-between'" [style.alignItems]="'center'" [style.gap.px]="8">
+                <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'">
+                  {{ item.label }}
+                </span>
+                <ck-tag [tone]="item.tone" variant="soft">
+                  {{ item.rateLabel }}
+                </ck-tag>
+              </div>
+              <div [style.display]="'flex'" [style.alignItems]="'baseline'" [style.gap.px]="8" [style.marginTop.px]="8">
+                <span [style.fontSize.px]="22" [style.fontWeight]="600" [style.color]="item.breaches > 0 ? 'var(--ck-signal-warm)' : 'var(--ck-fg-1)'">
+                  {{ item.breaches }}
+                </span>
+                <span [style.fontSize.px]="11" [style.color]="'var(--ck-fg-4)'">
+                  / {{ item.evaluated }} applicable evals
+                </span>
+              </div>
+              <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="4">
+                Avg {{ item.avg_composite.toFixed(1) }}/100 · hallucination {{ (item.avg_hallucination * 100).toFixed(1) }}%
+              </div>
+            </a>
+          }
+        </div>
+      </section>
+    }
+
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       <ck-stat-readout variant="tile"
         label="Composite score"
@@ -422,6 +480,8 @@ export class QualityDashboardComponent implements OnInit {
 
   /** Aggregate trend (Vague E / E1) — feeds the "Threshold monitoring" strip. */
   trend = signal<EvaluationTrendResponse | null>(null);
+  /** E1.5.3 — RAG component attribution inspired by Giskard RAGET. */
+  componentHealth = signal<EvaluationComponentHealthResponse | null>(null);
   /** Count of review_required decisions with status=proposed, for the deeplink badge. */
   reviewQueueCount = signal<number>(0);
 
@@ -472,6 +532,33 @@ export class QualityDashboardComponent implements OnInit {
         isBreach,
       };
     });
+  });
+
+  readonly componentHealthItems = computed(() =>
+    (this.componentHealth()?.components ?? []).map((item) => {
+      const rate = item.breach_rate ?? 0;
+      return {
+        ...item,
+        rateLabel: `${(rate * 100).toFixed(1)}%`,
+        tone: (rate === 0 ? 'pos' : rate < 0.2 ? 'warn' : 'neg') as
+          | 'pos'
+          | 'warn'
+          | 'neg',
+      };
+    }),
+  );
+  readonly componentHealthBreaches = computed(() =>
+    this.componentHealthItems().reduce((acc, item) => acc + (item.breaches ?? 0), 0),
+  );
+  readonly componentHealthTone = computed<'pos' | 'warn' | 'neg'>(() => {
+    const total = this.componentHealthBreaches();
+    if (total === 0) return 'pos';
+    const evaluated = this.componentHealthItems().reduce(
+      (acc, item) => acc + (item.evaluated ?? 0),
+      0,
+    );
+    const rate = evaluated > 0 ? total / evaluated : 0;
+    return rate < 0.1 ? 'warn' : 'neg';
   });
 
   readonly dimensionLabels = computed(() => Object.values(this.dimensions()));
@@ -686,6 +773,10 @@ export class QualityDashboardComponent implements OnInit {
     this.canonical.getEvaluationTrend({ since: '7d', group_by: 'day' }).subscribe({
       next: (res) => this.trend.set(res),
       error: () => this.trend.set(null),
+    });
+    this.canonical.getEvaluationComponentHealth({ since: '7d' }).subscribe({
+      next: (res) => this.componentHealth.set(res),
+      error: () => this.componentHealth.set(null),
     });
     this.canonical.getEvaluationReviewQueue({ status: 'proposed', limit: 200 }).subscribe({
       next: (res) => this.reviewQueueCount.set(res?.count ?? 0),

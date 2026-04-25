@@ -33,6 +33,15 @@ from app.models.run import Run
 from app.models.workspace import Workspace
 from app.services.evaluation.feedback_service import serialize_feedback
 from app.services.evaluation.judge import get_judge_service, DIMENSION_LABELS
+from app.services.evaluation.rag_components import (
+    RAG_COMPONENT_LABELS,
+    QUESTION_TYPE_LABELS,
+    component_health,
+    heuristic_question_type,
+    infer_failed_components,
+    normalize_question_type,
+    targeted_components,
+)
 from app.services.evaluation_preset_service import (
     DEFAULT_EVAL_CONFIG,
     get_evaluation_preset_service,
@@ -72,6 +81,7 @@ async def score_response(
         session_id=req.session_id,
         agent_id=req.agent_id,
     )
+    topic = result.get("topic") if isinstance(result.get("topic"), str) else None
 
     row = EvaluationScore(
         id=result["id"],
@@ -84,6 +94,9 @@ async def score_response(
         composite_score=result["composite_score"],
         hallucination_rate=result["hallucination_rate"],
         drift_rate=result["drift_rate"],
+        question_type=result.get("question_type"),
+        failed_components=result.get("failed_components") or [],
+        topic=topic[:200] if topic else None,
         claim_audit=result["claim_audit"],
         created_at=datetime.utcnow(),
     )
@@ -131,6 +144,9 @@ async def evaluation_history(
                 "composite_score": r.composite_score,
                 "hallucination_rate": r.hallucination_rate,
                 "drift_rate": r.drift_rate,
+                "question_type": r.question_type,
+                "failed_components": r.failed_components or [],
+                "topic": r.topic,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
             for r in rows
@@ -165,6 +181,9 @@ async def latest_evaluation(
             "composite_score": row.composite_score,
             "hallucination_rate": row.hallucination_rate,
             "drift_rate": row.drift_rate,
+            "question_type": row.question_type,
+            "failed_components": row.failed_components or [],
+            "topic": row.topic,
             "claim_audit": row.claim_audit,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
@@ -323,6 +342,9 @@ async def evaluation_by_run(
             "hallucination_rate": snap.get("hallucination_rate"),
             "scores": snap.get("scores"),
             "reasons": snap.get("reasons") or [],
+            "question_type": snap.get("question_type"),
+            "failed_components": snap.get("failed_components") or [],
+            "topic": snap.get("topic"),
             "evaluation_id": snap.get("evaluation_id"),
             "decision_id": decision_id,
         }
@@ -353,6 +375,10 @@ async def evaluation_by_run(
 @router.get("/review-queue")
 async def review_queue(
     status: str = Query(default="proposed", pattern="^(proposed|accepted|rejected|applied|all)$"),
+    component: Optional[str] = Query(
+        default=None,
+        description="Filter to decisions whose eval attribution includes this RAG component.",
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
@@ -372,7 +398,8 @@ async def review_queue(
     )
     if status != "all":
         q = q.filter(Decision.status == status)
-    decisions = q.limit(limit).all()
+    fetch_limit = min(limit * 4, 500) if component else limit
+    decisions = q.limit(fetch_limit).all()
 
     run_ids = [d.target_id for d in decisions if d.target_id]
     runs_by_id: Dict[str, Run] = {}
@@ -381,8 +408,22 @@ async def review_queue(
         runs_by_id = {r.id: r for r in rows}
 
     items: List[Dict[str, Any]] = []
+    wanted_component = (
+        component.strip().lower().replace("-", "_").replace(" ", "_")
+        if component
+        else None
+    )
+    if wanted_component and wanted_component not in RAG_COMPONENT_LABELS:
+        raise HTTPException(status_code=400, detail=f"Unknown RAG component: {component}")
     for decision in decisions:
         run = runs_by_id.get(decision.target_id) if decision.target_id else None
+        if wanted_component:
+            rationale = decision.rationale or {}
+            failed = rationale.get("failed_components")
+            if not failed and run and isinstance(run.evaluation_scores, dict):
+                failed = run.evaluation_scores.get("failed_components")
+            if wanted_component not in (failed or []):
+                continue
         items.append(
             {
                 "decision": {
@@ -402,6 +443,8 @@ async def review_queue(
                 "run": _serialize_run_for_queue(run) if run else None,
             }
         )
+        if len(items) >= limit:
+            break
     return {"items": items, "count": len(items)}
 
 
@@ -500,6 +543,91 @@ async def eval_trend(
             "breach_rate": (breach_count / total) if total else 0.0,
         },
         "series": series,
+    }
+
+
+# ---------------------------------------------------------------------------
+# E1.5.3 — Giskard-inspired RAG component analytics
+# ---------------------------------------------------------------------------
+
+
+@router.get("/component-health")
+async def eval_component_health(
+    since: str = Query(default="7d"),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Aggregate breached evaluations by RAG component.
+
+    The component taxonomy follows Giskard RAGET, but the aggregation is
+    native to Agentium's persisted ``evaluation_scores`` so the dashboard
+    works without importing Giskard in the API process.
+    """
+    delta = _parse_since(since) or timedelta(days=7)
+    cutoff = datetime.utcnow() - delta
+
+    rows = (
+        db.query(EvaluationScore)
+        .filter(
+            EvaluationScore.workspace_id == workspace.id,
+            EvaluationScore.created_at >= cutoff,
+        )
+        .order_by(EvaluationScore.created_at.desc())
+        .limit(1000)
+        .all()
+    )
+
+    service = get_evaluation_preset_service()
+    config = service.resolve(db, workspace_id=workspace.id)
+    composite_min = float(config.get("composite_min", 0.0))
+    hallucination_max = float(config.get("hallucination_max", 1.0))
+
+    # Backfill attribution in-memory for older rows that predate E1.5.3.
+    for row in rows:
+        if not row.question_type:
+            row.question_type = heuristic_question_type(row.query or "")
+        if row.failed_components is None:
+            row.failed_components = infer_failed_components(
+                question_type=row.question_type,
+                scores=row.scores or {},
+                composite_score=float(row.composite_score or 0.0),
+                hallucination_rate=float(row.hallucination_rate or 0.0),
+                threshold_breach=(
+                    float(row.composite_score or 0.0) < composite_min
+                    or float(row.hallucination_rate or 0.0) > hallucination_max
+                ),
+            )
+
+    payload = component_health(
+        rows,
+        composite_min=composite_min,
+        hallucination_max=hallucination_max,
+    )
+    payload.update(
+        {
+            "since": since,
+            "thresholds": {
+                "composite_min": composite_min,
+                "hallucination_max": hallucination_max,
+            },
+            "totals": {
+                "evaluations": len(rows),
+                "breaches": sum(1 for r in rows if r.failed_components),
+            },
+        }
+    )
+    return payload
+
+
+@router.get("/taxonomy")
+async def evaluation_taxonomy():
+    """Expose the eval taxonomy for UI labels and future Giskard adapters."""
+    return {
+        "components": RAG_COMPONENT_LABELS,
+        "question_types": QUESTION_TYPE_LABELS,
+        "question_type_components": {
+            key: targeted_components(key) for key in QUESTION_TYPE_LABELS
+        },
     }
 
 

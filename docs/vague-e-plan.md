@@ -61,7 +61,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | # | Titre | Priorité | Taille | Dépend de |
 | - | ----- | -------- | ------ | --------- |
 | **E0** | **Security hardening — rotation secrets (KC admin, KC client_secret, PG), DKIM activation, secret manager** | **P0** | **M** | — |
-| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 (post-closure, "rendre la boucle game-changer") en cours.** E1.5.1 livré 2026-04-25 (table `evaluation_feedback` + service + audit `evaluation.feedback.recorded`, `accept`/`reject` write feedback row pour les Decisions `review_required`, route `GET /evaluation/feedback`, isolation cross-tenant testée). E1.5.2 livré 2026-04-25 (`POST /runs/{id}/replay` + `GET /runs/{id}/replays` + migration `017_run_replay_lineage` ajoutant `parent_run_id`/`replay_overrides`/`trigger=replay`, service `replay_service` qui re-drive l'orchestrator chat avec overrides operator, audit `run.replayed` avec `source_decision_id`/`source_feedback_id`, action **RE-RUN** dans la review queue avec modal query/RAG mode/model, smoke 8/8 vert sur la VM y compris cross-tenant + replay-of-replay + DAG-engine 400). Reste E1.5.3 per-skill breach analytics + E1.5.4 auto-onboard preset + E1.5.5 LLM-backed suggestion concrète. | P0 | L | D2, D6 |
+| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 (post-closure, "rendre la boucle game-changer") en cours.** E1.5.1 livré 2026-04-25 (table `evaluation_feedback` + service + audit `evaluation.feedback.recorded`, `accept`/`reject` write feedback row pour les Decisions `review_required`, route `GET /evaluation/feedback`, isolation cross-tenant testée). E1.5.2 livré 2026-04-25 (`POST /runs/{id}/replay` + `GET /runs/{id}/replays` + migration `017_run_replay_lineage` ajoutant `parent_run_id`/`replay_overrides`/`trigger=replay`, service `replay_service` qui re-drive l'orchestrator chat avec overrides operator, audit `run.replayed` avec `source_decision_id`/`source_feedback_id`, action **RE-RUN** dans la review queue avec modal query/RAG mode/model, smoke 8/8 vert sur la VM y compris cross-tenant + replay-of-replay + DAG-engine 400). **E1.5.3 livré VM 2026-04-25** : taxonomie Giskard/RAGET native (`generator`, `retriever`, `rewriter`, `router`, `knowledge_base`), migration `018_eval_component_analytics`, `question_type`/`failed_components`/`topic` sur `EvaluationScore`, `GET /evaluation/component-health`, filtre `review-queue?component=`, widget Quality "RAG component health", dépendance `giskard[llm]` isolée en extra offline (`requirements_giskard.txt`, adapter lazy import), smoke API 5/5 + build/deploy frontend VM OK, spike RAGET : install `giskard 2.19.1`, KnowledgeBase OK avec embedding OpenAI, testset 3 questions OK avec ≥8 chunks (2 chunks trop petit → guard adapter). Reste E1.5.4 auto-onboard preset + E1.5.5 LLM-backed suggestion concrète / annotation reply. | P0 | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
 | E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). **E3.3 node-props kind-specific livré 2026-04-24** (decision/fork/join/loop/retry/HITL/subflow éditeurs + task params rendus depuis `Skill.input_schema`, label éditable, helper `patchSelectedConfig`). **E3.4 export/import JSON livré 2026-04-24** (`GET /systems/{id}/export` envelope canonique, `POST /systems/import` avec re-binding par skill_slug + fallback gracieux, UI download + upload modal avec report). **E3 CLOSED.** | ✅ | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). **E4.2 différé 2026-04-25** (release engineering, pas un blocker démo, voir Journal pour le backlog détaillé). Reste E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
@@ -1461,6 +1461,56 @@ précisé après Vague D :
     nouvelle évaluation comparable au breach initial. Le reste de
     E1.5 (per-skill analytics + auto-onboard + LLM-suggestion) peut
     s'appuyer sur ces deux fondations sans nouvelle table.
+
+- **2026-04-25 — E1.5.3 livré avec décision Giskard : dépendance
+  optionnelle offline, taxonomie native dans Agentium.** Après audit
+  Dify/Giskard : Dify n'est pas une lib à embarquer (on reprend le
+  pattern annotation reply), mais Giskard/RAGET ouvre une vraie
+  perspective pour E1.5.5b (synthetic RAG testsets depuis la KB).
+  Décision d'architecture :
+  - **Pas de Giskard dans le hot path chat/orchestrator.** Le backend
+    API et le chat restent utilisables sans `giskard[llm]`.
+  - **Extra isolé** : `backend/requirements_giskard.txt` installe
+    `giskard[llm]` au-dessus de `requirements.txt` pour worker offline
+    / VM / nightly jobs.
+  - **Adapter lazy import** : `services/evaluation/giskard_adapter.py`
+    expose `configure_giskard_models`, `make_knowledge_base`,
+    `generate_rag_testset`, `evaluate_rag_testset` et lève
+    `GiskardUnavailable` si l'extra n'est pas installé ou si l'embedding
+    model n'est pas configuré. Aucun import transitive côté app startup.
+  - **Taxonomie native reprise de RAGET** : composants
+    `generator`, `retriever`, `rewriter`, `router`, `knowledge_base`;
+    question types `simple`, `complex`, `distracting`, `situational`,
+    `double`, `conversational`, `unknown`; mapping question_type →
+    composants en constante locale (`rag_components.py`) pour que le
+    dashboard fonctionne sans dépendance externe.
+  - **E1.5.3 impl livrée** : migration `018_eval_component_analytics`
+    ajoute `evaluation_scores.question_type`, `failed_components`,
+    `topic`; le judge demande `question_type` + `topic` dans le même
+    appel LLM-as-judge; `auto_eval` infère `failed_components` depuis
+    question type + seuils; `GET /evaluation/component-health` agrège
+    la santé par composant; `GET /evaluation/review-queue?component=`
+    filtre les Decisions attribuées à un composant; Quality dashboard
+    affiche un strip "RAG component health · Giskard taxonomy" avec
+    deeplink vers la queue filtrée.
+  - **Tests / smoke** : `test_evaluation_rag_components.py` couvre
+    normalisation, heuristique fallback, mapping Giskard, inférence
+    de composants et agrégation. `test_giskard_adapter.py` vérifie le
+    guard "KB trop petite" avant import Giskard. Suite services locale :
+    127 passed, 2 skipped après réinstallation de `qdrant-client` déjà
+    listé dans `requirements.txt`. Smoke VM `/tmp/e153_smoke.py` 5/5 :
+    taxonomy, component-health, filtre review queue, composant invalide
+    → 400, isolation tenant. Migration 018 appliquée sur VM, backend
+    redémarré, build Angular VM OK (warning vendor CSS drawflow connu),
+    bundle Nginx déployé.
+  - **Spike Giskard** : venv isolé `/tmp/giskard-spike-venv`, install
+    `giskard[llm]` OK (`giskard 2.19.1`). `KnowledgeBase` OK après
+    `configure_giskard_models(embedding_model="text-embedding-3-small")`.
+    Génération RAGET OK avec 8 chunks / 3 questions via `gpt-4o-mini`
+    (`QATestset`, colonnes `question`, `reference_answer`,
+    `reference_context`, `conversation_history`, `metadata`). Avec 2
+    chunks, RAGET échoue côté UMAP/HDBSCAN topic discovery ; l'adapter
+    impose donc `min_knowledge_rows=8` par défaut avant d'appeler Giskard.
 
 - **2026-04-25 — E4.2 (Agentium Connector binaire) explicitement
   différé après E3 closure ; décision : on ne code rien tant que les
