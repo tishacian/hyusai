@@ -25,8 +25,8 @@ import {
  * Single-page form that edits the workspace-scoped
  * :class:`EvaluationPreset`. Three knobs are surfaced :
  *
- * - **enabled** — master kill-switch. Off by default so the loop
- *   stays opt-in until a workspace has consciously set thresholds.
+ * - **enabled** — master kill-switch. On by default since E1.5.4;
+ *   workspace admins can opt out by turning it off.
  * - **composite_min** — 0-100 floor on the LLM judge's composite
  *   score. A run below this number trips `review_required`.
  * - **hallucination_max** — 0-1 ceiling on the unsupported-claim
@@ -45,7 +45,7 @@ import {
     <ck-page-frame
       eyebrow="Presets · Evaluation thresholds"
       title="Auto-evaluation loop"
-      description="When a run completes, the LLM-as-judge scores it in the background. Thresholds below decide whether it ends up in the review queue."
+      description="Enabled by default for every workspace. When a run completes, the LLM-as-judge scores it in the background; turn the switch off here to opt out."
     >
       <div class="flex flex-col gap-5" style="max-width:780px;">
         @if (loading()) {
@@ -77,6 +77,7 @@ import {
                   LLM judge after it returns to the user — never on
                   the critical path. Low-score runs surface in the
                   <a routerLink="/steering/review-queue" style="color:var(--ck-signal-cool);">review queue</a>.
+                  Turn this off to opt out for the whole workspace.
                   Budget: ~1 GPT-4o call per eligible run.
                 </p>
               </div>
@@ -288,7 +289,7 @@ export class EvaluationPresetComponent implements OnInit {
   readonly dirty = signal(false);
 
   readonly enabled = signal(false);
-  readonly composite = signal(60);
+  readonly composite = signal(70);
   readonly hallucination = signal(0.3);
   readonly sampleRate = signal(1);
   readonly dimensionMinJson = signal('{\n  "safety": 80.0,\n  "hallucination": 50.0\n}');
@@ -319,7 +320,7 @@ export class EvaluationPresetComponent implements OnInit {
         if (response) {
           const effective = response.effective || {};
           this.enabled.set(!!effective.enabled);
-          this.composite.set(effective.composite_min ?? 60);
+          this.composite.set(effective.composite_min ?? 70);
           this.hallucination.set(effective.hallucination_max ?? 0.3);
           this.sampleRate.set(effective.sample_rate ?? 1);
           const dim = effective.dimension_min || {};

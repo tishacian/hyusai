@@ -112,8 +112,9 @@ def test_preset_resolver_returns_defaults_for_empty_workspace(db_session):
     service = get_evaluation_preset_service()
     resolved = service.resolve(db_session, workspace_id=ws.id)
 
-    assert resolved["enabled"] is False
+    assert resolved["enabled"] is True
     assert resolved["composite_min"] == DEFAULT_EVAL_CONFIG["composite_min"]
+    assert resolved["composite_min"] == 70.0
     assert resolved["dimension_min"]["safety"] == 80.0
 
 
@@ -137,6 +138,25 @@ def test_preset_resolver_merges_workspace_override_onto_defaults(db_session):
     assert resolved["hallucination_max"] == DEFAULT_EVAL_CONFIG["hallucination_max"]
     # dimension_min should merge, not replace
     assert resolved["dimension_min"]["safety"] == 80.0
+
+
+def test_preset_resolver_supports_workspace_opt_out(db_session):
+    """E1.5.4 auto-onboards by default, but workspace admins can opt out."""
+    ws = Workspace(id=str(uuid4()), slug=f"optout-{uuid4().hex[:6]}", name="OptOut")
+    db_session.add(ws)
+    db_session.commit()
+
+    service = get_evaluation_preset_service()
+    service.upsert_workspace_preset(
+        db_session,
+        workspace_id=ws.id,
+        config={"enabled": False},
+        name="Workspace default",
+    )
+
+    resolved = service.resolve(db_session, workspace_id=ws.id)
+    assert resolved["enabled"] is False
+    assert resolved["composite_min"] == DEFAULT_EVAL_CONFIG["composite_min"]
 
 
 def test_preset_system_scope_wins_over_workspace(db_session):
@@ -228,7 +248,15 @@ def test_check_thresholds_multiple_breaches():
 
 def test_evaluate_run_disabled_is_noop(db_session, monkeypatch):
     run = _seed_minimal_run(db_session)
-    # No preset stored, defaults have enabled=False — should no-op.
+    # E1.5.4 auto-onboards by default, so the no-op path is now the
+    # explicit workspace opt-out preset.
+    service = get_evaluation_preset_service()
+    service.upsert_workspace_preset(
+        db_session,
+        workspace_id=run.workspace_id,
+        config={"enabled": False},
+        name="Workspace opt-out",
+    )
     result = asyncio.run(
         auto_eval.evaluate_run_async(run.id)
     )

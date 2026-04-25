@@ -61,7 +61,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | # | Titre | Priorité | Taille | Dépend de |
 | - | ----- | -------- | ------ | --------- |
 | **E0** | **Security hardening — rotation secrets (KC admin, KC client_secret, PG), DKIM activation, secret manager** | **P0** | **M** | — |
-| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 (post-closure, "rendre la boucle game-changer") en cours.** E1.5.1 livré 2026-04-25 (table `evaluation_feedback` + service + audit `evaluation.feedback.recorded`, `accept`/`reject` write feedback row pour les Decisions `review_required`, route `GET /evaluation/feedback`, isolation cross-tenant testée). E1.5.2 livré 2026-04-25 (`POST /runs/{id}/replay` + `GET /runs/{id}/replays` + migration `017_run_replay_lineage` ajoutant `parent_run_id`/`replay_overrides`/`trigger=replay`, service `replay_service` qui re-drive l'orchestrator chat avec overrides operator, audit `run.replayed` avec `source_decision_id`/`source_feedback_id`, action **RE-RUN** dans la review queue avec modal query/RAG mode/model, smoke 8/8 vert sur la VM y compris cross-tenant + replay-of-replay + DAG-engine 400). **E1.5.3 livré VM 2026-04-25** : taxonomie Giskard/RAGET native (`generator`, `retriever`, `rewriter`, `router`, `knowledge_base`), migration `018_eval_component_analytics`, `question_type`/`failed_components`/`topic` sur `EvaluationScore`, `GET /evaluation/component-health`, filtre `review-queue?component=`, widget Quality "RAG component health", dépendance `giskard[llm]` isolée en extra offline (`requirements_giskard.txt`, adapter lazy import), smoke API 5/5 + build/deploy frontend VM OK, spike RAGET : install `giskard 2.19.1`, KnowledgeBase OK avec embedding OpenAI, testset 3 questions OK avec ≥8 chunks (2 chunks trop petit → guard adapter). Reste E1.5.4 auto-onboard preset + E1.5.5 LLM-backed suggestion concrète / annotation reply. | P0 | L | D2, D6 |
+| E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 (post-closure, "rendre la boucle game-changer") en cours.** E1.5.1 livré 2026-04-25 (table `evaluation_feedback` + service + audit `evaluation.feedback.recorded`, `accept`/`reject` write feedback row pour les Decisions `review_required`, route `GET /evaluation/feedback`, isolation cross-tenant testée). E1.5.2 livré 2026-04-25 (`POST /runs/{id}/replay` + `GET /runs/{id}/replays` + migration `017_run_replay_lineage` ajoutant `parent_run_id`/`replay_overrides`/`trigger=replay`, service `replay_service` qui re-drive l'orchestrator chat avec overrides operator, audit `run.replayed` avec `source_decision_id`/`source_feedback_id`, action **RE-RUN** dans la review queue avec modal query/RAG mode/model, smoke 8/8 vert sur la VM y compris cross-tenant + replay-of-replay + DAG-engine 400). **E1.5.3 livré VM 2026-04-25** : taxonomie Giskard/RAGET native (`generator`, `retriever`, `rewriter`, `router`, `knowledge_base`), migration `018_eval_component_analytics`, `question_type`/`failed_components`/`topic` sur `EvaluationScore`, `GET /evaluation/component-health`, filtre `review-queue?component=`, widget Quality "RAG component health", dépendance `giskard[llm]` isolée en extra offline (`requirements_giskard.txt`, adapter lazy import), smoke API 5/5 + build/deploy frontend VM OK, spike RAGET : install `giskard 2.19.1`, KnowledgeBase OK avec embedding OpenAI, testset 3 questions OK avec ≥8 chunks (2 chunks trop petit → guard adapter). **E1.5.4 livré VM 2026-04-25** : auto-onboard preset (`enabled=true`, `composite_min=70`) + migration `019_eval_default_onboard` qui seed les workspaces existants sans preset + opt-out explicite depuis `/presets/evaluation`, smoke API GET/PUT opt-out OK, frontend build/deploy VM OK. Reste E1.5.5 LLM-backed suggestion concrète / annotation reply. | P0 | L | D2, D6 |
 | E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
 | E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). **E3.3 node-props kind-specific livré 2026-04-24** (decision/fork/join/loop/retry/HITL/subflow éditeurs + task params rendus depuis `Skill.input_schema`, label éditable, helper `patchSelectedConfig`). **E3.4 export/import JSON livré 2026-04-24** (`GET /systems/{id}/export` envelope canonique, `POST /systems/import` avec re-binding par skill_slug + fallback gracieux, UI download + upload modal avec report). **E3 CLOSED.** | ✅ | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). **E4.2 différé 2026-04-25** (release engineering, pas un blocker démo, voir Journal pour le backlog détaillé). Reste E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
@@ -1511,6 +1511,36 @@ précisé après Vague D :
     `reference_context`, `conversation_history`, `metadata`). Avec 2
     chunks, RAGET échoue côté UMAP/HDBSCAN topic discovery ; l'adapter
     impose donc `min_knowledge_rows=8` par défaut avant d'appeler Giskard.
+
+- **2026-04-25 — E1.5.4 livré : l'eval loop est auto-onboardée, plus
+  cachée derrière un opt-in.** E1.5.1/2/3 ont donné une boucle utile,
+  mais tant que le preset restait `enabled=false` par défaut, un nouveau
+  workspace pouvait utiliser Agentium sans jamais produire de signal.
+  Ce patch inverse la posture : l'évaluation tourne par défaut, et le
+  workspace peut explicitement opt-out.
+  - **Defaults service** : `DEFAULT_EVAL_CONFIG.enabled=True`,
+    `composite_min=70.0`, `hallucination_max=0.3`, `sample_rate=1.0`.
+    Le resolver reste le même : system > capability > workspace >
+    built-in defaults. Les overrides partiels continuent de merger sur
+    les defaults, donc `{"enabled": false}` suffit à opt-out sans perdre
+    les seuils si on réactive plus tard.
+  - **Migration 019 `eval_default_onboard`** : seed un preset
+    workspace explicite (`Agentium default evaluation loop`) pour chaque
+    workspace existant qui n'avait pas déjà de preset. Config seedée :
+    `enabled=true`, `composite_min=70`, `hallucination_max=0.3`,
+    `dimension_min={safety:80, hallucination:50}`, `sample_rate=1`.
+    Les workspaces avec preset existant ne sont pas écrasés.
+  - **Opt-out UI documenté** : `/presets/evaluation` indique maintenant
+    que l'auto-eval est enabled by default et que le switch sert à
+    opt-out workspace-wide. Fallback slider composite côté UI passe à 70.
+  - **Validation** : test resolver mis à jour + test opt-out explicite ;
+    VM : migration appliquée après création d'un workspace pre-migration
+    → preset seedé correctement ; API smoke GET `/evaluation/presets`
+    retourne `enabled=true`, `composite_min=70`, puis PUT `enabled=false`
+    résout bien `enabled=false` tout en gardant les seuils hérités.
+    `test_auto_eval.py` 13/13 vert local + VM. Build Angular VM OK
+    (warning vendor CSS drawflow connu), bundle Nginx déployé, backend
+    redémarré.
 
 - **2026-04-25 — E4.2 (Agentium Connector binaire) explicitement
   différé après E3 closure ; décision : on ne code rien tant que les

@@ -22,15 +22,15 @@ from app.models.evaluation_preset import EvaluationPreset
 logger = get_logger(__name__)
 
 
-# Canonical config defaults. Thresholds calibrated on the realistic
-# score bands observed during D4→D7 smoke (see ``METRIC_REGISTRY`` in
-# ``chat-panel.component.ts`` for the same philosophy on the client).
+# Canonical config defaults. E1.5.4 flips the loop from opt-in to
+# auto-onboarded: new workspaces get background evaluation by default,
+# and can opt out from Presets -> Evaluation thresholds.
 #
 # composite_score is 0-100 (LLM-as-judge aggregate of 12 dimensions).
 # hallucination_rate is 0-1 (fraction of unsupported claims).
 DEFAULT_EVAL_CONFIG: Dict[str, Any] = {
-    "enabled": False,  # opt-in per workspace/system
-    "composite_min": 60.0,  # below = review_required
+    "enabled": True,  # auto-onboarded; workspace admins can opt out
+    "composite_min": 70.0,  # below = review_required
     "hallucination_max": 0.3,  # above = review_required
     "dimension_min": {
         # Floors that are cheap to tune per client without retraining
