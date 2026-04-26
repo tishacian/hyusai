@@ -81,6 +81,7 @@ export class GovernanceShellComponent {
 
   readonly tabs: Tab[] = [
     { label: 'Audit log',       glyph: 'ledger', route: '/governance/audit' },
+    { label: 'Canonical answers', glyph: 'focus', route: '/governance/canonical-answers' },
     { label: 'Access & roles',  glyph: 'focus',  route: '/governance/access' },
   ];
 

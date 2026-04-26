@@ -481,6 +481,28 @@ export interface EvaluationComponentHealthResponse {
   };
 }
 
+export interface CanonicalAnswerRow {
+  id: string;
+  workspace_id: string;
+  question: string;
+  answer: string;
+  source_decision_id?: string | null;
+  source_feedback_id?: string | null;
+  source_run_id?: string | null;
+  similarity_threshold: number;
+  hit_count: number;
+  created_by: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CanonicalAnswerListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  items: CanonicalAnswerRow[];
+}
+
 /**
  * Shape returned by ``GET /evaluation/by-run/{run_id}`` — consumed by
  * the chat panel polling loop after it receives the SSE
@@ -1145,6 +1167,24 @@ export class CanonicalApiService {
     return this.api
       .get<EvaluationComponentHealthResponse>('/evaluation/component-health', q)
       .pipe(catchError(() => of(null)));
+  }
+
+  listCanonicalAnswers(
+    params: { limit?: number; offset?: number } = {},
+  ): Observable<CanonicalAnswerListResponse | null> {
+    const q: Record<string, string> = {};
+    if (params.limit != null) q['limit'] = String(params.limit);
+    if (params.offset != null) q['offset'] = String(params.offset);
+    return this.api
+      .get<CanonicalAnswerListResponse>('/evaluation/canonical-answers', q)
+      .pipe(catchError(() => of(null)));
+  }
+
+  deleteCanonicalAnswer(id: string): Observable<boolean> {
+    return this.api.delete<void>(`/evaluation/canonical-answers/${id}`).pipe(
+      map(() => true),
+      catchError(() => of(false)),
+    );
   }
 
   /**

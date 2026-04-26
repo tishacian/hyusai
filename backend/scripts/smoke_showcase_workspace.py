@@ -86,13 +86,18 @@ def main() -> int:
         ("review queue", "/api/v1/evaluation/review-queue?status=all", lambda d: d.get("count", 0) >= 3),
         ("canonical answers", "/api/v1/evaluation/canonical-answers", lambda d: d.get("total", 0) >= 1),
         ("audit", "/api/v1/audit?limit=20", lambda d: d.get("total", 0) >= 5),
+        ("document search", "/api/v1/documents/search", lambda d: d.get("total", 0) >= 1, "POST", {"query": "enterprise SLA", "top_k": 3, "collection_name": "documents"}),
     ]
-    for label, path, predicate in checks:
+    for item in checks:
+        label, path, predicate = item[:3]
+        method = item[3] if len(item) > 3 else "GET"
+        data = item[4] if len(item) > 4 else None
         code, payload = request_json(
-            "GET",
+            method,
             f"{base}{path}",
             token=token,
             workspace_slug=args.workspace_slug,
+            data=data,
         )
         good = code == 200 and predicate(payload or {})
         if ok(label, good, {"code": code}):

@@ -17,6 +17,11 @@ export const governanceRoutes: Routes = [
         loadComponent: () =>
           import('./access-roles.component').then((m) => m.AccessRolesComponent),
       },
+      {
+        path: 'canonical-answers',
+        loadComponent: () =>
+          import('./canonical-answers.component').then((m) => m.CanonicalAnswersComponent),
+      },
     ],
   },
 ];

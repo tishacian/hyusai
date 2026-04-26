@@ -699,6 +699,24 @@ async def create_canonical_answer_endpoint(
     return serialize_canonical_answer(row)
 
 
+@router.delete("/canonical-answers/{answer_id}", status_code=204)
+async def delete_canonical_answer_endpoint(
+    answer_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    row = (
+        db.query(CanonicalAnswer)
+        .filter(CanonicalAnswer.id == answer_id, CanonicalAnswer.workspace_id == workspace.id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Canonical answer not found")
+    db.delete(row)
+    db.commit()
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

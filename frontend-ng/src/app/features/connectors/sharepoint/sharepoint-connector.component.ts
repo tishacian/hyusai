@@ -159,6 +159,30 @@ type UiMode = 'guest_link' | 'oauth';
               }
             </header>
 
+            @if (hasShowcaseJob()) {
+              <div class="mb-3 rounded-md bg-amber-500/10 ring-1 ring-amber-500/20 p-3">
+                <div class="flex items-start gap-2">
+                  <app-icon name="info" [size]="14" class="text-amber-300 mt-0.5" />
+                  <div class="min-w-0">
+                    <div class="text-[11px] font-semibold text-amber-200 uppercase tracking-wider">
+                      Showcase demo job detected
+                    </div>
+                    <p class="text-[11px] text-gray-300 mt-1">
+                      Recent syncs include <span class="font-mono text-amber-200">showcase-guest-link</span>.
+                      Use the button below to prefill the demo session key; a real sync still requires an uploaded session JSON.
+                    </p>
+                    <button
+                      type="button"
+                      (click)="prefillShowcaseSession()"
+                      class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-100 text-[11px] ring-1 ring-amber-500/30 transition"
+                    >
+                      Prefill showcase key
+                    </button>
+                  </div>
+                </div>
+              </div>
+            }
+
             <div class="rounded-md bg-black/30 ring-1 ring-white/10 p-3 mb-3">
               <p class="text-[11px] text-gray-400 font-mono leading-relaxed mb-2">
                 # On your local machine
@@ -458,6 +482,9 @@ export class SharepointConnectorComponent implements OnInit, OnDestroy {
   readonly jobs = signal<SharePointJobSummary[]>([]);
   readonly jobsLoading = signal(false);
   readonly syncEnqueuing = signal(false);
+  readonly hasShowcaseJob = computed(() =>
+    this.jobs().some((job) => job.session_key === 'showcase-guest-link'),
+  );
 
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -498,6 +525,14 @@ export class SharepointConnectorComponent implements OnInit, OnDestroy {
     this.sessionKey.set(value);
     if (this.sessionDebounce) clearTimeout(this.sessionDebounce);
     this.sessionDebounce = setTimeout(() => this.probeSession(), 400);
+  }
+
+  prefillShowcaseSession(): void {
+    this.uiMode.set('guest_link');
+    this.folderUrl = '/sites/showcase/Shared Documents/Agentium';
+    this.sharingUrl = 'https://contoso.sharepoint.com/:f:/s/showcase-demo';
+    this.collectionName.set('documents');
+    this.onSessionKeyChange('showcase-guest-link');
   }
 
   onCollectionChange(value: string): void {

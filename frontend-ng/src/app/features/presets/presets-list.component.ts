@@ -72,6 +72,13 @@ type DraftState = {
       >
         Resolve preset
       </button>
+      <a
+        actions
+        routerLink="/presets/evaluation"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-emerald-500/15 hover:bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-500/30 transition"
+      >
+        Evaluation thresholds
+      </a>
       <button
         actions
         type="button"
@@ -90,10 +97,11 @@ type DraftState = {
       <div class="t-card rounded-md p-8 text-center">
         <h3 class="text-sm font-semibold text-white mb-2">No preset yet</h3>
         <p class="text-xs text-gray-400 mb-4">
-          The backend hasn't seeded a workspace preset. Use
+          This page lists RAG presets. The showcase evaluation loop lives under
+          <a routerLink="/presets/evaluation" class="text-brand-300 hover:text-brand-200">Evaluation thresholds</a>.
+          Use
           <span class="font-semibold">New preset</span> above to create one,
-          or run a settings change from the legacy /settings page to
-          auto-provision the workspace default.
+          or keep using the workspace default.
         </p>
         <button
           type="button"
