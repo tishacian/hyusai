@@ -67,7 +67,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). **E4.2 différé 2026-04-25** (release engineering, pas un blocker démo, voir Journal pour le backlog détaillé). Reste E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
 | E5 | Recommandations proactives — Decision générée depuis l'analyse agrégée multi-runs | P2 | L | E1 |
 | E6 | Simulation offline — rejouer un run sur une policy alternative | P3 | M | C6 |
-| E7 | Deploy + smoke Vague E | P0 | S | E0..E6 |
+| E7 | Deploy + smoke Vague E — **E7-lite checkpoint livré 2026-04-26** sur `demo/agentic` `a4af4c6` : VM clean à head + Alembic `020_canonical_answers`, backend/public health OK (`/`, `/openapi.json`, `/api/v1/evaluation/taxonomy` = 200), Playwright E2E 7/7 (`23.9s` puis `20.0s`), smoke Vague D 28 PASS / 0 FAIL / 1 SKIP (`SMOKE_RUN_SSE=0`), frontend rebuild + Nginx deploy OK (warning drawflow CSS connu). Reste E7-full uniquement si on exige un `smoke_vague_e.sh` dédié + CI post-deploy automatisée. | ✅ | S | E1, E2 |
 
 Taille : S ≈ ½ journée, M ≈ 1 à 2 jours, L ≈ 3 à 5 jours.
 
@@ -571,12 +571,30 @@ Identique à D7 dans l'esprit :
 - Playwright en CI post-deploy.
 - Journal d'exécution (comme D7 avec les 28 PASS).
 
-**Done quand :** smoke E = 100% green + Playwright E2E = 4/4 + pas de
-régression sur les 28 PASS de D7.
+**E7-lite livré 2026-04-26 :**
+- VM `omnirag-demo` clean sur `demo/agentic` `a4af4c6`.
+- Alembic head = `020_canonical_answers`.
+- Health public : `/`, `/openapi.json`, `/api/v1/evaluation/taxonomy`
+  retournent 200.
+- Playwright VM :
+  `E2E_BASE_URL=https://agentium.papai.ai npx playwright test --project=chromium --reporter=list`
+  → `7 passed (23.9s)` depuis le commit clean ; second run de stabilisation
+  → `7 passed (20.0s)`.
+- Smoke D7 existant :
+  `backend/scripts/smoke_vague_d.sh` avec `REALM=papai-org`,
+  `CLIENT_ID=core-service`, `KEYCLOAK_URL=https://agentium.papai.ai/kc`
+  → **28 PASS / 0 FAIL / 1 SKIP** (`SMOKE_RUN_SSE=0`).
+- Frontend VM : `npm run build` OK + `rsync dist/agentium/browser`
+  vers `/var/www/agentium`, `https://agentium.papai.ai/` = 200.
+
+**Reste E7-full (si on veut fermer formellement toute Vague E)** :
+créer `backend/scripts/smoke_vague_e.sh` qui encode les nouveaux asserts
+E1.5/E2 au lieu de s'appuyer sur les scripts ad hoc + Playwright, puis
+brancher ce couple smoke+E2E en CI post-deploy.
 
 ## Ordre conseillé
 
-```
+```text
 E0 (security, P0)  ─▶ toutes les autres
 E1 (eval loop)     ─┐
 E2 (Playwright)    ├─▶ E7 (deploy)
