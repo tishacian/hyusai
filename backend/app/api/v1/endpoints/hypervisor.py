@@ -33,6 +33,9 @@ from app.services.evaluation.feedback_service import (
     record_feedback,
     serialize_feedback,
 )
+from app.services.recommendations.proactive_service import (
+    generate_proactive_recommendations,
+)
 
 router = APIRouter()
 
@@ -120,6 +123,15 @@ class WhatIfRequest(BaseModel):
     levers: Dict[str, Any] = {}
 
 
+class ProactiveRecommendationRequest(BaseModel):
+    since_days: int = 7
+    min_evaluations: int = 3
+    min_breaches: int = 2
+    min_breach_rate: float = 0.5
+    dry_run: bool = False
+    actor: Optional[str] = None
+
+
 @router.get("/recommendations")
 async def list_recommendations(
     workspace: Workspace = Depends(get_current_workspace),
@@ -142,6 +154,26 @@ async def list_recommendations(
         "status": d.status,
         "created_at": d.created_at.isoformat() if d.created_at else None,
     } for d in rows]}
+
+
+@router.post("/recommendations/generate")
+async def generate_recommendations(
+    body: Optional[ProactiveRecommendationRequest] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """E5 — Generate proactive Decisions from aggregated E1 eval signals."""
+    body = body or ProactiveRecommendationRequest()
+    return generate_proactive_recommendations(
+        db,
+        workspace_id=workspace.id,
+        since_days=body.since_days,
+        min_evaluations=body.min_evaluations,
+        min_breaches=body.min_breaches,
+        min_breach_rate=body.min_breach_rate,
+        actor=body.actor or "system",
+        dry_run=body.dry_run,
+    )
 
 
 @router.post("/what-if")

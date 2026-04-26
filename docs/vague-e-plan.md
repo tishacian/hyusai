@@ -65,7 +65,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | E2 | Playwright E2E — **livré 2026-04-25** : 7 tests VM / 5 flows (auth backend+session+invalid creds, chat drop-and-ask PDF→citation→sources, HITL approve auto-seeded, debug step/continue auto-seeded, E1.5 canonical-answer deterministic hit). `@playwright/test` ajouté en devDep, Chromium installé sur VM, fixtures PDF/systems générées dynamiquement, `workers=1` pour VM partagée. Run VM : `7 passed (20.0s)`. | ✅ | M | D1, D7 |
 | E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). **E3.3 node-props kind-specific livré 2026-04-24** (decision/fork/join/loop/retry/HITL/subflow éditeurs + task params rendus depuis `Skill.input_schema`, label éditable, helper `patchSelectedConfig`). **E3.4 export/import JSON livré 2026-04-24** (`GET /systems/{id}/export` envelope canonique, `POST /systems/import` avec re-binding par skill_slug + fallback gracieux, UI download + upload modal avec report). **E3 CLOSED.** | ✅ | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). **E4.2 différé 2026-04-25** (release engineering, pas un blocker démo, voir Journal pour le backlog détaillé). Reste E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
-| E5 | Recommandations proactives — Decision générée depuis l'analyse agrégée multi-runs | P2 | L | E1 |
+| E5 | Recommandations proactives — **livré 2026-04-26** : service `recommendations.proactive_service` agrège les `EvaluationScore` récents + `Run` par système/portfolio et composant RAG, applique seuils (`min_evaluations`, `min_breaches`, `min_breach_rate`), crée des `Decision(kind=recommendation)` idempotentes via `rationale.fingerprint`, audit `recommendation.proactive.generated`, endpoint `POST /hypervisor/recommendations/generate`, bouton **SCAN** dans Hypervisor, smoke VM 3/3 (generate/list/idempotence), suite services 135 passed / 2 skipped, frontend build/deploy VM OK. | ✅ | L | E1 |
 | E6 | Simulation offline — rejouer un run sur une policy alternative | P3 | M | C6 |
 | E7 | Deploy + smoke Vague E — **E7-lite checkpoint livré 2026-04-26** sur `demo/agentic` `a4af4c6` : VM clean à head + Alembic `020_canonical_answers`, backend/public health OK (`/`, `/openapi.json`, `/api/v1/evaluation/taxonomy` = 200), Playwright E2E 7/7 (`23.9s` puis `20.0s`), smoke Vague D 28 PASS / 0 FAIL / 1 SKIP (`SMOKE_RUN_SSE=0`), frontend rebuild + Nginx deploy OK (warning drawflow CSS connu). Reste E7-full uniquement si on exige un `smoke_vague_e.sh` dédié + CI post-deploy automatisée. | ✅ | S | E1, E2 |
 
@@ -532,20 +532,38 @@ d'aucun tiers :
 
 ### E5 — Recommandations proactives
 
-**Dépend de E1.** Une fois que l'eval loop produit des scores
-systématiques, l'agrégation peut pointer des tendances : "Cette
-capability a 12 runs consécutifs avec faithfulness < 0.5, suggestion :
-revoir le prompt système".
+**Livré 2026-04-26.** E5 prend les signaux E1.5 déjà persistés
+(`EvaluationScore.question_type`, `failed_components`, `Run.system_id`)
+et les transforme en `Decision(kind=recommendation)` Hypervisor.
 
-**Scope :**
-1. Job quotidien qui agrège `Run.evaluation_scores` par `capability_id`
-   sur 7/30j.
-2. Règles seuil-simple : N runs bas-score consécutifs → `Decision` de
-   type `capability_drift` avec payload (metric, trend, proposed_fix).
-3. UI dans `/steer` : onglet "Proactive suggestions".
+**Scope livré :**
 
-**Done quand :** une capability dont les scores baissent 7 jours
-d'affilée génère automatiquement une suggestion actionnable.
+1. `services/recommendations/proactive_service.py` agrège les scores
+   récents par `(scope, target_id, component)` sur une fenêtre 7j
+   configurable.
+2. Règles seuil simples et configurables :
+   `min_evaluations`, `min_breaches`, `min_breach_rate`.
+3. Idempotence par `rationale.fingerprint` :
+   `eval-component:{scope}:{target}:{component}` ; une reco déjà
+   `proposed|accepted` est skip, pas dupliquée.
+4. Payload actionnable : `proposed_fix.summary`, `actions`,
+   `evidence_run_ids`, `avg_composite`, `avg_hallucination`,
+   `question_types`, `quality_risk`.
+5. API `POST /hypervisor/recommendations/generate` + bouton **SCAN**
+   dans le panneau Recommendations Hypervisor.
+
+**Validation :**
+
+- Unit : `test_proactive_recommendations.py` couvre génération,
+  idempotence, dry-run.
+- Suite services locale : 135 passed / 2 skipped.
+- Smoke VM `/tmp/e5_smoke.py` : 3/3 (generate, idempotence, list).
+- Frontend VM : build + deploy Nginx OK, bouton SCAN présent dans le
+  chunk Hypervisor.
+
+**Reste post-MVP :** scheduler quotidien réel (cron/Celery), rollup
+capability quand plusieurs systems partagent une capability, et
+`smoke_vague_e.sh` dédié pour E7-full.
 
 ### E6 — Simulation offline
 
@@ -553,6 +571,7 @@ d'affilée génère automatiquement une suggestion actionnable.
 un nouveau prompt sans casser les vrais runs.
 
 **Scope :**
+
 1. Snapshot d'un run → stock du ctx initial + input + outcomes.
 2. `POST /runs/{id}/replay` avec `override_policy: <alt_policy_id>`
    → exécute le même input sur un autre system, retourne le
@@ -566,12 +585,14 @@ même input sans consommer d'état prod.
 ### E7 — Deploy + smoke Vague E
 
 Identique à D7 dans l'esprit :
+
 - `backend/scripts/smoke_vague_e.sh` qui étend `smoke_vague_d.sh` avec
   les nouveaux asserts (E1..E6).
 - Playwright en CI post-deploy.
 - Journal d'exécution (comme D7 avec les 28 PASS).
 
 **E7-lite livré 2026-04-26 :**
+
 - VM `omnirag-demo` clean sur `demo/agentic` `a4af4c6`.
 - Alembic head = `020_canonical_answers`.
 - Health public : `/`, `/openapi.json`, `/api/v1/evaluation/taxonomy`

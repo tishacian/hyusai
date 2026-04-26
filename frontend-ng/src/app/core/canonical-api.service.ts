@@ -339,6 +339,19 @@ export interface Recommendation {
   created_at?: string;
 }
 
+export interface ProactiveRecommendationGenerateResponse {
+  window_days: number;
+  evaluations_scanned: number;
+  candidates: number;
+  created: Recommendation[];
+  skipped: Array<{ fingerprint: string; decision_id?: string; reason: string }>;
+  preview: Array<{
+    title: string;
+    rationale: Record<string, unknown>;
+    impact_estimate: Record<string, number>;
+  }>;
+}
+
 export interface WhatIfResult {
   scope: string;
   target_id?: string | null;
@@ -920,6 +933,21 @@ export class CanonicalApiService {
         map((r) => r?.items ?? []),
         catchError(() => of([] as Recommendation[])),
       );
+  }
+
+  generateProactiveRecommendations(
+    body: {
+      since_days?: number;
+      min_evaluations?: number;
+      min_breaches?: number;
+      min_breach_rate?: number;
+      dry_run?: boolean;
+      actor?: string;
+    } = {},
+  ): Observable<ProactiveRecommendationGenerateResponse | null> {
+    return this.api
+      .post<ProactiveRecommendationGenerateResponse>('/hypervisor/recommendations/generate', body)
+      .pipe(catchError(() => of(null)));
   }
 
   hypervisorWhatIf(body: {

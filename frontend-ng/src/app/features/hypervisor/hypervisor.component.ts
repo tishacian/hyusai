@@ -348,6 +348,15 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
               <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-4);">
                 {{ recommendations().length }}
               </span>
+              <button
+                type="button"
+                (click)="generateRecommendations()"
+                [disabled]="generatingRecommendations()"
+                class="ck-mono"
+                style="padding:4px 8px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset);"
+              >
+                {{ generatingRecommendations() ? 'SCANNING…' : 'SCAN' }}
+              </button>
             </div>
             @if (!recommendations().length) {
               <div class="ck-mono" style="padding:24px 0; font-size:11px; color:var(--ck-fg-4); text-align:center;">
@@ -704,6 +713,7 @@ export class HypervisorComponent implements OnInit {
   readonly loading = signal(true);
   readonly balance = signal<HypervisorBalance | null>(null);
   readonly recommendations = signal<Recommendation[]>([]);
+  readonly generatingRecommendations = signal(false);
 
   // ---- Portfolio What-If ---------------------------------------------------
   readonly leverList = [
@@ -791,6 +801,25 @@ export class HypervisorComponent implements OnInit {
       this.balance.set(balance);
       this.recommendations.set(recos);
       this.loading.set(false);
+    });
+  }
+
+  generateRecommendations(): void {
+    if (this.generatingRecommendations()) return;
+    this.generatingRecommendations.set(true);
+    this.canonical.generateProactiveRecommendations({
+      since_days: 7,
+      min_evaluations: 3,
+      min_breaches: 2,
+      min_breach_rate: 0.5,
+      actor: 'hypervisor',
+    }).subscribe({
+      next: () => {
+        this.generatingRecommendations.set(false);
+        this.loadAll();
+        this.refreshDecisions();
+      },
+      error: () => this.generatingRecommendations.set(false),
     });
   }
 
