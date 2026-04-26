@@ -1,0 +1,23 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Agentium mark</title>
+  <desc id="desc">A precision A monogram with a routed signal path for the Agentium orchestration cockpit.</desc>
+  <defs>
+    <linearGradient id="agentium-main" x1="29" y1="98" x2="97" y2="26" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00BCD4"/>
+      <stop offset="0.55" stop-color="#61F6FF"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="agentium-route" x1="43" y1="68" x2="90" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="0.5" stop-color="#61F6FF"/>
+      <stop offset="1" stop-color="#00BCD4"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#070A10"/>
+  <rect x="9" y="9" width="110" height="110" rx="23" stroke="#1D2733" stroke-width="2"/>
+  <path d="M31 96L58.4 30.5C60.5 25.5 67.5 25.5 69.6 30.5L97 96" stroke="url(#agentium-main)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M45 69H83" stroke="url(#agentium-route)" stroke-width="7" stroke-linecap="round"/>
+  <path d="M83 69C93 69 99 62 99 52" stroke="url(#agentium-route)" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="99" cy="52" r="4.5" fill="#61F6FF"/>
+  <path d="M64 38V60" stroke="#070A10" stroke-width="4" stroke-linecap="round" opacity="0.75"/>
+</svg>

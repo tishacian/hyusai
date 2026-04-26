@@ -18,8 +18,7 @@
             "polyfills": [],
             "tsConfig": "tsconfig.app.json",
             "assets": [
-              { "glob": "**/*", "input": "src/assets", "output": "/assets" },
-              { "glob": "favicon.ico", "input": "src", "output": "/" }
+              { "glob": "**/*", "input": "src/assets", "output": "/assets" }
             ],
             "styles": [
               "node_modules/ngx-toastr/toastr.css",

@@ -49,9 +49,14 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
     >
       <!-- Brand cluster -->
       <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="10" [style.flex]="'0 0 auto'">
-        <span [style.color]="'var(--ck-signal-cool)'">
-          <ck-glyph name="brand" [size]="22" />
-        </span>
+        <img
+          src="/assets/brand/agentium-mark.svg"
+          alt=""
+          width="26"
+          height="26"
+          [style.display]="'block'"
+          [style.borderRadius.px]="6"
+        />
         <div [style.display]="'flex'" [style.flexDirection]="'column'" [style.lineHeight]="'1'">
           <span
             [style.fontFamily]="'var(--ck-font-sans)'"

@@ -1,0 +1,23 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Agentium mark</title>
+  <desc id="desc">A precise orbital A monogram for the Agentium orchestration cockpit.</desc>
+  <defs>
+    <linearGradient id="agentium-stroke" x1="20" y1="108" x2="108" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00BCD4"/>
+      <stop offset="0.48" stop-color="#61F6FF"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <radialGradient id="agentium-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(64 64) rotate(90) scale(54)">
+      <stop offset="0" stop-color="#61F6FF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#05070B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#070A10"/>
+  <rect x="8.5" y="8.5" width="111" height="111" rx="23.5" stroke="#1D2733"/>
+  <circle cx="64" cy="64" r="46" fill="url(#agentium-glow)"/>
+  <path d="M31 88.5L55.2 35.5C58.6 28 69.4 28 72.8 35.5L97 88.5" stroke="url(#agentium-stroke)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M45.5 70.5H82.5" stroke="url(#agentium-stroke)" stroke-width="8" stroke-linecap="round"/>
+  <ellipse cx="64" cy="64" rx="53" ry="15" transform="rotate(-23 64 64)" stroke="url(#agentium-stroke)" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="76 18"/>
+  <circle cx="96" cy="49" r="5.5" fill="#61F6FF"/>
+  <circle cx="34" cy="79" r="4" fill="#8B5CF6"/>
+</svg>

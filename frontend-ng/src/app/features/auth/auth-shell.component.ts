@@ -30,7 +30,7 @@ import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
       <header class="ck-auth-frame">
         <div class="ck-auth-brand">
           <span class="ck-auth-mark" aria-hidden="true">
-            <span class="ck-auth-mark-core">A</span>
+            <img src="/assets/brand/agentium-mark.svg" alt="" width="34" height="34" />
           </span>
           <span class="ck-auth-wordmark">Agentium</span>
           <span class="ck-auth-wordmark-dot" aria-hidden="true"></span>
@@ -151,22 +151,14 @@ import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
       }
       .ck-auth-mark {
         position: relative;
-        width: 28px;
-        height: 28px;
+        width: 34px;
+        height: 34px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        border-radius: var(--ck-radius-sm);
-        background: linear-gradient(135deg, rgba(125, 211, 252, 0.18), rgba(167, 139, 250, 0.18));
-        border: 1px solid var(--ck-stroke-hot);
-        box-shadow: var(--ck-glow-cool);
-      }
-      .ck-auth-mark-core {
-        font-family: var(--ck-font-mono);
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-        color: var(--ck-fg-1);
+        border-radius: 8px;
+        box-shadow: 0 0 0 1px var(--ck-stroke-hot), var(--ck-glow-cool);
+        overflow: hidden;
       }
       .ck-auth-wordmark {
         font-family: var(--ck-font-mono);
