@@ -62,7 +62,7 @@ Trois signaux poussent à ouvrir une Vague E maintenant :
 | - | ----- | -------- | ------ | --------- |
 | **E0** | **Security hardening — rotation secrets (KC admin, KC client_secret, PG), DKIM activation, secret manager** | **P0** | **M** | — |
 | E1 | Boucle d'évaluation — scoring auto post-run + threshold triggers + suggestion UI. **E1 v1 fermé 2026-04-25**, **E1.5 CLOSED 2026-04-25 : boucle game-changer actionnable.** E1.5.1 livré (feedback signal : table `evaluation_feedback`, `accept`/`reject` write feedback, `GET /evaluation/feedback`). E1.5.2 livré (`POST /runs/{id}/replay`, `GET /runs/{id}/replays`, lineage `parent_run_id`/`replay_overrides`, bouton **RE-RUN** review queue, smoke 8/8 VM). E1.5.3 livré (taxonomie Giskard/RAGET native, `question_type`/`failed_components`/`topic`, `GET /evaluation/component-health`, filtre `review-queue?component=`, widget Quality, extra offline `giskard[llm]`, smoke 5/5 + spike RAGET OK avec ≥8 chunks). E1.5.4 livré (auto-onboard preset `enabled=true`, `composite_min=70`, migration `019_eval_default_onboard`, opt-out `/presets/evaluation`). E1.5.5 livré (migration `020_canonical_answers`, `CanonicalAnswer` Dify-style annotation reply, `GET/POST /evaluation/canonical-answers`, chat canonical hit bypass orchestrator, active suggestions LLM/fallback sur Decisions, bouton **APPLY** qui lance un replay avec overrides et marque la Decision applied, smoke VM 3/3, frontend build/deploy VM OK). | ✅ | L | D2, D6 |
-| E2 | Playwright E2E — 4 flows critiques (auth Keycloak, chat drop-and-ask, HITL, debug replay) | P1 | M | D1, D7 |
+| E2 | Playwright E2E — **livré 2026-04-25** : 7 tests VM / 5 flows (auth backend+session+invalid creds, chat drop-and-ask PDF→citation→sources, HITL approve auto-seeded, debug step/continue auto-seeded, E1.5 canonical-answer deterministic hit). `@playwright/test` ajouté en devDep, Chromium installé sur VM, fixtures PDF/systems générées dynamiquement, `workers=1` pour VM partagée. Run VM : `7 passed (20.0s)`. | ✅ | M | D1, D7 |
 | E3 | Custom chains editor — finition (node props, validation, save/load versions). **E3.1 backend livré 2026-04-24** (table `system_versions` + rolling window 500 via `CUSTOM_CHAIN_VERSION_WINDOW`, DAG validator gate `PATCH /systems`, routes `/versions` + `/rollback`, audits `chain.*`). **E3.2 UI versioning + rollback + save gate livré 2026-04-24** (`saveSystemFlow` discriminated-union wrapper, panneau Versions droit, modal de rollback, issues serveur spliced dans la strip). **E3.3 node-props kind-specific livré 2026-04-24** (decision/fork/join/loop/retry/HITL/subflow éditeurs + task params rendus depuis `Skill.input_schema`, label éditable, helper `patchSelectedConfig`). **E3.4 export/import JSON livré 2026-04-24** (`GET /systems/{id}/export` envelope canonique, `POST /systems/import` avec re-binding par skill_slug + fallback gracieux, UI download + upload modal avec report). **E3 CLOSED.** | ✅ | L | C6 |
 | E4 | SharePoint ingestion v1 — deux connecteurs jumeaux partageant la même sync pipeline : **E4a SharePoint** (OAuth/MSAL standard, cas majoritaire) + **E4b SharePoint Guest Link** (capture session via Agentium Connector local, cas d'accès limité type Andritz). Fondation E4b livrée (`671a3a4`→`df4cf80`), **E4.1 scope commun livré 2026-04-24** (UI dédiée `/connectors/sharepoint`, ingestion RAG via `DocumentService`, audits `sharepoint.session.*` + `sharepoint.sync.*`, migration catch-up `workspace_id`). **E4.2 différé 2026-04-25** (release engineering, pas un blocker démo, voir Journal pour le backlog détaillé). Reste E4.3 OAuth UI (E4a, dépend admin consent). | P1 | L | D0 |
 | E5 | Recommandations proactives — Decision générée depuis l'analyse agrégée multi-runs | P2 | L | E1 |
@@ -170,22 +170,25 @@ pour le détail.
 Reporté de D6 (cf. note `backlog Playwright` du vague-d-plan). Stack
 VM disponible, donc finissable maintenant.
 
-**Scope minimal (4 flows) :**
+**Scope livré (5 flows / 7 tests) :**
 
-1. **Auth Keycloak** — login alice → landing workspace → logout.
+1. **Auth** — login direct access grant alice → landing workspace,
+   session reload, invalid creds 401.
 2. **Chat drop-and-ask** — drop 2 PDF → citation `[1]` cliquable →
    scroll to source.
-3. **HITL Approve** — run avec hitl_pending → accept depuis `/runs/:id` →
-   resume → completed.
+3. **HITL Approve** — fixture system auto-seedée → run `hitl_pending`
+   → accept via API auth → resume → completed.
 4. **Debug Step/Continue** — run en mode debug → step skill → continue
    → outcome affiché.
+5. **E1.5 canonical answer** — crée une canonical answer → chat
+   completion hit déterministe → `hit_count` incrémenté.
 
-Chaque flow a un fixture seedé dans `scripts/test-vm.sh` ; exécution
-contre la VM staging (non prod). Run en CI hebdo pour catch les
-régressions de surface.
+Les PDFs + systèmes HITL/debug sont générés dynamiquement par les specs
+pour éviter un script seed séparé. Exécution contre VM staging partagée,
+`workers=1` pour éviter les grants Keycloak concurrents.
 
-**Done quand :** `npx playwright test` en CI retourne 4/4 green sur la
-VM staging.
+**Done :** `E2E_BASE_URL=https://agentium.papai.ai npx playwright test
+--project=chromium --reporter=list` → `7 passed (20.0s)` sur VM.
 
 ### E3 — Custom chains editor — finition
 
@@ -1581,6 +1584,33 @@ précisé après Vague D :
     hit canonical et bypass orchestrator même si l'orchestrator stub
     n'est pas initialisé dans le chemin normal. Build Angular VM OK
     (warning drawflow connu), bundle Nginx déployé, backend redémarré.
+
+- **2026-04-25 — E2 livré : Playwright passe enfin sur la VM.**
+  Le scaffold existait depuis le 24/04 mais n'était ni installé ni
+  exécutable sans fixtures externes. E2 est maintenant un harness
+  reproductible contre `https://agentium.papai.ai`.
+  - **Activation réelle** : `@playwright/test` ajouté en devDependency,
+    `npx playwright install chromium` exécuté sur VM, `workers=1` forcé
+    dans `playwright.config.ts` pour éviter les grants Keycloak
+    concurrents sur la VM partagée.
+  - **Auth robuste** : le helper `loginAsAlice` utilise le vrai
+    `/api/v1/auth/login` (direct access grant) puis stocke
+    `agentium_token` en localStorage, exactement comme le frontend.
+    Credentials VM : `alice@acme.test` / `alice-demo`. Test invalid
+    creds = 401 réel.
+  - **Fixtures self-contained** : les PDFs drop-and-ask sont générés
+    dynamiquement par `fixtures/pdf.ts` ; les systems HITL/debug sont
+    créés dynamiquement via API auth dans leurs specs, puis supprimés
+    via `DELETE /systems/{id}`. Plus de `scripts/test-vm.sh seed:e2e`
+    bloquant.
+  - **Flows verts** : `01-auth-keycloak` (3 tests), `02-chat-drop-and-ask`
+    (PDF upload → réponse avec citation chip → sources), `03-hitl-approve`
+    (run hitl_pending → accept → completed), `04-debug-step-continue`
+    (run debug_pending → step → continue → completed), `05-eval-canonical-answer`
+    (création canonical answer → chat hit déterministe → hit_count).
+  - **Run VM** :
+    `E2E_BASE_URL=https://agentium.papai.ai npx playwright test --project=chromium --reporter=list`
+    → **7 passed (20.0s)**. Traces/videos restent en retain-on-failure.
 
 - **2026-04-25 — E4.2 (Agentium Connector binaire) explicitement
   différé après E3 closure ; décision : on ne code rien tant que les

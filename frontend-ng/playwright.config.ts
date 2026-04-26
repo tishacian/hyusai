@@ -8,15 +8,15 @@ import { defineConfig, devices } from '@playwright/test';
  * stack. Override with `E2E_BASE_URL=http://localhost:4200` when
  * developing a flow locally against `ng serve`.
  *
- * Scope (4 flows per `docs/vague-e-plan.md` § E2):
+ * Scope (E2 critical flows + E1.5 guardrail):
  *   01-auth-keycloak.spec.ts         — login alice → workspace → logout
  *   02-chat-drop-and-ask.spec.ts     — drop 2 PDF → citation [1] → jump
  *   03-hitl-approve.spec.ts          — hitl_pending → accept → resume
  *   04-debug-step-continue.spec.ts   — debug → step skill → continue
+ *   05-eval-canonical-answer.spec.ts — canonical answer deterministic hit
  *
- * Fixtures are seeded via `scripts/test-vm.sh` (alice@papai.ai /
- * Agentium2026 dev password + a workspace `playwright-staging` with
- * 2 capabilities + 1 system wired for the HITL flow).
+ * Fixtures: alice@acme.test/alice-demo comes from the tenant-isolation
+ * smoke. PDFs + HITL/debug systems are generated dynamically by specs.
  *
  * Run:
  *   npx playwright install chromium     # one-time
@@ -30,7 +30,7 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
   reporter: process.env.CI
     ? [['github'], ['html', { outputFolder: 'e2e/report', open: 'never' }]]
     : [['list'], ['html', { outputFolder: 'e2e/report', open: 'never' }]],

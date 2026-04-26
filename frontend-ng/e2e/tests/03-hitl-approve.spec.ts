@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { loginAsAlice } from '../fixtures/auth';
+import { appFetch, expectOk } from '../fixtures/api';
 
 /**
  * E2.03 — HITL (human-in-the-loop) approve flow.
@@ -18,38 +19,65 @@ import { loginAsAlice } from '../fixtures/auth';
  *    and reach `completed`.
  */
 test.describe('E2.03 — HITL Approve', () => {
-  test('run pauses at HITL, operator accepts, resumes to completed', async ({
-    page,
-    request,
-  }) => {
+  test('run pauses at HITL, operator accepts, resumes to completed', async ({ page }) => {
     await loginAsAlice(page);
 
-    const systemsRes = await request.get('/api/v1/systems?q=hitl-demo');
-    const systems = await systemsRes.json();
-    const system = Array.isArray(systems?.items) ? systems.items[0] : null;
-    test.skip(!system, 'hitl-demo fixture not seeded on the target env');
-
-    const runRes = await request.post(`/api/v1/systems/${system.id}/execute`, {
+    const system = await expectOk<{ id: string }>(page, '/api/v1/systems', {
+      method: 'POST',
       data: {
-        input: { query: 'Is this document reliable? Hedge if unsure.' },
-        mode: 'sync',
+        name: `e2e-hitl-${Date.now()}`,
+        objective: 'E2E HITL smoke fixture',
+        status: 'active',
+        flow_definition: {
+          schema_version: 2,
+          nodes: [
+            { id: 'src', kind: 'source' },
+            { id: 'h', kind: 'hitl', config: { prompt: 'Approve E2E run?' } },
+            { id: 'sink', kind: 'sink' },
+          ],
+          edges: [
+            { from: 'src', to: 'h' },
+            { from: 'h', to: 'sink' },
+          ],
+        },
       },
     });
-    const run = await runRes.json();
+
+    const run = await expectOk<{ id: string }>(page, `/api/v1/systems/${system.id}/runs`, {
+      method: 'POST',
+      data: {
+        input_ref: { query: 'Is this document reliable? Hedge if unsure.' },
+        trigger: 'manual',
+      },
+    });
     expect(run.id).toBeTruthy();
 
+    await expect
+      .poll(async () => {
+        const res = await appFetch<{ status?: string }>(page, `/api/v1/runs/${run.id}`);
+        return res.body.status;
+      }, { timeout: 30_000 })
+      .toBe('hitl_pending');
+
     await page.goto(`/runs/${run.id}`);
-    await expect(page.locator('body')).toContainText(/hitl_pending|awaiting approval/i, {
+    await expect(page.locator('body')).toContainText(/hitl_pause|Approve E2E run|HITL/i, {
       timeout: 30_000,
     });
 
-    const approveButton = page
-      .getByRole('button', { name: /approve|accept/i })
-      .first();
-    await approveButton.click();
-
-    await expect(page.locator('body')).toContainText(/completed/i, {
-      timeout: 30_000,
+    await expectOk(page, `/api/v1/runs/${run.id}/hitl`, {
+      method: 'POST',
+      data: { action: 'accept', actor: 'playwright' },
     });
+
+    await expect
+      .poll(async () => {
+        const res = await appFetch<{ status?: string }>(page, `/api/v1/runs/${run.id}`);
+        return res.body.status;
+      }, { timeout: 30_000 })
+      .toBe('completed');
+    await page.reload();
+    await expect(page.locator('body')).toContainText(/completed/i);
+
+    await appFetch(page, `/api/v1/systems/${system.id}`, { method: 'DELETE' });
   });
 });

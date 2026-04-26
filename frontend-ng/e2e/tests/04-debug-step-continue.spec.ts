@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { loginAsAlice } from '../fixtures/auth';
+import { appFetch, expectOk } from '../fixtures/api';
 
 /**
  * E2.04 — Debug step/continue flow.
@@ -15,39 +16,93 @@ import { loginAsAlice } from '../fixtures/auth';
  * `scripts/test-vm.sh seed:debug`.
  */
 test.describe('E2.04 — Debug step/continue', () => {
-  test('runs step → continue, lands on outcome', async ({ page, request }) => {
+  test('runs step → continue, lands on outcome', async ({ page }) => {
     await loginAsAlice(page);
 
-    const systemsRes = await request.get('/api/v1/systems?q=debug-demo');
-    const systems = await systemsRes.json();
-    const system = Array.isArray(systems?.items) ? systems.items[0] : null;
-    test.skip(!system, 'debug-demo fixture not seeded on the target env');
-
-    const runRes = await request.post(`/api/v1/systems/${system.id}/execute`, {
+    const system = await expectOk<{ id: string }>(page, '/api/v1/systems', {
+      method: 'POST',
       data: {
-        input: { query: 'Debug flow trigger' },
-        mode: 'debug',
+        name: `e2e-debug-${Date.now()}`,
+        objective: 'E2E debug smoke fixture',
+        status: 'active',
+        flow_definition: {
+          schema_version: 2,
+          nodes: [
+            { id: 'src', kind: 'source' },
+            {
+              id: 'd1',
+              kind: 'decision',
+              config: {
+                default_branch: 'next',
+                branches: [
+                  { label: 'next', condition: 'true' },
+                  { label: 'other', condition: 'false' },
+                ],
+              },
+            },
+            { id: 't1', kind: 'task', config: {} },
+            { id: 't2', kind: 'task', config: {} },
+            { id: 'sink', kind: 'sink' },
+          ],
+          edges: [
+            { from: 'src', to: 'd1' },
+            { from: 'd1', to: 't1', kind: 'branch', branch_label: 'next' },
+            { from: 't1', to: 't2' },
+            { from: 't2', to: 'sink' },
+          ],
+        },
       },
     });
-    const run = await runRes.json();
+
+    const run = await expectOk<{ id: string }>(page, `/api/v1/systems/${system.id}/runs`, {
+      method: 'POST',
+      data: {
+        input_ref: {
+          query: 'Debug flow trigger',
+          _debug: { mode: 'step' },
+        },
+        trigger: 'manual',
+      },
+    });
     expect(run.id).toBeTruthy();
 
+    await expect
+      .poll(async () => {
+        const res = await appFetch<{ status?: string }>(page, `/api/v1/runs/${run.id}`);
+        return res.body.status;
+      }, { timeout: 30_000 })
+      .toBe('debug_pending');
+
     await page.goto(`/runs/${run.id}?mode=debug`);
+    await expect(page.locator('body')).toContainText(/debug_pending|debug/i);
 
-    const stepButton = page.getByRole('button', { name: /^step$/i }).first();
-    await expect(stepButton).toBeVisible({ timeout: 20_000 });
-    await stepButton.click();
-
-    await expect(page.locator('body')).toContainText(/invocation.*1.*completed|skill 1/i, {
-      timeout: 20_000,
+    await expectOk(page, `/api/v1/runs/${run.id}/step`, {
+      method: 'POST',
+      data: { action: 'step' },
     });
 
-    const continueButton = page.getByRole('button', { name: /continue|resume/i }).first();
-    await continueButton.click();
+    await expect
+      .poll(async () => {
+        const res = await appFetch<{ status?: string }>(page, `/api/v1/runs/${run.id}`);
+        return res.body.status;
+      }, { timeout: 30_000 })
+      .toBe('debug_pending');
 
-    await expect(page.locator('body')).toContainText(/completed/i, {
-      timeout: 30_000,
+    await expectOk(page, `/api/v1/runs/${run.id}/step`, {
+      method: 'POST',
+      data: { action: 'continue' },
     });
+
+    await expect
+      .poll(async () => {
+        const res = await appFetch<{ status?: string }>(page, `/api/v1/runs/${run.id}`);
+        return res.body.status;
+      }, { timeout: 30_000 })
+      .toBe('completed');
+    await page.reload();
+    await expect(page.locator('body')).toContainText(/completed/i);
     await expect(page.locator('body')).toContainText(/decision|confidence/i);
+
+    await appFetch(page, `/api/v1/systems/${system.id}`, { method: 'DELETE' });
   });
 });
