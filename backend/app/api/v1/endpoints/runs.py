@@ -42,6 +42,8 @@ def _row(r: Run) -> Dict[str, Any]:
         "started_at": r.started_at.isoformat() if r.started_at else None,
         "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         "duration_ms": r.duration_ms,
+        "input_ref": r.input_ref or {},
+        "output_ref": r.output_ref or {},
         "outcome": {
             "decision": r.decision,
             "confidence": r.confidence,

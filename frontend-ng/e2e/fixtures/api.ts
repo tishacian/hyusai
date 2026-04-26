@@ -19,6 +19,9 @@ export async function appFetch<T = unknown>(
           ...(localStorage.getItem('agentium_token')
             ? { Authorization: localStorage.getItem('agentium_token') as string }
             : {}),
+          ...(localStorage.getItem('agentium_workspace_slug')
+            ? { 'X-Workspace-Slug': localStorage.getItem('agentium_workspace_slug') as string }
+            : {}),
           ...(options.headers ?? {}),
         },
         body: options.data == null ? undefined : JSON.stringify(options.data),

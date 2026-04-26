@@ -15,7 +15,14 @@ interface AuditLog {
   actor?: string;
   severity?: string;
   resource?: string;
-  details?: string;
+  details?: string | Record<string, unknown>;
+  trace_id?: string | null;
+  agent_id?: string | null;
+}
+
+interface AuditLogResponse {
+  logs?: AuditLog[];
+  total?: number;
 }
 
 type Severity = 'info' | 'warning' | 'error' | 'critical';
@@ -143,7 +150,7 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
                       {{ log.event_type }}
                     </div>
                     @if (log.details) {
-                      <div class="text-[11px] text-gray-500 mt-0.5 truncate max-w-md">{{ log.details }}</div>
+                      <div class="text-[11px] text-gray-500 mt-0.5 truncate max-w-md">{{ detailsText(log) }}</div>
                     }
                   </td>
                   <td class="px-5 py-3 text-gray-300">{{ log.actor || '—' }}</td>
@@ -227,7 +234,7 @@ export class AuditLogsComponent implements OnInit {
         log.event_type?.toLowerCase().includes(q) ||
         log.actor?.toLowerCase().includes(q) ||
         log.resource?.toLowerCase().includes(q) ||
-        log.details?.toLowerCase().includes(q)
+        this.detailsText(log).toLowerCase().includes(q)
       );
     });
   });
@@ -241,9 +248,13 @@ export class AuditLogsComponent implements OnInit {
   reload(): void {
     this.loading.set(true);
     this.limit.set(this.pageSize);
-    this.api.get<AuditLog[]>('/audit').subscribe({
+    this.api.get<AuditLog[] | AuditLogResponse>('/audit').subscribe({
       next: (data) => {
-        this.logs.set(Array.isArray(data) ? data : []);
+        const rows = Array.isArray(data) ? data : (data?.logs ?? []);
+        this.logs.set(rows.map((row) => ({
+          ...row,
+          resource: row.resource || row.agent_id || row.trace_id || this.resourceFromDetails(row.details),
+        })));
         this.loading.set(false);
       },
       error: () => {
@@ -274,7 +285,7 @@ export class AuditLogsComponent implements OnInit {
           log.actor || '',
           log.resource || '',
           log.severity || 'info',
-          log.details || '',
+          this.detailsText(log),
         ]
           .map(escape)
           .join(','),
@@ -328,5 +339,24 @@ export class AuditLogsComponent implements OnInit {
       default:
         return 'bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/30';
     }
+  }
+
+  detailsText(log: AuditLog): string {
+    if (typeof log.details === 'string') return log.details;
+    if (!log.details) return '';
+    try {
+      return JSON.stringify(log.details);
+    } catch {
+      return String(log.details);
+    }
+  }
+
+  private resourceFromDetails(details: AuditLog['details']): string {
+    if (!details || typeof details !== 'object') return '';
+    for (const key of ['run_id', 'new_run_id', 'decision_id', 'canonical_answer_id', 'system_id', 'job_id']) {
+      const value = (details as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value) return value;
+    }
+    return '';
   }
 }

@@ -15,9 +15,11 @@ export const DEFAULT_ALICE = {
   password: process.env['E2E_PASSWORD'] ?? 'alice-demo',
 };
 
+export const DEFAULT_WORKSPACE_SLUG = process.env['E2E_WORKSPACE_SLUG'] ?? 'acme';
+
 export async function loginAsAlice(page: Page): Promise<void> {
   await page.goto('/auth/signin');
-  const login = await page.evaluate(async ({ username, password }) => {
+  const login = await page.evaluate(async ({ username, password, workspaceSlug }) => {
     const res = await fetch('/api/v1/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -35,8 +37,9 @@ export async function loginAsAlice(page: Page): Promise<void> {
     if (body.refresh_token) {
       localStorage.setItem('agentium_refresh_token', body.refresh_token);
     }
+    localStorage.setItem('agentium_workspace_slug', workspaceSlug);
     return { ok: true, status: res.status };
-  }, DEFAULT_ALICE);
+  }, { ...DEFAULT_ALICE, workspaceSlug: DEFAULT_WORKSPACE_SLUG });
   expect(login.ok, `login failed: ${JSON.stringify(login)}`).toBe(true);
 
   await page.goto('/hypervisor');
