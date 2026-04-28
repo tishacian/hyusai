@@ -1,10 +1,13 @@
 import re
 
+import httpx
 import streamlit as st
-import streamlit_authenticator as stauth
 
-from configurations import Config
-from connections.database.users import Users
+from configurations import FrontendConfig
+from src.standalone_interface.api_client import get_client
+
+_auth = FrontendConfig.get().auth
+_SKIP_AUTHENTICATION: bool = _auth.skip
 
 
 def is_valid_email(email: str) -> bool:
@@ -26,46 +29,30 @@ def is_strong_password(password: str) -> bool:
     return True
 
 
-def get_usernames_from_db() -> dict:
-    """Get usernames from the database for authentication."""
-    users = Users.get_all()
-    return {
-        user.email: {
-            "name": user.name,
-            "email": user.email,
-            "password": user.password_hash,
-        }
-        for user in users
-    }
-
-
-def get_authenticator() -> stauth.Authenticate:
-    """Get the authenticator instance, initializing it if necessary."""
-    credentials = st.session_state.get("credentials")
-    if credentials is None:
-        st.session_state["credentials"] = {"usernames": get_usernames_from_db()}
-    else:
-        st.session_state["credentials"]["usernames"] = get_usernames_from_db()
-    auth = st.session_state.get("authenticator")
-    if auth is None:
-        st.session_state["authenticator"] = stauth.Authenticate(
-            st.session_state["credentials"],
-            Config.get().interface.cookie_name,
-            Config.get().interface.cookie_key,
-            Config.get().interface.cookie_expiry_days,
-        )
-    return st.session_state["authenticator"]
-
-
 def login_form():
     """Display the login form and handle authentication."""
-    auth = get_authenticator()
-    try:
-        auth.login(fields={"Username": "Email"})
-        if st.session_state.get("authentication_status") is False:
-            st.error("Username/password is incorrect")
-    except Exception as e:
-        st.error(e)
+    email = st.text_input("Email", key="login_email")
+    password = st.text_input("Password", type="password", key="login_password")
+    if st.button("Login"):
+        rerun = False
+        try:
+            with get_client() as client:
+                resp = client.post(
+                    "/db/users/verify",
+                    json={"email": email.lower(), "password": password},
+                )
+            if resp.is_success:
+                user = resp.json()
+                st.session_state["authentication_status"] = True
+                st.session_state["username"] = user["email"]
+                st.session_state["name"] = user["name"]
+                rerun = True
+            else:
+                st.error("Username/password is incorrect")
+        except httpx.HTTPError as e:
+            st.error(f"Could not reach authentication service: {e}")
+        if rerun:
+            st.rerun()
 
 
 def register_form():
@@ -74,11 +61,13 @@ def register_form():
 
     col1, col2 = st.columns(2)
     with col1:
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
+        email = st.text_input("Email", key="register_email")
+        password = st.text_input("Password", type="password", key="register_password")
     with col2:
-        name = st.text_input("Full name")
-        confirm_password = st.text_input("Confirm password", type="password")
+        name = st.text_input("Full name", key="register_name")
+        confirm_password = st.text_input(
+            "Confirm password", type="password", key="register_confirm_password"
+        )
 
     if st.button("Sign Up"):
         if not email or not name or not password:
@@ -92,34 +81,42 @@ def register_form():
             )
         elif password != confirm_password:
             st.error("Passwords do not match.")
-        elif Users.get_by_email(email.lower()):
-            st.warning("This email is already registered.")
         else:
-            password_hash = stauth.Hasher.hash(password)
-            Users.add_user(
-                email=email.lower(),
-                password_hash=password_hash,
-                name=name,
-            )
-            st.success("User registered successfully!")
+            try:
+                with get_client() as client:
+                    resp = client.post(
+                        "/db/users",
+                        json={
+                            "email": email.lower(),
+                            "password": password,
+                            "name": name,
+                        },
+                    )
+                if resp.status_code == 409:
+                    st.warning("This email is already registered.")
+                elif resp.is_success:
+                    st.success("User registered successfully!")
+                else:
+                    st.error("Registration failed. Please try again.")
+            except httpx.HTTPError as e:
+                st.error(f"Could not reach registration service: {e}")
 
 
 def reset_session_state(*args, **kwargs):
-    """Reset session state"""
-    for key in st.session_state.keys():
+    """Reset session state."""
+    for key in list(st.session_state.keys()):
         del st.session_state[key]
 
 
 def auth_component():
     """Display the authentication component."""
-    if Config.get().interface.skip_authentication:
+    if _SKIP_AUTHENTICATION:
         st.session_state["authentication_status"] = True
         st.session_state["username"] = "dev"
     elif st.session_state.get("authentication_status"):
-        if "logout" not in st.session_state:
-            st.session_state["logout"] = False
-        auth = get_authenticator()
-        auth.logout("Logout", "sidebar", callback=reset_session_state)
+        if st.sidebar.button("Logout"):
+            reset_session_state()
+            st.rerun()
     else:
         tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
         with tab_login:

@@ -14,7 +14,6 @@ from connections.database.system_prompts import SystemPrompts
 from connections.qdrant import qdrant_client
 from connections.storage import fs
 from src.cache import LRUCache
-from src.chunker import cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
 from src.embedding import EmbeddingModelLoader
@@ -59,12 +58,9 @@ logging.basicConfig(
 
 
 @lru_cache(maxsize=None)
-@cache_chunker_embedding_chain
 class CustomLLMChain:
     def __init__(
         self,
-        tokenizer,
-        model,
         model_name,
         vector_store_name,
         embedding_model_name=EMBEDDING_NAME,
@@ -76,10 +72,6 @@ class CustomLLMChain:
 
         Parameters
         ----------
-        tokenizer : tokenizer
-            tokenizer.
-        model : llm model
-            llm model.
         model_name : str
             model name.
         vector_store_name : str
@@ -104,8 +96,6 @@ class CustomLLMChain:
 
         """
         start_time = time.time()
-        self.tokenizer = tokenizer
-        self.model = model
         self.model_name = model_name
         self.vector_store_name = vector_store_name
         self.context_cache = LRUCache(cache_size)
@@ -119,11 +109,11 @@ class CustomLLMChain:
             else "cpu"
         )
         self.max_input_ratio = 0.8 if self.is_large_model else 0.75
-        if self.model is None or self.tokenizer is None:
-            raise ValueError(
-                f"🚩 Failed to load model or tokenizer. \nModel: {None if not self.model else self.model} and "
-                + f"\nTokenizer: {None if not self.tokenizer else self.tokenizer} cannot be None"
-            )
+        # Local generation model not needed — generation is handled by the OpenAI API.
+        self.model = None
+        self.tokenizer = (
+            None  # resolved from the embedding model after it is loaded below
+        )
 
         self.instruction_lang = instruction_lang
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
@@ -142,6 +132,10 @@ class CustomLLMChain:
         except Exception as e:
             logging.error(f"🚩 Error loading cached embedding model: {e}")
             raise
+
+        # Use the embedding model's tokenizer for token counting (context assembly, etc.).
+        # Same source as TextChunker — the only local tokenizer available.
+        self.tokenizer = self.embedding_model.tokenizer
 
         # --
         self._initialize_retrievers()
@@ -1188,6 +1182,118 @@ class CustomLLMChain:
                 "I apologize, but I encountered an error processing your request.",
             )
             return error_msg, "", {}
+
+    async def retrieve_context_async(self, question: str) -> dict:
+        """Retrieval only — mirrors invoke_async but returns before generate_text.
+
+        Copies the full retrieval pipeline (trivial bypass, memory update, reasoning
+        detection, two-pass search, context assembly) without calling custom_llm_chain.
+        Used by the ``retrieve_rag_context`` Celery task so FastAPI can stream the LLM
+        completion via SSE.
+
+        Parameters
+        ----------
+        question : str
+            User question
+
+        Returns
+        -------
+        dict
+            {"combined_context": str, "system_prompt": str, "contexts": list[str]}
+        """
+        try:
+            if is_trivial_question(question, self.instruction_lang):
+                self.conversation_memory.add_message("user", question)
+                conversation_context = (
+                    self.conversation_memory.get_context_with_reasoning(
+                        SystemPromptTypes.TRIVIAL
+                    )
+                )
+                combined_context = conversation_context or ""
+                return {
+                    "combined_context": combined_context,
+                    "system_prompt": self.assistant_role,
+                    "contexts": [combined_context] if combined_context else [],
+                }
+
+            self.conversation_memory.add_message("user", question)
+
+            reasoning_task = self.detect_reasoning_type(question)
+            conversation_context = self.conversation_memory.get_context_with_reasoning(
+                ReasoningType.ANALYTICAL
+            )
+            reasoning_type, _ = await reasoning_task
+            if conversation_context:
+                conversation_context = (
+                    self.conversation_memory.get_context_with_reasoning(reasoning_type)
+                )
+            query_with_context = (
+                question + " " + conversation_context
+                if conversation_context
+                else question
+            )
+
+            base_k, lambda_param = await self.analyze_query_complexity(
+                query_with_context
+            )
+            query_characteristics = (
+                self.ensemble_retriever._analyze_query_characteristics(question)
+            )
+            self.optimize_ensemble_for_query_type(query_characteristics)
+
+            k = base_k * 10 if self.is_large_model else base_k
+
+            initial_contexts = await self.search_similar_texts_async(
+                question, k, lambda_param
+            )
+
+            if not initial_contexts:
+                return {
+                    "combined_context": "",
+                    "system_prompt": self.assistant_role,
+                    "contexts": [],
+                }
+
+            filtered_contexts = await self.context_filtering(
+                initial_contexts, query_with_context
+            )
+
+            document = ". ".join(filtered_contexts[:k])
+            retrieval_k = 15 if self.is_large_model else 12
+            relevant_contexts = await self.search_similar_texts(document, k=retrieval_k)
+
+            combined_context = ""
+            if conversation_context:
+                combined_context = f"Previous Conversation:\n{conversation_context}\n\n"
+
+            contexts_added = 0
+            for i, context in enumerate(relevant_contexts):
+                if not combined_context:
+                    combined_context = f"Context 1:\n{context}"
+                    contexts_added += 1
+                    continue
+                if self.is_large_model and contexts_added < 5:
+                    combined_context += f"\n\nContext {i + 1}:\n{context}"
+                    contexts_added += 1
+                    continue
+                can_add = await self.check_context_length(combined_context, context)
+                if not can_add:
+                    break
+                combined_context += f"\n\nContext {i + 1}:\n{context}"
+                contexts_added += 1
+
+            return {
+                "combined_context": combined_context,
+                "system_prompt": self.assistant_role,
+                "contexts": relevant_contexts,
+            }
+        except Exception as e:
+            logging.error(f"Error in retrieve_context_async: {e}")
+            return {
+                "combined_context": "",
+                "system_prompt": self.assistant_role,
+                "contexts": [],
+            }
 
     @measure_time_sync
     def ainvoke(self, question):

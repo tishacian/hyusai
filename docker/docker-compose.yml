@@ -18,6 +18,8 @@ services:
       - "15672:15672" # Management UI
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    env_file:
+      - dev_env_files/broker.env
     healthcheck:
       test: ["CMD", "rabbitmqctl", "status"]
       interval: 10s
@@ -32,7 +34,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql
     env_file:
-      - ./test_env_files/db.env
+      - dev_env_files/db.env
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -48,8 +50,21 @@ services:
     volumes:
       - minio_data:/data
     env_file:
-      - ./test_env_files/minio.env
+      - dev_env_files/minio.env
     command: server /data --console-address ":9001"
+  qdrant:
+    image: qdrant/qdrant:v1.17.1-unprivileged
+    container_name: qdrant
+    ports:
+      - "6333:6333" # REST API + Web UI
+      - "6334:6334" # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+    env_file:
+      - dev_env_files/qdrant.env
+    depends_on:
+      qdrant-init:
+        condition: service_completed_successfully
   # ------------------------
   # Init / one-shot services
   # ------------------------
@@ -63,9 +78,11 @@ services:
     container_name: init
     user: root
     volumes:
+      - models:/data/models
       - assets:/data/assets
     env_file:
-      - test_env_files/papai_llm.env
+      - dev_env_files/celery.env
+      - dev_env_files/.openai.env
     command: bash /app/docker/scripts/run_init.sh
     depends_on:
       broker:
@@ -74,31 +91,16 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      qdrant:
+        condition: service_started
     restart: "no"
   qdrant-init:
     image: busybox
+    container_name: qdrant-init
     command: ["sh", "-c", "chown -R 1000:1000 /qdrant/storage"]
     volumes:
       - qdrant_data:/qdrant/storage
     restart: "no"
-  qdrant:
-    image: qdrant/qdrant:v1.17.1-unprivileged
-    ports:
-      - "6333:6333" # REST API + Web UI
-      - "6334:6334" # gRPC API
-    volumes:
-      - qdrant_data:/qdrant/storage
-    env_file:
-      - test_env_files/qdrant.env
-    depends_on:
-      qdrant-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
   # ---------------------
   # Core backend services
   # ---------------------
@@ -112,7 +114,8 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - test_env_files/papai_llm.env
+      - dev_env_files/fastapi.env
+      - dev_env_files/.openai.env
     depends_on:
       init:
         condition: service_completed_successfully
@@ -125,13 +128,14 @@ services:
   celery-cpu:
     image: papai-llm-celery-cpu:latest
     volumes:
-      - models:/data/models
-      - assets:/data/assets
+      - models:/data/models:ro
+      - assets:/data/assets:ro
     env_file:
-      - test_env_files/papai_llm.env
+      - dev_env_files/celery.env
+      - dev_env_files/.openai.env
     environment:
       CELERY_QUEUES: cpu
-      CELERY_LOGLEVEL: info
+      HF_HUB_OFFLINE: "1"
     depends_on:
       init:
         condition: service_completed_successfully
@@ -144,13 +148,13 @@ services:
   #     args:
   #       PIP_INDEX_URL: ${PIP_INDEX_URL}
   #   volumes:
-  #     - models:/data/models
-  #     - assets:/data/assets
+  #     - models:/data/models:ro
+  #     - assets:/data/assets:ro
   #   env_file:
-  #     - test_env_files/papai_llm.env
+  #     - dev_env_files/celery.env
   #   environment:
   #     CELERY_QUEUES: gpu
-  #     CELERY_LOGLEVEL: debug
+  #     HF_HUB_OFFLINE: "1"
   #   depends_on:
   #     init:
   #       condition: service_completed_successfully
@@ -168,10 +172,8 @@ services:
     container_name: frontend
     ports:
       - "8501:8501"
-    volumes:
-      - models:/data/models
     env_file:
-      - test_env_files/papai_llm.env
+      - dev_env_files/frontend.env
     depends_on:
       fastapi:
         condition: service_healthy

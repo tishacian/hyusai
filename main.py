@@ -9,15 +9,12 @@ import torch
 
 from src.init_utils import locate_and_set_tessdata_prefix
 
-# Set environment variables for monolith OmniRAG
-# (even though they won't be used for broker and core)
-os.environ["PAPAILLM_CORE__BASE_HTTP_URL"] = "https://www.core.net/"
-os.environ["PAPAILLM_BROKER__URL"] = "https://www.broker.net/"
-os.environ["PAPAILLM_CELERY_DB__URL"] = "sqlite:///./omnirag_database.db"
-os.environ["PAPAILLM_DATABASE__ENGINE_URL"] = "sqlite:///./omnirag_database.db"
-os.environ.setdefault("PAPAILLM_QDRANT__API_KEY", "changeme")
+# Configure standalone monolith to use local SQLite
+os.environ["DB_DIALECT"] = "sqlite"
+os.environ["DB_NAME"] = "./omnirag_database.db"
+os.environ.setdefault("QDRANT_API_KEY", "changeme")
 
-from connections.database import init_db
+from connections.database import init_db, seed_dev_user
 from src.gpuselector import GPUSelector
 from src.init_utils import download_nltk_data
 
@@ -114,6 +111,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     init_db()
+    seed_dev_user()
     subprocess.run(
         [
             sys.executable,

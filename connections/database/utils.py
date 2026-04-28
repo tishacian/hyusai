@@ -5,22 +5,22 @@ from functools import lru_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from configurations import Config
+from configurations import BackendConfig
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=None)
 def get_engine():
-    db_url = str(Config.get().database.engine_url)
-    db_options = Config.get().database.engine_options.model_dump()
+    db_url = str(BackendConfig.get().db.engine_url)
+    db_options = BackendConfig.get().db.engine_options.model_dump()
 
     try:
         return create_engine(db_url, **db_options)
     except Exception:
         logger.error(
             f"Error while creating the engine with url: {db_url} "
-            f"coming from config: {Config.get().database}"
+            f"coming from config: {BackendConfig.get().db}"
         )
         raise
 

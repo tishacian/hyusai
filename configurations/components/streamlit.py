@@ -1,38 +1,28 @@
-from typing import Optional
-
-from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class LoggerConfig(BaseModel):
-    level: str = Field(
-        "info", description="Level of logging for Streamlit's internal logger"
-    )
+class StreamlitConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="STREAMLIT_")
 
+    server_address: str = "0.0.0.0"
+    server_port: int = 8501
+    server_enable_cors: bool = True
+    server_enable_xsrf_protection: bool = True
+    server_headless: bool = True
+    server_max_upload_size: int = 200
+    log_level: str = "info"
+    browser_gather_usage_stats: bool = False
 
-class ServerConfig(BaseModel):
-    address: Optional[str] = Field(
-        "0.0.0.0", description="Address to bind the server to"
-    )
-    port: int = Field(8501, description="Port to run the Streamlit server on")
-    enableCORS: bool = Field(
-        True, description="Whether to enable Cross-Origin Resource Sharing"
-    )
-    enableXsrfProtection: bool = Field(
-        True, description="Whether to enable Cross-Site Request Forgery protection"
-    )
-    headless: bool = Field(
-        True, description="Whether to run Streamlit in headless mode"
-    )
-    maxUploadSize: int = Field(200, description="Maximum upload size in MB")
-
-
-class BrowserConfig(BaseModel):
-    gatherUsageStats: bool = Field(
-        False, description="Whether to gather anonymous usage stats"
-    )
-
-
-class StreamlitConfig(BaseModel):
-    logger: LoggerConfig = Field(default_factory=LoggerConfig)
-    server: ServerConfig = Field(default_factory=ServerConfig)
-    browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    def to_toml(self) -> dict:
+        return {
+            "logger": {"level": self.log_level},
+            "server": {
+                "address": self.server_address,
+                "port": self.server_port,
+                "enableCORS": self.server_enable_cors,
+                "enableXsrfProtection": self.server_enable_xsrf_protection,
+                "headless": self.server_headless,
+                "maxUploadSize": self.server_max_upload_size,
+            },
+            "browser": {"gatherUsageStats": self.browser_gather_usage_stats},
+        }

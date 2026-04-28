@@ -4,7 +4,8 @@ Comprehensive test suite covering:
 - Timing decorators: measure_time, measure_time_sync (4 tests)
 - Tesseract utilities: configure_tesseract, get_tesseract_path (4 tests)
 - GPU utilities: gpu_arc_type, get_max_model_len (8 tests)
-- Text formatting: format_llm_response, add_leading_space_if_needed, humanize_datetime (6 tests)
+- Text formatting: format_llm_response, add_leading_space_if_needed (4 tests)
+- Datetime formatting: humanize_datetime from src.standalone_interface.utils (2 tests)
 
 Total: 22 comprehensive unit tests
 """
@@ -17,13 +18,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.globalvariables import CPUModels, Models
+from src.standalone_interface.utils import humanize_datetime
 from src.utils import (
     add_leading_space_if_needed,
     configure_tesseract,
     format_llm_response,
     get_max_model_len,
     gpu_arc_type,
-    humanize_datetime,
     measure_time,
     measure_time_sync,
 )

@@ -2,21 +2,15 @@ import os
 from enum import Enum, StrEnum
 from pathlib import Path
 
-from configurations import Config
-
 # %% Directory
 
 REPO_PATH = Path(__file__).parent.parent
 IMG_PATH = REPO_PATH / "image"
-VECTOR_STORE_PATH = REPO_PATH / "vector_store"
 EMBEDDING_CACHE_STORE = ".cache/"
 
 # -- Check if paths exist otherwise, create one
 if not os.path.exists(IMG_PATH):
     os.makedirs(IMG_PATH)
-
-if not os.path.exists(VECTOR_STORE_PATH):
-    os.makedirs(VECTOR_STORE_PATH)
 # %%
 # -- Helper for suggestions
 HELP = {  # help suggestions..
@@ -167,6 +161,7 @@ class VLMModels(StrEnum):
 GPU_MODEL_SET = {model for model in GPUModels}
 CPU_MODEL_SET = {model for model in CPUModels}
 
+DEFAULT_GPU_MODEL = GPUModels.LLAMA31_8B
 DEFAULT_CPU_MODEL = CPUModels.LLAMA32_3B_INSTRUCT
 DEFAULT_CPU_TOKENIZER = CPUTokenizer.LLAMA32_3B_INSTRUCT_TOK
 LARGE_MODELS = [
@@ -201,10 +196,10 @@ class PipelineType(StrEnum):
 
 
 class OCRConfig(Enum):
-    USE_OCR = not Config.get().backend.disable_ocr_for_pdf
+    USE_OCR = True
     OCR_DPI = 150
-    FORCE_OCR = Config.get().backend.force_ocr_on_all_pdf
-    LANGS = os.getenv("LANGS", "eng fra deu spa ita por kor ara").split(" ")
+    FORCE_OCR = False
+    LANGS = ["eng", "fra", "deu", "spa", "ita", "por", "kor", "ara"]
 
 
 class GPUMemoryStatus(Enum):
@@ -261,34 +256,31 @@ class PDFProcessingConfig(Enum):
     EXTRACT_TABLES = True
 
     # File saving settings
-    DISABLE_FILE_SAVING = Config.get().backend.disable_file_saving
+    DISABLE_FILE_SAVING = False
 
     # Performance settings
     MAX_WORKERS = 4
     TIMEOUT_SECONDS = 300
 
 
-vlm_config = Config.get().vlm
-
-
 class VLMConfig(Enum):
-    ENABLE_VLM = vlm_config.enable_vlm
-    VLM_MODEL = vlm_config.vlm_model
-    VLM_WORKERS = vlm_config.vlm_workers
-    MAX_WORKERS = vlm_config.max_workers
-    SKIP_LARGE_IMAGES = vlm_config.skip_large_images
-    MAX_MODEL_LEN = vlm_config.max_model_len
-    GPU_MEMORY_UTILIZATION = vlm_config.gpu_memory_utilization
-    TEMPERATURE = vlm_config.temperature
-    MAX_TOKENS = vlm_config.max_tokens
-    TOP_P = vlm_config.top_p
-    FREQUENCY_PENALTY = vlm_config.frequency_penalty
-    PRESENCE_PENALTY = vlm_config.presence_penalty
-    REPETITION_PENALTY = vlm_config.repetition_penalty
-    MAX_IMAGE_SIZE = vlm_config.max_image_size
-    MIN_IMAGE_SIZE = vlm_config.min_image_size
-    MAX_TOKENS_LIMIT = vlm_config.max_tokens_limit
-    JPEG_QUALITY_LEVELS = vlm_config.jpeg_quality_levels
-    DEVICE = vlm_config.device
-    USE_FLASH_ATTENTION = vlm_config.use_flash_attention
-    TORCH_DTYPE = vlm_config.torch_dtype
+    ENABLE_VLM = False
+    VLM_MODEL = "smolvlm-256m"
+    VLM_WORKERS = 2
+    MAX_WORKERS = 16
+    SKIP_LARGE_IMAGES = True
+    MAX_MODEL_LEN = 8192
+    GPU_MEMORY_UTILIZATION = 0.9
+    TEMPERATURE = 0.1
+    MAX_TOKENS = 512
+    TOP_P = 0.9
+    FREQUENCY_PENALTY = 1.0
+    PRESENCE_PENALTY = 0.5
+    REPETITION_PENALTY = 1.2
+    MAX_IMAGE_SIZE = 128
+    MIN_IMAGE_SIZE = 64
+    MAX_TOKENS_LIMIT = 3000
+    JPEG_QUALITY_LEVELS = [30, 20, 15, 10, 5]
+    DEVICE = "auto"
+    USE_FLASH_ATTENTION = False
+    TORCH_DTYPE = "auto"

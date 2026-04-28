@@ -14,7 +14,6 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -252,7 +251,11 @@ def get_max_model_len(model_name, max_model_len: int = None) -> int:
                 return 128 * 1024
             return 1024
         else:
-            raise ValueError(f"Error: Unknown model name {model_name}")
+            # Unknown model (e.g. OpenAI API models) — assume a large context window.
+            logging.warning(
+                "Unknown model name %r — defaulting max_model_len to 128k.", model_name
+            )
+            return 128 * 1024
     else:
         return max_model_len * 1024
 
@@ -319,28 +322,6 @@ def format_llm_response(
     except Exception as e:
         logging.error(f"🚩 An error occurred during response formatting: {str(e)}")
         return "No sufficient context to respond to the question."
-
-
-def humanize_datetime(dt: datetime) -> str:
-    """
-    Converts a datetime object to a human-readable string.
-
-    Example:
-        2025-06-17T15:42:00Z -> "June 17, 2025 at 15:42 UTC"
-
-    Parameters
-    ----------
-    dt : datetime
-        The datetime object to format.
-
-    Returns
-    -------
-    str
-        A human-readable string representation.
-    """
-    if not dt:
-        return "N/A"
-    return dt.strftime("%B %d, %Y at %H:%M")
 
 
 def add_leading_space_if_needed(s: str) -> str:

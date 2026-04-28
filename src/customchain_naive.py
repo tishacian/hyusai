@@ -13,7 +13,6 @@ from sentence_transformers import SentenceTransformer
 from connections.database.system_prompts import SystemPrompts
 from connections.qdrant import qdrant_client
 from connections.storage import fs
-from src.chunker import cache_chunker_embedding_chain
 from src.globalvariables import EMBEDDING_NAME
 from src.metrics import Evaluatrix
 from src.system_prompts import (
@@ -37,12 +36,9 @@ logging.basicConfig(
 
 
 @lru_cache(maxsize=None)
-@cache_chunker_embedding_chain
 class CustomLLMChain:
     def __init__(
         self,
-        tokenizer,
-        model,
         model_name,
         vector_store_name,
         embedding_model_name=EMBEDDING_NAME,
@@ -52,23 +48,21 @@ class CustomLLMChain:
 
         Parameters
         ----------
-            tokenizer (tokenizer) : tokenizer
-            model (model) : llm model
+            model_name (str) : model name.
+            vector_store_name (str) : vector store name.
             embedding_model_name (str), optional : embedding model name. The default is "sentence-transformers/all-mpnet-base-v2".
             instruction_lang : SystemPromptLangs, optional
                 Language of the LLM instruction, by default DEFAULT_SYSTEM_PROMPT_LANG
 
         Raises
         ------
-            ValueError : if model and tokenizer is None
+            ValueError : if model and tokenizer failed to load
 
         Returns
         -------
         None.
 
         """
-        self.tokenizer = tokenizer
-        self.model = model
         self.model_name = model_name
         self.vector_store_name = vector_store_name
         self.device = torch.device(
@@ -78,18 +72,17 @@ class CustomLLMChain:
             if torch.backends.mps.is_available()
             else "cpu"
         )
-
-        if self.model is None or self.tokenizer is None:
-            raise ValueError(
-                f"🚩 Failed to load model or tokenizer. \nModel: {None if not self.model else self.model} and "
-                + f"\nTokenizer: {None if not self.tokenizer else self.tokenizer} cannot be None"
-            )
+        # Local generation model not needed — generation is handled by the OpenAI API.
+        self.model = None
 
         self.instruction_lang = instruction_lang
         self.embedding_model_name = EMBEDDING_NAME
         self.embedding_model = SentenceTransformer(
             self.embedding_model_name, device=self.device.type
         )
+        # Use the embedding model's tokenizer for token counting (context assembly, etc.).
+        # Same source as TextChunker — the only local tokenizer available.
+        self.tokenizer = self.embedding_model.tokenizer
 
         # -- loading index
         self.load_index()
@@ -566,6 +559,30 @@ class CustomLLMChain:
             n_gram=3,
         )
         return answer, combined_context, eval_metrics
+
+    async def retrieve_context_async(self, question: str) -> dict:
+        """Retrieval only — mirrors invoke_async but returns before generate_text.
+
+        Used by the ``retrieve_rag_context`` Celery task so FastAPI can stream
+        the LLM completion via SSE instead of waiting for local generation.
+
+        Parameters
+        ----------
+        question : str
+            User question
+
+        Returns
+        -------
+        dict
+            {"combined_context": str, "system_prompt": str, "contexts": list[str]}
+        """
+        relevant_contexts = await self.search_similar_texts_async(question, k=5)
+        combined_context = "\n\n".join(relevant_contexts)
+        return {
+            "combined_context": combined_context,
+            "system_prompt": self.assistant_role,
+            "contexts": relevant_contexts,
+        }
 
     def ainvoke(self, question):
         """Use the enhanced asynchronous invoke method.

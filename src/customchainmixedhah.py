@@ -11,12 +11,11 @@ from functools import lru_cache
 import numpy as np
 import torch
 
-from configurations.config import Config
+from configurations import WorkerConfig
 from connections.database.system_prompts import SystemPrompts
 from connections.qdrant import qdrant_client
 from connections.storage import fs
 from src.cache import TieredCache
-from src.chunker import cache_chunker_embedding_chain
 from src.contextcompressor import ContextualCompressionRetriever, ContextualConfig
 from src.conversationmemorybuffer import ConversationMemoryBuffer
 from src.embedding import EmbeddingModelLoader
@@ -63,12 +62,9 @@ logging.basicConfig(
 
 
 @lru_cache(maxsize=None)
-@cache_chunker_embedding_chain
 class CustomLLMChain:
     def __init__(
         self,
-        tokenizer,
-        model,
         model_name,
         vector_store_name,
         embedding_model_name=EMBEDDING_NAME,
@@ -80,10 +76,6 @@ class CustomLLMChain:
 
         Parameters
         ----------
-        tokenizer : Any
-            Tokenizer instance
-        model : Any
-            LLM model instance
         model_name : str
             Name of the model
         vector_store_name : str
@@ -99,8 +91,6 @@ class CustomLLMChain:
         """
         start_time = time.time()
 
-        self.tokenizer = tokenizer
-        self.model = model
         self.model_name = model_name
         self.vector_store_name = vector_store_name
         self.dynamic_k = dynamic_k
@@ -113,14 +103,14 @@ class CustomLLMChain:
             else "cpu"
         )
         self.max_input_ratio = 0.8 if self.is_large_model else 0.75
-
-        if self.model is None or self.tokenizer is None:
-            raise ValueError(
-                f"Failed to load model or tokenizer. Model: {self.model}, Tokenizer: {self.tokenizer}"
-            )
+        # Local generation model not needed — generation is handled by the OpenAI API.
+        self.model = None
+        self.tokenizer = (
+            None  # resolved from the embedding model after it is loaded below
+        )
 
         self.instruction_lang = instruction_lang
-        self.stopwords = load_multilang_stopwords(Config.get().ressources.custom)
+        self.stopwords = load_multilang_stopwords(WorkerConfig.get().resources.custom)
         self.max_model_len = get_max_model_len(self.model_name, MAX_MODEL_LEN)
         self.embedding_model_name = embedding_model_name
 
@@ -144,6 +134,10 @@ class CustomLLMChain:
         except Exception as e:
             logging.error(f"Error loading embedding model: {e}")
             raise
+
+        # Use the embedding model's tokenizer for token counting (context assembly, etc.).
+        # Same source as TextChunker — the only local tokenizer available.
+        self.tokenizer = self.embedding_model.tokenizer
 
         self.reasoning_metrics = ReasoningMetrics(
             self.embedding_model, self.instruction_lang
@@ -1532,6 +1526,135 @@ class CustomLLMChain:
                 pass
 
             return error_msg, "", {}
+
+    async def retrieve_context_async(self, question: str) -> dict:
+        """Retrieval only — mirrors invoke_async but returns before generate_text.
+
+        Copies the full retrieval pipeline (trivial bypass, memory update, query
+        analysis, parallel composite retrieval, secondary retrieval, context assembly)
+        without calling custom_llm_chain. Used by the ``retrieve_rag_context`` Celery
+        task so FastAPI can stream the LLM completion via SSE.
+
+        Parameters
+        ----------
+        question : str
+            User question
+
+        Returns
+        -------
+        dict
+            {"combined_context": str, "system_prompt": str, "contexts": list[str]}
+        """
+        try:
+            if is_trivial_question(question, self.instruction_lang):
+                await asyncio.to_thread(
+                    self.conversation_memory.add_message, "user", question
+                )
+                conversation_context = await asyncio.to_thread(
+                    self.conversation_memory.get_context_with_reasoning,
+                    SystemPromptTypes.TRIVIAL,
+                )
+                combined_context = conversation_context or ""
+                return {
+                    "combined_context": combined_context,
+                    "system_prompt": self.assistant_role,
+                    "contexts": [combined_context] if combined_context else [],
+                }
+
+            memory_task = asyncio.create_task(
+                asyncio.to_thread(
+                    self.conversation_memory.add_message, "user", question
+                )
+            )
+            query_analysis_task = asyncio.create_task(self.analyze_query(question))
+            await memory_task
+            query_analysis = await query_analysis_task
+
+            conversation_context_task = asyncio.create_task(
+                asyncio.to_thread(
+                    self.conversation_memory.get_context_with_reasoning,
+                    query_analysis.reasoning_type,
+                )
+            )
+            retrieval_plan = RetrievalPlan.from_query_analysis(
+                query_analysis, self.is_large_model
+            )
+            self.set_ensemble_fusion_method(retrieval_plan.fusion_method)
+            conversation_context = await conversation_context_task
+
+            query_with_context = (
+                question + " " + conversation_context
+                if conversation_context
+                else question
+            )
+
+            initial_contexts = await self.parallel_composite_retrieval(
+                question,
+                k=retrieval_plan.primary_k,
+                lambda_param=query_analysis.lambda_param,
+                use_query_expansion=retrieval_plan.use_query_expansion,
+            )
+
+            if not initial_contexts:
+                return {
+                    "combined_context": "",
+                    "system_prompt": self.assistant_role,
+                    "contexts": [],
+                }
+
+            filtered_contexts = initial_contexts
+            if conversation_context:
+                filtered_contexts = await self.context_filtering(
+                    [
+                        ctx.text
+                        for ctx in initial_contexts[: min(50, len(initial_contexts))]
+                    ],
+                    query_with_context,
+                )
+                filtered_contexts = [
+                    ctx for ctx in initial_contexts if ctx.text in filtered_contexts
+                ]
+
+            document = ". ".join(
+                [
+                    ctx.text
+                    for ctx in filtered_contexts[: min(10, len(filtered_contexts))]
+                ]
+            )
+
+            secondary_contexts = await self.parallel_composite_retrieval(
+                document,
+                k=retrieval_plan.secondary_k,
+                lambda_param=query_analysis.lambda_param,
+            )
+
+            all_contexts = []
+            seen_texts = set()
+            for ctx in initial_contexts:
+                if ctx.text not in seen_texts:
+                    seen_texts.add(ctx.text)
+                    all_contexts.append(ctx)
+            for ctx in secondary_contexts:
+                if ctx.text not in seen_texts:
+                    seen_texts.add(ctx.text)
+                    all_contexts.append(ctx)
+
+            combined_context = await self.assemble_context(
+                all_contexts, conversation_context, query_analysis
+            )
+
+            return {
+                "combined_context": combined_context,
+                "system_prompt": self.assistant_role,
+                "contexts": [ctx.text for ctx in all_contexts],
+            }
+        except Exception as e:
+            logging.error(f"Error in retrieve_context_async: {e}")
+            return {
+                "combined_context": "",
+                "system_prompt": self.assistant_role,
+                "contexts": [],
+            }
 
     @measure_time_sync
     def ainvoke(self, question):

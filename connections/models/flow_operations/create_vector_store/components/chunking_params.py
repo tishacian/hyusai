@@ -7,10 +7,6 @@ class FixedChunkingParams(BaseModel):
     """Parameters for fixed-size text chunking."""
 
     method: Literal["fixed"]
-    generation_model_name: str = Field(
-        description="Name of the LLM model that will be used to determine "
-        "the maximum chunk length.",
-    )
     max_chunk_length: PositiveInt | None = Field(
         None,
         description="Maximum number of characters per chunk. "
@@ -22,10 +18,6 @@ class RecursiveCharacterChunkingParams(BaseModel):
     """Parameters for recursive character-based chunking."""
 
     method: Literal["recursive_character"]
-    generation_model_name: str = Field(
-        description="Name of the LLM model that will be used to determine "
-        "the maximum chunk length.",
-    )
     max_chunk_length: PositiveInt | None = Field(
         None,
         description="Maximum number of characters per chunk before the text is split recursively.",
@@ -53,10 +45,6 @@ class TokenBasedChunkingParams(BaseModel):
     """Parameters for token-based (LLM) chunking."""
 
     method: Literal["token_based"]
-    generation_model_name: str = Field(
-        description="Name of the LLM model that will be used to determine "
-        "the tokenizer model.",
-    )
     max_tokens_per_chunk: PositiveInt | None = Field(
         None,
         description="Maximum number of tokens allowed in each chunk. "
@@ -81,10 +69,6 @@ class ModelBasedChunkingParams(BaseModel):
     """Parameters for model-driven chunk boundary detection."""
 
     method: Literal["model_based"]
-    generation_model_name: str = Field(
-        description="Name of the LLM model that will be used to determine "
-        "the tokenizer model.",
-    )
     max_tokens_per_chunk: PositiveInt | None = Field(
         None, description="Maximum number of tokens to include in each chunk."
     )

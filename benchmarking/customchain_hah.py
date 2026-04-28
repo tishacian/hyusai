@@ -27,7 +27,6 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # --
 import sys
 import logging
-from src.globalvariables import VECTOR_STORE_PATH
 from src.chunker import cache_chunker_embedding_chain, BM25Retriever
 
 # --

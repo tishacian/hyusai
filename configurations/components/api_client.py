@@ -1,7 +1,9 @@
-from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class FastAPIClientConfig(BaseModel):
+class APIClientConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="API_")
+
     host: str = "fastapi"
     port: int = 8000
     protocol: str = "http"

@@ -5,7 +5,7 @@ from celery import Task
 from logging_utils.change_logger_level import change_logger_level
 from logging_utils.requests import request
 
-from configurations import Config
+from configurations import BackendConfig
 from connections.celery.status import CeleryStatuses
 from connections.celery.utils import full_logs_for_task, translate_status_for_core
 from connections.models.core.celery_task_progress import (
@@ -37,7 +37,9 @@ class CustomTask(Task):
         with change_logger_level("request", logging.ERROR):
             # we don't want to fail the task if core is not reachable
             try:
-                url = f"{Config.get().core.base_http_url}{STATUS_UPDATE_ENDPOINT}"
+                url = (
+                    f"{BackendConfig.get().core.base_http_url}{STATUS_UPDATE_ENDPOINT}"
+                )
                 request("put", url, asdict(payload))
             except Exception:
                 logger.error("Failed to send progress to core.")

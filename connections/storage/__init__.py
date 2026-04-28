@@ -1,11 +1,19 @@
 import papai_unified_storage
+from pydantic import SecretStr
 
-from configurations import Config
+from configurations import BackendConfig
 
-storage_config = Config.get().storage
+storage_config = BackendConfig.get().storage
+
+# FsspecStorageConfig.options may contain SecretStr values — unwrap before passing
+# to papai_unified_storage which expects plain strings.
+_options = {
+    k: v.get_secret_value() if isinstance(v, SecretStr) else v
+    for k, v in storage_config.options.model_dump().items()
+}
 
 fs: papai_unified_storage.storage.Storage = papai_unified_storage.filesystem(
-    protocol=storage_config.name, **storage_config.options.model_dump()
+    protocol=storage_config.name, **_options
 )
 
 # TODO: make this configurable for papai

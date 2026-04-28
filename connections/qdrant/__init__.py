@@ -1,8 +1,8 @@
 from qdrant_client import QdrantClient
 
-from configurations import Config
+from configurations import BackendConfig
 
-_qdrant_cfg = Config.get().qdrant
+_qdrant_cfg = BackendConfig.get().qdrant
 
 qdrant_client: QdrantClient = QdrantClient(
     host=_qdrant_cfg.host,

@@ -1,13 +1,14 @@
 from celery import Celery
 
-from configurations import Config
+from configurations import WorkerConfig
 from connections.celery.db.celery_extra_extend_db_backend import ExtraDatabaseBackend
 
-config = Config.get()
+config = WorkerConfig.get()
+config.logging.setup()
 
 
 class CeleryConfig:
-    broker_url = str(config.broker.url)
+    broker_url = config.broker.url
 
     task_track_started = True
     task_acks_late = config.celery.acks_late
@@ -27,6 +28,6 @@ class CeleryConfig:
 
 
 app = Celery("tasks", task_cls="connections.celery.custom_task_class:CustomTask")
-app._backend = ExtraDatabaseBackend(app=app, dburi=str(config.celery_db.url))
+app._backend = ExtraDatabaseBackend(app=app, dburi=config.celery_result.url)
 app.config_from_object(CeleryConfig)
 app.autodiscover_tasks(["connections.celery.tasks"])

@@ -1,3 +1,3 @@
-from .payload import CreateVectorStorePayload
+from .payload import CreateVectorStorePayload, IndexCollectionPayload
 
-__all__ = ["CreateVectorStorePayload"]
+__all__ = ["CreateVectorStorePayload", "IndexCollectionPayload"]

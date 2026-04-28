@@ -23,10 +23,6 @@ WORKDIR /app
 
 COPY --chown=$USERNAME:$USERNAME . .
 
-# Temporary: make vector_store writable before using ffspec
-RUN mkdir -p /app/vector_store \
-    && chown -R "$USERNAME":"$USERNAME" /app/vector_store
-
 USER $USERNAME
 
 EXPOSE 8000

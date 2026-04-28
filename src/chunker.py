@@ -78,6 +78,29 @@ class BM25Retriever:
             return pickle.load(f)
 
 
+class SimpleTokenizer:
+    """Minimal hashable tokenizer stub exposing model_max_length.
+
+    Chunk-size decisions use the embedding model's context window rather than
+    a local LLM tokenizer.
+    # TODO: replace with TEI (Text Embeddings Inference) tokenizer endpoint
+    # once HuggingFace TEI is wired up as the embedding service.
+    """
+
+    def __init__(self, model_max_length: int):
+        self.model_max_length = model_max_length
+        self.max_len_single_sentence = model_max_length
+
+    def __hash__(self):
+        return hash(self.model_max_length)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, SimpleTokenizer)
+            and self.model_max_length == other.model_max_length
+        )
+
+
 @lru_cache(maxsize=None)
 @cache_chunker_embedding_chain
 class TextChunker:
@@ -299,11 +322,12 @@ class TextChunker:
         """
         Fixed chunking
         """
-        self.chunk_size = (
+        _max_len = (
             self.tokenizer.max_len_single_sentence
-            if not chunk_size
-            else max(chunk_size, self.tokenizer.max_len_single_sentence)
+            if self.tokenizer is not None
+            else 512
         )
+        self.chunk_size = _max_len if not chunk_size else max(chunk_size, _max_len)
         return [
             text[i : i + self.chunk_size] for i in range(0, len(text), self.chunk_size)
         ]
@@ -349,16 +373,12 @@ class TextChunker:
         Returns:
         - List[str]: A list of text chunks.
         """
-        self.overlap = (
-            int(self.tokenizer.model_max_length // 10.1) if not overlap else overlap
+        _model_max = (
+            self.tokenizer.model_max_length if self.tokenizer is not None else 512
         )
+        self.overlap = int(_model_max // 10.1) if not overlap else overlap
         self.chunk_size = (
-            self.estimate_chunk_size(
-                text,
-                self.overlap,
-                None,
-                self.tokenizer.model_max_length,
-            )
+            self.estimate_chunk_size(text, self.overlap, None, _model_max)
             if not chunk_size
             else chunk_size
         )
@@ -431,6 +451,11 @@ class TextChunker:
         Returns:
         List[str]: A list of text chunks.
         """
+        if not callable(self.tokenizer):
+            raise RuntimeError(
+                "token_based chunking requires a HuggingFace tokenizer. "
+                "Use recursive_character or fixed chunking instead."
+            )
         inputs = self.tokenizer(
             text, return_tensors="pt", padding=False, truncation=False
         )
@@ -495,6 +520,11 @@ class TextChunker:
         Returns:
         - List[str]: List of text chunks.
         """
+        if not callable(self.tokenizer):
+            raise RuntimeError(
+                "model_based chunking requires a HuggingFace tokenizer. "
+                "Use recursive_character or fixed chunking instead."
+            )
         tokens = self.tokenizer(
             text,
             return_tensors="pt",

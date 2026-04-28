@@ -2,21 +2,27 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from .pdf_options import PDFIngestOptions
+
 
 class IngestDocumentsPayload(BaseModel):
     input_documents_bucket: UUID = Field(
         ...,
-        description="UUID of the bucket or storage location containing the documents to ingest.",
+        description="UUID of the temporary upload bucket containing the files to ingest.",
     )
-    knowledge_base_name: str = Field(
-        ..., description="The name of the new vector store to be created."
+    collection_name: str = Field(
+        ...,
+        description="Name of the collection these documents will be attached to.",
     )
-    knowledge_base_description: str = Field(
+    collection_description: str = Field(
         "",
-        description="Optional description providing context or details about the knowledge base.",
+        description="Optional human-readable description of this collection.",
     )
-    knowledge_base_creator: str = Field(
+    created_by: str = Field(
         "guest",
-        description="Name or identifier of the user creating the knowledge base. ",
+        description="Username or identifier of the user creating the collection.",
     )
-    # TODO: add ingestion params related to OCR/VLM for example
+    pdf_options: PDFIngestOptions = Field(
+        default_factory=PDFIngestOptions,
+        description="PDF processing strategy and options. Applies to all PDF files in this batch.",
+    )

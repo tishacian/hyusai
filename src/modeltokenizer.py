@@ -7,11 +7,11 @@ from typing import Optional
 import torch
 from transformers import AutoTokenizer
 
-from configurations import Config
 from src.globalvariables import (
     CPU_MODEL_SET,
     DEFAULT_CPU_MODEL,
     DEFAULT_CPU_TOKENIZER,
+    DEFAULT_GPU_MODEL,
     GPU_MODEL_SET,
     LARGE_MODELS,
     MAX_MODEL_LEN,
@@ -219,14 +219,14 @@ def validate_model_name(selected_model: str) -> str:
             return selected_model
         elif selected_model in CPU_MODEL_SET:
             logger.warning(
-                f"Selected CPU model {selected_model} but GPU is available. Using default GPU model {Config.get().interface.default_gpu_model}"
+                f"Selected CPU model {selected_model} but GPU is available. Using default GPU model {DEFAULT_GPU_MODEL}"
             )
-            return Config.get().interface.default_gpu_model
+            return DEFAULT_GPU_MODEL
         else:
             logger.warning(
-                f"Unknown model {selected_model}. Using default GPU model {Config.get().interface.default_gpu_model}"
+                f"Unknown model {selected_model}. Using default GPU model {DEFAULT_GPU_MODEL}"
             )
-            return Config.get().interface.default_gpu_model
+            return DEFAULT_GPU_MODEL
     else:
         if selected_model in CPU_MODEL_SET:
             return selected_model

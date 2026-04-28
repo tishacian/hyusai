@@ -13,4 +13,4 @@ def create_streamlit_config_file():
     config_path = config_dir / "config.toml"
 
     with config_path.open("w") as f:
-        toml.dump(config.model_dump(), f)
+        toml.dump(config.to_toml(), f)

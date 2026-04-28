@@ -35,10 +35,6 @@ COPY --chown=$USERNAME:$USERNAME . .
 # Make the entrypoint executable
 RUN chmod +x ./run_celery.sh
 
-# Temporary: make vector_store writable before using ffspec
-RUN mkdir -p /app/vector_store \
-    && chown -R "$USERNAME":"$USERNAME" /app/vector_store
-
 USER $USERNAME
 
 ENV PYTHONPATH=.

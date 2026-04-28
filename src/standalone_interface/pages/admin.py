@@ -1,11 +1,11 @@
 import streamlit as st
 
-from configurations import Config
+from configurations import FrontendConfig
 from connections.database.system_prompts import SystemPrompts
 from src.standalone_interface.assets import omnirag_header
 from src.standalone_interface.components.auth import auth_component
 from src.standalone_interface.style import apply_omnirag_style
-from src.utils import humanize_datetime
+from src.standalone_interface.utils import humanize_datetime
 
 
 def init_prompt_session_state():
@@ -96,8 +96,8 @@ def prompt_page():
 
 if __name__ == "__main__":
     st.set_page_config(
-        page_title=Config.get().interface.page_title,
-        page_icon=Config.get().interface.page_icon,
+        page_title=FrontendConfig.get().ui.page_title,
+        page_icon=FrontendConfig.get().ui.page_icon,
         layout="wide",
     )
     apply_omnirag_style()

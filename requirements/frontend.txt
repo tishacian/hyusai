@@ -1,9 +1,13 @@
 pandas~=2.3.3
 pydantic_settings~=2.10.1
 pydantic~=2.11.9
-requests~=2.32.5
+httpx~=0.28
+python-multipart~=0.0.26
 streamlit-authenticator==0.4.2
 streamlit==1.37
-
+asgi_correlation_id~=4.3.4 # logging utils to track link between fastapi/celery
+xlsxwriter
 # datategy libraries
 papai_unified_storage~=0.24.0
+datategy-common-config[logging-setup]~=0.10.3
+datategy-logging-utils[httpx]~=0.7.2

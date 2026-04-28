@@ -13,34 +13,32 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def _create_mock_config():
-    """Create a mock Config object with sensible test defaults."""
-    from common_config.fsspec_storage import FsspecStorageConfig
+mock_config_instance = MagicMock()
 
-    from configurations.components.backend import BackendConfig
-    from configurations.components.qdrant import QdrantConfig
-    from configurations.components.vlm import VLMConfig
+# Mock configurations so module-level .get() calls (connections/qdrant/__init__.py,
+# connections/storage/__init__.py, connections/celery/app.py) never touch real env vars.
+_mock_configurations = Mock()
+for _cls_name in ("BackendConfig", "WorkerConfig", "FastAPIConfig", "FrontendConfig"):
+    _mock_cls = Mock()
+    _mock_cls.get = Mock(return_value=mock_config_instance)
+    setattr(_mock_configurations, _cls_name, _mock_cls)
+sys.modules["configurations"] = _mock_configurations
 
-    mock_config = MagicMock()
+# Mock external-service singletons so their modules never run real initialization.
+# Integration tests patch these with real clients in tests/integration/conftest.py.
+_mock_qdrant = Mock()
+_mock_qdrant.qdrant_client = MagicMock()
+sys.modules["connections.qdrant"] = _mock_qdrant
 
-    # Use actual config classes with defaults
-    mock_config.backend = BackendConfig()
-    mock_config.vlm = VLMConfig()
-    mock_config.storage = FsspecStorageConfig()
-    # Explicit QdrantConfig so that connections/qdrant/__init__.py receives
-    # typed values (host="localhost", port=6333) rather than auto-MagicMocks.
-    mock_config.qdrant = QdrantConfig()
-
-    return mock_config
-
-
-# Install the mock Config globally before any imports
-# This prevents issues with missing environment variables and allows tests to run
-# with standard defaults
-mock_config_instance = _create_mock_config()
-sys.modules["configurations"] = Mock()
-sys.modules["configurations"].Config = Mock()
-sys.modules["configurations"].Config.get = Mock(return_value=mock_config_instance)
+_mock_storage = Mock()
+_mock_storage.fs = MagicMock()
+_mock_storage.WORKSPACE_UUID = "a0000000-0000-0000-0000-000000000001"
+_mock_storage.BUCKET_FOLDER = "buckets"
+_mock_storage.KNOWLEDGE_BASE_FOLDER = "knowledge-bases"
+_mock_storage.KB_ORIGINAL_FOLDER = "original"
+_mock_storage.KB_INGESTED_FOLDER = "ingested"
+_mock_storage.KB_VECTOR_STORE_FOLDER = "vector-store"
+sys.modules["connections.storage"] = _mock_storage
 
 
 def pytest_configure(config):
@@ -51,4 +49,8 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    )
+    config.addinivalue_line(
+        "markers",
+        "benchmark: marks tests as benchmarks that require external services and produce graphs",
     )

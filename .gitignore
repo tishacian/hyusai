@@ -49,3 +49,4 @@ pdfs/
 
 # Secrets
 */secrets/
+docker/dev_env_files/.openai.env

@@ -1,3 +1,4 @@
+import logging
 import time
 import uuid
 from io import BytesIO
@@ -7,7 +8,7 @@ import pandas as pd
 import streamlit as st
 import torch
 
-from configurations import Config
+from configurations import FrontendConfig
 from connections.database.chats import Chats
 from connections.database.users import Users
 from connections.qdrant import qdrant_client
@@ -38,8 +39,8 @@ from src.standalone_interface.assets import (
 )
 from src.standalone_interface.components.auth import auth_component
 from src.standalone_interface.style import apply_omnirag_style
+from src.standalone_interface.utils import humanize_datetime
 from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SYSTEM_PROMPT_LANGS_LIST
-from src.utils import humanize_datetime
 
 
 # -- device available model
@@ -54,7 +55,7 @@ def device_available_models():
 def device_default_model():
     """Default model based on device."""
     return (
-        Config.get().interface.default_gpu_model
+        FrontendConfig.get().ui.default_gpu_model
         if torch.cuda.is_available()
         else DEFAULT_CPU_MODEL
     )
@@ -161,14 +162,26 @@ def omnirag_page():
 
     # -- Pipeline/Embedding...
     PIPELINE_TYPES = list(map(str, PipelineType))
+    _PIPELINE_DISPLAY = {
+        "C-HAH RAG": "Contextual (recommended)",
+        "HAH RAG": "Hybrid",
+        "Naive RAG": "Basic",
+    }
     Models = device_available_models()
     chunking_methods = list(map(str, ChunkingMethod))
+    _CHUNKING_DISPLAY = {
+        "recursive_character": "Auto-split (recommended)",
+        "fixed": "Fixed size",
+        "semantic": "By meaning",
+        "sentences": "By sentences",
+        "paragraphs": "By paragraphs",
+    }
 
     ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
 
     # %% Document embedding
-    if Config.get().interface.forced_vdb == "None":
-        with st.expander("Document Database Setup"):
+    if FrontendConfig.get().ui.forced_collection == "None":
+        with st.expander("Set up your knowledge base"):
             with st.form("document_input"):
                 uploaded_files = st.file_uploader(
                     "Upload Documents",
@@ -180,7 +193,7 @@ def omnirag_page():
                 )
 
                 len(uploaded_files)
-                if not Config.get().interface.hide_rag_params_config:
+                if not FrontendConfig.get().ui.hide_rag_params:
                     row_ae = st.columns([2, 1])
                     with row_ae[0]:
                         current_model = st.session_state.get(
@@ -217,7 +230,7 @@ def omnirag_page():
 
                     with row_ae[1]:
                         chunking_method = st.selectbox(
-                            "Chunking method",
+                            "Text splitting",
                             chunking_methods,
                             index=(
                                 chunking_methods.index(
@@ -229,6 +242,7 @@ def omnirag_page():
                                 in chunking_methods
                                 else 0
                             ),
+                            format_func=lambda m: _CHUNKING_DISPLAY.get(m, m),
                         )
 
                 existing_collections = [
@@ -245,42 +259,41 @@ def omnirag_page():
                 with row_be[1]:
                     source_options = ["(none)"] + existing_collections
                     source_collection_choice = st.selectbox(
-                        "Source collection (optional)",
+                        "Copy from existing collection (optional)",
                         source_options,
                         index=0,
                         help=(
-                            "Leave as '(none)' to create a fresh collection. "
-                            "Select an existing collection to copy its points into the new one, "
-                            "or to update it (when the collection name above matches)."
+                            "Leave as '(none)' to create a new collection from scratch. "
+                            "Select an existing collection to copy its documents into the new one, "
+                            "or to add new documents to it (when the name above matches)."
                         ),
                     )
 
-                if not Config.get().interface.hide_rag_params_config:
+                if not FrontendConfig.get().ui.hide_rag_params:
                     with row_be[2]:
                         pipeline_type = st.selectbox(
-                            "Pipeline",
+                            "Search strategy",
                             PIPELINE_TYPES,
                             index=PIPELINE_TYPES.index(
                                 st.session_state.get(
                                     "pipeline_type", PipelineType.HAHCOMPOSITE
                                 )
                             ),
-                            help="Select the pipeline implementation to use",
+                            format_func=lambda p: _PIPELINE_DISPLAY.get(p, p),
+                            help="How documents are retrieved to answer your question",
                         )
                     with row_be[3]:
                         instruction_lang = st.selectbox(
-                            "LLM instruction language",
+                            "Response language",
                             SYSTEM_PROMPT_LANGS_LIST,
-                            help="Select the language of the LLM reasoning instructions.",
+                            help="Language used for the AI reasoning instructions.",
                         )
                 # --
                 row_buttons = st.columns(6)
                 with row_buttons[0]:
-                    save_button = st.form_submit_button("Create new vector DB")
+                    save_button = st.form_submit_button("Create collection")
                 with row_buttons[1]:
-                    custom_chain_button = st.form_submit_button(
-                        "Initialize context-chain"
-                    )
+                    custom_chain_button = st.form_submit_button("Connect to collection")
                 # --
                 if save_button:
                     target_collection = new_collection_name.strip()
@@ -391,7 +404,7 @@ def omnirag_page():
 
                     if not chunks or len(chunks) == 0:
                         st.error(
-                            "Document chunking produced no results. The document may be empty or unprocessable."
+                            "Could not extract text from this document. It may be empty or in an unsupported format."
                         )
                         st.stop()
 
@@ -406,7 +419,7 @@ def omnirag_page():
                     st.session_state.embedding_index = (
                         embedding_vector.create_and_save_index(chunks)
                     )
-                    st.success("PDF processed and embedding index created!")
+                    st.success("Collection is ready! Documents have been indexed.")
                     st.session_state.model_name = model_name
                     st.session_state.chunking_method = chunking_method
                     st.session_state.vector_store = target_collection
@@ -427,8 +440,6 @@ def omnirag_page():
                         st.session_state.get("vector_store") or new_collection_name
                     )
                     chain = RaggerChain(
-                        st.session_state.tokenizer,
-                        st.session_state.model,
                         model_name,
                         chain_collection,
                         instruction_lang=instruction_lang,
@@ -448,10 +459,8 @@ def omnirag_page():
         )
 
         chain = RaggerChain(
-            st.session_state.tokenizer,
-            st.session_state.model,
             model_name,
-            Config.get().interface.forced_vdb,
+            FrontendConfig.get().ui.forced_collection,
             instruction_lang=instruction_lang,
         )
         st.session_state.chain = chain
@@ -524,8 +533,6 @@ def omnirag_page():
 
                 # -- reinit chain
                 chain = RaggerChain(
-                    st.session_state.tokenizer,
-                    st.session_state.model,
                     model_name,
                     vector_store,
                     instruction_lang=instruction_lang,
@@ -609,7 +616,7 @@ def omnirag_page():
                 time.sleep(0.01)
 
     # -- prompting...
-    if prompt := st.chat_input("Message RAGGER..."):
+    if prompt := st.chat_input("Ask a question..."):
         response, context, metrics = None, None, None
         st.chat_message("human", avatar=HUMAN_AVATAR).write(prompt)
         st.session_state.chat_history.append(
@@ -664,9 +671,9 @@ def omnirag_page():
                     TypeError,
                 ):
                     st.error(
-                        "Ensure a vector database is selected to initialize before chatting"
+                        "Please select a collection and connect to it before chatting."
                     )
-                    response = "No available context is provided to answer this question. Please ensure to initialize the right vector DB"
+                    response = "No answer available. Please select a collection and connect to it first."
 
             # -- streamer
             try:
@@ -674,7 +681,7 @@ def omnirag_page():
                     message_placeholder.markdown(partial_response + "▌")
             except (IndexError, AttributeError, IOError, ValueError, TypeError):
                 st.error(
-                    "Something went wrong...Check to see if the vector DB is selected not <New>"
+                    "Something went wrong. Make sure a collection is selected (not '<New>')."
                 )
             message_placeholder.markdown(response)
             display_metrics(metrics)
@@ -767,8 +774,8 @@ def omnirag_page():
 
 if __name__ == "__main__":
     st.set_page_config(
-        page_title=Config.get().interface.page_title,
-        page_icon=Config.get().interface.page_icon,
+        page_title=FrontendConfig.get().ui.page_title,
+        page_icon=FrontendConfig.get().ui.page_icon,
         layout="wide",
     )
     apply_omnirag_style()

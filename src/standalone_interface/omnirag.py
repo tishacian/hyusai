@@ -1,43 +1,40 @@
+import json
 import logging
 import time
 import uuid
+from datetime import datetime as _dt
 from io import BytesIO
 from typing import Iterator
 from uuid import UUID
 
+import httpx
 import pandas as pd
-import requests
 import streamlit as st
-import torch
 from pydantic import ValidationError
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-from configurations import Config
-from connections.database.chats import Chats
-from connections.database.knowledge_bases import KnowledgeBases
-from connections.database.users import Users
+from configurations import FrontendConfig
+from connections.models.flow_operations.create_vector_store.components.chunking_params import (
+    FixedChunkingParams,
+    HierarchicalChunkingParams,
+    RecursiveCharacterChunkingParams,
+    SemanticChunkingParams,
+    SentenceBoundaryChunkingParams,
+    TokenBasedChunkingParams,
+)
+from connections.models.flow_operations.create_vector_store.components.embedding_params import (
+    EmbeddingConfig,
+)
+from connections.models.flow_operations.create_vector_store.payload import (
+    IndexCollectionPayload,
+)
 from connections.models.flow_operations.ingest_documents import (
     IngestDocumentsPayload,
 )
 from connections.models.flow_operations.ingest_documents.response import (
     IngestDocumentsResponse,
 )
-from connections.storage import BUCKET_FOLDER, WORKSPACE_UUID, fs
-from src.customchain import CustomLLMChain as HAHCustomLLMChain
-from src.customchain_naive import CustomLLMChain as NaiveCustomLLMChain
-from src.customchainmixedhah import CustomLLMChain as CHAHCustomLLMChain
-from src.docloader import LOADER_MAPPING
-from src.globalvariables import (
-    CPU_MODEL_SET,
-    DEFAULT_CPU_MODEL,
-    GPU_MODEL_SET,
-    HELP,
-    REPO_PATH,
-    ChunkingMethod,
-    PipelineType,
-)
-from src.metrics import DUMMY_METRICS
-from src.modeltokenizer import load_model_and_tokenizer
+from src.standalone_interface.api_client import STREAM_TIMEOUT, get_client
 from src.standalone_interface.assets import (
     AI_AVATAR,
     AI_AVATAR_B64,
@@ -47,28 +44,84 @@ from src.standalone_interface.assets import (
 )
 from src.standalone_interface.components.auth import auth_component
 from src.standalone_interface.style import apply_omnirag_style
-from src.system_prompts import DEFAULT_SYSTEM_PROMPT_LANG, SYSTEM_PROMPT_LANGS_LIST
-from src.utils import humanize_datetime
+from src.standalone_interface.utils import humanize_datetime
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+_frontend = FrontendConfig.get()
+_API_URL: str = _frontend.api.url
+_FORCED_VDB: str = _frontend.ui.forced_collection
+_HIDE_RAG_PARAMS: bool = _frontend.ui.hide_rag_params
+_PAGE_TITLE: str = _frontend.ui.page_title
+_PAGE_ICON: str = _frontend.ui.page_icon
+
+# ---------------------------------------------------------------------------
+# UI constants — hardcoded, no server-side imports needed
+# ---------------------------------------------------------------------------
+AVAILABLE_MODELS = ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
+DEFAULT_MODEL = "gpt-4o"
+PIPELINE_TYPES = ["Contextual (recommended)", "Hybrid", "Basic"]
+DEFAULT_PIPELINE = "Contextual (recommended)"
+_PIPELINE_TO_STRATEGY = {
+    "Contextual (recommended)": "HAHCOMPOSITE",
+    "Hybrid": "HAH",
+    "Basic": "NAIVE",
+}
+CHUNKING_METHODS = [
+    "recursive_character",
+    "fixed",
+    "semantic",
+    "sentences",
+    "paragraphs",
+]
+_CHUNKING_DISPLAY = {
+    "recursive_character": "Auto-split (recommended)",
+    "fixed": "Fixed size",
+    "semantic": "By meaning",
+    "sentences": "By sentences",
+    "paragraphs": "By paragraphs",
+}
+DEFAULT_CHUNKING = "recursive_character"
+SYSTEM_PROMPT_LANGS = ["EN", "FR"]
+DEFAULT_LANG = "EN"
+ACCEPTED_EXTENSIONS = ["pdf", "txt", "csv", "docx", "md", "html"]
+DUMMY_METRICS = {
+    "fluency": 0.0,
+    "coherence": 0.0,
+    "relevance": 0.0,
+    "factuality": 0.0,
+    "correctness": 0.0,
+    "hhem": 0.0,
+    "Advance_HHEM": 0.0,
+    "latency": 0.0,
+}
 
 logger = logging.getLogger(__name__)
 
+_CHUNKING_PARAM_BUILDERS = {
+    "recursive_character": lambda: RecursiveCharacterChunkingParams(
+        method="recursive_character"
+    ),
+    "fixed": lambda: FixedChunkingParams(method="fixed"),
+    "semantic": lambda: SemanticChunkingParams(method="semantic"),
+    "sentences": lambda: SentenceBoundaryChunkingParams(method="sentence_boundary"),
+    "paragraphs": lambda: HierarchicalChunkingParams(method="hierarchical"),
+    "token_based": lambda: TokenBasedChunkingParams(method="token_based"),
+}
+_KB_STATUS_EMOJI = {"ingesting": "⏳", "embedding": "🔄", "error": "✗", "created": "⏳"}
 
-# -- device available model
-def device_available_models():
-    """List of available models based on device."""
-    if torch.cuda.is_available():
-        return list(GPU_MODEL_SET)
-    return list(CPU_MODEL_SET)
 
-
-# -- device default model
-def device_default_model():
-    """Default model based on device."""
-    return (
-        Config.get().interface.default_gpu_model
-        if torch.cuda.is_available()
-        else DEFAULT_CPU_MODEL
+def _build_index_payload(collection_uuid: str, chunking_method: str) -> dict:
+    builder = _CHUNKING_PARAM_BUILDERS.get(
+        chunking_method, _CHUNKING_PARAM_BUILDERS["recursive_character"]
     )
+    payload = IndexCollectionPayload(
+        collection_uuid=collection_uuid,
+        chunking=builder(),
+        embedding=EmbeddingConfig(),
+    )
+    return payload.model_dump(mode="json")
 
 
 def save_button_action(
@@ -84,34 +137,38 @@ def save_button_action(
     if not uploaded_files:
         st.error("Please upload at least one file before proceeding.")
         st.stop()
-    # save file to filesystem to mimic papai bucket input
+    # upload files via the files API
     input_bucket_uuid = uuid.uuid4()
-    input_bucket_path = fs.joinpath(
-        WORKSPACE_UUID, BUCKET_FOLDER, str(input_bucket_uuid)
-    )
-    for uploaded_file in uploaded_files:
-        path = fs.joinpath(input_bucket_path, uploaded_file.name)
-        fs.write_to_file(path, uploaded_file)
+    bucket_path = f"buckets/{input_bucket_uuid}"
+    files = [
+        ("files", (f.name, f.getvalue(), f.type or "application/octet-stream"))
+        for f in uploaded_files
+    ]
+    try:
+        with get_client() as client:
+            resp = client.post(f"/files/{bucket_path}", files=files)
+            resp.raise_for_status()
+    except httpx.HTTPError as e:
+        logger.error(f"File upload failed: {e}")
+        st.error("Failed to upload files. Please try again.")
+        st.stop()
     # send to ingestion endpoint
     ingest_docs_payload = IngestDocumentsPayload(
         input_documents_bucket=input_bucket_uuid,
-        knowledge_base_name=new_vs_name,
-        knowledge_base_creator=st.session_state.get("username", "guest"),
-    )
-    ingest_docs_url = (
-        f"{Config.get().fastapi_client.url}/flow_operations/ingest_documents"
+        collection_name=new_vs_name,
+        created_by=st.session_state.get("username", "guest"),
     )
     try:
-        response = requests.post(
-            ingest_docs_url,
-            json=ingest_docs_payload.model_dump(mode="json"),
-        )
-        response.raise_for_status()
+        with get_client() as client:
+            response = client.post(
+                "/flow_operations/ingest_documents",
+                json=ingest_docs_payload.model_dump(mode="json"),
+            )
+            response.raise_for_status()
         ingest_docs_validated_response = IngestDocumentsResponse(**response.json())
-    except requests.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error(
             f"Document ingestion request failed: {e}. "
-            f"URL: {ingest_docs_url} "
             f"Payload: {ingest_docs_payload.model_dump(mode='json')}",
             exc_info=True,
         )
@@ -130,15 +187,22 @@ def save_button_action(
             "Document ingestion service returned invalid data. Please contact support."
         )
         st.stop()
+    st.session_state.pending_ingest_task_id = str(
+        ingest_docs_validated_response.task_id
+    )
+    st.session_state.pending_collection_uuid = str(
+        ingest_docs_validated_response.knowledge_base_uuid
+    )
+    st.session_state.pending_chunking_method = chunking_method
     st.rerun()
 
 
 def omnirag_page():
     # default values
-    pipeline_type = PipelineType.HAHCOMPOSITE
-    chunking_method = ChunkingMethod.RECURSIVE_CHARACTER
-    model_name = device_default_model()
-    instruction_lang = DEFAULT_SYSTEM_PROMPT_LANG
+    pipeline_type = DEFAULT_PIPELINE
+    chunking_method = DEFAULT_CHUNKING
+    model_name = DEFAULT_MODEL
+    instruction_lang = DEFAULT_LANG
 
     # -- metrics style
     def display_metrics(metrics):
@@ -171,46 +235,6 @@ def omnirag_page():
         except (IndexError, AttributeError, IOError, ValueError, TypeError):
             pass
 
-    # -- Loader tokenizer and model
-    @st.cache_resource
-    def cache_model_and_tokenizer(model_name, abs_path):
-        return load_model_and_tokenizer(model_name, abs_path)
-
-    def init_cached_model(
-        model_name: str, repo_path: str, force_update: bool = False
-    ) -> bool:
-        """
-        Initialize a model and tokenizer or update them if the model has changed.
-
-        Parameters:
-            model_name: Name of the model to load
-            repo_path: Repository path for the model
-            force_update: If True, reload the model even if it's already loaded
-
-        Returns:
-            bool: True if initialization/update was successful, False otherwise
-        """
-        if (
-            "model" not in st.session_state
-            or "tokenizer" not in st.session_state
-            or st.session_state.get("model_name") != model_name
-            or force_update
-        ):
-            model, tokenizer = cache_model_and_tokenizer(model_name, repo_path)
-
-            if model and tokenizer:
-                st.session_state.model = model
-                st.session_state.tokenizer = tokenizer
-                st.session_state.model_name = model_name
-                return True
-            else:
-                st.error(
-                    f"Failed to load model: {model_name}"
-                )  # --> only return in case of failure to load model
-                return False
-
-        return True
-
     # Initialize session state variables
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
@@ -218,275 +242,300 @@ def omnirag_page():
         st.session_state.current_chat_id = None
     if "display_history" not in st.session_state:
         st.session_state.display_history = False
-    if "chain" not in st.session_state:
-        st.session_state.chain = None
     if "chunking_method" not in st.session_state:
         st.session_state.chunking_method = None
-    if "model_name" not in st.session_state or "tokenizer" not in st.session_state:
-        st.session_state.model_name = device_default_model()
-        init_cached_model(st.session_state.model_name, REPO_PATH)
+    if "model_name" not in st.session_state:
+        st.session_state.model_name = DEFAULT_MODEL
     if "expand_doc_embedding" not in st.session_state:
         st.session_state.expand_doc_embedding = True
     if "instruction_lang" not in st.session_state:
         st.session_state.instruction_lang = None
+    if "pending_ingest_task_id" not in st.session_state:
+        st.session_state.pending_ingest_task_id = None
+    if "pending_embed_task_id" not in st.session_state:
+        st.session_state.pending_embed_task_id = None
+    if "pending_collection_uuid" not in st.session_state:
+        st.session_state.pending_collection_uuid = None
+    if "pending_chunking_method" not in st.session_state:
+        st.session_state.pending_chunking_method = None
+
+    # -- Poll pending KB creation tasks
+    _pending_ingest = st.session_state.get("pending_ingest_task_id")
+    _pending_embed = st.session_state.get("pending_embed_task_id")
+    _pending_uuid = st.session_state.get("pending_collection_uuid")
+
+    if _pending_ingest or _pending_embed:
+        _active_task = _pending_embed or _pending_ingest
+        _is_embedding = bool(_pending_embed)
+        try:
+            with get_client() as client:
+                _task_resp = client.get(f"/tasks/{_active_task}")
+                _task_resp.raise_for_status()
+            _task_status = _task_resp.json().get("status")
+        except httpx.HTTPError:
+            _task_status = "waiting"
+
+        if _task_status == "error":
+            st.session_state.pending_ingest_task_id = None
+            st.session_state.pending_embed_task_id = None
+            st.session_state.pending_collection_uuid = None
+            st.session_state.pending_chunking_method = None
+
+        elif _task_status == "available" and not _is_embedding:
+            _method = st.session_state.get("pending_chunking_method", DEFAULT_CHUNKING)
+            try:
+                with get_client() as client:
+                    _embed_resp = client.post(
+                        "/flow_operations/create_vector_store",
+                        json=_build_index_payload(_pending_uuid, _method),
+                    )
+                    _embed_resp.raise_for_status()
+                st.session_state.pending_ingest_task_id = None
+                st.session_state.pending_embed_task_id = _embed_resp.json()["task_id"]
+            except httpx.HTTPError as e:
+                logger.error(f"Failed to start embedding: {e}", exc_info=True)
+                st.session_state.pending_ingest_task_id = None
+                st.session_state.pending_embed_task_id = None
+                st.session_state.pending_collection_uuid = None
+                st.session_state.pending_chunking_method = None
+            time.sleep(2)
+            st.rerun()
+
+        elif _task_status == "available" and _is_embedding:
+            st.session_state.pending_embed_task_id = None
+            st.session_state.pending_collection_uuid = None
+            st.session_state.pending_chunking_method = None
+            st.rerun()
+
+        else:
+            time.sleep(3)
+            st.rerun()
 
     # -- Pipeline/Embedding...
-    PIPELINE_TYPES = list(map(str, PipelineType))
-    Models = device_available_models()
-    chunking_methods = list(map(str, ChunkingMethod))
+    Models = AVAILABLE_MODELS
+    chunking_methods = CHUNKING_METHODS
+    ACCEPTABLE_DOC_TYPES = tuple(ACCEPTED_EXTENSIONS)
 
-    ACCEPTABLE_DOC_TYPES = tuple(LOADER_MAPPING.keys())
+    # %% Reactive settings — always visible, take effect on change
+    if _FORCED_VDB == "None":
+        try:
+            with get_client() as client:
+                _kbs_resp = client.get("/collections/")
+                _kbs_resp.raise_for_status()
+            _all_kbs = _kbs_resp.json()
+        except httpx.HTTPError:
+            _all_kbs = []
+        _ready_kbs = [kb for kb in _all_kbs if kb["status"] == "ready"]
+        _active_kbs = [kb for kb in _all_kbs if kb["status"] != "ready"]
+        _labels = {
+            kb[
+                "uuid"
+            ]: f"{kb['name']} ({humanize_datetime(_dt.fromisoformat(kb['created_at']))})"
+            for kb in _ready_kbs
+        }
+        _labels = {None: "<New>"} | _labels
+        _uuids = list(_labels.keys())
+        _current_coll = st.session_state.get("vector_store", None)
+        if _current_coll not in _labels:
+            _current_coll = None
 
-    # %% Document embedding
-    if Config.get().interface.forced_vdb == "None":
-        with st.expander("Document Database Setup"):
+        if not _HIDE_RAG_PARAMS:
+            _cfg_cols = st.columns([2, 2, 1, 1])
+        else:
+            _cfg_cols = [st.container()]
+
+        with _cfg_cols[0]:
+            existing_vector_store = st.selectbox(
+                "Active collection",
+                options=_uuids,
+                index=_uuids.index(_current_coll),
+                format_func=lambda u: _labels[u],
+                help="The collection your questions will be answered from.",
+            )
+            st.session_state.vector_store = existing_vector_store
+            for _kb in _active_kbs:
+                _emoji = _KB_STATUS_EMOJI.get(_kb["status"], "⏳")
+                st.caption(f"{_emoji} **{_kb['name']}** — {_kb['status']}")
+
+        if not _HIDE_RAG_PARAMS:
+            with _cfg_cols[1]:
+                pipeline_type = st.selectbox(
+                    "Search strategy",
+                    PIPELINE_TYPES,
+                    index=(
+                        PIPELINE_TYPES.index(
+                            st.session_state.get("pipeline_type", DEFAULT_PIPELINE)
+                        )
+                        if st.session_state.get("pipeline_type") in PIPELINE_TYPES
+                        else 0
+                    ),
+                    help="How documents are retrieved to answer your question",
+                )
+                st.session_state.pipeline_type = pipeline_type
+
+            with _cfg_cols[2]:
+                instruction_lang = st.selectbox(
+                    "Response language",
+                    SYSTEM_PROMPT_LANGS,
+                    index=(
+                        SYSTEM_PROMPT_LANGS.index(
+                            st.session_state.get("instruction_lang", DEFAULT_LANG)
+                        )
+                        if st.session_state.get("instruction_lang")
+                        in SYSTEM_PROMPT_LANGS
+                        else 0
+                    ),
+                    help="Language used for the AI reasoning instructions.",
+                )
+                st.session_state.instruction_lang = instruction_lang
+
+            with _cfg_cols[3]:
+                _cur_model = st.session_state.get("model_name", DEFAULT_MODEL)
+                if _cur_model not in Models:
+                    _cur_model = DEFAULT_MODEL
+                model_name = st.selectbox(
+                    "Model", Models, index=Models.index(_cur_model)
+                )
+                st.session_state.model_name = model_name
+        else:
+            if "pipeline_type" not in st.session_state:
+                st.session_state.pipeline_type = DEFAULT_PIPELINE
+            if "instruction_lang" not in st.session_state:
+                st.session_state.instruction_lang = DEFAULT_LANG
+            if "model_name" not in st.session_state:
+                st.session_state.model_name = DEFAULT_MODEL
+
+        # Expander — only for uploading documents and creating collections
+        with st.expander("Add documents to a collection"):
             with st.form("document_input"):
                 uploaded_files = st.file_uploader(
-                    "Upload Documents",
+                    "Upload documents",
                     accept_multiple_files=True,
                     type=ACCEPTABLE_DOC_TYPES,
-                    help="Acceptable document formats includes: "
-                    + " ".join(ACCEPTABLE_DOC_TYPES[:5])
-                    + " et al.",
+                    help="Accepted formats: " + ", ".join(ACCEPTABLE_DOC_TYPES) + ".",
                 )
-
-                len(uploaded_files)
-                if not Config.get().interface.hide_rag_params_config:
-                    row_ae = st.columns([2, 1])
-                    with row_ae[0]:
-                        current_model = st.session_state.get(
-                            "model_name", device_available_models()
-                        )
-
-                        # Validate current model against available models
-                        if current_model not in Models:
-                            current_model = device_default_model()
-
-                        model_name = st.selectbox(
-                            "Models",
-                            Models,
-                            index=(
-                                Models.index(
-                                    st.session_state.get("model_name", current_model)
-                                )
-                                if st.session_state.get("model_name") in Models
-                                else 0
-                            ),
-                        )
-                        # Update model and tokenizer when model changes
-                        if model_name != st.session_state.get("model_name"):
-                            st.session_state.model_name = model_name
-                            model, tokenizer = cache_model_and_tokenizer(
-                                model_name, REPO_PATH
-                            )
-                            if model and tokenizer:
-                                st.session_state.model = model
-                                st.session_state.tokenizer = tokenizer
-                                st.success(f"Successfully loaded model: {model_name}")
-                            else:
-                                st.error(f"Failed to load model: {model_name}")
-
-                    with row_ae[1]:
-                        chunking_method = st.selectbox(
-                            "Chunking method",
-                            chunking_methods,
-                            index=(
-                                chunking_methods.index(
-                                    st.session_state.get(
-                                        "chunking_method", chunking_methods[0]
-                                    )
-                                )
-                                if st.session_state.get("chunking_method")
-                                in chunking_methods
-                                else 0
-                            ),
-                        )
-
-                row_be = st.columns(4)
-                with row_be[0]:
-                    available_kbs = KnowledgeBases.get_all(only_embedded=True)
-                    labels_by_uuid = {
-                        kb.uuid: f"{kb.name} ({humanize_datetime(kb.created_at)})"
-                        for kb in available_kbs
-                    }
-                    labels_by_uuid = {None: "<New>"} | labels_by_uuid
-                    uuids = list(labels_by_uuid.keys())
-                    current_vector_store = st.session_state.get("vector_store", None)
-                    if current_vector_store not in labels_by_uuid:
-                        current_vector_store = None
-
-                    existing_vector_store = st.selectbox(
-                        "Select a document database",
-                        options=uuids,
-                        index=uuids.index(current_vector_store),
-                        format_func=lambda uuid: labels_by_uuid[uuid],
-                        help="Which vector store to add the new documents. Choose <New> to create a new vector store.",
-                    )
-
-                with row_be[1]:
+                _form_cols = st.columns([2, 1])
+                with _form_cols[0]:
                     new_vs_name = st.text_input(
-                        "New Vector Store Name",
-                        value=st.session_state.get(
-                            "new_vs_name", "New_vector_store_name"
-                        ),
-                        help=HELP["new_vector_store"],
+                        "New collection name",
+                        value=st.session_state.get("new_vs_name", ""),
+                        help="Name for the new collection. Ignored when adding documents to an existing one.",
                     )
-                if not Config.get().interface.hide_rag_params_config:
-                    with row_be[2]:
-                        pipeline_type = st.selectbox(
-                            "Pipeline",
-                            PIPELINE_TYPES,
-                            index=PIPELINE_TYPES.index(
+                with _form_cols[1]:
+                    chunking_method = st.selectbox(
+                        "Text splitting",
+                        chunking_methods,
+                        index=(
+                            chunking_methods.index(
                                 st.session_state.get(
-                                    "pipeline_type", PipelineType.HAHCOMPOSITE
+                                    "chunking_method", chunking_methods[0]
                                 )
-                            ),
-                            help="Select the pipeline implementation to use",
-                        )
-                    with row_be[3]:
-                        instruction_lang = st.selectbox(
-                            "LLM instruction language",
-                            SYSTEM_PROMPT_LANGS_LIST,
-                            help="Select the language of the LLM reasoning instructions.",
-                        )
-                # --
-                row_buttons = st.columns(6)
-                with row_buttons[0]:
-                    save_button = st.form_submit_button("Create new vector DB")
-                with row_buttons[1]:
-                    custom_chain_button = st.form_submit_button(
-                        "Initialize context-chain"
+                            )
+                            if st.session_state.get("chunking_method")
+                            in chunking_methods
+                            else 0
+                        ),
+                        format_func=lambda m: _CHUNKING_DISPLAY.get(m, m),
                     )
-                # --
-                if save_button:
+                if st.form_submit_button("Create collection"):
                     save_button_action(
                         new_vs_name=new_vs_name,
                         uploaded_files=uploaded_files,
                         chunking_method=chunking_method,
-                        existing_vector_store=existing_vector_store,
-                        model_name=model_name,
+                        existing_vector_store=st.session_state.get("vector_store"),
+                        model_name=st.session_state.get("model_name", DEFAULT_MODEL),
                     )
-                if custom_chain_button:
-                    RaggerChain = (
-                        CHAHCustomLLMChain
-                        if pipeline_type == PipelineType.HAHCOMPOSITE
-                        else (
-                            HAHCustomLLMChain
-                            if pipeline_type == PipelineType.HAH
-                            else NaiveCustomLLMChain
-                        )
+            _pi = st.session_state.get("pending_ingest_task_id")
+            _pe = st.session_state.get("pending_embed_task_id")
+            if _pi or _pe:
+                if _pi:
+                    st.info("⏳ **Step 1/2:** Ingesting documents…")
+                    st.caption(
+                        "⬜ Step 2/2: Embedding — waiting for ingestion to finish"
                     )
-
-                    chain = RaggerChain(
-                        st.session_state.tokenizer,
-                        st.session_state.model,
-                        model_name,
-                        existing_vector_store,
-                        instruction_lang=instruction_lang,
-                    )
-                    st.session_state.chain = chain
-                    st.session_state.pipeline_type = pipeline_type
-                    st.session_state.instruction_lang = instruction_lang
+                else:
+                    st.success("✅ **Step 1/2:** Documents ingested")
+                    st.info("🔄 **Step 2/2:** Embedding…")
     else:
-        RaggerChain = (
-            CHAHCustomLLMChain
-            if pipeline_type == PipelineType.HAHCOMPOSITE
-            else (
-                HAHCustomLLMChain
-                if pipeline_type == PipelineType.HAH
-                else NaiveCustomLLMChain
-            )
-        )
+        # forced_vdb mode: collection is fixed by server config
+        if "vector_store" not in st.session_state:
+            st.session_state.vector_store = _FORCED_VDB
+        if "pipeline_type" not in st.session_state:
+            st.session_state.pipeline_type = DEFAULT_PIPELINE
+        if "instruction_lang" not in st.session_state:
+            st.session_state.instruction_lang = DEFAULT_LANG
+        if "model_name" not in st.session_state:
+            st.session_state.model_name = DEFAULT_MODEL
 
-        chain = RaggerChain(
-            st.session_state.tokenizer,
-            st.session_state.model,
-            model_name,
-            Config.get().interface.forced_vdb,
-            instruction_lang=instruction_lang,
-        )
-        st.session_state.chain = chain
-        st.session_state.pipeline_type = pipeline_type
-        st.session_state.instruction_lang = instruction_lang
-
-    if "model_name" not in st.session_state:
-        st.session_state.model_name = device_default_model()
-    if "chunking_method" not in st.session_state:
-        st.session_state.chunking_name = chunking_methods[0]
     if "vector_store" not in st.session_state:
         st.session_state.vector_store = "<New>"
     if "pipeline_type" not in st.session_state:
-        st.session_state.pipeline_type = PipelineType.HAHCOMPOSITE
+        st.session_state.pipeline_type = DEFAULT_PIPELINE
     if "instruction_lang" not in st.session_state:
-        st.session_state.instruction_lang = DEFAULT_SYSTEM_PROMPT_LANG
+        st.session_state.instruction_lang = DEFAULT_LANG
 
     # -- New chat
     if st.sidebar.button("New Chat"):
-        if hasattr(st.session_state.chain, "conversation_memory"):
-            st.session_state.chain.conversation_memory.clear()
         st.session_state.chat_history = []
         st.session_state.current_chat_id = None
         st.rerun()
 
     # -- Recently saved chats...
+    username = st.session_state.get("username", "")
     st.sidebar.markdown("Recents")
-    user_id = Users.get_by_email(st.session_state.get("username")).id
-    historical_chats = Chats.get_all_user_chats(user_id)
+    try:
+        with get_client() as client:
+            chats_resp = client.get("/db/chats", params={"username": username})
+            chats_resp.raise_for_status()
+        historical_chats = chats_resp.json()
+    except httpx.HTTPError:
+        historical_chats = []
     total_chats = len(historical_chats)
-    for chat_number, (chat_id, timestamp) in enumerate(historical_chats, start=1):
+    for chat_number, chat_item in enumerate(historical_chats, start=1):
+        chat_id = chat_item["chat_id"]
+        timestamp = chat_item.get("timestamp")
         chat_desc_number = total_chats - chat_number + 1
         chat_label = f"Chat {chat_desc_number}"
         if timestamp:
-            chat_label += f" - {humanize_datetime(timestamp)}"
+            try:
+                ts = _dt.fromisoformat(timestamp)
+                chat_label += f" - {humanize_datetime(ts)}"
+            except (ValueError, TypeError):
+                pass
 
         col1, col2 = st.sidebar.columns([15, 1])
 
         with col1:
             if st.button(chat_label, key=f"chat_{chat_desc_number}"):
-                (
-                    chat_history,
-                    model_name,
-                    chunking_method,
-                    _,
-                    vector_store,
-                    pipeline_type,
-                    instruction_lang,
-                ) = Chats.get_chat(chat_id)
-
-                # Set session state variables
-                st.session_state.chat_history = chat_history
-                st.session_state.current_chat_id = chat_id
-                st.session_state.model_name = model_name
-                st.session_state.chunking_method = chunking_method
-                st.session_state.vector_store = vector_store
-                st.session_state.pipeline_type = pipeline_type or PipelineType.HAH
-                st.session_state.instruction_lang = instruction_lang
-
-                # -- select appropriate chain class based on pipeline type
-                RaggerChain = (
-                    CHAHCustomLLMChain
-                    if st.session_state.pipeline_type == PipelineType.HAHCOMPOSITE
-                    else (
-                        HAHCustomLLMChain
-                        if st.session_state.pipeline_type == PipelineType.HAH
-                        else NaiveCustomLLMChain
+                try:
+                    with get_client() as client:
+                        detail_resp = client.get(f"/db/chats/{chat_id}")
+                        detail_resp.raise_for_status()
+                    detail = detail_resp.json()
+                    st.session_state.chat_history = detail.get("chat_history", [])
+                    st.session_state.current_chat_id = chat_id
+                    st.session_state.model_name = (
+                        detail.get("model_name") or DEFAULT_MODEL
                     )
-                )
-
-                # -- reinit chain
-                chain = RaggerChain(
-                    st.session_state.tokenizer,
-                    st.session_state.model,
-                    model_name,
-                    vector_store,
-                    instruction_lang=instruction_lang,
-                )
-                st.session_state.chain = chain
+                    st.session_state.chunking_method = detail.get("chunking_method")
+                    st.session_state.vector_store = detail.get("vector_store")
+                    st.session_state.pipeline_type = (
+                        detail.get("pipeline_type") or DEFAULT_PIPELINE
+                    )
+                    st.session_state.instruction_lang = (
+                        detail.get("instruction_lang") or DEFAULT_LANG
+                    )
+                except httpx.HTTPError as e:
+                    st.error(f"Failed to load chat: {e}")
                 st.rerun()
         # --
         with col2:
             if st.button("×", key=f"delete_{chat_id}"):
-                Chats.delete_chat(chat_id)
+                try:
+                    with get_client() as client:
+                        client.delete(f"/db/chats/{chat_id}")
+                except httpx.HTTPError:
+                    pass
                 if st.session_state.current_chat_id == chat_id:
                     st.session_state.current_chat_id = None
                     st.session_state.chat_history = []
@@ -494,8 +543,11 @@ def omnirag_page():
 
     # -- Clear all chat history + from DB..
     if st.sidebar.button("Clear All Chat History"):
-        user_id = Users.get_by_email(st.session_state.get("username")).id
-        Chats.delete_all_user_chats(user_id)
+        try:
+            with get_client() as client:
+                client.delete("/db/chats", params={"username": username})
+        except httpx.HTTPError:
+            pass
         st.session_state.chat_history.clear()
         st.session_state.current_chat_id = None
         st.rerun()
@@ -560,77 +612,81 @@ def omnirag_page():
                 time.sleep(0.01)
 
     # -- prompting...
-    if prompt := st.chat_input("Message RAGGER..."):
-        response, context, metrics = None, None, None
+    if prompt := st.chat_input("Ask a question..."):
+        response = None
+        metrics = dict(DUMMY_METRICS)
         st.chat_message("human", avatar=HUMAN_AVATAR).write(prompt)
         st.session_state.chat_history.append(
             {"role": "human", "content": prompt, "avatar": HUMAN_AVATAR_B64}
         )
-        if st.session_state.current_chat_id:
-            Chats.update_chat(
-                st.session_state.current_chat_id,
-                st.session_state.chat_history,
-                st.session_state.get("model_name", ""),
-                st.session_state.get("chunking_method", ""),
-                "",
-                st.session_state.get("vector_store", ""),
-                st.session_state.get("pipeline_type", ""),
-                st.session_state.get("instruction_lang", ""),
-            )
-        else:
-            user_id = Users.get_by_email(st.session_state.get("username")).id
-            chat_id = Chats.post_chat(
-                user_id,
-                st.session_state.chat_history,
-                st.session_state.get("model_name", ""),
-                st.session_state.get("chunking_method", ""),
-                "",
-                st.session_state.get("vector_store", ""),
-                st.session_state.get("pipeline_type", ""),
-                st.session_state.get("instruction_lang", ""),
-            )
-            st.session_state.current_chat_id = chat_id
+
+        vector_store = st.session_state.get("vector_store")
+        if not vector_store or vector_store == "<New>":
+            st.error("Please select a collection and connect to it before chatting.")
+            st.stop()
+
+        query_payload = {
+            "collection_uuid": str(vector_store),
+            "user_prompt": prompt,
+            "chat_history_id": st.session_state.get("current_chat_id"),
+            "retrieval": {
+                "strategy": _PIPELINE_TO_STRATEGY.get(
+                    st.session_state.get("pipeline_type", DEFAULT_PIPELINE),
+                    "HAHCOMPOSITE",
+                ),
+            },
+            "generation": {
+                "model_name": st.session_state.get("model_name", DEFAULT_MODEL),
+                "system_prompt_language": st.session_state.get(
+                    "instruction_lang", DEFAULT_LANG
+                ),
+            },
+        }
 
         with st.chat_message("ai", avatar=AI_AVATAR):
             message_placeholder = st.empty()
+            message_placeholder.markdown(
+                '<div class="thinking-animation"></div>', unsafe_allow_html=True
+            )
 
-            for _ in range(6):
-                message_placeholder.markdown(
-                    '<div class="thinking-animation"></div>',
-                    unsafe_allow_html=True,
-                )
-                time.sleep(1)
-
-            with st.spinner(""):
-                try:
-                    start_time = time.time()
-                    response, context, metrics = st.session_state.chain.ainvoke(prompt)
-                    end_time = time.time()
-                    metrics["latency"] = end_time - start_time
-                except (
-                    IndexError,
-                    AttributeError,
-                    IOError,
-                    ValueError,
-                    TypeError,
-                ):
-                    st.error(
-                        "Ensure a vector database is selected to initialize before chatting"
-                    )
-                    response = "No available context is provided to answer this question. Please ensure to initialize the right vector DB"
-
-            # -- streamer
+            full_text = ""
+            start_time = time.time()
             try:
-                for partial_response in stream_text(response):
-                    message_placeholder.markdown(partial_response + "▌")
-            except (IndexError, AttributeError, IOError, ValueError, TypeError):
+                with get_client(timeout=STREAM_TIMEOUT) as client:
+                    with client.stream(
+                        "POST", "/query/stream", json=query_payload
+                    ) as r:
+                        r.raise_for_status()
+                        for line in r.iter_lines():
+                            if line.startswith("data:"):
+                                data_str = line[5:].strip()
+                                if not data_str:
+                                    continue
+                                try:
+                                    data = json.loads(data_str)
+                                except json.JSONDecodeError:
+                                    continue
+                                if "content" in data:
+                                    full_text += data["content"]
+                                    message_placeholder.markdown(full_text + "▌")
+                                elif "chat_id" in data:
+                                    st.session_state.current_chat_id = data["chat_id"]
+                                    response = full_text
+                                elif "message" in data:
+                                    st.error(f"Something went wrong: {data['message']}")
+            except httpx.HTTPError:
                 st.error(
-                    "Something went wrong...Check to see if the vector DB is selected not <New>"
+                    "Could not reach the server. Make sure a collection is selected and connected."
                 )
-            message_placeholder.markdown(response)
+                response = "No answer available. Please select a collection and connect to it first."
+                full_text = response
+
+            metrics["latency"] = time.time() - start_time
+            message_placeholder.markdown(full_text or response or "")
             display_metrics(metrics)
 
-        # -- Update chat history
+        response = full_text or response or ""
+        # -- Update local chat history
         st.session_state.chat_history.append(
             {
                 "role": "ai",
@@ -638,17 +694,6 @@ def omnirag_page():
                 "metrics": metrics,
                 "avatar": AI_AVATAR_B64,
             }
-        )
-
-        Chats.update_chat(
-            st.session_state.current_chat_id,
-            st.session_state.chat_history,
-            st.session_state.get("model_name", ""),
-            st.session_state.get("chunking_method", ""),
-            "",
-            st.session_state.get("vector_store", ""),
-            st.session_state.get("pipeline_type", ""),
-            st.session_state.get("instruction_lang", ""),
         )
 
     data = []
@@ -708,18 +753,13 @@ def omnirag_page():
     # Add a button to clear chat history
     if st.button("Clear Chat History"):
         st.session_state.chat_history.clear()
-        if hasattr(st.session_state.chain, "conversation_memory"):
-            st.session_state.chain.conversation_memory.clear()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
         st.rerun()
 
 
 if __name__ == "__main__":
     st.set_page_config(
-        page_title=Config.get().interface.page_title,
-        page_icon=Config.get().interface.page_icon,
+        page_title=_PAGE_TITLE,
+        page_icon=_PAGE_ICON,
         layout="wide",
     )
     apply_omnirag_style()

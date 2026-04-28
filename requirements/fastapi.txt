@@ -1,12 +1,14 @@
+bcrypt~=5.0.0                                    # password hashing for user auth
 asgi_correlation_id[celery]~=4.3.4               # logging utils to track link between fastapi/celery
-celery[amqp, sqlalchemy]~=5.5.3                  # task distribution system
-fastapi~=0.116.2                                 # api router
-pydantic_settings~=2.10.1                        # config validation tool
-pydantic~=2.11.9                                 # validation tool
-SQLAlchemy[postgresql-psycopg2binary]~=2.0.43    # agnostic db connector
-uvicorn[standard]~=0.35.0                        # web server
+celery[amqp, sqlalchemy]~=5.6.3                  # task distribution system
+fastapi[standard-no-fastapi-cloud-cli]~=0.136.1  # api router
+pydantic_settings~=2.14.0                        # config validation tool
+pydantic~=2.13.3                                 # validation tool
+SQLAlchemy[postgresql-psycopgbinary]~=2.0.49     # agnostic db connector
+uvicorn[standard]~=0.46.0                        # web server
 qdrant-client==1.17.1
+openai~=2.32.0                                   # OpenAI Chat Completions (streaming)
 # datategy libraries
-datategy-common-config[logging-setup]~=0.6.0
-datategy-logging-utils[httpx]~=0.6.1
+datategy-common-config[logging-setup]~=0.10.3
+datategy-logging-utils[httpx]~=0.7.3
 papai_unified_storage~=0.24.0

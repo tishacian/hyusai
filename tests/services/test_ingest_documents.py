@@ -21,9 +21,9 @@ FAKE_INGESTED_FOLDER = "ingested"
 
 VALID_PAYLOAD_KWARGS = {
     "input_documents_bucket": UUID(INPUT_BUCKET_UUID),
-    "knowledge_base_name": "My Knowledge Base",
-    "knowledge_base_description": "A test knowledge base",
-    "knowledge_base_creator": "test_user",
+    "collection_name": "My Knowledge Base",
+    "collection_description": "A test knowledge base",
+    "created_by": "test_user",
 }
 
 
@@ -37,7 +37,7 @@ def minimal_payload():
     """Only required fields — relies on model defaults for optional ones."""
     return IngestDocumentsPayload(
         input_documents_bucket=UUID(INPUT_BUCKET_UUID),
-        knowledge_base_name="Minimal KB",
+        collection_name="Minimal KB",
     )
 
 
@@ -55,8 +55,8 @@ def mock_fs():
 
 
 @pytest.fixture
-def mock_kb():
-    with patch("src.services.ingest_documents.KnowledgeBases") as mock:
+def mock_collection():
+    with patch("src.services.ingest_documents.Collection") as mock:
         kb_instance = MagicMock()
         kb_instance.document_names = DOCUMENT_NAMES
         mock.get_by_uuid.return_value = kb_instance
@@ -92,7 +92,12 @@ class TestIngestDocumentsService:
         assert service.celery_task is mock_task
 
     def test_call_copies_files_to_original_folder(
-        self, payload, mock_fs, mock_kb, mock_thread_loader, mock_storage_constants
+        self,
+        payload,
+        mock_fs,
+        mock_collection,
+        mock_thread_loader,
+        mock_storage_constants,
     ):
         IngestDocumentsService().call(payload, KB_UUID)
 
@@ -108,14 +113,24 @@ class TestIngestDocumentsService:
         )
 
     def test_call_fetches_knowledge_base_by_uuid(
-        self, payload, mock_fs, mock_kb, mock_thread_loader, mock_storage_constants
+        self,
+        payload,
+        mock_fs,
+        mock_collection,
+        mock_thread_loader,
+        mock_storage_constants,
     ):
         IngestDocumentsService().call(payload, KB_UUID)
 
-        mock_kb.get_by_uuid.assert_called_once_with(UUID(KB_UUID))
+        mock_collection.get_by_uuid.assert_called_once_with(UUID(KB_UUID))
 
     def test_call_builds_file_paths_from_document_names(
-        self, payload, mock_fs, mock_kb, mock_thread_loader, mock_storage_constants
+        self,
+        payload,
+        mock_fs,
+        mock_collection,
+        mock_thread_loader,
+        mock_storage_constants,
     ):
         IngestDocumentsService().call(payload, KB_UUID)
 
@@ -127,7 +142,12 @@ class TestIngestDocumentsService:
         )
 
     def test_call_invokes_thread_loader_with_correct_args(
-        self, payload, mock_fs, mock_kb, mock_thread_loader, mock_storage_constants
+        self,
+        payload,
+        mock_fs,
+        mock_collection,
+        mock_thread_loader,
+        mock_storage_constants,
     ):
         IngestDocumentsService().call(payload, KB_UUID)
 
@@ -145,7 +165,12 @@ class TestIngestDocumentsService:
         )
 
     def test_call_joinpath_called_for_all_paths(
-        self, payload, mock_fs, mock_kb, mock_thread_loader, mock_storage_constants
+        self,
+        payload,
+        mock_fs,
+        mock_collection,
+        mock_thread_loader,
+        mock_storage_constants,
     ):
         IngestDocumentsService().call(payload, KB_UUID)
 
@@ -153,7 +178,12 @@ class TestIngestDocumentsService:
         assert mock_fs.joinpath.call_count == 3
 
     def test_call_operations_order(
-        self, payload, mock_fs, mock_kb, mock_thread_loader, mock_storage_constants
+        self,
+        payload,
+        mock_fs,
+        mock_collection,
+        mock_thread_loader,
+        mock_storage_constants,
     ):
         """Ensure copy happens before ThreadMultiDocLoader is instantiated."""
         call_order = []
@@ -166,7 +196,12 @@ class TestIngestDocumentsService:
         assert call_order == ["copy", "loader"]
 
     def test_call_with_celery_task_does_not_affect_core_logic(
-        self, payload, mock_fs, mock_kb, mock_thread_loader, mock_storage_constants
+        self,
+        payload,
+        mock_fs,
+        mock_collection,
+        mock_thread_loader,
+        mock_storage_constants,
     ):
         celery_task = MagicMock()
         IngestDocumentsService(celery_task=celery_task).call(payload, KB_UUID)
@@ -178,7 +213,7 @@ class TestIngestDocumentsService:
         self,
         minimal_payload,
         mock_fs,
-        mock_kb,
+        mock_collection,
         mock_thread_loader,
         mock_storage_constants,
     ):
@@ -194,34 +229,34 @@ class TestIngestDocumentsPayload:
         with pytest.raises(Exception):
             IngestDocumentsPayload()
 
-    def test_missing_knowledge_base_name_raises(self):
+    def test_missing_collection_name_raises(self):
         with pytest.raises(Exception):
             IngestDocumentsPayload(input_documents_bucket=UUID(INPUT_BUCKET_UUID))
 
     def test_missing_input_documents_bucket_raises(self):
         with pytest.raises(Exception):
-            IngestDocumentsPayload(knowledge_base_name="KB")
+            IngestDocumentsPayload(collection_name="KB")
 
     def test_valid_full_payload(self):
         payload = IngestDocumentsPayload(**VALID_PAYLOAD_KWARGS)
         assert payload.input_documents_bucket == UUID(INPUT_BUCKET_UUID)
-        assert payload.knowledge_base_name == "My Knowledge Base"
-        assert payload.knowledge_base_description == "A test knowledge base"
-        assert payload.knowledge_base_creator == "test_user"
+        assert payload.collection_name == "My Knowledge Base"
+        assert payload.collection_description == "A test knowledge base"
+        assert payload.created_by == "test_user"
 
     def test_default_description_is_empty_string(self):
         payload = IngestDocumentsPayload(
             input_documents_bucket=UUID(INPUT_BUCKET_UUID),
-            knowledge_base_name="KB",
+            collection_name="KB",
         )
-        assert payload.knowledge_base_description == ""
+        assert payload.collection_description == ""
 
     def test_default_creator_is_guest(self):
         payload = IngestDocumentsPayload(
             input_documents_bucket=UUID(INPUT_BUCKET_UUID),
-            knowledge_base_name="KB",
+            collection_name="KB",
         )
-        assert payload.knowledge_base_creator == "guest"
+        assert payload.created_by == "guest"
 
     def test_input_documents_bucket_is_uuid_type(self):
         payload = IngestDocumentsPayload(**VALID_PAYLOAD_KWARGS)
@@ -230,7 +265,7 @@ class TestIngestDocumentsPayload:
     def test_input_documents_bucket_accepts_uuid_string(self):
         payload = IngestDocumentsPayload(
             input_documents_bucket=INPUT_BUCKET_UUID,  # string, not UUID object
-            knowledge_base_name="KB",
+            collection_name="KB",
         )
         assert payload.input_documents_bucket == UUID(INPUT_BUCKET_UUID)
 
@@ -310,18 +345,18 @@ class TestIngestDocumentsServiceCSVIntegration:
     def payload(self):
         return IngestDocumentsPayload(
             input_documents_bucket=UUID(INPUT_BUCKET_UUID),
-            knowledge_base_name="Sales KB",
+            collection_name="Sales KB",
         )
 
     @pytest.fixture
-    def mock_kb(self):
-        with patch("src.services.ingest_documents.KnowledgeBases") as mock:
+    def mock_collection(self):
+        with patch("src.services.ingest_documents.Collection") as mock:
             kb_instance = MagicMock()
             kb_instance.document_names = [self.CSV_FILENAME]
             mock.get_by_uuid.return_value = kb_instance
             yield mock
 
-    def _run_service(self, payload, tmp_dirs, real_fs, mock_kb):
+    def _run_service(self, payload, tmp_dirs, real_fs, mock_collection):
         with (
             patch("src.services.ingest_documents.fs", real_fs),
             patch("src.docloader.fs", real_fs),
@@ -351,33 +386,33 @@ class TestIngestDocumentsServiceCSVIntegration:
             IngestDocumentsService().call(payload, KB_UUID)
 
     def test_original_csv_is_saved_in_original_folder(
-        self, payload, tmp_dirs, real_fs, mock_kb
+        self, payload, tmp_dirs, real_fs, mock_collection
     ):
-        self._run_service(payload, tmp_dirs, real_fs, mock_kb)
+        self._run_service(payload, tmp_dirs, real_fs, mock_collection)
 
         original_csv = Path(tmp_dirs["original"]) / self.CSV_FILENAME
         assert original_csv.exists(), "Original CSV not found in original/ folder"
 
     def test_original_csv_content_is_preserved(
-        self, payload, tmp_dirs, real_fs, mock_kb
+        self, payload, tmp_dirs, real_fs, mock_collection
     ):
-        self._run_service(payload, tmp_dirs, real_fs, mock_kb)
+        self._run_service(payload, tmp_dirs, real_fs, mock_collection)
 
         original_csv = Path(tmp_dirs["original"]) / self.CSV_FILENAME
         assert original_csv.read_text() == self.CSV_CONTENT
 
     def test_extracted_txt_is_saved_in_ingested_folder(
-        self, payload, tmp_dirs, real_fs, mock_kb
+        self, payload, tmp_dirs, real_fs, mock_collection
     ):
-        self._run_service(payload, tmp_dirs, real_fs, mock_kb)
+        self._run_service(payload, tmp_dirs, real_fs, mock_collection)
 
         ingested_txt = Path(tmp_dirs["ingested"]) / "sales_csv.txt"
         assert ingested_txt.exists(), "Extracted .txt not found in ingested/ folder"
 
     def test_extracted_txt_contains_csv_row_data(
-        self, payload, tmp_dirs, real_fs, mock_kb
+        self, payload, tmp_dirs, real_fs, mock_collection
     ):
-        self._run_service(payload, tmp_dirs, real_fs, mock_kb)
+        self._run_service(payload, tmp_dirs, real_fs, mock_collection)
 
         ingested_txt = Path(tmp_dirs["ingested"]) / "sales_csv.txt"
         extracted = ingested_txt.read_text()
@@ -387,9 +422,9 @@ class TestIngestDocumentsServiceCSVIntegration:
         assert "Charlie" in extracted
 
     def test_extracted_txt_contains_all_csv_values(
-        self, payload, tmp_dirs, real_fs, mock_kb
+        self, payload, tmp_dirs, real_fs, mock_collection
     ):
-        self._run_service(payload, tmp_dirs, real_fs, mock_kb)
+        self._run_service(payload, tmp_dirs, real_fs, mock_collection)
 
         ingested_txt = Path(tmp_dirs["ingested"]) / "sales_csv.txt"
         extracted = ingested_txt.read_text()

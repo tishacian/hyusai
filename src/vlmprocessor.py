@@ -3,6 +3,7 @@ import base64
 import io
 import os
 import re
+import types
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -17,7 +18,33 @@ from transformers import (
 )
 from vllm import LLM, SamplingParams
 
-from configurations import Config
+from src.globalvariables import VLMConfig as _VLMGlobals
+
+
+def _vlm_config() -> types.SimpleNamespace:
+    V = _VLMGlobals
+    return types.SimpleNamespace(
+        enable_vlm=V.ENABLE_VLM.value,
+        vlm_model=V.VLM_MODEL.value,
+        vlm_workers=V.VLM_WORKERS.value,
+        max_workers=V.MAX_WORKERS.value,
+        skip_large_images=V.SKIP_LARGE_IMAGES.value,
+        max_model_len=V.MAX_MODEL_LEN.value,
+        gpu_memory_utilization=V.GPU_MEMORY_UTILIZATION.value,
+        temperature=V.TEMPERATURE.value,
+        max_tokens=V.MAX_TOKENS.value,
+        top_p=V.TOP_P.value,
+        frequency_penalty=V.FREQUENCY_PENALTY.value,
+        presence_penalty=V.PRESENCE_PENALTY.value,
+        repetition_penalty=V.REPETITION_PENALTY.value,
+        max_image_size=V.MAX_IMAGE_SIZE.value,
+        min_image_size=V.MIN_IMAGE_SIZE.value,
+        max_tokens_limit=V.MAX_TOKENS_LIMIT.value,
+        jpeg_quality_levels=V.JPEG_QUALITY_LEVELS.value,
+        device=V.DEVICE.value,
+        use_flash_attention=V.USE_FLASH_ATTENTION.value,
+        torch_dtype=V.TORCH_DTYPE.value,
+    )
 
 
 @dataclass
@@ -517,7 +544,7 @@ class BaseVLLMVLM(BaseVLM):
         gpu_memory_utilization : float, optional
             GPU memory utilization. The default is None.
         """
-        config = Config.get().vlm
+        config = _vlm_config()
         if device is None:
             device = config.device
         if max_model_len is None:
@@ -531,7 +558,7 @@ class BaseVLLMVLM(BaseVLM):
 
     def _load_model(self):
         try:
-            config = Config.get().vlm
+            config = _vlm_config()
             self.llm = LLM(
                 model=self.model_name,
                 trust_remote_code=True,
@@ -599,7 +626,7 @@ class BaseVLLMVLM(BaseVLM):
         str
             Prepared prompt.
         """
-        config = Config.get().vlm
+        config = _vlm_config()
         max_size = config.max_image_size
         if max(image.size) > max_size:
             ratio = max_size / max(image.size)
@@ -781,7 +808,7 @@ class SmolVLM(BaseVLM):
         -------
         None.
         """
-        config = Config.get().vlm
+        config = _vlm_config()
         if device is None:
             device = config.device
 
@@ -789,7 +816,7 @@ class SmolVLM(BaseVLM):
 
     def _load_model(self):
         try:
-            config = Config.get().vlm
+            config = _vlm_config()
             attn_impl = (
                 "flash_attention_2"
                 if (self.device == "cuda" and config.use_flash_attention)
@@ -821,7 +848,7 @@ class SmolVLM(BaseVLM):
         str
             Generated response.
         """
-        config = Config.get().vlm
+        config = _vlm_config()
 
         messages = [
             {
@@ -988,7 +1015,7 @@ class QwenVLM(BaseVLM):
             return_tensors="pt",
         )
         inputs = inputs.to(self.device)
-        config = Config.get().vlm
+        config = _vlm_config()
 
         with torch.no_grad():
             generated_ids = self.model.generate(
@@ -1127,7 +1154,7 @@ class VLMProcessor:
         **kwargs
             Additional arguments for VLM initialization
         """
-        config = Config.get().vlm
+        config = _vlm_config()
 
         if model_type is None:
             model_type = config.vlm_model
@@ -1274,7 +1301,7 @@ class VLMProcessor:
 
 async def analyze_single_image(image_path: str, model_type: str = None) -> VLMResult:
     if model_type is None:
-        model_type = Config.get().vlm.vlm_model
+        model_type = _vlm_config().vlm_model
 
     processor = VLMProcessor(model_type=model_type)
     return await processor.analyze_image_async(image_path)

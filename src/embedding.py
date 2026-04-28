@@ -34,6 +34,7 @@ class EmbeddingVectors:
         kb_uuid,
         source_collection: str | None = None,
         embedding_model_name=EMBEDDING_NAME,
+        distance_metric: str = "cosine",
     ):
         """
         Creating embedding vector for a Qdrant collection.
@@ -72,6 +73,7 @@ class EmbeddingVectors:
             else "cpu"
         )
         self.embedding_model_name = embedding_model_name
+        self.distance_metric = distance_metric
         self.embedding_model = EmbeddingModelLoader.load_embedding_model(
             embedding_model_name
         )
@@ -321,11 +323,17 @@ class EmbeddingVectors:
 
             try:
                 if not collection_exists:
+                    _distance_map = {
+                        "cosine": Distance.COSINE,
+                        "dot": Distance.DOT,
+                        "euclidean": Distance.EUCLID,
+                    }
+                    distance = _distance_map.get(self.distance_metric, Distance.COSINE)
                     client.create_collection(
                         collection_name=collection_name,
                         vectors_config=VectorParams(
                             size=self.embedding_dimension,
-                            distance=Distance.COSINE,
+                            distance=distance,
                         ),
                     )
 

@@ -5,21 +5,21 @@ from functools import lru_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from configurations import Config
+from configurations import BackendConfig
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=None)
 def get_engine():
-    db_url = str(Config.get().celery_db.url)
+    db_url = BackendConfig.get().celery_result.url
 
     try:
         return create_engine(db_url)
     except Exception:
         logger.error(
             f"Error while creating the engine with url: {db_url} "
-            f"coming from config: {Config.get().celery_db}"
+            f"coming from config: {BackendConfig.get().celery_result}"
         )
         raise
 

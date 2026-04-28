@@ -6,7 +6,7 @@ from pathlib import Path
 import nltk
 from nltk.corpus import stopwords
 
-from configurations.config import Config
+from configurations import WorkerConfig
 
 
 def download_nltk_data(download_dir: str | None = None, quiet: bool = True):
@@ -19,7 +19,7 @@ def download_nltk_data(download_dir: str | None = None, quiet: bool = True):
 def locate_and_set_tessdata_prefix():
     """Locate tessdata directory and set TESSDATA_PREFIX environment variable."""
     possible_paths = [
-        Config.get().ressources.tessdata,
+        WorkerConfig.get().resources.tessdata,
         os.path.expanduser("~/.local/share/tessdata"),
         "/usr/share/tesseract-ocr/5/tessdata/",
     ]

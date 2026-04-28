@@ -35,7 +35,6 @@ from src.globalvariables import (
     EMBEDDING_NAME,
     LARGE_MODELS,
     MAX_MODEL_LEN,
-    VECTOR_STORE_PATH,
     IndexType,
     ReasoningType,
 )

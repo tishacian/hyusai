@@ -44,16 +44,24 @@ sentence-transformers~=4.1     # embedding model
 rank-bm25~=0.2.1               # document indexer for retrival
 transformers                   # tokenizer, reranking model
 
+# LLM generation
+openai>=1.50.0
+
 # vector database
 qdrant-client==1.17.1
 
 # logging
-datategy-logging-utils~=0.6.1
-datategy-common-config[logging-setup]~=0.6.0
+datategy-logging-utils[httpx]~=0.7.2
+asgi_correlation_id[celery]~=4.3.4 # logging utils to track link between fastapi/celery
+
+# configuration management
+datategy-common-config[logging-setup]~=0.10.3
 
 # storage
 papai_unified_storage~=0.24.0
 
 # celery
 celery[sqlalchemy, amqp]~=5.5.3
-SQLAlchemy[postgresql-psycopg2binary]~=2.0.43
+
+# database
+SQLAlchemy[postgresql-psycopgbinary]~=2.0.43

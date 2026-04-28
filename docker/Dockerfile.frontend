@@ -4,24 +4,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Temporary: install build dependencies for llama.cpp before LLMaaS
-# and tessract-ocr until all processing is transferred to celery tasks
-RUN apt-get update \
-    && apt-get install --no-install-recommends -y \
-        build-essential \
-        tesseract-ocr \
-    && rm -rf /var/lib/apt/lists/*
-
 # Install dependencies (remember to provide PIP_INDEX_URL as private packages are needed)
 ARG PIP_INDEX_URL
 RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
-COPY requirements/frontend.txt requirements/celery.txt requirements/cpu.txt /tmp/requirements/
+COPY requirements/frontend.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
     --index-url=${PIP_INDEX_URL} \
-    -r /tmp/requirements/frontend.txt \
-    -r /tmp/requirements/celery.txt \
-    -r /tmp/requirements/cpu.txt
-# celery.txt and cpu.txt are there as a temporary workaround until all processing is transferred to celery tasks
+    -r /tmp/requirements/frontend.txt
 
 # Create to non-root user for runtime
 ARG USERNAME=papai
@@ -33,13 +22,6 @@ RUN groupadd --gid "$USER_GID" "$USERNAME" \
 WORKDIR /app
 
 COPY --chown=$USERNAME:$USERNAME . .
-
-# Temporary: make vector_store writable before using ffspec
-RUN mkdir -p /app/vector_store \
-    && chown -R "$USERNAME":"$USERNAME" /app/vector_store \
-    # Temporary: download models manually before LLMaaS
-    && mkdir -p /data/models \
-    && chown -R "$USERNAME":"$USERNAME" /data/models
 
 USER $USERNAME
 
