@@ -18,6 +18,18 @@ export interface CaptureTurnRequest {
   text: string;
   question_id?: string | null;
   audio_ref?: string | null;
+  client_turn_id?: string | null;
+  retrieval_event_id?: string | null;
+  interruption_of_event_id?: string | null;
+  turn_kind?: 'answer' | 'correction' | 'complement';
+}
+
+export interface RetrievalPrefetchRequest {
+  client_turn_id?: string | null;
+  question_id?: string | null;
+  partial_text: string;
+  mode?: string;
+  top_k?: number;
 }
 
 export interface ProposalReviewRequest {
@@ -97,8 +109,16 @@ export class ApiService {
     return this.post(`/knowledge-capture/sessions/${sessionId}/turns`, body);
   }
 
-  listCaptureEvents(sessionId: string): Observable<unknown> {
-    return this.get(`/knowledge-capture/sessions/${sessionId}/events`);
+  listCaptureEvents(sessionId: string, afterSequence?: number): Observable<unknown> {
+    const params = afterSequence !== undefined ? { after_sequence: String(afterSequence) } : undefined;
+    return this.get(`/knowledge-capture/sessions/${sessionId}/events`, params);
+  }
+
+  prefetchCaptureRetrieval(
+    sessionId: string,
+    body: RetrievalPrefetchRequest,
+  ): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/retrieval-prefetch`, body);
   }
 
   amendCaptureEvent(

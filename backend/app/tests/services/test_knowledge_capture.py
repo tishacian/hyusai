@@ -1,3 +1,6 @@
+import pytest
+
+from app.models.context import Context
 from app.models.workspace import Workspace
 from app.services.knowledge_capture import (
     amend_capture_event,
@@ -5,6 +8,7 @@ from app.services.knowledge_capture import (
     append_turn,
     create_update_proposal,
     list_capture_events,
+    prefetch_capture_retrieval,
     review_proposal,
 )
 from app.services.skills_registry.seed import seed_skills_and_capabilities
@@ -107,3 +111,107 @@ def test_capture_plan_turn_and_review_proposal(db_session):
     )
     assert reviewed.status == "accepted"
     assert reviewed.reviewed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monkeypatch):
+    workspace = Workspace(id="ws-capture-rt", name="Capture RT", slug="capture-rt")
+    context = Context(
+        id="ctx-capture-rt",
+        workspace_id=workspace.id,
+        name="Demo collection",
+        environment_state={"collection": "demo-knowledge"},
+    )
+    db_session.add_all([workspace, context])
+    seed_skills_and_capabilities(db_session)
+
+    class FakeDocumentService:
+        def __init__(self, collection_name="documents", workspace_slug=None, **kwargs):
+            self.collection_name = collection_name
+            self.workspace_slug = workspace_slug
+
+    async def fake_retrieve_for_mode(doc_svc, query, mode, **kwargs):
+        class Result:
+            chunks = ["Le rapport CRM indique que la vibration suit un changement de rouleau."]
+            scores = [0.91]
+            metadatas = [{"title": "CRM maintenance", "source": "crm"}]
+            pipeline = "chah_backend"
+            label = "C-HAH (backend)"
+            reason = "fake retrieval"
+            detail = f"{doc_svc.collection_name}:{mode}:{query[:8]}"
+
+        return Result()
+
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", FakeDocumentService)
+    monkeypatch.setattr("app.services.rag.pipeline_retrieval.retrieve_for_mode", fake_retrieve_for_mode)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Realtime capture",
+        objective="Capture live troubleshooting knowledge for vibration diagnosis.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=context.id,
+        system_id=None,
+        knowledge_refs=[],
+    )
+
+    prefetch = await prefetch_capture_retrieval(
+        db_session,
+        workspace_id=workspace.id,
+        workspace_slug=workspace.slug,
+        session_id=session.id,
+        client_turn_id="turn-live-1",
+        question_id=session.plan["questions"][0]["id"],
+        partial_text="Quand la machine vibre après maintenance je vérifie le CRM et le rapport",
+        top_k=4,
+    )
+    assert prefetch["status"] == "completed"
+    assert prefetch["event_id"]
+    assert prefetch["chunks"]
+    assert prefetch["collection_name"] == "demo-knowledge"
+
+    turn = append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=session.plan["questions"][0]["id"],
+        text=(
+            "Correction: quand la machine vibre après maintenance, je vérifie le CRM "
+            "et le rapport parce que le changement de rouleau est souvent la cause."
+        ),
+        client_turn_id="turn-live-1",
+        retrieval_event_id=prefetch["event_id"],
+        interruption_of_event_id="prompt-event-1",
+        turn_kind="correction",
+    )
+    assert turn["system_prompt_event_id"]
+    assert turn["turn"]["retrieval_refs"][0]["title"] == "CRM maintenance"
+    assert turn["turn"]["turn_kind"] == "correction"
+
+    events = list_capture_events(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+    )
+    event_types = {event.event_type for event in events}
+    assert "stt_partial" in event_types
+    assert "retrieval_prefetch_completed" in event_types
+    assert "stt_final" in event_types
+    assert "ai_speech_interrupted" in event_types
+    assert "system_prompt_prepared" in event_types
+
+    later_events = list_capture_events(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        after_sequence=events[0].sequence,
+    )
+    assert len(later_events) == len(events) - 1
+
+    proposal = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
+    fact = proposal.proposal["captured_facts"][0]
+    assert fact["retrieval_event_id"] == prefetch["event_id"]
+    assert fact["retrieval_refs"][0]["source"] == "crm"

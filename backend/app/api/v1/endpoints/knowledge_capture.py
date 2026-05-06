@@ -23,6 +23,7 @@ from app.services.knowledge_capture import (
     create_update_proposal,
     get_session,
     list_capture_events,
+    prefetch_capture_retrieval,
     review_proposal,
     serialize_event,
     serialize_proposal,
@@ -50,6 +51,18 @@ class CaptureTurnRequest(BaseModel):
     text: str = Field(..., min_length=1)
     question_id: Optional[str] = None
     audio_ref: Optional[str] = None
+    client_turn_id: Optional[str] = None
+    retrieval_event_id: Optional[str] = None
+    interruption_of_event_id: Optional[str] = None
+    turn_kind: Literal["answer", "correction", "complement"] = "answer"
+
+
+class RetrievalPrefetchRequest(BaseModel):
+    client_turn_id: Optional[str] = None
+    question_id: Optional[str] = None
+    partial_text: str = Field(..., min_length=1)
+    mode: str = "chah"
+    top_k: int = Field(default=4, ge=1, le=8)
 
 
 class ProposalReviewRequest(BaseModel):
@@ -149,6 +162,33 @@ async def add_capture_turn(
             text=body.text,
             question_id=body.question_id,
             audio_ref=body.audio_ref,
+            client_turn_id=body.client_turn_id,
+            retrieval_event_id=body.retrieval_event_id,
+            interruption_of_event_id=body.interruption_of_event_id,
+            turn_kind=body.turn_kind,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/sessions/{session_id}/retrieval-prefetch")
+async def prefetch_session_retrieval(
+    session_id: str,
+    body: RetrievalPrefetchRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        return await prefetch_capture_retrieval(
+            db,
+            workspace_id=workspace.id,
+            workspace_slug=workspace.slug,
+            session_id=session_id,
+            client_turn_id=body.client_turn_id,
+            question_id=body.question_id,
+            partial_text=body.partial_text,
+            mode=body.mode,
+            top_k=body.top_k,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -159,6 +199,7 @@ async def list_session_events(
     session_id: str,
     event_type: Optional[str] = None,
     status: Optional[str] = None,
+    after_sequence: Optional[int] = Query(default=None, ge=0),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ) -> Dict[str, Any]:
@@ -170,6 +211,7 @@ async def list_session_events(
             session_id=session_id,
             event_type=event_type,
             status=status,
+            after_sequence=after_sequence,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -182,12 +182,24 @@ def list_voice_runtime_providers() -> Dict[str, Any]:
                 "status": "bound",
                 "description": "Phase 0 provider: recording -> STT -> knowledge oracle -> segmented TTS.",
                 "requires_gpu": False,
+                "capabilities": {
+                    "chunked_capture": True,
+                    "segmented_tts": True,
+                    "barge_in_ui": True,
+                    "full_duplex": False,
+                },
             },
             {
                 "slug": "realtime_gpu",
                 "status": "experimental",
                 "description": "GPU spike lane for Moshi/KAME-like realtime speech guided by the platform oracle.",
                 "requires_gpu": True,
+                "capabilities": {
+                    "chunked_capture": True,
+                    "segmented_tts": True,
+                    "barge_in_ui": True,
+                    "full_duplex": True,
+                },
             },
         ],
         "decision_rule": (

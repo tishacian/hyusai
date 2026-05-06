@@ -45,6 +45,7 @@ interface TurnResponse {
   session: CaptureSession;
   next_prompt?: string | null;
   next_question_id?: string | null;
+  system_prompt_event_id?: string | null;
   evaluation?: { verdict: string; score: number; follow_up?: string } | null;
 }
 
@@ -59,7 +60,27 @@ interface CaptureEvent {
   text_amended?: string | null;
   status: string;
   source: string;
+  metadata?: Record<string, any>;
   created_at?: string | null;
+}
+
+type Voice2VoiceState =
+  | 'idle'
+  | 'listening'
+  | 'partial_transcribing'
+  | 'retrieving'
+  | 'thinking'
+  | 'speaking'
+  | 'interrupted';
+
+interface RetrievalPrefetch {
+  event_id?: string;
+  status: 'idle' | 'searching' | 'ready' | 'late' | 'timeout' | 'error' | 'completed';
+  latency_ms?: number;
+  collection_name?: string;
+  chunks: string[];
+  scores: number[];
+  metadatas: Record<string, any>[];
 }
 
 @Component({
@@ -214,30 +235,62 @@ interface CaptureEvent {
               </div>
 
               <div class="t-card rounded-lg p-4 space-y-3">
-                <h3 class="text-sm font-semibold text-white">Expert answer</h3>
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Voice2Voice</p>
+                    <h3 class="text-sm font-semibold text-white">Conversation controller</h3>
+                  </div>
+                  <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
+                    {{ voiceStateLabel() }}
+                  </span>
+                </div>
                 <textarea
                   class="w-full min-h-32 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
                   [(ngModel)]="answer"
-                  placeholder="Record or paste the expert answer..."
+                  (ngModelChange)="onAnswerDraftChange()"
+                  placeholder="Record, interrupt or paste the expert answer..."
                 ></textarea>
+                <div class="grid sm:grid-cols-3 gap-2 text-xs">
+                  <div class="rounded bg-black/20 border border-white/10 p-2">
+                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">Capture</span>
+                    <span class="text-gray-200">{{ recording() ? 'Chunked every 1.2s' : 'Ready' }}</span>
+                  </div>
+                  <div class="rounded bg-black/20 border border-white/10 p-2">
+                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">Retrieval</span>
+                    <span class="text-gray-200">{{ retrievalLabel() }}</span>
+                  </div>
+                  <div class="rounded bg-black/20 border border-white/10 p-2">
+                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">TTS</span>
+                    <span class="text-gray-200">{{ speaking() ? 'Segmented playback' : 'Idle' }}</span>
+                  </div>
+                </div>
                 <div class="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white disabled:opacity-50"
                     [disabled]="transcribing()"
                     (click)="toggleRecording()"
                   >
                     <app-icon [name]="recording() ? 'square' : 'mic'" [size]="14" />
-                    {{ recording() ? 'Stop recording' : transcribing() ? 'Transcribing...' : 'Record' }}
+                    {{ recording() ? 'Stop listening' : speaking() ? 'Interrupt & answer' : transcribing() ? 'Transcribing...' : 'Listen' }}
                   </button>
                   <button
                     type="button"
-                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
                     [disabled]="!answer.trim()"
                     (click)="sendAnswer(s)"
                   >
                     <app-icon name="send" [size]="14" /> Evaluate answer
                   </button>
+                  @if (speaking()) {
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 px-3 py-2 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm text-amber-100 ring-1 ring-amber-400/20"
+                      (click)="interruptSpeech()"
+                    >
+                      <app-icon name="pause" [size]="14" /> Interrupt AI
+                    </button>
+                  }
                   <button
                     type="button"
                     class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
@@ -246,6 +299,29 @@ interface CaptureEvent {
                     <app-icon name="check-circle-2" [size]="14" /> Create proposal
                   </button>
                 </div>
+
+                @if (retrieval(); as rr) {
+                  @if (rr.status !== 'idle') {
+                    <div class="rounded bg-black/20 border border-white/10 p-3 text-sm">
+                      <div class="flex items-center justify-between gap-3">
+                        <div>
+                          <div class="text-[10px] uppercase tracking-wider text-gray-500">Contexte retrouvé</div>
+                          <div class="mt-1 text-white">{{ retrievalLabel() }}</div>
+                        </div>
+                        @if (rr.latency_ms !== undefined) {
+                          <span class="text-xs text-gray-500">{{ rr.latency_ms }} ms</span>
+                        }
+                      </div>
+                      @if (rr.chunks.length) {
+                        <div class="mt-2 space-y-2">
+                          @for (chunk of rr.chunks.slice(0, 2); track chunk) {
+                            <p class="text-xs text-gray-400 line-clamp-2">{{ chunk }}</p>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                }
 
                 @if (lastEvaluation(); as ev) {
                   <div class="rounded bg-black/20 border border-white/10 p-3 text-sm">
@@ -396,18 +472,36 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly systems = signal<SystemOption[]>([]);
   readonly recording = signal(false);
   readonly transcribing = signal(false);
+  readonly speaking = signal(false);
+  readonly voiceState = signal<Voice2VoiceState>('idle');
   readonly session = signal<CaptureSession | null>(null);
   readonly selectedQuestionId = signal<string | null>(null);
   readonly lastEvaluation = signal<TurnResponse['evaluation'] | null>(null);
   readonly nextPrompt = signal<string | null>(null);
+  readonly lastSystemPromptEventId = signal<string | null>(null);
+  readonly interruptionOfEventId = signal<string | null>(null);
   readonly proposal = signal<any | null>(null);
   readonly events = signal<CaptureEvent[]>([]);
+  readonly retrieval = signal<RetrievalPrefetch>({
+    status: 'idle',
+    chunks: [],
+    scores: [],
+    metadatas: [],
+  });
   readonly editingEventId = signal<string | null>(null);
   editingText = '';
 
   private recorder: MediaRecorder | null = null;
   private chunks: BlobPart[] = [];
   private stream: MediaStream | null = null;
+  private partialTranscriptionInFlight = false;
+  private prefetchInFlight = false;
+  private lastPrefetchText = '';
+  private lastPrefetchAt = 0;
+  private currentClientTurnId: string | null = null;
+  private activeAudio: HTMLAudioElement | null = null;
+  private audioQueue: string[] = [];
+  private revokedAudioUrls: string[] = [];
 
   ngOnInit(): void {
     this.contextId = this.route.snapshot.queryParamMap.get('contextId') || '';
@@ -492,11 +586,18 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   sendAnswer(session: CaptureSession): void {
+    const text = this.answer.trim();
+    if (!text) return;
+    this.voiceState.set('thinking');
     this.api
       .addCaptureTurn(session.id, {
         speaker: 'expert',
-        text: this.answer.trim(),
+        text,
         question_id: this.selectedQuestionId(),
+        client_turn_id: this.currentClientTurnId,
+        retrieval_event_id: this.retrieval().event_id || null,
+        interruption_of_event_id: this.interruptionOfEventId(),
+        turn_kind: this.interruptionOfEventId() ? 'correction' : 'answer',
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((res) => {
@@ -504,13 +605,18 @@ export class KnowledgeCaptureComponent implements OnInit {
         this.session.set(typed.session);
         this.lastEvaluation.set(typed.evaluation || null);
         this.nextPrompt.set(typed.next_prompt || null);
+        this.lastSystemPromptEventId.set(typed.system_prompt_event_id || null);
         if (typed.next_question_id) {
           this.selectedQuestionId.set(typed.next_question_id);
         }
         this.answer = '';
+        this.currentClientTurnId = null;
+        this.interruptionOfEventId.set(null);
         this.refreshEvents(typed.session.id);
         if (typed.next_prompt) {
           this.speak(typed.next_prompt);
+        } else {
+          this.voiceState.set('idle');
         }
       });
   }
@@ -527,6 +633,35 @@ export class KnowledgeCaptureComponent implements OnInit {
         const events = (payload as { events?: CaptureEvent[] }).events || [];
         this.events.set(events);
       });
+  }
+
+  voiceStateLabel(): string {
+    const labels: Record<Voice2VoiceState, string> = {
+      idle: 'Idle',
+      listening: 'Listening',
+      partial_transcribing: 'Live transcription',
+      retrieving: 'Retrieving context',
+      thinking: 'Evaluating',
+      speaking: 'AI speaking',
+      interrupted: 'Interrupted',
+    };
+    return labels[this.voiceState()];
+  }
+
+  retrievalLabel(): string {
+    const rr = this.retrieval();
+    if (rr.status === 'searching') return 'Searching in parallel';
+    if (rr.status === 'ready') return `${rr.chunks.length} chunk(s) ready`;
+    if (rr.status === 'late') return 'Late context';
+    if (rr.status === 'timeout') return 'Timeout, continuing';
+    if (rr.status === 'error') return 'Unavailable';
+    return 'Standby';
+  }
+
+  onAnswerDraftChange(): void {
+    const session = this.session();
+    if (!session) return;
+    this.maybePrefetchRetrieval(session, this.answer);
   }
 
   beginAmend(event: CaptureEvent): void {
@@ -578,13 +713,24 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.recording.set(false);
       return;
     }
+    if (this.speaking()) {
+      this.interruptSpeech();
+    }
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     this.chunks = [];
+    this.currentClientTurnId = this.newTurnId();
+    this.lastPrefetchText = '';
+    this.lastPrefetchAt = 0;
     this.recorder = new MediaRecorder(this.stream);
-    this.recorder.ondataavailable = (event) => this.chunks.push(event.data);
+    this.recorder.ondataavailable = (event) => {
+      if (event.data.size <= 0) return;
+      this.chunks.push(event.data);
+      this.transcribePartialRecording();
+    };
     this.recorder.onstop = () => this.transcribeRecording();
-    this.recorder.start();
+    this.recorder.start(1200);
     this.recording.set(true);
+    this.voiceState.set('listening');
   }
 
   speak(text: string): void {
@@ -592,21 +738,23 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (!clean) {
       return;
     }
-    this.api
-      .synthesizeSpeech(clean.slice(0, 600))
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((blob) => {
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.onended = () => URL.revokeObjectURL(url);
-        void audio.play();
-      });
+    this.stopSpeech(false);
+    this.audioQueue = this.splitSpeech(clean);
+    this.playNextSpeechSegment();
+  }
+
+  interruptSpeech(): void {
+    const promptEventId = this.lastSystemPromptEventId();
+    this.stopSpeech(true);
+    this.interruptionOfEventId.set(promptEventId || 'client-interruption');
+    this.voiceState.set('interrupted');
   }
 
   private transcribeRecording(): void {
     this.stream?.getTracks().forEach((track) => track.stop());
     const blob = new Blob(this.chunks, { type: 'audio/webm' });
     this.transcribing.set(true);
+    this.voiceState.set('partial_transcribing');
     this.api
       .transcribeAudio(blob)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -614,8 +762,159 @@ export class KnowledgeCaptureComponent implements OnInit {
         next: (res) => {
           this.answer = res.text;
           this.transcribing.set(false);
+          this.voiceState.set('idle');
+          const session = this.session();
+          if (session) this.maybePrefetchRetrieval(session, res.text, true);
         },
-        error: () => this.transcribing.set(false),
+        error: () => {
+          this.transcribing.set(false);
+          this.voiceState.set('idle');
+        },
       });
+  }
+
+  private transcribePartialRecording(): void {
+    const session = this.session();
+    if (!session || this.partialTranscriptionInFlight || this.chunks.length < 2) {
+      return;
+    }
+    this.partialTranscriptionInFlight = true;
+    this.voiceState.set('partial_transcribing');
+    const blob = new Blob(this.chunks, { type: 'audio/webm' });
+    this.api
+      .transcribeAudio(blob, 'partial.webm')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.partialTranscriptionInFlight = false;
+          const text = (res.text || '').trim();
+          if (text) {
+            this.answer = text;
+            this.maybePrefetchRetrieval(session, text);
+          }
+          if (this.recording()) {
+            this.voiceState.set(this.prefetchInFlight ? 'retrieving' : 'listening');
+          }
+        },
+        error: () => {
+          this.partialTranscriptionInFlight = false;
+          if (this.recording()) {
+            this.voiceState.set('listening');
+          }
+        },
+      });
+  }
+
+  private maybePrefetchRetrieval(session: CaptureSession, text: string, force = false): void {
+    const clean = text.trim();
+    if (this.prefetchInFlight || clean.split(/\s+/).filter(Boolean).length < 8) return;
+    const now = Date.now();
+    const newWords = Math.abs(clean.split(/\s+/).length - this.lastPrefetchText.split(/\s+/).filter(Boolean).length);
+    if (!force && newWords < 8 && now - this.lastPrefetchAt < 2500) return;
+    this.prefetchInFlight = true;
+    this.lastPrefetchText = clean;
+    this.lastPrefetchAt = now;
+    this.voiceState.set('retrieving');
+    this.retrieval.set({ status: 'searching', chunks: [], scores: [], metadatas: [] });
+    this.api
+      .prefetchCaptureRetrieval(session.id, {
+        client_turn_id: this.currentClientTurnId,
+        question_id: this.selectedQuestionId(),
+        partial_text: clean,
+        mode: 'chah',
+        top_k: 4,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          const typed = payload as RetrievalPrefetch;
+          const mappedStatus =
+            typed.status === 'completed' ? 'ready' : typed.status === 'timeout' ? 'timeout' : typed.status;
+          this.retrieval.set({
+            event_id: typed.event_id,
+            status: mappedStatus as RetrievalPrefetch['status'],
+            latency_ms: typed.latency_ms,
+            collection_name: typed.collection_name,
+            chunks: typed.chunks || [],
+            scores: typed.scores || [],
+            metadatas: typed.metadatas || [],
+          });
+          this.prefetchInFlight = false;
+          this.refreshEvents(session.id);
+          if (this.recording()) {
+            this.voiceState.set('listening');
+          }
+        },
+        error: () => {
+          this.retrieval.set({ status: 'error', chunks: [], scores: [], metadatas: [] });
+          this.prefetchInFlight = false;
+          if (this.recording()) {
+            this.voiceState.set('listening');
+          }
+        },
+      });
+  }
+
+  private splitSpeech(text: string): string[] {
+    return text
+      .replace(/\s+/g, ' ')
+      .split(/(?<=[.!?])\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .reduce<string[]>((segments, part) => {
+        if (part.length <= 220) return [...segments, part];
+        const chunks = part.match(/.{1,220}(\s|$)/g) || [part.slice(0, 220)];
+        return [...segments, ...chunks.map((chunk) => chunk.trim()).filter(Boolean)];
+      }, []);
+  }
+
+  private playNextSpeechSegment(): void {
+    const segment = this.audioQueue.shift();
+    if (!segment) {
+      this.speaking.set(false);
+      this.voiceState.set('idle');
+      this.cleanupAudioUrls();
+      return;
+    }
+    this.speaking.set(true);
+    this.voiceState.set('speaking');
+    this.api
+      .synthesizeSpeech(segment.slice(0, 600))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          this.revokedAudioUrls.push(url);
+          const audio = new Audio(url);
+          this.activeAudio = audio;
+          audio.onended = () => this.playNextSpeechSegment();
+          audio.onerror = () => this.playNextSpeechSegment();
+          void audio.play();
+        },
+        error: () => this.playNextSpeechSegment(),
+      });
+  }
+
+  private stopSpeech(markInterrupted: boolean): void {
+    if (this.activeAudio) {
+      this.activeAudio.pause();
+      this.activeAudio.currentTime = 0;
+      this.activeAudio = null;
+    }
+    this.audioQueue = [];
+    this.speaking.set(false);
+    this.cleanupAudioUrls();
+    if (markInterrupted) {
+      this.voiceState.set('interrupted');
+    }
+  }
+
+  private cleanupAudioUrls(): void {
+    this.revokedAudioUrls.forEach((url) => URL.revokeObjectURL(url));
+    this.revokedAudioUrls = [];
+  }
+
+  private newTurnId(): string {
+    return globalThis.crypto?.randomUUID?.() || `turn-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 }

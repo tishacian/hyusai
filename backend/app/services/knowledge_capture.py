@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import asyncio
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
@@ -19,6 +21,7 @@ from app.models.expert_capture import (
 from app.models.run import Run, SkillInvocation
 
 CAPABILITY_SLUG = "expert_knowledge_capture"
+RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
 
 _BASE_GAPS = [
     {
@@ -73,6 +76,7 @@ def _context_snapshot(ctx: Optional[Context]) -> Dict[str, Any]:
         "data_refs": ctx.data_refs or [],
         "memory_refs": ctx.memory_refs or [],
         "history_refs": ctx.history_refs or [],
+        "environment_state": ctx.environment_state or {},
         "business_constraints": ctx.business_constraints or {},
         "permissions": ctx.permissions or {},
     }
@@ -355,6 +359,10 @@ def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]])
         "text": turn.get("text", ""),
         "source": "expert_session",
         "source_event_id": turn.get("source_event_id"),
+        "retrieval_event_id": turn.get("retrieval_event_id"),
+        "retrieval_refs": turn.get("retrieval_refs") or [],
+        "interruption_of_event_id": turn.get("interruption_of_event_id"),
+        "turn_kind": turn.get("turn_kind") or "answer",
         "raw_text": turn.get("text_raw") or turn.get("text"),
         "amended_text": turn.get("text_amended"),
         "amended": bool(turn.get("text_amended")),
@@ -372,11 +380,18 @@ def _proposal_markdown(
     open_lines = "\n".join(
         f"- {item.get('gap_id')}: {item.get('follow_up') or item.get('reason')}" for item in open_questions
     )
+    retrieval_lines = "\n".join(
+        f"- {ref.get('title') or ref.get('source') or 'Retrieved context'}"
+        for fact in captured
+        for ref in (fact.get("retrieval_refs") or [])[:3]
+    )
     return (
         f"# {session.title}\n\n"
         f"Objective: {session.objective}\n\n"
         "## Captured Facts\n"
         f"{fact_lines or '- No validated fact yet.'}\n\n"
+        "## Retrieval Evidence\n"
+        f"{retrieval_lines or '- No retrieval evidence attached.'}\n\n"
         "## Open Questions\n"
         f"{open_lines or '- None recorded.'}\n"
     )
@@ -481,18 +496,60 @@ def append_turn(
     text: str,
     question_id: Optional[str] = None,
     audio_ref: Optional[str] = None,
+    client_turn_id: Optional[str] = None,
+    retrieval_event_id: Optional[str] = None,
+    interruption_of_event_id: Optional[str] = None,
+    turn_kind: str = "answer",
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     if session.status == "planned":
         session.status = "active"
         session.started_at = session.started_at or datetime.utcnow()
 
+    retrieval_refs = _retrieval_refs_for_event(
+        db,
+        workspace_id=workspace_id,
+        session_id=session_id,
+        retrieval_event_id=retrieval_event_id,
+    )
+    if interruption_of_event_id:
+        _record_capture_event(
+            db,
+            session=session,
+            event_type="ai_speech_interrupted",
+            speaker="expert",
+            question_id=question_id,
+            source="expert_live",
+            status="accepted",
+            parent_event_id=interruption_of_event_id,
+            meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind},
+        )
+    if speaker == "expert":
+        _record_capture_event(
+            db,
+            session=session,
+            event_type="stt_final",
+            speaker="expert",
+            question_id=question_id,
+            audio_ref=audio_ref,
+            text_raw=text,
+            source="browser_voice" if audio_ref or client_turn_id else "operator_edit",
+            status="accepted",
+            parent_event_id=retrieval_event_id,
+            meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind},
+        )
+
     turn = {
-        "id": str(uuid.uuid4()),
+        "id": client_turn_id or str(uuid.uuid4()),
         "speaker": speaker,
         "text": text,
         "question_id": question_id,
         "audio_ref": audio_ref,
+        "client_turn_id": client_turn_id,
+        "retrieval_event_id": retrieval_event_id,
+        "retrieval_refs": retrieval_refs,
+        "interruption_of_event_id": interruption_of_event_id,
+        "turn_kind": turn_kind,
         "created_at": datetime.utcnow().isoformat(),
     }
     event = _record_capture_event(
@@ -505,7 +562,15 @@ def append_turn(
         text_raw=text,
         source="expert_live" if speaker == "expert" else "operator_edit",
         status="accepted",
-        meta_data={"turn_id": turn["id"]},
+        parent_event_id=interruption_of_event_id,
+        meta_data={
+            "turn_id": turn["id"],
+            "client_turn_id": client_turn_id,
+            "retrieval_event_id": retrieval_event_id,
+            "retrieval_refs": retrieval_refs,
+            "interruption_of_event_id": interruption_of_event_id,
+            "turn_kind": turn_kind,
+        },
     )
     turn["source_event_id"] = event.id
     turn["text_raw"] = text
@@ -516,11 +581,15 @@ def append_turn(
 
     evaluation: Optional[Dict[str, Any]] = None
     next_prompt: Optional[str] = None
+    next_question: Optional[Dict[str, Any]] = None
+    system_prompt_event_id: Optional[str] = None
     if speaker == "expert":
         question = _find_question(session.plan or {}, question_id)
         gap = _find_gap(session.knowledge_gaps or [], (question or {}).get("target_gap_id"))
         evaluation = evaluate_expert_answer(answer=text, question=question, gap=gap)
         evaluation["turn_id"] = turn["id"]
+        evaluation["retrieval_event_id"] = retrieval_event_id
+        evaluation["turn_kind"] = turn_kind
 
         evaluations = list(session.evaluations or [])
         evaluations.append(evaluation)
@@ -546,6 +615,25 @@ def append_turn(
             output_ref={"evaluation": evaluation, "next_prompt": next_prompt},
             skill_slugs=["expert_answer_evaluator_v1"],
         )
+        if next_prompt:
+            prompt_event = _record_capture_event(
+                db,
+                session=session,
+                event_type="system_prompt_prepared",
+                speaker="system",
+                question_id=(next_question or {}).get("id") or question_id,
+                text_raw=next_prompt,
+                source="capture_engine",
+                status="accepted",
+                parent_event_id=event.id,
+                meta_data={
+                    "trigger_turn_id": turn["id"],
+                    "client_turn_id": client_turn_id,
+                    "retrieval_event_id": retrieval_event_id,
+                    "turn_kind": turn_kind,
+                },
+            )
+            system_prompt_event_id = prompt_event.id
 
     db.commit()
     db.refresh(session)
@@ -555,6 +643,7 @@ def append_turn(
         "evaluation": evaluation,
         "next_prompt": next_prompt,
         "next_question_id": (next_question or {}).get("id") if speaker == "expert" else None,
+        "system_prompt_event_id": system_prompt_event_id,
     }
 
 
@@ -645,6 +734,127 @@ def review_proposal(
     return proposal
 
 
+async def prefetch_capture_retrieval(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    workspace_slug: Optional[str],
+    session_id: str,
+    client_turn_id: Optional[str],
+    question_id: Optional[str],
+    partial_text: str,
+    mode: str = "chah",
+    top_k: int = 4,
+    timeout_seconds: float = RETRIEVAL_PREFETCH_TIMEOUT_SECONDS,
+) -> Dict[str, Any]:
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    text = (partial_text or "").strip()
+    if not text:
+        raise ValueError("partial_text cannot be empty")
+
+    partial_event = _record_capture_event(
+        db,
+        session=session,
+        event_type="stt_partial",
+        speaker="expert",
+        question_id=question_id,
+        text_raw=text,
+        source="browser_voice",
+        status="accepted",
+        meta_data={"client_turn_id": client_turn_id, "words": len(_words(text))},
+    )
+    started_event = _record_capture_event(
+        db,
+        session=session,
+        event_type="retrieval_prefetch_started",
+        speaker="expert",
+        question_id=question_id,
+        text_raw=text,
+        source="capture_engine",
+        status="running",
+        parent_event_id=partial_event.id,
+        meta_data={"client_turn_id": client_turn_id, "mode": mode, "top_k": top_k},
+    )
+    db.commit()
+
+    started = time.perf_counter()
+    chunks: List[str] = []
+    scores: List[float] = []
+    metadatas: List[Dict[str, Any]] = []
+    status = "completed"
+    detail: Dict[str, Any] = {}
+    event_type = "retrieval_prefetch_completed"
+    collection_name = "documents"
+
+    try:
+        ctx = _load_context(db, workspace_id, session.context_id)
+        collection_name = _resolve_collection_name(ctx)
+        from app.services.rag.document_service import DocumentService
+        from app.services.rag.pipeline_retrieval import retrieve_for_mode
+
+        doc_svc = DocumentService(collection_name=collection_name, workspace_slug=workspace_slug)
+        result = await asyncio.wait_for(
+            retrieve_for_mode(
+                doc_svc,
+                text,
+                mode,
+                top_k=max(1, min(top_k, 8)),
+                use_hybrid=True,
+                hah_chah_enabled=True,
+            ),
+            timeout=timeout_seconds,
+        )
+        chunks = result.chunks
+        scores = result.scores
+        metadatas = result.metadatas
+        detail = {"pipeline": result.pipeline, "label": result.label, "reason": result.reason, "detail": result.detail}
+    except TimeoutError:
+        status = "timeout"
+        event_type = "retrieval_prefetch_timeout"
+        detail = {"reason": f"retrieval exceeded {timeout_seconds:.1f}s"}
+    except Exception as exc:
+        status = "error"
+        event_type = "retrieval_prefetch_timeout"
+        detail = {"reason": str(exc)}
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    final_event = _record_capture_event(
+        db,
+        session=session,
+        event_type=event_type,
+        speaker="expert",
+        question_id=question_id,
+        text_raw=text,
+        source="capture_engine",
+        status=status,
+        parent_event_id=started_event.id,
+        meta_data={
+            "client_turn_id": client_turn_id,
+            "collection_name": collection_name,
+            "mode": mode,
+            "top_k": top_k,
+            "latency_ms": latency_ms,
+            "chunks": chunks,
+            "scores": scores,
+            "metadatas": metadatas,
+            "stale": False,
+            **detail,
+        },
+    )
+    db.commit()
+    db.refresh(final_event)
+    return {
+        "event_id": final_event.id,
+        "status": status,
+        "latency_ms": latency_ms,
+        "chunks": chunks,
+        "scores": scores,
+        "metadatas": metadatas,
+        "stale": False,
+        "collection_name": collection_name,
+    }
+
+
 def list_capture_events(
     db: DBSession,
     *,
@@ -652,6 +862,7 @@ def list_capture_events(
     session_id: str,
     event_type: Optional[str] = None,
     status: Optional[str] = None,
+    after_sequence: Optional[int] = None,
 ) -> List[ExpertCaptureEvent]:
     q = db.query(ExpertCaptureEvent).filter(
         ExpertCaptureEvent.workspace_id == workspace_id,
@@ -661,6 +872,8 @@ def list_capture_events(
         q = q.filter(ExpertCaptureEvent.event_type == event_type)
     if status:
         q = q.filter(ExpertCaptureEvent.status == status)
+    if after_sequence is not None:
+        q = q.filter(ExpertCaptureEvent.sequence > after_sequence)
     return q.order_by(ExpertCaptureEvent.sequence.asc(), ExpertCaptureEvent.created_at.asc()).all()
 
 
@@ -909,6 +1122,53 @@ def _load_context(db: DBSession, workspace_id: str, context_id: Optional[str]) -
     if not context_id:
         return None
     return db.query(Context).filter(Context.id == context_id, Context.workspace_id == workspace_id).first()
+
+
+def _resolve_collection_name(ctx: Optional[Context]) -> str:
+    state = (ctx.environment_state or {}) if ctx else {}
+    collection = state.get("collection") or state.get("collection_name") or state.get("rag_collection")
+    return str(collection).strip() if collection else "documents"
+
+
+def _retrieval_refs_for_event(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    retrieval_event_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    if not retrieval_event_id:
+        return []
+    event = (
+        db.query(ExpertCaptureEvent)
+        .filter(
+            ExpertCaptureEvent.id == retrieval_event_id,
+            ExpertCaptureEvent.workspace_id == workspace_id,
+            ExpertCaptureEvent.session_id == session_id,
+        )
+        .first()
+    )
+    if not event:
+        return []
+    meta = event.meta_data or {}
+    chunks = meta.get("chunks") or []
+    scores = meta.get("scores") or []
+    metadatas = meta.get("metadatas") or []
+    refs: List[Dict[str, Any]] = []
+    for index, chunk in enumerate(chunks[:4]):
+        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        refs.append(
+            {
+                "event_id": event.id,
+                "rank": index + 1,
+                "score": scores[index] if index < len(scores) else None,
+                "title": md.get("title") or md.get("filename") or md.get("source"),
+                "source": md.get("source") or md.get("document_id") or md.get("filename"),
+                "preview": str(chunk)[:360],
+                "metadata": md,
+            }
+        )
+    return refs
 
 
 def _find_question(plan: Dict[str, Any], question_id: Optional[str]) -> Optional[Dict[str, Any]]:

@@ -224,12 +224,115 @@ Sans clé, la transcription / synthèse échouent avec erreur explicite côté A
 
 ---
 
-## 12. Déploiement
+## 12. Déploiement sur la VM (après commit et push depuis la machine locale)
 
-- Appliquer la migration **`021_expert_capture`** avant d’exposer les routes en production.
-- S’assurer que le **seed** capabilities/skills a bien été exécuté sur la base (déjà intégré aux procédures d’init du projet).
+Ce guide décrit le flux **standard** une fois le code **commité et poussé** sur le dépôt distant : tu mets à jour la VM, les dépendances Python, les migrations, le build Angular, puis tu redémarres le backend. Les chemins ci-dessous correspondent à la config **systemd** du repo (`deploy/agentium-backend.service`) et à Nginx (`deploy/nginx/agentium.conf` : racine statique `/var/www/agentium`).
 
-Runbooks généraux VM : `docs/vm-deploy-chat-runbook.md`, `docs/operator-deploy-vague-d.md`.
+Pour le détail historique (smokes, variables d’environnement, topologies alternatives `/srv/agentium/…`), voir aussi [`vm-deploy-chat-runbook.md`](./vm-deploy-chat-runbook.md) et [`operator-deploy-vague-d.md`](./operator-deploy-vague-d.md).
+
+### 12.1 Prérequis côté feature Knowledge Capture
+
+- Migration Alembic **`021_expert_capture`** : elle est appliquée par `alembic upgrade head` après `git pull` (une fois le fichier présent sur la branche déployée).
+- **Seed** capabilities/skills : doit avoir été exécuté sur la base cible (procédure d’init habituelle du projet) pour que `expert_knowledge_capture` et les skills voix/capture existent.
+
+### 12.2 Étape 0 — Local
+
+1. Sur ta machine : tests / typecheck optionnels (`poetry run pytest`, `npx tsc --noEmit`).
+2. Commit, puis push vers la branche déployée sur `origin` (souvent `main` ou `demo/agentic` selon l’équipe).
+
+```bash
+git push origin <ta-branche>
+```
+
+### 12.3 Étape 1 — Connexion SSH et mise à jour du code
+
+Remplace `<user>` et l’hôte par ceux de ton environnement (ex. `ubuntu@agentium.papai.ai`).
+
+```bash
+ssh <user>@agentium.papai.ai
+
+cd /home/ubuntu/omnirag
+git fetch origin
+git checkout <branche-déployée>
+git pull --ff-only origin <branche-déployée>
+```
+
+Si la VM a des modifications locales : `git stash`, `pull`, puis `stash pop` ; éviter les fichiers non suivis qui bloquent le checkout.
+
+### 12.4 Étape 2 — Backend (venv, deps, migrations)
+
+Le service systemd utilise **`/home/ubuntu/omnirag/venv`** et **`WorkingDirectory=/home/ubuntu/omnirag/backend`**. Utilise le même venv pour `pip` et `alembic`.
+
+```bash
+source /home/ubuntu/omnirag/venv/bin/activate
+pip install -q -r /home/ubuntu/omnirag/backend/requirements.txt
+
+cd /home/ubuntu/omnirag/backend
+alembic -c alembic.ini upgrade head
+deactivate
+```
+
+**Ordre important :** `git pull` puis `upgrade head` avant de tester des routes qui dépendent de nouvelles tables/colonnes.
+
+### 12.5 Étape 3 — Frontend (build + publication des statiques)
+
+Le projet Angular s’appelle **`agentium`** dans `angular.json` ; la sortie production est **`frontend-ng/dist/agentium/browser/`**.
+
+**Option A — Build sur la VM** (recommandé si Node local &lt; 22 ou pour reproduire l’environnement cible) :
+
+```bash
+cd /home/ubuntu/omnirag/frontend-ng
+npm ci
+npx ng build -c production
+sudo rsync -a --delete dist/agentium/browser/ /var/www/agentium/
+```
+
+**Option B — Build sur le laptop puis rsync** (Node ≥ 22 aligné avec le projet) :
+
+```bash
+# Sur la machine locale, à la racine du repo
+cd frontend-ng
+npm ci
+npx ng build -c production
+
+rsync -az --delete dist/agentium/browser/ \
+  <user>@agentium.papai.ai:/tmp/agentium-browser-stage/
+```
+
+Puis sur la VM :
+
+```bash
+sudo rsync -a --delete /tmp/agentium-browser-stage/ /var/www/agentium/
+```
+
+Un redémarrage backend n’est pas toujours nécessaire si seuls les assets JS/CSS changent ; en cas de doute (routes, `index.html`), redémarrer ne nuit pas.
+
+### 12.6 Étape 4 — Redémarrage du backend
+
+```bash
+sudo systemctl restart agentium-backend
+sudo systemctl status agentium-backend --no-pager
+```
+
+Les logs applicatifs sont configurés vers `/home/ubuntu/omnirag/uvicorn.log` (voir l’unité systemd).
+
+### 12.7 Vérifications rapides
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}\n" https://agentium.papai.ai/
+curl -sS -o /dev/null -w "%{http_code}\n" https://agentium.papai.ai/openapi.json
+```
+
+Contrôle métier optionnel : ouvrir `/knowledge/capture` (authentifié), créer un plan, vérifier transcription/TTS si la clé OpenAI est présente dans `backend/.env` sur la VM.
+
+### 12.8 Pièges fréquents
+
+| Problème | Piste |
+| -------- | ----- |
+| Erreur SQL / colonne manquante | Oublie de `alembic upgrade head` après pull, ou mauvais venv. |
+| Ancien frontend | Mauvais dossier rsync : vérifier `dist/agentium/browser/`. |
+| 503 voix | `OPENAI_API_KEY` absent ou invalide dans `/home/ubuntu/omnirag/backend/.env`. |
+| Chemins différents sur une autre machine | Lire `deploy/agentium-backend.service` sur la branche déployée ; adapter `cd` et venv. |
 
 ---
 
