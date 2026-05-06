@@ -52,8 +52,12 @@ be removed in the next major version.
 | `claim_audit_v1`           | bound  | `app.services.evaluation.judge`                      | Claim-level faithfulness audit.                                        |
 | `intelligence_batch_v1`    | bound  | `app.services.intelligence.batch`                    | News / RSS harvest and reranking.                                      |
 | `sharepoint_ingestion_v1`  | stub   | —                                                    | Wire once SharePoint credentials are provisioned.                      |
-| `voice_transcribe_v1`      | stub   | —                                                    | Browser records → backend Whisper; wire endpoint later.                |
-| `voice_tts_v1`             | stub   | —                                                    | TTS queue; stubbed on backend, used client-side today.                 |
+| `voice_transcribe_v1`      | bound  | `app.services.voice_runtime`                         | Phase 0 cascade STT provider used by chat and capture sessions.        |
+| `voice_tts_v1`             | bound  | `app.services.voice_runtime`                         | Segmented TTS provider used by chat and guided capture prompts.        |
+| `knowledge_gap_analysis_v1` | bound | `app.services.knowledge_capture`                     | Prioritizes missing / weakly sourced knowledge before an interview.    |
+| `expert_interview_plan_v1` | bound  | `app.services.knowledge_capture`                     | Builds a duration-bounded capture agenda from prioritized gaps.        |
+| `expert_answer_evaluator_v1` | bound | `app.services.knowledge_capture`                    | Scores expert answers and proposes relances when precision is missing. |
+| `capture_structuring_v1`   | bound  | `app.services.knowledge_capture`                     | Produces a reviewable knowledge update proposal from transcript turns. |
 | `audit_log_v1`             | bound  | (self-contained)                                     | Writes a structured log line to the workspace audit stream.            |
 | `ollama_llm_v1`            | bound  | `app.services.model_clients.ollama_client`           | Local Ollama chat completion.                                          |
 | `azure_llm_v1`             | bound  | `app.services.model_clients.openai_client`           | Azure OpenAI / OpenAI chat completion.                                 |

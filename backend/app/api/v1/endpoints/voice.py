@@ -15,45 +15,21 @@ Implementation notes:
   blocking call, preserving the streaming response pattern.
 """
 
-import asyncio
-import os
-
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import openai
 
 from app.core.auth import get_current_user
-from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.voice_runtime import (
+    get_voice_runtime_provider,
+    list_voice_runtime_providers,
+    stream_response_bytes,
+)
 
 logger = get_logger(__name__)
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
-
-_sync_client: openai.OpenAI | None = None
-_async_client: openai.AsyncOpenAI | None = None
-
-
-def _get_client() -> openai.OpenAI:
-    global _sync_client
-    if _sync_client is None:
-        _sync_client = openai.OpenAI(api_key=settings.openai_api_key)
-    return _sync_client
-
-
-def _get_async_client() -> openai.AsyncOpenAI:
-    global _async_client
-    if _async_client is None:
-        _async_client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
-    return _async_client
-
-
-# Allow ops to pin the model without a redeploy. ``gpt-4o-mini-transcribe``
-# is the fastest general-purpose STT as of April 2026; ``whisper-1`` is
-# the slower legacy fallback.
-_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
-_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 
 
 class SynthesizeRequest(BaseModel):
@@ -61,11 +37,13 @@ class SynthesizeRequest(BaseModel):
     voice: str = "nova"
 
 
+@router.get("/runtimes")
+async def voice_runtimes():
+    return list_voice_runtime_providers()
+
+
 @router.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
-    if not settings.openai_api_key:
-        raise HTTPException(status_code=503, detail="OpenAI API key not configured")
-
     audio_bytes = await file.read()
     filename = file.filename or "recording.webm"
     content_type = file.content_type or "audio/webm"
@@ -74,93 +52,36 @@ async def transcribe_audio(file: UploadFile = File(...)):
         filename=filename,
         content_type=content_type,
         bytes=len(audio_bytes),
-        model=_TRANSCRIBE_MODEL,
     )
-
-    async def _call(model: str) -> dict:
-        client = _get_async_client()
-        result = await client.audio.transcriptions.create(
-            model=model,
-            file=(filename, audio_bytes, content_type),
-        )
-        text = result.text or ""
-        logger.info(
-            "transcribe: completed",
-            model=model,
-            text_chars=len(text),
-            preview=text[:80],
-        )
-        return {"text": text, "model": model}
-
+    provider = get_voice_runtime_provider("cascade")
     try:
-        return await _call(_TRANSCRIBE_MODEL)
-    except Exception as primary_err:
-        logger.warning(
-            "transcribe: primary model failed",
-            model=_TRANSCRIBE_MODEL,
-            error=str(primary_err),
+        return await provider.transcribe(
+            audio_bytes,
+            filename=filename,
+            content_type=content_type,
         )
-        # Some accounts haven't been rolled the GPT-4o audio family yet —
-        # retry with the legacy whisper-1 before surfacing the failure.
-        if _TRANSCRIBE_MODEL != "whisper-1":
-            try:
-                return {**(await _call("whisper-1")), "fallback": True}
-            except Exception as fallback_err:
-                logger.error("transcribe: fallback failed", error=str(fallback_err))
-                raise HTTPException(status_code=500, detail=str(fallback_err))
-        raise HTTPException(status_code=500, detail=str(primary_err))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("transcribe: failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/synthesize")
 async def synthesize_speech(req: SynthesizeRequest):
-    if not settings.openai_api_key:
-        raise HTTPException(status_code=503, detail="OpenAI API key not configured")
-
-    if not req.text or len(req.text) > 4096:
-        raise HTTPException(status_code=400, detail="Text must be 1-4096 characters")
-
-    # Sync client in a threadpool so we don't block the event loop while
-    # OpenAI serialises the MP3 — the streaming iterator is then safe to
-    # consume from the FastAPI worker thread.
-    # ``gpt-4o-mini-tts`` is the current fastest TTS model (April 2026);
-    # ``tts-1`` is kept as an automatic fallback when the model is not
-    # available on the account.
-    def _create(model: str):
-        client = _get_client()
-        return client.audio.speech.create(
-            model=model,
-            input=req.text,
-            voice=req.voice,
-            response_format="mp3",
-        )
-
-    loop = asyncio.get_running_loop()
     try:
-        try:
-            response = await loop.run_in_executor(None, _create, _TTS_MODEL)
-            chosen_model = _TTS_MODEL
-        except Exception as primary_err:
-            logger.warning(
-                "synthesize: primary model failed, falling back to tts-1",
-                model=_TTS_MODEL,
-                error=str(primary_err),
-            )
-            if _TTS_MODEL == "tts-1":
-                raise
-            response = await loop.run_in_executor(None, _create, "tts-1")
-            chosen_model = "tts-1"
-
+        provider = get_voice_runtime_provider("cascade")
+        speech = await provider.create_speech(req.text, voice=req.voice)
         logger.info(
             "synthesize: streaming",
-            model=chosen_model,
+            model=speech.model,
             text_chars=len(req.text),
         )
-
-        def _stream():
-            for chunk in response.iter_bytes(4096):
-                yield chunk
-
-        return StreamingResponse(_stream(), media_type="audio/mpeg")
-    except Exception as e:
-        logger.error("synthesize: failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        return StreamingResponse(stream_response_bytes(speech.response), media_type="audio/mpeg")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("synthesize: failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

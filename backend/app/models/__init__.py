@@ -12,6 +12,7 @@ from app.models.evaluation_preset import EvaluationPreset
 from app.models.canonical_answer import CanonicalAnswer
 from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, SafetyFilter
 from app.models.sharepoint_sync_job import SharePointSyncJob
+from app.models.expert_capture import ExpertCaptureEvent, ExpertCaptureSession, KnowledgeUpdateProposal
 
 # Canonical (mental-model) layer.
 from app.models.capability import Capability
@@ -32,7 +33,7 @@ __all__ = [
     "Task", "EvaluationScore", "EvaluationFeedback", "FEEDBACK_LABELS",
     "EvaluationPreset", "CanonicalAnswer",
     "FeedSource", "FeedArticle", "SemanticTarget", "SafetyFilter",
-    "SharePointSyncJob",
+    "SharePointSyncJob", "ExpertCaptureSession", "KnowledgeUpdateProposal",
     # Canonical
     "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
     "System", "SystemVersion", "Run", "SkillInvocation", "Impact", "Decision",

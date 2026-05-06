@@ -1187,7 +1187,7 @@ export class SystemBuilderComponent implements OnInit {
   /**
    * Emit the current draft as a CanonicalFlow, persist it onto the
    * System (creating the row on first use) and navigate to
-   * `/orchestration?systemId=:id`. If an existing `flow_definition` is
+   * `/systems/:id/flow`. If an existing `flow_definition` is
    * already present we preserve its `variant` so specialised Systems
    * (e.g. intelligence) remain intact.
    */
@@ -1214,7 +1214,7 @@ export class SystemBuilderComponent implements OnInit {
         return;
       }
       this.toast.info(`"${sys.name}" opened in Flow`, 'Draft saved');
-      this.router.navigate(['/orchestration'], { queryParams: { systemId: sys.id } });
+      this.router.navigate(['/systems', sys.id, 'flow']);
     });
   }
 

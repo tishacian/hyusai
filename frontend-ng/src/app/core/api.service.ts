@@ -2,6 +2,36 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
+export interface CapturePlanRequest {
+  objective: string;
+  title?: string | null;
+  expert_profile?: string | null;
+  duration_minutes?: number;
+  context_id?: string | null;
+  system_id?: string | null;
+  knowledge_refs?: string[];
+  voice_runtime?: string;
+}
+
+export interface CaptureTurnRequest {
+  speaker: 'expert' | 'system' | 'operator';
+  text: string;
+  question_id?: string | null;
+  audio_ref?: string | null;
+}
+
+export interface ProposalReviewRequest {
+  status: 'accepted' | 'rejected' | 'changes_requested';
+  reviewer?: string | null;
+  review_notes?: string | null;
+}
+
+export interface CaptureEventAmendRequest {
+  text_amended: string;
+  actor?: string | null;
+  reason?: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -45,5 +75,45 @@ export class ApiService {
       { text, voice },
       { responseType: 'blob' },
     );
+  }
+
+  listVoiceRuntimes(): Observable<unknown> {
+    return this.get('/knowledge-capture/voice-runtimes');
+  }
+
+  createCapturePlan(body: CapturePlanRequest): Observable<unknown> {
+    return this.post('/knowledge-capture/plans', body);
+  }
+
+  listCaptureSessions(status?: string): Observable<unknown> {
+    return this.get('/knowledge-capture/sessions', status ? { status } : undefined);
+  }
+
+  startCaptureSession(sessionId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/start`);
+  }
+
+  addCaptureTurn(sessionId: string, body: CaptureTurnRequest): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/turns`, body);
+  }
+
+  listCaptureEvents(sessionId: string): Observable<unknown> {
+    return this.get(`/knowledge-capture/sessions/${sessionId}/events`);
+  }
+
+  amendCaptureEvent(
+    sessionId: string,
+    eventId: string,
+    body: CaptureEventAmendRequest,
+  ): Observable<unknown> {
+    return this.patch(`/knowledge-capture/sessions/${sessionId}/events/${eventId}/amend`, body);
+  }
+
+  createCaptureProposal(sessionId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/proposal`);
+  }
+
+  reviewCaptureProposal(proposalId: string, body: ProposalReviewRequest): Observable<unknown> {
+    return this.patch(`/knowledge-capture/proposals/${proposalId}/review`, body);
   }
 }

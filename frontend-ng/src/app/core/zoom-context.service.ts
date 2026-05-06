@@ -21,41 +21,70 @@ import { Injectable, signal } from '@angular/core';
 @Injectable({ providedIn: 'root' })
 export class ZoomContextService {
   readonly capabilityId = signal<string | null>(null);
+  readonly capabilityLabel = signal<string | null>(null);
   readonly systemId = signal<string | null>(null);
+  readonly systemLabel = signal<string | null>(null);
   readonly runId = signal<string | null>(null);
+  readonly runLabel = signal<string | null>(null);
   readonly skillId = signal<string | null>(null);
+  readonly skillLabel = signal<string | null>(null);
+  readonly contextId = signal<string | null>(null);
+  readonly contextLabel = signal<string | null>(null);
 
-  setCurrentCapability(id: string | null): void {
+  setCurrentCapability(id: string | null, label?: string | null): void {
     this.capabilityId.set(id);
+    this.capabilityLabel.set(label ?? null);
     if (id === null) {
       this.systemId.set(null);
+      this.systemLabel.set(null);
       this.runId.set(null);
+      this.runLabel.set(null);
       this.skillId.set(null);
+      this.skillLabel.set(null);
     }
   }
 
-  setCurrentSystem(id: string | null): void {
+  setCurrentSystem(id: string | null, label?: string | null): void {
     this.systemId.set(id);
+    this.systemLabel.set(label ?? null);
     if (id === null) {
       this.runId.set(null);
+      this.runLabel.set(null);
       this.skillId.set(null);
+      this.skillLabel.set(null);
     }
   }
 
-  setCurrentRun(id: string | null): void {
+  setCurrentRun(id: string | null, label?: string | null): void {
     this.runId.set(id);
-    if (id === null) this.skillId.set(null);
+    this.runLabel.set(label ?? null);
+    if (id === null) {
+      this.skillId.set(null);
+      this.skillLabel.set(null);
+    }
   }
 
-  setCurrentSkill(id: string | null): void {
+  setCurrentSkill(id: string | null, label?: string | null): void {
     this.skillId.set(id);
+    this.skillLabel.set(label ?? null);
+  }
+
+  setCurrentContext(id: string | null, label?: string | null): void {
+    this.contextId.set(id);
+    this.contextLabel.set(label ?? null);
   }
 
   /** Called on hard navigation resets (e.g. workspace switch). */
   clear(): void {
     this.capabilityId.set(null);
+    this.capabilityLabel.set(null);
     this.systemId.set(null);
+    this.systemLabel.set(null);
     this.runId.set(null);
+    this.runLabel.set(null);
     this.skillId.set(null);
+    this.skillLabel.set(null);
+    this.contextId.set(null);
+    this.contextLabel.set(null);
   }
 }

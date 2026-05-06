@@ -12,6 +12,11 @@ export const systemsRoutes: Routes = [
       import('./system-builder.component').then((m) => m.SystemBuilderComponent),
   },
   {
+    path: ':systemId/flow',
+    loadComponent: () =>
+      import('../orchestration/workflow-editor.component').then((m) => m.WorkflowEditorComponent),
+  },
+  {
     path: ':systemId',
     loadComponent: () =>
       import('./system-view.component').then((m) => m.SystemViewComponent),

@@ -30,6 +30,7 @@ from app.api.v1.endpoints import (
     reasoning,
     help_content,
     telemetry,
+    knowledge_capture,
 )
 
 api_router = APIRouter()
@@ -65,3 +66,4 @@ api_router.include_router(contexts.router,      prefix="/contexts",      tags=["
 api_router.include_router(reasoning.router,     prefix="/reasoning",     tags=["reasoning"])
 api_router.include_router(help_content.router,  prefix="/help-content",  tags=["help-content"])
 api_router.include_router(telemetry.router,      prefix="/telemetry",     tags=["telemetry"])
+api_router.include_router(knowledge_capture.router, prefix="/knowledge-capture", tags=["knowledge-capture"])

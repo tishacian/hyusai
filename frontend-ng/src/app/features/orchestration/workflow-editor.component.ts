@@ -14,7 +14,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, switchMap, takeWhile, timer } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -38,6 +38,9 @@ import {
   type RunStreamEvent,
 } from '@app/core/run-stream.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { FlowCanvasToolbarComponent } from './flow-canvas-toolbar.component';
+import { FlowPaletteComponent } from './flow-palette.component';
+import { FlowTerminalComponent } from './flow-terminal.component';
 import {
   FlowSerializerService,
   type CanonicalFlow,
@@ -51,7 +54,7 @@ import {
 /** Tone vocabulary — maps 1:1 to the mockup's `--signal-*` tokens. */
 type NodeTone = 'brand' | 'violet' | 'emerald' | 'amber' | 'rose' | 'cyan';
 
-interface PaletteItem {
+export interface PaletteItem {
   type: string;
   icon: string;
   label: string;
@@ -64,7 +67,8 @@ interface PaletteItem {
 }
 
 /** Single timestamped entry in the Execution Terminal. */
-interface TerminalEntry {
+export interface TerminalEntry {
+  id: string;
   t: string; // HH:MM:SS
   tag: string; // [System], [Skill], ...
   tone: NodeTone | 'pos' | 'neg' | 'warn' | 'info';
@@ -77,7 +81,7 @@ interface TerminalEntry {
   streamId?: string;
 }
 
-interface FlowTemplate {
+export interface FlowTemplate {
   id: string;
   label: string;
   description: string;
@@ -91,7 +95,15 @@ interface FlowTemplate {
   selector: 'app-workflow-editor',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, CkObjectHeaderComponent, StatusPulseComponent],
+  imports: [
+    IconComponent,
+    CkObjectHeaderComponent,
+    StatusPulseComponent,
+    RouterLink,
+    FlowCanvasToolbarComponent,
+    FlowPaletteComponent,
+    FlowTerminalComponent,
+  ],
   styleUrls: ['./workflow-editor.styles.scss'],
   encapsulation: ViewEncapsulation.None,
   template: `
@@ -228,110 +240,52 @@ interface FlowTemplate {
       }
     </ck-object-header>
 
-    <div class="grid grid-cols-1 gap-3 df-shell" [attr.data-inspector]="inspectorOpen() ? 'open' : 'closed'">
-      <!-- Palette -->
-      <aside class="t-card t-elevated rounded-md p-3 h-fit">
-        <h3 class="text-[10px] uppercase tracking-[0.14em] font-semibold text-gray-400 mb-2 flex items-center gap-1.5 ck-mono">
-          <app-icon name="layers" [size]="12" class="text-brand-400" /> Nodes
-        </h3>
-        <div class="space-y-1.5">
-          @for (node of palette; track node.type) {
-            <div
-              draggable="true"
-              (dragstart)="onDragStart($event, node)"
-              (click)="addNodeAtCenter(node)"
-              class="df-palette-card group"
-              [attr.data-tone]="node.tone"
-              [title]="node.description"
-            >
-              <div class="df-palette-icon" [attr.data-tone]="node.tone">
-                <app-icon [name]="node.icon" [size]="14" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="text-xs font-medium text-white truncate leading-tight">{{ node.label }}</div>
-                <div class="text-[9px] text-gray-500 leading-tight ck-mono uppercase tracking-wider">{{ node.typeLabel ?? node.label }}</div>
-              </div>
-            </div>
-          }
-        </div>
+    <section class="t-card rounded-md px-4 py-3 mb-3 flex items-center gap-2 text-xs text-gray-300">
+      <span class="ck-mono text-[10px] uppercase tracking-[0.14em] text-gray-500">You are here</span>
+      <span class="text-gray-600">/</span>
+      <a routerLink="/systems" class="hover:text-white">Systems</a>
+      @if (system(); as sys) {
+        <span class="text-gray-600">/</span>
+        <a [routerLink]="['/systems', sys.id]" class="text-brand-200 hover:text-brand-100">{{ sys.name }}</a>
+        <span class="text-gray-600">/</span>
+        <span class="text-white">Flow builder</span>
+        @if (sys.context_id) {
+          <span class="text-gray-600">/</span>
+          <span title="Context in scope">Context linked</span>
+        }
+      } @else {
+        <span class="text-gray-600">/</span>
+        <span class="text-white">Scratchpad flow</span>
+      }
+    </section>
 
-        <div class="mt-4 pt-3 border-t border-white/5">
-          <h3 class="text-[10px] uppercase tracking-[0.14em] font-semibold text-gray-400 mb-2 flex items-center gap-1.5 ck-mono">
-            <app-icon name="sparkles" [size]="12" class="text-brand-400" /> Templates
-          </h3>
-          <div class="space-y-1">
-            @for (tpl of flowTemplates; track tpl.id) {
-              <button
-                type="button"
-                (click)="loadTemplate(tpl)"
-                class="w-full text-left px-2 py-1.5 rounded hover:bg-white/5 text-gray-300 transition"
-                [title]="tpl.description"
-              >
-                <div class="text-xs font-medium text-white">{{ tpl.label }}</div>
-                <div class="text-[10px] text-gray-500">{{ tpl.description }}</div>
-              </button>
-            }
-          </div>
-        </div>
-      </aside>
+    <div class="grid grid-cols-1 gap-3 df-shell" [attr.data-inspector]="inspectorOpen() ? 'open' : 'closed'">
+      <app-flow-palette
+        [palette]="palette"
+        [templates]="flowTemplates"
+        (addNode)="addNodeAtCenter($event)"
+        (loadTemplate)="loadTemplate($event)"
+        (dragStart)="onPaletteDragStart($event)"
+      />
 
       <!-- Canvas + Terminal column -->
       <div
-        class="t-card t-elevated rounded-md overflow-hidden relative"
-        style="height: 680px"
+        class="t-card t-elevated rounded-md overflow-hidden relative df-canvas-card"
       >
-        <!-- Canvas toolbar -->
-        <div class="absolute inset-x-0 top-0 z-10 px-3 py-2 flex items-center justify-between bg-black/30 backdrop-blur-sm border-b border-white/5">
-          <div class="flex items-center gap-3">
-            <span class="ck-mono text-[9px] uppercase tracking-[0.14em] text-gray-400">Flow canvas</span>
-            @if (nodeCount() > 0) {
-              <div class="flex items-center gap-1.5">
-                @if (errorCount() > 0) {
-                  <span class="df-tag df-tag-neg" [title]="'Validation errors'">
-                    <app-icon name="alert-triangle" [size]="10" />
-                    {{ errorCount() }} ERR
-                  </span>
-                }
-                @if (warnCount() > 0) {
-                  <span class="df-tag df-tag-warn" [title]="'Validation warnings'">
-                    {{ warnCount() }} WARN
-                  </span>
-                }
-                @if (errorCount() === 0 && warnCount() === 0) {
-                  <span class="df-tag df-tag-pos">
-                    <app-icon name="check" [size]="10" />
-                    VALID
-                  </span>
-                }
-              </div>
-            }
-          </div>
-          <div class="flex items-center gap-1">
-            <button (click)="zoom('in')" class="df-tool-btn" title="Zoom in">
-              <app-icon name="zoom-in" [size]="14" />
-            </button>
-            <button (click)="zoom('out')" class="df-tool-btn" title="Zoom out">
-              <app-icon name="zoom-out" [size]="14" />
-            </button>
-            <button (click)="zoomReset()" class="df-tool-btn" title="Reset zoom">
-              <app-icon name="maximize" [size]="14" />
-            </button>
-            <span class="w-px h-4 bg-white/10 mx-1"></span>
-            <button (click)="autoLayout()" class="df-tool-btn" title="Auto-layout nodes (topological)">
-              <app-icon name="layout-grid" [size]="14" />
-            </button>
-            <span class="w-px h-4 bg-white/10 mx-1"></span>
-            <button (click)="toggleTerminal()" class="df-tool-btn" [class.active]="terminalOpen()" title="Toggle execution terminal">
-              <app-icon name="terminal" [size]="14" />
-            </button>
-            <button (click)="toggleInspector()" class="df-tool-btn" [class.active]="inspectorOpen()" title="Toggle node inspector">
-              <app-icon name="sidebar" [size]="14" />
-            </button>
-            <button (click)="clearAll()" class="df-tool-btn df-tool-btn--danger" title="Clear canvas">
-              <app-icon name="trash-2" [size]="14" />
-            </button>
-          </div>
-        </div>
+        <app-flow-canvas-toolbar
+          [nodeCount]="nodeCount()"
+          [errorCount]="errorCount()"
+          [warnCount]="warnCount()"
+          [terminalOpen]="terminalOpen()"
+          [inspectorOpen]="inspectorOpen()"
+          (zoom)="zoom($event)"
+          (zoomReset)="zoomReset()"
+          (fit)="fitCanvas()"
+          (autoLayout)="autoLayout()"
+          (toggleTerminal)="toggleTerminal()"
+          (toggleInspector)="toggleInspector()"
+          (clearAll)="clearAll()"
+        />
 
         <!-- Drawflow host -->
         <div
@@ -343,123 +297,25 @@ interface FlowTemplate {
 
         <!-- Execution Terminal -->
         @if (terminalOpen()) {
-          <div class="df-terminal">
-            <div class="df-terminal-head">
-              <span class="ck-mono text-[9px] uppercase tracking-[0.14em] text-gray-400">Execution terminal</span>
-              <div class="flex items-center gap-2">
-                @if (terminalLog().length > 0) {
-                  <span class="df-tag df-tag-cool">{{ terminalLog().length }} LINES</span>
-                }
-                <button (click)="clearTerminal()" class="text-[10px] text-gray-500 hover:text-gray-300 ck-mono" title="Clear log">
-                  CLEAR
-                </button>
-                <button (click)="toggleTerminal()" class="df-tool-btn df-tool-btn--small" title="Collapse">
-                  <app-icon name="chevron-down" [size]="12" />
-                </button>
-              </div>
-            </div>
-            <div class="df-terminal-body ck-mono">
-              @if (currentRun()?.status === 'hitl_pending' && currentRun()?.hitl) {
-                <div class="df-hitl-card" role="alertdialog">
-                  <div class="df-hitl-head">
-                    <app-icon name="user-check" [size]="14" class="text-amber-300" />
-                    <span>Human approval required</span>
-                    <span class="df-tag df-tag-warn">PAUSED</span>
-                  </div>
-                  <div class="df-hitl-prompt">{{ currentRun()?.hitl?.prompt ?? 'An operator must approve this step to continue.' }}</div>
-                  @if (currentRun()?.hitl?.node_id) {
-                    <div class="df-hitl-meta">
-                      <span class="text-gray-500">Node</span>
-                      <span class="text-gray-300 ck-mono">{{ currentRun()?.hitl?.node_id }}</span>
-                    </div>
-                  }
-                  <div class="df-hitl-actions">
-                    <button
-                      type="button"
-                      (click)="resolveHitl('reject')"
-                      [disabled]="hitlResolving()"
-                      class="df-hitl-btn df-hitl-btn--reject"
-                    >
-                      <app-icon name="x" [size]="12" /> Reject
-                    </button>
-                    <button
-                      type="button"
-                      (click)="resolveHitl('accept')"
-                      [disabled]="hitlResolving()"
-                      class="df-hitl-btn df-hitl-btn--accept"
-                    >
-                      <app-icon name="check" [size]="12" /> Approve
-                    </button>
-                  </div>
-                </div>
-              }
-              @if (currentRun()?.status === 'debug_pending' && currentRun()?.debug) {
-                <div class="df-hitl-card" role="alertdialog" data-tone="debug">
-                  <div class="df-hitl-head">
-                    <app-icon name="bug" [size]="14" class="text-cyan-300" />
-                    <span>Debugger paused</span>
-                    <span class="df-tag df-tag-cool">{{ currentRun()?.debug?.debug_mode ?? 'step' }}</span>
-                  </div>
-                  <div class="df-hitl-prompt">
-                    Paused after
-                    <span class="ck-mono text-cyan-200">{{ currentRun()?.debug?.node_id ?? 'node' }}</span>
-                    — inspect context and advance.
-                  </div>
-                  <div class="df-debug-ctx">
-                    <div class="df-debug-ctx-label">Last output</div>
-                    <pre class="df-debug-ctx-body">{{ previewJson(currentRun()?.debug?.last_output) }}</pre>
-                    <div class="df-debug-ctx-label">Context snapshot</div>
-                    <pre class="df-debug-ctx-body">{{ previewJson(currentRun()?.debug?.ctx_snapshot) }}</pre>
-                  </div>
-                  <div class="df-hitl-actions">
-                    <button
-                      type="button"
-                      (click)="debugAction('stop')"
-                      [disabled]="debugStepping()"
-                      class="df-hitl-btn df-hitl-btn--reject"
-                    >
-                      <app-icon name="square" [size]="12" /> Stop
-                    </button>
-                    <button
-                      type="button"
-                      (click)="debugAction('continue')"
-                      [disabled]="debugStepping()"
-                      class="df-hitl-btn"
-                    >
-                      <app-icon name="chevrons-right" [size]="12" /> Continue
-                    </button>
-                    <button
-                      type="button"
-                      (click)="debugAction('step')"
-                      [disabled]="debugStepping()"
-                      class="df-hitl-btn df-hitl-btn--accept"
-                    >
-                      <app-icon name="chevron-right" [size]="12" /> Step
-                    </button>
-                  </div>
-                </div>
-              }
-              @if (terminalLog().length === 0 && currentRun()?.status !== 'hitl_pending' && currentRun()?.status !== 'debug_pending') {
-                <div class="df-terminal-empty">
-                  <span class="text-gray-500">›</span>
-                  Execute a Run on this System to see live output. Click Simulate for a client-side dry run, or Execute to hit the backend.
-                </div>
-              }
-              @for (entry of terminalLog(); track $index) {
-                <div class="df-terminal-row">
-                  <span class="df-terminal-time">{{ entry.t }}</span>
-                  <span class="df-terminal-tag" [attr.data-tone]="entry.tone">[{{ entry.tag }}]</span>
-                  <span class="df-terminal-text">{{ entry.text }}</span>
-                </div>
-              }
-            </div>
-          </div>
+          <app-flow-terminal
+            [entries]="terminalLog()"
+            [run]="currentRun()"
+            [hitlResolving]="hitlResolving()"
+            [debugStepping]="debugStepping()"
+            (clear)="clearTerminal()"
+            (collapse)="toggleTerminal()"
+            (resolveHitl)="resolveHitl($event)"
+            (debugAction)="debugAction($event)"
+          />
         }
 
         @if (loading()) {
           <div class="absolute inset-0 flex flex-col items-center justify-center text-sm text-gray-400 bg-black/20 pointer-events-none">
             <app-icon name="loader-2" [size]="18" class="animate-spin text-brand-400 mb-2" />
-            Initializing canvas…
+            {{ loadPhase() }}
+            @if (perfSummary()) {
+              <div class="mt-1 text-[10px] text-gray-500 ck-mono">{{ perfSummary() }}</div>
+            }
           </div>
         }
         @if (error()) {
@@ -472,7 +328,7 @@ interface FlowTemplate {
 
       <!-- Node Inspector -->
       @if (inspectorOpen()) {
-        <aside class="t-card t-elevated rounded-md overflow-hidden" style="height: 680px">
+        <aside class="t-card t-elevated rounded-md overflow-hidden df-inspector-card">
           <div class="df-inspector">
             <div class="df-inspector-head">
               <span class="ck-mono text-[10px] uppercase tracking-[0.14em] text-gray-400">Node inspector</span>
@@ -486,7 +342,7 @@ interface FlowTemplate {
                 <app-icon name="mouse-pointer-2" [size]="20" class="text-gray-500 mb-3" />
                 <div class="text-sm text-gray-400 font-medium mb-1">No node selected</div>
                 <div class="text-[11px] text-gray-500 leading-relaxed max-w-[220px]">
-                  Click a node on the canvas to inspect its contract, config, and live metrics.
+                  Select a node to inspect its skill contract and configuration. Use Fit if the graph is off-screen.
                 </div>
               </div>
             } @else {
@@ -575,6 +431,11 @@ interface FlowTemplate {
                       <div class="text-[10px] text-gray-500 mt-1.5">Focus the dropdown to load the skill catalog.</div>
                     } @else {
                       <div class="text-[10px] text-gray-500 mt-1.5">{{ skills().length }} skills available.</div>
+                    }
+                    @if (!currentSkillId(selectedNode()!)) {
+                      <div class="mt-2 rounded bg-amber-500/10 border border-amber-400/20 px-2 py-1.5 text-[10px] text-amber-100 leading-relaxed">
+                        This task is not bound to a Skill yet. Bind one to unlock typed parameters and execution semantics.
+                      </div>
                     }
                   </div>
                 }
@@ -846,6 +707,24 @@ interface FlowTemplate {
                                       (change)="onTaskParamChange(field.key, $event, field.type)"
                                     />
                                   }
+                                  @case ('object') {
+                                    <textarea
+                                      class="df-input df-textarea ck-mono"
+                                      [value]="jsonParamValue(field.value)"
+                                      (change)="onTaskParamJsonChange(field.key, $event)"
+                                      [placeholder]="field.description ?? '{ }'"
+                                      rows="4"
+                                    ></textarea>
+                                  }
+                                  @case ('array') {
+                                    <textarea
+                                      class="df-input df-textarea ck-mono"
+                                      [value]="jsonParamValue(field.value)"
+                                      (change)="onTaskParamJsonChange(field.key, $event)"
+                                      [placeholder]="field.description ?? '[ ]'"
+                                      rows="4"
+                                    ></textarea>
+                                  }
                                   @case ('number') {
                                     <input
                                       type="number"
@@ -928,29 +807,10 @@ interface FlowTemplate {
                   }
                 </div>
 
-                <!-- Local metrics placeholder -->
                 <div class="df-inspector-section">
-                  <div class="df-inspector-label">Local metrics · 24h</div>
-                  <div class="grid grid-cols-2 gap-1.5">
-                    <div class="df-metric">
-                      <div class="df-metric-label">Runs</div>
-                      <div class="df-metric-value">—</div>
-                    </div>
-                    <div class="df-metric">
-                      <div class="df-metric-label">Success</div>
-                      <div class="df-metric-value">—</div>
-                    </div>
-                    <div class="df-metric">
-                      <div class="df-metric-label">Latency p95</div>
-                      <div class="df-metric-value">—</div>
-                    </div>
-                    <div class="df-metric">
-                      <div class="df-metric-label">Cost</div>
-                      <div class="df-metric-value">—</div>
-                    </div>
-                  </div>
-                  <div class="text-[10px] text-gray-600 mt-2">
-                    Metrics are wired in C8.
+                  <div class="df-inspector-label">Runtime metrics</div>
+                  <div class="rounded bg-black/20 border border-white/10 px-3 py-2 text-[11px] text-gray-400 leading-relaxed">
+                    Metrics appear after this System executes a Run. Until then, this inspector focuses on contract, binding and config.
                   </div>
                 </div>
               </div>
@@ -958,9 +818,10 @@ interface FlowTemplate {
           </div>
         </aside>
       } @else {
-        <aside class="t-card t-elevated rounded-md flex flex-col items-center py-3" style="height: 680px">
-          <button (click)="toggleInspector()" class="df-tool-btn" title="Open inspector">
+        <aside class="t-card t-elevated rounded-md flex flex-col items-center py-3 df-inspector-collapsed">
+          <button (click)="toggleInspector()" class="df-tool-btn df-tool-toggle df-tool-toggle--vertical" title="Open inspector">
             <app-icon name="sidebar" [size]="14" />
+            <span>Inspector</span>
           </button>
         </aside>
       }
@@ -1314,6 +1175,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly inspectorOpen = signal(true);
   readonly terminalOpen = signal(true);
   readonly terminalLog = signal<TerminalEntry[]>([]);
+  readonly loadPhase = signal('Preparing editor…');
+  readonly perfMarks = signal<Record<string, number>>({});
 
   // Backend execution state — non-null while a Run is in flight against the
   // live System. ``hitlResolving`` blocks double-clicks on the approve /
@@ -1537,9 +1400,16 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
   private pendingDrop: PaletteItem | null = null;
   private ids = 0;
+  private terminalSeq = 0;
+  private refreshScheduled = false;
+  private validationScheduled = false;
+  private refreshRaf: number | null = null;
+  private perfStart = 0;
 
   ngOnInit(): void {
-    const sid = this.route.snapshot.queryParamMap.get('systemId');
+    const sid =
+      this.route.snapshot.paramMap.get('systemId') ||
+      this.route.snapshot.queryParamMap.get('systemId');
     this.systemId.set(sid);
     if (sid) {
       this.zoomCtx.setCurrentSystem(sid);
@@ -1547,9 +1417,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.zoomCtx.setCurrentSystem(null);
     }
     this.zoomCtx.setCurrentRun(null);
+    this.ensureSkillsLoaded();
   }
 
   async ngAfterViewInit(): Promise<void> {
+    this.beginPerf('route');
     const el = this.container?.nativeElement;
     if (!el) {
       this.loading.set(false);
@@ -1559,20 +1431,28 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
     await this.zone.runOutsideAngular(async () => {
       try {
+        this.setLoadPhase('Loading canvas engine…');
         const mod: any = await import('drawflow');
+        this.markPerf('drawflow import');
         const Drawflow = mod.default ?? mod;
+        this.setLoadPhase('Starting canvas…');
         this.editor = new Drawflow(el);
-        this.editor.reroute = true;
-        this.editor.reroute_fix_curvature = true;
+        this.editor.reroute = false;
+        this.editor.reroute_fix_curvature = false;
         this.editor.start();
+        this.markPerf('editor.start');
 
         if (this.systemId()) {
+          this.setLoadPhase('Hydrating System flow…');
           await this.hydrateFromSystem(this.systemId()!);
         } else {
+          this.setLoadPhase('Loading template…');
           this.loadTemplate(this.flowTemplates[0]);
         }
 
+        this.setLoadPhase('Binding canvas events…');
         this.attachChangeListeners();
+        this.markPerf('ready');
       } catch (err) {
         console.error('Drawflow init failed', err);
         this.zone.run(() => this.error.set('Workflow editor unavailable'));
@@ -1587,12 +1467,45 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
   ngOnDestroy(): void {
     this.stopStream();
+    if (this.refreshRaf !== null) {
+      cancelAnimationFrame(this.refreshRaf);
+      this.refreshRaf = null;
+    }
     try {
       this.editor?.clear?.();
     } catch {
       // ignore
     }
   }
+
+  private beginPerf(label: string): void {
+    this.perfStart = performance.now();
+    this.perfMarks.set({ [label]: 0 });
+  }
+
+  private markPerf(label: string): void {
+    if (!this.perfStart) return;
+    const elapsed = Math.round(performance.now() - this.perfStart);
+    this.perfMarks.update((marks) => ({ ...marks, [label]: elapsed }));
+    if (!label.startsWith('refreshKpis')) {
+      console.info(`[FlowBuilder] ${label}: ${elapsed}ms`);
+    }
+  }
+
+  private recordPerfSample(label: string, durationMs: number): void {
+    this.perfMarks.update((marks) => ({ ...marks, [label]: Math.round(durationMs) }));
+  }
+
+  private setLoadPhase(phase: string): void {
+    this.zone.run(() => this.loadPhase.set(phase));
+  }
+
+  readonly perfSummary = computed(() => {
+    const marks = this.perfMarks();
+    const ready = marks['ready'];
+    if (ready == null) return '';
+    return `ready ${ready}ms · validation ${marks['refreshKpis:full'] ?? '—'}ms`;
+  });
 
   /**
    * Subscribe to Drawflow's mutation events so the header KPIs stay in
@@ -1602,7 +1515,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private attachChangeListeners(): void {
     if (!this.editor?.on) return;
     const refresh = () => {
-      this.zone.run(() => this.refreshKpis());
+      this.scheduleRefreshKpis();
     };
     const onSelect = (id: number | string) => {
       this.zone.run(() => this.onNodeSelected(String(id)));
@@ -1624,16 +1537,36 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     } catch {
       // older drawflow builds silently ignore unknown events
     }
-    this.refreshKpis();
+    this.refreshKpis('full');
   }
 
-  private refreshKpis(): void {
+  private scheduleRefreshKpis(): void {
+    if (this.refreshScheduled) return;
+    this.refreshScheduled = true;
+    this.refreshRaf = requestAnimationFrame(() => {
+      this.refreshScheduled = false;
+      this.zone.run(() => this.refreshKpis('light'));
+    });
+    if (!this.validationScheduled) {
+      this.validationScheduled = true;
+      window.setTimeout(() => {
+        this.validationScheduled = false;
+        this.zone.run(() => this.refreshKpis('full'));
+      }, 160);
+    }
+  }
+
+  private refreshKpis(mode: 'light' | 'full' = 'full'): void {
+    const start = performance.now();
     const graph = this.exportGraph();
     const flow = this.serializer.project(graph);
     this.nodeCount.set(flow.nodes.length);
     this.edgeCount.set(flow.edges.length);
     this.extended.set(!!flow.extended);
-    this.issues.set(this.serializer.validateFlow(flow));
+    if (mode === 'full') {
+      this.issues.set(this.serializer.validateFlow(flow));
+    }
+    this.recordPerfSample(`refreshKpis:${mode}`, performance.now() - start);
   }
 
   /**
@@ -1654,6 +1587,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const type =
       (nodeData.data?.['canonical_type'] as string) || nodeData.name || 'custom';
     const kind = (nodeData.data?.['canonical_kind'] as NodeKind) || 'task';
+    const config = (nodeData.data?.['canonical_config'] as Record<string, unknown>) ?? {};
+    if (!config['skill_slug'] && this.skills().some((skill) => skill.slug === type)) {
+      config['skill_slug'] = type;
+    }
     const { canonical_id: _ci, canonical_type: _ct, canonical_kind: _ck,
             canonical_config: _cc, canonical_inputs: _cin, canonical_outputs: _cout,
             ...rest } = nodeData.data ?? {};
@@ -1664,7 +1601,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       kind,
       label: this.extractLabelFromHtml(nodeData.html ?? ''),
       data: rest,
-      config: (nodeData.data?.['canonical_config'] as Record<string, unknown>) ?? {},
+      config,
       inputs: (nodeData.data?.['canonical_inputs'] as CanonicalFlowNode['inputs']) ?? [],
       outputs: (nodeData.data?.['canonical_outputs'] as CanonicalFlowNode['outputs']) ?? [],
       position: { x: nodeData.pos_x, y: nodeData.pos_y },
@@ -1679,10 +1616,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   /** Push a line into the Execution Terminal. Capped at 200 entries. */
-  pushTerminal(entry: Omit<TerminalEntry, 't'>): void {
+  pushTerminal(entry: Omit<TerminalEntry, 't' | 'id'>): void {
     const t = new Date().toTimeString().slice(0, 8);
     this.terminalLog.update((log) => {
-      const next = [...log, { t, ...entry }];
+      const next = [...log, { t, id: `term-${++this.terminalSeq}`, ...entry }];
       return next.length > 200 ? next.slice(next.length - 200) : next;
     });
   }
@@ -1709,7 +1646,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         }
       }
       const t = new Date().toTimeString().slice(0, 8);
-      const next = [...log, { t, tag, tone, text: delta, streamId }];
+      const next = [...log, { id: `term-${++this.terminalSeq}`, t, tag, tone, text: delta, streamId }];
       return next.length > 200 ? next.slice(next.length - 200) : next;
     });
   }
@@ -1742,7 +1679,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.loadTemplate(this.flowTemplates[0]);
       return;
     }
-    this.zone.run(() => this.system.set(sys));
+    this.zone.run(() => {
+      this.system.set(sys);
+      this.zoomCtx.setCurrentSystem(sys.id, sys.name);
+      if (sys.capability_id) this.zoomCtx.setCurrentCapability(sys.capability_id);
+      if (sys.context_id) this.zoomCtx.setCurrentContext(sys.context_id);
+    });
 
     const flow = (sys.flow_definition ?? {}) as unknown as CanonicalFlow;
     if (!Array.isArray(flow.nodes) || flow.nodes.length === 0) {
@@ -1776,6 +1718,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.manualImport(flow);
     }
     this.refreshKpis();
+    this.fitCanvasSoon();
   }
 
   /**
@@ -1795,6 +1738,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       const to = idToNum.get(e.to);
       if (from && to) this.internalConnect(from, to);
     }
+    this.fitCanvasSoon();
   }
 
   private exportGraph(): DrawflowGraph {
@@ -1892,6 +1836,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     ev.dataTransfer?.setData('text/plain', node.type);
   }
 
+  onPaletteDragStart(payload: { event: DragEvent; node: PaletteItem }): void {
+    this.onDragStart(payload.event, payload.node);
+  }
+
   onDragOver(ev: DragEvent): void {
     ev.preventDefault();
     if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
@@ -1927,6 +1875,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.zone.run(() => {
       this.toastr.info(tpl.label, 'Template loaded');
       this.refreshKpis();
+      this.fitCanvasSoon();
     });
   }
 
@@ -1967,6 +1916,40 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   zoomReset(): void {
     if (!this.editor) return;
     this.editor.zoom_reset();
+  }
+
+  fitCanvas(): void {
+    if (!this.editor || !this.container?.nativeElement) return;
+    const graph = this.exportGraph();
+    const nodes = Object.values(graph.drawflow?.Home?.data ?? {});
+    if (!nodes.length) return;
+    const minX = Math.min(...nodes.map((node) => node.pos_x));
+    const minY = Math.min(...nodes.map((node) => node.pos_y));
+    const maxX = Math.max(...nodes.map((node) => node.pos_x + 220));
+    const maxY = Math.max(...nodes.map((node) => node.pos_y + 120));
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+    const rect = this.container.nativeElement.getBoundingClientRect();
+    const zoom = Math.min(1, Math.max(0.45, Math.min((rect.width - 96) / width, (rect.height - 96) / height)));
+    const tx = Math.max(24, (rect.width - width * zoom) / 2 - minX * zoom);
+    const ty = Math.max(56, (rect.height - height * zoom) / 2 - minY * zoom);
+    this.editor.zoom = zoom;
+    this.editor.canvas_x = tx;
+    this.editor.canvas_y = ty;
+    const precanvas = this.container.nativeElement.querySelector('.precanvas') as HTMLElement | null;
+    if (precanvas) {
+      precanvas.style.transform = `translate(${tx}px, ${ty}px) scale(${zoom})`;
+      precanvas.style.transformOrigin = '0 0';
+    }
+    try {
+      this.editor.updateConnectionNodes?.('node-*');
+    } catch {
+      // ignore redraw drift on older Drawflow builds
+    }
+  }
+
+  private fitCanvasSoon(): void {
+    window.setTimeout(() => this.zone.runOutsideAngular(() => this.fitCanvas()), 80);
   }
 
   /**
@@ -3296,9 +3279,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }[] {
     const node = this.selectedNode();
     if (!node) return [];
-    const skillId = this.currentSkillId(node);
-    if (!skillId) return [];
-    const skill = this.skills().find((s) => s.id === skillId);
+    const skill = this.currentSkill(node);
     if (!skill) return [];
     const schema = (skill.input_schema ?? {}) as {
       properties?: Record<string, { type?: string; description?: string; enum?: string[] }>;
@@ -3316,6 +3297,36 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       enum: Array.isArray(def?.enum) ? def.enum.map(String) : undefined,
       value: values[key],
     }));
+  }
+
+  jsonParamValue(value: unknown): string {
+    if (value === undefined || value === null || value === '') return '';
+    if (typeof value === 'string') return value;
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+
+  onTaskParamJsonChange(key: string, ev: Event): void {
+    const raw = (ev.target as HTMLTextAreaElement | null)?.value?.trim() ?? '';
+    const node = this.selectedNode();
+    const cfg = (node?.config ?? {}) as { params?: Record<string, unknown> };
+    const nextParams = { ...(cfg.params ?? {}) };
+    if (!raw) {
+      delete nextParams[key];
+    } else {
+      try {
+        nextParams[key] = JSON.parse(raw);
+      } catch {
+        this.toastr.warning(`Invalid JSON for "${key}". Value was not saved.`, 'Skill parameters');
+        return;
+      }
+    }
+    this.patchSelectedConfig({
+      params: Object.keys(nextParams).length > 0 ? nextParams : undefined,
+    });
   }
 
   onTaskParamChange(key: string, ev: Event, type: string): void {
@@ -3512,7 +3523,26 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   currentSkillId(node: CanonicalFlowNode): string | null {
     const cfg = (node.config ?? {}) as Record<string, unknown>;
     const id = cfg['skill_id'];
-    return typeof id === 'string' && id.length > 0 ? id : null;
+    if (typeof id === 'string' && id.length > 0) return id;
+    const slug = cfg['skill_slug'];
+    if (typeof slug === 'string' && slug.length > 0) {
+      return this.skills().find((s) => s.slug === slug)?.id ?? null;
+    }
+    return null;
+  }
+
+  currentSkill(node: CanonicalFlowNode): Skill | null {
+    const cfg = (node.config ?? {}) as Record<string, unknown>;
+    const id = cfg['skill_id'];
+    if (typeof id === 'string' && id.length > 0) {
+      const byId = this.skills().find((s) => s.id === id);
+      if (byId) return byId;
+    }
+    const slug = cfg['skill_slug'] || node.type;
+    if (typeof slug === 'string' && slug.length > 0) {
+      return this.skills().find((s) => s.slug === slug) ?? null;
+    }
+    return null;
   }
 
   /**

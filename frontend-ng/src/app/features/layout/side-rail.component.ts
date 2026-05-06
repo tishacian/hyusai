@@ -59,8 +59,26 @@ export type CockpitScopeType =
   | 'app'
   | 'context';
 
+export type CockpitSectionKey =
+  | 'systems'
+  | 'capabilities'
+  | 'skills'
+  | 'knowledge'
+  | 'flows'
+  | 'runs'
+  | 'observability'
+  | 'intelligence'
+  | 'missions'
+  | 'levers'
+  | 'contexts'
+  | 'review'
+  | 'audit'
+  | 'apps'
+  | 'resources'
+  | 'presets';
+
 export interface CockpitSection {
-  key: string;
+  key: CockpitSectionKey;
   label: string;
   glyph: CkGlyphName;
   route: string;

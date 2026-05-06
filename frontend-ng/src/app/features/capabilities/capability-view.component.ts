@@ -156,7 +156,7 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.capabilityId = this.route.snapshot.paramMap.get('capabilityId') ?? '';
-    this.zoom.setCurrentCapability(this.capabilityId || null);
+    this.zoom.setCurrentCapability(this.capabilityId || null, this.capabilityId || null);
     this.title.set(this.capabilityId ? `Capability · ${this.capabilityId.slice(0, 8)}` : 'Capability');
   }
 

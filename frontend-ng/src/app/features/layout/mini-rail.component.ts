@@ -234,19 +234,18 @@ export class MiniRailComponent {
   });
 
   /**
-   * Compact trailing descriptor like `· of 3a4f9c10`, rendered under the
-   * eyebrow when the breadcrumb has resolved an ancestor object. Proper
-   * human names will replace the shortId once backend exposes them.
+   * Compact descriptor rendered under the verb when a semantic scope is
+   * active. Keep it object-level only: raw ids belong in debug surfaces,
+   * not in the navigation narrative.
    */
   readonly scopeSuffix = computed<string>(() => {
-    const parts: string[] = [];
-    const cap = this.ctx.capabilityId();
-    const sys = this.ctx.systemId();
-    const run = this.ctx.runId();
-    if (cap) parts.push(`cap:${cap.slice(0, 6)}`);
-    if (sys) parts.push(`sys:${sys.slice(0, 6)}`);
-    if (run) parts.push(`run:${run.slice(0, 6)}`);
-    return parts.length ? `· ${parts.join(' › ')}` : '';
+    const deepest = this.deepestResolvedScope();
+    if (!deepest) return '';
+    if (deepest === 'system') return `· ${this.ctx.systemLabel() || 'System'}`;
+    if (deepest === 'capability') return `· ${this.ctx.capabilityLabel() || 'Capability'}`;
+    if (deepest === 'run') return `· ${this.ctx.runLabel() || 'Run'}`;
+    if (deepest === 'skill') return `· ${this.ctx.skillLabel() || 'Skill'}`;
+    return `· ${deepest}`;
   });
 
   readonly scopeSuffixFull = computed<string>(() => {
@@ -254,9 +253,9 @@ export class MiniRailComponent {
     const sys = this.ctx.systemId();
     const run = this.ctx.runId();
     const parts: string[] = [];
-    if (cap) parts.push(`Capability ${cap}`);
-    if (sys) parts.push(`System ${sys}`);
-    if (run) parts.push(`Run ${run}`);
+    if (cap) parts.push('Capability in scope');
+    if (sys) parts.push('System in scope');
+    if (run) parts.push('Run in scope');
     return parts.join(' › ');
   });
 
@@ -275,22 +274,10 @@ export class MiniRailComponent {
     // Translate first, fall back to the hard-coded label when the dict
     // has no entry for this section key (long-tail verbs like "flows",
     // "missions", etc. are defined in the nav.* surface).
-    const base = this.i18n.t(`nav.${s.key}`) || s.label;
-    const deepest = this.deepestResolvedScope();
-    if (!deepest) return base;
-    const idx = SCOPE_ORDER.indexOf(s.scopeType);
-    const cutoff = SCOPE_ORDER.indexOf(deepest);
-    if (idx === -1 || cutoff === -1 || idx <= cutoff) return base;
-    // Section is a descendant of the resolved breadcrumb — annotate.
-    const anchor =
-      deepest === 'capability'
-        ? `cap:${this.ctx.capabilityId()!.slice(0, 6)}`
-        : deepest === 'system'
-          ? `sys:${this.ctx.systemId()!.slice(0, 6)}`
-          : deepest === 'run'
-            ? `run:${this.ctx.runId()!.slice(0, 6)}`
-            : `skl:${this.ctx.skillId()!.slice(0, 6)}`;
-    return `${base} · of ${anchor}`;
+    const key = `nav.${s.key}`;
+    const translated = this.i18n.t(key);
+    const base = translated === key ? s.label : translated;
+    return base;
   }
 
   /**

@@ -135,7 +135,9 @@ Legacy (`/agents`, `/traces`) emit `X-Deprecated: true` and redirect.
 | `audit_log_v1` | ✅ bound | `backend/app/services/skills/audit_log.py` |
 | `ollama_llm_v1`, `azure_llm_v1` | ✅ bound | `backend/app/services/llm/*` |
 | `sharepoint_ingestion_v1` | 🟡 stub | schemas present, ingestion not wired |
-| `voice_transcribe_v1`, `voice_tts_v1` | 🟡 stub | endpoints return fixtures |
+| `voice_transcribe_v1`, `voice_tts_v1` | ✅ bound | `backend/app/services/voice_runtime.py` |
+| `knowledge_gap_analysis_v1`, `expert_interview_plan_v1` | ✅ bound | `backend/app/services/knowledge_capture.py` |
+| `expert_answer_evaluator_v1`, `capture_structuring_v1` | ✅ bound | `backend/app/services/knowledge_capture.py` |
 
 See `docs/skills-runtime.md` for full contract.
 
@@ -253,8 +255,18 @@ A Capability is a **business-level function**:
 - "Contract Risk Detection"
 - "Document Understanding"
 - "Delay Prediction"
+- "Expert Knowledge Capture"
 
 Capabilities are what the business buys and understands.
+
+`Expert Knowledge Capture` is the voice-ready capability for preserving
+expert reasoning. It uses a workspace `Context` / Knowledge scope to
+identify gaps, prepares a time-boxed interview plan, evaluates expert
+answers during the session, and emits a human-reviewed knowledge update
+proposal before ingestion. Its first runtime is a robust cascade
+`recording → STT → RAG/plan/evaluator → segmented TTS`; GPU realtime
+providers are isolated behind `VoiceRuntimeProvider` until user tests
+prove a net gain in fluency without losing precision or auditability.
 
 > **✅ Shipped** — `backend/app/models/capability.py`, `/capabilities` route with drill-down. Pricing / ROI model fields exist in the schema but are not yet billed (see §22).
 

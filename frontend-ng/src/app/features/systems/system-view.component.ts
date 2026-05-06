@@ -363,8 +363,7 @@ interface PipelineStage {
             </p>
           </div>
           <a
-            routerLink="/orchestration"
-            [queryParams]="{ systemId: systemId }"
+            [routerLink]="['/systems', systemId, 'flow']"
             class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition shrink-0"
           >
             <app-icon name="workflow" [size]="14" /> Open in flow builder
@@ -855,6 +854,7 @@ export class SystemViewComponent implements OnInit {
     const local = this.store.findById(this.systemId);
     if (local) {
       this.agentName.set(local.name);
+      this.zoom.setCurrentSystem(this.systemId || null, local.name);
       this.agentDescription.set(local.description || '');
       this.isDraft.set(!!local.draft);
       this.systemDefaults.set({
@@ -868,6 +868,7 @@ export class SystemViewComponent implements OnInit {
         next: (agent) => {
           if (!agent) return;
           this.agentName.set(agent.name);
+          this.zoom.setCurrentSystem(this.systemId || null, agent.name);
           this.agentDescription.set(agent.description || '');
           this.isDraft.set(!!agent.draft);
           this.systemDefaults.set({

@@ -17,8 +17,10 @@ pulling heavy deps at registry introspection time.
 from __future__ import annotations
 
 import importlib
+import base64
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 from app.core.logging import get_logger
@@ -211,19 +213,137 @@ async def _sharepoint_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[s
 
 
 async def _voice_transcribe_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider((payload.get("provider") or "cascade"))
+    audio_bytes = _audio_bytes_from_payload(payload)
+    result = await provider.transcribe(
+        audio_bytes,
+        filename=payload.get("filename") or "recording.webm",
+        content_type=payload.get("content_type") or "audio/webm",
+    )
     return {
-        "transcript": "",
-        "status": "degraded",
-        "warning": "voice_runtime_not_available",
+        "transcript": result.get("transcript") or result.get("text", ""),
+        "text": result.get("text", ""),
+        "model": result.get("model"),
+        "provider": result.get("provider"),
+        "fallback": result.get("fallback", False),
     }
 
 
 async def _voice_tts_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider((payload.get("provider") or "cascade"))
+    result = await provider.synthesize_bytes(
+        payload["text"],
+        voice=payload.get("voice") or "nova",
+    )
     return {
         "audio_url": None,
-        "status": "degraded",
-        "warning": "voice_runtime_not_available",
+        "audio_base64": result.get("audio_base64"),
+        "content_type": result.get("content_type"),
+        "model": result.get("model"),
+        "provider": result.get("provider"),
+        "bytes": result.get("bytes"),
     }
+
+
+def _audio_bytes_from_payload(payload: Dict[str, Any]) -> bytes:
+    if payload.get("audio_bytes"):
+        raw = payload["audio_bytes"]
+        if isinstance(raw, bytes):
+            return raw
+        if isinstance(raw, str):
+            return raw.encode("latin1")
+        return bytes(raw)
+    if payload.get("audio_base64"):
+        return base64.b64decode(payload["audio_base64"])
+    audio_ref = payload.get("audio_ref")
+    if audio_ref:
+        path = Path(audio_ref)
+        if not path.exists() or not path.is_file():
+            raise ValueError("voice_transcribe_v1: audio_ref does not resolve to a local file")
+        return path.read_bytes()
+    raise ValueError("voice_transcribe_v1: one of audio_bytes, audio_base64 or audio_ref is required")
+
+
+async def _knowledge_gap_analysis_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.knowledge_capture import build_knowledge_gaps
+
+    return {
+        "gaps": build_knowledge_gaps(
+            objective=payload["objective"],
+            expert_profile=payload.get("expert_profile"),
+            context_snapshot=payload.get("context") or {},
+            knowledge_refs=payload.get("knowledge_refs") or [],
+        )
+    }
+
+
+async def _expert_interview_plan_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.knowledge_capture import build_interview_plan
+
+    return {
+        "plan": build_interview_plan(
+            objective=payload["objective"],
+            expert_profile=payload.get("expert_profile"),
+            duration_minutes=int(payload.get("duration_minutes") or 20),
+            gaps=payload.get("gaps") or [],
+            context_snapshot=payload.get("context") or {},
+        )
+    }
+
+
+async def _expert_answer_evaluator_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.knowledge_capture import evaluate_expert_answer
+
+    return evaluate_expert_answer(
+        answer=payload["answer"],
+        question=payload.get("question"),
+        gap=payload.get("gap"),
+    )
+
+
+async def _capture_structuring_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    # The persisted endpoint uses `structure_capture_payload` on an ORM
+    # session. The skill contract also supports already-serialized session
+    # payloads for DAG/runtime callers.
+    session = payload["session"]
+    transcript = session.get("transcript") or []
+    evaluations = session.get("evaluations") or []
+    captured_facts = session.get("captured_facts") or [
+        {
+            "id": f"fact-{turn.get('id')}",
+            "text": turn.get("text", ""),
+            "source": "expert_session",
+            "confidence": next(
+                (ev.get("score") for ev in evaluations if ev.get("turn_id") == turn.get("id")),
+                0.5,
+            ),
+            "needs_review": True,
+        }
+        for turn in transcript
+        if turn.get("speaker") == "expert"
+    ]
+    proposal = {
+        "session_id": session.get("id"),
+        "title": session.get("title"),
+        "objective": session.get("objective"),
+        "captured_facts": captured_facts,
+        "open_questions": [
+            {
+                "gap_id": ev.get("gap_id"),
+                "reason": ev.get("verdict"),
+                "follow_up": ev.get("follow_up"),
+            }
+            for ev in evaluations
+            if ev.get("verdict") != "sufficient"
+        ],
+        "transcript": transcript,
+        "review": {"required": True},
+    }
+    return {"proposal": proposal}
 
 
 async def _audit_log_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -351,8 +471,12 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "claim_audit_v1":          (_claim_audit_v1,          "app.services.evaluation.judge",         "bound"),
     "intelligence_batch_v1":   (_intelligence_batch_v1,   "app.services.intelligence.batch",       "bound"),
     "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None,                                    "stub"),
-    "voice_transcribe_v1":     (_voice_transcribe_v1,     None,                                    "stub"),
-    "voice_tts_v1":            (_voice_tts_v1,            None,                                    "stub"),
+    "voice_transcribe_v1":     (_voice_transcribe_v1,     "app.services.voice_runtime",            "bound"),
+    "voice_tts_v1":            (_voice_tts_v1,            "app.services.voice_runtime",            "bound"),
+    "knowledge_gap_analysis_v1": (_knowledge_gap_analysis_v1, "app.services.knowledge_capture",     "bound"),
+    "expert_interview_plan_v1": (_expert_interview_plan_v1, "app.services.knowledge_capture",      "bound"),
+    "expert_answer_evaluator_v1": (_expert_answer_evaluator_v1, "app.services.knowledge_capture",  "bound"),
+    "capture_structuring_v1":  (_capture_structuring_v1,  "app.services.knowledge_capture",        "bound"),
     "audit_log_v1":            (_audit_log_v1,            None,                                    "bound"),
     "ollama_llm_v1":           (_ollama_llm_v1,           "app.services.model_clients.ollama_client", "bound"),
     "azure_llm_v1":            (_azure_llm_v1,            "app.services.model_clients.openai_client", "bound"),

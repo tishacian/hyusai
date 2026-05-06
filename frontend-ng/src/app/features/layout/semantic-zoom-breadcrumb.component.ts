@@ -94,9 +94,13 @@ export class SemanticZoomBreadcrumbComponent {
     const isSkills   = first === 'skills';
 
     const currentCap = this.ctx.capabilityId();
+    const currentCapLabel = this.ctx.capabilityLabel();
     const currentSys = this.ctx.systemId();
+    const currentSysLabel = this.ctx.systemLabel();
     const currentRun = this.ctx.runId();
+    const currentRunLabel = this.ctx.runLabel();
     const currentSkill = this.ctx.skillId();
+    const currentSkillLabel = this.ctx.skillLabel();
 
     return [
       {
@@ -108,29 +112,29 @@ export class SemanticZoomBreadcrumbComponent {
       },
       {
         key: 'capability',
-        label: currentCap ? 'Capability ·' : 'Capability',
-        sub: currentCap ? `Focused on ${currentCap.slice(0, 8)}` : 'Catalog',
+        label: currentCapLabel || 'Capability',
+        sub: currentCap ? `Capability: ${currentCapLabel || currentCap}` : 'Catalog',
         href: currentCap ? ['/capabilities', currentCap] : '/capabilities',
         active: isCaps,
       },
       {
         key: 'system',
-        label: currentSys ? 'System ·' : 'System',
-        sub: currentSys ? `Open ${currentSys.slice(0, 8)}` : 'Builder',
+        label: currentSysLabel || 'System',
+        sub: currentSys ? `System: ${currentSysLabel || currentSys}` : 'Builder',
         href: currentSys ? ['/systems', currentSys] : '/systems',
         active: isBuilder || isSteering,
       },
       {
         key: 'run',
-        label: currentRun ? 'Run ·' : 'Run',
-        sub: currentRun ? `Open ${currentRun.slice(0, 8)}` : 'Telemetry',
+        label: currentRunLabel || 'Run',
+        sub: currentRun ? `Run: ${currentRunLabel || currentRun}` : 'Telemetry',
         href: currentRun ? ['/runs', currentRun] : '/runs',
         active: isRun,
       },
       {
         key: 'skill',
-        label: currentSkill ? 'Skill ·' : 'Skill',
-        sub: currentSkill ? `Invocation ${currentSkill.slice(0, 8)}` : 'Registry',
+        label: currentSkillLabel || 'Skill',
+        sub: currentSkill ? `Skill: ${currentSkillLabel || currentSkill}` : 'Registry',
         href: currentSkill ? ['/skills', currentSkill] : '/skills',
         active: isSkills,
       },
