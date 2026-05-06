@@ -88,6 +88,15 @@ interface RetrievalPrefetch {
 
 type ConversationMode = 'manual' | 'conversation_only';
 type CaptureSurfaceView = 'dashboard' | 'prep' | 'plan' | 'session' | 'review';
+type ProposalFactDecision = 'pending' | 'accept' | 'reject';
+
+interface ConversationStageRow {
+  id: string;
+  label: string;
+  detail: string;
+  icon: string;
+  state: 'done' | 'active' | 'pending';
+}
 
 interface ConversationStepResponse {
   intent: string;
@@ -161,15 +170,9 @@ interface ProposalFact {
           <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
             Phase 0 · cascade voice runtime
           </span>
-          <button
-            type="button"
-            [class]="conversationMode() === 'conversation_only'
-              ? 'text-xs px-3 py-1.5 rounded ring-1 bg-brand-500 text-white ring-brand-300'
-              : 'text-xs px-3 py-1.5 rounded ring-1 bg-white/5 text-gray-300 ring-white/10'"
-            (click)="toggleConversationMode()"
-          >
-            {{ conversationMode() === 'conversation_only' ? 'Exit conversation mode' : 'Conversation-only' }}
-          </button>
+          <span class="text-xs px-3 py-1.5 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
+            {{ conversationMode() === 'conversation_only' ? 'Conversation mode' : 'Guided mode' }}
+          </span>
         </div>
       </header>
 
@@ -427,7 +430,7 @@ interface ProposalFact {
               </div>
             </section>
 
-            <section class="grid xl:grid-cols-[320px_minmax(0,1fr)_360px] gap-4 items-start">
+            <section class="grid xl:grid-cols-[300px_minmax(0,1fr)_360px] gap-4 items-start">
               <aside class="t-card rounded-lg p-4 max-h-[calc(100vh-270px)] overflow-auto">
                 <div class="flex items-center justify-between gap-3">
                   <div>
@@ -436,6 +439,16 @@ interface ProposalFact {
                   </div>
                   <span class="text-xs text-brand-200">{{ captureProgressLabel(s) }}</span>
                 </div>
+                <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
+                  <div class="rounded bg-black/20 border border-white/10 p-3">
+                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">Status</span>
+                    <span class="text-gray-200">{{ sessionStartStateLabel(s) }}</span>
+                  </div>
+                  <div class="rounded bg-black/20 border border-white/10 p-3">
+                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">Coverage</span>
+                    <span class="text-gray-200">{{ coveragePercent(s) }}%</span>
+                  </div>
+                </div>
                 <div class="mt-4 space-y-2">
                   @for (q of s.plan.questions || []; track q.id) {
                     <button
@@ -443,13 +456,20 @@ interface ProposalFact {
                       class="w-full text-left rounded border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-3"
                       [class.ring-1]="selectedQuestionId() === q.id"
                       [class.ring-brand-400]="selectedQuestionId() === q.id"
-                      (click)="selectedQuestionId.set(q.id); speak(q.question)"
+                      (click)="selectCaptureQuestion(q)"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <span class="text-xs text-brand-300 font-mono">{{ q.id }}</span>
-                        <span class="text-[10px] text-gray-500">{{ q.estimated_minutes || 3 }} min</span>
+                        <span class="text-xs text-brand-300 font-mono">{{ questionDisplayId(q) }}</span>
+                        <span
+                          [class]="questionStateLabel(s, q) === 'current'
+                            ? 'text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-brand-500/20 text-brand-100'
+                            : 'text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-white/5 text-gray-500'"
+                        >
+                          {{ questionStateLabel(s, q) }}
+                        </span>
                       </div>
-                      <div class="mt-2 text-sm text-gray-100 leading-snug">{{ q.question }}</div>
+                      <div class="mt-2 text-sm text-gray-100 leading-snug line-clamp-3">{{ q.question }}</div>
+                      <div class="mt-3 text-[10px] text-gray-500">{{ q.estimated_minutes || 3 }} min expected</div>
                     </button>
                   }
                 </div>
@@ -473,10 +493,10 @@ interface ProposalFact {
                   </div>
                 </div>
 
-                <div class="mt-4 flex-1 flex flex-col gap-3">
+                <div class="mt-4 flex-1 flex flex-col gap-3 min-h-0">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Expert answer</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Conversation</p>
                       <h3 class="text-sm font-semibold text-white">{{ voiceStateLabel() }}</h3>
                     </div>
                     @if (lastConversationStep(); as step) {
@@ -485,49 +505,114 @@ interface ProposalFact {
                       </span>
                     }
                   </div>
-                  <textarea
-                    class="w-full min-h-56 flex-1 rounded bg-black/30 border border-white/10 px-4 py-3 text-base text-white leading-relaxed"
-                    [(ngModel)]="answer"
-                    (ngModelChange)="onAnswerDraftChange()"
-                    placeholder="La réponse captée apparaît ici. Vous pouvez aussi écrire ou corriger avant évaluation..."
-                  ></textarea>
+                  <div class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-4 overflow-auto space-y-3">
+                    <article class="rounded border border-brand-400/20 bg-brand-500/10 p-4">
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">Agentium</span>
+                        <span class="text-[10px] text-gray-500">{{ currentQuestion()?.estimated_minutes || 3 }} min</span>
+                      </div>
+                      <p class="mt-2 text-sm text-gray-100 leading-relaxed">
+                        {{ currentQuestion()?.question || nextPrompt() || 'The next interviewer prompt will appear here.' }}
+                      </p>
+                    </article>
+                    @for (event of textEvents().slice(-5); track event.id) {
+                      <article class="rounded border border-white/10 bg-white/[0.03] p-4">
+                        <div class="flex items-center justify-between gap-3">
+                          <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
+                            {{ conversationEventLabel(event) }}
+                          </span>
+                          <button type="button" class="text-xs text-brand-200 hover:text-brand-100" (click)="beginAmend(event)">
+                            Amend
+                          </button>
+                        </div>
+                        @if (editingEventId() === event.id) {
+                          <textarea
+                            class="mt-3 w-full min-h-20 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
+                            [ngModel]="editingText"
+                            (ngModelChange)="editingText = $event"
+                          ></textarea>
+                          <div class="mt-2 flex gap-2">
+                            <button type="button" class="px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-400 text-xs text-white" (click)="applyAmend(s.id, event.id)">
+                              Apply correction
+                            </button>
+                            <button type="button" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300" (click)="editingEventId.set(null)">
+                              Cancel
+                            </button>
+                          </div>
+                        } @else if (eventDisplayText(event); as text) {
+                          <p class="mt-2 text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{{ text }}</p>
+                        }
+                      </article>
+                    } @empty {
+                      <div class="rounded border border-dashed border-white/10 bg-black/20 p-6 text-center">
+                        <p class="text-sm text-gray-400">No expert answer captured yet.</p>
+                        <p class="mt-1 text-xs text-gray-600">Start the session, then answer by voice or type below.</p>
+                      </div>
+                    }
+                    @if (answer.trim()) {
+                      <article class="rounded border border-emerald-400/20 bg-emerald-500/10 p-4">
+                        <span class="ck-mono text-[10px] uppercase tracking-wider text-emerald-200">Draft answer</span>
+                        <p class="mt-2 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ answer }}</p>
+                      </article>
+                    }
+                  </div>
+                  @if (conversationMode() === 'manual') {
+                    <textarea
+                      class="w-full min-h-28 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white leading-relaxed"
+                      [(ngModel)]="answer"
+                      (ngModelChange)="onAnswerDraftChange()"
+                      placeholder="Type or correct the expert answer before evaluation..."
+                    ></textarea>
+                  }
                 </div>
 
                 <div class="mt-4 sticky bottom-3 rounded bg-black/70 border border-white/10 p-3 backdrop-blur">
                   <div class="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
-                      [disabled]="transcribing()"
-                      (click)="conversationMode() === 'conversation_only' ? toggleConversationSession() : toggleRecording()"
-                    >
-                      <app-icon [name]="conversationPrimaryIcon()" [size]="15" />
-                      {{ conversationPrimaryLabel() }}
-                    </button>
-                    @if (speaking()) {
+                    @if (sessionHasStarted(s)) {
                       <button
                         type="button"
-                        class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm text-amber-100 ring-1 ring-amber-400/20"
-                        (click)="interruptSpeech()"
+                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                        [disabled]="transcribing()"
+                        (click)="conversationMode() === 'conversation_only' ? toggleConversationSession() : toggleRecording()"
                       >
-                        <app-icon name="pause" [size]="14" /> Interrupt AI
+                        <app-icon [name]="conversationPrimaryIcon()" [size]="15" />
+                        {{ conversationPrimaryLabel() }}
+                      </button>
+                      @if (speaking()) {
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm text-amber-100 ring-1 ring-amber-400/20"
+                          (click)="interruptSpeech()"
+                        >
+                          <app-icon name="pause" [size]="14" /> Interrupt AI
+                        </button>
+                      }
+                    } @else {
+                      <button
+                        type="button"
+                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                        [disabled]="loading()"
+                        (click)="startGuidedSession(s)"
+                      >
+                        <app-icon [name]="planStartIcon(s)" [size]="15" />
+                        {{ planStartLabel(s) }}
                       </button>
                     }
-                    @if (conversationMode() === 'manual') {
+                    @if (conversationMode() === 'manual' && sessionHasStarted(s)) {
                       <button
                         type="button"
                         class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
                         [disabled]="!answer.trim()"
                         (click)="sendAnswer(s)"
                       >
-                        <app-icon name="send" [size]="14" /> Evaluate
+                        <app-icon name="send" [size]="14" /> Evaluate answer
                       </button>
                       <button
                         type="button"
                         class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
                         (click)="createProposal(s)"
                       >
-                        <app-icon name="check-circle-2" [size]="14" /> Proposal
+                        <app-icon name="check-circle-2" [size]="14" /> Create proposal
                       </button>
                     }
                     <div class="min-w-40 flex-1 flex items-center gap-3 rounded bg-white/[0.03] px-3 py-2">
@@ -545,92 +630,143 @@ interface ProposalFact {
                       </div>
                     </div>
                     <div class="flex items-center gap-2 text-xs text-gray-400">
+                      <span class="px-2 py-1 rounded bg-white/5">{{ sessionStartStateLabel(s) }}</span>
                       <span class="px-2 py-1 rounded bg-white/5">{{ recording() ? 'recording' : 'ready' }}</span>
                       <span class="px-2 py-1 rounded bg-white/5">{{ speaking() ? 'speaking' : 'tts idle' }}</span>
                     </div>
                   </div>
                 </div>
 
-                @if (textEvents().length) {
-                  <div class="mt-4 border-t border-white/10 pt-4">
-                    <div class="flex items-center justify-between gap-3">
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Validated conversation trace</p>
-                      <button type="button" class="text-xs text-brand-200 hover:text-brand-100" (click)="refreshEvents(s.id)">Refresh</button>
-                    </div>
-                    <div class="mt-3 space-y-2 max-h-48 overflow-auto">
-                      @for (event of textEvents().slice(-4); track event.id) {
-                        <div class="rounded bg-black/20 border border-white/10 p-3">
-                          <div class="flex items-center justify-between gap-2">
-                            <span class="text-[10px] uppercase tracking-wider text-gray-500">
-                              #{{ event.sequence }} · {{ transcriptEventLabel(event) }}
-                            </span>
-                            <button type="button" class="text-xs text-brand-200 hover:text-brand-100" (click)="beginAmend(event)">
-                              Amend
-                            </button>
-                          </div>
-                          @if (editingEventId() === event.id) {
-                            <textarea
-                              class="mt-2 w-full min-h-20 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
-                              [ngModel]="editingText"
-                              (ngModelChange)="editingText = $event"
-                            ></textarea>
-                            <div class="mt-2 flex gap-2">
-                              <button type="button" class="px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-400 text-xs text-white" (click)="applyAmend(s.id, event.id)">
-                                Apply correction
-                              </button>
-                              <button type="button" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300" (click)="editingEventId.set(null)">
-                                Cancel
-                              </button>
-                            </div>
-                          } @else if (eventDisplayText(event); as text) {
-                            <p class="mt-2 text-sm text-gray-200 line-clamp-2">{{ text }}</p>
-                          }
-                        </div>
-                      }
-                    </div>
-                  </div>
-                }
               </main>
 
               <aside class="space-y-4 max-h-[calc(100vh-270px)] overflow-auto">
                 <section class="t-card rounded-lg p-4">
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Runtime state</p>
+                  <div class="flex items-center justify-between gap-3">
+                    <div>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Quality panel</p>
+                      <h3 class="text-sm font-semibold text-white mt-1">{{ answerQualityHeadline() }}</h3>
+                    </div>
+                    <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
+                      {{ coveragePercent(s) }}%
+                    </span>
+                  </div>
                   <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
                     <div class="rounded bg-black/20 border border-white/10 p-3">
-                      <span class="block text-[9px] uppercase tracking-wider text-gray-500">Voice</span>
-                      <span class="text-gray-200">{{ voiceStateLabel() }}</span>
+                      <span class="block text-[9px] uppercase tracking-wider text-gray-500">Facts</span>
+                      <span class="text-gray-200">{{ s.metrics?.['captured_facts'] || proposalFacts().length || 0 }}</span>
                     </div>
                     <div class="rounded bg-black/20 border border-white/10 p-3">
-                      <span class="block text-[9px] uppercase tracking-wider text-gray-500">Mode</span>
-                      <span class="text-gray-200">{{ conversationMode() === 'conversation_only' ? 'Conversation' : 'Manual' }}</span>
+                      <span class="block text-[9px] uppercase tracking-wider text-gray-500">Evidence</span>
+                      <span class="text-gray-200">{{ proposalEvidenceCount() }}</span>
                     </div>
                     <div class="rounded bg-black/20 border border-white/10 p-3">
                       <span class="block text-[9px] uppercase tracking-wider text-gray-500">Retrieval</span>
                       <span class="text-gray-200">{{ retrievalLabel() }}</span>
                     </div>
                     <div class="rounded bg-black/20 border border-white/10 p-3">
-                      <span class="block text-[9px] uppercase tracking-wider text-gray-500">TTS</span>
-                      <span class="text-gray-200">{{ speaking() ? 'Speaking' : 'Idle' }}</span>
+                      <span class="block text-[9px] uppercase tracking-wider text-gray-500">Voice</span>
+                      <span class="text-gray-200">{{ voiceStateLabel() }}</span>
                     </div>
                   </div>
-                </section>
-
-                @if (conversationMode() === 'conversation_only') {
-                  <section class="t-card rounded-lg p-4 bg-brand-500/5 border-brand-400/20">
-                    <div class="flex items-start justify-between gap-3">
-                      <div>
-                        <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">Conversation-only</p>
-                        <p class="mt-2 text-sm text-white">{{ lastConversationLabel() }}</p>
+                  @if (lastEvaluation(); as ev) {
+                    <div class="mt-3 rounded bg-black/20 border border-white/10 p-3">
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="text-xs text-gray-200">{{ ev.verdict }}</span>
+                        <span class="ck-mono text-[10px] text-brand-200">score {{ ev.score }}</span>
                       </div>
-                      @if (conversationSessionActive()) {
-                        <span class="text-xs text-brand-100">Active</span>
+                      @if (nextPrompt()) {
+                        <button type="button" class="mt-3 text-left text-sm text-brand-200 hover:text-brand-100" (click)="speak(nextPrompt()!)">
+                          {{ nextPrompt() }}
+                        </button>
                       }
                     </div>
+                  } @else {
+                    <p class="mt-3 text-xs text-gray-500 leading-relaxed">
+                      Quality signals appear after the first evaluated expert answer.
+                    </p>
+                  }
+                </section>
+
+                <section
+                  [class]="conversationMode() === 'conversation_only'
+                    ? 't-card rounded-lg p-4 bg-brand-500/5 border-brand-400/20'
+                    : 't-card rounded-lg p-4'"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Session mode</p>
+                      <h3 class="text-sm font-semibold text-white mt-1">
+                        {{ conversationMode() === 'conversation_only' ? 'Conversation' : 'Guided capture' }}
+                      </h3>
+                    </div>
+                    @if (conversationSessionActive()) {
+                      <span class="text-xs text-brand-100">Active</span>
+                    }
+                  </div>
+                  <div class="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      [class]="conversationMode() === 'manual'
+                        ? 'rounded border border-brand-300 bg-brand-500/15 px-3 py-2 text-left text-brand-100'
+                        : 'rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-gray-300 hover:bg-white/[0.06]'"
+                      (click)="setConversationMode('manual')"
+                    >
+                      <span class="flex items-center gap-2 text-xs font-semibold">
+                        <app-icon name="list-checks" [size]="13" /> Guided
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      [class]="conversationMode() === 'conversation_only'
+                        ? 'rounded border border-brand-300 bg-brand-500/15 px-3 py-2 text-left text-brand-100'
+                        : 'rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-gray-300 hover:bg-white/[0.06]'"
+                      (click)="setConversationMode('conversation_only')"
+                    >
+                      <span class="flex items-center gap-2 text-xs font-semibold">
+                        <app-icon name="message-circle" [size]="13" /> Conversation
+                      </span>
+                    </button>
+                  </div>
+                  @if (conversationMode() === 'conversation_only') {
+                    <p class="mt-3 text-sm text-white">{{ lastConversationLabel() }}</p>
                     @if (nextPrompt()) {
                       <p class="mt-3 text-xs text-gray-300 leading-relaxed">{{ nextPrompt() }}</p>
                     }
-                  </section>
-                }
+                  }
+                </section>
+
+                <section class="t-card rounded-lg p-4">
+                  <div class="flex items-center justify-between gap-3">
+                    <div>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Conversation state</p>
+                      <h3 class="text-sm font-semibold text-white mt-1">{{ conversationStateHeadline(s) }}</h3>
+                    </div>
+                    @if (lastConversationStep(); as step) {
+                      <span class="ck-mono text-[10px] text-brand-200">{{ (step.confidence * 100).toFixed(0) }}%</span>
+                    }
+                  </div>
+                  <div class="mt-3 space-y-2">
+                    @for (row of conversationStageRows(s); track row.id) {
+                      <div
+                        [class]="conversationStageClass(row)"
+                      >
+                        <span
+                          [class]="row.state === 'done'
+                            ? 'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-emerald-500/20 text-emerald-100'
+                            : row.state === 'active'
+                              ? 'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-brand-500/20 text-brand-100'
+                              : 'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-white/5 text-gray-500'"
+                        >
+                          <app-icon [name]="row.icon" [size]="13" />
+                        </span>
+                        <span class="min-w-0">
+                          <span class="block text-xs font-semibold text-gray-100">{{ row.label }}</span>
+                          <span class="mt-0.5 block text-[10px] text-gray-500 truncate">{{ row.detail }}</span>
+                        </span>
+                      </div>
+                    }
+                  </div>
+                </section>
 
                 <section class="t-card rounded-lg p-4">
                   <div class="flex items-center justify-between gap-3">
@@ -654,18 +790,6 @@ interface ProposalFact {
                     </p>
                   }
                 </section>
-
-                @if (lastEvaluation(); as ev) {
-                  <section class="t-card rounded-lg p-4">
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Answer quality</p>
-                    <div class="mt-2 text-sm text-white">{{ ev.verdict }} · score {{ ev.score }}</div>
-                    @if (nextPrompt()) {
-                      <button type="button" class="mt-3 text-left text-sm text-brand-200 hover:text-brand-100" (click)="speak(nextPrompt()!)">
-                        {{ nextPrompt() }}
-                      </button>
-                    }
-                  </section>
-                }
 
                 @if (proposal(); as p) {
                   <section class="t-card rounded-lg p-4">
@@ -693,7 +817,7 @@ interface ProposalFact {
 
       @if (activeSurface() === 'plan') {
         @if (session(); as s) {
-          <section class="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
+          <section class="grid xl:grid-cols-[minmax(0,1fr)_420px] gap-5">
             <div class="t-card rounded-lg p-5 space-y-4">
               <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
@@ -703,10 +827,10 @@ interface ProposalFact {
                 </div>
                 <button
                   type="button"
-                  class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
                   (click)="goSurface('session')"
                 >
-                  <app-icon name="mic" [size]="14" /> Open capture cockpit
+                  <app-icon name="eye" [size]="14" /> Preview cockpit
                 </button>
               </div>
 
@@ -729,27 +853,31 @@ interface ProposalFact {
                 @for (q of s.plan.questions || []; track q.id) {
                   <button
                     type="button"
-                    class="w-full text-left rounded border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-4"
+                    class="w-full text-left rounded border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-5"
                     [class.ring-1]="selectedQuestionId() === q.id"
                     [class.ring-brand-400]="selectedQuestionId() === q.id"
                     (click)="selectedQuestionId.set(q.id)"
                   >
                     <div class="flex flex-wrap items-center justify-between gap-3">
                       <div class="flex items-center gap-3">
-                        <span class="ck-mono text-xs text-brand-300">{{ q.id }}</span>
-                        <span class="text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-white/5 text-gray-400">
+                        <span class="ck-mono text-xs text-brand-300">{{ questionDisplayId(q) }}</span>
+                        <span
+                          [class]="questionStateLabel(s, q) === 'current'
+                            ? 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-brand-500/20 text-brand-100'
+                            : 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-white/5 text-gray-400'"
+                        >
                           {{ questionStateLabel(s, q) }}
                         </span>
                       </div>
                       <span class="text-xs text-gray-500">{{ q.estimated_minutes || 3 }} min</span>
                     </div>
-                    <p class="mt-3 text-base text-gray-100 leading-relaxed">{{ q.question }}</p>
+                    <p class="mt-4 text-base text-gray-100 leading-relaxed">{{ q.question }}</p>
                   </button>
                 }
               </div>
             </div>
 
-            <aside class="t-card rounded-lg p-5 space-y-4">
+            <aside class="t-card rounded-lg p-5 space-y-4 xl:sticky xl:top-4">
               <div>
                 <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Session setup</p>
                 <h3 class="text-sm font-semibold text-white mt-1">Ready for capture</h3>
@@ -767,13 +895,47 @@ interface ProposalFact {
                   <span class="block text-[9px] uppercase tracking-wider text-gray-500">Runtime</span>
                   <span class="text-gray-200">cascade · chunked capture · segmented TTS</span>
                 </div>
+                <div class="rounded bg-black/20 border border-white/10 p-3">
+                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Status</span>
+                  <span class="text-gray-200">{{ sessionStartStateLabel(s) }}</span>
+                </div>
+              </div>
+              <div class="rounded bg-black/20 border border-white/10 p-3">
+                <span class="block text-[9px] uppercase tracking-wider text-gray-500 mb-2">Session mode</span>
+                <div class="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    [class]="conversationMode() === 'manual'
+                      ? 'rounded border border-brand-300 bg-brand-500/15 px-3 py-2 text-left text-brand-100'
+                      : 'rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-gray-300 hover:bg-white/[0.06]'"
+                    (click)="setConversationMode('manual')"
+                  >
+                    <span class="flex items-center gap-2 text-xs font-semibold">
+                      <app-icon name="list-checks" [size]="13" /> Guided
+                    </span>
+                    <span class="mt-1 block text-[10px] text-gray-500">Turn by turn</span>
+                  </button>
+                  <button
+                    type="button"
+                    [class]="conversationMode() === 'conversation_only'
+                      ? 'rounded border border-brand-300 bg-brand-500/15 px-3 py-2 text-left text-brand-100'
+                      : 'rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-gray-300 hover:bg-white/[0.06]'"
+                    (click)="setConversationMode('conversation_only')"
+                  >
+                    <span class="flex items-center gap-2 text-xs font-semibold">
+                      <app-icon name="message-circle" [size]="13" /> Conversation
+                    </span>
+                    <span class="mt-1 block text-[10px] text-gray-500">Voice led</span>
+                  </button>
+                </div>
               </div>
               <button
                 type="button"
-                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white"
-                (click)="goSurface('session')"
+                class="w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                [disabled]="loading()"
+                (click)="startGuidedSession(s)"
               >
-                <app-icon name="play" [size]="14" /> Start guided session
+                <app-icon [name]="planStartIcon(s)" [size]="14" /> {{ planStartLabel(s) }}
               </button>
             </aside>
           </section>
@@ -872,7 +1034,7 @@ interface ProposalFact {
             @if (proposalFacts().length) {
               <div class="space-y-3">
                 @for (fact of proposalFacts(); track proposalFactTrack($index, fact)) {
-                  <article class="rounded border border-white/10 bg-black/20 p-4">
+                  <article [class]="proposalFactCardClass($index, fact)">
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
                         <div class="flex flex-wrap items-center gap-2">
@@ -880,14 +1042,66 @@ interface ProposalFact {
                             {{ proposalFactType(fact) }}
                           </span>
                           <span class="text-xs text-gray-500">{{ proposalFactConfidence(fact) }}</span>
+                          <span
+                            [class]="proposalFactDecision($index, fact) === 'accept'
+                              ? 'text-xs text-emerald-200'
+                              : proposalFactDecision($index, fact) === 'reject'
+                                ? 'text-xs text-red-200'
+                                : 'text-xs text-gray-500'"
+                          >
+                            {{ proposalFactDecisionLabel($index, fact) }}
+                          </span>
                           @if (fact.amended) {
                             <span class="text-xs text-amber-200">HITL amended</span>
                           }
                         </div>
-                        <p class="mt-3 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ proposalFactText(fact) }}</p>
+                        @if (editingProposalFactKey() === proposalFactKey($index, fact)) {
+                          <textarea
+                            class="mt-3 w-full min-h-24 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
+                            [ngModel]="proposalFactEditText"
+                            (ngModelChange)="proposalFactEditText = $event"
+                          ></textarea>
+                          <div class="mt-2 flex gap-2">
+                            <button type="button" class="px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-400 text-xs text-white" (click)="saveProposalFactEdit($index, fact)">
+                              Save edit
+                            </button>
+                            <button type="button" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300" (click)="cancelProposalFactEdit()">
+                              Cancel
+                            </button>
+                          </div>
+                        } @else {
+                          <p class="mt-3 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ proposalFactReviewText($index, fact) }}</p>
+                        }
                         @if (fact.raw_text && fact.raw_text !== proposalFactText(fact)) {
                           <p class="mt-2 text-xs text-gray-500">Raw: {{ fact.raw_text }}</p>
                         }
+                      </div>
+                      <div class="shrink-0 grid gap-1.5 w-28">
+                        <button
+                          type="button"
+                          [class]="proposalFactDecision($index, fact) === 'accept'
+                            ? 'px-2 py-1.5 rounded bg-emerald-500/20 text-xs text-emerald-100 ring-1 ring-emerald-400/30'
+                            : 'px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300 ring-1 ring-white/10'"
+                          (click)="setProposalFactDecision($index, fact, 'accept')"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          type="button"
+                          [class]="proposalFactDecision($index, fact) === 'reject'
+                            ? 'px-2 py-1.5 rounded bg-red-500/20 text-xs text-red-100 ring-1 ring-red-400/30'
+                            : 'px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300 ring-1 ring-white/10'"
+                          (click)="setProposalFactDecision($index, fact, 'reject')"
+                        >
+                          Reject
+                        </button>
+                        <button
+                          type="button"
+                          class="px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300 ring-1 ring-white/10"
+                          (click)="beginProposalFactEdit($index, fact)"
+                        >
+                          Edit
+                        </button>
                       </div>
                     </div>
                     @if (fact.retrieval_refs?.length) {
@@ -931,6 +1145,14 @@ interface ProposalFact {
               <div class="rounded bg-black/20 border border-white/10 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500">Evidence</div>
                 <div class="text-xl text-white font-semibold">{{ proposalEvidenceCount() }}</div>
+              </div>
+              <div class="rounded bg-black/20 border border-white/10 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Accepted</div>
+                <div class="text-xl text-white font-semibold">{{ acceptedProposalFactCount() }}</div>
+              </div>
+              <div class="rounded bg-black/20 border border-white/10 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Rejected</div>
+                <div class="text-xl text-white font-semibold">{{ rejectedProposalFactCount() }}</div>
               </div>
             </div>
             @if (proposalOpenQuestions().length) {
@@ -1060,6 +1282,9 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly lastSystemPromptEventId = signal<string | null>(null);
   readonly interruptionOfEventId = signal<string | null>(null);
   readonly proposal = signal<CaptureProposal | null>(null);
+  readonly proposalFactDecisions = signal<Record<string, ProposalFactDecision>>({});
+  readonly proposalFactEdits = signal<Record<string, string>>({});
+  readonly editingProposalFactKey = signal<string | null>(null);
   readonly events = signal<CaptureEvent[]>([]);
   readonly retrieval = signal<RetrievalPrefetch>({
     status: 'idle',
@@ -1069,6 +1294,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   });
   readonly editingEventId = signal<string | null>(null);
   editingText = '';
+  proposalFactEditText = '';
 
   readonly surfaceNav: Array<{ id: CaptureSurfaceView; label: string; icon: string; step: number }> = [
     { id: 'dashboard', label: 'Sessions', icon: 'layout-dashboard', step: 1 },
@@ -1177,6 +1403,57 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
   }
 
+  async startGuidedSession(session: CaptureSession): Promise<void> {
+    if (this.loading()) return;
+    this.loading.set(true);
+    const conversationOnly = this.conversationMode() === 'conversation_only';
+    let armed = true;
+    if (conversationOnly) {
+      this.conversationSessionActive.set(true);
+      armed = await this.ensureAudioStream();
+      if (!armed) {
+        this.conversationSessionActive.set(false);
+        this.voiceState.set('idle');
+        this.loading.set(false);
+        return;
+      }
+    }
+    this.api
+      .startCaptureSession(session.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          const typed = payload as CaptureSession;
+          this.session.set(typed);
+          const questions = typed.plan.questions || [];
+          const selected = this.selectedQuestionId();
+          this.selectedQuestionId.set(
+            selected && questions.some((question) => question.id === selected)
+              ? selected
+              : questions[0]?.id || null,
+          );
+          this.refreshEvents(typed.id);
+          this.refreshDashboard();
+          this.activeSurface.set('session');
+          this.loading.set(false);
+          if (conversationOnly && armed) {
+            const firstPrompt = this.currentQuestion()?.question || this.nextPrompt();
+            if (firstPrompt) {
+              this.speak(firstPrompt);
+            } else {
+              void this.startRecordingTurn();
+            }
+          }
+        },
+        error: () => {
+          if (conversationOnly) {
+            this.stopConversationSession();
+          }
+          this.loading.set(false);
+        },
+      });
+  }
+
   refreshDashboard(): void {
     this.api
       .listCaptureSessions()
@@ -1201,16 +1478,27 @@ export class KnowledgeCaptureComponent implements OnInit {
       });
   }
 
+  private setProposal(proposal: CaptureProposal | null): void {
+    const previousId = this.proposal()?.id || null;
+    this.proposal.set(proposal);
+    if ((proposal?.id || null) !== previousId) {
+      this.proposalFactDecisions.set({});
+      this.proposalFactEdits.set({});
+      this.editingProposalFactKey.set(null);
+      this.proposalFactEditText = '';
+    }
+  }
+
   openDashboardSession(row: CaptureSession): void {
     this.session.set(row);
-    this.proposal.set(null);
+    this.setProposal(null);
     this.selectedQuestionId.set(row.plan.questions?.[0]?.id || null);
     this.refreshEvents(row.id);
     this.activeSurface.set(row.status === 'completed' ? 'review' : 'session');
   }
 
   openDashboardProposal(row: CaptureProposal): void {
-    this.proposal.set(row);
+    this.setProposal(row);
     const related = this.dashboardSessions().find((session) => session.id === row.session_id);
     if (related) {
       this.session.set(related);
@@ -1388,10 +1676,134 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.maybePrefetchRetrieval(session, this.answer);
   }
 
-  toggleConversationMode(): void {
-    this.conversationMode.set(this.conversationMode() === 'manual' ? 'conversation_only' : 'manual');
+  selectCaptureQuestion(question: CaptureQuestion): void {
+    this.selectedQuestionId.set(question.id);
+  }
+
+  questionDisplayId(question: CaptureQuestion): string {
+    const match = question.id.match(/(\d+)$/);
+    if (!match) return question.id;
+    return `q-${match[1].padStart(2, '0')}`;
+  }
+
+  coveragePercent(session: CaptureSession): number {
+    const raw = session.metrics?.['coverage'];
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return Math.max(0, Math.min(100, Math.round(raw * 100)));
+    }
+    const total = session.plan.questions?.length || 0;
+    if (!total) return 0;
+    return Math.round(((session.metrics?.['captured_facts'] || 0) / total) * 100);
+  }
+
+  answerQualityHeadline(): string {
+    const evaluation = this.lastEvaluation();
+    if (!evaluation) return 'Waiting for first answer';
+    return `${evaluation.verdict} answer`;
+  }
+
+  conversationEventLabel(event: CaptureEvent): string {
+    const speaker = (event.speaker || '').toLowerCase();
+    if (speaker === 'expert') return `Expert · ${this.transcriptEventShortLabel(event)}`;
+    if (speaker === 'system') return `Agentium · ${this.transcriptEventShortLabel(event)}`;
+    if (event.event_type === 'proposal_generated') return 'Proposal · generated';
+    if (event.event_type === 'proposal_reviewed') return 'Review · completed';
+    return `Trace · ${this.transcriptEventShortLabel(event)}`;
+  }
+
+  conversationStateHeadline(session: CaptureSession): string {
+    if (!this.sessionHasStarted(session)) return 'Ready to start';
+    if (this.speaking()) return 'AI asking';
+    if (this.recording()) return 'Expert answering';
+    if (this.transcribing()) return 'Processing turn';
+    if (this.voiceState() === 'thinking') return 'Evaluating answer';
+    if (this.proposal()) return 'Proposal ready';
+    const step = this.lastConversationStep();
+    if (step?.action_taken === 'proposal_deferred_insufficient_facts') return 'More detail needed';
+    return this.conversationMode() === 'conversation_only' ? 'Conversation loop ready' : 'Guided capture ready';
+  }
+
+  conversationStageRows(session: CaptureSession): ConversationStageRow[] {
+    const started = this.sessionHasStarted(session);
+    const hasAnswer = this.textEvents().some((event) =>
+      ['expert_turn_finalized', 'transcript_amended', 'conversation_intent_detected'].includes(event.event_type),
+    );
+    const proposalActive = Boolean(
+      this.lastConversationStep()?.intent?.includes('proposal') ||
+      this.lastConversationStep()?.action_taken?.includes('proposal'),
+    );
+    return [
+      {
+        id: 'ready',
+        label: 'Ready',
+        detail: started ? session.status : 'waiting for launch',
+        icon: 'play',
+        state: started ? 'done' : 'active',
+      },
+      {
+        id: 'prompt',
+        label: 'Prompt',
+        detail: this.speaking() ? 'AI speaking' : this.currentQuestion()?.id || 'selected question',
+        icon: 'volume-2',
+        state: !started ? 'pending' : this.speaking() ? 'active' : 'done',
+      },
+      {
+        id: 'answer',
+        label: 'Answer',
+        detail: this.recording() ? 'recording expert' : this.transcribing() ? 'finalizing transcript' : this.voiceStateLabel(),
+        icon: 'mic',
+        state: !started ? 'pending' : (this.recording() || this.transcribing() || this.voiceState() === 'thinking') ? 'active' : hasAnswer ? 'done' : 'pending',
+      },
+      {
+        id: 'proposal',
+        label: 'Proposal',
+        detail: this.proposal() ? `${this.proposalFacts().length} facts` : this.lastConversationLabel(),
+        icon: 'check-circle-2',
+        state: this.proposal() ? 'done' : proposalActive ? 'active' : 'pending',
+      },
+    ];
+  }
+
+  conversationStageClass(row: ConversationStageRow): string {
+    const base = 'flex items-center gap-3 rounded border p-3';
+    if (row.state === 'done') return `${base} border-emerald-400/20 bg-emerald-500/10`;
+    if (row.state === 'active') return `${base} border-brand-400/25 bg-brand-500/10`;
+    return `${base} border-white/10 bg-white/[0.03]`;
+  }
+
+  setConversationMode(mode: ConversationMode): void {
+    if (this.conversationMode() === mode) return;
+    this.conversationMode.set(mode);
     this.lastConversationStep.set(null);
     this.stopConversationSession();
+  }
+
+  toggleConversationMode(): void {
+    this.setConversationMode(this.conversationMode() === 'manual' ? 'conversation_only' : 'manual');
+  }
+
+  sessionHasStarted(session: CaptureSession): boolean {
+    return session.status !== 'planned';
+  }
+
+  sessionStartStateLabel(session: CaptureSession): string {
+    if (session.status === 'planned') return 'not started';
+    if (session.status === 'active') return 'active';
+    return session.status;
+  }
+
+  planStartIcon(session?: CaptureSession): string {
+    if (session && this.sessionHasStarted(session)) {
+      return this.conversationMode() === 'conversation_only' ? 'message-circle' : 'arrow-right';
+    }
+    return this.conversationMode() === 'conversation_only' ? 'message-circle' : 'play';
+  }
+
+  planStartLabel(session?: CaptureSession): string {
+    const prefix = session && this.sessionHasStarted(session) ? 'Resume' : 'Start';
+    return this.conversationMode() === 'conversation_only'
+      ? `${prefix} conversation session`
+      : `${prefix} guided session`;
   }
 
   conversationPrimaryIcon(): string {
@@ -1451,6 +1863,14 @@ export class KnowledgeCaptureComponent implements OnInit {
     return 'transcript';
   }
 
+  private transcriptEventShortLabel(event: CaptureEvent): string {
+    if (event.event_type === 'conversation_intent_detected') return 'intent';
+    if (event.event_type === 'transcript_amended' || event.text_amended) return 'amended';
+    if (event.event_type === 'expert_turn_finalized') return 'final answer';
+    if (event.event_type === 'stt_final') return 'transcript';
+    return 'captured';
+  }
+
   eventDisplayText(event: CaptureEvent): string {
     if (event.event_type === 'conversation_intent_detected') {
       return String((event.metadata || {})['fact_text'] || '').trim();
@@ -1490,7 +1910,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         .createCaptureProposal(session.id)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe((proposal) => {
-          this.proposal.set(proposal as CaptureProposal);
+          this.setProposal(proposal as CaptureProposal);
           this.refreshDashboard();
           this.activeSurface.set('review');
         });
@@ -1522,7 +1942,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           .createCaptureProposal(typed.session.id)
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe((proposal) => {
-            this.proposal.set(proposal as CaptureProposal);
+            this.setProposal(proposal as CaptureProposal);
             this.refreshDashboard();
             this.activeSurface.set('review');
             this.voiceState.set('idle');
@@ -1556,7 +1976,7 @@ export class KnowledgeCaptureComponent implements OnInit {
             this.selectedQuestionId.set(step.next_question_id);
           }
           if (step.proposal) {
-            this.proposal.set(step.proposal as CaptureProposal);
+            this.setProposal(step.proposal as CaptureProposal);
             if (step.intent === 'proposal_requested') {
               this.activeSurface.set('review');
             }
@@ -1584,7 +2004,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((proposal) => {
-        this.proposal.set(proposal as CaptureProposal);
+        this.setProposal(proposal as CaptureProposal);
         this.refreshDashboard();
       });
   }
@@ -1603,11 +2023,76 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   proposalFactTrack(index: number, fact: ProposalFact): string {
+    return this.proposalFactKey(index, fact);
+  }
+
+  proposalFactKey(index: number, fact: ProposalFact): string {
     return fact.id || `${index}:${this.proposalFactText(fact).slice(0, 80)}`;
   }
 
   proposalFactText(fact: ProposalFact): string {
     return (fact.text || fact.statement || '').trim();
+  }
+
+  proposalFactReviewText(index: number, fact: ProposalFact): string {
+    return this.proposalFactEdits()[this.proposalFactKey(index, fact)] || this.proposalFactText(fact);
+  }
+
+  proposalFactDecision(index: number, fact: ProposalFact): ProposalFactDecision {
+    return this.proposalFactDecisions()[this.proposalFactKey(index, fact)] || 'pending';
+  }
+
+  proposalFactDecisionLabel(index: number, fact: ProposalFact): string {
+    const decision = this.proposalFactDecision(index, fact);
+    if (decision === 'accept') return 'accepted';
+    if (decision === 'reject') return 'rejected';
+    return 'pending';
+  }
+
+  proposalFactCardClass(index: number, fact: ProposalFact): string {
+    const base = 'rounded border p-4';
+    const decision = this.proposalFactDecision(index, fact);
+    if (decision === 'accept') return `${base} border-emerald-400/30 bg-emerald-500/10`;
+    if (decision === 'reject') return `${base} border-red-400/30 bg-red-500/10`;
+    return `${base} border-white/10 bg-black/20`;
+  }
+
+  setProposalFactDecision(index: number, fact: ProposalFact, decision: ProposalFactDecision): void {
+    const key = this.proposalFactKey(index, fact);
+    this.proposalFactDecisions.update((current) => ({ ...current, [key]: decision }));
+  }
+
+  beginProposalFactEdit(index: number, fact: ProposalFact): void {
+    const key = this.proposalFactKey(index, fact);
+    this.editingProposalFactKey.set(key);
+    this.proposalFactEditText = this.proposalFactReviewText(index, fact);
+  }
+
+  saveProposalFactEdit(index: number, fact: ProposalFact): void {
+    const key = this.proposalFactKey(index, fact);
+    const text = this.proposalFactEditText.trim();
+    if (text) {
+      this.proposalFactEdits.update((current) => ({ ...current, [key]: text }));
+      this.proposalFactDecisions.update((current) => ({ ...current, [key]: 'accept' }));
+    }
+    this.editingProposalFactKey.set(null);
+  }
+
+  cancelProposalFactEdit(): void {
+    this.editingProposalFactKey.set(null);
+    this.proposalFactEditText = '';
+  }
+
+  acceptedProposalFactCount(): number {
+    return this.countProposalFactDecision('accept');
+  }
+
+  rejectedProposalFactCount(): number {
+    return this.countProposalFactDecision('reject');
+  }
+
+  private countProposalFactDecision(decision: ProposalFactDecision): number {
+    return this.proposalFacts().filter((fact, index) => this.proposalFactDecision(index, fact) === decision).length;
   }
 
   proposalFactType(fact: ProposalFact): string {
