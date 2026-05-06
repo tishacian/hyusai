@@ -149,6 +149,10 @@ export class ApiService {
     return this.post(`/knowledge-capture/sessions/${sessionId}/proposal`);
   }
 
+  listCaptureProposals(status?: string): Observable<unknown> {
+    return this.get('/knowledge-capture/proposals', status ? { status } : undefined);
+  }
+
   reviewCaptureProposal(proposalId: string, body: ProposalReviewRequest): Observable<unknown> {
     return this.patch(`/knowledge-capture/proposals/${proposalId}/review`, body);
   }

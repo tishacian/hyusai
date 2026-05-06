@@ -17,6 +17,11 @@ export const systemsRoutes: Routes = [
       import('../orchestration/workflow-editor.component').then((m) => m.WorkflowEditorComponent),
   },
   {
+    path: ':systemId/capture',
+    loadComponent: () =>
+      import('../knowledge/knowledge-capture.component').then((m) => m.KnowledgeCaptureComponent),
+  },
+  {
     path: ':systemId',
     loadComponent: () =>
       import('./system-view.component').then((m) => m.SystemViewComponent),
