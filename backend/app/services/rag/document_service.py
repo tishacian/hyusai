@@ -604,7 +604,21 @@ class DocumentService:
     
     async def list_documents(self) -> List[Dict]:
         """List all documents in the collection"""
-        return await self.vector_db.list_documents()
+        documents = await self.vector_db.list_documents()
+        normalized_documents = []
+        for document in documents:
+            normalized = dict(document)
+            document_id = normalized.get("document_id")
+            chunk_count = normalized.get("chunk_count", normalized.get("chunks_count"))
+            if chunk_count is None and document_id:
+                try:
+                    chunk_count = len(await self.vector_db.get_by_document_id(document_id))
+                except Exception:
+                    chunk_count = None
+            normalized["chunk_count"] = chunk_count
+            normalized["chunks_count"] = chunk_count
+            normalized_documents.append(normalized)
+        return normalized_documents
 
     async def get_document_metadata(self, document_id: str) -> Dict:
         """Return docmeta-enriched metadata for a single document.
@@ -634,8 +648,10 @@ class DocumentService:
         try:
             chunk_ids = await self.vector_db.get_by_document_id(document_id)
             cleaned["chunks_count"] = len(chunk_ids)
+            cleaned["chunk_count"] = len(chunk_ids)
         except Exception:
             cleaned["chunks_count"] = None
+            cleaned["chunk_count"] = None
         return cleaned
     
     async def delete_document(self, document_id: str) -> bool:
@@ -663,4 +679,3 @@ class DocumentService:
         except Exception as e:
             logger.error(f"Error clearing documents: {e}")
             return False
-

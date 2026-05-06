@@ -52,6 +52,7 @@ interface TurnResponse {
 interface CaptureEvent {
   id: string;
   event_type: string;
+  parent_event_id?: string | null;
   speaker?: string | null;
   sequence: number;
   question_id?: string | null;
@@ -83,6 +84,23 @@ interface RetrievalPrefetch {
   metadatas: Record<string, any>[];
 }
 
+type ConversationMode = 'manual' | 'conversation_only';
+
+interface ConversationStepResponse {
+  intent: string;
+  confidence: number;
+  action_taken: string;
+  session: CaptureSession;
+  proposal?: any | null;
+  turn?: any | null;
+  evaluation?: TurnResponse['evaluation'] | null;
+  next_prompt?: string | null;
+  next_question_id?: string | null;
+  system_prompt_event_id?: string | null;
+  requires_confirmation: boolean;
+  confirmation_target?: string | null;
+}
+
 @Component({
   selector: 'app-knowledge-capture',
   standalone: true,
@@ -99,9 +117,20 @@ interface RetrievalPrefetch {
             session, then emit a reviewable Knowledge update proposal.
           </p>
         </div>
-        <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
-          Phase 0 · cascade voice runtime
-        </span>
+        <div class="flex flex-col items-end gap-2">
+          <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
+            Phase 0 · cascade voice runtime
+          </span>
+          <button
+            type="button"
+            [class]="conversationMode() === 'conversation_only'
+              ? 'text-xs px-3 py-1.5 rounded ring-1 bg-brand-500 text-white ring-brand-300'
+              : 'text-xs px-3 py-1.5 rounded ring-1 bg-white/5 text-gray-300 ring-white/10'"
+            (click)="toggleConversationMode()"
+          >
+            {{ conversationMode() === 'conversation_only' ? 'Exit conversation mode' : 'Conversation-only' }}
+          </button>
+        </div>
       </header>
 
       <section class="grid md:grid-cols-4 gap-3">
@@ -274,14 +303,16 @@ interface RetrievalPrefetch {
                     <app-icon [name]="recording() ? 'square' : 'mic'" [size]="14" />
                     {{ recording() ? 'Stop listening' : speaking() ? 'Interrupt & answer' : transcribing() ? 'Transcribing...' : 'Listen' }}
                   </button>
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
-                    [disabled]="!answer.trim()"
-                    (click)="sendAnswer(s)"
-                  >
-                    <app-icon name="send" [size]="14" /> Evaluate answer
-                  </button>
+                  @if (conversationMode() === 'manual') {
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                      [disabled]="!answer.trim()"
+                      (click)="sendAnswer(s)"
+                    >
+                      <app-icon name="send" [size]="14" /> Evaluate answer
+                    </button>
+                  }
                   @if (speaking()) {
                     <button
                       type="button"
@@ -291,14 +322,33 @@ interface RetrievalPrefetch {
                       <app-icon name="pause" [size]="14" /> Interrupt AI
                     </button>
                   }
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
-                    (click)="createProposal(s)"
-                  >
-                    <app-icon name="check-circle-2" [size]="14" /> Create proposal
-                  </button>
+                  @if (conversationMode() === 'manual') {
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                      (click)="createProposal(s)"
+                    >
+                      <app-icon name="check-circle-2" [size]="14" /> Create proposal
+                    </button>
+                  }
                 </div>
+
+                @if (conversationMode() === 'conversation_only') {
+                  <div class="rounded bg-brand-500/10 border border-brand-400/20 p-3 text-sm">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <div class="text-[10px] uppercase tracking-wider text-brand-200">Conversation-only</div>
+                        <div class="mt-1 text-white">{{ lastConversationLabel() }}</div>
+                      </div>
+                      @if (lastConversationStep(); as step) {
+                        <span class="text-xs text-gray-400">{{ (step.confidence * 100).toFixed(0) }}%</span>
+                      }
+                    </div>
+                    @if (nextPrompt()) {
+                      <p class="mt-2 text-xs text-gray-300">{{ nextPrompt() }}</p>
+                    }
+                  </div>
+                }
 
                 @if (retrieval(); as rr) {
                   @if (rr.status !== 'idle') {
@@ -361,7 +411,7 @@ interface RetrievalPrefetch {
                     <div class="rounded border border-white/10 bg-black/20 p-3">
                       <div class="flex items-center justify-between gap-2">
                         <div class="text-[10px] uppercase tracking-wider text-gray-500">
-                          #{{ event.sequence }} · {{ event.speaker || 'system' }} · {{ event.status }}
+                          #{{ event.sequence }} · {{ transcriptEventLabel(event) }} · {{ event.status }}
                         </div>
                         <button
                           type="button"
@@ -394,7 +444,9 @@ interface RetrievalPrefetch {
                           </button>
                         </div>
                       } @else {
-                        <p class="mt-2 text-sm text-gray-200 whitespace-pre-wrap">{{ event.text }}</p>
+                        @if (event.text) {
+                          <p class="mt-2 text-sm text-gray-200 whitespace-pre-wrap">{{ event.text }}</p>
+                        }
                         @if (event.text_amended) {
                           <p class="mt-2 text-xs text-gray-500">
                             Raw: {{ event.text_raw }}
@@ -414,6 +466,7 @@ interface RetrievalPrefetch {
                   <button
                     type="button"
                     class="text-xs px-3 py-1.5 rounded bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/20"
+                    [class.hidden]="conversationMode() === 'conversation_only'"
                     (click)="acceptProposal(p.id)"
                   >
                     Accept proposal
@@ -470,6 +523,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly loading = signal(false);
   readonly contexts = signal<ContextOption[]>([]);
   readonly systems = signal<SystemOption[]>([]);
+  readonly conversationMode = signal<ConversationMode>('manual');
+  readonly lastConversationStep = signal<ConversationStepResponse | null>(null);
   readonly recording = signal(false);
   readonly transcribing = signal(false);
   readonly speaking = signal(false);
@@ -622,7 +677,30 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   textEvents(): CaptureEvent[] {
-    return this.events().filter((event) => Boolean(event.text || event.text_raw || event.text_amended));
+    const priorities: Record<string, number> = {
+      proposal_reviewed: 80,
+      proposal_generated: 70,
+      conversation_intent_detected: 60,
+      transcript_amended: 50,
+      expert_turn_finalized: 40,
+      stt_final: 30,
+      transcript_turn_recorded: 20,
+    };
+    const byKey = new Map<string, CaptureEvent>();
+    this.events()
+      .filter((event) => priorities[event.event_type] && (
+        Boolean(event.text || event.text_raw || event.text_amended) ||
+        event.event_type === 'proposal_generated' ||
+        event.event_type === 'proposal_reviewed'
+      ))
+      .forEach((event) => {
+        const key = this.eventLedgerKey(event);
+        const current = byKey.get(key);
+        if (!current || priorities[event.event_type] >= priorities[current.event_type]) {
+          byKey.set(key, event);
+        }
+      });
+    return Array.from(byKey.values()).sort((a, b) => a.sequence - b.sequence);
   }
 
   refreshEvents(sessionId: string): void {
@@ -664,6 +742,39 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.maybePrefetchRetrieval(session, this.answer);
   }
 
+  toggleConversationMode(): void {
+    this.conversationMode.set(this.conversationMode() === 'manual' ? 'conversation_only' : 'manual');
+    this.lastConversationStep.set(null);
+  }
+
+  lastConversationLabel(): string {
+    const step = this.lastConversationStep();
+    if (!step) return 'Voice actions will be inferred from the next final transcript.';
+    const labels: Record<string, string> = {
+      answer_ready: 'Answer captured and evaluated',
+      correction: 'Correction captured',
+      more_detail: 'Additional detail captured',
+      proposal_requested: 'Proposal prepared, waiting for confirmation',
+      proposal_confirmed: 'Proposal confirmed, waiting for final acceptance',
+      proposal_rejected: 'Proposal rejected, waiting for correction',
+      accept_confirmed: 'Proposal accepted',
+      accept_rejected: 'Acceptance paused',
+    };
+    return labels[step.intent] || `${step.intent} · ${step.action_taken}`;
+  }
+
+  transcriptEventLabel(event: CaptureEvent): string {
+    if (event.event_type === 'conversation_intent_detected') {
+      return `intent: ${(event.metadata || {})['intent'] || 'detected'}`;
+    }
+    if (event.event_type === 'proposal_generated') return 'proposal generated';
+    if (event.event_type === 'proposal_reviewed') return 'proposal reviewed';
+    if (event.event_type === 'transcript_amended' || event.text_amended) return 'amended transcript';
+    if (event.event_type === 'expert_turn_finalized') return 'final answer';
+    if (event.event_type === 'stt_final') return 'final transcript';
+    return 'transcript';
+  }
+
   beginAmend(event: CaptureEvent): void {
     this.editingEventId.set(event.id);
     this.editingText = event.text_amended || event.text || event.text_raw || '';
@@ -690,10 +801,85 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   createProposal(session: CaptureSession): void {
+    const draft = this.answer.trim();
+    if (!draft) {
+      this.api
+        .createCaptureProposal(session.id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((proposal) => this.proposal.set(proposal));
+      return;
+    }
+    this.voiceState.set('thinking');
     this.api
-      .createCaptureProposal(session.id)
+      .addCaptureTurn(session.id, {
+        speaker: 'expert',
+        text: draft,
+        question_id: this.selectedQuestionId(),
+        client_turn_id: this.currentClientTurnId,
+        retrieval_event_id: this.retrieval().event_id || null,
+        interruption_of_event_id: this.interruptionOfEventId(),
+        turn_kind: this.interruptionOfEventId() ? 'correction' : 'answer',
+      })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((proposal) => this.proposal.set(proposal));
+      .subscribe((res) => {
+        const typed = res as TurnResponse;
+        this.session.set(typed.session);
+        this.lastEvaluation.set(typed.evaluation || null);
+        this.nextPrompt.set(typed.next_prompt || null);
+        this.lastSystemPromptEventId.set(typed.system_prompt_event_id || null);
+        this.answer = '';
+        this.currentClientTurnId = null;
+        this.interruptionOfEventId.set(null);
+        this.refreshEvents(typed.session.id);
+        this.api
+          .createCaptureProposal(typed.session.id)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe((proposal) => {
+            this.proposal.set(proposal);
+            this.voiceState.set('idle');
+          });
+      });
+  }
+
+  runConversationStep(session: CaptureSession, text: string): void {
+    const clean = text.trim();
+    if (!clean) return;
+    this.voiceState.set('thinking');
+    this.api
+      .runConversationStep(session.id, {
+        client_turn_id: this.currentClientTurnId,
+        text: clean,
+        question_id: this.selectedQuestionId(),
+        retrieval_event_id: this.retrieval().event_id || null,
+        interruption_of_event_id: this.interruptionOfEventId(),
+        last_proposal_id: this.proposal()?.id || null,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          const step = payload as ConversationStepResponse;
+          this.lastConversationStep.set(step);
+          this.session.set(step.session);
+          this.lastEvaluation.set(step.evaluation || null);
+          this.nextPrompt.set(step.next_prompt || null);
+          this.lastSystemPromptEventId.set(step.system_prompt_event_id || null);
+          if (step.next_question_id) {
+            this.selectedQuestionId.set(step.next_question_id);
+          }
+          if (step.proposal) {
+            this.proposal.set(step.proposal);
+          }
+          this.currentClientTurnId = null;
+          this.interruptionOfEventId.set(null);
+          this.refreshEvents(step.session.id);
+          if (step.next_prompt) {
+            this.speak(step.next_prompt);
+          } else {
+            this.voiceState.set('idle');
+          }
+        },
+        error: () => this.voiceState.set('idle'),
+      });
   }
 
   acceptProposal(proposalId: string): void {
@@ -764,13 +950,28 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.transcribing.set(false);
           this.voiceState.set('idle');
           const session = this.session();
-          if (session) this.maybePrefetchRetrieval(session, res.text, true);
+          if (session) {
+            this.maybePrefetchRetrieval(session, res.text, true);
+            if (this.conversationMode() === 'conversation_only') {
+              this.runConversationStep(session, res.text);
+            }
+          }
         },
         error: () => {
           this.transcribing.set(false);
           this.voiceState.set('idle');
         },
       });
+  }
+
+  private eventLedgerKey(event: CaptureEvent): string {
+    const meta = event.metadata || {};
+    if (meta['client_turn_id']) return `client:${meta['client_turn_id']}`;
+    const text = (event.text || event.text_amended || event.text_raw || '').trim().toLowerCase();
+    if (text) return `text:${text.replace(/\s+/g, ' ').slice(0, 160)}`;
+    if (event.parent_event_id) return `parent:${event.parent_event_id}`;
+    if (event.question_id) return `question:${event.question_id}`;
+    return `event:${event.id}`;
   }
 
   private transcribePartialRecording(): void {

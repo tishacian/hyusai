@@ -43,6 +43,19 @@ class DocumentSearchResponse(BaseModel):
     total: int
 
 
+def _resolve_document_vector_db_type(
+    workspace: Workspace,
+    requested_type: Optional[str] = None,
+) -> str:
+    app_settings = get_resolved_settings(workspace_id=workspace.id)
+    return (
+        requested_type
+        or app_settings.get("ragVectorDBType")
+        or settings.default_vector_db_type
+        or "faiss"
+    )
+
+
 @router.post("/upload")
 async def upload_document(
     file: UploadFile = File(...),
@@ -362,7 +375,12 @@ async def get_document_stats(
 ):
     """Get document statistics"""
     try:
-        doc_service = DocumentService(collection_name=collection_name, workspace_slug=workspace.slug)
+        db_type = _resolve_document_vector_db_type(workspace)
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
         count = await doc_service.get_document_count()
 
         # Get cache stats if available
@@ -374,6 +392,7 @@ async def get_document_stats(
 
         return {
             "collection_name": collection_name,
+            "vector_db_type": db_type,
             "total_chunks": count,
             "vector_dim": vector_dim,
             "cache_stats": cache_stats,
@@ -671,8 +690,7 @@ async def list_documents(
 ):
     """List all documents in a collection (scoped to current workspace)."""
     try:
-        app_settings = get_resolved_settings(workspace_id=workspace.id)
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
 
         doc_service = DocumentService(
             collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug

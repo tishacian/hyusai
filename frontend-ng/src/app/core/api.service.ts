@@ -32,6 +32,15 @@ export interface RetrievalPrefetchRequest {
   top_k?: number;
 }
 
+export interface ConversationStepRequest {
+  client_turn_id?: string | null;
+  text: string;
+  question_id?: string | null;
+  retrieval_event_id?: string | null;
+  interruption_of_event_id?: string | null;
+  last_proposal_id?: string | null;
+}
+
 export interface ProposalReviewRequest {
   status: 'accepted' | 'rejected' | 'changes_requested';
   reviewer?: string | null;
@@ -119,6 +128,13 @@ export class ApiService {
     body: RetrievalPrefetchRequest,
   ): Observable<unknown> {
     return this.post(`/knowledge-capture/sessions/${sessionId}/retrieval-prefetch`, body);
+  }
+
+  runConversationStep(
+    sessionId: string,
+    body: ConversationStepRequest,
+  ): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/conversation-step`, body);
   }
 
   amendCaptureEvent(

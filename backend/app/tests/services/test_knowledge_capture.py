@@ -9,6 +9,7 @@ from app.services.knowledge_capture import (
     create_update_proposal,
     list_capture_events,
     prefetch_capture_retrieval,
+    process_conversation_step,
     review_proposal,
 )
 from app.services.skills_registry.seed import seed_skills_and_capabilities
@@ -113,6 +114,113 @@ def test_capture_plan_turn_and_review_proposal(db_session):
     assert reviewed.reviewed_at is not None
 
 
+def test_conversation_only_step_flow_requires_voice_confirmation(db_session):
+    workspace = Workspace(id="ws-capture-conv", name="Capture Conv", slug="capture-conv")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Conversation only capture",
+        objective="Capture tacit troubleshooting knowledge for industrial maintenance.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+    )
+    question_id = session.plan["questions"][0]["id"]
+
+    answer_step = process_conversation_step(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        client_turn_id="conv-turn-1",
+        question_id=question_id,
+        retrieval_event_id=None,
+        interruption_of_event_id=None,
+        last_proposal_id=None,
+        text=(
+            "Quand la machine vibre après maintenance, je vérifie le rapport "
+            "d'intervention et le CRM parce que le changement de rouleau explique "
+            "souvent la dérive."
+        ),
+    )
+    assert answer_step["intent"] == "answer_ready"
+    assert answer_step["action_taken"] == "turn_appended"
+    assert answer_step["session"]["metrics"]["answers_evaluated"] == 1
+
+    correction_step = process_conversation_step(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        client_turn_id="conv-turn-2",
+        question_id=question_id,
+        retrieval_event_id=None,
+        interruption_of_event_id=answer_step["system_prompt_event_id"],
+        last_proposal_id=None,
+        text="En fait je corrige, il faut surtout vérifier les basses fréquences du régime vibratoire.",
+    )
+    assert correction_step["intent"] == "correction"
+    assert correction_step["turn"]["turn_kind"] == "correction"
+
+    proposal_step = process_conversation_step(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        client_turn_id="conv-turn-3",
+        question_id=question_id,
+        retrieval_event_id=None,
+        interruption_of_event_id=None,
+        last_proposal_id=None,
+        text="Crée la proposition de synthèse.",
+    )
+    assert proposal_step["intent"] == "proposal_requested"
+    assert proposal_step["requires_confirmation"] is True
+    proposal_id = proposal_step["proposal"]["id"]
+
+    confirm_step = process_conversation_step(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        client_turn_id="conv-turn-4",
+        question_id=question_id,
+        retrieval_event_id=None,
+        interruption_of_event_id=None,
+        last_proposal_id=proposal_id,
+        text="Oui je confirme.",
+    )
+    assert confirm_step["intent"] == "proposal_confirmed"
+    assert confirm_step["proposal"]["status"] == "pending_review"
+    assert confirm_step["requires_confirmation"] is True
+    assert confirm_step["confirmation_target"] == "acceptance"
+
+    accept_step = process_conversation_step(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        client_turn_id="conv-turn-5",
+        question_id=question_id,
+        retrieval_event_id=None,
+        interruption_of_event_id=None,
+        last_proposal_id=proposal_id,
+        text="Oui valide.",
+    )
+    assert accept_step["intent"] == "accept_confirmed"
+    assert accept_step["proposal"]["status"] == "accepted"
+
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
+    intent_events = [event for event in events if event.event_type == "conversation_intent_detected"]
+    assert [event.meta_data["intent"] for event in intent_events] == [
+        "answer_ready",
+        "correction",
+        "proposal_requested",
+        "proposal_confirmed",
+        "accept_confirmed",
+    ]
+
+
 @pytest.mark.asyncio
 async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monkeypatch):
     workspace = Workspace(id="ws-capture-rt", name="Capture RT", slug="capture-rt")
@@ -171,6 +279,37 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     assert prefetch["event_id"]
     assert prefetch["chunks"]
     assert prefetch["collection_name"] == "demo-knowledge"
+
+    partial_event = next(
+        event
+        for event in list_capture_events(
+            db_session,
+            workspace_id=workspace.id,
+            session_id=session.id,
+        )
+        if event.event_type == "stt_partial"
+    )
+    amend_capture_event(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        event_id=partial_event.id,
+        text_amended=(
+            "Quand la machine vibre, il faut considérer les basses fréquences "
+            "absentes de la documentation."
+        ),
+        actor="operator@datategy.local",
+        reason="Correction écrite de la captation live.",
+    )
+
+    event_only_proposal = create_update_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        complete_session=False,
+    )
+    assert "basses fréquences" in event_only_proposal.proposal["recommended_ingestion"]["content"]
+    assert event_only_proposal.proposal["captured_facts"][0]["amended"] is True
 
     turn = append_turn(
         db_session,

@@ -22,6 +22,46 @@ from app.models.run import Run, SkillInvocation
 
 CAPABILITY_SLUG = "expert_knowledge_capture"
 RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
+POSITIVE_CONFIRMATION_TERMS = (
+    "oui",
+    "valide",
+    "confirme",
+    "c'est bon",
+    "c est bon",
+    "go",
+    "accept",
+)
+NEGATIVE_CONFIRMATION_TERMS = (
+    "non",
+    "attends",
+    "corrige",
+    "pas encore",
+)
+PROPOSAL_REQUEST_TERMS = (
+    "synthèse",
+    "synthese",
+    "proposition",
+    "crée la proposition",
+    "cree la proposition",
+    "on peut conclure",
+)
+CORRECTION_TERMS = (
+    "correction",
+    "en fait",
+    "je corrige",
+    "plutôt",
+    "plutot",
+    "remplace",
+)
+MORE_DETAIL_TERMS = (
+    "ajoute",
+    "complète",
+    "complete",
+    "je précise",
+    "je precise",
+    "plus de détail",
+    "plus de detail",
+)
 
 _BASE_GAPS = [
     {
@@ -276,6 +316,194 @@ def evaluate_expert_answer(
     }
 
 
+def classify_conversation_intent(
+    *,
+    text: str,
+    last_proposal: Optional[KnowledgeUpdateProposal] = None,
+) -> Dict[str, Any]:
+    clean = (text or "").strip()
+    lower = clean.lower()
+    words = _words(clean)
+
+    has_positive = any(term in lower for term in POSITIVE_CONFIRMATION_TERMS)
+    has_negative = any(term in lower for term in NEGATIVE_CONFIRMATION_TERMS)
+    has_proposal = any(term in lower for term in PROPOSAL_REQUEST_TERMS)
+    has_correction = any(term in lower for term in CORRECTION_TERMS)
+    has_more_detail = any(term in lower for term in MORE_DETAIL_TERMS)
+    proposal_confirmed = _proposal_conversation_confirmed(last_proposal)
+
+    if last_proposal and has_positive:
+        intent = "accept_confirmed" if proposal_confirmed else "proposal_confirmed"
+        return {"intent": intent, "confidence": 0.92, "signals": {"proposal_confirmed": proposal_confirmed}}
+    if last_proposal and has_negative:
+        intent = "accept_rejected" if proposal_confirmed else "proposal_rejected"
+        return {"intent": intent, "confidence": 0.90, "signals": {"proposal_confirmed": proposal_confirmed}}
+    if has_proposal:
+        return {"intent": "proposal_requested", "confidence": 0.88, "signals": {"term": "proposal"}}
+    if has_correction:
+        return {"intent": "correction", "confidence": 0.84, "signals": {"term": "correction"}}
+    if has_more_detail:
+        return {"intent": "more_detail", "confidence": 0.74, "signals": {"term": "more_detail"}}
+    if len(words) >= 8:
+        return {"intent": "answer_ready", "confidence": 0.72, "signals": {"word_count": len(words)}}
+    return {"intent": "more_detail", "confidence": 0.45, "signals": {"word_count": len(words)}}
+
+
+def process_conversation_step(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    client_turn_id: Optional[str],
+    text: str,
+    question_id: Optional[str],
+    retrieval_event_id: Optional[str],
+    interruption_of_event_id: Optional[str],
+    last_proposal_id: Optional[str],
+) -> Dict[str, Any]:
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    last_proposal = _load_proposal(
+        db,
+        workspace_id=workspace_id,
+        proposal_id=last_proposal_id,
+        session_id=session_id,
+    )
+    classification = classify_conversation_intent(text=text, last_proposal=last_proposal)
+    intent = classification["intent"]
+    confidence = classification["confidence"]
+    action_taken = "none"
+    next_prompt: Optional[str] = None
+    proposal: Optional[KnowledgeUpdateProposal] = None
+    requires_confirmation = False
+    confirmation_target: Optional[str] = None
+    turn_payload: Optional[Dict[str, Any]] = None
+
+    if intent in {"answer_ready", "correction", "more_detail"}:
+        turn_kind = "correction" if intent == "correction" else ("complement" if intent == "more_detail" else "answer")
+        turn_payload = append_turn(
+            db,
+            workspace_id=workspace_id,
+            session_id=session_id,
+            speaker="expert",
+            text=text,
+            question_id=question_id,
+            client_turn_id=client_turn_id,
+            retrieval_event_id=retrieval_event_id,
+            interruption_of_event_id=interruption_of_event_id,
+            turn_kind=turn_kind,
+        )
+        action_taken = "turn_appended"
+        next_prompt = turn_payload.get("next_prompt")
+    elif intent == "proposal_requested":
+        if _has_substantive_answer_text(text):
+            turn_payload = append_turn(
+                db,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                speaker="expert",
+                text=text,
+                question_id=question_id,
+                client_turn_id=client_turn_id,
+                retrieval_event_id=retrieval_event_id,
+                interruption_of_event_id=interruption_of_event_id,
+                turn_kind="answer",
+            )
+        proposal = create_update_proposal(db, workspace_id=workspace_id, session_id=session_id, complete_session=False)
+        action_taken = "proposal_created"
+        requires_confirmation = True
+        confirmation_target = "proposal"
+        next_prompt = (
+            "J’ai préparé la proposition de mise à jour. Dites « oui je confirme » "
+            "pour la confirmer, ou « non corrige » pour la retravailler."
+        )
+    elif intent == "proposal_confirmed":
+        proposal = last_proposal
+        if not proposal:
+            raise ValueError("No proposal available to confirm")
+        _mark_proposal_conversation_state(
+            proposal,
+            state="proposal_confirmed",
+            note="Confirmed by conversation-only voice flow.",
+        )
+        db.commit()
+        db.refresh(proposal)
+        action_taken = "proposal_confirmed"
+        requires_confirmation = True
+        confirmation_target = "acceptance"
+        next_prompt = "Proposition confirmée. Dites « oui valide » pour l’accepter définitivement."
+    elif intent == "proposal_rejected":
+        proposal = last_proposal
+        if proposal:
+            _mark_proposal_conversation_state(
+                proposal,
+                state="proposal_rejected",
+                note="Rejected by conversation-only voice flow.",
+            )
+            db.commit()
+            db.refresh(proposal)
+        action_taken = "proposal_rejected"
+        next_prompt = "D’accord, la proposition reste en attente. Donnez la correction à intégrer."
+    elif intent == "accept_confirmed":
+        if not last_proposal:
+            raise ValueError("No proposal available to accept")
+        proposal = review_proposal(
+            db,
+            workspace_id=workspace_id,
+            proposal_id=last_proposal.id,
+            status="accepted",
+            reviewer="conversation-only",
+            review_notes="Accepted by explicit voice confirmation.",
+        )
+        action_taken = "proposal_accepted"
+        next_prompt = "La proposition est acceptée."
+    elif intent == "accept_rejected":
+        proposal = last_proposal
+        action_taken = "acceptance_rejected"
+        next_prompt = "D’accord, je ne valide pas encore. Indiquez ce qu’il faut corriger."
+
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    _record_capture_event(
+        db,
+        session=session,
+        event_type="conversation_intent_detected",
+        speaker="expert",
+        question_id=question_id,
+        text_raw=text,
+        source="conversation_only",
+        status="accepted",
+        parent_event_id=interruption_of_event_id or retrieval_event_id,
+        meta_data={
+            "intent": intent,
+            "confidence": confidence,
+            "action_taken": action_taken,
+            "client_turn_id": client_turn_id,
+            "retrieval_event_id": retrieval_event_id,
+            "last_proposal_id": last_proposal_id,
+            "requires_confirmation": requires_confirmation,
+            "confirmation_target": confirmation_target,
+            "signals": classification.get("signals") or {},
+        },
+    )
+    db.commit()
+    db.refresh(session)
+    if proposal:
+        db.refresh(proposal)
+    return {
+        "intent": intent,
+        "confidence": confidence,
+        "action_taken": action_taken,
+        "session": serialize_session(session),
+        "proposal": serialize_proposal(proposal) if proposal else None,
+        "turn": (turn_payload or {}).get("turn"),
+        "evaluation": (turn_payload or {}).get("evaluation"),
+        "next_prompt": next_prompt,
+        "next_question_id": (turn_payload or {}).get("next_question_id"),
+        "system_prompt_event_id": (turn_payload or {}).get("system_prompt_event_id"),
+        "requires_confirmation": requires_confirmation,
+        "confirmation_target": confirmation_target,
+    }
+
+
 def _select_follow_up(
     question: Optional[Dict[str, Any]],
     *,
@@ -302,6 +530,7 @@ def structure_capture_payload(
     expert_turns = [turn for turn in transcript if turn.get("speaker") == "expert"]
     captured = [_fact_from_turn(turn, evaluations) for turn in expert_turns]
     event_rows = transcript_events or []
+    captured = _merge_event_facts(captured, _facts_from_events(event_rows, evaluations))
     event_evidence = [_serialize_event(event) for event in event_rows]
     amendments = [
         _serialize_event(event)
@@ -369,6 +598,170 @@ def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]])
         "confidence": (related or {}).get("score", 0.5),
         "needs_review": True,
     }
+
+
+def _facts_from_events(
+    event_rows: List[ExpertCaptureEvent],
+    evaluations: Iterable[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Recover proposal facts from the event ledger when no finalized turn exists.
+
+    This keeps demos robust when an operator amends a live transcript and
+    immediately creates a proposal without pressing the explicit evaluation
+    button first.
+    """
+    if not event_rows:
+        return []
+
+    by_id = {event.id: event for event in event_rows}
+    latest_by_key: Dict[str, ExpertCaptureEvent] = {}
+    transcript_types = {
+        "expert_turn_finalized",
+        "stt_final",
+        "transcript_turn_recorded",
+        "transcript_amended",
+    }
+    fallback_types = {"stt_partial"}
+    for event in sorted(event_rows, key=lambda item: (item.sequence, item.created_at)):
+        text = _effective_event_text(event)
+        if not text:
+            continue
+        if event.event_type.startswith("retrieval_") or event.event_type == "system_prompt_prepared":
+            continue
+        if event.event_type not in transcript_types and not (event.event_type in fallback_types and event.text_amended):
+            continue
+        if event.speaker and event.speaker != "expert":
+            continue
+        key = _event_text_key(event, by_id)
+        current = latest_by_key.get(key)
+        if current is None or _event_fact_priority(event) >= _event_fact_priority(current):
+            latest_by_key[key] = event
+
+    retrieval_by_client = _latest_retrieval_by_client_turn(event_rows)
+    facts: List[Dict[str, Any]] = []
+    for event in sorted(latest_by_key.values(), key=lambda item: item.sequence):
+        text = _effective_event_text(event)
+        if not text:
+            continue
+        related = next((ev for ev in evaluations if ev.get("question_id") == event.question_id), None)
+        client_turn_id = _event_client_turn_id(event, by_id)
+        retrieval_event = retrieval_by_client.get(client_turn_id or "")
+        facts.append(
+            {
+                "id": f"fact-event-{event.id}",
+                "text": text,
+                "source": "expert_event_ledger",
+                "source_event_id": event.id,
+                "retrieval_event_id": retrieval_event.id if retrieval_event else None,
+                "retrieval_refs": _retrieval_refs_from_event(retrieval_event) if retrieval_event else [],
+                "interruption_of_event_id": event.parent_event_id,
+                "turn_kind": (event.meta_data or {}).get("turn_kind") or "answer",
+                "raw_text": event.text_raw or text,
+                "amended_text": event.text_amended,
+                "amended": bool(event.text_amended or event.event_type == "transcript_amended"),
+                "confidence": (related or {}).get("score", 0.5),
+                "needs_review": True,
+            }
+        )
+    return facts
+
+
+def _merge_event_facts(
+    transcript_facts: List[Dict[str, Any]],
+    event_facts: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for fact in [*transcript_facts, *event_facts]:
+        text = (fact.get("text") or "").strip()
+        if not text:
+            continue
+        key = re.sub(r"\s+", " ", text.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(fact)
+    return merged
+
+
+def _event_fact_priority(event: ExpertCaptureEvent) -> int:
+    if event.event_type == "transcript_amended":
+        return 50
+    if event.event_type == "expert_turn_finalized":
+        return 40
+    if event.event_type == "stt_final":
+        return 30
+    if event.text_amended:
+        return 20
+    return 10
+
+
+def _event_client_turn_id(
+    event: ExpertCaptureEvent,
+    by_id: Dict[str, ExpertCaptureEvent],
+) -> Optional[str]:
+    meta = event.meta_data or {}
+    client_turn_id = meta.get("client_turn_id")
+    if client_turn_id:
+        return str(client_turn_id)
+    parent = by_id.get(event.parent_event_id or "")
+    if parent:
+        return _event_client_turn_id(parent, by_id)
+    return None
+
+
+def _event_text_key(
+    event: ExpertCaptureEvent,
+    by_id: Dict[str, ExpertCaptureEvent],
+) -> str:
+    client_turn_id = _event_client_turn_id(event, by_id)
+    if client_turn_id:
+        return f"client:{client_turn_id}"
+    if event.parent_event_id:
+        return f"parent:{event.parent_event_id}"
+    if event.question_id:
+        return f"question:{event.question_id}"
+    return f"event:{event.id}"
+
+
+def _latest_retrieval_by_client_turn(
+    event_rows: List[ExpertCaptureEvent],
+) -> Dict[str, ExpertCaptureEvent]:
+    out: Dict[str, ExpertCaptureEvent] = {}
+    for event in event_rows:
+        if event.event_type != "retrieval_prefetch_completed":
+            continue
+        client_turn_id = (event.meta_data or {}).get("client_turn_id")
+        if not client_turn_id:
+            continue
+        current = out.get(str(client_turn_id))
+        if current is None or event.sequence > current.sequence:
+            out[str(client_turn_id)] = event
+    return out
+
+
+def _retrieval_refs_from_event(event: Optional[ExpertCaptureEvent]) -> List[Dict[str, Any]]:
+    if not event:
+        return []
+    meta = event.meta_data or {}
+    chunks = meta.get("chunks") or []
+    scores = meta.get("scores") or []
+    metadatas = meta.get("metadatas") or []
+    refs: List[Dict[str, Any]] = []
+    for index, chunk in enumerate(chunks[:4]):
+        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        refs.append(
+            {
+                "event_id": event.id,
+                "rank": index + 1,
+                "score": scores[index] if index < len(scores) else None,
+                "title": md.get("title") or md.get("filename") or md.get("source"),
+                "source": md.get("source") or md.get("document_id") or md.get("filename"),
+                "preview": str(chunk)[:360],
+                "metadata": md,
+            }
+        )
+    return refs
 
 
 def _proposal_markdown(
@@ -1122,6 +1515,55 @@ def _load_context(db: DBSession, workspace_id: str, context_id: Optional[str]) -
     if not context_id:
         return None
     return db.query(Context).filter(Context.id == context_id, Context.workspace_id == workspace_id).first()
+
+
+def _load_proposal(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    proposal_id: Optional[str],
+    session_id: Optional[str] = None,
+) -> Optional[KnowledgeUpdateProposal]:
+    if not proposal_id:
+        return None
+    q = db.query(KnowledgeUpdateProposal).filter(
+        KnowledgeUpdateProposal.id == proposal_id,
+        KnowledgeUpdateProposal.workspace_id == workspace_id,
+    )
+    if session_id:
+        q = q.filter(KnowledgeUpdateProposal.session_id == session_id)
+    return q.first()
+
+
+def _proposal_conversation_confirmed(proposal: Optional[KnowledgeUpdateProposal]) -> bool:
+    if not proposal:
+        return False
+    return ((proposal.proposal or {}).get("conversation") or {}).get("state") == "proposal_confirmed"
+
+
+def _mark_proposal_conversation_state(
+    proposal: KnowledgeUpdateProposal,
+    *,
+    state: str,
+    note: str,
+) -> None:
+    payload = dict(proposal.proposal or {})
+    payload["conversation"] = {
+        **(payload.get("conversation") or {}),
+        "state": state,
+        "note": note,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    proposal.proposal = payload
+    flag_modified(proposal, "proposal")
+
+
+def _has_substantive_answer_text(text: str) -> bool:
+    lower = (text or "").lower()
+    stripped = lower
+    for term in PROPOSAL_REQUEST_TERMS:
+        stripped = stripped.replace(term, " ")
+    return len(_words(stripped)) >= 8
 
 
 def _resolve_collection_name(ctx: Optional[Context]) -> str:

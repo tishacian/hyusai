@@ -52,3 +52,27 @@ async def test_document_search(sample_text_file):
     assert "score" in results[0]
     assert "metadata" in results[0]
 
+
+@pytest.mark.asyncio
+async def test_list_documents_normalizes_chunk_count_fields():
+    """Document listings expose the singular field used by the Knowledge UI."""
+
+    class FakeVectorDb:
+        async def list_documents(self):
+            return [
+                {"document_id": "doc-1", "filename": "one.md", "document_type": "markdown"},
+                {"document_id": "doc-2", "filename": "two.md", "chunks_count": 1},
+            ]
+
+        async def get_by_document_id(self, document_id):
+            return ["a", "b", "c"] if document_id == "doc-1" else ["z"]
+
+    service = object.__new__(DocumentService)
+    service.vector_db = FakeVectorDb()
+
+    documents = await service.list_documents()
+
+    assert documents[0]["chunk_count"] == 3
+    assert documents[0]["chunks_count"] == 3
+    assert documents[1]["chunk_count"] == 1
+    assert documents[1]["chunks_count"] == 1

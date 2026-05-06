@@ -39,6 +39,7 @@ interface DocRow {
   document_id: string;
   filename: string;
   chunk_count?: number;
+  chunks_count?: number;
   mime_type?: string;
   uploaded_at?: string;
   size?: number;
@@ -394,7 +395,11 @@ export class KnowledgeViewComponent implements OnInit {
       this.chunkCount.set(stats.total_chunks ?? 0);
       this.vectorDim.set(stats.vector_dim ?? null);
       this.vectorDbType.set(meta.vector_db_type ?? '');
-      this.sources.set(list.documents ?? []);
+      const documents = (list.documents ?? []).map((doc) => ({
+        ...doc,
+        chunk_count: doc.chunk_count ?? doc.chunks_count ?? 0,
+      }));
+      this.sources.set(documents);
       this.docCount.set(list.total ?? (list.documents?.length ?? 0));
       this.loading.set(false);
       this.loadingSources.set(false);

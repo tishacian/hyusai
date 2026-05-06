@@ -24,6 +24,7 @@ from app.services.knowledge_capture import (
     get_session,
     list_capture_events,
     prefetch_capture_retrieval,
+    process_conversation_step,
     review_proposal,
     serialize_event,
     serialize_proposal,
@@ -63,6 +64,15 @@ class RetrievalPrefetchRequest(BaseModel):
     partial_text: str = Field(..., min_length=1)
     mode: str = "chah"
     top_k: int = Field(default=4, ge=1, le=8)
+
+
+class ConversationStepRequest(BaseModel):
+    client_turn_id: Optional[str] = None
+    text: str = Field(..., min_length=1)
+    question_id: Optional[str] = None
+    retrieval_event_id: Optional[str] = None
+    interruption_of_event_id: Optional[str] = None
+    last_proposal_id: Optional[str] = None
 
 
 class ProposalReviewRequest(BaseModel):
@@ -189,6 +199,29 @@ async def prefetch_session_retrieval(
             partial_text=body.partial_text,
             mode=body.mode,
             top_k=body.top_k,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/sessions/{session_id}/conversation-step")
+async def conversation_session_step(
+    session_id: str,
+    body: ConversationStepRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        return process_conversation_step(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            client_turn_id=body.client_turn_id,
+            text=body.text,
+            question_id=body.question_id,
+            retrieval_event_id=body.retrieval_event_id,
+            interruption_of_event_id=body.interruption_of_event_id,
+            last_proposal_id=body.last_proposal_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
