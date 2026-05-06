@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { ApiService } from '@app/core/api.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -140,7 +140,7 @@ interface ProposalFact {
   selector: 'app-knowledge-capture',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, RouterLink],
+  imports: [FormsModule, IconComponent],
   template: `
     <section class="space-y-5">
       <header class="t-card t-elevated rounded-lg p-5 flex items-start justify-between gap-4">
@@ -173,32 +173,139 @@ interface ProposalFact {
         </div>
       </header>
 
-      <nav class="t-card rounded-lg p-2 flex flex-wrap items-center gap-2">
+      <nav class="border-y border-white/10 py-3 flex flex-wrap items-center gap-2">
         @for (item of surfaceNav; track item.id) {
           <button
             type="button"
             [class]="activeSurface() === item.id
-              ? 'inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-500/20 text-brand-100 ring-1 ring-brand-300/40'
-              : 'inline-flex items-center gap-2 px-3 py-2 rounded text-gray-400 hover:text-white hover:bg-white/5'"
+              ? 'inline-flex items-center gap-2 px-3 py-2 rounded text-brand-100 border-b-2 border-brand-300'
+              : stepIsComplete(item.id)
+                ? 'inline-flex items-center gap-2 px-3 py-2 rounded text-gray-300 hover:text-white'
+                : 'inline-flex items-center gap-2 px-3 py-2 rounded text-gray-500 hover:text-gray-300'"
             (click)="goSurface(item.id)"
           >
-            <app-icon [name]="item.icon" [size]="14" />
+            <span
+              [class]="activeSurface() === item.id
+                ? 'inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-300 text-black text-xs font-semibold'
+                : stepIsComplete(item.id)
+                  ? 'inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-200 text-xs'
+                  : 'inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/5 text-gray-500 text-xs ring-1 ring-white/10'"
+            >
+              {{ stepIsComplete(item.id) ? '✓' : item.step }}
+            </span>
             <span class="text-sm">{{ item.label }}</span>
           </button>
+          @if (!$last) {
+            <span class="text-gray-700">·</span>
+          }
         }
       </nav>
 
       @if (activeSurface() === 'prep') {
-        <section class="grid md:grid-cols-4 gap-3">
-          @for (step of modelSteps; track step.label) {
-            <div class="t-card rounded-lg p-4 border border-white/10 bg-white/[0.02]">
-              <div class="ck-mono text-[10px] uppercase tracking-[0.14em] text-brand-300">
-                {{ step.eyebrow }}
-              </div>
-              <div class="text-sm font-semibold text-white mt-1">{{ step.label }}</div>
-              <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ step.description }}</p>
+        <section class="max-w-5xl mx-auto py-8 space-y-7">
+          <div>
+            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Step 1 · Preparation</p>
+            <h2 class="mt-2 text-3xl text-white font-semibold">Define the capture session</h2>
+            <p class="mt-2 text-sm text-gray-400 max-w-3xl">
+              Set the objective and scope. Agentium uses this to generate a focused interview plan and keep the live conversation grounded.
+            </p>
+          </div>
+
+          <div class="space-y-5">
+            <div>
+              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Session title</label>
+              <input
+                class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                [(ngModel)]="sessionTitle"
+              />
             </div>
-          }
+
+            <div>
+              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Objective</label>
+              <textarea
+                class="w-full min-h-24 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white leading-relaxed"
+                [(ngModel)]="objective"
+              ></textarea>
+            </div>
+
+            <div>
+              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Domain</label>
+              <div class="grid md:grid-cols-3 gap-3">
+                @for (domain of captureDomains; track domain.id) {
+                  <button
+                    type="button"
+                    [class]="selectedDomain === domain.id
+                      ? 'text-left rounded border border-brand-300 bg-brand-500/10 p-4 ring-1 ring-brand-300/40'
+                      : 'text-left rounded border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-4'"
+                    (click)="selectedDomain = domain.id"
+                  >
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-sm font-semibold text-white">{{ domain.label }}</div>
+                      @if (selectedDomain === domain.id) {
+                        <span class="text-brand-200">✓</span>
+                      }
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500">{{ domain.description }}</p>
+                  </button>
+                }
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Knowledge context</label>
+              <select
+                class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                [(ngModel)]="contextId"
+                (ngModelChange)="onContextChange($event)"
+              >
+                <option value="">Workspace defaults</option>
+                @for (ctx of contexts(); track ctx.id) {
+                  <option [value]="ctx.id">
+                    {{ ctx.name }}{{ ctx.environment_state?.collection ? ' · ' + ctx.environment_state?.collection : '' }}
+                  </option>
+                }
+              </select>
+            </div>
+
+            <div class="grid md:grid-cols-[1fr_220px] gap-4">
+              <div>
+                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Expert</label>
+                <input
+                  class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                  [(ngModel)]="expertProfile"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Maximum duration</label>
+                <input
+                  type="number"
+                  min="5"
+                  max="90"
+                  class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                  [(ngModel)]="durationMinutes"
+                />
+              </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-4">
+              <button
+                type="button"
+                class="px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-300 ring-1 ring-white/10"
+                (click)="goSurface('dashboard')"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black disabled:opacity-50"
+                [disabled]="loading()"
+                (click)="goSurface('plan')"
+              >
+                Continue to plan
+                <app-icon name="arrow-right" [size]="14" />
+              </button>
+            </div>
+          </div>
         </section>
       }
 
@@ -671,365 +778,77 @@ interface ProposalFact {
             </aside>
           </section>
         } @else {
-          <section class="t-card rounded-lg p-8 text-center text-gray-400">
-            Prepare a capture plan before reviewing the interview plan.
+          <section class="max-w-5xl mx-auto py-8 space-y-7">
+            <div>
+              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Step 2 · Plan mode</p>
+              <h2 class="mt-2 text-3xl text-white font-semibold">How should the conversation be structured?</h2>
+              <p class="mt-2 text-sm text-gray-400 max-w-3xl">
+                The choice changes how the AI interviewer behaves and how rigorous the resulting proposal will be.
+              </p>
+            </div>
+
+            <div class="space-y-3">
+              @for (mode of planModes; track mode.id) {
+                <button
+                  type="button"
+                  [class]="selectedPlanMode === mode.id
+                    ? 'w-full text-left rounded-lg border border-brand-300 bg-brand-500/10 p-5 ring-1 ring-brand-300/40'
+                    : 'w-full text-left rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-5'"
+                  (click)="selectedPlanMode = mode.id"
+                >
+                  <div class="flex items-center gap-4">
+                    <span
+                      [class]="selectedPlanMode === mode.id
+                        ? 'inline-flex h-11 w-11 items-center justify-center rounded border border-brand-300 text-brand-200'
+                        : 'inline-flex h-11 w-11 items-center justify-center rounded border border-white/10 text-gray-500'"
+                    >
+                      <app-icon [name]="mode.icon" [size]="18" />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="flex flex-wrap items-center gap-2">
+                        <span class="text-base font-semibold text-white">{{ mode.label }}</span>
+                        @if (mode.recommended) {
+                          <span class="ck-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border border-brand-300/40 text-brand-200">
+                            Recommended
+                          </span>
+                        }
+                      </span>
+                      <span class="mt-1 block text-sm text-gray-500">{{ mode.description }}</span>
+                    </span>
+                    <span
+                      [class]="selectedPlanMode === mode.id
+                        ? 'inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-300 text-black'
+                        : 'inline-flex h-5 w-5 rounded-full border border-white/15'"
+                    >
+                      @if (selectedPlanMode === mode.id) {
+                        <app-icon name="check" [size]="12" />
+                      }
+                    </span>
+                  </div>
+                </button>
+              }
+            </div>
+
+            <div class="flex items-center justify-between gap-3 pt-4">
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-300 ring-1 ring-white/10"
+                (click)="goSurface('prep')"
+              >
+                <app-icon name="arrow-left" [size]="14" /> Back
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black disabled:opacity-50"
+                [disabled]="loading()"
+                (click)="createPlan()"
+              >
+                {{ loading() ? 'Generating plan...' : 'Generate plan' }}
+                <app-icon name="arrow-right" [size]="14" />
+              </button>
+            </div>
           </section>
         }
-      }
-
-      @if (activeSurface() === 'prep') {
-      <div class="grid lg:grid-cols-[360px_1fr] gap-5">
-        <aside class="t-card rounded-lg p-4 space-y-4">
-          <div>
-            <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-1">Context</label>
-            <select
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
-              [(ngModel)]="contextId"
-              (ngModelChange)="onContextChange($event)"
-            >
-              <option value="">Workspace defaults</option>
-              @for (ctx of contexts(); track ctx.id) {
-                <option [value]="ctx.id">
-                  {{ ctx.name }}{{ ctx.environment_state?.collection ? ' · ' + ctx.environment_state?.collection : '' }}
-                </option>
-              }
-            </select>
-            <p class="text-[11px] text-gray-500 mt-1">
-              The selected Context binds this capture to a Knowledge collection, ACLs and business constraints.
-            </p>
-          </div>
-          <div>
-            <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-1">Objective</label>
-            <textarea
-              class="w-full min-h-28 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
-              [(ngModel)]="objective"
-            ></textarea>
-          </div>
-          <div>
-            <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-1">Expert profile</label>
-            <input
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
-              [(ngModel)]="expertProfile"
-            />
-          </div>
-          <div>
-            <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-1">Duration minutes</label>
-            <input
-              type="number"
-              min="5"
-              max="90"
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
-              [(ngModel)]="durationMinutes"
-            />
-          </div>
-          <button
-            type="button"
-            class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
-            [disabled]="loading()"
-            (click)="createPlan()"
-          >
-            <app-icon name="wand-2" [size]="14" />
-            {{ loading() ? 'Preparing...' : 'Prepare capture plan' }}
-          </button>
-        </aside>
-
-        <main class="space-y-5">
-          @if (session(); as s) {
-            <section class="t-card rounded-lg p-4 space-y-3">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Session</p>
-                  <h2 class="text-lg font-semibold text-white">{{ s.title }}</h2>
-                </div>
-                <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ s.status }}</span>
-              </div>
-              <div class="grid md:grid-cols-4 gap-2 text-xs">
-                <a routerLink="/capabilities" class="rounded bg-black/20 p-2 text-gray-300 hover:text-white">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Capability</span>
-                  Expert Knowledge Capture
-                </a>
-                <a routerLink="/systems" class="rounded bg-black/20 p-2 text-gray-300 hover:text-white">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">System</span>
-                  {{ systemLabel(s.system_id) || 'Workspace-scoped session' }}
-                </a>
-                <a routerLink="/steering/contexts" class="rounded bg-black/20 p-2 text-gray-300 hover:text-white">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Context</span>
-                  {{ contextLabel(s.context_id) }}
-                </a>
-                <a routerLink="/knowledge" class="rounded bg-black/20 p-2 text-gray-300 hover:text-white">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Knowledge</span>
-                  {{ selectedContext()?.environment_state?.collection || 'Review proposal target' }}
-                </a>
-              </div>
-              <div class="grid md:grid-cols-3 gap-3 text-sm">
-                <div class="rounded bg-black/20 p-3">
-                  <div class="text-[10px] uppercase tracking-wider text-gray-500">Questions</div>
-                  <div class="text-xl text-white font-semibold">{{ s.plan.questions?.length || 0 }}</div>
-                </div>
-                <div class="rounded bg-black/20 p-3">
-                  <div class="text-[10px] uppercase tracking-wider text-gray-500">Coverage</div>
-                  <div class="text-xl text-white font-semibold">{{ ((s.metrics?.['coverage'] || 0) * 100).toFixed(0) }}%</div>
-                </div>
-                <div class="rounded bg-black/20 p-3">
-                  <div class="text-[10px] uppercase tracking-wider text-gray-500">Facts</div>
-                  <div class="text-xl text-white font-semibold">{{ s.metrics?.['captured_facts'] || 0 }}</div>
-                </div>
-              </div>
-            </section>
-
-            <section class="grid lg:grid-cols-2 gap-5">
-              <div class="t-card rounded-lg p-4 space-y-3">
-                <h3 class="text-sm font-semibold text-white">Interview plan</h3>
-                <div class="space-y-2">
-                  @for (q of s.plan.questions || []; track q.id) {
-                    <button
-                      type="button"
-                      class="w-full text-left rounded border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-3"
-                      [class.ring-1]="selectedQuestionId() === q.id"
-                      [class.ring-brand-400]="selectedQuestionId() === q.id"
-                      (click)="selectedQuestionId.set(q.id); speak(q.question)"
-                    >
-                      <div class="text-xs text-brand-300 font-mono">{{ q.id }} · {{ q.estimated_minutes || 3 }} min</div>
-                      <div class="text-sm text-white mt-1">{{ q.question }}</div>
-                    </button>
-                  }
-                </div>
-              </div>
-
-              <div class="t-card rounded-lg p-4 space-y-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div>
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Voice2Voice</p>
-                    <h3 class="text-sm font-semibold text-white">Conversation controller</h3>
-                  </div>
-                  <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
-                    {{ voiceStateLabel() }}
-                  </span>
-                </div>
-                <textarea
-                  class="w-full min-h-32 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
-                  [(ngModel)]="answer"
-                  (ngModelChange)="onAnswerDraftChange()"
-                  placeholder="Record, interrupt or paste the expert answer..."
-                ></textarea>
-                <div class="grid sm:grid-cols-3 gap-2 text-xs">
-                  <div class="rounded bg-black/20 border border-white/10 p-2">
-                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">Capture</span>
-                    <span class="text-gray-200">{{ recording() ? 'Chunked every 1.2s' : 'Ready' }}</span>
-                  </div>
-                  <div class="rounded bg-black/20 border border-white/10 p-2">
-                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">Retrieval</span>
-                    <span class="text-gray-200">{{ retrievalLabel() }}</span>
-                  </div>
-                  <div class="rounded bg-black/20 border border-white/10 p-2">
-                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">TTS</span>
-                    <span class="text-gray-200">{{ speaking() ? 'Segmented playback' : 'Idle' }}</span>
-                  </div>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white disabled:opacity-50"
-                    [disabled]="transcribing()"
-                    (click)="conversationMode() === 'conversation_only' ? toggleConversationSession() : toggleRecording()"
-                  >
-                    <app-icon [name]="conversationPrimaryIcon()" [size]="14" />
-                    {{ conversationPrimaryLabel() }}
-                  </button>
-                  @if (conversationMode() === 'manual') {
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
-                      [disabled]="!answer.trim()"
-                      (click)="sendAnswer(s)"
-                    >
-                      <app-icon name="send" [size]="14" /> Evaluate answer
-                    </button>
-                  }
-                  @if (speaking()) {
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-2 px-3 py-2 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm text-amber-100 ring-1 ring-amber-400/20"
-                      (click)="interruptSpeech()"
-                    >
-                      <app-icon name="pause" [size]="14" /> Interrupt AI
-                    </button>
-                  }
-                  @if (conversationMode() === 'manual') {
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
-                      (click)="createProposal(s)"
-                    >
-                      <app-icon name="check-circle-2" [size]="14" /> Create proposal
-                    </button>
-                  }
-                </div>
-
-                @if (conversationMode() === 'conversation_only') {
-                  <div class="rounded bg-brand-500/10 border border-brand-400/20 p-3 text-sm">
-                    <div class="flex items-center justify-between gap-3">
-                      <div>
-                        <div class="text-[10px] uppercase tracking-wider text-brand-200">Conversation-only</div>
-                        <div class="mt-1 text-white">{{ lastConversationLabel() }}</div>
-                      </div>
-                      @if (conversationSessionActive()) {
-                        <span class="text-xs text-brand-100">Session active</span>
-                      }
-                      @if (lastConversationStep(); as step) {
-                        <span class="text-xs text-gray-400">{{ (step.confidence * 100).toFixed(0) }}%</span>
-                      }
-                    </div>
-                    @if (nextPrompt()) {
-                      <p class="mt-2 text-xs text-gray-300">{{ nextPrompt() }}</p>
-                    }
-                  </div>
-                }
-
-                @if (retrieval(); as rr) {
-                  @if (rr.status !== 'idle') {
-                    <div class="rounded bg-black/20 border border-white/10 p-3 text-sm">
-                      <div class="flex items-center justify-between gap-3">
-                        <div>
-                          <div class="text-[10px] uppercase tracking-wider text-gray-500">Contexte retrouvé</div>
-                          <div class="mt-1 text-white">{{ retrievalLabel() }}</div>
-                        </div>
-                        @if (rr.latency_ms !== undefined) {
-                          <span class="text-xs text-gray-500">{{ rr.latency_ms }} ms</span>
-                        }
-                      </div>
-                      @if (rr.chunks.length) {
-                        <div class="mt-2 space-y-2">
-                          @for (chunk of rr.chunks.slice(0, 2); track retrievalChunkTrack($index, chunk)) {
-                            <p class="text-xs text-gray-400 line-clamp-2">{{ chunk }}</p>
-                          }
-                        </div>
-                      }
-                    </div>
-                  }
-                }
-
-                @if (lastEvaluation(); as ev) {
-                  <div class="rounded bg-black/20 border border-white/10 p-3 text-sm">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Evaluation</div>
-                    <div class="mt-1 text-white">{{ ev.verdict }} · score {{ ev.score }}</div>
-                    @if (nextPrompt()) {
-                      <button
-                        type="button"
-                        class="mt-2 text-left text-brand-200 hover:text-brand-100"
-                        (click)="speak(nextPrompt()!)"
-                      >
-                        Next prompt: {{ nextPrompt() }}
-                      </button>
-                    }
-                  </div>
-                }
-              </div>
-            </section>
-
-            @if (textEvents().length) {
-              <section class="t-card rounded-lg p-4 space-y-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div>
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Transcript ledger</p>
-                    <h3 class="text-sm font-semibold text-white">HITL-amendable capture trace</h3>
-                  </div>
-                  <button
-                    type="button"
-                    class="text-xs px-3 py-1.5 rounded bg-white/5 text-gray-300 ring-1 ring-white/10"
-                    (click)="refreshEvents(s.id)"
-                  >
-                    Refresh
-                  </button>
-                </div>
-                <div class="space-y-2">
-                  @for (event of textEvents(); track event.id) {
-                    <div class="rounded border border-white/10 bg-black/20 p-3">
-                      <div class="flex items-center justify-between gap-2">
-                        <div class="text-[10px] uppercase tracking-wider text-gray-500">
-                          #{{ event.sequence }} · {{ transcriptEventLabel(event) }} · {{ event.status }}
-                        </div>
-                        <button
-                          type="button"
-                          class="text-xs text-brand-200 hover:text-brand-100"
-                          (click)="beginAmend(event)"
-                        >
-                          Amend
-                        </button>
-                      </div>
-                      @if (editingEventId() === event.id) {
-                        <textarea
-                          class="mt-2 w-full min-h-24 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
-                          [ngModel]="editingText"
-                          (ngModelChange)="editingText = $event"
-                        ></textarea>
-                        <div class="mt-2 flex gap-2">
-                          <button
-                            type="button"
-                            class="px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-400 text-xs text-white"
-                            (click)="applyAmend(s.id, event.id)"
-                          >
-                            Apply correction
-                          </button>
-                          <button
-                            type="button"
-                            class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300"
-                            (click)="editingEventId.set(null)"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      } @else {
-                        @if (eventDisplayText(event); as text) {
-                          <p class="mt-2 text-sm text-gray-200 whitespace-pre-wrap">{{ text }}</p>
-                        }
-                        @if (event.text_amended) {
-                          <p class="mt-2 text-xs text-gray-500">
-                            Raw: {{ event.text_raw }}
-                          </p>
-                        }
-                      }
-                    </div>
-                  }
-                </div>
-              </section>
-            }
-
-            @if (proposal(); as p) {
-              <section class="t-card rounded-lg p-4 space-y-3">
-                <div class="flex items-center justify-between">
-                  <h3 class="text-sm font-semibold text-white">Knowledge update proposal</h3>
-                  <button
-                    type="button"
-                    class="text-xs px-3 py-1.5 rounded bg-brand-500/20 text-brand-100 ring-1 ring-brand-300/30"
-                    (click)="goSurface('review')"
-                  >
-                    Review facts
-                  </button>
-                </div>
-                <div class="grid sm:grid-cols-3 gap-2 text-xs">
-                  <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Facts</div>
-                    <div class="text-xl text-white font-semibold">{{ proposalFacts().length }}</div>
-                  </div>
-                  <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Evidence</div>
-                    <div class="text-xl text-white font-semibold">{{ proposalEvidenceCount() }}</div>
-                  </div>
-                  <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Status</div>
-                    <div class="text-sm text-gray-200 mt-1">{{ p.status }}</div>
-                  </div>
-                </div>
-              </section>
-            }
-          } @else {
-            <section class="t-card rounded-lg p-8 text-center text-gray-400">
-              Prepare a capture plan to start the guided session.
-            </section>
-          }
-        </main>
-      </div>
       }
 
       @if (activeSurface() === 'review') {
@@ -1161,11 +980,42 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   objective =
     'Capture tacit troubleshooting and offer reasoning from a senior industrial expert.';
+  sessionTitle = 'Expert Knowledge Capture';
   expertProfile = 'Senior field engineer';
   durationMinutes = 20;
   contextId = '';
   systemId = '';
   answer = '';
+  selectedDomain = 'technical';
+  selectedPlanMode = 'ai_plan';
+  readonly captureDomains = [
+    { id: 'technical', label: 'Technical', description: 'Engineering, processes, machines' },
+    { id: 'commercial', label: 'Commercial', description: 'Markets, accounts, deals' },
+    { id: 'innovation', label: 'Innovation', description: 'R&D, prototypes, exploration' },
+  ];
+  readonly planModes = [
+    {
+      id: 'ai_plan',
+      label: 'AI proposes a plan',
+      description: 'Generates an interview agenda from your objective and the linked knowledge gaps. Editable before start.',
+      icon: 'zap',
+      recommended: true,
+    },
+    {
+      id: 'provided_plan',
+      label: 'I provide the plan',
+      description: 'You write or paste the agenda. AI reviews and suggests refinements.',
+      icon: 'layout-grid',
+      recommended: false,
+    },
+    {
+      id: 'free_conversation',
+      label: 'No plan — free conversation',
+      description: 'AI follows the expert. Objective is required; coverage and rigor are lower.',
+      icon: 'activity',
+      recommended: false,
+    },
+  ];
   readonly modelSteps = [
     {
       eyebrow: 'Capability',
@@ -1220,12 +1070,12 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly editingEventId = signal<string | null>(null);
   editingText = '';
 
-  readonly surfaceNav: Array<{ id: CaptureSurfaceView; label: string; icon: string }> = [
-    { id: 'dashboard', label: 'Sessions', icon: 'layout-dashboard' },
-    { id: 'prep', label: 'Preparation', icon: 'sliders-horizontal' },
-    { id: 'plan', label: 'Plan', icon: 'list-checks' },
-    { id: 'session', label: 'Capture', icon: 'mic' },
-    { id: 'review', label: 'Proposal', icon: 'check-circle-2' },
+  readonly surfaceNav: Array<{ id: CaptureSurfaceView; label: string; icon: string; step: number }> = [
+    { id: 'dashboard', label: 'Sessions', icon: 'layout-dashboard', step: 1 },
+    { id: 'prep', label: 'Preparation', icon: 'sliders-horizontal', step: 2 },
+    { id: 'plan', label: 'Plan', icon: 'list-checks', step: 3 },
+    { id: 'session', label: 'Capture', icon: 'mic', step: 4 },
+    { id: 'review', label: 'Proposal', icon: 'check-circle-2', step: 5 },
   ];
   readonly voiceWaveBars = [10, 18, 26, 14, 22, 30, 16, 24, 12, 20];
 
@@ -1291,7 +1141,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.loading.set(true);
     this.api
       .createCapturePlan({
-        title: 'Expert Knowledge Capture',
+        title: this.sessionTitle.trim() || 'Expert Knowledge Capture',
         objective: this.objective,
         expert_profile: this.expertProfile,
         duration_minutes: Number(this.durationMinutes) || 20,
@@ -1375,6 +1225,18 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   pendingProposalCount(): number {
     return this.dashboardProposals().filter((row) => row.status === 'pending_review').length;
+  }
+
+  stepIsComplete(view: CaptureSurfaceView): boolean {
+    const order: CaptureSurfaceView[] = ['dashboard', 'prep', 'plan', 'session', 'review'];
+    const activeIndex = order.indexOf(this.activeSurface());
+    const viewIndex = order.indexOf(view);
+    if (viewIndex >= 0 && activeIndex > viewIndex) return true;
+    if (view === 'prep') return Boolean(this.session());
+    if (view === 'plan') return Boolean(this.session());
+    if (view === 'session') return (this.session()?.metrics?.['captured_facts'] || 0) > 0;
+    if (view === 'review') return Boolean(this.proposal());
+    return activeIndex > 0;
   }
 
   selectedContext(): ContextOption | null {
@@ -1487,7 +1349,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   refreshEvents(sessionId: string): void {
     this.api
-      .listCaptureEvents(sessionId)
+      .listCaptureEvents(sessionId, undefined, true)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
         const events = (payload as { events?: CaptureEvent[] }).events || [];
@@ -1565,11 +1427,15 @@ export class KnowledgeCaptureComponent implements OnInit {
       correction: 'Correction captured',
       more_detail: 'Additional detail captured',
       proposal_requested: 'Proposal prepared, waiting for confirmation',
+      proposal_deferred_insufficient_facts: 'More expert detail needed before proposal',
       proposal_confirmed: 'Proposal confirmed, waiting for final acceptance',
       proposal_rejected: 'Proposal rejected, waiting for correction',
       accept_confirmed: 'Proposal accepted',
       accept_rejected: 'Acceptance paused',
     };
+    if (step.action_taken === 'proposal_deferred_insufficient_facts') {
+      return labels['proposal_deferred_insufficient_facts'];
+    }
     return labels[step.intent] || `${step.intent} · ${step.action_taken}`;
   }
 
@@ -1766,12 +1632,16 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.speaking()) {
       this.interruptSpeech();
     }
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const armed = await this.ensureAudioStream();
+    if (!armed) {
+      this.voiceState.set('idle');
+      return;
+    }
     this.chunks = [];
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
-    this.recorder = new MediaRecorder(this.stream);
+    this.recorder = new MediaRecorder(this.stream!);
     this.recorder.ondataavailable = (event) => {
       if (event.data.size <= 0) return;
       this.chunks.push(event.data);
@@ -1800,6 +1670,12 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     this.conversationSessionActive.set(true);
+    const armed = await this.ensureAudioStream();
+    if (!armed) {
+      this.conversationSessionActive.set(false);
+      this.voiceState.set('idle');
+      return;
+    }
     const firstPrompt = this.currentQuestion()?.question || this.nextPrompt();
     if (firstPrompt) {
       this.speak(firstPrompt);
@@ -1889,7 +1765,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   private transcribeRecording(): void {
-    this.stream?.getTracks().forEach((track) => track.stop());
+    if (!this.conversationSessionActive()) {
+      this.releaseAudioStream();
+    }
+    this.recorder = null;
     const blob = new Blob(this.chunks, { type: 'audio/webm' });
     this.transcribing.set(true);
     this.voiceState.set('partial_transcribing');
@@ -2055,7 +1934,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.activeAudio = audio;
           audio.onended = () => this.playNextSpeechSegment(generation);
           audio.onerror = () => this.playNextSpeechSegment(generation);
-          void audio.play();
+          void audio.play().catch(() => this.playNextSpeechSegment(generation));
         },
         error: () => this.playNextSpeechSegment(generation),
       });
@@ -2081,9 +1960,8 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     this.clearAutoResumeTimer();
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
+    const armed = await this.ensureAudioStream();
+    if (!armed) {
       this.conversationSessionActive.set(false);
       this.voiceState.set('idle');
       return;
@@ -2092,7 +1970,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
-    this.recorder = new MediaRecorder(this.stream);
+    this.recorder = new MediaRecorder(this.stream!);
     this.recorder.ondataavailable = (event) => {
       if (event.data.size <= 0) return;
       this.chunks.push(event.data);
@@ -2112,9 +1990,31 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.recorder?.stop();
       this.recording.set(false);
     } else if (!this.transcribing()) {
-      this.stream?.getTracks().forEach((track) => track.stop());
+      this.releaseAudioStream();
       this.voiceState.set('idle');
     }
+  }
+
+  private async ensureAudioStream(): Promise<boolean> {
+    if (this.hasLiveAudioStream()) {
+      return true;
+    }
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      return true;
+    } catch {
+      this.stream = null;
+      return false;
+    }
+  }
+
+  private hasLiveAudioStream(): boolean {
+    return Boolean(this.stream?.getAudioTracks().some((track) => track.readyState === 'live'));
+  }
+
+  private releaseAudioStream(): void {
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = null;
   }
 
   private scheduleConversationResume(): void {

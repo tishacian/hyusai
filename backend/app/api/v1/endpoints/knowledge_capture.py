@@ -233,6 +233,7 @@ async def list_session_events(
     event_type: Optional[str] = None,
     status: Optional[str] = None,
     after_sequence: Optional[int] = Query(default=None, ge=0),
+    business_only: bool = False,
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ) -> Dict[str, Any]:
@@ -245,6 +246,7 @@ async def list_session_events(
             event_type=event_type,
             status=status,
             after_sequence=after_sequence,
+            business_only=business_only,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -225,11 +225,12 @@ def test_conversation_only_step_flow_requires_voice_confirmation(db_session):
         question_id=question_id,
         retrieval_event_id=None,
         interruption_of_event_id=None,
-        last_proposal_id=proposal_id,
+        last_proposal_id=None,
         text="Oui je confirme.",
     )
     assert confirm_step["intent"] == "proposal_confirmed"
     assert confirm_step["proposal"]["status"] == "pending_review"
+    assert confirm_step["proposal"]["id"] == proposal_id
     assert confirm_step["requires_confirmation"] is True
     assert confirm_step["confirmation_target"] == "acceptance"
 
@@ -241,7 +242,7 @@ def test_conversation_only_step_flow_requires_voice_confirmation(db_session):
         question_id=question_id,
         retrieval_event_id=None,
         interruption_of_event_id=None,
-        last_proposal_id=proposal_id,
+        last_proposal_id=None,
         text="Oui valide.",
     )
     assert accept_step["intent"] == "accept_confirmed"
@@ -270,6 +271,42 @@ def test_conversation_only_step_flow_requires_voice_confirmation(db_session):
         "accept_confirmed",
         "answer_ready",
     ]
+
+
+def test_conversation_only_defers_empty_proposal_request(db_session):
+    workspace = Workspace(id="ws-capture-empty-prop", name="Capture Empty Prop", slug="capture-empty-prop")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Empty proposal guard",
+        objective="Capture tacit troubleshooting knowledge.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+    )
+
+    step = process_conversation_step(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        client_turn_id="conv-empty-prop-1",
+        question_id=session.plan["questions"][0]["id"],
+        retrieval_event_id=None,
+        interruption_of_event_id=None,
+        last_proposal_id=None,
+        text="Crée la proposition.",
+    )
+
+    assert step["intent"] == "proposal_requested"
+    assert step["action_taken"] == "proposal_deferred_insufficient_facts"
+    assert step["proposal"] is None
+    assert step["requires_confirmation"] is False
+    assert "pas encore assez de matière" in step["next_prompt"]
 
 
 def test_conversation_only_proposal_strips_voice_control_noise(db_session):
@@ -449,3 +486,16 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     fact = proposal.proposal["captured_facts"][0]
     assert fact["retrieval_event_id"] == prefetch["event_id"]
     assert fact["retrieval_refs"][0]["source"] == "crm"
+
+    regenerated = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert regenerated.id == proposal.id
+    assert regenerated.proposal["captured_facts"][0]["retrieval_event_id"] == prefetch["event_id"]
+
+    business_events = list_capture_events(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        business_only=True,
+    )
+    assert business_events
+    assert all(event.event_type not in {"stt_partial", "retrieval_prefetch_started"} for event in business_events)

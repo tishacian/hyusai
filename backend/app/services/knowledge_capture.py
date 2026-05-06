@@ -83,6 +83,16 @@ LEADING_DISCOURSE_MARKERS = (
     "alors",
     "maintenant",
 )
+BUSINESS_EVENT_TYPES = {
+    "capture_plan_created",
+    "capture_session_started",
+    "expert_turn_finalized",
+    "transcript_amended",
+    "conversation_intent_detected",
+    "proposal_generated",
+    "proposal_reviewed",
+    "ai_speech_interrupted",
+}
 
 _BASE_GAPS = [
     {
@@ -445,7 +455,7 @@ def process_conversation_step(
     last_proposal_id: Optional[str],
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
-    last_proposal = _load_proposal(
+    last_proposal = _load_active_proposal(
         db,
         workspace_id=workspace_id,
         proposal_id=last_proposal_id,
@@ -492,14 +502,22 @@ def process_conversation_step(
                 interruption_of_event_id=interruption_of_event_id,
                 turn_kind="answer",
             )
-        proposal = create_update_proposal(db, workspace_id=workspace_id, session_id=session_id, complete_session=False)
-        action_taken = "proposal_created"
-        requires_confirmation = True
-        confirmation_target = "proposal"
-        next_prompt = (
-            "J’ai préparé la proposition de mise à jour. Dites « oui je confirme » "
-            "pour la confirmer, ou « non corrige » pour la retravailler."
-        )
+        session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+        if _session_has_proposal_material(db, workspace_id=workspace_id, session=session):
+            proposal = create_update_proposal(db, workspace_id=workspace_id, session_id=session_id, complete_session=False)
+            action_taken = "proposal_created"
+            requires_confirmation = True
+            confirmation_target = "proposal"
+            next_prompt = (
+                "J’ai préparé la proposition de mise à jour. Dites « oui je confirme » "
+                "pour la confirmer, ou « non corrige » pour la retravailler."
+            )
+        else:
+            action_taken = "proposal_deferred_insufficient_facts"
+            next_prompt = (
+                "Je n’ai pas encore assez de matière pour préparer une proposition utile. "
+                "Donnez d’abord une décision experte concrète ou une correction à capturer."
+            )
     elif intent == "proposal_confirmed":
         proposal = last_proposal
         if not proposal:
@@ -1164,17 +1182,26 @@ def create_update_proposal(
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
     payload = structure_capture_payload(session, events)
-    proposal = KnowledgeUpdateProposal(
-        id=str(uuid.uuid4()),
-        workspace_id=workspace_id,
-        session_id=session.id,
-        status="pending_review",
-        proposal=payload,
-    )
+    proposal = _latest_pending_proposal_for_session(db, workspace_id=workspace_id, session_id=session_id)
+    operation = "updated" if proposal else "created"
+    if proposal:
+        conversation_state = ((proposal.proposal or {}).get("conversation") or {}).copy()
+        if conversation_state:
+            payload["conversation"] = conversation_state
+        proposal.proposal = payload
+        flag_modified(proposal, "proposal")
+    else:
+        proposal = KnowledgeUpdateProposal(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace_id,
+            session_id=session.id,
+            status="pending_review",
+            proposal=payload,
+        )
+        db.add(proposal)
     if complete_session:
         session.status = "completed"
         session.completed_at = datetime.utcnow()
-    db.add(proposal)
     db.flush()
     _record_capture_event(
         db,
@@ -1182,7 +1209,11 @@ def create_update_proposal(
         event_type="proposal_generated",
         source="capture_engine",
         status="accepted",
-        meta_data={"proposal_id": proposal.id},
+        meta_data={
+            "proposal_id": proposal.id,
+            "operation": operation,
+            "fact_count": len(payload.get("captured_facts") or []),
+        },
     )
     _record_capture_run(
         db,
@@ -1370,11 +1401,14 @@ def list_capture_events(
     event_type: Optional[str] = None,
     status: Optional[str] = None,
     after_sequence: Optional[int] = None,
+    business_only: bool = False,
 ) -> List[ExpertCaptureEvent]:
     q = db.query(ExpertCaptureEvent).filter(
         ExpertCaptureEvent.workspace_id == workspace_id,
         ExpertCaptureEvent.session_id == session_id,
     )
+    if business_only:
+        q = q.filter(ExpertCaptureEvent.event_type.in_(BUSINESS_EVENT_TYPES))
     if event_type:
         q = q.filter(ExpertCaptureEvent.event_type == event_type)
     if status:
@@ -1649,6 +1683,42 @@ def _load_proposal(
     return q.first()
 
 
+def _latest_pending_proposal_for_session(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+) -> Optional[KnowledgeUpdateProposal]:
+    return (
+        db.query(KnowledgeUpdateProposal)
+        .filter(
+            KnowledgeUpdateProposal.workspace_id == workspace_id,
+            KnowledgeUpdateProposal.session_id == session_id,
+            KnowledgeUpdateProposal.status == "pending_review",
+        )
+        .order_by(KnowledgeUpdateProposal.created_at.desc())
+        .first()
+    )
+
+
+def _load_active_proposal(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    proposal_id: Optional[str],
+    session_id: str,
+) -> Optional[KnowledgeUpdateProposal]:
+    proposal = _load_proposal(
+        db,
+        workspace_id=workspace_id,
+        proposal_id=proposal_id,
+        session_id=session_id,
+    )
+    if proposal:
+        return proposal
+    return _latest_pending_proposal_for_session(db, workspace_id=workspace_id, session_id=session_id)
+
+
 def _proposal_conversation_confirmed(proposal: Optional[KnowledgeUpdateProposal]) -> bool:
     if not proposal:
         return False
@@ -1678,6 +1748,14 @@ def _has_substantive_answer_text(text: str) -> bool:
     for term in PROPOSAL_REQUEST_TERMS:
         stripped = stripped.replace(term, " ")
     return len(_words(stripped)) >= 8
+
+
+def _session_has_proposal_material(db: DBSession, *, workspace_id: str, session: ExpertCaptureSession) -> bool:
+    if session.captured_facts:
+        return True
+    events = list_capture_events(db, workspace_id=workspace_id, session_id=session.id)
+    payload = structure_capture_payload(session, events)
+    return bool(payload.get("captured_facts"))
 
 
 def _resolve_collection_name(ctx: Optional[Context]) -> str:

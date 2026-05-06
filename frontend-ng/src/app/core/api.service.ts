@@ -118,8 +118,14 @@ export class ApiService {
     return this.post(`/knowledge-capture/sessions/${sessionId}/turns`, body);
   }
 
-  listCaptureEvents(sessionId: string, afterSequence?: number): Observable<unknown> {
-    const params = afterSequence !== undefined ? { after_sequence: String(afterSequence) } : undefined;
+  listCaptureEvents(sessionId: string, afterSequence?: number, businessOnly = false): Observable<unknown> {
+    const params: Record<string, string> = {};
+    if (afterSequence !== undefined) {
+      params['after_sequence'] = String(afterSequence);
+    }
+    if (businessOnly) {
+      params['business_only'] = 'true';
+    }
     return this.get(`/knowledge-capture/sessions/${sessionId}/events`, params);
   }
 
