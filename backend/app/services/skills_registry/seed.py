@@ -448,6 +448,7 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
             "knowledge_gap_analysis_v1",
             "expert_interview_plan_v1",
             "voice_transcribe_v1",
+            "semantic_search_v1",
             "expert_answer_evaluator_v1",
             "capture_structuring_v1",
             "voice_tts_v1",

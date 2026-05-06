@@ -12,18 +12,55 @@ from app.services.knowledge_capture import (
     process_conversation_step,
     review_proposal,
 )
+from app.services.chains.dag_validator import validate_flow
 from app.services.skills_registry.seed import seed_skills_and_capabilities
 from app.services.skills_registry.wrappers import runtime_status
+from app.services.systems.bootstrap import ensure_expert_capture_system_default
 
 
 def test_seeded_expert_capture_capability_and_bound_skills(db_session):
     report = seed_skills_and_capabilities(db_session)
 
     assert report["skills_added"] >= 1
+    assert runtime_status("semantic_search_v1") == "bound"
     assert runtime_status("voice_transcribe_v1") == "bound"
     assert runtime_status("voice_tts_v1") == "bound"
     assert runtime_status("knowledge_gap_analysis_v1") == "bound"
     assert runtime_status("expert_interview_plan_v1") == "bound"
+
+
+def test_expert_capture_system_seed_populates_flow_and_session_binding(db_session):
+    workspace = Workspace(id="ws-capture-system", name="Capture System", slug="capture-system")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    system = ensure_expert_capture_system_default(db_session, workspace.id)
+
+    assert system is not None
+    assert system.name == "Expert Knowledge Capture"
+    assert system.execution_mode == "human_augmented"
+    assert system.retrieval_mode_default == "chah"
+    assert len(system.skill_ids) == 8
+    assert system.flow_definition["variant"] == "expert_knowledge_capture"
+    assert system.flow_definition["ui"]["type"] == "knowledge_capture"
+    assert system.flow_definition["ui"]["entry_route"] == "capture"
+    assert [issue for issue in validate_flow(system.flow_definition) if issue.level == "error"] == []
+    node_ids = {node["id"] for node in system.flow_definition["nodes"]}
+    assert "skill.semantic_search_prefetch" in node_ids
+    assert "hitl.proposal_review" in node_ids
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Expert Knowledge Capture",
+        objective="Capture expert maintenance decisions.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+    )
+    assert session.system_id == system.id
 
 
 def test_capture_plan_turn_and_review_proposal(db_session):
@@ -210,6 +247,19 @@ def test_conversation_only_step_flow_requires_voice_confirmation(db_session):
     assert accept_step["intent"] == "accept_confirmed"
     assert accept_step["proposal"]["status"] == "accepted"
 
+    next_answer_step = process_conversation_step(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        client_turn_id="conv-turn-6",
+        question_id=question_id,
+        retrieval_event_id=None,
+        interruption_of_event_id=None,
+        last_proposal_id=proposal_id,
+        text="Oui, pour la question suivante il faut vérifier les seuils de vibration avant recalage.",
+    )
+    assert next_answer_step["intent"] == "answer_ready"
+
     events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
     intent_events = [event for event in events if event.event_type == "conversation_intent_detected"]
     assert [event.meta_data["intent"] for event in intent_events] == [
@@ -218,7 +268,52 @@ def test_conversation_only_step_flow_requires_voice_confirmation(db_session):
         "proposal_requested",
         "proposal_confirmed",
         "accept_confirmed",
+        "answer_ready",
     ]
+
+
+def test_conversation_only_proposal_strips_voice_control_noise(db_session):
+    workspace = Workspace(id="ws-capture-noise", name="Capture Noise", slug="capture-noise")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Noisy conversation capture",
+        objective="Capture tacit troubleshooting knowledge.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+    )
+    question_id = session.plan["questions"][0]["id"]
+
+    step = process_conversation_step(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        client_turn_id="conv-noise-1",
+        question_id=question_id,
+        retrieval_event_id=None,
+        interruption_of_event_id=None,
+        last_proposal_id=None,
+        text=(
+            "Attends, attends, je ne comprends pas ce que tu fais là. Arrête-toi. "
+            "OK, donc euh pour la décision experte, ce qui est difficile à retrouver "
+            "dans la documentation, c'est l'utilisation du régime vibratoire de la machine. "
+            "Maintenant, je pense qu'on peut rajouter cette connaissance, on peut faire "
+            "une proposition là-dessus."
+        ),
+    )
+
+    assert step["intent"] == "proposal_requested"
+    content = step["proposal"]["proposal"]["recommended_ingestion"]["content"]
+    assert "régime vibratoire de la machine" in content
+    assert "Attends" not in content
+    assert "Arrête-toi" not in content
+    assert "proposition là-dessus" not in content
 
 
 @pytest.mark.asyncio

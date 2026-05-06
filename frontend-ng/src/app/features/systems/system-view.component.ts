@@ -56,10 +56,9 @@ type SystemTabId =
 /**
  * Variant is a marker persisted on `flow_definition.variant` that lets
  * SystemViewComponent adapt its facets without introducing a separate
- * route. For Vague A we only recognize `intelligence` — other specialist
- * Systems will plug here the same way.
+ * route. Specialist Systems can expose variant-specific labels and stages.
  */
-type SystemVariant = 'intelligence' | 'standard';
+type SystemVariant = 'intelligence' | 'expert_knowledge_capture' | 'standard';
 
 interface WizardStep {
   key: 'identity' | 'knowledge' | 'model' | 'guardrails' | 'launch';
@@ -72,7 +71,7 @@ interface WizardStep {
 }
 
 interface PipelineStage {
-  key: 'query' | 'retrieve' | 'rerank' | 'generate';
+  key: string;
   name: string;
   icon: string;
   description: string;
@@ -124,6 +123,16 @@ interface PipelineStage {
         <app-icon name="play" [size]="12" />
         {{ triggering() ? 'Queueing…' : 'Run now' }}
       </button>
+      @if (isExpertKnowledgeCapture()) {
+        <a
+          actions
+          [routerLink]="['/systems', systemId, 'capture']"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+          title="Open this system's dedicated capture UI"
+        >
+          <app-icon name="mic" [size]="14" /> Capture console
+        </a>
+      }
       <button
         actions
         type="button"
@@ -165,7 +174,9 @@ interface PipelineStage {
           <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-brand-500/15 blur-3xl pointer-events-none"></div>
           <div class="relative flex items-center gap-3 flex-wrap">
             <app-icon name="atom" [size]="18" class="text-brand-400" />
-            <span class="text-xs uppercase tracking-wider font-semibold text-brand-300">OmniRAG pipeline</span>
+            <span class="text-xs uppercase tracking-wider font-semibold text-brand-300">
+              {{ isExpertKnowledgeCapture() ? 'System workbench' : 'OmniRAG pipeline' }}
+            </span>
             <div class="flex items-center gap-2 ml-auto text-[11px]">
               @for (stage of pipelineStages; track stage.key; let last = $last) {
                 <a
@@ -623,12 +634,19 @@ export class SystemViewComponent implements OnInit {
    */
   readonly variant = signal<SystemVariant>('standard');
   readonly isIntelligence = computed(() => this.variant() === 'intelligence');
+  readonly isExpertKnowledgeCapture = computed(() => this.variant() === 'expert_knowledge_capture');
   readonly headerEyebrow = computed(() =>
-    this.isIntelligence() ? 'Systems · Intelligence' : 'Systems · System',
+    this.isIntelligence()
+      ? 'Systems · Intelligence'
+      : this.isExpertKnowledgeCapture()
+        ? 'Systems · Knowledge Capture'
+        : 'Systems · System',
   );
   readonly headerFallbackSubtitle = computed(() =>
     this.isIntelligence()
       ? 'Market-signal briefs and continuous monitoring.'
+      : this.isExpertKnowledgeCapture()
+        ? 'Voice-to-voice expert capture, live retrieval and proposal review.'
       : 'Configure, run and refine this AI system.',
   );
   /** Side panels — Settings and Chat live here, never as tabs. */
@@ -801,44 +819,86 @@ export class SystemViewComponent implements OnInit {
     ];
   });
 
-  readonly pipelineStages: PipelineStage[] = [
-    {
-      key: 'query',
-      name: 'Query',
-      icon: 'message-square',
-      description: 'User intent parsing, query rewriting and routing.',
-      configureLabel: 'System prompt',
-      route: '/settings',
-      tone: 'brand',
-    },
-    {
-      key: 'retrieve',
-      name: 'Retrieve',
-      icon: 'database',
-      description: 'Hybrid search over your collections (dense + BM25).',
-      configureLabel: 'Collections',
-      route: '/knowledge',
-      tone: 'violet',
-    },
-    {
-      key: 'rerank',
-      name: 'Rerank',
-      icon: 'filter',
-      description: 'Cross-encoder reranking + context filtering.',
-      configureLabel: 'Top-K & threshold',
-      route: '/settings',
-      tone: 'brand',
-    },
-    {
-      key: 'generate',
-      name: 'Generate',
-      icon: 'sparkles',
-      description: 'LLM synthesis with citations and guardrails.',
-      configureLabel: 'Model',
-      route: '/settings',
-      tone: 'emerald',
-    },
-  ];
+  get pipelineStages(): PipelineStage[] {
+    if (this.isExpertKnowledgeCapture()) {
+      return [
+        {
+          key: 'plan',
+          name: 'Plan',
+          icon: 'list-checks',
+          description: 'Gap analysis and interview plan from the selected Knowledge Context.',
+          configureLabel: 'Capture UI',
+          route: ['/systems', this.systemId, 'capture'],
+          tone: 'brand',
+        },
+        {
+          key: 'voice',
+          name: 'Voice loop',
+          icon: 'mic',
+          description: 'Chunked STT, segmented TTS and barge-in interruption in conversation-only mode.',
+          configureLabel: 'Runtime',
+          route: ['/systems', this.systemId, 'capture'],
+          tone: 'violet',
+        },
+        {
+          key: 'retrieve',
+          name: 'Live retrieval',
+          icon: 'database',
+          description: 'Non-blocking C-HAH prefetch over the bound Knowledge collection.',
+          configureLabel: 'Knowledge',
+          route: '/knowledge',
+          tone: 'brand',
+        },
+        {
+          key: 'proposal',
+          name: 'Proposal & review',
+          icon: 'check-circle-2',
+          description: 'Evaluated answers become a HITL-amendable knowledge update proposal.',
+          configureLabel: 'Flow',
+          route: ['/systems', this.systemId, 'flow'],
+          tone: 'emerald',
+        },
+      ];
+    }
+    return [
+      {
+        key: 'query',
+        name: 'Query',
+        icon: 'message-square',
+        description: 'User intent parsing, query rewriting and routing.',
+        configureLabel: 'System prompt',
+        route: '/settings',
+        tone: 'brand',
+      },
+      {
+        key: 'retrieve',
+        name: 'Retrieve',
+        icon: 'database',
+        description: 'Hybrid search over your collections (dense + BM25).',
+        configureLabel: 'Collections',
+        route: '/knowledge',
+        tone: 'violet',
+      },
+      {
+        key: 'rerank',
+        name: 'Rerank',
+        icon: 'filter',
+        description: 'Cross-encoder reranking + context filtering.',
+        configureLabel: 'Top-K & threshold',
+        route: '/settings',
+        tone: 'brand',
+      },
+      {
+        key: 'generate',
+        name: 'Generate',
+        icon: 'sparkles',
+        description: 'LLM synthesis with citations and guardrails.',
+        configureLabel: 'Model',
+        route: '/settings',
+        tone: 'emerald',
+      },
+    ];
+  }
 
   readonly completedSteps = computed(() => this.wizard().filter((s) => s.done).length);
 
@@ -900,6 +960,8 @@ export class SystemViewComponent implements OnInit {
         const variant = String(flow['variant'] ?? '').toLowerCase();
         if (variant === 'intelligence') {
           this.variant.set('intelligence');
+        } else if (variant === 'expert_knowledge_capture') {
+          this.variant.set('expert_knowledge_capture');
         } else {
           this.variant.set('standard');
         }

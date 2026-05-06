@@ -67,15 +67,18 @@ async def lifespan(app: FastAPI):
     try:
         from app.db.base import SessionLocal
         from app.services.systems.bootstrap import (
+            ensure_expert_capture_system_for_all_workspaces,
             ensure_intelligence_system_for_all_workspaces,
         )
 
         with SessionLocal() as _db:
             intel_report = ensure_intelligence_system_for_all_workspaces(_db)
+            expert_capture_report = ensure_expert_capture_system_for_all_workspaces(_db)
         logger.info("Intelligence System seeded", **intel_report)
+        logger.info("Expert Knowledge Capture System seeded", **expert_capture_report)
     except Exception as e:
         logger.warning(
-            "Intelligence System seeding failed (non-blocking)", error=str(e)
+            "System seeding failed (non-blocking)", error=str(e)
         )
 
     logger.info("Application started", agents_count=len(orchestrator.agents))

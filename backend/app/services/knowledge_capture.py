@@ -19,6 +19,7 @@ from app.models.expert_capture import (
     KnowledgeUpdateProposal,
 )
 from app.models.run import Run, SkillInvocation
+from app.models.system import System
 
 CAPABILITY_SLUG = "expert_knowledge_capture"
 RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
@@ -61,6 +62,26 @@ MORE_DETAIL_TERMS = (
     "je precise",
     "plus de détail",
     "plus de detail",
+)
+VOICE_CONTROL_TERMS = (
+    "attends",
+    "attend",
+    "arrête-toi",
+    "arrete-toi",
+    "arrête toi",
+    "arrete toi",
+    "stop",
+    "je ne comprends pas ce que tu fais",
+)
+LEADING_DISCOURSE_MARKERS = (
+    "ok",
+    "okay",
+    "donc",
+    "euh",
+    "heu",
+    "hum",
+    "alors",
+    "maintenant",
 )
 
 _BASE_GAPS = [
@@ -330,12 +351,13 @@ def classify_conversation_intent(
     has_proposal = any(term in lower for term in PROPOSAL_REQUEST_TERMS)
     has_correction = any(term in lower for term in CORRECTION_TERMS)
     has_more_detail = any(term in lower for term in MORE_DETAIL_TERMS)
-    proposal_confirmed = _proposal_conversation_confirmed(last_proposal)
+    active_proposal = last_proposal if last_proposal and last_proposal.status == "pending_review" else None
+    proposal_confirmed = _proposal_conversation_confirmed(active_proposal)
 
-    if last_proposal and has_positive:
+    if active_proposal and has_positive:
         intent = "accept_confirmed" if proposal_confirmed else "proposal_confirmed"
         return {"intent": intent, "confidence": 0.92, "signals": {"proposal_confirmed": proposal_confirmed}}
-    if last_proposal and has_negative:
+    if active_proposal and has_negative:
         intent = "accept_rejected" if proposal_confirmed else "proposal_rejected"
         return {"intent": intent, "confidence": 0.90, "signals": {"proposal_confirmed": proposal_confirmed}}
     if has_proposal:
@@ -347,6 +369,67 @@ def classify_conversation_intent(
     if len(words) >= 8:
         return {"intent": "answer_ready", "confidence": 0.72, "signals": {"word_count": len(words)}}
     return {"intent": "more_detail", "confidence": 0.45, "signals": {"word_count": len(words)}}
+
+
+def _clean_conversation_fact_text(text: str, intent: str) -> str:
+    """Remove voice-control utterances before a transcript becomes a fact."""
+    clean = (text or "").strip()
+    if not clean:
+        return ""
+
+    segments = re.split(r"(?<=[.!?])\s+", clean)
+    kept: List[str] = []
+    for segment in segments:
+        part = segment.strip(" ,;:")
+        if not part:
+            continue
+        lower = part.lower()
+        if any(term in lower for term in VOICE_CONTROL_TERMS):
+            continue
+        if intent in {"proposal_requested", "proposal_confirmed", "accept_confirmed"}:
+            if any(term in lower for term in PROPOSAL_REQUEST_TERMS):
+                part = _strip_proposal_request_clause(part).strip(" ,;:")
+        if any(term in part.lower() for term in POSITIVE_CONFIRMATION_TERMS) and len(_words(part)) <= 5:
+            continue
+        if any(term in part.lower() for term in NEGATIVE_CONFIRMATION_TERMS) and len(_words(part)) <= 5:
+            continue
+        part = _strip_leading_discourse_markers(part)
+        part = re.sub(r"\b(?:euh|heu|hum)\b", " ", part, flags=re.IGNORECASE)
+        part = re.sub(r"\s+", " ", part).strip(" ,;:")
+        if part:
+            kept.append(part)
+
+    return " ".join(kept).strip()
+
+
+def _strip_leading_discourse_markers(text: str) -> str:
+    out = text.strip()
+    marker_pattern = "|".join(re.escape(marker) for marker in LEADING_DISCOURSE_MARKERS)
+    while True:
+        stripped = re.sub(
+            rf"^(?:{marker_pattern})[\s,;:.-]+",
+            "",
+            out,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+        if stripped == out:
+            return out
+        out = stripped
+
+
+def _strip_proposal_request_clause(text: str) -> str:
+    out = text
+    proposal_patterns = [
+        r"\b(?:crée|cree|prépare|prepare)\s+la\s+proposition\b.*$",
+        r"\bon\s+peut\s+(?:faire|créer|creer)\s+une\s+proposition\b.*$",
+        r"\bje\s+pense\s+qu['’]?\s*on\s+peut\s+.*proposition\b.*$",
+        r"\bon\s+peut\s+conclure\b.*$",
+        r"\b(?:synthèse|synthese)\b.*$",
+    ]
+    for pattern in proposal_patterns:
+        out = re.sub(pattern, "", out, flags=re.IGNORECASE).strip(" ,;:")
+    return out
 
 
 def process_conversation_step(
@@ -371,6 +454,7 @@ def process_conversation_step(
     classification = classify_conversation_intent(text=text, last_proposal=last_proposal)
     intent = classification["intent"]
     confidence = classification["confidence"]
+    fact_text = _clean_conversation_fact_text(text, intent)
     action_taken = "none"
     next_prompt: Optional[str] = None
     proposal: Optional[KnowledgeUpdateProposal] = None
@@ -385,7 +469,7 @@ def process_conversation_step(
             workspace_id=workspace_id,
             session_id=session_id,
             speaker="expert",
-            text=text,
+            text=fact_text or text,
             question_id=question_id,
             client_turn_id=client_turn_id,
             retrieval_event_id=retrieval_event_id,
@@ -395,13 +479,13 @@ def process_conversation_step(
         action_taken = "turn_appended"
         next_prompt = turn_payload.get("next_prompt")
     elif intent == "proposal_requested":
-        if _has_substantive_answer_text(text):
+        if _has_substantive_answer_text(fact_text):
             turn_payload = append_turn(
                 db,
                 workspace_id=workspace_id,
                 session_id=session_id,
                 speaker="expert",
-                text=text,
+                text=fact_text,
                 question_id=question_id,
                 client_turn_id=client_turn_id,
                 retrieval_event_id=retrieval_event_id,
@@ -482,6 +566,7 @@ def process_conversation_step(
             "requires_confirmation": requires_confirmation,
             "confirmation_target": confirmation_target,
             "signals": classification.get("signals") or {},
+            "fact_text": fact_text,
         },
     )
     db.commit()
@@ -583,15 +668,20 @@ def structure_capture_payload(
 
 def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     related = next((ev for ev in evaluations if ev.get("turn_id") == turn.get("id")), None)
+    turn_kind = turn.get("turn_kind") or "answer"
+    text = turn.get("text", "")
     return {
         "id": f"fact-{turn.get('id')}",
-        "text": turn.get("text", ""),
+        "type": _proposal_fact_type(turn_kind, bool(turn.get("text_amended"))),
+        "status": "pending",
+        "text": text,
+        "statement": text,
         "source": "expert_session",
         "source_event_id": turn.get("source_event_id"),
         "retrieval_event_id": turn.get("retrieval_event_id"),
         "retrieval_refs": turn.get("retrieval_refs") or [],
         "interruption_of_event_id": turn.get("interruption_of_event_id"),
-        "turn_kind": turn.get("turn_kind") or "answer",
+        "turn_kind": turn_kind,
         "raw_text": turn.get("text_raw") or turn.get("text"),
         "amended_text": turn.get("text_amended"),
         "amended": bool(turn.get("text_amended")),
@@ -646,16 +736,20 @@ def _facts_from_events(
         related = next((ev for ev in evaluations if ev.get("question_id") == event.question_id), None)
         client_turn_id = _event_client_turn_id(event, by_id)
         retrieval_event = retrieval_by_client.get(client_turn_id or "")
+        turn_kind = (event.meta_data or {}).get("turn_kind") or "answer"
         facts.append(
             {
                 "id": f"fact-event-{event.id}",
+                "type": _proposal_fact_type(turn_kind, bool(event.text_amended or event.event_type == "transcript_amended")),
+                "status": "pending",
                 "text": text,
+                "statement": text,
                 "source": "expert_event_ledger",
                 "source_event_id": event.id,
                 "retrieval_event_id": retrieval_event.id if retrieval_event else None,
                 "retrieval_refs": _retrieval_refs_from_event(retrieval_event) if retrieval_event else [],
                 "interruption_of_event_id": event.parent_event_id,
-                "turn_kind": (event.meta_data or {}).get("turn_kind") or "answer",
+                "turn_kind": turn_kind,
                 "raw_text": event.text_raw or text,
                 "amended_text": event.text_amended,
                 "amended": bool(event.text_amended or event.event_type == "transcript_amended"),
@@ -664,6 +758,14 @@ def _facts_from_events(
             }
         )
     return facts
+
+
+def _proposal_fact_type(turn_kind: str, amended: bool) -> str:
+    if amended or turn_kind == "correction":
+        return "update"
+    if turn_kind == "complement":
+        return "detail"
+    return "new"
 
 
 def _merge_event_facts(
@@ -822,12 +924,24 @@ def create_capture_plan(
     plan["voice_runtime"] = voice_runtime
 
     capability = db.query(Capability).filter(Capability.slug == CAPABILITY_SLUG).first()
+    resolved_system_id = system_id
+    if not resolved_system_id and capability:
+        default_system = (
+            db.query(System)
+            .filter(
+                System.workspace_id == workspace_id,
+                System.capability_id == capability.id,
+                System.name == "Expert Knowledge Capture",
+            )
+            .first()
+        )
+        resolved_system_id = default_system.id if default_system else None
     session = ExpertCaptureSession(
         id=str(uuid.uuid4()),
         workspace_id=workspace_id,
         capability_id=capability.id if capability else None,
         context_id=context_id,
-        system_id=system_id,
+        system_id=resolved_system_id,
         title=title or "Expert Knowledge Capture",
         objective=objective,
         expert_profile=expert_profile,
