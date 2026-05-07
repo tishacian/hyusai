@@ -98,6 +98,12 @@ export class WorkspaceShellComponent {
     { path: 'settings', label: 'General', icon: 'settings', description: 'Name, identity, metadata' },
     { path: 'members', label: 'Members', icon: 'users', description: 'Invite, roles, remove' },
     {
+      path: 'access',
+      label: 'Access & IAM',
+      icon: 'shield-check',
+      description: 'Role templates, labels, flags',
+    },
+    {
       path: 'danger',
       label: 'Danger zone',
       icon: 'shield-alert',

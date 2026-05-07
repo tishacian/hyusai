@@ -19,6 +19,7 @@ import { NewsLabComponent } from '@app/features/intelligence/news-lab.component'
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { LensService } from '@app/core/lens';
 import { SettingsService } from '@app/core/settings.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { ToastrService } from 'ngx-toastr';
 import { SystemsStore } from './systems.store';
 
@@ -513,6 +514,12 @@ interface PipelineStage {
         >
           <app-icon name="sliders-horizontal" [size]="12" /> Edit in Settings
         </a>
+        <a
+          [routerLink]="workspaceAccessRoute()"
+          class="ml-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 text-gray-200 ring-1 ring-white/10 transition"
+        >
+          <app-icon name="shield-check" [size]="12" /> Manage IAM
+        </a>
 
         <section class="t-card t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
@@ -614,6 +621,7 @@ export class SystemViewComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
   private readonly zoom = inject(ZoomContextService);
   private readonly toast = inject(ToastrService);
+  private readonly workspace = inject(WorkspaceService);
   readonly settings = inject(SettingsService);
   readonly lensService = inject(LensService);
 
@@ -684,6 +692,11 @@ export class SystemViewComponent implements OnInit {
   readonly effectiveModel = computed(() => {
     const d = this.systemDefaults();
     return d?.default_model || this.settings.settings().defaultModel || '—';
+  });
+
+  readonly workspaceAccessRoute = computed(() => {
+    const slug = this.workspace.current()?.slug || this.workspace.currentSlug();
+    return slug ? ['/workspace', slug, 'access'] : '/governance/access';
   });
 
   readonly currentContext = signal<import('@app/core/canonical-api.service').Context | null>(null);

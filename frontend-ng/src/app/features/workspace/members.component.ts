@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, NgClass } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
@@ -19,6 +19,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
     DatePipe,
     NgClass,
     IconComponent,
+    RouterLink,
     SkeletonComponent,
     EmptyStateComponent,
     ConfirmDialogComponent,
@@ -26,6 +27,29 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
   template: `
     <div class="space-y-6">
       @if (canAdmin()) {
+        <section class="t-card t-elevated rounded-md p-5 border border-brand-500/25 bg-brand-500/[0.04]">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+                <app-icon name="shield-check" [size]="18" />
+              </div>
+              <div>
+                <h2 class="text-base font-semibold text-white">Workspace IAM</h2>
+                <p class="text-sm text-gray-400 mt-0.5">
+                  Manage role templates, ABAC labels, Capture flags and the effective permission matrix.
+                </p>
+              </div>
+            </div>
+            <a
+              [routerLink]="accessRoute()"
+              class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition shadow-glow-sm"
+            >
+              <app-icon name="sliders-horizontal" [size]="14" />
+              Open IAM console
+            </a>
+          </div>
+        </section>
+
         <section class="t-card t-elevated rounded-md p-6">
           <div class="flex items-start gap-3 mb-4">
             <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
@@ -187,6 +211,10 @@ export class WorkspaceMembersComponent {
   readonly inviting = signal(false);
   readonly savingMember = signal<string | null>(null);
   readonly pendingRemove = signal<WorkspaceMemberDetail | null>(null);
+  readonly accessRoute = computed(() => {
+    const slug = this.routeSlug() || this.workspaceService.currentSlug();
+    return slug ? ['/workspace', slug, 'access'] : '/governance/access';
+  });
 
   inviteEmail = '';
   inviteRole: 'admin' | 'member' = 'member';

@@ -1,10 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '@app/core/api.service';
 import { PermissionsService } from '@app/core/permissions.service';
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
@@ -155,7 +156,7 @@ interface ProposalFact {
   selector: 'app-knowledge-capture',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, RouterLink, IconComponent],
   template: `
     <section class="space-y-5">
       <header class="t-card t-elevated rounded-lg p-5 flex items-start justify-between gap-4">
@@ -176,9 +177,20 @@ interface ProposalFact {
           <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
             Phase 0 · cascade voice runtime
           </span>
+          <span class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-brand-500/10 ring-1 ring-brand-300/20 text-brand-100">
+            <app-icon name="shield-check" [size]="12" />
+            IAM · expert_knowledge_capture
+          </span>
           <span class="text-xs px-3 py-1.5 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
             {{ conversationMode() === 'conversation_only' ? 'Conversation mode' : 'Guided mode' }}
           </span>
+          <a
+            [routerLink]="workspaceAccessRoute()"
+            class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          >
+            <app-icon name="settings-2" [size]="12" />
+            Manage Capture IAM
+          </a>
         </div>
       </header>
 
@@ -1228,6 +1240,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly zoom = inject(ZoomContextService);
   private readonly voiceSession = inject(VoiceSessionService);
+  private readonly workspace = inject(WorkspaceService);
   readonly permissions = inject(PermissionsService);
 
   objective =
@@ -1336,6 +1349,10 @@ export class KnowledgeCaptureComponent implements OnInit {
     { id: 'review', label: 'Proposal', icon: 'check-circle-2', step: 5 },
   ];
   readonly voiceWaveBars = [10, 18, 26, 14, 22, 30, 16, 24, 12, 20];
+  readonly workspaceAccessRoute = computed(() => {
+    const slug = this.workspace.current()?.slug || this.workspace.currentSlug();
+    return slug ? ['/workspace', slug, 'access'] : '/governance/access';
+  });
 
   private recorder: MediaRecorder | null = null;
   private chunks: BlobPart[] = [];

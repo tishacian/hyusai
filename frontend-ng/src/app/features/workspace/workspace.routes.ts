@@ -24,6 +24,11 @@ export const workspaceRoutes: Routes = [
           import('./members.component').then((m) => m.WorkspaceMembersComponent),
       },
       {
+        path: 'access',
+        loadComponent: () =>
+          import('../governance/access-roles.component').then((m) => m.AccessRolesComponent),
+      },
+      {
         path: 'danger',
         loadComponent: () =>
           import('./danger.component').then((m) => m.WorkspaceDangerComponent),

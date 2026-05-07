@@ -17,8 +17,8 @@ import {
   imports: [FormsModule, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
-      breadcrumb="Govern"
-      title="Access & Roles"
+      breadcrumb="Workspace · Access"
+      title="Workspace IAM"
       icon="shield-check"
       subtitle="Workspace IAM templates, labels and effective Capture permissions."
     >
@@ -154,6 +154,20 @@ import {
         </div>
 
         <aside class="space-y-5">
+          <section class="t-card t-elevated rounded-md p-5 border border-brand-500/25 bg-brand-500/[0.04]">
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Capability binding</p>
+            <h3 class="text-sm font-semibold text-white mt-1">Expert Knowledge Capture</h3>
+            <p class="mt-3 text-xs text-gray-400 leading-relaxed">
+              This matrix drives the System Capture cockpit and the backend routes behind
+              <span class="font-mono text-gray-200">expert_knowledge_capture</span>.
+            </p>
+            <div class="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">
+              <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">capture_session</span>
+              <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">knowledge_proposal</span>
+              <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">voice_runtime</span>
+            </div>
+          </section>
+
           <section class="t-card t-elevated rounded-md p-5">
             <div class="flex items-start justify-between gap-3">
               <div>
