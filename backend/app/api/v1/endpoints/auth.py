@@ -20,6 +20,13 @@ from app.core.auth import (
     get_current_user,
     _extract_roles,
 )
+from app.core.iam.roles import (
+    WORKSPACE_ADMIN,
+    WORKSPACE_CONTRIBUTOR,
+    WORKSPACE_OWNER,
+    legacy_role_for_template,
+    normalize_role_template,
+)
 from app.core.config import settings
 from app.db.base import get_db
 from app.models.user import User
@@ -130,10 +137,14 @@ class WorkspaceModeUpdate(BaseModel):
 class MemberInvite(BaseModel):
     email: EmailStr
     role: str = "member"
+    role_template: Optional[str] = None
+    custom_labels: list[str] = []
 
 
 class MemberUpdate(BaseModel):
     role: str
+    role_template: Optional[str] = None
+    custom_labels: Optional[list[str]] = None
 
 
 class TransferOwnershipRequest(BaseModel):
@@ -149,6 +160,7 @@ class WorkspaceDetail(BaseModel):
     name: str
     slug: str
     role: str  # role of the current user
+    role_template: Optional[str] = None
     is_active: bool
     member_count: int
     created_at: datetime
@@ -164,6 +176,8 @@ class MemberDetail(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     role: str
+    role_template: Optional[str] = None
+    custom_labels: list[str] = []
     joined_at: datetime
     is_current_user: bool
 
@@ -715,12 +729,15 @@ def _resolve_workspace_and_role(db: DBSession, user: User, slug: str) -> tuple[W
 
 
 def _require_admin(membership: WorkspaceMember) -> None:
-    if membership.role not in ("owner", "admin"):
+    if normalize_role_template(getattr(membership, "role_template", None), membership.role) not in (
+        WORKSPACE_OWNER,
+        WORKSPACE_ADMIN,
+    ):
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
 def _require_owner(membership: WorkspaceMember) -> None:
-    if membership.role != "owner":
+    if normalize_role_template(getattr(membership, "role_template", None), membership.role) != WORKSPACE_OWNER:
         raise HTTPException(status_code=403, detail="Owner access required")
 
 
@@ -738,7 +755,13 @@ async def create_workspace(
     workspace = Workspace(id=str(uuid4()), name=body.name, slug=slug)
     db.add(workspace)
 
-    membership = WorkspaceMember(user_id=user.id, workspace_id=workspace.id, role="owner")
+    membership = WorkspaceMember(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role="owner",
+        role_template=WORKSPACE_OWNER,
+        custom_labels=[],
+    )
     db.add(membership)
 
     db.commit()
@@ -748,6 +771,7 @@ async def create_workspace(
         name=workspace.name,
         slug=workspace.slug,
         role="owner",
+        role_template=WORKSPACE_OWNER,
         is_active=workspace.is_active,
         member_count=1,
         created_at=workspace.created_at,
@@ -775,6 +799,7 @@ async def list_workspaces(user: User = Depends(get_current_user), db: DBSession 
                 "name": ws.name,
                 "slug": ws.slug,
                 "role": m.role,
+                "role_template": normalize_role_template(getattr(m, "role_template", None), m.role),
                 "member_count": member_count,
                 "created_at": ws.created_at.isoformat() if ws.created_at else None,
                 "mode": getattr(ws, "mode", "executive") or "executive",
@@ -797,6 +822,7 @@ async def get_workspace(
         name=workspace.name,
         slug=workspace.slug,
         role=membership.role,
+        role_template=normalize_role_template(getattr(membership, "role_template", None), membership.role),
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
@@ -835,6 +861,7 @@ async def update_workspace(
         name=workspace.name,
         slug=workspace.slug,
         role=membership.role,
+        role_template=normalize_role_template(getattr(membership, "role_template", None), membership.role),
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
@@ -872,6 +899,7 @@ async def update_workspace_mode(
         name=workspace.name,
         slug=workspace.slug,
         role=membership.role,
+        role_template=normalize_role_template(getattr(membership, "role_template", None), membership.role),
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
@@ -927,9 +955,8 @@ async def restore_workspace(
     membership = db.query(WorkspaceMember).filter(
         WorkspaceMember.user_id == user.id,
         WorkspaceMember.workspace_id == workspace.id,
-        WorkspaceMember.role == "owner",
     ).first()
-    if not membership:
+    if not membership or normalize_role_template(getattr(membership, "role_template", None), membership.role) != WORKSPACE_OWNER:
         raise HTTPException(status_code=403, detail="Only the owner can restore")
 
     if workspace.deleted_at is None:
@@ -963,7 +990,9 @@ async def transfer_ownership(
         raise HTTPException(status_code=404, detail="Target user is not a member of this workspace")
 
     new_owner_membership.role = "owner"
+    new_owner_membership.role_template = WORKSPACE_OWNER
     membership.role = "admin"
+    membership.role_template = WORKSPACE_ADMIN
     db.commit()
     return {"status": "ok", "message": "Ownership transferred"}
 
@@ -976,7 +1005,7 @@ async def leave_workspace(
 ):
     """Leave a workspace. Owners must transfer ownership first."""
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
-    if membership.role == "owner":
+    if normalize_role_template(getattr(membership, "role_template", None), membership.role) == WORKSPACE_OWNER:
         raise HTTPException(
             status_code=400,
             detail="Owner cannot leave. Transfer ownership first, or delete the workspace.",
@@ -1013,6 +1042,8 @@ async def list_members(
             first_name=kc_data.get("firstName"),
             last_name=kc_data.get("lastName"),
             role=m.role,
+            role_template=normalize_role_template(getattr(m, "role_template", None), m.role),
+            custom_labels=m.custom_labels or [],
             joined_at=m.joined_at,
             is_current_user=(u.id == user.id),
         ))
@@ -1128,6 +1159,9 @@ async def invite_member(
 
     if body.role not in ("admin", "member"):
         raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
+    role_template = normalize_role_template(body.role_template, body.role)
+    if role_template == WORKSPACE_OWNER:
+        raise HTTPException(status_code=400, detail="Use transfer ownership to assign owner")
 
     email = body.email.lower()
     target_user = db.query(User).filter(User.email == email).first()
@@ -1167,7 +1201,9 @@ async def invite_member(
     new_member = WorkspaceMember(
         user_id=target_user.id,
         workspace_id=workspace.id,
-        role=body.role,
+        role=legacy_role_for_template(role_template),
+        role_template=role_template,
+        custom_labels=body.custom_labels or [],
     )
     db.add(new_member)
     db.commit()
@@ -1181,7 +1217,8 @@ async def invite_member(
     return {
         "status": "ok",
         "user_id": target_user.id,
-        "role": body.role,
+        "role": legacy_role_for_template(role_template),
+        "role_template": role_template,
         "invitation_email_sent": created_in_kc,
     }
 
@@ -1217,7 +1254,13 @@ async def update_member_role(
     if body.role not in ("admin", "member"):
         raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
 
-    target.role = body.role
+    role_template = normalize_role_template(body.role_template, body.role)
+    if role_template == WORKSPACE_OWNER:
+        raise HTTPException(status_code=400, detail="Use transfer ownership to assign owner")
+    target.role_template = role_template
+    target.role = legacy_role_for_template(role_template)
+    if body.custom_labels is not None:
+        target.custom_labels = body.custom_labels
     db.commit()
     return {"status": "ok"}
 

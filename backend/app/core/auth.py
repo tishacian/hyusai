@@ -12,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
+from app.core.iam.roles import WORKSPACE_OWNER
 from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
@@ -163,6 +164,7 @@ def _ensure_personal_workspace(db: DBSession, user: User, display_name: Optional
         user_id=user.id,
         workspace_id=workspace.id,
         role="owner",
+        role_template=WORKSPACE_OWNER,
     )
     db.add(membership)
 
@@ -247,7 +249,13 @@ async def get_current_workspace(
             WorkspaceMember.workspace_id == workspace.id,
         ).first()
         if not membership:
-            raise HTTPException(status_code=403, detail="Not a member of this workspace")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "WORKSPACE_ACCESS_DENIED",
+                    "message": "Not a member of this workspace",
+                },
+            )
 
         return workspace
 

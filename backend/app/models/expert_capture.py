@@ -22,6 +22,7 @@ class ExpertCaptureSession(Base):
     context_id = Column(String(36), nullable=True, index=True)
     system_id = Column(String(36), nullable=True, index=True)
     run_id = Column(String(36), nullable=True, index=True)
+    created_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
 
     title = Column(String(240), nullable=False, default="Expert capture session")
     objective = Column(Text, nullable=False)
@@ -107,6 +108,8 @@ class KnowledgeUpdateProposal(Base):
     proposal = Column(JSON, default=dict)
     review_notes = Column(Text, nullable=True)
     reviewer = Column(String(255), nullable=True)
+    created_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    reviewer_user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     reviewed_at = Column(DateTime, nullable=True)

@@ -10,7 +10,7 @@ import asyncio
 import os
 from base64 import b64encode
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Protocol
+from typing import Any, AsyncIterator, Dict, Iterable, Literal, Protocol
 
 import openai
 
@@ -31,6 +31,15 @@ class SpeechResponse:
     model: str
 
 
+@dataclass
+class VoiceToken:
+    kind: Literal["semantic", "acoustic", "text", "control"]
+    payload: bytes | str | Dict[str, Any]
+    ts_ms: int
+    confidence: float | None = None
+    meta: Dict[str, Any] | None = None
+
+
 class VoiceRuntimeProvider(Protocol):
     slug: str
 
@@ -47,6 +56,12 @@ class VoiceRuntimeProvider(Protocol):
         ...
 
     async def synthesize_bytes(self, text: str, *, voice: str = "nova") -> Dict[str, Any]:
+        ...
+
+    async def stream_in(self, frames: AsyncIterator[bytes]) -> AsyncIterator[VoiceToken]:
+        ...
+
+    async def stream_out(self, tokens: AsyncIterator[VoiceToken]) -> AsyncIterator[bytes]:
         ...
 
 
@@ -150,6 +165,30 @@ class CascadeVoiceRuntime:
             "bytes": len(audio_bytes),
         }
 
+    async def stream_in(self, frames: AsyncIterator[bytes]) -> AsyncIterator[VoiceToken]:
+        """Streaming-compatible cascade shim.
+
+        The cascade provider still transcribes complete audio segments. This
+        method gives the gateway a provider-neutral shape for J1 and lets a
+        realtime provider later yield native semantic/acoustic tokens.
+        """
+        chunks: list[bytes] = []
+        async for frame in frames:
+            chunks.append(frame)
+            yield VoiceToken(kind="control", payload={"event": "audio.frame", "bytes": len(frame)}, ts_ms=0)
+        if not chunks:
+            return
+        result = await self.transcribe(b"".join(chunks))
+        text = str(result.get("text") or "")
+        yield VoiceToken(kind="text", payload=text, ts_ms=0, meta={"provider": self.slug, "model": result.get("model")})
+
+    async def stream_out(self, tokens: AsyncIterator[VoiceToken]) -> AsyncIterator[bytes]:
+        async for token in tokens:
+            if token.kind != "text" or not isinstance(token.payload, str):
+                continue
+            audio = await self.synthesize_bytes(token.payload)
+            yield audio["audio_bytes"]
+
 
 class RealtimeVoiceRuntime:
     """Experimental GPU lane placeholder for Moshi/KAME-like providers."""
@@ -163,6 +202,12 @@ class RealtimeVoiceRuntime:
         raise NotImplementedError("Realtime GPU voice runtime is experimental and not bound")
 
     async def synthesize_bytes(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        raise NotImplementedError("Realtime GPU voice runtime is experimental and not bound")
+
+    async def stream_in(self, *args: Any, **kwargs: Any) -> AsyncIterator[VoiceToken]:
+        raise NotImplementedError("Realtime GPU voice runtime is experimental and not bound")
+
+    async def stream_out(self, *args: Any, **kwargs: Any) -> AsyncIterator[bytes]:
         raise NotImplementedError("Realtime GPU voice runtime is experimental and not bound")
 
 
@@ -186,6 +231,7 @@ def list_voice_runtime_providers() -> Dict[str, Any]:
                     "chunked_capture": True,
                     "segmented_tts": True,
                     "barge_in_ui": True,
+                    "streaming_ws": True,
                     "full_duplex": False,
                 },
             },
@@ -198,6 +244,7 @@ def list_voice_runtime_providers() -> Dict[str, Any]:
                     "chunked_capture": True,
                     "segmented_tts": True,
                     "barge_in_ui": True,
+                    "streaming_ws": True,
                     "full_duplex": True,
                 },
             },

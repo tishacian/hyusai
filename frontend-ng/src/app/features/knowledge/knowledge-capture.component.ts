@@ -3,6 +3,8 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { ApiService } from '@app/core/api.service';
+import { PermissionsService } from '@app/core/permissions.service';
+import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
@@ -18,6 +20,7 @@ interface CaptureSession {
   capability_id?: string | null;
   context_id?: string | null;
   system_id?: string | null;
+  created_by_user_id?: string | null;
   title: string;
   objective: string;
   status: string;
@@ -118,6 +121,8 @@ interface CaptureProposal {
   id: string;
   status: string;
   session_id?: string;
+  created_by_user_id?: string | null;
+  reviewer_user_id?: string | null;
   proposal?: {
     title?: string;
     objective?: string;
@@ -323,7 +328,8 @@ interface ProposalFact {
               </div>
               <button
                 type="button"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                [disabled]="!canCaptureCreate()"
                 (click)="goSurface('prep')"
               >
                 <app-icon name="plus" [size]="14" /> New session
@@ -358,6 +364,11 @@ interface ProposalFact {
                     <div>
                       <div class="text-sm font-semibold text-white">{{ row.title }}</div>
                       <p class="text-xs text-gray-500 mt-1 line-clamp-1">{{ row.objective }}</p>
+                      @if (isAuthor(row)) {
+                        <span class="mt-2 inline-flex px-2 py-0.5 rounded bg-brand-500/15 text-[10px] uppercase tracking-wider text-brand-200">
+                          Author
+                        </span>
+                      }
                     </div>
                     <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ row.status }}</span>
                   </div>
@@ -427,6 +438,9 @@ interface ProposalFact {
                   <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
                     {{ selectedContext()?.environment_state?.collection || 'Knowledge target' }}
                   </span>
+                  @if (isAuthor(s)) {
+                    <span class="px-2 py-1 rounded bg-brand-500/15 text-brand-100 ring-1 ring-brand-300/20">Author</span>
+                  }
                 </div>
               </div>
             </section>
@@ -573,7 +587,7 @@ interface ProposalFact {
                       <button
                         type="button"
                         class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
-                        [disabled]="transcribing()"
+                        [disabled]="transcribing() || !canCaptureExecute(s)"
                         (click)="conversationMode() === 'conversation_only' ? toggleConversationSession() : toggleRecording()"
                       >
                         <app-icon [name]="conversationPrimaryIcon()" [size]="15" />
@@ -592,7 +606,7 @@ interface ProposalFact {
                       <button
                         type="button"
                         class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
-                        [disabled]="loading()"
+                        [disabled]="loading() || !canCaptureExecute(s)"
                         (click)="startGuidedSession(s)"
                       >
                         <app-icon [name]="planStartIcon(s)" [size]="15" />
@@ -603,14 +617,15 @@ interface ProposalFact {
                       <button
                         type="button"
                         class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
-                        [disabled]="!answer.trim()"
+                        [disabled]="!answer.trim() || !canCaptureUpdate(s)"
                         (click)="sendAnswer(s)"
                       >
                         <app-icon name="send" [size]="14" /> Evaluate answer
                       </button>
                       <button
                         type="button"
-                        class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                        class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
+                        [disabled]="!canProposalSubmit(s)"
                         (click)="createProposal(s)"
                       >
                         <app-icon name="check-circle-2" [size]="14" /> Create proposal
@@ -941,7 +956,7 @@ interface ProposalFact {
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
-                [disabled]="loading()"
+                [disabled]="loading() || !canCaptureExecute(s)"
                 (click)="startGuidedSession(s)"
               >
                 <app-icon [name]="planStartIcon(s)" [size]="14" /> {{ planStartLabel(s) }}
@@ -1011,7 +1026,7 @@ interface ProposalFact {
               <button
                 type="button"
                 class="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black disabled:opacity-50"
-                [disabled]="loading()"
+                [disabled]="loading() || !canCaptureCreate()"
                 (click)="createPlan()"
               >
                 {{ loading() ? 'Generating plan...' : 'Generate plan' }}
@@ -1145,6 +1160,9 @@ interface ProposalFact {
             <div>
               <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Review controls</p>
               <h3 class="text-sm font-semibold text-white mt-1">Human validation</h3>
+              @if (iamRoleBanner(); as banner) {
+                <p class="mt-2 text-xs text-brand-100/80">{{ banner }}</p>
+              }
             </div>
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div class="rounded bg-black/20 border border-white/10 p-3">
@@ -1176,7 +1194,7 @@ interface ProposalFact {
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50"
-                [disabled]="!proposalFacts().length"
+                [disabled]="!proposalFacts().length || !canProposalReview(p)"
                 (click)="acceptProposal(p.id)"
               >
                 <app-icon name="check-circle-2" [size]="14" /> Accept & ingest selected
@@ -1191,7 +1209,8 @@ interface ProposalFact {
             } @else if (session(); as s) {
               <button
                 type="button"
-                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white"
+                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white disabled:opacity-50"
+                [disabled]="!canProposalSubmit(s)"
                 (click)="createProposal(s)"
               >
                 <app-icon name="check-circle-2" [size]="14" /> Create proposal
@@ -1208,6 +1227,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
   private readonly zoom = inject(ZoomContextService);
+  private readonly voiceSession = inject(VoiceSessionService);
+  readonly permissions = inject(PermissionsService);
 
   objective =
     'Capture tacit troubleshooting and offer reasoning from a senior industrial expert.';
@@ -1325,12 +1346,16 @@ export class KnowledgeCaptureComponent implements OnInit {
   private lastPrefetchAt = 0;
   private currentClientTurnId: string | null = null;
   private activeAudio: HTMLAudioElement | null = null;
+  private voiceConnection: VoiceSessionConnection | null = null;
+  private pendingVoiceFrameSends: Promise<void>[] = [];
   private audioQueue: string[] = [];
   private revokedAudioUrls: string[] = [];
   private speechGeneration = 0;
   private autoResumeTimer: ReturnType<typeof setTimeout> | null = null;
 
   ngOnInit(): void {
+    this.destroyRef.onDestroy(() => this.closeVoiceConnection());
+    this.permissions.refresh().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     this.contextId = this.route.snapshot.queryParamMap.get('contextId') || '';
     this.systemId =
       this.route.snapshot.paramMap.get('systemId') ||
@@ -1375,6 +1400,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   createPlan(): void {
+    if (!this.canCaptureCreate()) {
+      this.voiceNotice.set('You do not have permission to create Capture sessions in this workspace.');
+      return;
+    }
     this.loading.set(true);
     this.api
       .createCapturePlan({
@@ -1416,6 +1445,10 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   async startGuidedSession(session: CaptureSession): Promise<void> {
     if (this.loading()) return;
+    if (!this.canCaptureExecute(session)) {
+      this.setVoiceNotice('You do not have permission to start this Capture session.', 'error');
+      return;
+    }
     this.loading.set(true);
     const conversationOnly = this.conversationMode() === 'conversation_only';
     let armed = true;
@@ -1449,6 +1482,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.activeSurface.set('session');
           this.loading.set(false);
           if (conversationOnly && armed) {
+            this.ensureVoiceConnection(typed);
             const firstPrompt = this.currentPromptText();
             if (firstPrompt) {
               this.speak(firstPrompt);
@@ -1538,6 +1572,50 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (view === 'session') return (this.session()?.metrics?.['captured_facts'] || 0) > 0;
     if (view === 'review') return Boolean(this.proposal());
     return activeIndex > 0;
+  }
+
+  canCaptureCreate(): boolean {
+    return this.permissions.can('capture_session', 'create');
+  }
+
+  canCaptureUpdate(session?: CaptureSession | null): boolean {
+    return this.permissions.can('capture_session', 'update', {
+      owner_user_id: session?.created_by_user_id || null,
+    });
+  }
+
+  canCaptureExecute(session?: CaptureSession | null): boolean {
+    return this.permissions.can('capture_session', 'execute', {
+      owner_user_id: session?.created_by_user_id || null,
+    });
+  }
+
+  canProposalSubmit(session?: CaptureSession | null): boolean {
+    return this.permissions.can('knowledge_proposal', 'submit_review', {
+      owner_user_id: session?.created_by_user_id || null,
+    });
+  }
+
+  canProposalReview(proposal?: CaptureProposal | null): boolean {
+    const relatedSession = this.session();
+    const resource = {
+      owner_user_id: proposal?.created_by_user_id || relatedSession?.created_by_user_id || null,
+    };
+    return (
+      this.permissions.can('knowledge_proposal', 'review_decide', resource) &&
+      this.permissions.can('knowledge_proposal', 'trigger_ingestion', resource)
+    );
+  }
+
+  isAuthor(session?: CaptureSession | null): boolean {
+    return this.permissions.isAuthor({ owner_user_id: session?.created_by_user_id || null });
+  }
+
+  iamRoleBanner(): string | null {
+    if (!this.permissions.matrix()) return null;
+    if (this.permissions.isReviewerOrAdmin()) return `IAM: ${this.permissions.roleLabel()} can review workspace proposals.`;
+    if (this.canCaptureCreate()) return `IAM: ${this.permissions.roleLabel()} can capture own sessions.`;
+    return `IAM: ${this.permissions.roleLabel()} has limited Capture access.`;
   }
 
   selectedContext(): ContextOption | null {
@@ -1668,6 +1746,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   sendAnswer(session: CaptureSession): void {
     const text = this.answer.trim();
     if (!text) return;
+    if (!this.canCaptureUpdate(session)) {
+      this.setVoiceNotice('You do not have permission to update this Capture session.', 'error');
+      return;
+    }
     this.voiceState.set('thinking');
     this.api
       .addCaptureTurn(session.id, {
@@ -1979,6 +2061,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   applyAmend(sessionId: string, eventId: string): void {
     const text = this.editingText.trim();
     if (!text) return;
+    if (!this.canCaptureUpdate(this.session())) {
+      this.setVoiceNotice('You do not have permission to amend this Capture session.', 'error');
+      return;
+    }
     this.api
       .amendCaptureEvent(sessionId, eventId, {
         text_amended: text,
@@ -1997,6 +2083,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   createProposal(session: CaptureSession): void {
+    if (!this.canProposalSubmit(session)) {
+      this.setVoiceNotice('You do not have permission to submit a proposal for this session.', 'error');
+      return;
+    }
     const draft = this.answer.trim();
     if (!draft) {
       this.api
@@ -2046,6 +2136,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   runConversationStep(session: CaptureSession, text: string): void {
     const clean = text.trim();
     if (!clean) return;
+    if (!this.canCaptureExecute(session)) {
+      this.setVoiceNotice('You do not have permission to run the conversation loop for this session.', 'error');
+      return;
+    }
     this.voiceState.set('thinking');
     this.setVoiceNotice('Processing the final transcript and inferring the next action.', 'info');
     this.api
@@ -2094,6 +2188,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   acceptProposal(proposalId: string): void {
+    if (!this.canProposalReview(this.proposal())) {
+      this.setVoiceNotice('You do not have permission to review this proposal.', 'error');
+      return;
+    }
     this.api
       .reviewCaptureProposal(proposalId, {
         status: 'accepted',
@@ -2206,6 +2304,162 @@ export class KnowledgeCaptureComponent implements OnInit {
     return `${Math.round(value * 100)}% confidence`;
   }
 
+  private ensureVoiceConnection(session: CaptureSession): VoiceSessionConnection | null {
+    if (this.conversationMode() !== 'conversation_only') return null;
+    if (this.voiceConnection) return this.voiceConnection;
+    try {
+      this.voiceConnection = this.voiceSession.open(session.id);
+      this.voiceConnection.events$
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((event) => this.handleVoiceSessionEvent(event));
+      this.voiceConnection.start({
+        runtime: 'cascade',
+        capability: 'expert_knowledge_capture',
+        context_id: session.context_id || this.contextId || null,
+        system_id: session.system_id || this.systemId || null,
+        mode: 'conversation_only',
+        codec: { input: 'webm', channels: 1 },
+      });
+      return this.voiceConnection;
+    } catch {
+      this.voiceConnection = null;
+      this.setVoiceNotice('Voice WebSocket could not open; falling back to HTTP voice turns.', 'warning');
+      return null;
+    }
+  }
+
+  private closeVoiceConnection(): void {
+    this.voiceConnection?.close();
+    this.voiceConnection = null;
+  }
+
+  private handleVoiceSessionEvent(event: VoiceSessionEvent): void {
+    const payload = event.payload || {};
+    if (event.type === 'session.ready') {
+      this.setVoiceNotice('Streaming voice session ready.', 'info');
+      return;
+    }
+    if (event.type === 'text.partial') {
+      const text = String(payload['text'] || '').trim();
+      if (text) {
+        this.answer = text;
+        const session = this.session();
+        if (session) this.maybePrefetchRetrieval(session, text);
+      }
+      return;
+    }
+    if (event.type === 'text.final') {
+      const text = String(payload['text'] || '').trim();
+      if (text) this.answer = text;
+      this.transcribing.set(false);
+      this.voiceState.set('thinking');
+      this.setVoiceNotice('Transcript finalized through the streaming voice session.', 'info');
+      return;
+    }
+    if (event.type === 'evaluation.delta') {
+      const nextQuestionId = payload['next_question_id'];
+      if (typeof nextQuestionId === 'string' && nextQuestionId) {
+        this.selectedQuestionId.set(nextQuestionId);
+      }
+      if (payload['evaluation']) {
+        this.lastEvaluation.set(payload['evaluation'] as TurnResponse['evaluation']);
+      }
+      if (payload['session']) {
+        this.session.set(payload['session'] as CaptureSession);
+        this.refreshEvents((payload['session'] as CaptureSession).id);
+      }
+      return;
+    }
+    if (event.type === 'prompt.next') {
+      const prompt = String(payload['text'] || '').trim();
+      this.nextPrompt.set(prompt || null);
+      const promptEventId = payload['system_prompt_event_id'];
+      this.lastSystemPromptEventId.set(typeof promptEventId === 'string' ? promptEventId : null);
+      this.setVoiceNotice('Next prompt prepared by the streaming capture oracle.', 'info');
+      return;
+    }
+    if (event.type === 'audio.out') {
+      this.playServerAudio(payload);
+      return;
+    }
+    if (event.type === 'runtime.metric') {
+      const metric = payload['metric'];
+      const value = payload['value_ms'];
+      if (typeof metric === 'string' && typeof value === 'number') {
+        this.retrieval.update((current) => ({ ...current, latency_ms: value }));
+      }
+      return;
+    }
+    if (event.type === 'barge_in') {
+      this.setVoiceNotice('Barge-in accepted by the voice gateway.', 'info');
+      return;
+    }
+    if (event.type === 'session.error') {
+      const code = String(payload['code'] || '');
+      this.transcribing.set(false);
+      this.voiceState.set('idle');
+      this.setVoiceNotice(String(payload['message'] || 'Voice streaming failed.'), 'error');
+      if (code === 'synthesize_failed' && this.nextPrompt()) {
+        this.speak(this.promptText(this.nextPrompt()));
+      }
+    }
+  }
+
+  private playServerAudio(payload: Record<string, any>): void {
+    const b64 = String(payload['audio_base64'] || '');
+    if (!b64) {
+      this.scheduleConversationResume();
+      return;
+    }
+    this.stopSpeech(false);
+    this.speaking.set(true);
+    this.voiceState.set('speaking');
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: String(payload['content_type'] || 'audio/mpeg') });
+    const url = URL.createObjectURL(blob);
+    this.revokedAudioUrls.push(url);
+    const audio = new Audio(url);
+    this.activeAudio = audio;
+    audio.onended = () => {
+      this.speaking.set(false);
+      this.voiceState.set('idle');
+      this.cleanupAudioUrls();
+      this.scheduleConversationResume();
+    };
+    audio.onerror = () => {
+      this.setVoiceNotice('Streaming audio playback failed; opening the microphone instead.', 'warning');
+      this.speaking.set(false);
+      this.voiceState.set('idle');
+      this.scheduleConversationResume();
+    };
+    void audio.play().catch(() => {
+      this.setVoiceNotice('Browser blocked streaming audio playback; opening the microphone instead.', 'warning');
+      this.speaking.set(false);
+      this.voiceState.set('idle');
+      this.scheduleConversationResume();
+    });
+  }
+
+  private voiceFrameMeta(): {
+    turn_id: string | null;
+    question_id: string | null;
+    retrieval_event_id: string | null;
+    interruption_of_event_id: string | null;
+    content_type: string;
+  } {
+    return {
+      turn_id: this.currentClientTurnId,
+      question_id: this.selectedQuestionId(),
+      retrieval_event_id: this.retrieval().event_id || null,
+      interruption_of_event_id: this.interruptionOfEventId(),
+      content_type: 'audio/webm',
+    };
+  }
+
   async toggleRecording(): Promise<void> {
     if (this.recording()) {
       this.recorder?.stop();
@@ -2242,6 +2496,10 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.conversationSessionActive()) {
       this.stopConversationSession();
       return;
+    }
+    const session = this.session();
+    if (session) {
+      this.ensureVoiceConnection(session);
     }
     this.conversationSessionActive.set(true);
     this.setVoiceNotice('Preparing microphone access for the conversation session.', 'info');
@@ -2360,6 +2618,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   interruptSpeech(): void {
     const promptEventId = this.lastSystemPromptEventId();
     this.stopSpeech(true);
+    this.voiceConnection?.bargeIn(promptEventId);
     this.interruptionOfEventId.set(promptEventId || 'client-interruption');
     this.voiceState.set('interrupted');
   }
@@ -2369,6 +2628,10 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.releaseAudioStream();
     }
     this.recorder = null;
+    if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
+      void this.finishStreamingVoiceTurn();
+      return;
+    }
     const blob = new Blob(this.chunks, { type: 'audio/webm' });
     this.transcribing.set(true);
     this.voiceState.set('partial_transcribing');
@@ -2410,6 +2673,9 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   private transcribePartialRecording(): void {
+    if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
+      return;
+    }
     const session = this.session();
     if (!session || this.partialTranscriptionInFlight || this.chunks.length < 2) {
       return;
@@ -2439,6 +2705,18 @@ export class KnowledgeCaptureComponent implements OnInit {
           }
         },
       });
+  }
+
+  private async finishStreamingVoiceTurn(): Promise<void> {
+    this.transcribing.set(true);
+    this.voiceState.set('partial_transcribing');
+    this.setVoiceNotice('Finalizing transcript through the streaming voice session.', 'info');
+    const pending = [...this.pendingVoiceFrameSends];
+    this.pendingVoiceFrameSends = [];
+    if (pending.length) {
+      await Promise.allSettled(pending);
+    }
+    this.voiceConnection?.endpoint(this.voiceFrameMeta());
   }
 
   private maybePrefetchRetrieval(session: CaptureSession, text: string, force = false): void {
@@ -2580,7 +2858,17 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.recorder.ondataavailable = (event) => {
         if (event.data.size <= 0) return;
         this.chunks.push(event.data);
-        this.transcribePartialRecording();
+        if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
+          const send = this.voiceConnection
+            .sendAudioFrame(event.data, this.voiceFrameMeta())
+            .catch(() => this.setVoiceNotice('A voice frame could not be sent; fallback HTTP may be needed.', 'warning'));
+          this.pendingVoiceFrameSends.push(send);
+          void send.finally(() => {
+            this.pendingVoiceFrameSends = this.pendingVoiceFrameSends.filter((item) => item !== send);
+          });
+        } else {
+          this.transcribePartialRecording();
+        }
       };
       this.recorder.onstop = () => this.transcribeRecording();
       this.recorder.start(1200);
@@ -2611,6 +2899,10 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
+    const session = this.session();
+    if (session) {
+      this.ensureVoiceConnection(session);
+    }
     if (!this.startAudioRecorder('Microphone is open. End the turn when the expert answer is complete.')) {
       this.conversationSessionActive.set(false);
       this.voiceState.set('idle');
@@ -2628,6 +2920,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     } else if (!this.transcribing()) {
       this.releaseAudioStream();
       this.voiceState.set('idle');
+      this.closeVoiceConnection();
     }
   }
 

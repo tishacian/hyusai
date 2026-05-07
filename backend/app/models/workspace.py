@@ -19,6 +19,12 @@ class Workspace(Base):
     mode = Column(String(32), nullable=False, default="executive")
 
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
+    iam_config = relationship(
+        "WorkspaceIAMConfig",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class WorkspaceMember(Base):
@@ -28,9 +34,24 @@ class WorkspaceMember(Base):
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
     role = Column(String(50), default="member")
+    role_template = Column(String(80), nullable=True, index=True)
+    custom_labels = Column(JSON, default=list)
     joined_at = Column(DateTime, default=datetime.utcnow)
 
     workspace = relationship("Workspace", back_populates="members")
     user = relationship("User", back_populates="workspace_memberships")
 
     __table_args__ = (UniqueConstraint("user_id", "workspace_id", name="uq_user_workspace"),)
+
+
+class WorkspaceIAMConfig(Base):
+    __tablename__ = "workspace_iam_configs"
+
+    workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True)
+    version = Column(Integer, nullable=False, default=1)
+    role_flags = Column(JSON, default=dict)
+    capability_overrides = Column(JSON, default=dict)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+
+    workspace = relationship("Workspace", back_populates="iam_config")

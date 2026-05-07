@@ -59,6 +59,7 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "expert_capture_events",
         "knowledge_update_proposals",
         "expert_capture_sessions",
         "skill_invocations",
@@ -73,7 +74,10 @@ def db_session():
         "capabilities",
         "skills",
         "audit_logs",
+        "workspace_iam_configs",
+        "workspace_members",
         "workspaces",
+        "users",
     ]
     db = SessionLocal()
     try:

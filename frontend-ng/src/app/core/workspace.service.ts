@@ -9,6 +9,7 @@ export interface WorkspaceInfo {
   name: string;
   slug: string;
   role: string;
+  role_template?: string | null;
   member_count?: number;
   created_at?: string;
   mode?: WorkspaceMode;
@@ -19,6 +20,7 @@ export interface WorkspaceDetail {
   name: string;
   slug: string;
   role: string;
+  role_template?: string | null;
   is_active: boolean;
   member_count: number;
   created_at: string;
@@ -34,6 +36,8 @@ export interface WorkspaceMemberDetail {
   first_name?: string | null;
   last_name?: string | null;
   role: string;
+  role_template?: string | null;
+  custom_labels?: string[];
   joined_at: string;
   is_current_user: boolean;
 }
@@ -48,7 +52,45 @@ export interface InviteMemberResponse {
   status: 'ok';
   user_id: string;
   role: 'admin' | 'member';
+  role_template?: RoleTemplate;
   invitation_email_sent: boolean;
+}
+
+export type RoleTemplate =
+  | 'workspace_viewer'
+  | 'workspace_contributor'
+  | 'workspace_reviewer'
+  | 'workspace_admin'
+  | 'workspace_owner';
+
+export interface IamSummary {
+  workspace: { id: string; slug: string; name: string };
+  enforcement: boolean;
+  config: {
+    version: number;
+    role_flags: Record<string, boolean>;
+    capability_overrides: Record<string, unknown>;
+  };
+  members: WorkspaceMemberDetail[];
+}
+
+export interface IamMatrixPermission {
+  resource_kind: string;
+  action: string;
+  roles: RoleTemplate[];
+  conditions: string[];
+  policy_id: string;
+  allowed_for_subject: boolean;
+}
+
+export interface IamMatrix {
+  workspace: { id: string; slug: string; name: string };
+  subject_user_id: string;
+  role_template: RoleTemplate;
+  custom_labels: string[];
+  role_flags: Record<string, boolean>;
+  enforcement: boolean;
+  permissions: IamMatrixPermission[];
 }
 
 const WS_KEY = 'agentium_workspace_slug';
@@ -64,9 +106,10 @@ export class WorkspaceService {
   );
   readonly isAdmin = computed(() => {
     const role = this.current()?.role;
-    return role === 'owner' || role === 'admin';
+    const roleTemplate = this.current()?.role_template;
+    return role === 'owner' || role === 'admin' || roleTemplate === 'workspace_owner' || roleTemplate === 'workspace_admin';
   });
-  readonly isOwner = computed(() => this.current()?.role === 'owner');
+  readonly isOwner = computed(() => this.current()?.role === 'owner' || this.current()?.role_template === 'workspace_owner');
 
   readonly mode = computed<WorkspaceMode>(
     () => (this.current()?.mode as WorkspaceMode) || 'executive',
@@ -176,6 +219,25 @@ export class WorkspaceService {
 
   updateMemberRole(slug: string, userId: string, role: 'admin' | 'member'): Observable<unknown> {
     return this.http.patch(`/api/v1/auth/workspaces/${slug}/members/${userId}`, { role });
+  }
+
+  getIamSummary(): Observable<IamSummary> {
+    return this.http.get<IamSummary>('/api/v1/iam/summary');
+  }
+
+  getIamMatrix(): Observable<IamMatrix> {
+    return this.http.get<IamMatrix>('/api/v1/iam/matrix');
+  }
+
+  patchIamConfig(body: { role_flags?: Record<string, boolean>; capability_overrides?: Record<string, unknown> }): Observable<unknown> {
+    return this.http.patch('/api/v1/iam/config', body);
+  }
+
+  updateIamMember(
+    userId: string,
+    body: { role_template: RoleTemplate; custom_labels: string[] },
+  ): Observable<{ status: 'ok'; member: WorkspaceMemberDetail }> {
+    return this.http.put<{ status: 'ok'; member: WorkspaceMemberDetail }>(`/api/v1/iam/members/${userId}`, body);
   }
 
   removeMember(slug: string, userId: string): Observable<unknown> {

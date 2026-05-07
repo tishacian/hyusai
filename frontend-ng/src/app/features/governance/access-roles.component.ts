@@ -1,177 +1,335 @@
-import { Component, computed, inject } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
-import { WorkspaceService } from '@app/core/workspace.service';
-
-interface Capability {
-  key: string;
-  label: string;
-  description: string;
-  icon: string;
-}
-
-interface Role {
-  key: string;
-  label: string;
-  icon: string;
-  tone: string;
-  tagline: string;
-}
+import {
+  IamMatrix,
+  IamMatrixPermission,
+  IamSummary,
+  RoleTemplate,
+  WorkspaceMemberDetail,
+  WorkspaceService,
+} from '@app/core/workspace.service';
 
 @Component({
   selector: 'app-access-roles',
   standalone: true,
-  imports: [RouterLink, IconComponent, SectionHeaderComponent],
+  imports: [FormsModule, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
       breadcrumb="Govern"
       title="Access & Roles"
       icon="shield-check"
-      subtitle="Who can do what inside this workspace."
+      subtitle="Workspace IAM templates, labels and effective Capture permissions."
     >
-      @if (membersLink(); as link) {
-        <a
-          [routerLink]="link"
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
-        >
-          <app-icon name="users" [size]="14" /> Manage members
-        </a>
-      } @else {
-        <span
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-400 ring-1 ring-white/10"
-          title="Select a workspace first"
-        >
-          <app-icon name="users" [size]="14" /> Manage members
-        </span>
-      }
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 text-gray-200 ring-1 ring-white/10 transition"
+        (click)="load()"
+      >
+        <app-icon name="refresh-cw" [size]="14" /> Refresh
+      </button>
     </app-section-header>
 
-    <div class="mb-5 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
-      <app-icon name="info" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
-      <p class="text-[11px] text-amber-200/80 leading-relaxed flex-1">
-        Built-in roles are enforced server-side. Dynamic role creation and per-capability customisation
-        are coming with the RBAC release — this page stays read-only until then.
-      </p>
-    </div>
-
-    <!-- Role overview -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      @for (r of roles; track r.key) {
-        <div class="t-card t-elevated rounded-md p-5 relative overflow-hidden">
-          <div
-            class="w-10 h-10 rounded-md flex items-center justify-center mb-3 ring-1"
-            [class.bg-amber-500\\/15]="r.tone === 'amber'"
-            [class.ring-amber-500\\/30]="r.tone === 'amber'"
-            [class.text-amber-400]="r.tone === 'amber'"
-            [class.bg-brand-500\\/15]="r.tone === 'brand'"
-            [class.ring-brand-500\\/30]="r.tone === 'brand'"
-            [class.text-brand-400]="r.tone === 'brand'"
-            [class.bg-gray-500\\/15]="r.tone === 'gray'"
-            [class.ring-gray-500\\/30]="r.tone === 'gray'"
-            [class.text-gray-300]="r.tone === 'gray'"
-          >
-            <app-icon [name]="r.icon" [size]="18" />
-          </div>
-          <h3 class="text-base font-semibold text-white">{{ r.label }}</h3>
-          <p class="text-xs text-gray-400 mt-1">{{ r.tagline }}</p>
-        </div>
-      }
-    </div>
-
-    <!-- Matrix -->
-    <section class="t-card t-elevated rounded-md overflow-hidden">
-      <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-          <app-icon name="table-properties" [size]="16" class="text-brand-400" /> Capability matrix
-        </h3>
-        <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-          Built-in roles
-        </span>
+    @if (error(); as message) {
+      <div class="mb-4 rounded-md p-3 bg-red-500/10 ring-1 ring-red-400/25 text-sm text-red-100">
+        {{ message }}
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-white/5">
-              <th class="px-5 py-3 font-semibold">Capability</th>
-              @for (r of roles; track r.key) {
-                <th class="px-5 py-3 font-semibold text-center">{{ r.label }}</th>
-              }
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-white/5">
-            @for (cap of capabilities; track cap.key) {
-              <tr class="hover:bg-white/[0.02] transition">
-                <td class="px-5 py-3">
-                  <div class="flex items-start gap-2">
-                    <app-icon [name]="cap.icon" [size]="14" class="text-brand-400 mt-0.5" />
-                    <div>
-                      <div class="text-white font-medium">{{ cap.label }}</div>
-                      <div class="text-[11px] text-gray-500">{{ cap.description }}</div>
-                    </div>
-                  </div>
-                </td>
-                @for (r of roles; track r.key) {
-                  <td class="px-5 py-3 text-center">
-                    @if (matrix[cap.key][r.key]) {
-                      <app-icon name="check" [size]="16" class="text-emerald-400 inline" />
-                    } @else {
-                      <app-icon name="minus" [size]="16" class="text-gray-600 inline" />
+    }
+
+    @if (summary(); as iam) {
+      <section class="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
+        <div class="space-y-5">
+          <section class="t-card t-elevated rounded-md overflow-hidden">
+            <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
+              <div>
+                <h3 class="text-sm font-semibold text-white">Members</h3>
+                <p class="text-xs text-gray-500 mt-1">{{ iam.workspace.name }} · {{ iam.enforcement ? 'enforced' : 'dry-run' }}</p>
+              </div>
+              <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                {{ iam.members.length }} members
+              </span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-white/5">
+                    <th class="px-5 py-3 font-semibold">User</th>
+                    <th class="px-5 py-3 font-semibold">Role template</th>
+                    <th class="px-5 py-3 font-semibold">Labels</th>
+                    <th class="px-5 py-3 font-semibold text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                  @for (member of members(); track member.user_id) {
+                    <tr class="hover:bg-white/[0.02] transition">
+                      <td class="px-5 py-3">
+                        <div class="text-white font-medium">{{ member.email || member.username }}</div>
+                        <div class="text-[11px] text-gray-500">
+                          {{ member.username }}
+                          @if (member.is_current_user) {
+                            · you
+                          }
+                        </div>
+                      </td>
+                      <td class="px-5 py-3">
+                        <select
+                          class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-white disabled:opacity-60"
+                          [disabled]="member.role_template === 'workspace_owner'"
+                          [(ngModel)]="member.role_template"
+                        >
+                          @for (role of roleOptions; track role.value) {
+                            <option [ngValue]="role.value">{{ role.label }}</option>
+                          }
+                        </select>
+                      </td>
+                      <td class="px-5 py-3 min-w-72">
+                        <input
+                          class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-white"
+                          [ngModel]="labelsText(member)"
+                          (ngModelChange)="setLabels(member, $event)"
+                          placeholder="domain:technical, pilot:true"
+                        />
+                      </td>
+                      <td class="px-5 py-3 text-right">
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-xs font-semibold text-white disabled:opacity-50"
+                          [disabled]="saving() || member.role_template === 'workspace_owner'"
+                          (click)="saveMember(member)"
+                        >
+                          <app-icon name="save" [size]="13" /> Save
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="t-card t-elevated rounded-md overflow-hidden">
+            <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+                <app-icon name="table-properties" [size]="16" class="text-brand-400" /> Effective Capture matrix
+              </h3>
+              <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+                {{ matrix()?.role_template || 'subject' }}
+              </span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-white/5">
+                    <th class="px-5 py-3 font-semibold">Permission</th>
+                    @for (role of roleOptions; track role.value) {
+                      <th class="px-5 py-3 font-semibold text-center">{{ role.short }}</th>
                     }
-                  </td>
-                }
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
-    </section>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5">
+                  @for (row of matrixRows(); track row.resource_kind + ':' + row.action) {
+                    <tr>
+                      <td class="px-5 py-3">
+                        <div class="text-white font-medium">{{ row.resource_kind }}.{{ row.action }}</div>
+                        @if (row.conditions.length) {
+                          <div class="text-[11px] text-gray-500">{{ row.conditions.join(' · ') }}</div>
+                        }
+                      </td>
+                      @for (role of roleOptions; track role.value) {
+                        <td class="px-5 py-3 text-center">
+                          @if (row.roles.includes(role.value)) {
+                            <app-icon name="check" [size]="16" class="text-emerald-400 inline" />
+                          } @else {
+                            <app-icon name="minus" [size]="16" class="text-gray-600 inline" />
+                          }
+                        </td>
+                      }
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
 
-    <div class="mt-5 flex items-center gap-2 text-xs text-gray-500">
-      <app-icon name="info" [size]="12" />
-      Custom roles are planned for a future release. For now, members map to one of the three built-in roles.
-    </div>
+        <aside class="space-y-5">
+          <section class="t-card t-elevated rounded-md p-5">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">IAM config</p>
+                <h3 class="text-sm font-semibold text-white mt-1">Workspace flags</h3>
+              </div>
+              <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
+                v{{ iam.config.version }}
+              </span>
+            </div>
+            <div class="mt-4 space-y-3">
+              @for (flag of flagOptions; track flag.key) {
+                <label class="flex items-start gap-3 rounded bg-black/20 border border-white/10 p-3">
+                  <input
+                    type="checkbox"
+                    class="mt-1"
+                    [ngModel]="flagValue(flag.key)"
+                    (ngModelChange)="setFlag(flag.key, $event)"
+                  />
+                  <span>
+                    <span class="block text-xs text-gray-100 font-medium">{{ flag.label }}</span>
+                    <span class="block text-[11px] text-gray-500 mt-0.5">{{ flag.description }}</span>
+                  </span>
+                </label>
+              }
+            </div>
+            <button
+              type="button"
+              class="mt-4 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+              [disabled]="saving()"
+              (click)="saveFlags()"
+            >
+              <app-icon name="save" [size]="14" /> Save flags
+            </button>
+          </section>
+
+          <section class="t-card t-elevated rounded-md p-5">
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Current subject</p>
+            <h3 class="text-sm font-semibold text-white mt-1">{{ matrix()?.role_template || 'Unknown role' }}</h3>
+            <p class="mt-3 text-xs text-gray-500 leading-relaxed">
+              Buttons in Capture use this matrix for client-side affordances. The backend remains the authority and emits IAM deny audit rows.
+            </p>
+          </section>
+        </aside>
+      </section>
+    } @else {
+      <section class="t-card t-elevated rounded-md p-8 text-center text-gray-400">
+        {{ loading() ? 'Loading IAM configuration...' : 'Select a workspace to inspect IAM.' }}
+      </section>
+    }
   `,
 })
-export class AccessRolesComponent {
+export class AccessRolesComponent implements OnInit {
   private readonly workspace = inject(WorkspaceService);
 
-  readonly membersLink = computed<unknown[] | null>(() => {
-    const current = this.workspace.current();
-    return current ? ['/workspace', current.slug, 'members'] : null;
-  });
+  readonly summary = signal<IamSummary | null>(null);
+  readonly matrix = signal<IamMatrix | null>(null);
+  readonly members = signal<WorkspaceMemberDetail[]>([]);
+  readonly roleFlags = signal<Record<string, boolean>>({});
+  readonly loading = signal(false);
+  readonly saving = signal(false);
+  readonly error = signal<string | null>(null);
 
-  readonly roles: Role[] = [
-    { key: 'owner', label: 'Owner', icon: 'crown', tone: 'amber', tagline: 'Full control, including billing and deletion.' },
-    { key: 'admin', label: 'Admin', icon: 'shield-check', tone: 'brand', tagline: 'Manage members, systems and knowledge.' },
-    { key: 'member', label: 'Member', icon: 'user-round', tone: 'gray', tagline: 'Run systems and consume results.' },
+  readonly roleOptions: Array<{ value: RoleTemplate; label: string; short: string }> = [
+    { value: 'workspace_viewer', label: 'Viewer', short: 'Viewer' },
+    { value: 'workspace_contributor', label: 'Contributor', short: 'Contrib.' },
+    { value: 'workspace_reviewer', label: 'Reviewer', short: 'Reviewer' },
+    { value: 'workspace_admin', label: 'Admin', short: 'Admin' },
+    { value: 'workspace_owner', label: 'Owner', short: 'Owner' },
   ];
 
-  readonly capabilities: Capability[] = [
-    { key: 'workspace.settings', label: 'Update workspace settings', icon: 'settings', description: 'Name, slug, metadata' },
-    { key: 'workspace.delete', label: 'Delete workspace', icon: 'trash-2', description: 'Archive and purge the entire workspace' },
-    { key: 'members.invite', label: 'Invite members', icon: 'user-plus', description: 'Add people by email' },
-    { key: 'members.roles', label: 'Change roles', icon: 'key-round', description: 'Promote or demote other members' },
-    { key: 'members.remove', label: 'Remove members', icon: 'user-x', description: 'Revoke workspace access' },
-    { key: 'systems.create', label: 'Create systems', icon: 'layers', description: 'New AI systems' },
-    { key: 'systems.edit', label: 'Edit systems', icon: 'settings-2', description: 'Configure prompts, models, guardrails' },
-    { key: 'systems.run', label: 'Run systems', icon: 'play', description: 'Chat & API calls' },
-    { key: 'knowledge.upload', label: 'Upload knowledge', icon: 'cloud-upload', description: 'Ingest documents' },
-    { key: 'knowledge.delete', label: 'Delete knowledge', icon: 'trash-2', description: 'Remove collections and chunks' },
-    { key: 'audit.view', label: 'View audit logs', icon: 'scroll-text', description: 'Inspect workspace activity' },
+  readonly flagOptions = [
+    {
+      key: 'contributors_see_only_own_sessions',
+      label: 'Contributors see only own sessions',
+      description: 'Narrows Capture lists for contributors while reviewers and admins keep workspace scope.',
+    },
+    {
+      key: 'require_second_eye_for_ingestion',
+      label: 'Require second eye for ingestion',
+      description: 'Prevents the author from triggering final ingestion approval when enabled.',
+    },
+    {
+      key: 'reviewers_inherit_contributor',
+      label: 'Reviewers inherit contributor',
+      description: 'Lets reviewers create and execute their own capture sessions.',
+    },
   ];
 
-  readonly matrix: Record<string, Record<string, boolean>> = {
-    'workspace.settings': { owner: true, admin: true, member: false },
-    'workspace.delete': { owner: true, admin: false, member: false },
-    'members.invite': { owner: true, admin: true, member: false },
-    'members.roles': { owner: true, admin: true, member: false },
-    'members.remove': { owner: true, admin: true, member: false },
-    'systems.create': { owner: true, admin: true, member: false },
-    'systems.edit': { owner: true, admin: true, member: false },
-    'systems.run': { owner: true, admin: true, member: true },
-    'knowledge.upload': { owner: true, admin: true, member: true },
-    'knowledge.delete': { owner: true, admin: true, member: false },
-    'audit.view': { owner: true, admin: true, member: false },
-  };
+  readonly currentWorkspace = computed(() => this.workspace.current());
+
+  ngOnInit(): void {
+    this.load();
+  }
+
+  load(): void {
+    this.loading.set(true);
+    this.error.set(null);
+    this.workspace.getIamSummary().subscribe({
+      next: (summary) => {
+        this.summary.set(summary);
+        this.members.set(summary.members.map((member) => ({ ...member })));
+        this.roleFlags.set({ ...summary.config.role_flags });
+        this.loading.set(false);
+      },
+      error: () => {
+        this.error.set('Unable to load IAM summary. Admin role is required.');
+        this.loading.set(false);
+      },
+    });
+    this.workspace.getIamMatrix().subscribe({
+      next: (matrix) => this.matrix.set(matrix),
+      error: () => this.matrix.set(null),
+    });
+  }
+
+  labelsText(member: WorkspaceMemberDetail): string {
+    return (member.custom_labels || []).join(', ');
+  }
+
+  setLabels(member: WorkspaceMemberDetail, value: string): void {
+    member.custom_labels = value
+      .split(',')
+      .map((label) => label.trim())
+      .filter(Boolean);
+  }
+
+  flagValue(key: string): boolean {
+    return Boolean(this.roleFlags()[key]);
+  }
+
+  setFlag(key: string, value: boolean): void {
+    this.roleFlags.update((flags) => ({ ...flags, [key]: value }));
+  }
+
+  saveFlags(): void {
+    this.saving.set(true);
+    this.workspace.patchIamConfig({ role_flags: this.roleFlags() }).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.load();
+      },
+      error: () => {
+        this.saving.set(false);
+        this.error.set('Unable to save IAM flags.');
+      },
+    });
+  }
+
+  saveMember(member: WorkspaceMemberDetail): void {
+    const roleTemplate = (member.role_template || 'workspace_contributor') as RoleTemplate;
+    this.saving.set(true);
+    this.workspace
+      .updateIamMember(member.user_id, {
+        role_template: roleTemplate,
+        custom_labels: member.custom_labels || [],
+      })
+      .subscribe({
+        next: () => {
+          this.saving.set(false);
+          this.load();
+        },
+        error: () => {
+          this.saving.set(false);
+          this.error.set('Unable to save member IAM settings.');
+        },
+      });
+  }
+
+  matrixRows(): IamMatrixPermission[] {
+    const seen = new Set<string>();
+    return (this.matrix()?.permissions || []).filter((row) => {
+      const key = `${row.resource_kind}:${row.action}:${row.conditions.join('|')}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
 }

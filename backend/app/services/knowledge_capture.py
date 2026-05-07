@@ -20,6 +20,7 @@ from app.models.expert_capture import (
 )
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
+from app.services.audit_logger import emit_audit_event
 
 CAPABILITY_SLUG = "expert_knowledge_capture"
 RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
@@ -475,6 +476,8 @@ def process_conversation_step(
     retrieval_event_id: Optional[str],
     interruption_of_event_id: Optional[str],
     last_proposal_id: Optional[str],
+    actor_user_id: Optional[str] = None,
+    actor_label: Optional[str] = None,
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     last_proposal = _load_active_proposal(
@@ -507,6 +510,7 @@ def process_conversation_step(
             retrieval_event_id=retrieval_event_id,
             interruption_of_event_id=interruption_of_event_id,
             turn_kind=turn_kind,
+            actor_user_id=actor_user_id,
         )
         action_taken = "turn_appended"
         next_prompt = turn_payload.get("next_prompt")
@@ -523,10 +527,17 @@ def process_conversation_step(
                 retrieval_event_id=retrieval_event_id,
                 interruption_of_event_id=interruption_of_event_id,
                 turn_kind="answer",
+                actor_user_id=actor_user_id,
             )
         session = get_session(db, workspace_id=workspace_id, session_id=session_id)
         if _session_has_proposal_material(db, workspace_id=workspace_id, session=session):
-            proposal = create_update_proposal(db, workspace_id=workspace_id, session_id=session_id, complete_session=False)
+            proposal = create_update_proposal(
+                db,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                complete_session=False,
+                created_by_user_id=actor_user_id,
+            )
             action_taken = "proposal_created"
             requires_confirmation = True
             confirmation_target = "proposal"
@@ -575,7 +586,8 @@ def process_conversation_step(
             workspace_id=workspace_id,
             proposal_id=last_proposal.id,
             status="accepted",
-            reviewer="conversation-only",
+            reviewer=actor_label or "conversation-only",
+            reviewer_user_id=actor_user_id,
             review_notes="Accepted by explicit voice confirmation.",
         )
         action_taken = "proposal_accepted"
@@ -944,6 +956,7 @@ def create_capture_plan(
     system_id: Optional[str],
     knowledge_refs: Optional[List[str]],
     voice_runtime: str = "cascade",
+    created_by_user_id: Optional[str] = None,
 ) -> ExpertCaptureSession:
     ctx = _load_context(db, workspace_id, context_id)
     snapshot = _context_snapshot(ctx)
@@ -982,6 +995,7 @@ def create_capture_plan(
         capability_id=capability.id if capability else None,
         context_id=context_id,
         system_id=resolved_system_id,
+        created_by_user_id=created_by_user_id,
         title=title or "Expert Knowledge Capture",
         objective=objective,
         expert_profile=expert_profile,
@@ -1002,6 +1016,7 @@ def create_capture_plan(
         input_ref={"objective": objective, "duration_minutes": duration_minutes, "context_id": context_id},
         output_ref={"plan": plan, "knowledge_gaps": gaps},
         skill_slugs=["knowledge_gap_analysis_v1", "expert_interview_plan_v1"],
+        initiated_by_user_id=created_by_user_id,
     )
     session.run_id = run_id
     _record_capture_event(
@@ -1010,6 +1025,7 @@ def create_capture_plan(
         event_type="capture_plan_created",
         source="capture_engine",
         status="accepted",
+        created_by=created_by_user_id,
         meta_data={"run_id": run_id, "question_count": len(plan.get("questions") or [])},
     )
     db.commit()
@@ -1047,6 +1063,9 @@ def append_turn(
     retrieval_event_id: Optional[str] = None,
     interruption_of_event_id: Optional[str] = None,
     turn_kind: str = "answer",
+    actor_user_id: Optional[str] = None,
+    text_partials: Optional[List[str]] = None,
+    latency_ms: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     if session.status == "planned":
@@ -1069,6 +1088,7 @@ def append_turn(
             source="expert_live",
             status="accepted",
             parent_event_id=interruption_of_event_id,
+            created_by=actor_user_id,
             meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind},
         )
     if speaker == "expert":
@@ -1083,6 +1103,7 @@ def append_turn(
             source="browser_voice" if audio_ref or client_turn_id else "operator_edit",
             status="accepted",
             parent_event_id=retrieval_event_id,
+            created_by=actor_user_id,
             meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind},
         )
 
@@ -1097,6 +1118,8 @@ def append_turn(
         "retrieval_refs": retrieval_refs,
         "interruption_of_event_id": interruption_of_event_id,
         "turn_kind": turn_kind,
+        "text_partials": text_partials or [],
+        "latency_ms": latency_ms or {},
         "created_at": datetime.utcnow().isoformat(),
     }
     event = _record_capture_event(
@@ -1110,6 +1133,7 @@ def append_turn(
         source="expert_live" if speaker == "expert" else "operator_edit",
         status="accepted",
         parent_event_id=interruption_of_event_id,
+        created_by=actor_user_id,
         meta_data={
             "turn_id": turn["id"],
             "client_turn_id": client_turn_id,
@@ -1117,6 +1141,8 @@ def append_turn(
             "retrieval_refs": retrieval_refs,
             "interruption_of_event_id": interruption_of_event_id,
             "turn_kind": turn_kind,
+            "text_partials": text_partials or [],
+            "latency_ms": latency_ms or {},
         },
     )
     turn["source_event_id"] = event.id
@@ -1161,6 +1187,7 @@ def append_turn(
             input_ref={"session_id": session.id, "turn": turn},
             output_ref={"evaluation": evaluation, "next_prompt": next_prompt},
             skill_slugs=["expert_answer_evaluator_v1"],
+            initiated_by_user_id=actor_user_id,
         )
         if next_prompt:
             prompt_event = _record_capture_event(
@@ -1173,6 +1200,7 @@ def append_turn(
                 source="capture_engine",
                 status="accepted",
                 parent_event_id=event.id,
+                created_by=actor_user_id,
                 meta_data={
                     "trigger_turn_id": turn["id"],
                     "client_turn_id": client_turn_id,
@@ -1200,6 +1228,7 @@ def create_update_proposal(
     workspace_id: str,
     session_id: str,
     complete_session: bool = True,
+    created_by_user_id: Optional[str] = None,
 ) -> KnowledgeUpdateProposal:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
@@ -1219,8 +1248,11 @@ def create_update_proposal(
             session_id=session.id,
             status="pending_review",
             proposal=payload,
+            created_by_user_id=created_by_user_id or session.created_by_user_id,
         )
         db.add(proposal)
+    if created_by_user_id and not proposal.created_by_user_id:
+        proposal.created_by_user_id = created_by_user_id
     if complete_session:
         session.status = "completed"
         session.completed_at = datetime.utcnow()
@@ -1231,6 +1263,7 @@ def create_update_proposal(
         event_type="proposal_generated",
         source="capture_engine",
         status="accepted",
+        created_by=created_by_user_id,
         meta_data={
             "proposal_id": proposal.id,
             "operation": operation,
@@ -1245,6 +1278,7 @@ def create_update_proposal(
         input_ref={"session_id": session.id},
         output_ref={"proposal": payload},
         skill_slugs=["capture_structuring_v1", "audit_log_v1"],
+        initiated_by_user_id=created_by_user_id or session.created_by_user_id,
     )
     db.commit()
     db.refresh(proposal)
@@ -1259,6 +1293,7 @@ def review_proposal(
     status: str,
     reviewer: Optional[str],
     review_notes: Optional[str],
+    reviewer_user_id: Optional[str] = None,
 ) -> KnowledgeUpdateProposal:
     proposal = (
         db.query(KnowledgeUpdateProposal)
@@ -1269,6 +1304,7 @@ def review_proposal(
         raise ValueError("Knowledge update proposal not found")
     proposal.status = status
     proposal.reviewer = reviewer
+    proposal.reviewer_user_id = reviewer_user_id
     proposal.review_notes = review_notes
     proposal.reviewed_at = datetime.utcnow()
     session = (
@@ -1287,8 +1323,24 @@ def review_proposal(
             source="operator_edit" if reviewer else "capture_engine",
             status=status,
             created_by=reviewer,
-            meta_data={"proposal_id": proposal.id, "review_notes": review_notes},
+            meta_data={
+                "proposal_id": proposal.id,
+                "review_notes": review_notes,
+                "reviewer_user_id": reviewer_user_id,
+            },
         )
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace_id,
+        event_type=f"kc.proposal.review.{status}",
+        actor=reviewer or reviewer_user_id or "system",
+        details={
+            "proposal_id": proposal.id,
+            "session_id": proposal.session_id,
+            "reviewer_user_id": reviewer_user_id,
+            "outcome": status,
+        },
+    )
     db.commit()
     db.refresh(proposal)
     return proposal
@@ -1522,6 +1574,7 @@ def serialize_session(session: ExpertCaptureSession) -> Dict[str, Any]:
         "context_id": session.context_id,
         "system_id": session.system_id,
         "run_id": session.run_id,
+        "created_by_user_id": session.created_by_user_id,
         "title": session.title,
         "objective": session.objective,
         "expert_profile": session.expert_profile,
@@ -1550,6 +1603,8 @@ def serialize_proposal(proposal: KnowledgeUpdateProposal) -> Dict[str, Any]:
         "proposal": proposal.proposal or {},
         "review_notes": proposal.review_notes,
         "reviewer": proposal.reviewer,
+        "created_by_user_id": proposal.created_by_user_id,
+        "reviewer_user_id": proposal.reviewer_user_id,
         "created_at": proposal.created_at.isoformat() if proposal.created_at else None,
         "reviewed_at": proposal.reviewed_at.isoformat() if proposal.reviewed_at else None,
     }
@@ -1876,11 +1931,13 @@ def _record_capture_run(
     input_ref: Dict[str, Any],
     output_ref: Dict[str, Any],
     skill_slugs: List[str],
+    initiated_by_user_id: Optional[str] = None,
 ) -> str:
     now = datetime.utcnow()
     run = Run(
         id=str(uuid.uuid4()),
         workspace_id=workspace_id,
+        initiated_by_user_id=initiated_by_user_id,
         capability_id=capability_id,
         status="completed",
         input_ref=input_ref,

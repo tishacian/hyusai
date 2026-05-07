@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     # client demands deeper history without re-migration.
     custom_chain_version_window: int = 500
 
+    # Transverse IAM engine rollout. Dry-run/evaluate is available everywhere;
+    # enforcement is active when ``iam_generic_engine`` is true or when the
+    # current workspace slug is listed here.
+    iam_generic_engine: bool = False
+    iam_enforced_workspace_slugs: str = "andritz"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

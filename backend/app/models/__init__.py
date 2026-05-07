@@ -1,6 +1,6 @@
 """SQLAlchemy models for the application"""
 from app.models.user import User, Session, Message
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.models.mfa import MfaChallenge
 from app.models.settings import AppSettings
 from app.models.rag_preset import RagPreset
@@ -27,7 +27,7 @@ from app.models.decision import Decision
 
 __all__ = [
     "User", "Session", "Message",
-    "Workspace", "WorkspaceMember",
+    "Workspace", "WorkspaceMember", "WorkspaceIAMConfig",
     "MfaChallenge",
     "AppSettings", "RagPreset", "AuditLog",
     "Task", "EvaluationScore", "EvaluationFeedback", "FEEDBACK_LABELS",

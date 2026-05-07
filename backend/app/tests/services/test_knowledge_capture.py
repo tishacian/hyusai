@@ -1,6 +1,8 @@
 import pytest
 
 from app.models.context import Context
+from app.models.run import Run
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_capture import (
     amend_capture_event,
@@ -182,6 +184,60 @@ def test_capture_plan_turn_and_review_proposal(db_session):
     )
     assert reviewed.status == "accepted"
     assert reviewed.reviewed_at is not None
+
+
+def test_capture_attribution_persists_user_ids(db_session):
+    workspace = Workspace(id="ws-capture-attribution", name="Capture Attribution", slug="capture-attribution")
+    user = User(id="user-capture-author", username="author@datategy.local", email="author@datategy.local")
+    reviewer = User(id="user-capture-reviewer", username="reviewer@datategy.local", email="reviewer@datategy.local")
+    db_session.add_all([workspace, user, reviewer])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Attributed capture",
+        objective="Capture tacit troubleshooting knowledge for attribution tests.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        created_by_user_id=user.id,
+    )
+    assert session.created_by_user_id == user.id
+    assert db_session.query(Run).filter(Run.id == session.run_id).first().initiated_by_user_id == user.id
+
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=session.plan["questions"][0]["id"],
+        text=(
+            "Quand la machine vibre après maintenance, je vérifie le rapport "
+            "d'intervention parce que le changement récent explique souvent le diagnostic."
+        ),
+        actor_user_id=user.id,
+    )
+    proposal = create_update_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        created_by_user_id=user.id,
+    )
+    assert proposal.created_by_user_id == user.id
+
+    reviewed = review_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        status="accepted",
+        reviewer=reviewer.email,
+        review_notes="Validated.",
+        reviewer_user_id=reviewer.id,
+    )
+    assert reviewed.reviewer_user_id == reviewer.id
 
 
 def test_conversation_only_step_flow_requires_voice_confirmation(db_session):

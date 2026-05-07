@@ -15,21 +15,33 @@ Implementation notes:
   blocking call, preserving the streaming response pattern.
 """
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.core.auth import get_current_user
+from app.db.base import get_db
+from app.core.iam.dependencies import PermissionContext, require_permission
 from app.core.logging import get_logger
+from sqlalchemy.orm import Session as DBSession
 from app.services.voice_runtime import (
     get_voice_runtime_provider,
     list_voice_runtime_providers,
     stream_response_bytes,
 )
+from app.services.voice_session_gateway import VoiceSessionGateway
 
 logger = get_logger(__name__)
 
-router = APIRouter(dependencies=[Depends(get_current_user)])
+router = APIRouter()
+
+voice_read = require_permission(
+    "voice_runtime",
+    "read",
+    static_attrs={"capability": "expert_knowledge_capture"},
+    audit_prefix="kc",
+)
 
 
 class SynthesizeRequest(BaseModel):
@@ -37,13 +49,33 @@ class SynthesizeRequest(BaseModel):
     voice: str = "nova"
 
 
+@router.websocket("/sessions/{session_id}")
+async def voice_session_socket(
+    websocket: WebSocket,
+    session_id: str,
+    token: Optional[str] = Query(None),
+    workspace_slug: Optional[str] = Query(None),
+    db: DBSession = Depends(get_db),
+):
+    await VoiceSessionGateway().handle(
+        websocket,
+        session_id=session_id,
+        token=token,
+        workspace_slug=workspace_slug,
+        db=db,
+    )
+
+
 @router.get("/runtimes")
-async def voice_runtimes():
+async def voice_runtimes(_permission: PermissionContext = Depends(voice_read)):
     return list_voice_runtime_providers()
 
 
 @router.post("/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    _permission: PermissionContext = Depends(voice_read),
+):
     audio_bytes = await file.read()
     filename = file.filename or "recording.webm"
     content_type = file.content_type or "audio/webm"
@@ -68,7 +100,10 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 
 @router.post("/synthesize")
-async def synthesize_speech(req: SynthesizeRequest):
+async def synthesize_speech(
+    req: SynthesizeRequest,
+    _permission: PermissionContext = Depends(voice_read),
+):
     try:
         provider = get_voice_runtime_provider("cascade")
         speech = await provider.create_speech(req.text, voice=req.voice)
