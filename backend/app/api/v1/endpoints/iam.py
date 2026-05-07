@@ -207,8 +207,31 @@ async def update_member_iam(
     )
     if not target:
         raise HTTPException(status_code=404, detail="Member not found")
-    if normalize_role_template(getattr(target, "role_template", None), target.role) == WORKSPACE_OWNER:
-        raise HTTPException(status_code=400, detail="Cannot update owner IAM through this endpoint")
+
+    target_role = normalize_role_template(getattr(target, "role_template", None), target.role)
+    if target_role == WORKSPACE_OWNER:
+        caller_membership = current_membership(db, user, workspace)
+        caller_role = normalize_role_template(
+            getattr(caller_membership, "role_template", None) if caller_membership else None,
+            caller_membership.role if caller_membership else None,
+        )
+        if target.user_id == user.id:
+            raise HTTPException(
+                status_code=400,
+                detail="Your own owner role is managed through ownership transfer",
+            )
+        if caller_role != WORKSPACE_OWNER:
+            raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
+        owner_count = sum(
+            1
+            for member in db.query(WorkspaceMember)
+            .filter(WorkspaceMember.workspace_id == workspace.id)
+            .all()
+            if normalize_role_template(getattr(member, "role_template", None), member.role)
+            == WORKSPACE_OWNER
+        )
+        if owner_count <= 1:
+            raise HTTPException(status_code=400, detail="At least one workspace owner must remain")
 
     target.role_template = body.role_template
     target.role = legacy_role_for_template(body.role_template)

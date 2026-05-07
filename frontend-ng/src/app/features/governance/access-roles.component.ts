@@ -50,61 +50,80 @@ import {
                 {{ iam.members.length }} members
               </span>
             </div>
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-white/5">
-                    <th class="px-5 py-3 font-semibold">User</th>
-                    <th class="px-5 py-3 font-semibold">Role template</th>
-                    <th class="px-5 py-3 font-semibold">Labels</th>
-                    <th class="px-5 py-3 font-semibold text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-white/5">
-                  @for (member of members(); track member.user_id) {
-                    <tr class="hover:bg-white/[0.02] transition">
-                      <td class="px-5 py-3">
-                        <div class="text-white font-medium">{{ member.email || member.username }}</div>
-                        <div class="text-[11px] text-gray-500">
-                          {{ member.username }}
-                          @if (member.is_current_user) {
-                            · you
-                          }
+            <div class="divide-y divide-white/5">
+              @for (member of members(); track member.user_id) {
+                <article class="px-5 py-4 hover:bg-white/[0.02] transition">
+                  <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px_minmax(220px,1fr)_96px] lg:items-end">
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2">
+                        <div class="h-8 w-8 shrink-0 rounded-full bg-gradient-to-br from-brand-500 to-violet-500 flex items-center justify-center text-xs font-semibold text-white">
+                          {{ initial(member) }}
                         </div>
-                      </td>
-                      <td class="px-5 py-3">
+                        <div class="min-w-0">
+                          <div class="truncate text-sm font-medium text-white">{{ member.email || member.username }}</div>
+                          <div class="truncate text-[11px] text-gray-500">
+                            {{ member.username }}
+                            @if (member.is_current_user) {
+                              · you
+                            }
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <label class="block min-w-0">
+                      <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Role template</span>
+                      @if (canEditMemberRole(member)) {
                         <select
-                          class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-white disabled:opacity-60"
-                          [disabled]="member.role_template === 'workspace_owner'"
+                          class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
                           [(ngModel)]="member.role_template"
                         >
                           @for (role of roleOptions; track role.value) {
-                            <option [ngValue]="role.value">{{ role.label }}</option>
+                            <option [ngValue]="role.value" [disabled]="role.value === 'workspace_owner'">
+                              {{ role.label }}
+                            </option>
                           }
                         </select>
-                      </td>
-                      <td class="px-5 py-3 min-w-72">
-                        <input
-                          class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-white"
-                          [ngModel]="labelsText(member)"
-                          (ngModelChange)="setLabels(member, $event)"
-                          placeholder="domain:technical, pilot:true"
-                        />
-                      </td>
-                      <td class="px-5 py-3 text-right">
-                        <button
-                          type="button"
-                          class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-xs font-semibold text-white disabled:opacity-50"
-                          [disabled]="saving() || member.role_template === 'workspace_owner'"
-                          (click)="saveMember(member)"
+                      } @else {
+                        <span
+                          [class]="roleBadgeClass(memberRoleTemplate(member))"
+                          [title]="memberRoleLockedReason(member)"
                         >
-                          <app-icon name="save" [size]="13" /> Save
-                        </button>
-                      </td>
-                    </tr>
+                          @if (memberRoleTemplate(member) === 'workspace_owner') {
+                            <app-icon name="crown" [size]="12" />
+                          } @else {
+                            <app-icon name="shield-check" [size]="12" />
+                          }
+                          {{ roleLabel(memberRoleTemplate(member)) }}
+                        </span>
+                      }
+                    </label>
+
+                    <label class="block min-w-0">
+                      <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Labels</span>
+                      <input
+                        class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60 disabled:opacity-50"
+                        [disabled]="!canEditMemberLabels(member)"
+                        [ngModel]="labelsText(member)"
+                        (ngModelChange)="setLabels(member, $event)"
+                        placeholder="domain:technical, pilot:true"
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      class="inline-flex h-10 items-center justify-center gap-1.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-40 disabled:hover:bg-brand-500"
+                      [disabled]="saving() || !canSaveMember(member)"
+                      (click)="saveMember(member)"
+                    >
+                      <app-icon name="save" [size]="14" /> Save
+                    </button>
+                  </div>
+                  @if (!canEditMemberRole(member) && memberRoleTemplate(member) === 'workspace_owner') {
+                    <p class="mt-2 pl-10 text-[11px] text-gray-500">{{ memberRoleLockedReason(member) }}</p>
                   }
-                </tbody>
-              </table>
+                </article>
+              }
             </div>
           </section>
 
@@ -288,6 +307,58 @@ export class AccessRolesComponent implements OnInit {
     return (member.custom_labels || []).join(', ');
   }
 
+  initial(member: WorkspaceMemberDetail): string {
+    const src = member.email || member.username || '?';
+    return src[0]?.toUpperCase() || '?';
+  }
+
+  memberRoleTemplate(member: WorkspaceMemberDetail): RoleTemplate {
+    return (member.role_template || 'workspace_contributor') as RoleTemplate;
+  }
+
+  roleLabel(role: RoleTemplate): string {
+    return this.roleOptions.find((item) => item.value === role)?.label || 'Contributor';
+  }
+
+  roleBadgeClass(role: RoleTemplate): string {
+    const base = 'inline-flex h-10 w-full items-center gap-1.5 rounded border px-3 text-sm font-medium';
+    if (role === 'workspace_owner') return `${base} border-amber-500/30 bg-amber-500/10 text-amber-200`;
+    if (role === 'workspace_admin') return `${base} border-brand-400/30 bg-brand-500/10 text-brand-100`;
+    if (role === 'workspace_reviewer') return `${base} border-violet-400/30 bg-violet-500/10 text-violet-100`;
+    return `${base} border-white/10 bg-white/[0.03] text-gray-300`;
+  }
+
+  ownerCount(): number {
+    return this.members().filter((member) => this.memberRoleTemplate(member) === 'workspace_owner').length;
+  }
+
+  subjectIsOwner(): boolean {
+    return this.matrix()?.role_template === 'workspace_owner';
+  }
+
+  canEditMemberRole(member: WorkspaceMemberDetail): boolean {
+    if (member.is_current_user) return false;
+    const role = this.memberRoleTemplate(member);
+    if (role !== 'workspace_owner') return true;
+    return this.subjectIsOwner() && this.ownerCount() > 1;
+  }
+
+  canEditMemberLabels(member: WorkspaceMemberDetail): boolean {
+    return this.memberRoleTemplate(member) !== 'workspace_owner' || this.canEditMemberRole(member);
+  }
+
+  canSaveMember(member: WorkspaceMemberDetail): boolean {
+    if (member.is_current_user) return false;
+    if (!this.canEditMemberLabels(member) && !this.canEditMemberRole(member)) return false;
+    return this.memberRoleTemplate(member) !== 'workspace_owner';
+  }
+
+  memberRoleLockedReason(member: WorkspaceMemberDetail): string {
+    if (member.is_current_user) return 'Your own owner role is managed through ownership transfer.';
+    if (!this.subjectIsOwner()) return 'Only a workspace owner can change another owner role.';
+    return 'At least one workspace owner must remain.';
+  }
+
   setLabels(member: WorkspaceMemberDetail, value: string): void {
     member.custom_labels = value
       .split(',')
@@ -319,6 +390,10 @@ export class AccessRolesComponent implements OnInit {
 
   saveMember(member: WorkspaceMemberDetail): void {
     const roleTemplate = (member.role_template || 'workspace_contributor') as RoleTemplate;
+    if (roleTemplate === 'workspace_owner') {
+      this.error.set('Owner assignment is managed through ownership transfer.');
+      return;
+    }
     this.saving.set(true);
     this.workspace
       .updateIamMember(member.user_id, {
