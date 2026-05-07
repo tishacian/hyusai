@@ -63,6 +63,39 @@ def test_expert_capture_system_seed_populates_flow_and_session_binding(db_sessio
     assert session.system_id == system.id
 
 
+def test_capture_plan_asks_business_question_for_runtime_objective(db_session):
+    workspace = Workspace(id="ws-capture-runtime-objective", name="Capture Runtime", slug="capture-runtime")
+    context = Context(
+        id="ctx-andritz-runtime-objective",
+        workspace_id=workspace.id,
+        name="Andritz MVP Knowledge Context",
+        environment_state={"collection": "andritz-mvp-knowledge"},
+    )
+    db_session.add_all([workspace, context])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Expert Knowledge Capture",
+        objective=(
+            "Run guided voice-to-voice expert interviews, retrieve live Knowledge context, "
+            "evaluate each answer, and produce HITL-reviewable knowledge update proposals."
+        ),
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=context.id,
+        system_id=None,
+        knowledge_refs=[],
+    )
+
+    first_question = session.plan["questions"][0]["question"]
+    assert "Run guided voice-to-voice" not in first_question
+    assert "HITL-reviewable" not in first_question
+    assert "décision métier ou terrain" in first_question
+    assert "andritz-mvp-knowledge" in first_question
+
+
 def test_capture_plan_turn_and_review_proposal(db_session):
     workspace = Workspace(id="ws-capture", name="Capture", slug="capture")
     db_session.add(workspace)

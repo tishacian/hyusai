@@ -226,7 +226,7 @@ def build_interview_plan(
                 "id": f"q-{index:02d}",
                 "target_gap_id": gap["id"],
                 "title": gap["title"],
-                "question": _question_for_gap(gap, objective),
+                "question": _question_for_gap(gap, objective, context_snapshot),
                 "follow_ups": _followups_for_gap(gap),
                 "estimated_minutes": per_question,
                 "completion_criteria": [
@@ -258,10 +258,32 @@ def build_interview_plan(
     }
 
 
-def _question_for_gap(gap: Dict[str, Any], objective: str) -> str:
+def _knowledge_target_for_prompt(context_snapshot: Optional[Dict[str, Any]]) -> str:
+    context_snapshot = context_snapshot or {}
+    environment_state = context_snapshot.get("environment_state") or {}
+    target = (
+        environment_state.get("collection")
+        or context_snapshot.get("name")
+        or "la base de connaissances connectée"
+    )
+    if target == "la base de connaissances connectée":
+        return target
+    return f"la base de connaissances « {target} »"
+
+
+def _question_for_gap(
+    gap: Dict[str, Any],
+    objective: str,
+    context_snapshot: Optional[Dict[str, Any]] = None,
+) -> str:
     title = gap.get("title", "Knowledge gap")
+    knowledge_target = _knowledge_target_for_prompt(context_snapshot)
     if gap.get("slug") == "decision_rationale":
-        return f"Pour l’objectif « {objective} », quelle décision experte est difficile à retrouver dans la documentation, et pourquoi ?"
+        return (
+            f"Au regard de {knowledge_target}, quelle décision métier ou terrain "
+            "reste difficile à retrouver dans la documentation, et comment "
+            "l’expert la prend-il en pratique ?"
+        )
     if gap.get("slug") == "exception_handling":
         return "Dans quels cas la procédure documentée ne suffit-elle pas, et comment décidez-vous quoi faire ?"
     if gap.get("slug") == "signals_and_symptoms":

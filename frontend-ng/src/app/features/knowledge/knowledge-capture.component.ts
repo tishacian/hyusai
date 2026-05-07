@@ -89,6 +89,7 @@ interface RetrievalPrefetch {
 type ConversationMode = 'manual' | 'conversation_only';
 type CaptureSurfaceView = 'dashboard' | 'prep' | 'plan' | 'session' | 'review';
 type ProposalFactDecision = 'pending' | 'accept' | 'reject';
+type VoiceNoticeTone = 'info' | 'warning' | 'error';
 
 interface ConversationStageRow {
   id: string;
@@ -468,7 +469,7 @@ interface ProposalFact {
                           {{ questionStateLabel(s, q) }}
                         </span>
                       </div>
-                      <div class="mt-2 text-sm text-gray-100 leading-snug line-clamp-3">{{ q.question }}</div>
+                      <div class="mt-2 text-sm text-gray-100 leading-snug line-clamp-3">{{ questionText(q) }}</div>
                       <div class="mt-3 text-[10px] text-gray-500">{{ q.estimated_minutes || 3 }} min expected</div>
                     </button>
                   }
@@ -480,7 +481,7 @@ interface ProposalFact {
                   <div class="flex items-start justify-between gap-3">
                     <div>
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">Current prompt</p>
-                      <p class="mt-2 text-lg text-white leading-relaxed">{{ currentQuestion()?.question || nextPrompt() || 'Select a question to begin capture.' }}</p>
+                      <p class="mt-2 text-lg text-white leading-relaxed">{{ currentPromptText() || 'Select a question to begin capture.' }}</p>
                     </div>
                     <button
                       type="button"
@@ -512,7 +513,7 @@ interface ProposalFact {
                         <span class="text-[10px] text-gray-500">{{ currentQuestion()?.estimated_minutes || 3 }} min</span>
                       </div>
                       <p class="mt-2 text-sm text-gray-100 leading-relaxed">
-                        {{ currentQuestion()?.question || nextPrompt() || 'The next interviewer prompt will appear here.' }}
+                        {{ currentPromptText() || 'The next interviewer prompt will appear here.' }}
                       </p>
                     </article>
                     @for (event of textEvents().slice(-5); track event.id) {
@@ -626,7 +627,11 @@ interface ProposalFact {
                       </div>
                       <div class="min-w-0">
                         <div class="text-xs text-gray-200 truncate">{{ voiceInputStatusLabel() }}</div>
-                        <div class="text-[10px] text-gray-500 truncate">cascade · en-fr · retrieval prefetch</div>
+                        @if (voiceNotice(); as notice) {
+                          <div [class]="voiceNoticeClass()">{{ notice }}</div>
+                        } @else {
+                          <div class="text-[10px] text-gray-500 truncate">cascade · en-fr · retrieval prefetch</div>
+                        }
                       </div>
                     </div>
                     <div class="flex items-center gap-2 text-xs text-gray-400">
@@ -675,8 +680,8 @@ interface ProposalFact {
                         <span class="ck-mono text-[10px] text-brand-200">score {{ ev.score }}</span>
                       </div>
                       @if (nextPrompt()) {
-                        <button type="button" class="mt-3 text-left text-sm text-brand-200 hover:text-brand-100" (click)="speak(nextPrompt()!)">
-                          {{ nextPrompt() }}
+                        <button type="button" class="mt-3 text-left text-sm text-brand-200 hover:text-brand-100" (click)="speak(promptText(nextPrompt()))">
+                          {{ promptText(nextPrompt()) }}
                         </button>
                       }
                     </div>
@@ -729,8 +734,11 @@ interface ProposalFact {
                   </div>
                   @if (conversationMode() === 'conversation_only') {
                     <p class="mt-3 text-sm text-white">{{ lastConversationLabel() }}</p>
+                    @if (voiceNotice(); as notice) {
+                      <p [class]="voiceNoticePanelClass()">{{ notice }}</p>
+                    }
                     @if (nextPrompt()) {
-                      <p class="mt-3 text-xs text-gray-300 leading-relaxed">{{ nextPrompt() }}</p>
+                      <p class="mt-3 text-xs text-gray-300 leading-relaxed">{{ promptText(nextPrompt()) }}</p>
                     }
                   }
                 </section>
@@ -747,9 +755,7 @@ interface ProposalFact {
                   </div>
                   <div class="mt-3 space-y-2">
                     @for (row of conversationStageRows(s); track row.id) {
-                      <div
-                        [class]="conversationStageClass(row)"
-                      >
+                      <div [class]="conversationStageClass(row)">
                         <span
                           [class]="row.state === 'done'
                             ? 'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-emerald-500/20 text-emerald-100'
@@ -766,6 +772,9 @@ interface ProposalFact {
                       </div>
                     }
                   </div>
+                  @if (voiceNotice(); as notice) {
+                    <p [class]="voiceNoticePanelClass()">{{ notice }}</p>
+                  }
                 </section>
 
                 <section class="t-card rounded-lg p-4">
@@ -871,7 +880,7 @@ interface ProposalFact {
                       </div>
                       <span class="text-xs text-gray-500">{{ q.estimated_minutes || 3 }} min</span>
                     </div>
-                    <p class="mt-4 text-base text-gray-100 leading-relaxed">{{ q.question }}</p>
+                    <p class="mt-4 text-base text-gray-100 leading-relaxed">{{ questionText(q) }}</p>
                   </button>
                 }
               </div>
@@ -1275,6 +1284,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly speaking = signal(false);
   readonly conversationSessionActive = signal(false);
   readonly voiceState = signal<Voice2VoiceState>('idle');
+  readonly voiceNotice = signal<string | null>(null);
+  readonly voiceNoticeTone = signal<VoiceNoticeTone>('info');
   readonly session = signal<CaptureSession | null>(null);
   readonly selectedQuestionId = signal<string | null>(null);
   readonly lastEvaluation = signal<TurnResponse['evaluation'] | null>(null);
@@ -1368,7 +1379,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.api
       .createCapturePlan({
         title: this.sessionTitle.trim() || 'Expert Knowledge Capture',
-        objective: this.objective,
+        objective: this.captureObjectiveForPlan(),
         expert_profile: this.expertProfile,
         duration_minutes: Number(this.durationMinutes) || 20,
         context_id: this.contextId || null,
@@ -1410,6 +1421,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     let armed = true;
     if (conversationOnly) {
       this.conversationSessionActive.set(true);
+      this.setVoiceNotice('Preparing microphone access for the conversation session.', 'info');
       armed = await this.ensureAudioStream();
       if (!armed) {
         this.conversationSessionActive.set(false);
@@ -1437,7 +1449,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.activeSurface.set('session');
           this.loading.set(false);
           if (conversationOnly && armed) {
-            const firstPrompt = this.currentQuestion()?.question || this.nextPrompt();
+            const firstPrompt = this.currentPromptText();
             if (firstPrompt) {
               this.speak(firstPrompt);
             } else {
@@ -1449,6 +1461,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           if (conversationOnly) {
             this.stopConversationSession();
           }
+          this.setVoiceNotice('Session start failed. Check backend availability, then retry.', 'error');
           this.loading.set(false);
         },
       });
@@ -1543,6 +1556,83 @@ export class KnowledgeCaptureComponent implements OnInit {
     return this.contexts().find((ctx) => ctx.id === contextId)?.name || contextId.slice(0, 8);
   }
 
+  questionText(question?: CaptureQuestion | null): string {
+    return this.promptText(question?.question || '');
+  }
+
+  currentPromptText(): string | null {
+    const question = this.currentQuestion();
+    if (question) {
+      return this.questionText(question);
+    }
+    const prompt = this.nextPrompt();
+    return prompt ? this.promptText(prompt) : null;
+  }
+
+  promptText(text?: string | null): string {
+    const clean = (text || '').trim();
+    if (!clean) return '';
+    return this.isRuntimeCapturePrompt(clean) ? this.businessDecisionQuestion() : clean;
+  }
+
+  private captureObjectiveForPlan(): string {
+    const clean = (this.objective || '').trim();
+    if (!clean || this.isRuntimeCaptureObjective(clean)) {
+      return this.defaultBusinessObjective();
+    }
+    return clean;
+  }
+
+  private defaultBusinessObjective(): string {
+    const expert = this.expertProfile.trim() || 'expert métier';
+    return (
+      `Capturer les décisions métier, exceptions terrain et critères de validation ` +
+      `de l’expert (${expert}) au regard de ${this.knowledgeTargetPhrase()}.`
+    );
+  }
+
+  private businessDecisionQuestion(): string {
+    return (
+      `Au regard de ${this.knowledgeTargetPhrase()}, quelle décision métier ou terrain ` +
+      'reste difficile à retrouver dans la documentation, et comment l’expert la prend-il en pratique ?'
+    );
+  }
+
+  private knowledgeTargetPhrase(): string {
+    const sessionContextId = this.session()?.context_id || null;
+    const ctx =
+      this.selectedContext() ||
+      this.contexts().find((item) => item.id === sessionContextId) ||
+      null;
+    const target = ctx?.environment_state?.collection || ctx?.name || '';
+    return target ? `la base de connaissances « ${target} »` : 'la base de connaissances connectée';
+  }
+
+  private isRuntimeCapturePrompt(text: string): boolean {
+    const lower = text.toLowerCase();
+    return (
+      this.isRuntimeCaptureObjective(text) ||
+      (
+        lower.includes('pour l’objectif') &&
+        lower.includes('quelle décision experte') &&
+        lower.includes('documentation')
+      )
+    );
+  }
+
+  private isRuntimeCaptureObjective(text?: string | null): boolean {
+    const lower = (text || '').toLowerCase();
+    if (!lower) return false;
+    return [
+      'run guided voice-to-voice expert interviews',
+      'voice-to-voice expert interviews',
+      'retrieve live knowledge context',
+      'hitl-reviewable knowledge update proposals',
+      'knowledge update proposals',
+      'guided session runtime',
+    ].some((marker) => lower.includes(marker));
+  }
+
   systemLabel(systemId?: string | null): string | null {
     if (!systemId) return null;
     return this.systems().find((system) => system.id === systemId)?.name || systemId.slice(0, 8);
@@ -1551,8 +1641,11 @@ export class KnowledgeCaptureComponent implements OnInit {
   private applySystemScope(system: SystemOption | null): void {
     if (!system || system.id !== this.systemId) return;
     this.systemScoped.set(true);
-    if (system.objective?.trim()) {
-      this.objective = system.objective.trim();
+    const systemObjective = system.objective?.trim();
+    if (systemObjective && !this.isRuntimeCaptureObjective(systemObjective)) {
+      this.objective = systemObjective;
+    } else if (this.isRuntimeCaptureObjective(this.objective)) {
+      this.objective = this.defaultBusinessObjective();
     }
     if (system.context_id && (!this.contextId || this.systemScoped())) {
       this.contextId = system.context_id;
@@ -1601,7 +1694,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         this.interruptionOfEventId.set(null);
         this.refreshEvents(typed.session.id);
         if (typed.next_prompt) {
-          this.speak(typed.next_prompt);
+          this.speak(this.promptText(typed.next_prompt));
         } else {
           this.voiceState.set('idle');
         }
@@ -1828,7 +1921,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.transcribing()) return 'Processing turn...';
     if (this.recording()) return 'End turn';
     if (this.speaking()) return 'Interrupt & answer';
-    return this.conversationSessionActive() ? 'Pause session' : 'Start session';
+    return this.conversationSessionActive() ? 'Pause conversation' : 'Start conversation';
   }
 
   lastConversationLabel(): string {
@@ -1954,6 +2047,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     const clean = text.trim();
     if (!clean) return;
     this.voiceState.set('thinking');
+    this.setVoiceNotice('Processing the final transcript and inferring the next action.', 'info');
     this.api
       .runConversationStep(session.id, {
         client_turn_id: this.currentClientTurnId,
@@ -1985,13 +2079,17 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.interruptionOfEventId.set(null);
           this.refreshEvents(step.session.id);
           if (step.next_prompt) {
-            this.speak(step.next_prompt);
+            this.speak(this.promptText(step.next_prompt));
           } else {
             this.voiceState.set('idle');
+            this.setVoiceNotice('Ready for the next expert answer.', 'info');
             this.scheduleConversationResume();
           }
         },
-        error: () => this.voiceState.set('idle'),
+        error: () => {
+          this.voiceState.set('idle');
+          this.setVoiceNotice('Conversation step failed. The transcript was not processed.', 'error');
+        },
       });
   }
 
@@ -2126,16 +2224,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
-    this.recorder = new MediaRecorder(this.stream!);
-    this.recorder.ondataavailable = (event) => {
-      if (event.data.size <= 0) return;
-      this.chunks.push(event.data);
-      this.transcribePartialRecording();
-    };
-    this.recorder.onstop = () => this.transcribeRecording();
-    this.recorder.start(1200);
-    this.recording.set(true);
-    this.voiceState.set('listening');
+    this.startAudioRecorder('Microphone is open. Stop listening when the expert answer is complete.');
   }
 
   async toggleConversationSession(): Promise<void> {
@@ -2155,13 +2244,14 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     this.conversationSessionActive.set(true);
+    this.setVoiceNotice('Preparing microphone access for the conversation session.', 'info');
     const armed = await this.ensureAudioStream();
     if (!armed) {
       this.conversationSessionActive.set(false);
       this.voiceState.set('idle');
       return;
     }
-    const firstPrompt = this.currentQuestion()?.question || this.nextPrompt();
+    const firstPrompt = this.currentPromptText();
     if (firstPrompt) {
       this.speak(firstPrompt);
       return;
@@ -2179,9 +2269,9 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   readCurrentQuestion(): void {
-    const question = this.currentQuestion();
-    if (question?.question) {
-      this.speak(question.question);
+    const prompt = this.currentPromptText();
+    if (prompt) {
+      this.speak(prompt);
     }
   }
 
@@ -2228,7 +2318,31 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.speaking()) return 'AI is speaking';
     if (this.voiceState() === 'retrieving') return 'Retrieving context';
     if (this.voiceState() === 'thinking') return 'Evaluating answer';
+    if (this.conversationMode() === 'conversation_only' && this.conversationSessionActive()) {
+      return 'Conversation armed';
+    }
     return this.conversationMode() === 'conversation_only' ? 'Ready for conversation-only session' : 'Ready for manual capture';
+  }
+
+  voiceNoticeClass(): string {
+    const base = 'text-[10px] leading-snug';
+    const tone = this.voiceNoticeTone();
+    if (tone === 'error') return `${base} text-red-300`;
+    if (tone === 'warning') return `${base} text-amber-200`;
+    return `${base} text-brand-200`;
+  }
+
+  voiceNoticePanelClass(): string {
+    const base = 'mt-3 rounded border px-3 py-2 text-xs leading-relaxed';
+    const tone = this.voiceNoticeTone();
+    if (tone === 'error') return `${base} border-red-400/20 bg-red-500/10 text-red-200`;
+    if (tone === 'warning') return `${base} border-amber-400/20 bg-amber-500/10 text-amber-100`;
+    return `${base} border-brand-400/20 bg-brand-500/10 text-brand-100`;
+  }
+
+  private setVoiceNotice(message: string | null, tone: VoiceNoticeTone = 'info'): void {
+    this.voiceNotice.set(message);
+    this.voiceNoticeTone.set(tone);
   }
 
   speak(text: string): void {
@@ -2236,6 +2350,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (!clean) {
       return;
     }
+    this.setVoiceNotice('Agentium is reading the prompt. You can interrupt and answer at any time.', 'info');
     this.stopSpeech(false);
     const generation = ++this.speechGeneration;
     this.audioQueue = this.splitSpeech(clean);
@@ -2257,6 +2372,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     const blob = new Blob(this.chunks, { type: 'audio/webm' });
     this.transcribing.set(true);
     this.voiceState.set('partial_transcribing');
+    this.setVoiceNotice('Finalizing the voice transcript.', 'info');
     this.api
       .transcribeAudio(blob)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -2270,12 +2386,15 @@ export class KnowledgeCaptureComponent implements OnInit {
             this.maybePrefetchRetrieval(session, res.text, true);
             if (this.conversationMode() === 'conversation_only') {
               this.runConversationStep(session, res.text);
+            } else {
+              this.setVoiceNotice('Transcript ready for evaluation.', 'info');
             }
           }
         },
         error: () => {
           this.transcribing.set(false);
           this.voiceState.set('idle');
+          this.setVoiceNotice('Transcription failed. Try another voice turn or use guided text entry.', 'error');
         },
       });
   }
@@ -2418,10 +2537,19 @@ export class KnowledgeCaptureComponent implements OnInit {
           const audio = new Audio(url);
           this.activeAudio = audio;
           audio.onended = () => this.playNextSpeechSegment(generation);
-          audio.onerror = () => this.playNextSpeechSegment(generation);
-          void audio.play().catch(() => this.playNextSpeechSegment(generation));
+          audio.onerror = () => {
+            this.setVoiceNotice('Audio playback failed; opening the microphone instead.', 'warning');
+            this.playNextSpeechSegment(generation);
+          };
+          void audio.play().catch(() => {
+            this.setVoiceNotice('Browser blocked audio playback; opening the microphone instead.', 'warning');
+            this.playNextSpeechSegment(generation);
+          });
         },
-        error: () => this.playNextSpeechSegment(generation),
+        error: () => {
+          this.setVoiceNotice('Voice synthesis is unavailable; opening the microphone instead.', 'warning');
+          this.playNextSpeechSegment(generation);
+        },
       });
   }
 
@@ -2440,6 +2568,34 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
   }
 
+  private startAudioRecorder(openMessage: string): boolean {
+    if (typeof MediaRecorder === 'undefined') {
+      this.recorder = null;
+      this.releaseAudioStream();
+      this.setVoiceNotice('Audio recording is unavailable in this browser. Try another browser or use guided text entry.', 'error');
+      return false;
+    }
+    try {
+      this.recorder = new MediaRecorder(this.stream!);
+      this.recorder.ondataavailable = (event) => {
+        if (event.data.size <= 0) return;
+        this.chunks.push(event.data);
+        this.transcribePartialRecording();
+      };
+      this.recorder.onstop = () => this.transcribeRecording();
+      this.recorder.start(1200);
+    } catch {
+      this.recorder = null;
+      this.releaseAudioStream();
+      this.setVoiceNotice('Audio recording could not start. Check the microphone device, then retry.', 'error');
+      return false;
+    }
+    this.recording.set(true);
+    this.voiceState.set('listening');
+    this.setVoiceNotice(openMessage, 'info');
+    return true;
+  }
+
   private async startRecordingTurn(): Promise<void> {
     if (this.recording() || this.transcribing()) {
       return;
@@ -2455,22 +2611,17 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
-    this.recorder = new MediaRecorder(this.stream!);
-    this.recorder.ondataavailable = (event) => {
-      if (event.data.size <= 0) return;
-      this.chunks.push(event.data);
-      this.transcribePartialRecording();
-    };
-    this.recorder.onstop = () => this.transcribeRecording();
-    this.recorder.start(1200);
-    this.recording.set(true);
-    this.voiceState.set('listening');
+    if (!this.startAudioRecorder('Microphone is open. End the turn when the expert answer is complete.')) {
+      this.conversationSessionActive.set(false);
+      this.voiceState.set('idle');
+    }
   }
 
   private stopConversationSession(): void {
     this.conversationSessionActive.set(false);
     this.clearAutoResumeTimer();
     this.stopSpeech(false);
+    this.setVoiceNotice(null);
     if (this.recording()) {
       this.recorder?.stop();
       this.recording.set(false);
@@ -2484,11 +2635,23 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.hasLiveAudioStream()) {
       return true;
     }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.stream = null;
+      this.setVoiceNotice('Microphone capture is unavailable in this browser context.', 'error');
+      return false;
+    }
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       return true;
-    } catch {
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : '';
       this.stream = null;
+      this.setVoiceNotice(
+        name === 'NotAllowedError'
+          ? 'Microphone permission is blocked. Allow microphone access, then start the session again.'
+          : 'Microphone capture failed. Check the input device, then retry.',
+        'error',
+      );
       return false;
     }
   }
