@@ -6,7 +6,7 @@ import os
 import stat as stat_module
 import subprocess
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -34,6 +34,8 @@ _FXF_READ = 0x00000001
 _FXF_WRITE = 0x00000002
 _FXF_APPEND = 0x00000004
 _ROOT_ALIASES = {"upload"}
+_SFTP_UID = 1000
+_SFTP_GID = 1000
 
 
 def _decode_path(path: bytes | str) -> str:
@@ -186,6 +188,28 @@ def _list_dir(access_id: str, dir_path: str, session_dirs: set[str]) -> list[dic
             entry["kind"] = "file"
             entries[child] = entry
     return sorted(entries.values(), key=lambda item: (item["kind"] != "dir", item["name"].lower()))
+
+
+def _mode_to_symbolic(permissions: int) -> str:
+    prefix = "d" if stat_module.S_ISDIR(permissions) else "-"
+    chars = []
+    for shift in (6, 3, 0):
+        bits = (permissions >> shift) & 0o7
+        chars.append("r" if bits & 0o4 else "-")
+        chars.append("w" if bits & 0o2 else "-")
+        chars.append("x" if bits & 0o1 else "-")
+    return prefix + "".join(chars)
+
+
+def _sftp_longname(name: str, attrs: Any) -> bytes:
+    """Return an ls-like longname for SFTPv3 clients such as FileZilla."""
+
+    permissions = int(attrs.permissions or stat_module.S_IFREG | 0o444)
+    size = int(attrs.size or 0)
+    mtime = int(attrs.mtime or datetime.now(timezone.utc).timestamp())
+    stamp = datetime.fromtimestamp(mtime, timezone.utc).strftime("%b %d %H:%M")
+    safe_name = name.replace("\n", "_")
+    return f"{_mode_to_symbolic(permissions)} 1 agentium agentium {size} {stamp} {safe_name}".encode("utf-8")
 
 
 def _ensure_host_key(path: Path) -> None:
@@ -372,11 +396,21 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
             super().__init__(chan)
 
         def _dir_attrs(self) -> Any:
-            return asyncssh.SFTPAttrs(permissions=stat_module.S_IFDIR | 0o755)
+            now = int(datetime.now(timezone.utc).timestamp())
+            return asyncssh.SFTPAttrs(
+                size=0,
+                uid=_SFTP_UID,
+                gid=_SFTP_GID,
+                permissions=stat_module.S_IFDIR | 0o755,
+                atime=now,
+                mtime=now,
+            )
 
         def _file_attrs(self, file: dict[str, Any]) -> Any:
             return asyncssh.SFTPAttrs(
                 size=file["size_bytes"],
+                uid=_SFTP_UID,
+                gid=_SFTP_GID,
                 permissions=stat_module.S_IFREG | 0o444,
                 atime=file["mtime"],
                 mtime=file["mtime"],
@@ -409,7 +443,7 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
                 yield asyncssh.SFTPName(
                     entry["name"].encode("utf-8"),
                     attrs=attrs,
-                    longname=entry["name"].encode("utf-8"),
+                    longname=_sftp_longname(entry["name"], attrs),
                 )
 
         def open(self, path: bytes, pflags: int, _attrs: Any) -> Any:

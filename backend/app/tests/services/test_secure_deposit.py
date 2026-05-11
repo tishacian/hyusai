@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import stat
 import zipfile
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -24,6 +26,7 @@ from app.services.secure_deposit_sftp import (
     _is_root_path,
     _remote_dir_path,
     _remote_relative_path,
+    _sftp_longname,
 )
 
 
@@ -231,3 +234,16 @@ def test_sftp_upload_root_alias_maps_to_deposit_root():
     assert _is_root_path("/upload")
     assert _remote_dir_path("/upload") == ""
     assert _remote_relative_path("/upload/manuals/drive.zip") == "manuals/drive.zip"
+
+
+def test_sftp_longname_marks_virtual_directories_for_filezilla():
+    attrs = SimpleNamespace(
+        permissions=stat.S_IFDIR | 0o755,
+        size=0,
+        mtime=1_747_000_000,
+    )
+
+    longname = _sftp_longname("1-NON-WOVENS", attrs).decode("utf-8")
+
+    assert longname.startswith("drwxr-xr-x ")
+    assert longname.endswith(" 1-NON-WOVENS")
