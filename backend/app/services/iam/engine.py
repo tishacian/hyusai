@@ -137,7 +137,12 @@ class AuthorizationEngine:
         decision: Decision,
         audit_prefix: str,
     ) -> None:
-        event_type = "kc.iam.deny" if audit_prefix == "kc" else "iam.deny"
+        if audit_prefix == "kc":
+            event_type = "kc.iam.deny"
+        elif audit_prefix in {"deposit", "sftp"}:
+            event_type = f"{audit_prefix}.iam.deny"
+        else:
+            event_type = "iam.deny"
         actor = user.email or user.username or user.id
         emit_audit_event(
             db=db,
@@ -154,4 +159,3 @@ class AuthorizationEngine:
                 "reason": decision.reason,
             },
         )
-

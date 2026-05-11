@@ -222,6 +222,17 @@ export const CONNECTORS: ConnectorDef[] = [
     ],
   },
   {
+    id: 'sftp',
+    category: 'data-storage',
+    icon: 'inbox',
+    name: 'SFTP / Secure Deposit',
+    description: 'External upload links with password access and staged review before Knowledge ingestion.',
+    version: 'Deposit v1',
+    status: 'active',
+    backendPrefix: 'sftp',
+    fields: [],
+  },
+  {
     id: 'elasticsearch',
     category: 'data-storage',
     icon: 'server',

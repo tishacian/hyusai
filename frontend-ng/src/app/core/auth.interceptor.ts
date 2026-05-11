@@ -20,6 +20,10 @@ function isWrappedAuthError(error: HttpErrorResponse): boolean {
   );
 }
 
+function isPublicDepositRequest(url: string): boolean {
+  return url.includes('/api/v1/deposit-links/');
+}
+
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const tokenStorage = inject(TokenStorageService);
   const authApi = inject(AuthApiService);
@@ -30,14 +34,20 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const wsSlug = workspaceService.currentSlug();
 
   const headers: Record<string, string> = {};
-  if (token) headers['Authorization'] = token;
-  if (wsSlug) headers['X-Workspace-Slug'] = wsSlug;
+  if (token && !req.headers.has('Authorization') && !isPublicDepositRequest(req.url)) {
+    headers['Authorization'] = token;
+  }
+  if (wsSlug && !isPublicDepositRequest(req.url)) headers['X-Workspace-Slug'] = wsSlug;
 
   const authReq = Object.keys(headers).length ? req.clone({ setHeaders: headers }) : req;
 
   return next(authReq).pipe(
     catchError((error: HttpErrorResponse) => {
-      if ((error.status === 401 || isWrappedAuthError(error)) && !req.url.includes('/auth/')) {
+      if (
+        (error.status === 401 || isWrappedAuthError(error)) &&
+        !req.url.includes('/auth/') &&
+        !isPublicDepositRequest(req.url)
+      ) {
         return handle401(req, next, tokenStorage, authApi, router);
       }
       return throwError(() => error);

@@ -8,4 +8,9 @@ export const connectorsRoutes: Routes = [
         (m) => m.SharepointConnectorComponent,
       ),
   },
+  {
+    path: 'sftp',
+    loadComponent: () =>
+      import('./sftp/sftp-connector.component').then((m) => m.SftpConnectorComponent),
+  },
 ];

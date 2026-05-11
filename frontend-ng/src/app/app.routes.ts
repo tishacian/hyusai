@@ -10,6 +10,11 @@ export const routes: Routes = [
       import('./features/auth/auth.routes').then((m) => m.authRoutes),
   },
   {
+    path: 'deposit/:accessId',
+    loadComponent: () =>
+      import('./features/deposit/deposit-portal.component').then((m) => m.DepositPortalComponent),
+  },
+  {
     path: '',
     canActivate: [authGuard],
     loadComponent: () =>

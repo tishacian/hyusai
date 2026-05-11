@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     iam_generic_engine: bool = False
     iam_enforced_workspace_slugs: str = "andritz"
 
+    # Secure Deposit — public drop links backed by workspace membership.
+    secure_deposit_enabled_workspace_slugs: str = "andritz"
+    secure_deposit_public_base_url: Optional[str] = None
+    secure_deposit_session_secret: str = ""
+    secure_deposit_session_ttl_seconds: int = 7200
+    secure_deposit_default_max_file_size_mb: int = 100
+    secure_deposit_allowed_extensions: str = "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,png,jpg,jpeg"
+    secure_deposit_storage_dir: str = "./data/secure_deposit"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,

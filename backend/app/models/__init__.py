@@ -12,6 +12,7 @@ from app.models.evaluation_preset import EvaluationPreset
 from app.models.canonical_answer import CanonicalAnswer
 from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, SafetyFilter
 from app.models.sharepoint_sync_job import SharePointSyncJob
+from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.expert_capture import ExpertCaptureEvent, ExpertCaptureSession, KnowledgeUpdateProposal
 
 # Canonical (mental-model) layer.
@@ -34,6 +35,7 @@ __all__ = [
     "EvaluationPreset", "CanonicalAnswer",
     "FeedSource", "FeedArticle", "SemanticTarget", "SafetyFilter",
     "SharePointSyncJob", "ExpertCaptureSession", "KnowledgeUpdateProposal",
+    "DepositAccessLink", "DepositFile",
     # Canonical
     "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
     "System", "SystemVersion", "Run", "SkillInvocation", "Impact", "Decision",

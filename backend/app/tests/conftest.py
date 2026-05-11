@@ -62,6 +62,8 @@ def db_session():
         "expert_capture_events",
         "knowledge_update_proposals",
         "expert_capture_sessions",
+        "deposit_files",
+        "deposit_access_links",
         "skill_invocations",
         "canonical_answers",
         "evaluation_feedback",

@@ -46,6 +46,13 @@ ALL_CAPTURE_ROLES = (
 REVIEW_ROLES = (WORKSPACE_REVIEWER, WORKSPACE_ADMIN, WORKSPACE_OWNER)
 ADMIN_ROLES = (WORKSPACE_ADMIN, WORKSPACE_OWNER)
 CONTRIBUTOR_OR_ADMIN = (WORKSPACE_CONTRIBUTOR, WORKSPACE_ADMIN, WORKSPACE_OWNER)
+SECURE_DEPOSIT_ALL_MEMBERS = (
+    WORKSPACE_VIEWER,
+    WORKSPACE_CONTRIBUTOR,
+    WORKSPACE_REVIEWER,
+    WORKSPACE_ADMIN,
+    WORKSPACE_OWNER,
+)
 
 
 CAPTURE_MANIFEST = CapabilityIAMManifest(
@@ -71,9 +78,27 @@ CAPTURE_MANIFEST = CapabilityIAMManifest(
     ),
 )
 
+SECURE_DEPOSIT_MANIFEST = CapabilityIAMManifest(
+    capability_id="secure_deposit",
+    permissions=(
+        PermissionRule("deposit_link", "create", SECURE_DEPOSIT_ALL_MEMBERS),
+        PermissionRule("deposit_link", "read", SECURE_DEPOSIT_ALL_MEMBERS, ("owner_match",)),
+        PermissionRule("deposit_link", "read_all", REVIEW_ROLES),
+        PermissionRule("deposit_link", "update", SECURE_DEPOSIT_ALL_MEMBERS, ("owner_match",)),
+        PermissionRule("deposit_link", "update", ADMIN_ROLES),
+        PermissionRule("deposit_link", "revoke", SECURE_DEPOSIT_ALL_MEMBERS, ("owner_match",)),
+        PermissionRule("deposit_link", "revoke", ADMIN_ROLES),
+        PermissionRule("deposit_file", "read", SECURE_DEPOSIT_ALL_MEMBERS, ("owner_match",)),
+        PermissionRule("deposit_file", "read_all", REVIEW_ROLES),
+        PermissionRule("deposit_file", "promote", REVIEW_ROLES),
+        PermissionRule("deposit_config", "manage", ADMIN_ROLES),
+    ),
+)
+
 
 MANIFESTS: Dict[str, CapabilityIAMManifest] = {
     CAPTURE_MANIFEST.capability_id: CAPTURE_MANIFEST,
+    SECURE_DEPOSIT_MANIFEST.capability_id: SECURE_DEPOSIT_MANIFEST,
 }
 
 
@@ -83,4 +108,3 @@ def get_manifest(capability_id: str = "expert_knowledge_capture") -> CapabilityI
 
 def iter_permissions(capability_id: str = "expert_knowledge_capture") -> Iterable[PermissionRule]:
     return get_manifest(capability_id).permissions
-

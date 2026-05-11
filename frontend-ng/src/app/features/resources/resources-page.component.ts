@@ -475,8 +475,8 @@ export class ResourcesPageComponent implements OnInit {
   openConnector(c: ConnectorDef): void {
     // SharePoint has a dedicated page (E4.1 — full sync + ingest + audit
     // flow). The generic drawer is for connectors without a bespoke UI.
-    if (c.id === 'sharepoint') {
-      this.router.navigate(['/connectors', 'sharepoint']);
+    if (c.id === 'sharepoint' || c.id === 'sftp') {
+      this.router.navigate(['/connectors', c.id]);
       return;
     }
     this.active.set(c);
@@ -505,7 +505,7 @@ export class ResourcesPageComponent implements OnInit {
   testConnector(): void {
     const c = this.active();
     if (!c) return;
-    if (c.backendPrefix === 'sharepoint') {
+    if (c.backendPrefix === 'sharepoint' || c.backendPrefix === 'sftp') {
       this.api.get(`/${c.backendPrefix}/health`).subscribe({
         next: () => this.toast.success(`${c.name} reachable`, 'Connection test'),
         error: () =>

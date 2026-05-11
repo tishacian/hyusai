@@ -32,6 +32,7 @@ from app.api.v1.endpoints import (
     telemetry,
     knowledge_capture,
     iam,
+    secure_deposit,
 )
 
 api_router = APIRouter()
@@ -69,3 +70,5 @@ api_router.include_router(help_content.router,  prefix="/help-content",  tags=["
 api_router.include_router(telemetry.router,      prefix="/telemetry",     tags=["telemetry"])
 api_router.include_router(knowledge_capture.router, prefix="/knowledge-capture", tags=["knowledge-capture"])
 api_router.include_router(iam.router, prefix="/iam", tags=["iam"])
+api_router.include_router(secure_deposit.internal_router, prefix="/sftp", tags=["secure-deposit"])
+api_router.include_router(secure_deposit.public_router, prefix="/deposit-links", tags=["deposit-links"])
