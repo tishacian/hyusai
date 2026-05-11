@@ -51,6 +51,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         notes="Machine-readable catalog of API routes and UI surfaces.",
     ),
     SurfaceMetadata(
+        "/api/v1/blueprints",
+        "Governance",
+        "Workspace",
+        "canonical",
+        "admin",
+        "Platform",
+        ("/governance/blueprints",),
+        notes="Export/import workspace structure and configuration without members, secrets or raw data.",
+    ),
+    SurfaceMetadata(
         "/api/v1/auth",
         "Identity",
         "Workspace",

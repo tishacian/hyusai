@@ -99,6 +99,7 @@ Impact        aggregated cost / value / ROI per capability & system
 | Route | Purpose |
 |-------|---------|
 | `/catalog/endpoints`, `/catalog/surfaces` | Machine-readable Agentium surface catalog (UI route ↔ API ↔ mental object ↔ stability status) |
+| `/blueprints/workspace/*` | Workspace Blueprint export/import: structure and configuration without members, secrets, files or vectors |
 | `/systems`, `/systems/:id`, `/systems/:id/runs` | CRUD + execution |
 | `/capabilities`, `/capabilities/:id` | Business-level catalog |
 | `/skills`, `/skills/runtime-health`, `/skills/:slug` | Registry + tri-state health |
@@ -163,6 +164,7 @@ See `docs/skills-runtime.md` for full contract.
 /observability           Health, events, SLO
 /governance/audit        Structured audit log
 /governance/access       Roles & permissions
+/governance/blueprints   Workspace Blueprint export/import
 /orchestration           Custom chain editor (🟡 scaffold)
 /knowledge               Document ingestion, collections, previews
 /intelligence            Scheduled batch insights

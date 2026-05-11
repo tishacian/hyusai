@@ -27,6 +27,7 @@ This document is the human-readable companion to the runtime catalog exposed at
 | Files waiting for validation | `Review Queue` | `/connectors/sftp` staging queue | `/api/v1/sftp/deposits` | `canonical` |
 | Knowledge base collections and ingestion | `Knowledge` | `/knowledge` | `/api/v1/documents` | `canonical` |
 | Execution traceability | `Run` | `/runs/:id` | `/api/v1/runs` | `canonical` |
+| Recreate the workspace pattern elsewhere | `Workspace` | `/governance/blueprints` | `/api/v1/blueprints` | `canonical` |
 
 ## API Stability States
 
@@ -62,6 +63,14 @@ Each UI surface declares:
 The backend source of truth is `backend/app/services/surface_catalog.py`.
 FastAPI OpenAPI paths are enriched from prefix-level metadata and exposed via
 `/api/v1/catalog/endpoints`.
+
+## Workspace Blueprints
+
+`/governance/blueprints` and `/api/v1/blueprints/*` provide the first portable
+workspace-level contract. It exports structure and configuration only: Systems,
+Capabilities, Contexts, IAM flags, presets and Knowledge collection metadata.
+Members, credentials, Secure Deposit files, raw documents, vectors, runs and
+audit logs are excluded. See `docs/workspace-blueprints.md`.
 
 ## Alignment Rule
 

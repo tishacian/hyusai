@@ -83,6 +83,7 @@ export class GovernanceShellComponent {
     { label: 'Audit log',       glyph: 'ledger', route: '/governance/audit' },
     { label: 'Canonical answers', glyph: 'focus', route: '/governance/canonical-answers' },
     { label: 'Access & roles',  glyph: 'focus',  route: '/governance/access' },
+    { label: 'Blueprints',      glyph: 'layers', route: '/governance/blueprints' },
     { label: 'Surface map',     glyph: 'layers', route: '/governance/surface-map' },
   ];
 

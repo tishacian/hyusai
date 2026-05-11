@@ -257,6 +257,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'UI routes mapped to API endpoints and compatibility status.',
   },
   {
+    id: 'workspace-blueprints',
+    label: 'Workspace Blueprints',
+    route: '/governance/blueprints',
+    lens: 'govern',
+    object: 'Workspace',
+    scope: 'admin',
+    apiPrefix: '/api/v1/blueprints',
+    status: 'canonical',
+    audience: 'admin',
+    description: 'Export and apply workspace structure/configuration without users, secrets or raw data.',
+  },
+  {
     id: 'apps',
     label: 'Apps',
     route: '/apps',

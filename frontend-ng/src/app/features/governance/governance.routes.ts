@@ -23,6 +23,11 @@ export const governanceRoutes: Routes = [
           import('./surface-map.component').then((m) => m.SurfaceMapComponent),
       },
       {
+        path: 'blueprints',
+        loadComponent: () =>
+          import('./workspace-blueprints.component').then((m) => m.WorkspaceBlueprintsComponent),
+      },
+      {
         path: 'canonical-answers',
         loadComponent: () =>
           import('./canonical-answers.component').then((m) => m.CanonicalAnswersComponent),

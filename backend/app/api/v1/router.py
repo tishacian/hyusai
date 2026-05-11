@@ -34,6 +34,7 @@ from app.api.v1.endpoints import (
     iam,
     secure_deposit,
     catalog,
+    blueprints,
 )
 
 api_router = APIRouter()
@@ -74,3 +75,4 @@ api_router.include_router(iam.router, prefix="/iam", tags=["iam"])
 api_router.include_router(secure_deposit.internal_router, prefix="/sftp", tags=["secure-deposit"])
 api_router.include_router(secure_deposit.public_router, prefix="/deposit-links", tags=["deposit-links"])
 api_router.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
+api_router.include_router(blueprints.router, prefix="/blueprints", tags=["blueprints"])

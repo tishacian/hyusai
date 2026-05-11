@@ -33,4 +33,5 @@ __all__ = [
     "iam",
     "secure_deposit",
     "catalog",
+    "blueprints",
 ]
