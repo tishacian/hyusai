@@ -455,6 +455,7 @@ async def run_sftp_server() -> None:
         int(settings.secure_deposit_sftp_port),
         server_host_keys=[str(host_key_path)],
         sftp_factory=sftp_server,
+        reuse_address=True,
     )
     logger.info(
         "Secure Deposit SFTP server listening on %s:%s",
