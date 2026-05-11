@@ -49,6 +49,7 @@ KEYCLOAK_URL=https://agentium.papai.ai/kc
 KEYCLOAK_URL_INTERNAL=http://agentium-kc:8080/kc
 QDRANT_HOST=agentium-qdrant
 CELERY_BROKER_URL=amqp://guest:<password>@agentium-rabbitmq:5672//
+CELERY_CONCURRENCY=2
 OBJECT_STORE_BASE_PATH=/data/object_store
 SECURE_DEPOSIT_STORAGE_DIR=/data/secure_deposit
 DOCUMENT_INGEST_ASYNC_ENABLED=false

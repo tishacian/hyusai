@@ -86,6 +86,7 @@ services:
     environment:
       CELERY_QUEUES: ${AGENTIUM_CELERY_QUEUES:-cpu}
       CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
+      CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
     depends_on:
