@@ -64,6 +64,8 @@ def db_session():
         "expert_capture_sessions",
         "deposit_files",
         "deposit_access_links",
+        "worker_jobs",
+        "knowledge_collections",
         "skill_invocations",
         "canonical_answers",
         "evaluation_feedback",

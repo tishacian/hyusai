@@ -1,7 +1,7 @@
 """API v1 endpoints"""
-from . import health, models, chat, documents, agents, sessions, metrics, settings, knowledge_capture
 
 __all__ = [
+    "auth",
     "health",
     "models",
     "chat",
@@ -10,5 +10,25 @@ __all__ = [
     "sessions",
     "metrics",
     "settings",
+    "presets",
+    "traces",
+    "audit",
+    "voice",
+    "tasks",
+    "evaluation",
+    "intelligence",
+    "sharepoint",
+    "systems",
+    "capabilities",
+    "skills",
+    "runs",
+    "impact",
+    "hypervisor",
+    "control_plane",
+    "contexts",
+    "reasoning",
+    "help_content",
+    "telemetry",
     "knowledge_capture",
+    "iam",
 ]

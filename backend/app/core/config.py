@@ -38,12 +38,33 @@ class Settings(BaseSettings):
     qdrant_api_key: Optional[str] = None
     qdrant_https: bool = False
 
+    # Async execution plane. Existing endpoints stay synchronous unless this
+    # is explicitly enabled; the canonical collection upload endpoint always
+    # creates a WorkerJob and dispatches through this plane.
+    document_ingest_async_enabled: bool = False
+    worker_eager_mode: bool = False
+    celery_broker_url: str = "amqp://guest:guest@localhost:5672//"
+    celery_result_backend: Optional[str] = None
+    celery_task_default_queue: str = "cpu"
+
+    # Object storage for original / ingested / derived RAG artifacts.
+    # "local" is dependency-free for dev/tests; "s3" uses fsspec/s3fs when
+    # configured for MinIO or compatible object stores.
+    object_store_backend: str = "local"
+    object_store_base_path: str = "./data/object_store"
+    object_store_s3_bucket: Optional[str] = None
+    object_store_s3_endpoint_url: Optional[str] = None
+    object_store_s3_access_key: Optional[str] = None
+    object_store_s3_secret_key: Optional[str] = None
+
     # Embeddings
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
 
     # RAG: HAH/C-HAH backend pipelines (multi-pass on DocumentService; see pipeline_retrieval.py)
     rag_hah_chah_enabled: bool = True
+    rag_retrieval_worker_enabled: bool = False
+    bm25_rebuild_inline_max_chunks: int = 50000
 
     # Keycloak OIDC (papai-org realm, core-service client)
     # keycloak_url: public URL, used for "iss" validation and user-facing links

@@ -14,6 +14,7 @@ from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, Saf
 from app.models.sharepoint_sync_job import SharePointSyncJob
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.expert_capture import ExpertCaptureEvent, ExpertCaptureSession, KnowledgeUpdateProposal
+from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 
 # Canonical (mental-model) layer.
 from app.models.capability import Capability
@@ -36,6 +37,7 @@ __all__ = [
     "FeedSource", "FeedArticle", "SemanticTarget", "SafetyFilter",
     "SharePointSyncJob", "ExpertCaptureSession", "KnowledgeUpdateProposal",
     "DepositAccessLink", "DepositFile",
+    "KnowledgeCollection", "WorkerJob",
     # Canonical
     "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
     "System", "SystemVersion", "Run", "SkillInvocation", "Impact", "Decision",

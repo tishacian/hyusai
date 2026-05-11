@@ -5,16 +5,32 @@ import shutil
 import tempfile
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
+from app.db.base import get_db
+from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.knowledge_collections import (
+    create_or_get_collection,
+    create_collection as create_knowledge_collection,
+    create_worker_job,
+    get_collection_or_404,
+    original_key,
+    serialize_collection,
+    serialize_job,
+    update_collection_status,
+)
+from app.services.object_store import get_object_store
 from app.services.rag.document_service import DocumentService
+from app.services.worker_dispatch import dispatch_worker_job
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -43,6 +59,17 @@ class DocumentSearchResponse(BaseModel):
     total: int
 
 
+class CollectionCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    slug: str | None = None
+
+
+class CollectionPatchRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
 def _resolve_document_vector_db_type(
     workspace: Workspace,
     requested_type: Optional[str] = None,
@@ -56,15 +83,94 @@ def _resolve_document_vector_db_type(
     )
 
 
+async def _queue_collection_ingest(
+    *,
+    db: DBSession,
+    workspace: Workspace,
+    collection: KnowledgeCollection,
+    files: list[UploadFile],
+) -> dict:
+    if not files:
+        raise HTTPException(status_code=422, detail="At least one file is required")
+
+    store = get_object_store()
+    existing = list(collection.document_names or [])
+    uploaded_names: list[str] = []
+    for file in files:
+        safe_name = (file.filename or "upload").replace("/", "_").replace("\\", "_")
+        content = await file.read()
+        store.write_bytes(original_key(collection, safe_name), content)
+        if safe_name not in existing:
+            existing.append(safe_name)
+        uploaded_names.append(safe_name)
+
+    update_collection_status(
+        db,
+        collection.id,
+        status="queued",
+        document_names=existing,
+        document_count=len(existing),
+    )
+    job = create_worker_job(
+        db,
+        workspace_id=workspace.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    db.commit()
+    db.refresh(job)
+    db.refresh(collection)
+
+    dispatch_worker_job(db, job)
+    db.commit()
+
+    db.refresh(job)
+    db.refresh(collection)
+    return {
+        "collection_id": collection.id,
+        "collection_slug": collection.slug,
+        "job_id": job.id,
+        "celery_task_id": job.celery_task_id,
+        "status": job.status,
+        "collection_status": collection.status,
+        "files": uploaded_names,
+    }
+
+
 @router.post("/upload")
 async def upload_document(
     file: UploadFile = File(...),
     collection_name: str = Form("documents"),
     vector_db_type: Optional[str] = Form(None),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     """Upload and index a document"""
     try:
+        if settings.document_ingest_async_enabled:
+            collection = create_or_get_collection(
+                db,
+                workspace=workspace,
+                name=collection_name,
+                created_by_user_id=user.id,
+                slug=collection_name,
+            )
+            queued = await _queue_collection_ingest(
+                db=db,
+                workspace=workspace,
+                collection=collection,
+                files=[file],
+            )
+            return {
+                "status": queued["status"],
+                "collection_id": queued["collection_id"],
+                "collection_name": queued["collection_slug"],
+                "job_id": queued["job_id"],
+                "filename": file.filename,
+                "chunks_processed": 0,
+            }
+
         app_settings = get_resolved_settings(workspace_id=workspace.id)
         # Keep symmetric with the RAG agent read path (`get("ragVectorDBType",
         # "faiss")`) so upload and retrieval never land in different backends.
@@ -115,8 +221,43 @@ async def upload_documents_batch(
     collection_name: str = Form("documents"),
     vector_db_type: Optional[str] = Form(None),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     """Upload and index multiple documents"""
+    if settings.document_ingest_async_enabled:
+        collection = create_or_get_collection(
+            db,
+            workspace=workspace,
+            name=collection_name,
+            created_by_user_id=user.id,
+            slug=collection_name,
+        )
+        queued = await _queue_collection_ingest(
+            db=db,
+            workspace=workspace,
+            collection=collection,
+            files=files,
+        )
+        return {
+            "status": queued["status"],
+            "collection_id": queued["collection_id"],
+            "collection_name": queued["collection_slug"],
+            "job_id": queued["job_id"],
+            "total": len(files),
+            "successful": 0,
+            "failed": 0,
+            "documents": [
+                {
+                    "document_id": None,
+                    "filename": filename,
+                    "status": "queued",
+                    "chunks_processed": 0,
+                }
+                for filename in queued["files"]
+            ],
+        }
+
     app_settings = get_resolved_settings(workspace_id=workspace.id)
     # Ultimate fallback is "faiss" to stay symmetric with the RAG agent retrieval
     # path. The per-workspace preset still wins and the env-level
@@ -487,21 +628,48 @@ async def delete_document(
 async def list_collections(
     vector_db_type: Optional[str] = Query(None),
     workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ):
-    """List collections for the current workspace."""
+    """List canonical collections for the current workspace.
+
+    The legacy ``collections`` string list is kept for existing UI consumers;
+    richer Agentium metadata is returned under ``items``.
+    """
     try:
         from app.services.vector_db.factory import VectorDBFactory
 
         app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
 
-        collection_names = VectorDBFactory.list_collections_for_workspace(
+        rows = (
+            db.query(KnowledgeCollection)
+            .filter(KnowledgeCollection.workspace_id == workspace.id)
+            .order_by(KnowledgeCollection.created_at.desc())
+            .all()
+        )
+        items = [
+            await serialize_collection(
+                row,
+                vector_db_type=db_type,
+                workspace_slug=workspace.slug,
+                include_metrics=False,
+            )
+            for row in rows
+        ]
+
+        legacy_names = VectorDBFactory.list_collections_for_workspace(
             db_type=db_type, workspace_slug=workspace.slug
         )
-        collection_names = [name for name in collection_names if not name.startswith("_")]
+        ledger_slugs = {row.slug for row in rows}
+        legacy_names = [
+            name for name in legacy_names if not name.startswith("_") and name not in ledger_slugs
+        ]
+        collection_names = [item["slug"] for item in items] + legacy_names
 
         return {
-            "collections": collection_names if collection_names else [],
+            "collections": collection_names,
+            "items": items,
+            "legacy_collections": legacy_names,
             "default": collection_names[0] if collection_names else None,
             "vector_db_type": db_type,
         }
@@ -511,6 +679,8 @@ async def list_collections(
         # Return empty list on error, let frontend handle it
         return {
             "collections": [],
+            "items": [],
+            "legacy_collections": [],
             "default": None,
             "vector_db_type": vector_db_type or settings.default_vector_db_type,
         }
@@ -518,30 +688,41 @@ async def list_collections(
 
 @router.post("/collections")
 async def create_collection(
-    collection_name: str = Query(...),
+    payload: CollectionCreateRequest | None = Body(None),
+    collection_name: Optional[str] = Query(None),
     vector_db_type: Optional[str] = Query(None),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
-    """Create a new collection in the current workspace."""
+    """Create a workspace-scoped collection ledger row and vector collection."""
     try:
         from app.services.vector_db.factory import VectorDBFactory
 
         app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        requested_name = (payload.name if payload else collection_name) or ""
+        if not requested_name.strip():
+            raise HTTPException(status_code=422, detail="Collection name is required")
 
-        scoped = VectorDBFactory.scoped_name(collection_name, workspace.slug)
-        existing_collections = VectorDBFactory.list_collections(db_type=db_type)
-        if scoped in existing_collections:
-            logger.info(f"Collection '{collection_name}' already exists in workspace {workspace.slug}")
-            return {
-                "status": "success",
-                "collection_name": collection_name,
-                "vector_db_type": db_type,
-                "total_chunks": 0,
-                "message": "Collection already exists",
-            }
-
-        vector_db = VectorDBFactory.get_db(collection_name, db_type=db_type, workspace_slug=workspace.slug)
+        if payload is None and collection_name:
+            row = create_or_get_collection(
+                db,
+                workspace=workspace,
+                name=requested_name,
+                created_by_user_id=user.id,
+                slug=collection_name,
+            )
+        else:
+            row = create_knowledge_collection(
+                db,
+                workspace=workspace,
+                name=requested_name,
+                description=payload.description if payload else "",
+                created_by_user_id=user.id,
+                slug=payload.slug if payload else collection_name,
+            )
+        vector_db = VectorDBFactory.get_db(row.slug, db_type=db_type, workspace_slug=workspace.slug)
 
         # For FAISS, ensure the index is created and saved so it shows up in listings
         if db_type == "faiss":
@@ -557,21 +738,34 @@ async def create_collection(
             await vector_db.create_index(dim)
 
         count = await vector_db.get_count()
+        row.chunk_count = count
+        db.commit()
+        db.refresh(row)
 
         updated_collections = VectorDBFactory.list_collections_for_workspace(
             db_type=db_type, workspace_slug=workspace.slug
         )
-        if collection_name not in updated_collections:
-            logger.warning(f"Collection '{collection_name}' created but not found in listings")
+        if row.slug not in updated_collections:
+            logger.warning(f"Collection '{row.slug}' created but not found in listings")
 
+        item = await serialize_collection(
+            row,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+            include_metrics=True,
+        )
         return {
             "status": "success",
-            "collection_name": collection_name,
+            "collection_id": row.id,
+            "collection_name": row.slug,
+            "item": item,
             "vector_db_type": db_type,
             "total_chunks": count,
             "collections": updated_collections,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating collection: {e}", exc_info=True)
         error_msg = str(e)
@@ -579,9 +773,106 @@ async def create_collection(
         if "already exists" in error_msg.lower() or "different settings" in error_msg.lower():
             raise HTTPException(
                 status_code=409,
-                detail=f"Collection '{collection_name}' already exists or there's a conflict. Please try a different name or clear existing collections.",
+                detail="Collection already exists or there is a vector-store conflict. Please try a different name.",
             )
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/collections/{collection_id}")
+async def get_collection_detail(
+    collection_id: str,
+    vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Return collection metadata enriched with storage/vector metrics."""
+    db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+    row = get_collection_or_404(
+        db,
+        workspace_id=workspace.id,
+        collection_ref=collection_id,
+    )
+    jobs = (
+        db.query(WorkerJob)
+        .filter(WorkerJob.collection_id == row.id)
+        .order_by(WorkerJob.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    payload = await serialize_collection(
+        row,
+        vector_db_type=db_type,
+        workspace_slug=workspace.slug,
+        include_metrics=True,
+    )
+    payload["jobs"] = [serialize_job(job) for job in jobs]
+    return payload
+
+
+@router.patch("/collections/{collection_id}")
+async def patch_collection(
+    collection_id: str,
+    payload: CollectionPatchRequest,
+    vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Patch mutable collection presentation fields."""
+    row = get_collection_or_404(
+        db,
+        workspace_id=workspace.id,
+        collection_ref=collection_id,
+    )
+    if payload.name is not None:
+        row.name = payload.name
+    if payload.description is not None:
+        row.description = payload.description
+    db.commit()
+    db.refresh(row)
+    db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+    return await serialize_collection(
+        row,
+        vector_db_type=db_type,
+        workspace_slug=workspace.slug,
+        include_metrics=True,
+    )
+
+
+@router.post("/collections/{collection_id}/documents")
+async def upload_collection_documents(
+    collection_id: str,
+    files: list[UploadFile] = File(...),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Store originals and queue worker-owned parse/chunk/embed/index work."""
+    row = get_collection_or_404(
+        db,
+        workspace_id=workspace.id,
+        collection_ref=collection_id,
+    )
+    return await _queue_collection_ingest(
+        db=db,
+        workspace=workspace,
+        collection=row,
+        files=files,
+    )
+
+
+@router.get("/jobs/{job_id}")
+async def get_worker_job(
+    job_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    job = (
+        db.query(WorkerJob)
+        .filter(WorkerJob.id == job_id, WorkerJob.workspace_id == workspace.id)
+        .first()
+    )
+    if not job:
+        raise HTTPException(status_code=404, detail="Worker job not found")
+    return serialize_job(job)
 
 
 @router.delete("/collections/{collection_name}")
@@ -589,6 +880,7 @@ async def delete_collection(
     collection_name: str,
     vector_db_type: Optional[str] = Query(None),
     workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ):
     """Delete a collection in the current workspace."""
     try:
@@ -600,19 +892,29 @@ async def delete_collection(
 
         app_settings = get_resolved_settings(workspace_id=workspace.id)
         db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        row = (
+            db.query(KnowledgeCollection)
+            .filter(
+                KnowledgeCollection.workspace_id == workspace.id,
+                (KnowledgeCollection.id == collection_name)
+                | (KnowledgeCollection.slug == collection_name),
+            )
+            .first()
+        )
+        logical_collection_name = row.slug if row else collection_name
 
-        scoped_coll = VectorDBFactory.scoped_name(collection_name, workspace.slug)
+        scoped_coll = VectorDBFactory.scoped_name(logical_collection_name, workspace.slug)
         collections = VectorDBFactory.list_collections(db_type=db_type)
         collection_exists = scoped_coll in collections
 
-        if not collection_exists:
+        if not collection_exists and row is None:
             raise HTTPException(
                 status_code=404, detail=f"Collection '{collection_name}' not found in {db_type}"
             )
 
         try:
             vector_db = VectorDBFactory.get_db(
-                collection_name, db_type=db_type, workspace_slug=workspace.slug
+                logical_collection_name, db_type=db_type, workspace_slug=workspace.slug
             )
             await vector_db.clear_collection()
         except Exception as e:
@@ -620,7 +922,7 @@ async def delete_collection(
 
         try:
             VectorDBFactory.clear_instance(
-                collection_name, db_type=db_type, workspace_slug=workspace.slug
+                logical_collection_name, db_type=db_type, workspace_slug=workspace.slug
             )
         except Exception as cache_error:
             logger.warning(f"Could not clear cached instance: {cache_error}")
@@ -629,13 +931,9 @@ async def delete_collection(
             if db_type == "chroma":
                 import chromadb
 
-                from app.core.config import settings
-
                 client = chromadb.PersistentClient(path=settings.chroma_persist_directory)
                 client.delete_collection(name=scoped_coll)
             elif db_type == "faiss":
-                import os
-
                 persist_dir = getattr(settings, "faiss_persist_directory", "./faiss_db")
                 index_path = os.path.join(persist_dir, f"{scoped_coll}.index")
                 metadata_path = os.path.join(persist_dir, f"{scoped_coll}.metadata.pkl")
@@ -647,10 +945,20 @@ async def delete_collection(
                 # Collection already removed by clear_collection on QdrantVectorDB
                 pass
 
-            logger.info(f"Successfully deleted collection: {collection_name} (type: {db_type})")
+            if row is not None:
+                row_id = row.id
+                get_object_store().delete_prefix(row.artifact_prefix)
+                db.delete(row)
+                db.commit()
+            else:
+                row_id = None
+
+            logger.info(f"Successfully deleted collection: {logical_collection_name} (type: {db_type})")
             return {
                 "status": "success",
-                "message": f"Collection '{collection_name}' deleted successfully",
+                "message": f"Collection '{logical_collection_name}' deleted successfully",
+                "collection_id": row_id,
+                "collection_name": logical_collection_name,
                 "vector_db_type": db_type,
             }
         except ValueError as e:

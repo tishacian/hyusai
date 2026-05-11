@@ -14,11 +14,12 @@ RUN apt-get update \
 # Install dependencies (remember to provide PIP_INDEX_URL as private packages are needed)
 ARG PIP_INDEX_URL
 RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
-COPY requirements/celery.txt requirements/cpu.txt /tmp/requirements/
+COPY requirements/celery.txt requirements/cpu.txt backend/requirements.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/celery.txt \
-    -r /tmp/requirements/cpu.txt
+    -r /tmp/requirements/cpu.txt \
+    -r /tmp/requirements/requirements.txt
 
 # Create to non-root user for runtime
 ARG USERNAME=papai
@@ -40,5 +41,5 @@ RUN mkdir -p /app/vector_store \
 
 USER $USERNAME
 
-ENV PYTHONPATH=.
+ENV PYTHONPATH=/app/backend:/app
 CMD ["./run_celery.sh"]
