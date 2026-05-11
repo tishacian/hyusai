@@ -18,6 +18,11 @@ export const governanceRoutes: Routes = [
           import('./access-roles.component').then((m) => m.AccessRolesComponent),
       },
       {
+        path: 'surface-map',
+        loadComponent: () =>
+          import('./surface-map.component').then((m) => m.SurfaceMapComponent),
+      },
+      {
         path: 'canonical-answers',
         loadComponent: () =>
           import('./canonical-answers.component').then((m) => m.CanonicalAnswersComponent),

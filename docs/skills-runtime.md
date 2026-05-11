@@ -28,16 +28,20 @@ The same vocabulary is reused by:
 
 ## Deprecated endpoints (2026-04-21)
 
-These routes still respond for backwards compatibility but emit
-`X-Deprecated: true` and `X-Canonical-Alternative: <path>`. They will
-be removed in the next major version.
+These routes still respond for backwards compatibility. Deprecated aliases
+emit `X-Deprecated`, `Sunset`, and `Link: <...>; rel="successor-version"`.
+Compatibility proxies are catalogued so new UI work avoids them.
 
 | Legacy route                     | Canonical replacement       | Sunset target |
 |----------------------------------|-----------------------------|---------------|
-| `GET /agents`, `/agents/:id`     | `/systems`, `/systems/:id`  | v0.6          |
-| `POST /agents/:id/run`           | `POST /systems/:id/runs`    | v0.6          |
-| `GET /traces`, `/traces/:id`     | `/runs`, `/runs/:id`        | v0.6          |
+| `GET /agents`, `/agents/:id`     | `/systems`, `/systems/:id`  | 2026-09-30    |
+| `GET /traces/*`                  | `/runs`, `/runs/:id`        | 2026-09-30    |
+| `/settings`                      | `/presets`                  | 2026-09-30    |
+| `/documents/list`                | `/documents/collections`    | compatibility |
+| `DELETE /documents/collections/{collection_name}` | `DELETE /documents/collections/{collection_id}` | compatibility |
 | `GET /playground/*`              | `/chat` + `/systems/:id`    | already gone  |
+
+The live, enriched endpoint list is exposed by `GET /api/v1/catalog/endpoints`.
 
 ---
 

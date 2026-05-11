@@ -15,7 +15,7 @@ caller's own workspace-default preset.
 """
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -28,7 +28,22 @@ from app.services.rag_preset_service import RagPresetService
 from app.services.settings_service import SettingsService
 
 logger = get_logger(__name__)
-router = APIRouter()
+
+_COMPAT_NOTICE = "Use /api/v1/presets for canonical workspace-scoped preset management."
+_SUNSET_DATE = "Wed, 30 Sep 2026 00:00:00 GMT"
+_SUCCESSOR = "/api/v1/presets"
+
+
+def _stamp_compatibility(response: Response) -> Response:
+    """Stamp /settings as a compatibility surface without breaking callers."""
+
+    response.headers["X-Deprecated"] = _COMPAT_NOTICE
+    response.headers["Sunset"] = _SUNSET_DATE
+    response.headers["Link"] = f'<{_SUCCESSOR}>; rel="successor-version"'
+    return response
+
+
+router = APIRouter(dependencies=[Depends(_stamp_compatibility)])
 
 
 class SettingsUpdate(BaseModel):

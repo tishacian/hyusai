@@ -33,6 +33,7 @@ from app.api.v1.endpoints import (
     knowledge_capture,
     iam,
     secure_deposit,
+    catalog,
 )
 
 api_router = APIRouter()
@@ -72,3 +73,4 @@ api_router.include_router(knowledge_capture.router, prefix="/knowledge-capture",
 api_router.include_router(iam.router, prefix="/iam", tags=["iam"])
 api_router.include_router(secure_deposit.internal_router, prefix="/sftp", tags=["secure-deposit"])
 api_router.include_router(secure_deposit.public_router, prefix="/deposit-links", tags=["deposit-links"])
+api_router.include_router(catalog.router, prefix="/catalog", tags=["catalog"])

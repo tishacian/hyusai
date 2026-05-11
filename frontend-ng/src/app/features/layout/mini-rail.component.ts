@@ -10,7 +10,7 @@ import {
   type CockpitScopeType,
   type CockpitSection,
   type CockpitVerb,
-} from './side-rail.component';
+} from '@app/core/navigation.catalog';
 
 /**
  * Ordered ancestry for scope filtering: a section is hidden if its

@@ -98,6 +98,7 @@ Impact        aggregated cost / value / ROI per capability & system
 
 | Route | Purpose |
 |-------|---------|
+| `/catalog/endpoints`, `/catalog/surfaces` | Machine-readable Agentium surface catalog (UI route ↔ API ↔ mental object ↔ stability status) |
 | `/systems`, `/systems/:id`, `/systems/:id/runs` | CRUD + execution |
 | `/capabilities`, `/capabilities/:id` | Business-level catalog |
 | `/skills`, `/skills/runtime-health`, `/skills/:slug` | Registry + tri-state health |
@@ -112,12 +113,20 @@ Impact        aggregated cost / value / ROI per capability & system
 | `/reasoning/templates` | Reasoning prompt catalog |
 | `/models` | LLM registry (Ollama + Azure) |
 | `/chat` | SSE-streamed chat against a System |
-| `/documents/*` | Upload, search, collections, preview |
+| `/documents/*` | Upload, search, canonical collection ledger, async ingestion jobs, preview |
+| `/knowledge-capture/*` | Expert Knowledge Capture workbench: plans, sessions, events, proposals, retrieval prefetch |
+| `/voice/*` | STT/TTS and streaming voice session runtime |
+| `/iam/*` | Workspace IAM matrix, config, member role templates and dry-run evaluation |
+| `/sftp/*` | Secure Deposit administration, staging queue, preview/download/promotion |
+| `/deposit-links/*` | Public external deposit portal API, password/session protected |
 | `/evaluation/*` | Radar, history, claim audit |
 | `/audit` | Governance log |
-| `/intelligence`, `/tasks`, `/metrics`, `/settings` | Ops surfaces |
+| `/intelligence`, `/tasks`, `/metrics`, `/presets` | Ops and configuration surfaces |
 
-Legacy (`/agents`, `/traces`) emit `X-Deprecated: true` and redirect.
+Compatibility and deprecated routes remain active but must be catalogued:
+`/agents` → `/systems`, `/traces` → `/runs`, `/settings` → `/presets`,
+plus legacy document collection routes retained for older callers. New
+surfaces must appear in `/catalog/endpoints` before shipping.
 
 ### 0.3 Canonical skills runtime
 
@@ -3402,9 +3411,16 @@ In one unified model
 
 ---
 
-## 34. Builder Onboarding Mode (Adoption First Strategy) · 🔵 Planned
+## 34. Builder Onboarding Mode (Adoption First Strategy) · ✅ Shipped, 🟡 Evolving
 
 Agentium must explicitly support a **Builder Onboarding Mode** where ROI is not the primary entry point.
+
+> **✅ Shipped** — workspace modes `builder`, `operator`, and
+> `executive` are persisted on the workspace and drive progressive
+> disclosure in the cockpit chrome.
+> **🟡 Evolving** — the remaining work is not a mode toggle; it is the
+> finer adaptation of surface density and business copy as a workspace
+> matures.
 
 ---
 
@@ -3945,7 +3961,7 @@ Aggregated from the status annotations above, sorted by product impact.
 
 ### Tier 2 — Strong UX differentiators
 
-4. **Builder / Operator / Executive workspace modes** (§34, §38) — progressive disclosure of ROI + Hypervisor.
+4. **Adaptive maturity coach for Builder / Operator / Executive modes** (§34, §38) — modes are shipped; next gap is automatic surface-density guidance as a workspace matures.
 5. **Radial steering wheel** (§36.4 Option 1) — strong visual differentiator.
 6. **Full card-transformation semantic zoom** (§39.3) — unified polymorphic card per object across zoom levels.
 

@@ -2,26 +2,7 @@ import { Injectable, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
-
-export type CockpitLens =
-  | 'hypervisor'
-  | 'build'
-  | 'operate'
-  | 'steer'
-  | 'govern';
-
-/**
- * Ordered list of URL prefixes that resolve to each cockpit lens. Kept
- * internal on purpose — the canonical verb catalog lives in
- * `side-rail.component.ts`, this file only needs the mapping.
- */
-const LENS_MATCHES: Record<CockpitLens, string[]> = {
-  hypervisor: ['/hypervisor'],
-  build:      ['/systems', '/capabilities', '/skills', '/knowledge', '/orchestration'],
-  operate:    ['/runs', '/observability', '/intelligence', '/tasks'],
-  steer:      ['/steering'],
-  govern:     ['/governance', '/apps', '/resources', '/settings'],
-};
+import { LENS_MATCHES, type CockpitLens } from './navigation.catalog';
 
 /**
  * `LensService` — exposes the currently active cockpit lens as a signal so

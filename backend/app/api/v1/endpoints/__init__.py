@@ -31,4 +31,6 @@ __all__ = [
     "telemetry",
     "knowledge_capture",
     "iam",
+    "secure_deposit",
+    "catalog",
 ]
