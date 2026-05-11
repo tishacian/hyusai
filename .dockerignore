@@ -41,6 +41,12 @@ tests.env
 
 # Generated data and downloaded models
 vector_store/
+backend/data/
+backend/downloads/
+backend/faiss_db/
+backend/chroma_db/
+backend/.sharepoint_sessions/
+frontend-ng/dist/
 knowledge-bases/*
 **.db
 src/models/

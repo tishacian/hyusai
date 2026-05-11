@@ -1,0 +1,176 @@
+name: agentium
+
+services:
+  agentium-rabbitmq:
+    image: rabbitmq:4.1-management
+    container_name: agentium-rabbitmq
+    restart: unless-stopped
+    networks:
+      - agentium-net
+    ports:
+      - "127.0.0.1:${AGENTIUM_RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "127.0.0.1:${AGENTIUM_RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - agentium_rabbitmq:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${AGENTIUM_RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${AGENTIUM_RABBITMQ_PASSWORD:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  agentium-migrate:
+    image: agentium-backend:${AGENTIUM_IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.agentium-backend
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        USER_UID: ${AGENTIUM_RUNTIME_UID:-1000}
+        USER_GID: ${AGENTIUM_RUNTIME_GID:-1000}
+    profiles: ["tools"]
+    networks:
+      - agentium-net
+    env_file:
+      - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    volumes:
+      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
+    command: ["alembic", "upgrade", "head"]
+
+  agentium-backend:
+    image: agentium-backend:${AGENTIUM_IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.agentium-backend
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        USER_UID: ${AGENTIUM_RUNTIME_UID:-1000}
+        USER_GID: ${AGENTIUM_RUNTIME_GID:-1000}
+    container_name: agentium-backend
+    restart: unless-stopped
+    networks:
+      - agentium-net
+    ports:
+      - "127.0.0.1:${AGENTIUM_BACKEND_HOST_PORT:-8001}:8000"
+    env_file:
+      - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    volumes:
+      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import http.client; c=http.client.HTTPConnection(\"127.0.0.1\",8000,timeout=5); c.request(\"GET\",\"/health\"); raise SystemExit(0 if c.getresponse().status == 200 else 1)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  agentium-worker-cpu:
+    image: agentium-worker:${AGENTIUM_IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.agentium-worker
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        USER_UID: ${AGENTIUM_RUNTIME_UID:-1000}
+        USER_GID: ${AGENTIUM_RUNTIME_GID:-1000}
+    container_name: agentium-worker-cpu
+    restart: unless-stopped
+    networks:
+      - agentium-net
+    env_file:
+      - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    environment:
+      CELERY_QUEUES: ${AGENTIUM_CELERY_QUEUES:-cpu}
+      CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
+    volumes:
+      - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+    depends_on:
+      agentium-rabbitmq:
+        condition: service_healthy
+
+  agentium-pg:
+    image: postgres:17
+    container_name: agentium-pg
+    profiles: ["infra"]
+    restart: unless-stopped
+    networks:
+      - agentium-net
+    ports:
+      - "127.0.0.1:${AGENTIUM_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - agentium_pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${AGENTIUM_POSTGRES_DB:-agentium}
+      POSTGRES_USER: ${AGENTIUM_POSTGRES_USER:-agentium}
+      POSTGRES_PASSWORD: ${AGENTIUM_POSTGRES_PASSWORD:-change-me}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  agentium-kc:
+    image: quay.io/keycloak/keycloak:26.1.4
+    container_name: agentium-kc
+    profiles: ["infra"]
+    restart: unless-stopped
+    networks:
+      - agentium-net
+    ports:
+      - "127.0.0.1:${AGENTIUM_KEYCLOAK_PORT:-8080}:8080"
+    env_file:
+      - ${AGENTIUM_KEYCLOAK_ENV_FILE:-./env/keycloak.agentium.env.example}
+    volumes:
+      - ../backend/keycloak/themes/agentium:/opt/keycloak/themes/agentium:ro
+      - ../backend/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro
+    command: ["start-dev"]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /kc/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  agentium-qdrant:
+    image: qdrant/qdrant:v1.12.5-unprivileged
+    container_name: qdrant
+    profiles: ["infra"]
+    restart: unless-stopped
+    networks:
+      agentium-net:
+        aliases:
+          - agentium-qdrant
+          - qdrant
+    ports:
+      - "127.0.0.1:${AGENTIUM_QDRANT_HTTP_PORT:-6333}:6333"
+      - "127.0.0.1:${AGENTIUM_QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    env_file:
+      - ${AGENTIUM_QDRANT_ENV_FILE:-./env/qdrant.agentium.env.example}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+networks:
+  agentium-net:
+    external: true
+    name: ${AGENTIUM_DOCKER_NETWORK:-agentium-net}
+
+volumes:
+  agentium_rabbitmq:
+    name: agentium_rabbitmq
+  agentium_pgdata:
+    external: true
+    name: ${AGENTIUM_POSTGRES_VOLUME:-agentium_pgdata}
+  qdrant_data:
+    external: true
+    name: ${AGENTIUM_QDRANT_VOLUME:-qdrant_data}

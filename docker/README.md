@@ -28,3 +28,19 @@ For any local building / deployment, you need to [**install docker**](https://ww
 4. To stop the services, you can run:
     - `docker compose down` for simple stop
     - `docker compose down -v` for stop with data volumes removal
+
+## Run Agentium canonical stack
+
+Agentium's production-oriented Compose stack is separate from the legacy
+Papai-LLM stack:
+
+```bash
+cd docker
+docker compose -f compose.agentium.yml config
+docker compose -f compose.agentium.yml up -d agentium-rabbitmq
+docker compose -f compose.agentium.yml up -d agentium-backend agentium-worker-cpu
+```
+
+Use `AGENTIUM_ENV_FILE` to point to a non-committed env file. On the demo VM,
+keep `agentium-sftp.service` on systemd and follow
+`docs/agentium-dockerization-runbook.md` for the blue/green cutover.
