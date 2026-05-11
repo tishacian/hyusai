@@ -1,0 +1,18 @@
+FROM node:22-bookworm-slim AS build
+
+WORKDIR /app/frontend-ng
+
+COPY frontend-ng/package.json frontend-ng/package-lock.json ./
+RUN npm ci
+
+COPY frontend-ng/ ./
+RUN npm run build:prod
+
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+
+COPY docker/nginx/agentium-frontend.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/frontend-ng/dist/agentium/browser /usr/share/nginx/html
+
+EXPOSE 8080
+
+CMD ["nginx", "-g", "daemon off;"]

@@ -8,27 +8,34 @@ keeping Nginx on the host and keeping `agentium-sftp.service` untouched.
 - `agentium-sftp.service` remains systemd-managed. Do not restart, stop, or
   replace it during an Andritz transfer.
 - The demo VM is the build node. Images are built locally on the VM and kept as
-  local tags (`agentium-backend:local`, `agentium-worker:local`); no external
-  container registry is required for v1.
+  local tags (`agentium-backend:local`, `agentium-worker:local`,
+  `agentium-frontend:local`); no external container registry is required for v1.
 - `backend/.env` remains the SFTP/systemd env with host-local endpoints.
 - Docker services use a separate env file through `AGENTIUM_ENV_FILE`.
 - Nginx stays on the host. First cutover is blue/green:
   - systemd backend remains on `127.0.0.1:8000`;
   - Docker backend starts on `127.0.0.1:8001`;
-  - Nginx switches `/api/` to `8001` only after checks pass.
+  - Docker frontend starts on `127.0.0.1:8081`;
+  - Nginx switches `/api/` to `8001` and then `/` to `8081` only after checks pass.
 - Existing Docker volumes are reused:
   - `agentium_pgdata` for Postgres;
   - `qdrant_data` for Qdrant;
   - `agentium_rabbitmq` for RabbitMQ.
+- `agentium_minio` is the new S3-compatible object-store volume. Local
+  ObjectStore files remain the source of truth until strict mirror verification
+  passes and `OBJECT_STORE_BACKEND=s3` is deliberately enabled.
 
 ## Files
 
 - `docker/compose.agentium.yml` — production Agentium Compose stack.
+- `docker/Dockerfile.agentium-frontend` — Angular build + Nginx SPA runtime.
 - `docker/env/agentium.env.example` — container env template.
 - `docker/env/keycloak.agentium.env.example` — Keycloak env template.
 - `docker/env/qdrant.agentium.env.example` — Qdrant env template.
 - `deploy/nginx/agentium-container-backend.conf` — Nginx config that points API
   traffic to the Docker backend on `8001`.
+- `deploy/nginx/agentium-container-frontend.conf` — Nginx config that also
+  points SPA traffic to the Docker frontend on `8081`.
 
 ## VM Preparation
 
@@ -52,6 +59,10 @@ FAISS_PERSIST_DIRECTORY=/data/faiss_db
 CELERY_BROKER_URL=amqp://guest:<password>@agentium-rabbitmq:5672//
 CELERY_CONCURRENCY=2
 OBJECT_STORE_BASE_PATH=/data/object_store
+OBJECT_STORE_S3_BUCKET=agentium-artifacts
+OBJECT_STORE_S3_ENDPOINT_URL=http://agentium-minio:9000
+OBJECT_STORE_S3_ACCESS_KEY=<minio-user>
+OBJECT_STORE_S3_SECRET_KEY=<minio-password>
 SECURE_DEPOSIT_STORAGE_DIR=/data/secure_deposit
 DOCUMENT_INGEST_ASYNC_ENABLED=false
 ```
@@ -84,10 +95,13 @@ Start only the new services that do not replace existing infra:
 cd /home/ubuntu/omnirag/docker
 export AGENTIUM_ENV_FILE=./env/agentium.vm.env
 export PIP_INDEX_URL=<private-index-url>
-docker compose -f compose.agentium.yml up -d agentium-rabbitmq
-docker compose -f compose.agentium.yml build agentium-backend agentium-worker-cpu
-docker compose -f compose.agentium.yml up -d agentium-worker-cpu
-docker compose -f compose.agentium.yml up -d agentium-backend
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml up -d agentium-rabbitmq
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml up -d agentium-minio
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile tools run --rm agentium-minio-init
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml build agentium-backend agentium-worker-cpu agentium-frontend
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml up -d agentium-worker-cpu
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml up -d agentium-backend
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml up -d agentium-frontend
 ```
 
 Do not run the `infra` profile while SFTP is active. It would recreate
@@ -98,9 +112,12 @@ Postgres, Keycloak, or Qdrant containers.
 ```bash
 curl -fsS http://127.0.0.1:8001/health
 curl -fsS http://127.0.0.1:8001/api/v1/health
+curl -fsS http://127.0.0.1:8081/healthz
+curl -fsSI http://127.0.0.1:8081/
 docker compose -f /home/ubuntu/omnirag/docker/compose.agentium.yml ps
 docker logs --tail=100 agentium-backend
 docker logs --tail=100 agentium-worker-cpu
+docker logs --tail=100 agentium-frontend
 systemctl show agentium-sftp -p MainPID -p NRestarts --value
 sudo ss -tnp | grep 2222 || true
 ```
@@ -132,6 +149,62 @@ sudo ss -tnp | grep 2222 || true
 
 Leave `agentium-backend.service` running during the first observation window so
 `/legacy/` and rollback remain available.
+
+## Frontend Container Cutover
+
+Switch the SPA only after the frontend container answers locally:
+
+```bash
+curl -fsS http://127.0.0.1:8081/healthz
+curl -fsSI http://127.0.0.1:8081/
+sudo cp /etc/nginx/sites-enabled/agentium /etc/nginx/sites-enabled/agentium.container-backend.bak
+sudo cp /home/ubuntu/omnirag/deploy/nginx/agentium-container-frontend.conf /etc/nginx/sites-enabled/agentium
+sudo nginx -t
+sudo systemctl reload nginx
+curl -fsSI https://agentium.papai.ai/
+curl -fsS https://agentium.papai.ai/api/v1/health
+```
+
+Rollback is only an Nginx copy back to `agentium.container-backend.bak`; the old
+static files in `/var/www/agentium` are not removed during this wave.
+
+## Mirror Local ObjectStore To MinIO
+
+This mirrors artifacts without changing the backend runtime. It is safe to run
+while the app is live because it only reads local ObjectStore files and writes
+missing or changed S3 objects.
+
+```bash
+cd /home/ubuntu/omnirag/docker
+export AGENTIUM_ENV_FILE=./env/agentium.vm.env
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml up -d agentium-minio
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile tools run --rm agentium-minio-init
+
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile tools run --rm --no-deps \
+  agentium-migrate python -m app.cli.migrate_object_store_to_minio \
+  --mode mirror
+
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile tools run --rm --no-deps \
+  agentium-migrate python -m app.cli.migrate_object_store_to_minio \
+  --mode mirror --apply
+
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile tools run --rm --no-deps \
+  agentium-migrate python -m app.cli.migrate_object_store_to_minio \
+  --mode verify
+```
+
+Only enable S3 after `strict_match: true`:
+
+```bash
+sed -i 's/^OBJECT_STORE_BACKEND=.*/OBJECT_STORE_BACKEND=s3/' docker/env/agentium.vm.env
+docker compose -f compose.agentium.yml up -d agentium-backend agentium-worker-cpu
+curl -fsS https://agentium.papai.ai/api/v1/health
+```
+
+Rollback is the inverse env edit (`OBJECT_STORE_BACKEND=local`) plus recreating
+`agentium-backend` and `agentium-worker-cpu`. Do not delete
+`/home/ubuntu/agentium-data/object_store` until S3 has been observed in
+production.
 
 ## Enable Async Ingestion
 
@@ -185,7 +258,7 @@ sudo cp /etc/nginx/sites-enabled/agentium.systemd-backend.bak /etc/nginx/sites-e
 sudo nginx -t
 sudo systemctl reload nginx
 sudo systemctl start agentium-backend
-docker compose -f /home/ubuntu/omnirag/docker/compose.agentium.yml stop agentium-backend agentium-worker-cpu agentium-rabbitmq
+docker compose -f /home/ubuntu/omnirag/docker/compose.agentium.yml stop agentium-frontend agentium-backend agentium-worker-cpu agentium-rabbitmq
 ```
 
 Never include `agentium-sftp.service` in rollback commands.
