@@ -218,7 +218,7 @@ export class DepositPortalComponent implements OnInit {
           this.authenticating.set(false);
         },
         error: (err) => {
-          this.error.set(err?.error?.detail || 'Unable to open this deposit link.');
+          this.error.set(this.errorMessage(err, 'Unable to open this deposit link.'));
           this.authenticating.set(false);
         },
       });
@@ -236,7 +236,7 @@ export class DepositPortalComponent implements OnInit {
           this.link.set(res.link);
           this.files.set(res.files || []);
         },
-        error: (err) => this.error.set(err?.error?.detail || 'Unable to load files.'),
+        error: (err) => this.error.set(this.errorMessage(err, 'Unable to load files.')),
       });
   }
 
@@ -284,7 +284,7 @@ export class DepositPortalComponent implements OnInit {
         this.loadFiles();
       },
       error: (err) => {
-        this.error.set(err?.error?.detail || 'Upload failed.');
+        this.error.set(this.errorMessage(err, 'Upload failed.'));
         this.uploading.set(false);
         this.loadFiles();
       },
@@ -300,5 +300,28 @@ export class DepositPortalComponent implements OnInit {
 
   private authHeaders(token: string): HttpHeaders {
     return new HttpHeaders({ Authorization: `Bearer ${token}` });
+  }
+
+  private errorMessage(err: unknown, fallback: string): string {
+    const detail = (err as { error?: { detail?: unknown; message?: unknown } })?.error?.detail;
+    const message = (err as { error?: { message?: unknown } })?.error?.message;
+    const value = detail ?? message;
+    if (!value) return fallback;
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          const entry = item as { loc?: unknown[]; msg?: string };
+          const where = Array.isArray(entry.loc) ? entry.loc.join('.') : '';
+          return where && entry.msg ? `${where}: ${entry.msg}` : entry.msg || JSON.stringify(item);
+        })
+        .join(' | ');
+    }
+    if (typeof value === 'object') {
+      const body = value as { message?: string; msg?: string; detail?: string };
+      return body.message || body.msg || body.detail || JSON.stringify(value);
+    }
+    return String(value);
   }
 }

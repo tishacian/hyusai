@@ -36,6 +36,7 @@ public_router = APIRouter()
 internal_router = APIRouter()
 
 CAPABILITY_ATTRS = {"capability": "secure_deposit"}
+MAX_DEPOSIT_FILE_SIZE_MB = 30 * 1024
 
 
 class PublicSessionRequest(BaseModel):
@@ -45,14 +46,14 @@ class PublicSessionRequest(BaseModel):
 class DepositLinkCreateRequest(BaseModel):
     label: str = Field(default="External deposit", max_length=255)
     expires_at: Optional[datetime] = None
-    max_file_size_mb: Optional[int] = Field(default=None, ge=1, le=2048)
+    max_file_size_mb: Optional[int] = Field(default=None, ge=1, le=MAX_DEPOSIT_FILE_SIZE_MB)
     allowed_extensions: Optional[list[str]] = None
 
 
 class DepositLinkPatchRequest(BaseModel):
     label: Optional[str] = Field(default=None, max_length=255)
     expires_at: Optional[datetime] = None
-    max_file_size_mb: Optional[int] = Field(default=None, ge=1, le=2048)
+    max_file_size_mb: Optional[int] = Field(default=None, ge=1, le=MAX_DEPOSIT_FILE_SIZE_MB)
     allowed_extensions: Optional[list[str]] = None
 
 

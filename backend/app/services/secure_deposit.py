@@ -43,6 +43,7 @@ except Exception:  # noqa: BLE001 - dev/test fallback when deps are stale.
 
 _PBKDF2_PREFIX = "pbkdf2_sha256"
 _TOKEN_ALGORITHM = "HS256"
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 def enabled_workspace_slugs() -> set[str]:
@@ -133,6 +134,31 @@ def _write_staged_bytes(key: str, content: bytes) -> None:
     path = _storage_path(key)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
+
+
+async def _write_staged_upload(key: str, upload: UploadFile, max_bytes: int) -> tuple[int, str]:
+    path = _storage_path(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=".upload-", suffix=".part", dir=str(path.parent))
+    tmp_path = Path(tmp_name)
+    size = 0
+    digest = hashlib.sha256()
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            while True:
+                chunk = await upload.read(_UPLOAD_CHUNK_BYTES)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    raise HTTPException(status_code=413, detail="File is too large")
+                digest.update(chunk)
+                handle.write(chunk)
+        tmp_path.replace(path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return size, digest.hexdigest()
 
 
 def _copy_staged_to_local(key: str, destination: Path) -> Path:
@@ -294,7 +320,11 @@ def create_link(
         password_hash=hash_password(password),
         expires_at=expires_at,
         max_file_size_mb=max_file_size_mb or settings.secure_deposit_default_max_file_size_mb,
-        allowed_extensions=allowed_extensions or default_allowed_extensions(),
+        allowed_extensions=(
+            default_allowed_extensions()
+            if allowed_extensions is None
+            else [item.lower().lstrip(".") for item in allowed_extensions if item]
+        ),
     )
     db.add(link)
     db.flush()
@@ -399,27 +429,15 @@ async def receive_file(
         )
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="File extension is not allowed")
 
-    content = await upload.read()
     max_bytes = int(link.max_file_size_mb or settings.secure_deposit_default_max_file_size_mb) * 1024 * 1024
-    if len(content) > max_bytes:
-        emit_audit_event(
-            workspace_id=link.workspace_id,
-            event_type="deposit.file.rejected",
-            actor=f"deposit:{link.access_id}",
-            severity="warning",
-            details={"access_id": link.access_id, "filename": filename, "reason": "file_too_large"},
-        )
-        raise HTTPException(status_code=413, detail="File is too large")
-
-    sha256 = hashlib.sha256(content).hexdigest()
     file = DepositFile(
         workspace_id=link.workspace_id,
         access_link_id=link.id,
         filename=filename,
         content_type=upload.content_type,
         object_key="pending",
-        size_bytes=len(content),
-        sha256=sha256,
+        size_bytes=0,
+        sha256="",
         status="received",
     )
     db.add(file)
@@ -432,8 +450,21 @@ async def receive_file(
         file.id,
         filename,
     )
-    _write_staged_bytes(object_key, content)
+    try:
+        size_bytes, sha256 = await _write_staged_upload(object_key, upload, max_bytes)
+    except HTTPException as exc:
+        if exc.status_code == 413:
+            emit_audit_event(
+                workspace_id=link.workspace_id,
+                event_type="deposit.file.rejected",
+                actor=f"deposit:{link.access_id}",
+                severity="warning",
+                details={"access_id": link.access_id, "filename": filename, "reason": "file_too_large"},
+            )
+        raise
     file.object_key = object_key
+    file.size_bytes = size_bytes
+    file.sha256 = sha256
     db.flush()
     emit_audit_event(
         db=db,

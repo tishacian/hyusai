@@ -74,6 +74,22 @@ def test_deposit_link_rejects_bad_password(db_session):
     assert exc.value.status_code == 401
 
 
+def test_empty_allowed_extensions_means_any_file_type(db_session):
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Any upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+
+    assert link.allowed_extensions == []
+    assert link.max_file_size_mb == 30 * 1024
+
+
 def test_safe_filename_strips_paths_and_unsafe_characters():
     assert safe_filename("../../secret report?.pdf") == "secret report_.pdf"
     assert safe_filename("..\\..\\motor#1.xlsx") == "motor_1.xlsx"

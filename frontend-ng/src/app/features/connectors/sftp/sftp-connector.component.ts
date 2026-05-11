@@ -114,7 +114,7 @@ interface DepositFile {
                   name="max"
                   type="number"
                   min="1"
-                  max="2048"
+                  max="30720"
                   [(ngModel)]="draftMaxMb"
                   class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
                 />
@@ -135,8 +135,9 @@ interface DepositFile {
                 name="extensions"
                 [(ngModel)]="draftExtensions"
                 class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
-                placeholder="pdf, docx, xlsx"
+                placeholder="Leave empty for all file types"
               />
+              <span class="mt-1 block text-xs text-gray-500">Leave empty to accept ZIP and any other extension.</span>
             </label>
             <button
               type="submit"
@@ -248,9 +249,9 @@ export class SftpConnectorComponent implements OnInit {
   readonly error = signal<string | null>(null);
 
   draftLabel = 'Andritz external upload';
-  draftMaxMb = 100;
+  draftMaxMb = 30720;
   draftExpires = '';
-  draftExtensions = 'pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,png,jpg,jpeg';
+  draftExtensions = '';
   collectionSlug = 'andritz-secure-deposit';
 
   ngOnInit(): void {
@@ -266,7 +267,7 @@ export class SftpConnectorComponent implements OnInit {
         this.loading.set(false);
       },
       error: (err) => {
-        this.error.set(err?.error?.detail?.message || err?.error?.detail || 'Unable to load deposit links.');
+        this.error.set(this.errorMessage(err, 'Unable to load deposit links.'));
         this.loading.set(false);
       },
     });
@@ -293,7 +294,7 @@ export class SftpConnectorComponent implements OnInit {
           this.load();
         },
         error: (err) => {
-          this.error.set(err?.error?.detail?.message || err?.error?.detail || 'Unable to create deposit link.');
+          this.error.set(this.errorMessage(err, 'Unable to create deposit link.'));
           this.saving.set(false);
         },
       });
@@ -343,7 +344,7 @@ export class SftpConnectorComponent implements OnInit {
           this.load();
         },
         error: (err) => {
-          this.toast.error(err?.error?.detail || 'Unable to promote file', 'Secure Deposit');
+          this.toast.error(this.errorMessage(err, 'Unable to promote file'), 'Secure Deposit');
           this.saving.set(false);
         },
       });
@@ -372,5 +373,28 @@ export class SftpConnectorComponent implements OnInit {
       .split(',')
       .map((item) => item.trim().toLowerCase().replace(/^\./, ''))
       .filter(Boolean);
+  }
+
+  private errorMessage(err: unknown, fallback: string): string {
+    const detail = (err as { error?: { detail?: unknown; message?: unknown } })?.error?.detail;
+    const message = (err as { error?: { message?: unknown } })?.error?.message;
+    const value = detail ?? message;
+    if (!value) return fallback;
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          const entry = item as { loc?: unknown[]; msg?: string };
+          const where = Array.isArray(entry.loc) ? entry.loc.join('.') : '';
+          return where && entry.msg ? `${where}: ${entry.msg}` : entry.msg || JSON.stringify(item);
+        })
+        .join(' | ');
+    }
+    if (typeof value === 'object') {
+      const body = value as { message?: string; msg?: string; detail?: string };
+      return body.message || body.msg || body.detail || JSON.stringify(value);
+    }
+    return String(value);
   }
 }
