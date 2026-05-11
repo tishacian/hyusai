@@ -20,6 +20,11 @@ from app.services.secure_deposit import (
     safe_relative_path,
     verify_session_token,
 )
+from app.services.secure_deposit_sftp import (
+    _is_root_path,
+    _remote_dir_path,
+    _remote_relative_path,
+)
 
 
 def _workspace_user(db_session):
@@ -220,3 +225,9 @@ def test_safe_filename_strips_paths_and_unsafe_characters():
 def test_safe_relative_path_preserves_folders_without_traversal():
     assert safe_relative_path("../../line A/motor#1/photo?.jpg") == "line A/motor_1/photo_.jpg"
     assert safe_relative_path("..\\manuals\\2026\\drive.zip") == "manuals/2026/drive.zip"
+
+
+def test_sftp_upload_root_alias_maps_to_deposit_root():
+    assert _is_root_path("/upload")
+    assert _remote_dir_path("/upload") == ""
+    assert _remote_relative_path("/upload/manuals/drive.zip") == "manuals/drive.zip"

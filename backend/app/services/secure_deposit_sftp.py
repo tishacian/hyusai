@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 _FXF_READ = 0x00000001
 _FXF_WRITE = 0x00000002
 _FXF_APPEND = 0x00000004
+_ROOT_ALIASES = {"upload"}
 
 
 def _decode_path(path: bytes | str) -> str:
@@ -42,12 +43,24 @@ def _decode_path(path: bytes | str) -> str:
 
 
 def _remote_basename(path: bytes | str) -> str:
-    raw = _decode_path(path).replace("\\", "/")
+    raw = _normalise_virtual_path(path)
     return PurePosixPath(raw).name
 
 
-def _remote_relative_path(path: bytes | str) -> str:
+def _normalise_virtual_path(path: bytes | str) -> str:
     raw = _decode_path(path).replace("\\", "/").strip()
+    clean = raw.lstrip("/")
+    if clean in _ROOT_ALIASES:
+        return ""
+    for alias in _ROOT_ALIASES:
+        prefix = f"{alias}/"
+        if clean.startswith(prefix):
+            return clean[len(prefix) :]
+    return raw
+
+
+def _remote_relative_path(path: bytes | str) -> str:
+    raw = _normalise_virtual_path(path)
     return safe_relative_path(raw.lstrip("/"))
 
 
@@ -58,7 +71,7 @@ def _remote_dir_path(path: bytes | str) -> str:
 
 
 def _is_root_path(path: bytes | str) -> bool:
-    raw = _decode_path(path).strip()
+    raw = _normalise_virtual_path(path).strip()
     return raw in {"", ".", "/"}
 
 
