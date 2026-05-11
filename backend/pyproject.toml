@@ -21,6 +21,7 @@ structlog = "^24.1.0"
 python-dotenv = "^1.0.0"
 sqlalchemy = "^2.0.0"
 alembic = "^1.12.0"
+celery = {extras = ["amqp"], version = "^5.5.0"}
 redis = "^5.0.0"
 chromadb = "^0.4.0"
 qdrant-client = ">=1.12.0"

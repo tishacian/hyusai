@@ -7,10 +7,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 ARG PIP_INDEX_URL
 RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
 
-COPY requirements/fastapi.txt backend/requirements.txt /tmp/requirements/
+COPY backend/requirements.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
     --index-url=${PIP_INDEX_URL} \
-    -r /tmp/requirements/fastapi.txt \
     -r /tmp/requirements/requirements.txt
 
 ARG USERNAME=agentium

@@ -13,11 +13,9 @@ RUN apt-get update \
 ARG PIP_INDEX_URL
 RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
 
-COPY requirements/celery.txt requirements/cpu.txt backend/requirements.txt /tmp/requirements/
+COPY backend/requirements.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
     --index-url=${PIP_INDEX_URL} \
-    -r /tmp/requirements/celery.txt \
-    -r /tmp/requirements/cpu.txt \
     -r /tmp/requirements/requirements.txt
 
 ARG USERNAME=agentium
