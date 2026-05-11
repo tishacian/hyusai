@@ -15,6 +15,7 @@ from app.services.secure_deposit import (
     authenticate_link,
     build_deposit_archive,
     create_link,
+    record_staged_file_from_path,
     safe_filename,
     verify_session_token,
 )
@@ -95,6 +96,40 @@ def test_empty_allowed_extensions_means_any_file_type(db_session):
 
     assert link.allowed_extensions == []
     assert link.max_file_size_mb == 30 * 1024
+
+
+def test_record_staged_file_from_path_moves_sftp_upload(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="SFTP upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    staged = tmp_path / "upload.part"
+    content = b"drive commissioning report"
+    staged.write_bytes(content)
+
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="../../commissioning.zip",
+        content_type="application/octet-stream",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    assert row.filename == "commissioning.zip"
+    assert row.size_bytes == len(content)
+    assert row.sha256 == hashlib.sha256(content).hexdigest()
+    assert row.object_key.endswith("/commissioning.zip")
+    assert not staged.exists()
+    assert (tmp_path / "store" / row.object_key).read_bytes() == content
 
 
 def test_build_deposit_archive_contains_files_and_manifest(db_session, monkeypatch, tmp_path):

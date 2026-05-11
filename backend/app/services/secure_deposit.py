@@ -170,6 +170,19 @@ def _copy_staged_to_local(key: str, destination: Path) -> Path:
     return destination
 
 
+def _hash_local_file(path: Path) -> tuple[int, str]:
+    size = 0
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(_UPLOAD_CHUNK_BYTES)
+            if not chunk:
+                break
+            size += len(chunk)
+            digest.update(chunk)
+    return size, digest.hexdigest()
+
+
 def _archive_component(value: str | None, fallback: str) -> str:
     component = safe_filename(value or fallback).replace(" ", "_")
     return component[:96] or fallback
@@ -574,6 +587,101 @@ async def receive_file(
             "filename": filename,
             "size_bytes": file.size_bytes,
             "sha256": sha256,
+        },
+    )
+    return file
+
+
+def record_staged_file_from_path(
+    db: DBSession,
+    *,
+    link: DepositAccessLink,
+    source_path: Path,
+    filename: str,
+    content_type: str | None = None,
+    actor: str | None = None,
+    transport: str = "sftp",
+) -> DepositFile:
+    """Persist an already-written upload into the Secure Deposit staging store."""
+
+    assert_link_usable(db, link)
+    safe_name = safe_filename(filename)
+    allowed = [item.lower().lstrip(".") for item in (link.allowed_extensions or []) if item]
+    ext = extension_for(safe_name)
+    audit_actor = actor or f"deposit:{link.access_id}"
+    if allowed and ext not in allowed:
+        emit_audit_event(
+            workspace_id=link.workspace_id,
+            event_type="deposit.file.rejected",
+            actor=audit_actor,
+            severity="warning",
+            details={
+                "access_id": link.access_id,
+                "filename": safe_name,
+                "reason": "extension_not_allowed",
+                "transport": transport,
+            },
+        )
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="File extension is not allowed")
+
+    if not source_path.exists() or not source_path.is_file():
+        raise HTTPException(status_code=400, detail="Uploaded file is missing")
+
+    size_bytes, sha256 = _hash_local_file(source_path)
+    max_bytes = int(link.max_file_size_mb or settings.secure_deposit_default_max_file_size_mb) * 1024 * 1024
+    if size_bytes > max_bytes:
+        emit_audit_event(
+            workspace_id=link.workspace_id,
+            event_type="deposit.file.rejected",
+            actor=audit_actor,
+            severity="warning",
+            details={
+                "access_id": link.access_id,
+                "filename": safe_name,
+                "reason": "file_too_large",
+                "transport": transport,
+            },
+        )
+        raise HTTPException(status_code=413, detail="File is too large")
+
+    file = DepositFile(
+        workspace_id=link.workspace_id,
+        access_link_id=link.id,
+        filename=safe_name,
+        content_type=content_type,
+        object_key="pending",
+        size_bytes=size_bytes,
+        sha256=sha256,
+        status="received",
+    )
+    db.add(file)
+    db.flush()
+    object_key = _storage_key(
+        "workspaces",
+        link.workspace_id,
+        "secure-deposit",
+        link.access_id,
+        file.id,
+        safe_name,
+    )
+    destination = _storage_path(object_key)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(source_path), destination)
+    file.object_key = object_key
+    db.flush()
+    emit_audit_event(
+        db=db,
+        workspace_id=link.workspace_id,
+        event_type="deposit.file.received",
+        actor=audit_actor,
+        details={
+            "access_id": link.access_id,
+            "link_id": link.id,
+            "file_id": file.id,
+            "filename": safe_name,
+            "size_bytes": file.size_bytes,
+            "sha256": sha256,
+            "transport": transport,
         },
     )
     return file

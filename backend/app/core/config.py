@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     secure_deposit_default_max_file_size_mb: int = 100
     secure_deposit_allowed_extensions: str = "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,png,jpg,jpeg"
     secure_deposit_storage_dir: str = "./data/secure_deposit"
+    secure_deposit_sftp_host: str = "0.0.0.0"
+    secure_deposit_sftp_port: int = 2222
+    secure_deposit_sftp_host_key_path: str = "./data/secure_deposit/sftp_host_key"
+    secure_deposit_sftp_temp_dir: str = "./data/secure_deposit/_sftp_uploads"
 
     model_config = SettingsConfigDict(
         env_file=".env",
