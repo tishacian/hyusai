@@ -9,11 +9,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
 import shutil
 import tempfile
+import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, Optional
@@ -166,6 +168,100 @@ def _copy_staged_to_local(key: str, destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
     return destination
+
+
+def _archive_component(value: str | None, fallback: str) -> str:
+    component = safe_filename(value or fallback).replace(" ", "_")
+    return component[:96] or fallback
+
+
+def _unique_archive_name(path: str, used: set[str]) -> str:
+    if path not in used:
+        used.add(path)
+        return path
+    stem, dot, suffix = path.rpartition(".")
+    base = stem if dot else path
+    ext = f".{suffix}" if dot else ""
+    index = 2
+    while f"{base}-{index}{ext}" in used:
+        index += 1
+    unique = f"{base}-{index}{ext}"
+    used.add(unique)
+    return unique
+
+
+def build_deposit_archive(
+    files: list[DepositFile],
+    *,
+    links_by_id: dict[str, DepositAccessLink],
+    workspace_slug: str,
+) -> tuple[Path, str]:
+    if not files:
+        raise HTTPException(status_code=404, detail="No staged files to archive")
+
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    archive_filename = f"{_archive_component(workspace_slug, 'workspace')}-secure-deposit-{stamp}.zip"
+    archive_dir = _storage_root() / "_archives"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=".secure-deposit-", suffix=".zip.part", dir=str(archive_dir))
+    os.close(fd)
+    archive_path = Path(tmp_name)
+
+    manifest: list[dict[str, Any]] = []
+    used_names: set[str] = set()
+    try:
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
+            for file in files:
+                source = _storage_path(file.object_key)
+                if not source.exists():
+                    raise HTTPException(status_code=409, detail=f"Staged file is missing: {file.filename}")
+                link = links_by_id.get(file.access_link_id)
+                link_label = _archive_component(link.label if link else None, "deposit-link")
+                link_access = _archive_component(link.access_id if link else file.access_link_id, file.access_link_id)
+                uploaded = file.uploaded_at.strftime("%Y%m%dT%H%M%SZ") if file.uploaded_at else file.id[:8]
+                filename = safe_filename(file.filename)
+                archive_name = _unique_archive_name(
+                    f"{link_label}-{link_access}/{file.status}/{uploaded}-{file.id[:8]}-{filename}",
+                    used_names,
+                )
+                archive.write(source, archive_name)
+                manifest.append(
+                    {
+                        "archive_path": archive_name,
+                        "file_id": file.id,
+                        "filename": file.filename,
+                        "status": file.status,
+                        "size_bytes": file.size_bytes,
+                        "sha256": file.sha256,
+                        "uploaded_at": file.uploaded_at.isoformat() if file.uploaded_at else None,
+                        "access_link_id": file.access_link_id,
+                        "access_id": link.access_id if link else None,
+                        "deposit_link_label": link.label if link else None,
+                    }
+                )
+            archive.writestr(
+                "_manifest.json",
+                json.dumps(
+                    {
+                        "workspace": workspace_slug,
+                        "generated_at": datetime.utcnow().isoformat() + "Z",
+                        "file_count": len(manifest),
+                        "files": manifest,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+    except Exception:
+        archive_path.unlink(missing_ok=True)
+        raise
+
+    final_path = archive_dir / archive_filename
+    if final_path.exists():
+        final_path = archive_dir / f"{archive_filename.removesuffix('.zip')}-{secrets.token_hex(4)}.zip"
+        archive_filename = final_path.name
+    archive_path.replace(final_path)
+    return final_path, archive_filename
 
 
 def extension_for(filename: str) -> str:

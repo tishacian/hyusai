@@ -91,6 +91,7 @@ SECURE_DEPOSIT_MANIFEST = CapabilityIAMManifest(
         PermissionRule("deposit_file", "read", SECURE_DEPOSIT_ALL_MEMBERS, ("owner_match",)),
         PermissionRule("deposit_file", "read_all", REVIEW_ROLES),
         PermissionRule("deposit_file", "promote", REVIEW_ROLES),
+        PermissionRule("deposit_file", "download_archive", REVIEW_ROLES),
         PermissionRule("deposit_config", "manage", ADMIN_ROLES),
     ),
 )

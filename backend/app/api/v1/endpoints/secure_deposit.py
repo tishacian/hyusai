@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
+from starlette.background import BackgroundTask
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.iam.dependencies import enforce_permission, evaluate_permission
@@ -17,6 +20,7 @@ from app.models.workspace import Workspace
 from app.services.secure_deposit import (
     authenticate_link,
     assert_link_usable,
+    build_deposit_archive,
     create_link,
     default_allowed_extensions,
     get_link_by_access_id,
@@ -31,6 +35,7 @@ from app.services.secure_deposit import (
     serialize_public_link,
     verify_session_token,
 )
+from app.services.audit_logger import emit_audit_event
 
 public_router = APIRouter()
 internal_router = APIRouter()
@@ -134,6 +139,10 @@ def _enforce(
         resource_attrs=attrs,
         audit_prefix="deposit",
     )
+
+
+def _cleanup_archive(path: Path) -> None:
+    path.unlink(missing_ok=True)
 
 
 @public_router.post("/{access_id}/session")
@@ -334,6 +343,56 @@ def list_deposit_files(
         query = query.filter(DepositFile.access_link_id.in_(owned_link_ids or ["__none__"]))
     files = query.order_by(DepositFile.uploaded_at.desc()).all()
     return {"files": [serialize_file(file) for file in files]}
+
+
+@internal_router.get("/deposits/archive")
+def download_deposit_files_archive(
+    link_id: Optional[str] = Query(default=None),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    _enforce(db, user=user, workspace=workspace, resource_kind="deposit_file", action="download_archive")
+    query = db.query(DepositFile).filter(DepositFile.workspace_id == workspace.id)
+    selected_link: DepositAccessLink | None = None
+    if link_id:
+        selected_link = _workspace_link(db, workspace, link_id)
+        query = query.filter(DepositFile.access_link_id == selected_link.id)
+    files = query.order_by(DepositFile.uploaded_at.desc()).all()
+    link_ids = [file.access_link_id for file in files]
+    links_by_id = {
+        link.id: link
+        for link in db.query(DepositAccessLink)
+        .filter(
+            DepositAccessLink.workspace_id == workspace.id,
+            DepositAccessLink.id.in_(link_ids or ["__none__"]),
+        )
+        .all()
+    }
+    archive_path, archive_filename = build_deposit_archive(
+        files,
+        links_by_id=links_by_id,
+        workspace_slug=workspace.slug,
+    )
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="deposit.queue.downloaded",
+        actor=user.email or user.username or user.id,
+        details={
+            "file_count": len(files),
+            "link_id": selected_link.id if selected_link else None,
+            "access_id": selected_link.access_id if selected_link else None,
+            "archive_filename": archive_filename,
+        },
+    )
+    db.commit()
+    return FileResponse(
+        archive_path,
+        media_type="application/zip",
+        filename=archive_filename,
+        background=BackgroundTask(_cleanup_archive, archive_path),
+    )
 
 
 @internal_router.post("/deposits/{file_id}/promote")

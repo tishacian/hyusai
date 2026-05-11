@@ -1,4 +1,5 @@
 import { CommonModule } from '@angular/common';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -216,6 +217,15 @@ interface DepositFile {
               <p class="mt-1 text-xs text-gray-500">Files from all visible deposit links stay here until manual promotion.</p>
             </div>
             <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                class="inline-flex items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                [disabled]="filteredFiles().length === 0 || downloading()"
+                (click)="downloadArchive()"
+              >
+                <app-icon name="download" [size]="13" />
+                {{ downloading() ? 'Preparing ZIP' : 'Download ZIP' }}
+              </button>
               <label class="min-w-[220px]">
                 <span class="sr-only">Filter staging queue by deposit link</span>
                 <select
@@ -283,6 +293,7 @@ interface DepositFile {
 })
 export class SftpConnectorComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
 
   readonly links = signal<DepositLink[]>([]);
@@ -290,6 +301,7 @@ export class SftpConnectorComponent implements OnInit {
   readonly secretLink = signal<DepositLink | null>(null);
   readonly loading = signal(false);
   readonly saving = signal(false);
+  readonly downloading = signal(false);
   readonly error = signal<string | null>(null);
   readonly selectedLinkId = signal('');
   readonly linkLookup = computed(() => new Map(this.links().map((link) => [link.id, link])));
@@ -401,6 +413,38 @@ export class SftpConnectorComponent implements OnInit {
       });
   }
 
+  downloadArchive(): void {
+    this.downloading.set(true);
+    this.error.set(null);
+    let params = new HttpParams();
+    if (this.selectedLinkId()) {
+      params = params.set('link_id', this.selectedLinkId());
+    }
+    this.http
+      .get(`${this.api.base}/sftp/deposits/archive`, {
+        params,
+        observe: 'response',
+        responseType: 'blob',
+      })
+      .subscribe({
+        next: (response) => {
+          const blob = response.body;
+          if (!blob) {
+            this.toast.error('Empty archive response', 'Secure Deposit');
+            this.downloading.set(false);
+            return;
+          }
+          this.saveBlob(blob, this.archiveFilename(response.headers.get('content-disposition')));
+          this.toast.success('Archive download started', 'Secure Deposit');
+          this.downloading.set(false);
+        },
+        error: (err) => {
+          this.error.set(this.errorMessage(err, 'Unable to download staging archive.'));
+          this.downloading.set(false);
+        },
+      });
+  }
+
   absoluteUrl(url: string): string {
     return new URL(url, window.location.origin).href;
   }
@@ -431,6 +475,35 @@ export class SftpConnectorComponent implements OnInit {
     if (status === 'received') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/25';
     if (status === 'promoted') return 'bg-emerald-500/10 text-emerald-200 ring-emerald-500/25';
     return 'bg-red-500/10 text-red-200 ring-red-500/25';
+  }
+
+  private saveBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  private archiveFilename(disposition: string | null): string {
+    const fallback = this.selectedLinkId()
+      ? `${this.slugify(this.linkLabel(this.selectedLinkId()))}-staging.zip`
+      : 'andritz-secure-deposit-staging.zip';
+    if (!disposition) return fallback;
+    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+    if (encoded?.[1]) return decodeURIComponent(encoded[1].replace(/"/g, ''));
+    const quoted = /filename="?([^";]+)"?/i.exec(disposition);
+    return quoted?.[1] || fallback;
+  }
+
+  private slugify(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'secure-deposit';
   }
 
   private parseExtensions(): string[] {

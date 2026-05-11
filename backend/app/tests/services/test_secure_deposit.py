@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import zipfile
+
 import pytest
 from fastapi import HTTPException
 
+from app.core.config import settings
+from app.models.secure_deposit import DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.secure_deposit import (
     authenticate_link,
+    build_deposit_archive,
     create_link,
     safe_filename,
     verify_session_token,
@@ -88,6 +95,54 @@ def test_empty_allowed_extensions_means_any_file_type(db_session):
 
     assert link.allowed_extensions == []
     assert link.max_file_size_mb == 30 * 1024
+
+
+def test_build_deposit_archive_contains_files_and_manifest(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="QA unrestricted",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    content = b"industrial context"
+    object_key = f"workspaces/{workspace.id}/secure-deposit/{link.access_id}/file-1/demo.txt"
+    source = tmp_path / object_key
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(content)
+    row = DepositFile(
+        workspace_id=workspace.id,
+        access_link_id=link.id,
+        filename="demo.txt",
+        content_type="text/plain",
+        object_key=object_key,
+        size_bytes=len(content),
+        sha256=hashlib.sha256(content).hexdigest(),
+        status="received",
+    )
+    db_session.add(row)
+    db_session.flush()
+
+    archive_path, archive_name = build_deposit_archive(
+        [row],
+        links_by_id={link.id: link},
+        workspace_slug=workspace.slug,
+    )
+    try:
+        assert archive_name.endswith(".zip")
+        with zipfile.ZipFile(archive_path) as archive:
+            names = archive.namelist()
+            assert "_manifest.json" in names
+            assert any(name.endswith("demo.txt") for name in names)
+            manifest = json.loads(archive.read("_manifest.json"))
+            assert manifest["file_count"] == 1
+            assert manifest["files"][0]["sha256"] == row.sha256
+    finally:
+        archive_path.unlink(missing_ok=True)
 
 
 def test_safe_filename_strips_paths_and_unsafe_characters():
