@@ -17,6 +17,7 @@ from app.services.secure_deposit import (
     create_link,
     record_staged_file_from_path,
     safe_filename,
+    safe_relative_path,
     verify_session_token,
 )
 
@@ -132,6 +133,37 @@ def test_record_staged_file_from_path_moves_sftp_upload(db_session, monkeypatch,
     assert (tmp_path / "store" / row.object_key).read_bytes() == content
 
 
+def test_record_staged_file_from_path_preserves_safe_relative_path(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="SFTP directory upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    staged = tmp_path / "upload.part"
+    content = b"nested drive report"
+    staged.write_bytes(content)
+
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="Line A/../Motor #1/Photos/Tms1.jpg",
+        content_type="application/octet-stream",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    assert row.filename == "Line A/Motor _1/Photos/Tms1.jpg"
+    assert row.object_key.endswith("/Line A/Motor _1/Photos/Tms1.jpg")
+    assert (tmp_path / "store" / row.object_key).read_bytes() == content
+
+
 def test_build_deposit_archive_contains_files_and_manifest(db_session, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path))
     workspace, user = _workspace_user(db_session)
@@ -145,14 +177,14 @@ def test_build_deposit_archive_contains_files_and_manifest(db_session, monkeypat
         allowed_extensions=[],
     )
     content = b"industrial context"
-    object_key = f"workspaces/{workspace.id}/secure-deposit/{link.access_id}/file-1/demo.txt"
+    object_key = f"workspaces/{workspace.id}/secure-deposit/{link.access_id}/file-1/manuals/drive/demo.txt"
     source = tmp_path / object_key
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(content)
     row = DepositFile(
         workspace_id=workspace.id,
         access_link_id=link.id,
-        filename="demo.txt",
+        filename="manuals/drive/demo.txt",
         content_type="text/plain",
         object_key=object_key,
         size_bytes=len(content),
@@ -172,7 +204,7 @@ def test_build_deposit_archive_contains_files_and_manifest(db_session, monkeypat
         with zipfile.ZipFile(archive_path) as archive:
             names = archive.namelist()
             assert "_manifest.json" in names
-            assert any(name.endswith("demo.txt") for name in names)
+            assert any(name.endswith("received/manuals/drive/demo.txt") for name in names)
             manifest = json.loads(archive.read("_manifest.json"))
             assert manifest["file_count"] == 1
             assert manifest["files"][0]["sha256"] == row.sha256
@@ -183,3 +215,8 @@ def test_build_deposit_archive_contains_files_and_manifest(db_session, monkeypat
 def test_safe_filename_strips_paths_and_unsafe_characters():
     assert safe_filename("../../secret report?.pdf") == "secret report_.pdf"
     assert safe_filename("..\\..\\motor#1.xlsx") == "motor_1.xlsx"
+
+
+def test_safe_relative_path_preserves_folders_without_traversal():
+    assert safe_relative_path("../../line A/motor#1/photo?.jpg") == "line A/motor_1/photo_.jpg"
+    assert safe_relative_path("..\\manuals\\2026\\drive.zip") == "manuals/2026/drive.zip"

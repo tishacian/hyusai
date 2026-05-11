@@ -23,6 +23,7 @@ from app.services.secure_deposit import (
     is_workspace_enabled,
     record_staged_file_from_path,
     safe_filename,
+    safe_relative_path,
     verify_password,
 )
 
@@ -43,6 +44,17 @@ def _decode_path(path: bytes | str) -> str:
 def _remote_basename(path: bytes | str) -> str:
     raw = _decode_path(path).replace("\\", "/")
     return PurePosixPath(raw).name
+
+
+def _remote_relative_path(path: bytes | str) -> str:
+    raw = _decode_path(path).replace("\\", "/").strip()
+    return safe_relative_path(raw.lstrip("/"))
+
+
+def _remote_dir_path(path: bytes | str) -> str:
+    if _is_root_path(path):
+        return ""
+    return _remote_relative_path(path)
 
 
 def _is_root_path(path: bytes | str) -> bool:
@@ -83,7 +95,7 @@ def _load_active_link(access_id: str) -> DepositAccessLink:
 def _virtual_file_name(file: DepositFile) -> str:
     uploaded = file.uploaded_at or datetime.utcnow()
     stamp = uploaded.strftime("%Y%m%dT%H%M%SZ")
-    return f"{stamp}-{file.id[:8]}-{safe_filename(file.filename)}"
+    return f"{stamp}-{file.id[:8]}-{safe_filename(_remote_basename(file.filename))}"
 
 
 def _list_link_files(access_id: str) -> list[dict[str, Any]]:
@@ -101,7 +113,8 @@ def _list_link_files(access_id: str) -> list[dict[str, Any]]:
         return [
             {
                 "virtual_name": _virtual_file_name(file),
-                "filename": file.filename,
+                "path": safe_relative_path(file.filename),
+                "filename": safe_filename(_remote_basename(file.filename)),
                 "size_bytes": int(file.size_bytes or 0),
                 "mtime": int((file.uploaded_at or datetime.utcnow()).timestamp()),
             }
@@ -112,11 +125,54 @@ def _list_link_files(access_id: str) -> list[dict[str, Any]]:
 
 
 def _find_link_file(access_id: str, path: bytes | str) -> dict[str, Any] | None:
-    name = _remote_basename(path)
+    rel_path = _remote_relative_path(path)
+    basename = _remote_basename(path)
     for file in _list_link_files(access_id):
-        if name in {file["virtual_name"], file["filename"]}:
+        if rel_path in {file["path"], file["virtual_name"]}:
+            return file
+        if basename in {file["virtual_name"], file["filename"]}:
             return file
     return None
+
+
+def _parent_dirs(path: str) -> set[str]:
+    parts = [part for part in PurePosixPath(path).parts if part not in {"", "/", "."}]
+    parents: set[str] = set()
+    for index in range(1, len(parts)):
+        parents.add("/".join(parts[:index]))
+    return parents
+
+
+def _dir_exists(access_id: str, dir_path: str, session_dirs: set[str]) -> bool:
+    if not dir_path or dir_path in session_dirs:
+        return True
+    return any(dir_path in _parent_dirs(file["path"]) for file in _list_link_files(access_id))
+
+
+def _list_dir(access_id: str, dir_path: str, session_dirs: set[str]) -> list[dict[str, Any]]:
+    entries: dict[str, dict[str, Any]] = {}
+    prefix = f"{dir_path}/" if dir_path else ""
+    for directory in session_dirs:
+        if directory == dir_path or not directory.startswith(prefix):
+            continue
+        child = directory[len(prefix) :].split("/", 1)[0]
+        if child:
+            entries.setdefault(child, {"name": child, "kind": "dir"})
+    for file in _list_link_files(access_id):
+        if dir_path and not file["path"].startswith(prefix):
+            continue
+        remainder = file["path"][len(prefix) :]
+        if not remainder:
+            continue
+        child, _, rest = remainder.partition("/")
+        if rest:
+            entries.setdefault(child, {"name": child, "kind": "dir"})
+        else:
+            entry = dict(file)
+            entry["name"] = child
+            entry["kind"] = "file"
+            entries[child] = entry
+    return sorted(entries.values(), key=lambda item: (item["kind"] != "dir", item["name"].lower()))
 
 
 def _ensure_host_key(path: Path) -> None:
@@ -299,6 +355,7 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
     class SecureDepositSFTPServer(asyncssh.SFTPServer):
         def __init__(self, chan: Any):
             self.access_id = str(chan.get_extra_info("username") or "")
+            self._directories: set[str] = set()
             super().__init__(chan)
 
         def _dir_attrs(self) -> Any:
@@ -312,28 +369,34 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
                 mtime=file["mtime"],
             )
 
-        def realpath(self, _path: bytes) -> bytes:
-            return b"/"
+        def realpath(self, path: bytes) -> bytes:
+            rel_path = _remote_dir_path(path)
+            return f"/{rel_path}".rstrip("/").encode("utf-8") or b"/"
 
         def stat(self, path: bytes) -> Any:
             if _is_root_path(path):
                 return self._dir_attrs()
+            rel_path = _remote_relative_path(path)
             file = _find_link_file(self.access_id, path)
             if file:
                 return self._file_attrs(file)
+            if _dir_exists(self.access_id, rel_path, self._directories):
+                return self._dir_attrs()
             raise asyncssh.SFTPNoSuchFile("No such file")
 
         def lstat(self, path: bytes) -> Any:
             return self.stat(path)
 
         async def scandir(self, path: bytes) -> Any:
-            if not _is_root_path(path):
+            dir_path = _remote_dir_path(path)
+            if not _dir_exists(self.access_id, dir_path, self._directories):
                 raise asyncssh.SFTPNoSuchFile("No such directory")
-            for file in _list_link_files(self.access_id):
+            for entry in _list_dir(self.access_id, dir_path, self._directories):
+                attrs = self._dir_attrs() if entry["kind"] == "dir" else self._file_attrs(entry)
                 yield asyncssh.SFTPName(
-                    file["virtual_name"].encode("utf-8"),
-                    attrs=self._file_attrs(file),
-                    longname=file["virtual_name"].encode("utf-8"),
+                    entry["name"].encode("utf-8"),
+                    attrs=attrs,
+                    longname=entry["name"].encode("utf-8"),
                 )
 
         def open(self, path: bytes, pflags: int, _attrs: Any) -> Any:
@@ -341,7 +404,7 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
                 raise asyncssh.SFTPPermissionDenied("Secure Deposit is upload-only")
             if pflags & _FXF_APPEND:
                 raise asyncssh.SFTPPermissionDenied("Append is not supported")
-            filename = safe_filename(_remote_basename(path))
+            filename = _remote_relative_path(path)
             if not filename or filename in {".", ".."}:
                 raise asyncssh.SFTPPermissionDenied("Invalid upload filename")
 
@@ -350,6 +413,7 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
             ext = extension_for(filename)
             if allowed and ext not in allowed:
                 raise asyncssh.SFTPPermissionDenied("File extension is not allowed")
+            self._directories.update(_parent_dirs(filename))
             return PendingDepositUpload(
                 access_id=self.access_id,
                 filename=filename,
@@ -363,8 +427,12 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
         def rename(self, _oldpath: bytes, _newpath: bytes) -> None:
             raise asyncssh.SFTPPermissionDenied("Rename is not supported")
 
-        def mkdir(self, _path: bytes, _attrs: Any) -> None:
-            raise asyncssh.SFTPPermissionDenied("Directories are not supported")
+        def mkdir(self, path: bytes, _attrs: Any) -> None:
+            dir_path = _remote_dir_path(path)
+            if not dir_path:
+                return
+            self._directories.update(_parent_dirs(f"{dir_path}/placeholder"))
+            self._directories.add(dir_path)
 
         def rmdir(self, _path: bytes) -> None:
             raise asyncssh.SFTPPermissionDenied("Directories are not supported")

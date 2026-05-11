@@ -110,6 +110,28 @@ def safe_filename(filename: str | None) -> str:
     return (name or "upload")[:180]
 
 
+def safe_relative_path(path: str | None) -> str:
+    """Sanitize a user-provided relative path while preserving folders."""
+
+    raw = str(path or "upload").replace("\\", "/").strip()
+    clean_parts: list[str] = []
+    for part in PurePosixPath(raw).parts:
+        if part in {"", "/", ".", ".."}:
+            continue
+        safe_part = re.sub(r"[^A-Za-z0-9._ -]+", "_", part).strip(" .")
+        if safe_part:
+            clean_parts.append(safe_part[:96])
+    if not clean_parts:
+        clean_parts = [safe_filename(path)]
+    relative = "/".join(clean_parts)
+    if len(relative) <= 240:
+        return relative
+    tail = safe_filename(clean_parts[-1])
+    budget = max(1, 240 - len(tail) - 1)
+    prefix = "/".join(clean_parts[:-1])[:budget].rstrip("/")
+    return f"{prefix}/{tail}" if prefix else tail[:240]
+
+
 def _storage_root() -> Path:
     root = Path(settings.secure_deposit_storage_dir).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -231,10 +253,9 @@ def build_deposit_archive(
                 link = links_by_id.get(file.access_link_id)
                 link_label = _archive_component(link.label if link else None, "deposit-link")
                 link_access = _archive_component(link.access_id if link else file.access_link_id, file.access_link_id)
-                uploaded = file.uploaded_at.strftime("%Y%m%dT%H%M%SZ") if file.uploaded_at else file.id[:8]
-                filename = safe_filename(file.filename)
+                filename = safe_relative_path(file.filename)
                 archive_name = _unique_archive_name(
-                    f"{link_label}-{link_access}/{file.status}/{uploaded}-{file.id[:8]}-{filename}",
+                    f"{link_label}-{link_access}/{file.status}/{filename}",
                     used_names,
                 )
                 archive.write(source, archive_name)
@@ -605,7 +626,7 @@ def record_staged_file_from_path(
     """Persist an already-written upload into the Secure Deposit staging store."""
 
     assert_link_usable(db, link)
-    safe_name = safe_filename(filename)
+    safe_name = safe_relative_path(filename)
     allowed = [item.lower().lstrip(".") for item in (link.allowed_extensions or []) if item]
     ext = extension_for(safe_name)
     audit_actor = actor or f"deposit:{link.access_id}"
