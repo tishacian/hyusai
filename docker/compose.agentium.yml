@@ -114,6 +114,30 @@ services:
       agentium-rabbitmq:
         condition: service_healthy
 
+  agentium-sftp:
+    image: agentium-backend:${AGENTIUM_IMAGE_TAG:-local}
+    container_name: agentium-sftp
+    restart: unless-stopped
+    profiles: ["sftp"]
+    networks:
+      - agentium-net
+    ports:
+      - "${AGENTIUM_SFTP_BIND_HOST:-127.0.0.1}:${AGENTIUM_SFTP_HOST_PORT:-2223}:2222"
+    env_file:
+      - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    environment:
+      SECURE_DEPOSIT_SFTP_HOST: 0.0.0.0
+      SECURE_DEPOSIT_SFTP_PORT: 2222
+    volumes:
+      - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
+    command: ["python", "-m", "app.cli.secure_deposit_sftp"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import socket; s=socket.create_connection((\"127.0.0.1\",2222),5); s.close()'"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
   agentium-minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: agentium-minio

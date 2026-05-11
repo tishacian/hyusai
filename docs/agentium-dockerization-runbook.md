@@ -6,7 +6,8 @@ keeping Nginx on the host and keeping `agentium-sftp.service` untouched.
 ## Runtime Contract
 
 - `agentium-sftp.service` remains systemd-managed. Do not restart, stop, or
-  replace it during an Andritz transfer.
+  replace it during an Andritz transfer. After transfer completion, the same
+  SFTP gateway can run as `agentium-sftp` under the Compose `sftp` profile.
 - The demo VM is the build node. Images are built locally on the VM and kept as
   local tags (`agentium-backend:local`, `agentium-worker:local`,
   `agentium-frontend:local`); no external container registry is required for v1.
@@ -312,3 +313,45 @@ docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profil
 Postgres adoption remains deferred until `sudo ss -tnp | grep 2222` shows no
 active SFTP upload. The SFTP server authenticates deposit links and records file
 receipts through Postgres, so keeping the TCP stream open is not sufficient.
+
+## Adopt Secure Deposit SFTP Under Compose
+
+The containerized SFTP gateway preserves existing deposit links and credentials
+because they live in Postgres (`deposit_access_links`). It also preserves the
+server host key and all staged files by mounting the same host path:
+
+```text
+/home/ubuntu/omnirag/backend/data/secure_deposit:/data/secure_deposit
+```
+
+Test first on a private host port while the systemd daemon still owns `2222`:
+
+```bash
+cd /home/ubuntu/omnirag/docker
+export AGENTIUM_ENV_FILE=./env/agentium.vm.env
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile sftp up -d agentium-sftp
+docker ps | grep agentium-sftp
+# Expected: 127.0.0.1:2223->2222
+```
+
+Validate with an existing `access_id` and deposit password against
+`127.0.0.1:2223`, then cut over:
+
+```bash
+sudo ss -tnp state established '( sport = :2222 )'
+systemctl stop agentium-sftp
+
+printf '\n# Compose SFTP public cutover\nAGENTIUM_SFTP_BIND_HOST=0.0.0.0\nAGENTIUM_SFTP_HOST_PORT=2222\n' >> env/agentium.vm.env
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile sftp up -d --force-recreate agentium-sftp
+sudo ss -ltnp | grep 2222
+```
+
+Rollback remains direct and data-safe:
+
+```bash
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile sftp stop agentium-sftp
+systemctl start agentium-sftp
+```
+
+Do not delete or regenerate `/data/secure_deposit/sftp_host_key`; preserving it
+avoids “host key changed” warnings in SFTP clients.
