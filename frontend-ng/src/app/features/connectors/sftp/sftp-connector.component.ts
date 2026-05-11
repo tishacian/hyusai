@@ -36,6 +36,23 @@ interface DepositFile {
   worker_job_id: string | null;
 }
 
+interface QueueItem {
+  kind: 'folder' | 'file';
+  key: string;
+  name: string;
+  path: string;
+  count: number;
+  sizeBytes: number;
+  file?: DepositFile;
+}
+
+interface FolderCrumb {
+  label: string;
+  path: string;
+}
+
+const MAX_VISIBLE_QUEUE_ROWS = 300;
+
 @Component({
   selector: 'app-sftp-connector',
   standalone: true,
@@ -192,7 +209,7 @@ interface DepositFile {
                       <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="copy(absoluteUrl(link.public_url), 'URL copied')">
                         <app-icon name="copy" [size]="12" /> Copy URL
                       </button>
-                      <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="selectedLinkId.set(link.id)">
+                      <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="focusLinkQueue(link.id)">
                         <app-icon name="list-filter" [size]="12" /> Queue
                       </button>
                       <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="rotate(link)">
@@ -226,12 +243,24 @@ interface DepositFile {
                 <app-icon name="download" [size]="13" />
                 {{ downloading() ? 'Preparing ZIP' : 'Download ZIP' }}
               </button>
+              <label class="relative min-w-[240px]">
+                <span class="sr-only">Search staged files</span>
+                <app-icon name="search" [size]="13" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input
+                  type="search"
+                  name="queueSearch"
+                  [ngModel]="queueSearch()"
+                  (ngModelChange)="queueSearch.set($event)"
+                  class="w-full rounded bg-black/30 border border-white/10 py-2 pl-8 pr-3 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                  placeholder="Search path or checksum"
+                />
+              </label>
               <label class="min-w-[220px]">
                 <span class="sr-only">Filter staging queue by deposit link</span>
                 <select
                   name="queueFilter"
                   [ngModel]="selectedLinkId()"
-                  (ngModelChange)="selectedLinkId.set($event)"
+                  (ngModelChange)="setSelectedLink($event)"
                   class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
                 >
                   <option value="">All deposit links</option>
@@ -248,41 +277,105 @@ interface DepositFile {
           @if (files().length === 0) {
             <div class="p-8 text-center text-sm text-gray-500">No staged files.</div>
           } @else {
+            <div class="flex flex-col gap-3 border-b border-white/5 px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
+              <nav class="flex min-w-0 flex-wrap items-center gap-1.5 text-xs" aria-label="Staging folder path">
+                @for (crumb of folderCrumbs(); track crumb.path) {
+                  <button
+                    type="button"
+                    class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5 hover:text-white"
+                    [ngClass]="crumb.path === currentFolder() ? 'bg-white/10' : ''"
+                    (click)="goToFolder(crumb.path)"
+                  >
+                    {{ crumb.label }}
+                  </button>
+                  @if (!$last) {
+                    <app-icon name="chevron-right" [size]="12" class="text-gray-600" />
+                  }
+                }
+              </nav>
+              <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                @if (queueSearch().trim()) {
+                  <span>Search results across the selected queue</span>
+                  <button type="button" class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5" (click)="clearQueueSearch()">Clear search</button>
+                } @else if (currentFolder()) {
+                  <button type="button" class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5" (click)="goToParentFolder()">
+                    <app-icon name="arrow-left" [size]="12" /> Up
+                  </button>
+                } @else {
+                  <span>Browse folders before promoting individual files.</span>
+                }
+                @if (hiddenQueueItemCount() > 0) {
+                  <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-200 ring-1 ring-amber-500/20">
+                    Showing {{ maxVisibleQueueRows }} of {{ queueItems().length }} rows
+                  </span>
+                }
+              </div>
+            </div>
             <ul class="divide-y divide-white/5">
-              @for (file of filteredFiles(); track file.id) {
+              @for (item of visibleQueueItems(); track item.key) {
                 <li class="px-5 py-4">
-                  <div class="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(180px,0.8fr)_132px_112px_120px] xl:items-center">
-                    <div class="min-w-0">
-                      <h3 class="truncate text-sm font-semibold text-white">{{ file.filename }}</h3>
-                      <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ file.sha256 }}</p>
-                    </div>
-                    <div class="min-w-0">
-                      <p class="truncate text-xs font-medium text-gray-200">{{ linkLabel(file.access_link_id) }}</p>
-                      <p class="mt-1 truncate text-[11px] text-gray-500">Created by {{ linkCreator(file.access_link_id) }}</p>
-                    </div>
-                    <div class="text-xs text-gray-400">
-                      <span class="block text-[10px] uppercase tracking-wider text-gray-600 xl:hidden">Uploaded</span>
-                      {{ file.uploaded_at ? (file.uploaded_at | date:'short') : 'Unknown' }}
-                    </div>
-                    <div class="flex items-center gap-3 xl:justify-end">
-                      <span class="rounded px-2 py-1 text-[11px] ring-1" [class]="statusClass(file.status)">
-                        {{ file.status }}
-                      </span>
-                      <span class="text-xs text-gray-400">{{ formatBytes(file.size_bytes) }}</span>
-                    </div>
+                  @if (item.kind === 'folder') {
                     <button
                       type="button"
-                      class="inline-flex items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40"
-                      [disabled]="file.status !== 'received' || saving()"
-                      (click)="promote(file)"
+                      class="grid w-full gap-4 text-left xl:grid-cols-[minmax(0,1.4fr)_180px_120px] xl:items-center"
+                      (click)="openFolder(item.path)"
                     >
-                      <app-icon name="archive-restore" [size]="13" />
-                      {{ file.status === 'promoted' ? 'Promoted' : 'Promote' }}
+                      <div class="flex min-w-0 items-center gap-3">
+                        <span class="inline-flex h-9 w-9 items-center justify-center rounded bg-cyan-500/10 text-cyan-200 ring-1 ring-cyan-500/20">
+                          <app-icon name="folder" [size]="17" />
+                        </span>
+                        <span class="min-w-0">
+                          <span class="block truncate text-sm font-semibold text-white">{{ item.name }}</span>
+                          <span class="mt-1 block truncate font-mono text-[10px] text-gray-500">{{ item.path }}</span>
+                        </span>
+                      </div>
+                      <span class="text-xs text-gray-400">{{ item.count }} files</span>
+                      <span class="flex items-center justify-end gap-2 text-xs text-gray-400">
+                        {{ formatBytes(item.sizeBytes) }}
+                        <app-icon name="chevron-right" [size]="14" />
+                      </span>
                     </button>
-                  </div>
+                  } @else if (item.file; as file) {
+                    <div class="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(180px,0.8fr)_132px_112px_120px] xl:items-center">
+                      <div class="min-w-0">
+                        <h3 class="truncate text-sm font-semibold text-white">{{ item.name }}</h3>
+                        <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ item.path }}</p>
+                        <p class="mt-1 truncate font-mono text-[10px] text-gray-600">{{ file.sha256 }}</p>
+                      </div>
+                      <div class="min-w-0">
+                        <p class="truncate text-xs font-medium text-gray-200">{{ linkLabel(file.access_link_id) }}</p>
+                        <p class="mt-1 truncate text-[11px] text-gray-500">Created by {{ linkCreator(file.access_link_id) }}</p>
+                      </div>
+                      <div class="text-xs text-gray-400">
+                        <span class="block text-[10px] uppercase tracking-wider text-gray-600 xl:hidden">Uploaded</span>
+                        {{ file.uploaded_at ? (file.uploaded_at | date:'short') : 'Unknown' }}
+                      </div>
+                      <div class="flex items-center gap-3 xl:justify-end">
+                        <span class="rounded px-2 py-1 text-[11px] ring-1" [class]="statusClass(file.status)">
+                          {{ file.status }}
+                        </span>
+                        <span class="text-xs text-gray-400">{{ formatBytes(file.size_bytes) }}</span>
+                      </div>
+                      <button
+                        type="button"
+                        class="inline-flex items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40"
+                        [disabled]="file.status !== 'received' || saving()"
+                        (click)="promote(file)"
+                      >
+                        <app-icon name="archive-restore" [size]="13" />
+                        {{ file.status === 'promoted' ? 'Promoted' : 'Promote' }}
+                      </button>
+                    </div>
+                  }
                 </li>
               } @empty {
-                <li class="p-8 text-center text-sm text-gray-500">No files for this deposit link.</li>
+                <li class="p-8 text-center text-sm text-gray-500">
+                  @if (queueSearch().trim()) {
+                    No files match this search.
+                  } @else {
+                    No files in this folder.
+                  }
+                </li>
               }
             </ul>
           }
@@ -304,11 +397,27 @@ export class SftpConnectorComponent implements OnInit {
   readonly downloading = signal(false);
   readonly error = signal<string | null>(null);
   readonly selectedLinkId = signal('');
+  readonly currentFolder = signal('');
+  readonly queueSearch = signal('');
+  readonly maxVisibleQueueRows = MAX_VISIBLE_QUEUE_ROWS;
   readonly linkLookup = computed(() => new Map(this.links().map((link) => [link.id, link])));
   readonly filteredFiles = computed(() => {
     const selected = this.selectedLinkId();
     if (!selected) return this.files();
     return this.files().filter((file) => file.access_link_id === selected);
+  });
+  readonly queueItems = computed(() => this.buildQueueItems(this.filteredFiles(), this.currentFolder(), this.queueSearch()));
+  readonly visibleQueueItems = computed(() => this.queueItems().slice(0, MAX_VISIBLE_QUEUE_ROWS));
+  readonly hiddenQueueItemCount = computed(() => Math.max(0, this.queueItems().length - this.visibleQueueItems().length));
+  readonly folderCrumbs = computed<FolderCrumb[]>(() => {
+    const parts = this.currentFolder().split('/').filter(Boolean);
+    const crumbs: FolderCrumb[] = [{ label: 'Root', path: '' }];
+    parts.reduce((path, part) => {
+      const next = path ? `${path}/${part}` : part;
+      crumbs.push({ label: part, path: next });
+      return next;
+    }, '');
+    return crumbs;
   });
 
   draftLabel = 'Andritz external upload';
@@ -456,6 +565,36 @@ export class SftpConnectorComponent implements OnInit {
     );
   }
 
+  setSelectedLink(linkId: string): void {
+    this.selectedLinkId.set(linkId);
+    this.currentFolder.set('');
+    this.queueSearch.set('');
+  }
+
+  focusLinkQueue(linkId: string): void {
+    this.setSelectedLink(linkId);
+  }
+
+  openFolder(path: string): void {
+    this.currentFolder.set(path);
+    this.queueSearch.set('');
+  }
+
+  goToFolder(path: string): void {
+    this.currentFolder.set(path);
+    this.queueSearch.set('');
+  }
+
+  goToParentFolder(): void {
+    const current = this.currentFolder();
+    const index = current.lastIndexOf('/');
+    this.currentFolder.set(index > -1 ? current.slice(0, index) : '');
+  }
+
+  clearQueueSearch(): void {
+    this.queueSearch.set('');
+  }
+
   formatBytes(size: number): string {
     if (!size) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB'];
@@ -511,6 +650,73 @@ export class SftpConnectorComponent implements OnInit {
       .split(',')
       .map((item) => item.trim().toLowerCase().replace(/^\./, ''))
       .filter(Boolean);
+  }
+
+  private buildQueueItems(files: DepositFile[], folder: string, query: string): QueueItem[] {
+    const q = query.trim().toLowerCase();
+    if (q) {
+      return files
+        .filter((file) => {
+          const path = this.filePath(file);
+          return path.toLowerCase().includes(q) || file.sha256?.toLowerCase().includes(q);
+        })
+        .sort((a, b) => this.filePath(a).localeCompare(this.filePath(b)))
+        .map((file) => this.fileItem(file, this.filePath(file)));
+    }
+
+    const folders = new Map<string, QueueItem>();
+    const directFiles: QueueItem[] = [];
+    const prefix = folder ? `${folder}/` : '';
+
+    for (const file of files) {
+      const path = this.filePath(file);
+      if (folder && path !== folder && !path.startsWith(prefix)) continue;
+      const remainder = folder ? path.slice(prefix.length) : path;
+      if (!remainder) continue;
+      const [head, ...rest] = remainder.split('/');
+      if (rest.length > 0) {
+        const folderPath = prefix ? `${folder}/${head}` : head;
+        const item = folders.get(folderPath) ?? {
+          kind: 'folder',
+          key: `folder:${folderPath}`,
+          name: head,
+          path: folderPath,
+          count: 0,
+          sizeBytes: 0,
+        };
+        item.count += 1;
+        item.sizeBytes += file.size_bytes || 0;
+        folders.set(folderPath, item);
+      } else {
+        directFiles.push(this.fileItem(file, path));
+      }
+    }
+
+    return [
+      ...Array.from(folders.values()).sort((a, b) => a.name.localeCompare(b.name)),
+      ...directFiles.sort((a, b) => a.name.localeCompare(b.name)),
+    ];
+  }
+
+  private fileItem(file: DepositFile, path: string): QueueItem {
+    return {
+      kind: 'file',
+      key: `file:${file.id}`,
+      name: this.basename(path),
+      path,
+      count: 1,
+      sizeBytes: file.size_bytes || 0,
+      file,
+    };
+  }
+
+  private filePath(file: DepositFile): string {
+    return (file.filename || 'upload').replace(/\\/g, '/').split('/').filter(Boolean).join('/');
+  }
+
+  private basename(path: string): string {
+    const parts = path.split('/').filter(Boolean);
+    return parts.at(-1) || path || 'upload';
   }
 
   private errorMessage(err: unknown, fallback: string): string {
