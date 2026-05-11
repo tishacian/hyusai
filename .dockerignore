@@ -46,7 +46,11 @@ backend/downloads/
 backend/faiss_db/
 backend/chroma_db/
 backend/.sharepoint_sessions/
+node_modules/
+frontend-ng/node_modules/
+frontend-ng/.angular/
 frontend-ng/dist/
+docs/status-screenshots/
 knowledge-bases/*
 **.db
 src/models/
