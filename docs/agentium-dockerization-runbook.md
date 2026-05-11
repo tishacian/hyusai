@@ -67,6 +67,21 @@ SECURE_DEPOSIT_STORAGE_DIR=/data/secure_deposit
 DOCUMENT_INGEST_ASYNC_ENABLED=false
 ```
 
+Point the infra profile at the VM-specific env files before adopting existing
+containers:
+
+```text
+AGENTIUM_KEYCLOAK_ENV_FILE=./env/keycloak.vm.env
+AGENTIUM_QDRANT_ENV_FILE=./env/qdrant.vm.env
+AGENTIUM_POSTGRES_DB=agentium
+AGENTIUM_POSTGRES_USER=agentium
+AGENTIUM_POSTGRES_PASSWORD=<same password as DATABASE_URL>
+```
+
+If Qdrant should run without auth on the private Docker network, remove the
+`QDRANT__SERVICE__API_KEY=` line entirely from `qdrant.vm.env`. An empty value
+still enables Qdrant API-key checks.
+
 Keep `DOCUMENT_INGEST_ASYNC_ENABLED=false` until RabbitMQ and the worker are
 healthy. Qdrant is the standardized target for new deployments, but
 `FAISS_PERSIST_DIRECTORY=/data/faiss_db` keeps legacy workspace presets
@@ -277,3 +292,23 @@ docker compose -f compose.agentium.yml --profile infra up -d agentium-pg agentiu
 
 The Compose services reuse `agentium_pgdata` and `qdrant_data`, so no Postgres
 restore or Qdrant reindex is expected.
+
+If an SFTP transfer is still active, do not restart Postgres. Safe partial
+adoption is:
+
+```bash
+# Back up first.
+mkdir -p /home/ubuntu/agentium-backups/infra-adoption-$(date +%Y%m%d%H%M%S)
+docker exec agentium-pg pg_dump -U agentium -d agentium | gzip -1 > /home/ubuntu/agentium-backups/agentium-postgres.sql.gz
+
+# Qdrant and Keycloak are not in the SFTP data path.
+docker stop qdrant && docker rm qdrant
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile infra up -d agentium-qdrant
+
+docker stop agentium-kc && docker rm agentium-kc
+docker compose --env-file ./env/agentium.vm.env -f compose.agentium.yml --profile infra up -d agentium-kc
+```
+
+Postgres adoption remains deferred until `sudo ss -tnp | grep 2222` shows no
+active SFTP upload. The SFTP server authenticates deposit links and records file
+receipts through Postgres, so keeping the TCP stream open is not sufficient.

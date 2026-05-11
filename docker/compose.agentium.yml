@@ -192,7 +192,7 @@ services:
       - ../backend/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json:ro
     command: ["start-dev"]
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /kc/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200' <&3"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /kc/realms/papai-org HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200' <&3"]
       interval: 15s
       timeout: 5s
       retries: 10
