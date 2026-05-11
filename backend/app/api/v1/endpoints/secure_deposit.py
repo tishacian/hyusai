@@ -204,7 +204,18 @@ def list_deposit_links(
     if not _can_read_all(db, user=user, workspace=workspace, resource_kind="deposit_link"):
         query = query.filter(DepositAccessLink.created_by_user_id == user.id)
     links = query.order_by(DepositAccessLink.created_at.desc()).all()
-    return {"links": [serialize_link(link) for link in links]}
+    creators = {
+        row.id: row.email or row.username or row.id
+        for row in db.query(User)
+        .filter(User.id.in_([link.created_by_user_id for link in links] or ["__none__"]))
+        .all()
+    }
+    payload = []
+    for link in links:
+        item = serialize_link(link)
+        item["created_by"] = creators.get(link.created_by_user_id, link.created_by_user_id)
+        payload.append(item)
+    return {"links": payload}
 
 
 @internal_router.post("/links")

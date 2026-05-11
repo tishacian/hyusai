@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
@@ -17,6 +17,8 @@ interface DepositLink {
   max_file_size_mb: number;
   allowed_extensions: string[];
   created_at: string | null;
+  created_by_user_id: string;
+  created_by?: string | null;
   generated_password?: string | null;
 }
 
@@ -189,6 +191,9 @@ interface DepositFile {
                       <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="copy(absoluteUrl(link.public_url), 'URL copied')">
                         <app-icon name="copy" [size]="12" /> Copy URL
                       </button>
+                      <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="selectedLinkId.set(link.id)">
+                        <app-icon name="list-filter" [size]="12" /> Queue
+                      </button>
                       <button type="button" class="rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10" (click)="rotate(link)">
                         <app-icon name="rotate-cw" [size]="12" /> Rotate
                       </button>
@@ -204,31 +209,70 @@ interface DepositFile {
         </section>
 
         <section class="t-card t-elevated rounded-md overflow-hidden">
-          <div class="flex items-center justify-between border-b border-white/5 px-5 py-4">
-            <h2 class="text-sm font-semibold text-white">Staging queue</h2>
-            <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ files().length }} files</span>
+          <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Workspace staging queue</p>
+              <h2 class="mt-1 text-sm font-semibold text-white">Andritz-wide received files</h2>
+              <p class="mt-1 text-xs text-gray-500">Files from all visible deposit links stay here until manual promotion.</p>
+            </div>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label class="min-w-[220px]">
+                <span class="sr-only">Filter staging queue by deposit link</span>
+                <select
+                  name="queueFilter"
+                  [ngModel]="selectedLinkId()"
+                  (ngModelChange)="selectedLinkId.set($event)"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                >
+                  <option value="">All deposit links</option>
+                  @for (link of links(); track link.id) {
+                    <option [value]="link.id">{{ link.label }}</option>
+                  }
+                </select>
+              </label>
+              <span class="ck-mono whitespace-nowrap text-[10px] uppercase tracking-wider text-gray-500">
+                {{ filteredFiles().length }} / {{ files().length }} files
+              </span>
+            </div>
           </div>
           @if (files().length === 0) {
             <div class="p-8 text-center text-sm text-gray-500">No staged files.</div>
           } @else {
             <ul class="divide-y divide-white/5">
-              @for (file of files(); track file.id) {
-                <li class="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_96px_120px] lg:items-center">
-                  <div class="min-w-0">
-                    <h3 class="truncate text-sm font-semibold text-white">{{ file.filename }}</h3>
-                    <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ file.sha256 }}</p>
+              @for (file of filteredFiles(); track file.id) {
+                <li class="px-5 py-4">
+                  <div class="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(180px,0.8fr)_132px_112px_120px] xl:items-center">
+                    <div class="min-w-0">
+                      <h3 class="truncate text-sm font-semibold text-white">{{ file.filename }}</h3>
+                      <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ file.sha256 }}</p>
+                    </div>
+                    <div class="min-w-0">
+                      <p class="truncate text-xs font-medium text-gray-200">{{ linkLabel(file.access_link_id) }}</p>
+                      <p class="mt-1 truncate text-[11px] text-gray-500">Created by {{ linkCreator(file.access_link_id) }}</p>
+                    </div>
+                    <div class="text-xs text-gray-400">
+                      <span class="block text-[10px] uppercase tracking-wider text-gray-600 xl:hidden">Uploaded</span>
+                      {{ file.uploaded_at ? (file.uploaded_at | date:'short') : 'Unknown' }}
+                    </div>
+                    <div class="flex items-center gap-3 xl:justify-end">
+                      <span class="rounded px-2 py-1 text-[11px] ring-1" [class]="statusClass(file.status)">
+                        {{ file.status }}
+                      </span>
+                      <span class="text-xs text-gray-400">{{ formatBytes(file.size_bytes) }}</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40"
+                      [disabled]="file.status !== 'received' || saving()"
+                      (click)="promote(file)"
+                    >
+                      <app-icon name="archive-restore" [size]="13" />
+                      {{ file.status === 'promoted' ? 'Promoted' : 'Promote' }}
+                    </button>
                   </div>
-                  <div class="text-xs text-gray-400">{{ formatBytes(file.size_bytes) }}</div>
-                  <button
-                    type="button"
-                    class="inline-flex items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40"
-                    [disabled]="file.status !== 'received' || saving()"
-                    (click)="promote(file)"
-                  >
-                    <app-icon name="archive-restore" [size]="13" />
-                    {{ file.status === 'promoted' ? 'Promoted' : 'Promote' }}
-                  </button>
                 </li>
+              } @empty {
+                <li class="p-8 text-center text-sm text-gray-500">No files for this deposit link.</li>
               }
             </ul>
           }
@@ -247,6 +291,13 @@ export class SftpConnectorComponent implements OnInit {
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
+  readonly selectedLinkId = signal('');
+  readonly linkLookup = computed(() => new Map(this.links().map((link) => [link.id, link])));
+  readonly filteredFiles = computed(() => {
+    const selected = this.selectedLinkId();
+    if (!selected) return this.files();
+    return this.files().filter((file) => file.access_link_id === selected);
+  });
 
   draftLabel = 'Andritz external upload';
   draftMaxMb = 30720;
@@ -366,6 +417,20 @@ export class SftpConnectorComponent implements OnInit {
     const units = ['B', 'KB', 'MB', 'GB'];
     const index = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length - 1);
     return `${(size / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+  }
+
+  linkLabel(linkId: string): string {
+    return this.linkLookup().get(linkId)?.label || 'Unknown deposit link';
+  }
+
+  linkCreator(linkId: string): string {
+    return this.linkLookup().get(linkId)?.created_by || 'unknown';
+  }
+
+  statusClass(status: DepositFile['status']): string {
+    if (status === 'received') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/25';
+    if (status === 'promoted') return 'bg-emerald-500/10 text-emerald-200 ring-emerald-500/25';
+    return 'bg-red-500/10 text-red-200 ring-red-500/25';
   }
 
   private parseExtensions(): string[] {
