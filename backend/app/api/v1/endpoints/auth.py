@@ -429,6 +429,33 @@ async def signup(body: SignupRequest, db: DBSession = Depends(get_db)):
     return {"status": "ok", "message": "User created. Check email for confirmation."}
 
 
+def _select_password_reset_user(users: list[dict], email: str) -> Optional[dict]:
+    """Pick the safest Keycloak user for a password reset email.
+
+    Keycloak may return disabled historical users when several rows share the
+    same email. Reset should target an enabled exact username/email match first
+    so old disabled bootstrap accounts cannot steal the action email.
+    """
+    target = email.strip().lower()
+
+    def is_exact(user: dict) -> bool:
+        return (
+            str(user.get("username") or "").strip().lower() == target
+            or str(user.get("email") or "").strip().lower() == target
+        )
+
+    for user in users:
+        if user.get("enabled", True) and is_exact(user):
+            return user
+    for user in users:
+        if user.get("enabled", True):
+            return user
+    for user in users:
+        if is_exact(user):
+            return user
+    return users[0] if users else None
+
+
 @router.post("/password-reset")
 async def password_reset(body: PasswordResetRequest):
     """Trigger password reset email via Keycloak admin API."""
@@ -446,8 +473,9 @@ async def password_reset(body: PasswordResetRequest):
         )
         users = resp.json() if resp.status_code == 200 else []
 
-    if users:
-        kc_user_id = users[0]["id"]
+    kc_user = _select_password_reset_user(users, body.email)
+    if kc_user:
+        kc_user_id = kc_user["id"]
         async with httpx.AsyncClient() as client:
             await client.put(
                 f"{_get_admin_url()}/users/{kc_user_id}/execute-actions-email",
