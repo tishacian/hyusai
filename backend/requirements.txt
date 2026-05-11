@@ -14,7 +14,7 @@ alembic>=1.13.0
 celery[amqp]>=5.5.0
 
 # LLM (OpenAI-first, others optional)
-openai>=1.30.0
+openai>=2.0.0
 httpx>=0.27.0
 
 # RAG / Vector store

@@ -7,11 +7,17 @@ decision: chat is not a second-class surface, its traffic is the main
 driver of Impact + quality metrics, so it must participate in the
 same Run ledger as explicit ``/runs/launch`` triggers.
 """
+import asyncio
+import json
+import uuid
+from datetime import datetime
+from typing import Any, Dict, Optional
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from app.core.auth import get_current_workspace
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.validation import QueryValidator, ResponseValidator
 from app.core.errors import ValidationError
@@ -27,9 +33,6 @@ from app.services.evaluation.canonical_answer_service import (
     find_canonical_answer,
     record_hit,
 )
-from datetime import datetime
-import uuid
-
 logger = get_logger(__name__)
 router = APIRouter()
 query_validator = QueryValidator()
@@ -161,6 +164,67 @@ def _canonical_answer_hit(db: Session, *, workspace_id: str, query: str):
     return row, score
 
 
+def _sse_data(payload: Any) -> str:
+    return f"data: {json.dumps(payload, default=str)}\n\n"
+
+
+def _sse_done() -> str:
+    return "data: [DONE]\n\n"
+
+
+def _error_chunk(
+    code: str,
+    content: str,
+    *,
+    recoverable: bool = False,
+    details: Optional[Dict[str, Any]] = None,
+    is_final: bool = True,
+) -> Dict[str, Any]:
+    return {
+        "chunk_type": "error",
+        "code": code,
+        "content": content,
+        "recoverable": recoverable,
+        "details": details or {},
+        "is_final": is_final,
+    }
+
+
+def _collect_chat_chunk(
+    chunk: Dict[str, Any],
+    *,
+    full_content: list[str],
+    decision_steps: list[Dict[str, Any]],
+    state: Dict[str, Any],
+) -> None:
+    if chunk.get("chunk_type") == "text":
+        full_content.append(chunk.get("content", ""))
+    if chunk.get("reasoning_trace"):
+        state["reasoning_trace"] = chunk.get("reasoning_trace")
+    if chunk.get("sources"):
+        state["sources"] = chunk.get("sources")
+    if chunk.get("chunk_type") == "retrieval":
+        details = chunk.get("details") or {}
+        if chunk.get("rag_context"):
+            state["rag_context"] = chunk.get("rag_context")
+        if details:
+            state["retrieval_metrics"] = details
+        if details.get("task_id"):
+            state["retrieval_worker_task_id"] = details.get("task_id")
+        if details.get("fallback"):
+            state["retrieval_fallback"] = details.get("fallback_reason") or True
+    if chunk.get("chunk_type") == "decision_step" and chunk.get("decision_step"):
+        decision_step = chunk.get("decision_step")
+        existing_index = next(
+            (i for i, ds in enumerate(decision_steps) if ds.get("id") == decision_step.get("id")),
+            None,
+        )
+        if existing_index is not None:
+            decision_steps[existing_index] = decision_step
+        else:
+            decision_steps.append(decision_step)
+
+
 @router.post("/completion")
 async def chat_completion(
     request: ChatRequest,
@@ -277,40 +341,40 @@ async def chat_completion(
         decision_steps = []  # Collect decision pipeline steps
         import time
         pipeline_start_time = None
-        pipeline_end_time = None
+        chunk_state: Dict[str, Any] = {
+            "reasoning_trace": None,
+            "sources": None,
+            "rag_context": None,
+            "retrieval_metrics": None,
+            "retrieval_worker_task_id": None,
+            "retrieval_fallback": None,
+        }
+        full_content: list[str] = []
         run_started_at = datetime.utcnow()
         run_started_ts = time.time()
 
         async for chunk in orchestrator.process_request(request_dict):
             chunks.append(chunk)
-            
-            # Collect decision pipeline steps
-            if chunk.get("chunk_type") == "decision_step" and chunk.get("decision_step"):
-                decision_step = chunk.get("decision_step")
-                existing_index = next(
-                    (i for i, ds in enumerate(decision_steps) if ds.get("id") == decision_step.get("id")),
-                    None
-                )
-                if existing_index is not None:
-                    decision_steps[existing_index] = decision_step
-                else:
-                    decision_steps.append(decision_step)
-                
-                if pipeline_start_time is None:
-                    pipeline_start_time = time.time()
+            _collect_chat_chunk(
+                chunk,
+                full_content=full_content,
+                decision_steps=decision_steps,
+                state=chunk_state,
+            )
+            if chunk.get("chunk_type") == "decision_step" and pipeline_start_time is None:
+                pipeline_start_time = time.time()
             
             if chunk.get("is_final"):
                 break
         
         # Calculate pipeline total time
         if pipeline_start_time:
-            pipeline_end_time = time.time()
-            pipeline_total_time = int((pipeline_end_time - pipeline_start_time) * 1000)
+            pipeline_total_time = int((time.time() - pipeline_start_time) * 1000)
         else:
             pipeline_total_time = None
         
         # Combine chunks
-        content = "".join([c.get("content", "") for c in chunks if c.get("chunk_type") == "text"])
+        content = "".join(full_content)
         
         # Validate response
         try:
@@ -333,8 +397,8 @@ async def chat_completion(
             
             # Build meta_data with decision steps
             meta_data = {
-                "reasoning_trace": chunks[0].get("reasoning_trace") if chunks else None,
-                "sources": chunks[0].get("sources") if chunks else None
+                "reasoning_trace": chunk_state["reasoning_trace"],
+                "sources": chunk_state["sources"],
             }
             
             # Add decision steps if any were collected
@@ -364,19 +428,25 @@ async def chat_completion(
             system_id=_resolve_system_id(db, workspace.id, request.agent_id),
             query=validated_query,
             response_text=content,
-            sources=chunks[0].get("sources") if chunks else None,
-            reasoning_trace=chunks[0].get("reasoning_trace") if chunks else None,
+            sources=chunk_state["sources"],
+            reasoning_trace=chunk_state["reasoning_trace"],
             started_at=run_started_at,
             completed_at=run_completed_at,
             duration_ms=(time.time() - run_started_ts) * 1000.0,
+            extra_output={
+                "rag_context": chunk_state["rag_context"],
+                "retrieval_metrics": chunk_state["retrieval_metrics"],
+                "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
+                "retrieval_fallback": chunk_state["retrieval_fallback"],
+            },
         )
 
         return {
             "id": chunks[0].get("id") if chunks else None,
             "run_id": run_id,
             "content": content,
-            "reasoning_trace": chunks[0].get("reasoning_trace") if chunks else None,
-            "sources": chunks[0].get("sources") if chunks else None,
+            "reasoning_trace": chunk_state["reasoning_trace"],
+            "sources": chunk_state["sources"],
             "status": "completed",
         }
     except HTTPException:
@@ -394,13 +464,19 @@ async def chat_stream(
 ):
     """Streaming chat completion (scoped to current workspace)."""
     from fastapi.responses import StreamingResponse
-    import json
 
     async def generate():
         try:
             orchestrator = get_orchestrator()
             if not orchestrator:
-                yield f"data: {json.dumps({'chunk_type': 'error', 'content': 'Orchestrator not initialized', 'is_final': True})}\n\n"
+                yield _sse_data(
+                    _error_chunk(
+                        "ORCHESTRATOR_UNAVAILABLE",
+                        "Orchestrator not initialized",
+                        recoverable=True,
+                    )
+                )
+                yield _sse_done()
                 return
 
             app_settings = get_resolved_settings(workspace_id=workspace.id)
@@ -414,8 +490,16 @@ async def chat_stream(
             try:
                 validated_query = query_validator.validate(request.query)
             except ValidationError as e:
-                yield f"data: {json.dumps({'chunk_type': 'error', 'content': str(e), 'is_final': True})}\n\n"
+                yield _sse_data(
+                    _error_chunk(
+                        "QUERY_VALIDATION_FAILED",
+                        str(e),
+                        recoverable=True,
+                    )
+                )
+                yield _sse_done()
                 return
+            request_dict["query"] = validated_query
 
             canonical = _canonical_answer_hit(
                 db,
@@ -468,22 +552,18 @@ async def chat_stream(
                     },
                 )
                 db.commit()
-                yield (
-                    "data: "
-                    + json.dumps(
-                        {
-                            "chunk_type": "text",
-                            "content": content,
-                            "canonical_answer_hit": True,
-                            "canonical_answer_id": canonical_answer.id,
-                            "canonical_answer_score": match_score,
-                            "run_id": run_id,
-                            "is_final": True,
-                        }
-                    )
-                    + "\n\n"
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": content,
+                        "canonical_answer_hit": True,
+                        "canonical_answer_id": canonical_answer.id,
+                        "canonical_answer_score": match_score,
+                        "run_id": run_id,
+                        "is_final": True,
+                    }
                 )
-                yield "data: [DONE]\n\n"
+                yield _sse_done()
                 return
             
             # Apply settings defaults if not provided
@@ -500,11 +580,16 @@ async def chat_stream(
             
             full_content = []
             all_chunks = []
-            reasoning_trace = None
-            sources = None
             decision_steps = []  # Collect all decision pipeline steps
             pipeline_start_time = None
-            pipeline_end_time = None
+            chunk_state: Dict[str, Any] = {
+                "reasoning_trace": None,
+                "sources": None,
+                "rag_context": None,
+                "retrieval_metrics": None,
+                "retrieval_worker_task_id": None,
+                "retrieval_fallback": None,
+            }
             import time as _time
             run_started_at = datetime.utcnow()
             run_started_ts = _time.time()
@@ -555,44 +640,45 @@ async def chat_stream(
             if request.similarity_threshold is not None:
                 request_dict["similarity_threshold"] = request.similarity_threshold
             
-            async for chunk in orchestrator.process_request(request_dict):
-                all_chunks.append(chunk)
-                if chunk.get("chunk_type") == "text":
-                    full_content.append(chunk.get("content", ""))
-                
-                # Collect metadata from chunks as we go
-                if chunk.get("reasoning_trace"):
-                    reasoning_trace = chunk.get("reasoning_trace")
-                if chunk.get("sources"):
-                    sources = chunk.get("sources")
-                
-                # Collect decision pipeline steps
-                if chunk.get("chunk_type") == "decision_step" and chunk.get("decision_step"):
-                    decision_step = chunk.get("decision_step")
-                    # Check if this step already exists (update) or is new (add)
-                    existing_index = next(
-                        (i for i, ds in enumerate(decision_steps) if ds.get("id") == decision_step.get("id")),
-                        None
-                    )
-                    if existing_index is not None:
-                        # Update existing step
-                        decision_steps[existing_index] = decision_step
-                    else:
-                        # Add new step
-                        decision_steps.append(decision_step)
-                    
-                    # Track pipeline timing
-                    if pipeline_start_time is None:
-                        import time
-                        pipeline_start_time = time.time()
-                
-                yield f"data: {json.dumps(chunk)}\n\n"
+            stream_error = None
+            try:
+                async with asyncio.timeout(settings.chat_stream_timeout_seconds):
+                    async for chunk in orchestrator.process_request(request_dict):
+                        all_chunks.append(chunk)
+                        _collect_chat_chunk(
+                            chunk,
+                            full_content=full_content,
+                            decision_steps=decision_steps,
+                            state=chunk_state,
+                        )
+                        if (
+                            chunk.get("chunk_type") == "decision_step"
+                            and pipeline_start_time is None
+                        ):
+                            pipeline_start_time = _time.time()
+                        yield _sse_data(chunk)
+            except TimeoutError as exc:
+                stream_error = _error_chunk(
+                    "CHAT_STREAM_TIMEOUT",
+                    f"Chat stream exceeded {settings.chat_stream_timeout_seconds:.0f}s",
+                    recoverable=True,
+                    details={"timeout_seconds": settings.chat_stream_timeout_seconds},
+                )
+                logger.warning("Chat stream timed out", error=str(exc))
+            except Exception as exc:  # noqa: BLE001
+                stream_error = _error_chunk(
+                    "CHAT_STREAM_ERROR",
+                    str(exc),
+                    recoverable=True,
+                )
+                logger.error("Streaming error", error=str(exc))
+
+            if stream_error:
+                yield _sse_data(stream_error)
             
             # Calculate total pipeline time
             if pipeline_start_time:
-                import time
-                pipeline_end_time = time.time()
-                pipeline_total_time = int((pipeline_end_time - pipeline_start_time) * 1000)
+                pipeline_total_time = int((_time.time() - pipeline_start_time) * 1000)
             else:
                 pipeline_total_time = None
             
@@ -600,8 +686,8 @@ async def chat_stream(
             if request.session_id and full_content:
                 # Build meta_data with decision steps
                 meta_data = {
-                    "reasoning_trace": reasoning_trace,
-                    "sources": sources
+                    "reasoning_trace": chunk_state["reasoning_trace"],
+                    "sources": chunk_state["sources"],
                 }
                 
                 # Add decision steps if any were collected
@@ -638,31 +724,35 @@ async def chat_stream(
                     db,
                     workspace_id=workspace.id,
                     system_id=_resolve_system_id(db, workspace.id, request.agent_id),
-                    query=request.query,
+                    query=validated_query,
                     response_text="".join(full_content),
-                    sources=sources,
-                    reasoning_trace=reasoning_trace,
+                    sources=chunk_state["sources"],
+                    reasoning_trace=chunk_state["reasoning_trace"],
                     started_at=run_started_at,
                     completed_at=run_completed_at,
                     duration_ms=(_time.time() - run_started_ts) * 1000.0,
+                    extra_output={
+                        "rag_context": chunk_state["rag_context"],
+                        "retrieval_metrics": chunk_state["retrieval_metrics"],
+                        "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
+                        "retrieval_fallback": chunk_state["retrieval_fallback"],
+                    },
                 )
             if run_id:
-                yield (
-                    "data: "
-                    + json.dumps(
-                        {
-                            "chunk_type": "eval_pending",
-                            "run_id": run_id,
-                            "is_final": False,
-                        }
-                    )
-                    + "\n\n"
+                yield _sse_data(
+                    {
+                        "chunk_type": "eval_pending",
+                        "run_id": run_id,
+                        "is_final": False,
+                    }
                 )
 
-            yield "data: [DONE]\n\n"
+            yield _sse_done()
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error("Streaming error", error=str(e))
-            yield f"data: {json.dumps({'chunk_type': 'error', 'content': str(e), 'is_final': True})}\n\n"
+            yield _sse_data(_error_chunk("CHAT_STREAM_ERROR", str(e), recoverable=True))
+            yield _sse_done()
     
     return StreamingResponse(generate(), media_type="text/event-stream")
-

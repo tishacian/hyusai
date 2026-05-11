@@ -212,14 +212,19 @@ class OmniRAGAgent(BaseAgent):
             duration=self._ms_since(step_start),
         )
 
-        # ── Step 4: Knowledge Retrieval (naive / hybrid / HAH-like / C-HAH-like on DocumentService) ──
+        # ── Step 4: Knowledge Retrieval (inline or worker-backed) ──
         from app.services.rag.mode_selector import resolve_retrieval_mode
-        from app.services.rag.pipeline_retrieval import retrieve_for_mode
+        from app.services.rag.context import (
+            await_rag_retrieval_task,
+            dispatch_rag_retrieval_task,
+            get_retrieval_profile,
+            retrieval_event,
+            retrieve_rag_context,
+        )
 
-        rag_mode = request.get("rag_pipeline_mode") or (
-            request.get("agent_preferences") or {}
-        ).get("rag_pipeline_mode")
-        doc_svc = self._get_document_service(request)
+        profile = get_retrieval_profile(request)
+        rag_mode = profile.get("rag_mode")
+        doc_svc = None if settings.rag_retrieval_worker_enabled else self._get_document_service(request)
         use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
             doc_svc, rewritten, rag_mode
         )
@@ -228,21 +233,30 @@ class OmniRAGAgent(BaseAgent):
             "FAISS + BM25 (RRF)" if use_hybrid else "FAISS dense (naive)"
         )
         method_line = (
-            "Method: Reciprocal Rank Fusion · top_k: 5"
+            f"Method: Reciprocal Rank Fusion · top_k: {profile['top_k']}"
             if use_hybrid
-            else "Method: dense vector similarity · top_k: 5"
+            else f"Method: dense vector similarity · top_k: {profile['top_k']}"
         )
         if mode_label == "hah_backend":
             retriever_name = "HAHBackendRetriever"
             retriever_title = "Two-pass hybrid + RRF (HAH-like)"
-            method_line = "Method: pass1 hybrid → pseudo-document → pass2 hybrid → RRF merge · top_k: 5"
+            method_line = f"Method: pass1 hybrid → pseudo-document → pass2 hybrid → RRF merge · top_k: {profile['top_k']}"
         elif mode_label == "chah_backend":
             retriever_name = "CHAHBackendRetriever"
             retriever_title = "Parallel hybrid + RRF (C-HAH-like)"
-            method_line = "Method: parallel hybrid over query variants → RRF merge · top_k: 5"
+            method_line = f"Method: parallel hybrid over query variants → RRF merge · top_k: {profile['top_k']}"
 
         step_start = time.time()
         sid = f"kb-retrieval-{uid}"
+        retrieval_task_id = None
+        retrieval_fallback = False
+        base_retrieval_details = {
+            "collection": profile["collection"],
+            "vector_db": profile["vector_db"],
+            "top_k": profile["top_k"],
+            "pipeline": mode_label,
+            "task_id": None,
+        }
         yield self._step(
             sid,
             "active",
@@ -252,26 +266,71 @@ class OmniRAGAgent(BaseAgent):
             "Searching knowledge base",
             f"{mode_label} — {mode_reason}\n{method_line}\nQuery: \"{rewritten[:80]}…\"",
         )
-
-        pr = await retrieve_for_mode(
-            doc_svc,
-            rewritten,
-            rag_mode,
-            top_k=5,
-            use_hybrid=use_hybrid,
-            hah_chah_enabled=settings.rag_hah_chah_enabled,
+        yield retrieval_event(
+            "started",
+            details=base_retrieval_details,
+            message="Retrieval started",
         )
-        retrieval_context = {
-            "chunks": pr.chunks,
-            "scores": pr.scores,
-            "metadatas": pr.metadatas,
-        }
+
+        if settings.rag_retrieval_worker_enabled:
+            try:
+                async_result = dispatch_rag_retrieval_task(request)
+                retrieval_task_id = async_result.id
+                yield retrieval_event(
+                    "started",
+                    details={**base_retrieval_details, "task_id": retrieval_task_id},
+                    message="Retrieval worker dispatched",
+                )
+                retrieval_context = await await_rag_retrieval_task(
+                    async_result,
+                    settings.rag_retrieval_worker_timeout_seconds,
+                )
+                retrieval_context.setdefault("metrics", {})
+                retrieval_context["metrics"]["task_id"] = retrieval_task_id
+            except TimeoutError as exc:
+                retrieval_fallback = True
+                logger.warning("RAG retrieval worker timed out", error=str(exc))
+                yield retrieval_event(
+                    "timeout",
+                    details={**base_retrieval_details, "task_id": retrieval_task_id},
+                    message="Retrieval worker timed out; falling back to inline retrieval",
+                )
+                retrieval_context = await retrieve_rag_context(
+                    request,
+                    doc_svc=doc_svc or self._get_document_service(request),
+                    fallback_reason="worker_timeout",
+                )
+            except Exception as exc:  # noqa: BLE001
+                retrieval_fallback = True
+                logger.warning("RAG retrieval worker failed", error=str(exc))
+                yield retrieval_event(
+                    "error",
+                    details={
+                        **base_retrieval_details,
+                        "task_id": retrieval_task_id,
+                        "error": str(exc),
+                    },
+                    message="Retrieval worker failed; falling back to inline retrieval",
+                )
+                retrieval_context = await retrieve_rag_context(
+                    request,
+                    doc_svc=doc_svc or self._get_document_service(request),
+                    fallback_reason="worker_error",
+                )
+        else:
+            retrieval_context = await retrieve_rag_context(request, doc_svc=doc_svc)
+
+        retrieval_context.setdefault("metrics", {})
+        retrieval_context["metrics"]["task_id"] = retrieval_task_id
+        retrieval_context["metrics"]["fallback"] = bool(
+            retrieval_context["metrics"].get("fallback") or retrieval_fallback
+        )
         n_chunks = len(retrieval_context["chunks"])
         scores = retrieval_context.get("scores", [])
         top_score = f"{scores[0]:.3f}" if scores else "—"
-        if pr.pipeline == "hah_backend":
+        if retrieval_context.get("pipeline") == "hah_backend":
             done_method = "HAH-like two-pass + RRF"
-        elif pr.pipeline == "chah_backend":
+        elif retrieval_context.get("pipeline") == "chah_backend":
             done_method = "C-HAH-like parallel + RRF"
         else:
             done_method = (
@@ -283,8 +342,8 @@ class OmniRAGAgent(BaseAgent):
             if n_chunks
             else "No documents in knowledge base — using built-in rules"
         )
-        if n_chunks and pr.detail:
-            done_detail = f"{done_detail}\n{pr.detail}"
+        if n_chunks and retrieval_context.get("detail"):
+            done_detail = f"{done_detail}\n{retrieval_context['detail']}"
 
         yield self._step(
             sid,
@@ -296,6 +355,18 @@ class OmniRAGAgent(BaseAgent):
             done_detail,
             duration=self._ms_since(step_start),
             scores=scores[:5],
+        )
+        yield retrieval_event(
+            "completed" if n_chunks else "no_context",
+            details={
+                **base_retrieval_details,
+                **(retrieval_context.get("metrics") or {}),
+                "task_id": retrieval_task_id,
+                "chunks_retrieved": n_chunks,
+                "pipeline": retrieval_context.get("pipeline"),
+            },
+            message=f"Retrieved {n_chunks} chunks" if n_chunks else "No retrieval context found",
+            rag_context=retrieval_context,
         )
 
         # ── Step 5: Context Filtering & Reranking ──

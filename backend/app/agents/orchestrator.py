@@ -229,6 +229,7 @@ class AgentOrchestrator:
                 
                 # Agent start is handled by individual agents via decision_step chunks
                 agent_has_content = False
+                rag_retrieval_reported = False
                 async for chunk in agent.process(request):
                     content = chunk.get("content", "")
                     
@@ -248,12 +249,17 @@ class AgentOrchestrator:
                         }
                         break
                     
-                    # Emit retrieval event if RAG agent is retrieving
+                    if agent_id == "rag" and chunk.get("chunk_type") == "retrieval":
+                        rag_retrieval_reported = True
+
+                    # Emit legacy retrieval event if the agent did not already
+                    # emit the structured retrieval lifecycle.
                     if agent_id == "rag" and not agent_has_content:
                         # Check if we have retrieval results
-                        if chunk.get("sources"):
+                        if chunk.get("sources") and not rag_retrieval_reported:
                             yield {
                                 "chunk_type": "retrieval",
+                                "phase": "completed",
                                 "content": "",
                                 "agent": "RAG Agent",
                                 "message": f"Retrieved {len(chunk.get('sources', []))} relevant documents",

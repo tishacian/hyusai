@@ -64,7 +64,14 @@ class Settings(BaseSettings):
     # RAG: HAH/C-HAH backend pipelines (multi-pass on DocumentService; see pipeline_retrieval.py)
     rag_hah_chah_enabled: bool = True
     rag_retrieval_worker_enabled: bool = False
+    rag_retrieval_worker_timeout_seconds: float = 120.0
+    chat_stream_timeout_seconds: float = 180.0
     bm25_rebuild_inline_max_chunks: int = 50000
+
+    # OpenAI Responses API rollout. The chat-completions path remains the
+    # default until explicitly enabled per environment.
+    openai_responses_api_enabled: bool = False
+    openai_responses_include_reasoning_encrypted_content: bool = True
 
     # Keycloak OIDC (papai-org realm, core-service client)
     # keycloak_url: public URL, used for "iss" validation and user-facing links

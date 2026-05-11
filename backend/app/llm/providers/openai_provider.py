@@ -5,8 +5,14 @@ import os
 import time
 import logging
 from collections.abc import AsyncGenerator
-from openai import AsyncOpenAI
+from typing import Any
 
+try:  # Import lazily enough for tests/dev envs without the optional package.
+    from openai import AsyncOpenAI
+except ImportError:  # pragma: no cover - exercised in minimal local envs
+    AsyncOpenAI = None  # type: ignore[assignment]
+
+from app.core.config import settings
 from ..base import LLMProvider
 from ..models import (
     CompletionRequest,
@@ -60,6 +66,8 @@ class OpenAIProvider(LLMProvider):
             raise ValueError("OpenAI API key is required")
             
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL", self.DEFAULT_BASE_URL)
+        if AsyncOpenAI is None:
+            raise RuntimeError("OpenAI package not installed. Install with: pip install openai")
 
         self.client = AsyncOpenAI(
             api_key=self.api_key,
@@ -68,7 +76,10 @@ class OpenAIProvider(LLMProvider):
 
     def _is_thinking_model(self, model: str) -> bool:
         """Check if the model is a thinking model."""
-        return model in self.THINKING_MODELS
+        return any(model == item or model.startswith(f"{item}-") for item in self.THINKING_MODELS)
+
+    def _uses_responses_api(self) -> bool:
+        return bool(settings.openai_responses_api_enabled)
     
     def _prepare_api_params(self, request: CompletionRequest, streaming: bool = False) -> dict:
         """
@@ -138,6 +149,78 @@ class OpenAIProvider(LLMProvider):
             params["user"] = request.user
         
         return params
+
+    def _prepare_responses_params(self, request: CompletionRequest) -> dict:
+        """Prepare parameters for OpenAI Responses API calls."""
+        model = request.model or os.getenv("OPENAI_DEFAULT_MODEL", self.DEFAULT_MODEL)
+        messages = request.messages_as_dicts()
+        instructions = None
+        input_messages = []
+        for message in messages:
+            role = message.get("role")
+            content = message.get("content", "")
+            if role == "system" and instructions is None:
+                instructions = content
+                continue
+            input_messages.append(
+                {
+                    "role": "assistant" if role == "assistant" else "user",
+                    "content": content,
+                }
+            )
+
+        params: dict[str, Any] = {
+            "model": model,
+            "input": input_messages or [{"role": "user", "content": ""}],
+            "store": False,
+        }
+        if instructions:
+            params["instructions"] = instructions
+
+        is_thinking = self._is_thinking_model(model)
+        if not is_thinking and request.temperature is not None:
+            params["temperature"] = request.temperature
+        if request.max_completion_tokens is not None:
+            params["max_output_tokens"] = request.max_completion_tokens
+        elif request.max_tokens is not None:
+            params["max_output_tokens"] = request.max_tokens
+        if request.top_p is not None:
+            params["top_p"] = request.top_p
+        if request.user:
+            params["user"] = request.user
+        if (
+            is_thinking
+            and settings.openai_responses_include_reasoning_encrypted_content
+        ):
+            params["include"] = ["reasoning.encrypted_content"]
+        return params
+
+    @staticmethod
+    def _response_output_text(response: Any) -> str:
+        text = getattr(response, "output_text", None)
+        if text:
+            return text
+        parts: list[str] = []
+        for item in getattr(response, "output", []) or []:
+            for content in getattr(item, "content", []) or []:
+                content_text = getattr(content, "text", None)
+                if content_text:
+                    parts.append(content_text)
+        return "".join(parts)
+
+    @staticmethod
+    def _responses_usage(response: Any) -> TokenUsage | None:
+        usage = getattr(response, "usage", None)
+        if not usage:
+            return None
+        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        total_tokens = int(getattr(usage, "total_tokens", input_tokens + output_tokens) or 0)
+        return TokenUsage(
+            prompt_tokens=input_tokens,
+            completion_tokens=output_tokens,
+            total_tokens=total_tokens,
+        )
     
     def _calculate_costs(self, usage: TokenUsage, model: str) -> TokenUsage:
         """
@@ -173,11 +256,37 @@ class OpenAIProvider(LLMProvider):
         Returns:
             CompletionResponse with choices, usage, and metadata
         """
-        # Prepare API parameters
-        params = self._prepare_api_params(request)
-        
         # Track timing
         start_time = time.time()
+
+        if self._uses_responses_api():
+            params = self._prepare_responses_params(request)
+            response = await self.client.responses.create(**params)
+            response_ms = (time.time() - start_time) * 1000
+            model = getattr(response, "model", request.model)
+            usage = self._responses_usage(response)
+            if usage:
+                usage = self._calculate_costs(usage, model)
+            return CompletionResponse(
+                id=getattr(response, "id", request.request_id),
+                model=model,
+                created=int(getattr(response, "created_at", time.time()) or time.time()),
+                choices=[
+                    Choice(
+                        index=0,
+                        message=Message(
+                            role=MessageRole.ASSISTANT,
+                            content=self._response_output_text(response),
+                        ),
+                        finish_reason=getattr(response, "status", None),
+                    )
+                ],
+                usage=usage,
+                response_ms=response_ms,
+            )
+
+        # Prepare API parameters
+        params = self._prepare_api_params(request)
         
         # Make the API call
         response = await self.client.chat.completions.create(**params)
@@ -243,6 +352,34 @@ class OpenAIProvider(LLMProvider):
         Returns:
             AsyncGenerator yielding StreamingResponse chunks
         """
+        if self._uses_responses_api():
+            params = self._prepare_responses_params(request)
+            model = params["model"]
+            created = int(time.time())
+            chunk_count = 0
+            async with self.client.responses.stream(**params) as stream:
+                async for event in stream:
+                    if getattr(event, "type", None) != "response.output_text.delta":
+                        continue
+                    delta = getattr(event, "delta", "") or ""
+                    if not delta:
+                        continue
+                    chunk_count += 1
+                    yield StreamingResponse(
+                        id=getattr(event, "response_id", request.request_id),
+                        model=model,
+                        created=created,
+                        choices=[
+                            StreamChoice(
+                                index=0,
+                                delta={"content": delta},
+                                finish_reason=None,
+                            )
+                        ],
+                    )
+            logging.debug(f"Responses streaming complete: {chunk_count} chunks")
+            return
+
         # Prepare API parameters
         params = self._prepare_api_params(request, streaming=True)
         
