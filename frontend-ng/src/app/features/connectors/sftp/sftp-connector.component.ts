@@ -3,8 +3,10 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 
@@ -51,12 +53,25 @@ interface FolderCrumb {
   path: string;
 }
 
+interface DepositPreview {
+  kind: 'text' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  download_url: string;
+  content?: string;
+  rows?: string[][];
+  sheet_name?: string;
+  truncated?: boolean;
+  reason?: string;
+}
+
 const MAX_VISIBLE_QUEUE_ROWS = 300;
 
 @Component({
   selector: 'app-sftp-connector',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, IconComponent, SectionHeaderComponent],
+  imports: [CommonModule, FormsModule, RouterLink, DrawerComponent, IconComponent, SectionHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-section-header
@@ -336,7 +351,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
                       </span>
                     </button>
                   } @else if (item.file; as file) {
-                    <div class="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(180px,0.8fr)_132px_112px_120px] xl:items-center">
+                    <div class="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(180px,0.75fr)_132px_112px_220px] xl:items-center">
                       <div class="min-w-0">
                         <h3 class="truncate text-sm font-semibold text-white">{{ item.name }}</h3>
                         <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ item.path }}</p>
@@ -356,15 +371,34 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
                         </span>
                         <span class="text-xs text-gray-400">{{ formatBytes(file.size_bytes) }}</span>
                       </div>
-                      <button
-                        type="button"
-                        class="inline-flex items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40"
-                        [disabled]="file.status !== 'received' || saving()"
-                        (click)="promote(file)"
-                      >
-                        <app-icon name="archive-restore" [size]="13" />
-                        {{ file.status === 'promoted' ? 'Promoted' : 'Promote' }}
-                      </button>
+                      <div class="flex flex-wrap items-center gap-2 xl:justify-end">
+                        <button
+                          type="button"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300"
+                          title="Preview file"
+                          (click)="previewFile(file)"
+                        >
+                          <app-icon name="eye" [size]="13" />
+                        </button>
+                        <button
+                          type="button"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
+                          title="Download file"
+                          [disabled]="downloadingFileId() === file.id"
+                          (click)="downloadFile(file)"
+                        >
+                          <app-icon name="download" [size]="13" />
+                        </button>
+                        <button
+                          type="button"
+                          class="inline-flex h-8 items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-200 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40"
+                          [disabled]="file.status !== 'received' || saving()"
+                          (click)="promote(file)"
+                        >
+                          <app-icon name="archive-restore" [size]="13" />
+                          {{ file.status === 'promoted' ? 'Promoted' : 'Promote' }}
+                        </button>
+                      </div>
                     </div>
                   }
                 </li>
@@ -382,11 +416,82 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
         </section>
       </div>
     </section>
+
+    <app-drawer
+      [open]="previewOpen()"
+      [title]="previewFileTarget()?.filename ?? 'File preview'"
+      subtitle="Secure Deposit staging"
+      icon="eye"
+      [width]="760"
+      (close)="closePreview()"
+    >
+      @if (previewLoading()) {
+        <div class="space-y-2">
+          @for (_ of [0, 1, 2, 3, 4, 5, 6]; track $index) {
+            <div class="h-3 rounded bg-white/5 animate-pulse"></div>
+          }
+        </div>
+      } @else if (previewError()) {
+        <div class="rounded bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-500/20">{{ previewError() }}</div>
+      } @else if (previewData(); as preview) {
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div class="min-w-0">
+            <p class="truncate text-sm font-semibold text-white">{{ basename(preview.filename) }}</p>
+            <p class="mt-1 font-mono text-[11px] text-gray-500">{{ preview.content_type }} · {{ formatBytes(preview.size_bytes) }}</p>
+          </div>
+          <button
+            type="button"
+            class="inline-flex items-center justify-center gap-1.5 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-400"
+            (click)="previewFileTarget() && downloadFile(previewFileTarget()!)"
+          >
+            <app-icon name="download" [size]="13" /> Download
+          </button>
+        </div>
+
+        @if (preview.kind === 'text') {
+          @if (preview.truncated) {
+            <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
+          }
+          <pre class="max-h-[70vh] overflow-auto rounded bg-black/30 p-3 font-mono text-[11px] leading-relaxed text-gray-200 whitespace-pre-wrap ring-1 ring-white/10">{{ preview.content }}</pre>
+        } @else if (preview.kind === 'spreadsheet') {
+          <div class="mb-2 flex items-center justify-between text-xs text-gray-400">
+            <span>Sheet: {{ preview.sheet_name || 'Sheet 1' }}</span>
+            @if (preview.truncated) {
+              <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">Preview truncated</span>
+            }
+          </div>
+          <div class="max-h-[70vh] overflow-auto rounded ring-1 ring-white/10">
+            <table class="min-w-full border-collapse text-left text-xs">
+              <tbody>
+                @for (row of preview.rows || []; track $index) {
+                  <tr class="border-b border-white/5 odd:bg-white/[0.02]">
+                    @for (cell of row; track $index) {
+                      <td class="max-w-[220px] truncate px-3 py-2 text-gray-200">{{ cell || ' ' }}</td>
+                    }
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else if (preview.kind === 'image' && previewObjectUrl()) {
+          <div class="max-h-[70vh] overflow-auto rounded bg-black/30 p-2 ring-1 ring-white/10">
+            <img [src]="previewObjectUrl()!" [alt]="preview.filename" class="mx-auto max-h-[68vh] max-w-full object-contain" />
+          </div>
+        } @else if (preview.kind === 'pdf' && previewPdfUrl()) {
+          <iframe [src]="previewPdfUrl()!" class="h-[70vh] w-full rounded bg-black/30 ring-1 ring-white/10"></iframe>
+        } @else {
+          <div class="rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
+            Inline preview is not available for this file type or size. Download the file to inspect it locally.
+          </div>
+        }
+      }
+    </app-drawer>
   `,
 })
 export class SftpConnectorComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly http = inject(HttpClient);
+  private readonly sanitizer = inject(DomSanitizer);
   private readonly toast = inject(ToastrService);
 
   readonly links = signal<DepositLink[]>([]);
@@ -395,7 +500,15 @@ export class SftpConnectorComponent implements OnInit {
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly downloading = signal(false);
+  readonly downloadingFileId = signal<string | null>(null);
   readonly error = signal<string | null>(null);
+  readonly previewOpen = signal(false);
+  readonly previewLoading = signal(false);
+  readonly previewError = signal<string | null>(null);
+  readonly previewFileTarget = signal<DepositFile | null>(null);
+  readonly previewData = signal<DepositPreview | null>(null);
+  readonly previewObjectUrl = signal<string | null>(null);
+  readonly previewPdfUrl = signal<SafeResourceUrl | null>(null);
   readonly selectedLinkId = signal('');
   readonly currentFolder = signal('');
   readonly queueSearch = signal('');
@@ -554,6 +667,63 @@ export class SftpConnectorComponent implements OnInit {
       });
   }
 
+  previewFile(file: DepositFile): void {
+    this.revokePreviewObjectUrl();
+    this.previewOpen.set(true);
+    this.previewLoading.set(true);
+    this.previewError.set(null);
+    this.previewFileTarget.set(file);
+    this.previewData.set(null);
+    this.api.get<DepositPreview>(`/sftp/deposits/${file.id}/preview`).subscribe({
+      next: (preview) => {
+        this.previewData.set(preview);
+        if (preview.kind === 'image' || preview.kind === 'pdf') {
+          this.loadPreviewBlob(file, preview.kind);
+          return;
+        }
+        this.previewLoading.set(false);
+      },
+      error: (err) => {
+        this.previewError.set(this.errorMessage(err, 'Unable to load file preview.'));
+        this.previewLoading.set(false);
+      },
+    });
+  }
+
+  closePreview(): void {
+    this.previewOpen.set(false);
+    this.previewLoading.set(false);
+    this.previewFileTarget.set(null);
+    this.previewData.set(null);
+    this.previewError.set(null);
+    this.revokePreviewObjectUrl();
+  }
+
+  downloadFile(file: DepositFile): void {
+    this.downloadingFileId.set(file.id);
+    this.http
+      .get(`${this.api.base}/sftp/deposits/${file.id}/download`, {
+        observe: 'response',
+        responseType: 'blob',
+      })
+      .subscribe({
+        next: (response) => {
+          const blob = response.body;
+          if (!blob) {
+            this.toast.error('Empty file response', 'Secure Deposit');
+            this.downloadingFileId.set(null);
+            return;
+          }
+          this.saveBlob(blob, this.responseFilename(response.headers.get('content-disposition'), this.basename(file.filename)));
+          this.downloadingFileId.set(null);
+        },
+        error: (err) => {
+          this.toast.error(this.errorMessage(err, 'Unable to download file.'), 'Secure Deposit');
+          this.downloadingFileId.set(null);
+        },
+      });
+  }
+
   absoluteUrl(url: string): string {
     return new URL(url, window.location.origin).href;
   }
@@ -616,6 +786,38 @@ export class SftpConnectorComponent implements OnInit {
     return 'bg-red-500/10 text-red-200 ring-red-500/25';
   }
 
+  basename(path: string): string {
+    const parts = path.split('/').filter(Boolean);
+    return parts.at(-1) || path || 'upload';
+  }
+
+  private loadPreviewBlob(file: DepositFile, kind: 'image' | 'pdf'): void {
+    this.http
+      .get(`${this.api.base}/sftp/deposits/${file.id}/download`, {
+        params: new HttpParams().set('disposition', 'inline'),
+        responseType: 'blob',
+      })
+      .subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          this.previewObjectUrl.set(url);
+          this.previewPdfUrl.set(kind === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(url) : null);
+          this.previewLoading.set(false);
+        },
+        error: (err) => {
+          this.previewError.set(this.errorMessage(err, 'Unable to load inline preview.'));
+          this.previewLoading.set(false);
+        },
+      });
+  }
+
+  private revokePreviewObjectUrl(): void {
+    const url = this.previewObjectUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.previewObjectUrl.set(null);
+    this.previewPdfUrl.set(null);
+  }
+
   private saveBlob(blob: Blob, filename: string): void {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -631,6 +833,10 @@ export class SftpConnectorComponent implements OnInit {
     const fallback = this.selectedLinkId()
       ? `${this.slugify(this.linkLabel(this.selectedLinkId()))}-staging.zip`
       : 'andritz-secure-deposit-staging.zip';
+    return this.responseFilename(disposition, fallback);
+  }
+
+  private responseFilename(disposition: string | null, fallback: string): string {
     if (!disposition) return fallback;
     const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
     if (encoded?.[1]) return decodeURIComponent(encoded[1].replace(/"/g, ''));
@@ -712,11 +918,6 @@ export class SftpConnectorComponent implements OnInit {
 
   private filePath(file: DepositFile): string {
     return (file.filename || 'upload').replace(/\\/g, '/').split('/').filter(Boolean).join('/');
-  }
-
-  private basename(path: string): string {
-    const parts = path.split('/').filter(Boolean);
-    return parts.at(-1) || path || 'upload';
   }
 
   private errorMessage(err: unknown, fallback: string): string {

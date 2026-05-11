@@ -26,6 +26,7 @@ from app.services.secure_deposit import (
     get_link_by_access_id,
     is_workspace_enabled,
     promote_file_to_collection,
+    preview_deposit_file,
     receive_file,
     revoke_link,
     rotate_link_password,
@@ -33,6 +34,9 @@ from app.services.secure_deposit import (
     serialize_link,
     serialize_public_file,
     serialize_public_link,
+    staged_file_download_name,
+    staged_file_media_type,
+    staged_file_path,
     verify_session_token,
 )
 from app.services.audit_logger import emit_audit_event
@@ -106,6 +110,14 @@ def _workspace_file(db: DBSession, workspace: Workspace, file_id: str) -> Deposi
     return file
 
 
+def _workspace_file_link(
+    db: DBSession,
+    workspace: Workspace,
+    file: DepositFile,
+) -> DepositAccessLink:
+    return _workspace_link(db, workspace, file.access_link_id)
+
+
 def _can_read_all(db: DBSession, *, user: User, workspace: Workspace, resource_kind: str) -> bool:
     decision = evaluate_permission(
         db,
@@ -138,6 +150,30 @@ def _enforce(
         action=action,
         resource_attrs=attrs,
         audit_prefix="deposit",
+    )
+
+
+def _enforce_file_read(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    file: DepositFile,
+    link: DepositAccessLink,
+) -> None:
+    if _can_read_all(db, user=user, workspace=workspace, resource_kind="deposit_file"):
+        return
+    _enforce(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="deposit_file",
+        action="read",
+        resource_attrs={
+            "file_id": file.id,
+            "link_id": link.id,
+            "created_by_user_id": link.created_by_user_id,
+        },
     )
 
 
@@ -392,6 +428,56 @@ def download_deposit_files_archive(
         media_type="application/zip",
         filename=archive_filename,
         background=BackgroundTask(_cleanup_archive, archive_path),
+    )
+
+
+@internal_router.get("/deposits/{file_id}/preview")
+def preview_deposit_staged_file(
+    file_id: str,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    file = _workspace_file(db, workspace, file_id)
+    link = _workspace_file_link(db, workspace, file)
+    _enforce_file_read(db, user=user, workspace=workspace, file=file, link=link)
+    payload = preview_deposit_file(file)
+    payload["file"] = serialize_file(file)
+    return payload
+
+
+@internal_router.get("/deposits/{file_id}/download")
+def download_deposit_staged_file(
+    file_id: str,
+    disposition: str = Query(default="attachment", pattern="^(attachment|inline)$"),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    file = _workspace_file(db, workspace, file_id)
+    link = _workspace_file_link(db, workspace, file)
+    _enforce_file_read(db, user=user, workspace=workspace, file=file, link=link)
+    path = staged_file_path(file)
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="deposit.file.downloaded",
+        actor=user.email or user.username or user.id,
+        details={
+            "file_id": file.id,
+            "link_id": link.id,
+            "access_id": link.access_id,
+            "filename": file.filename,
+            "size_bytes": file.size_bytes,
+            "disposition": disposition,
+        },
+    )
+    db.commit()
+    return FileResponse(
+        path,
+        media_type=staged_file_media_type(file),
+        filename=staged_file_download_name(file),
+        content_disposition_type=disposition,
     )
 
 

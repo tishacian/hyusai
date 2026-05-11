@@ -10,6 +10,7 @@ import base64
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -46,6 +47,21 @@ except Exception:  # noqa: BLE001 - dev/test fallback when deps are stale.
 _PBKDF2_PREFIX = "pbkdf2_sha256"
 _TOKEN_ALGORITHM = "HS256"
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
+_TEXT_PREVIEW_BYTES = 1024 * 1024
+_STRUCTURED_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
+_INLINE_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
+_TEXT_EXTENSIONS = {
+    "csv",
+    "json",
+    "log",
+    "md",
+    "rst",
+    "txt",
+    "xml",
+    "yaml",
+    "yml",
+}
+_SPREADSHEET_EXTENSIONS = {"xlsx", "xlsm", "xltx", "xltm"}
 
 
 def enabled_workspace_slugs() -> set[str]:
@@ -192,6 +208,24 @@ def _copy_staged_to_local(key: str, destination: Path) -> Path:
     return destination
 
 
+def staged_file_path(file: DepositFile) -> Path:
+    path = _storage_path(file.object_key)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=409, detail=f"Staged file is missing: {file.filename}")
+    return path
+
+
+def staged_file_media_type(file: DepositFile) -> str:
+    guessed, _ = mimetypes.guess_type(file.filename or "")
+    if guessed:
+        return guessed
+    return file.content_type or "application/octet-stream"
+
+
+def staged_file_download_name(file: DepositFile) -> str:
+    return safe_filename(PurePosixPath(file.filename or "deposit-file").name)
+
+
 def _hash_local_file(path: Path) -> tuple[int, str]:
     size = 0
     digest = hashlib.sha256()
@@ -203,6 +237,76 @@ def _hash_local_file(path: Path) -> tuple[int, str]:
             size += len(chunk)
             digest.update(chunk)
     return size, digest.hexdigest()
+
+
+def _cell_preview(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="seconds")
+    return str(value)[:240]
+
+
+def _spreadsheet_preview(path: Path) -> dict[str, Any]:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet = workbook[workbook.sheetnames[0]]
+        rows: list[list[str]] = []
+        max_rows = 40
+        max_cols = 12
+        for row_index, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            if row_index > max_rows:
+                break
+            rows.append([_cell_preview(value) for value in row[:max_cols]])
+        return {
+            "kind": "spreadsheet",
+            "sheet_name": sheet.title,
+            "rows": rows,
+            "truncated": bool((sheet.max_row or 0) > max_rows or (sheet.max_column or 0) > max_cols),
+        }
+    finally:
+        workbook.close()
+
+
+def preview_deposit_file(file: DepositFile) -> dict[str, Any]:
+    path = staged_file_path(file)
+    media_type = staged_file_media_type(file)
+    ext = extension_for(file.filename)
+    base: dict[str, Any] = {
+        "filename": file.filename,
+        "content_type": media_type,
+        "size_bytes": int(file.size_bytes or 0),
+        "download_url": f"/api/v1/sftp/deposits/{file.id}/download",
+    }
+
+    if ext in _SPREADSHEET_EXTENSIONS and int(file.size_bytes or 0) <= _STRUCTURED_PREVIEW_MAX_BYTES:
+        return {**base, **_spreadsheet_preview(path)}
+
+    if ext in _TEXT_EXTENSIONS or media_type.startswith("text/"):
+        if int(file.size_bytes or 0) > _TEXT_PREVIEW_BYTES:
+            return {**base, "kind": "binary", "reason": "text_preview_too_large"}
+        data = path.read_bytes()
+        truncated = len(data) > _TEXT_PREVIEW_BYTES
+        data = data[:_TEXT_PREVIEW_BYTES]
+        for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+            try:
+                content = data.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            content = data.decode("utf-8", errors="replace")
+        return {**base, "kind": "text", "content": content, "truncated": truncated}
+
+    if int(file.size_bytes or 0) <= _INLINE_PREVIEW_MAX_BYTES:
+        if media_type.startswith("image/"):
+            return {**base, "kind": "image"}
+        if media_type == "application/pdf":
+            return {**base, "kind": "pdf"}
+
+    return {**base, "kind": "binary"}
 
 
 def _archive_component(value: str | None, fallback: str) -> str:

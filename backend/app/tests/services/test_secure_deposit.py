@@ -17,6 +17,7 @@ from app.services.secure_deposit import (
     authenticate_link,
     build_deposit_archive,
     create_link,
+    preview_deposit_file,
     record_staged_file_from_path,
     safe_filename,
     safe_relative_path,
@@ -218,6 +219,76 @@ def test_build_deposit_archive_contains_files_and_manifest(db_session, monkeypat
             assert manifest["files"][0]["sha256"] == row.sha256
     finally:
         archive_path.unlink(missing_ok=True)
+
+
+def test_preview_deposit_file_returns_text_content(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="QA unrestricted",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    staged = tmp_path / "upload.part"
+    staged.write_text("# Maintenance note\nTorque setting: 42 Nm", encoding="utf-8")
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="manuals/drive/note.md",
+        content_type="text/markdown",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    preview = preview_deposit_file(row)
+
+    assert preview["kind"] == "text"
+    assert "Torque setting" in preview["content"]
+    assert preview["download_url"].endswith(f"/{row.id}/download")
+
+
+def test_preview_deposit_file_returns_spreadsheet_rows(db_session, monkeypatch, tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="QA unrestricted",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    staged = tmp_path / "upload.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "AKK"
+    sheet.append(["Reference", "Value"])
+    sheet.append(["PULP80", 154.8])
+    workbook.save(staged)
+
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="AKK-WET-PAT-PULP80.xlsx",
+        content_type="application/octet-stream",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    preview = preview_deposit_file(row)
+
+    assert preview["kind"] == "spreadsheet"
+    assert preview["sheet_name"] == "AKK"
+    assert preview["rows"][0] == ["Reference", "Value"]
+    assert preview["rows"][1] == ["PULP80", "154.8"]
 
 
 def test_safe_filename_strips_paths_and_unsafe_characters():
