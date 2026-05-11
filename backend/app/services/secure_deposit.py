@@ -62,6 +62,9 @@ _TEXT_EXTENSIONS = {
     "yml",
 }
 _SPREADSHEET_EXTENSIONS = {"xlsx", "xlsm", "xltx", "xltm"}
+_DOCX_EXTENSIONS = {"docx"}
+_DOCX_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
+_DOCX_PREVIEW_MAX_CHARS = 200_000
 
 
 def enabled_workspace_slugs() -> set[str]:
@@ -270,6 +273,52 @@ def _spreadsheet_preview(path: Path) -> dict[str, Any]:
         workbook.close()
 
 
+def _docx_preview(path: Path) -> dict[str, Any]:
+    from docx import Document
+
+    document = Document(path)
+    blocks: list[str] = []
+    truncated = False
+
+    def append_block(text: str) -> None:
+        nonlocal truncated
+        clean = text.strip()
+        if not clean or truncated:
+            return
+        current = sum(len(block) for block in blocks) + max(0, len(blocks) - 1) * 2
+        remaining = _DOCX_PREVIEW_MAX_CHARS - current
+        if remaining <= 0:
+            truncated = True
+            return
+        if len(clean) > remaining:
+            blocks.append(clean[:remaining].rstrip())
+            truncated = True
+        else:
+            blocks.append(clean)
+
+    for paragraph in document.paragraphs:
+        append_block(paragraph.text)
+
+    for table in document.tables:
+        rows: list[str] = []
+        for row in table.rows[:40]:
+            cells = [_cell_preview(cell.text.replace("\n", " ")) for cell in row.cells[:12]]
+            if any(cells):
+                rows.append(" | ".join(cells))
+        if rows:
+            append_block("\n".join(rows))
+        if truncated:
+            break
+
+    content = "\n\n".join(blocks).strip()
+    return {
+        "kind": "text",
+        "source_kind": "docx",
+        "content": content or "No textual content found in this DOCX.",
+        "truncated": truncated,
+    }
+
+
 def preview_deposit_file(file: DepositFile) -> dict[str, Any]:
     path = staged_file_path(file)
     media_type = staged_file_media_type(file)
@@ -283,6 +332,9 @@ def preview_deposit_file(file: DepositFile) -> dict[str, Any]:
 
     if ext in _SPREADSHEET_EXTENSIONS and int(file.size_bytes or 0) <= _STRUCTURED_PREVIEW_MAX_BYTES:
         return {**base, **_spreadsheet_preview(path)}
+
+    if ext in _DOCX_EXTENSIONS and int(file.size_bytes or 0) <= _DOCX_PREVIEW_MAX_BYTES:
+        return {**base, **_docx_preview(path)}
 
     if ext in _TEXT_EXTENSIONS or media_type.startswith("text/"):
         if int(file.size_bytes or 0) > _TEXT_PREVIEW_BYTES:

@@ -291,6 +291,48 @@ def test_preview_deposit_file_returns_spreadsheet_rows(db_session, monkeypatch, 
     assert preview["rows"][1] == ["PULP80", "154.8"]
 
 
+def test_preview_deposit_file_returns_docx_text(db_session, monkeypatch, tmp_path):
+    docx = pytest.importorskip("docx")
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="QA unrestricted",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    staged = tmp_path / "commissioning.docx"
+    document = docx.Document()
+    document.add_heading("Commissioning report", level=1)
+    document.add_paragraph("Inspect the dryer pressure before restart.")
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Asset"
+    table.cell(0, 1).text = "Action"
+    table.cell(1, 0).text = "Dryer"
+    table.cell(1, 1).text = "Verify pressure"
+    document.save(staged)
+
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="reports/commissioning.docx",
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    preview = preview_deposit_file(row)
+
+    assert preview["kind"] == "text"
+    assert preview["source_kind"] == "docx"
+    assert "Commissioning report" in preview["content"]
+    assert "Dryer | Verify pressure" in preview["content"]
+
+
 def test_safe_filename_strips_paths_and_unsafe_characters():
     assert safe_filename("../../secret report?.pdf") == "secret report_.pdf"
     assert safe_filename("..\\..\\motor#1.xlsx") == "motor_1.xlsx"
