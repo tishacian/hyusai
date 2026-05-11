@@ -39,6 +39,7 @@ services:
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
       - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
+      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
     command: ["alembic", "upgrade", "head"]
 
   agentium-backend:
@@ -61,6 +62,7 @@ services:
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
       - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
+      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import http.client; c=http.client.HTTPConnection(\"127.0.0.1\",8000,timeout=5); c.request(\"GET\",\"/health\"); raise SystemExit(0 if c.getresponse().status == 200 else 1)'"]
       interval: 10s
@@ -89,6 +91,7 @@ services:
       CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
+      - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
     depends_on:
       agentium-rabbitmq:
         condition: service_healthy

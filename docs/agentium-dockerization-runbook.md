@@ -48,6 +48,7 @@ DATABASE_URL=postgresql://agentium:<password>@agentium-pg:5432/agentium
 KEYCLOAK_URL=https://agentium.papai.ai/kc
 KEYCLOAK_URL_INTERNAL=http://agentium-kc:8080/kc
 QDRANT_HOST=agentium-qdrant
+FAISS_PERSIST_DIRECTORY=/data/faiss_db
 CELERY_BROKER_URL=amqp://guest:<password>@agentium-rabbitmq:5672//
 CELERY_CONCURRENCY=2
 OBJECT_STORE_BASE_PATH=/data/object_store
@@ -56,7 +57,9 @@ DOCUMENT_INGEST_ASYNC_ENABLED=false
 ```
 
 Keep `DOCUMENT_INGEST_ASYNC_ENABLED=false` until RabbitMQ and the worker are
-healthy.
+healthy. Qdrant is the standardized target for new deployments, but
+`FAISS_PERSIST_DIRECTORY=/data/faiss_db` keeps legacy workspace presets
+compatible until their collections are deliberately migrated.
 
 ## Safe Start While SFTP Transfer Is Active
 
