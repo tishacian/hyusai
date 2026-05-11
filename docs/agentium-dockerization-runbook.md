@@ -145,6 +145,39 @@ docker compose -f compose.agentium.yml up -d agentium-backend agentium-worker-cp
 Then upload a small document and verify a `WorkerJob` is created, completed,
 and indexed into Qdrant.
 
+## Migrate Andritz FAISS Collections To Qdrant
+
+Keep the migration invisible by copying FAISS into Qdrant first, validating ID
+parity, then switching the workspace preset only after strict validation:
+
+```bash
+cd /home/ubuntu/omnirag/docker
+export AGENTIUM_ENV_FILE=./env/agentium.vm.env
+docker compose -f compose.agentium.yml --profile tools run --rm --no-deps \
+  agentium-migrate python -m app.cli.migrate_faiss_to_qdrant \
+  --workspace andritz \
+  --collection andritz-mvp-knowledge \
+  --dry-run
+
+docker compose -f compose.agentium.yml --profile tools run --rm --no-deps \
+  agentium-migrate python -m app.cli.migrate_faiss_to_qdrant \
+  --workspace andritz \
+  --collection andritz-mvp-knowledge \
+  --no-dry-run \
+  --replace-target
+
+docker compose -f compose.agentium.yml --profile tools run --rm --no-deps \
+  agentium-migrate python -m app.cli.migrate_faiss_to_qdrant \
+  --workspace andritz \
+  --collection andritz-mvp-knowledge \
+  --no-dry-run \
+  --switch-preset
+```
+
+Rollback remains a preset change: set the Andritz workspace default
+`ragVectorDBType` back to `faiss`. Do not delete the FAISS files until the
+Qdrant cutover has been observed in production.
+
 ## Rollback
 
 ```bash
