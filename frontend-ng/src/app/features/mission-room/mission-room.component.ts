@@ -263,6 +263,7 @@ interface DraftInstruction {
     `
       :host { display: block; min-width: 0; }
       .metric-card {
+        font-family: var(--ck-font-sans);
         min-height: 96px;
         padding: 14px;
         border: 1px solid var(--ck-stroke-2);
@@ -281,10 +282,12 @@ interface DraftInstruction {
         letter-spacing: 0.14em;
       }
       .metric-card strong {
+        font-family: var(--ck-font-mono);
+        font-variant-numeric: tabular-nums;
         color: var(--ck-fg-1);
         font-size: 28px;
         line-height: 1;
-        letter-spacing: 0;
+        letter-spacing: -0.01em;
       }
       .metric-card small {
         color: var(--ck-fg-4);
@@ -327,6 +330,7 @@ export class MissionMetricCardComponent {
     `
       :host { display: block; min-width: 0; }
       .chart-panel {
+        font-family: var(--ck-font-sans);
         min-height: 220px;
         height: 100%;
         padding: 16px;
@@ -359,6 +363,8 @@ export class MissionMetricCardComponent {
         letter-spacing: 0;
       }
       .chart-head strong {
+        font-family: var(--ck-font-mono);
+        font-variant-numeric: tabular-nums;
         color: var(--ck-signal-pos);
         font-size: 22px;
       }
@@ -463,6 +469,7 @@ export class MissionSourcePillComponent {
     `
       :host { display: block; min-height: 0; }
       .mission-rail {
+        font-family: var(--ck-font-sans);
         width: 220px;
         height: 100%;
         padding: 18px 16px;
@@ -494,8 +501,10 @@ export class MissionSourcePillComponent {
       }
       .rail-brand strong {
         display: block;
-        font-size: 13px;
-        letter-spacing: 0.18em;
+        font-family: var(--ck-font-mono);
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
       }
       .rail-brand small {
         color: var(--ck-fg-3);
@@ -573,9 +582,12 @@ export class MissionSourcePillComponent {
       }
       .rail-clock strong {
         display: block;
+        font-family: var(--ck-font-mono);
+        font-variant-numeric: tabular-nums;
         color: var(--ck-fg-1);
         font-size: 24px;
         font-weight: 500;
+        letter-spacing: -0.01em;
       }
     `,
   ],
@@ -1138,7 +1150,14 @@ export class MissionRailComponent {
   `,
   styles: [
     `
-      :host { display: block; height: 100vh; overflow: hidden; background: var(--ck-bg-base); }
+      :host {
+        display: block;
+        height: 100vh;
+        overflow: hidden;
+        background: var(--ck-bg-base);
+        font-family: var(--ck-font-sans);
+        font-feature-settings: "tnum", "zero";
+      }
       .mission-shell {
         height: 100vh;
         display: grid;
@@ -1186,8 +1205,9 @@ export class MissionRailComponent {
       .mission-hero h1 {
         margin: 6px 0 2px;
         font-size: clamp(34px, 4vw, 52px);
+        font-weight: 700;
         line-height: 1;
-        letter-spacing: 0;
+        letter-spacing: -0.01em;
       }
       .mission-hero p {
         margin: 0;
@@ -1263,6 +1283,8 @@ export class MissionRailComponent {
         display: block;
         margin-top: 8px;
         font-size: 19px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
       }
       .priority-card p {
         color: var(--ck-fg-2);
@@ -1331,7 +1353,12 @@ export class MissionRailComponent {
       }
       .bar.primary { background: var(--ck-signal-cool); }
       .bar.grey { background: var(--ck-stroke-3); }
-      .bar-col small { color: var(--ck-fg-4); font-size: 10px; }
+      .bar-col small {
+        color: var(--ck-fg-4);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
       .ops-panel {
         display: flex;
         align-items: center;
@@ -1361,7 +1388,13 @@ export class MissionRailComponent {
         z-index: 1;
         grid-area: 1 / 1;
       }
-      .donut strong { font-size: 26px; transform: translateY(-7px); }
+      .donut strong {
+        font-family: var(--ck-font-mono);
+        font-size: 26px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.01em;
+        transform: translateY(-7px);
+      }
       .donut span { color: var(--ck-fg-3); font-size: 11px; transform: translateY(16px); }
       .legend {
         display: flex;
@@ -1369,6 +1402,7 @@ export class MissionRailComponent {
         gap: 9px;
         color: var(--ck-fg-2);
         font-size: 12px;
+        font-variant-numeric: tabular-nums;
       }
       .legend i {
         display: inline-block;
@@ -1450,6 +1484,7 @@ export class MissionRailComponent {
         color: var(--ck-fg-4);
         font-family: var(--ck-font-mono);
         font-size: 11px;
+        font-variant-numeric: tabular-nums;
       }
       .agenda-list strong {
         display: block;
@@ -1475,7 +1510,14 @@ export class MissionRailComponent {
         font-size: 11px;
         overflow-wrap: anywhere;
       }
-      .keyword-grid strong { display: block; margin-top: 6px; font-size: 20px; }
+      .keyword-grid strong {
+        display: block;
+        margin-top: 6px;
+        font-family: var(--ck-font-mono);
+        font-size: 20px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.01em;
+      }
       .keyword-grid small { color: var(--ck-signal-pos); }
       .keyword-grid small.down { color: var(--ck-signal-neg); }
       .two-column {
@@ -1495,7 +1537,8 @@ export class MissionRailComponent {
       .content-panel h2,
       .content-panel h3 {
         margin: 8px 0 8px;
-        letter-spacing: 0;
+        font-weight: 650;
+        letter-spacing: -0.01em;
       }
       .content-panel p {
         color: var(--ck-fg-2);
@@ -1580,6 +1623,7 @@ export class MissionRailComponent {
         color: var(--ck-signal-cool);
         font-family: var(--ck-font-mono);
         font-size: 11px;
+        font-variant-numeric: tabular-nums;
       }
       .message-list span {
         display: block;
@@ -1608,6 +1652,7 @@ export class MissionRailComponent {
       }
       .territory-map text {
         fill: var(--ck-fg-1);
+        font-family: var(--ck-font-sans);
         font-size: 16px;
         font-weight: 700;
         pointer-events: none;
