@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.intelligence.batch import ensure_intelligence_defaults
 from app.services.mission_room import SENTINEL_WORKSPACE_SLUG, ensure_sentinel_ci_workspace, navigation_payload
+from app.services.rag_preset_service import RagPresetService
 from app.services.skills_registry import bound_slugs, seed_skills_and_capabilities
 
 
@@ -36,11 +37,23 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["hide_provider_details"] is True
     assert workspace.settings["mission_room"]["label"] == "VIGIE"
     assert len(workspace.settings["mission_room"]["navigation"]) >= 10
+    assert workspace.settings["assistant_profile_default"] == "vigie_executive"
+    assert workspace.settings["assistant_profiles"][0]["default_knowledge_scope"] == "vigie"
+    assert workspace.settings["knowledge_scopes"][0]["collection_slugs"] == [
+        "sentinel-ci-open-intelligence",
+        "sentinel-ci-projects",
+        "sentinel-ci-ministerial-briefs",
+        "sentinel-ci-territorial-map",
+    ]
     assert db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).count() == 1
     assert db_session.query(System).filter_by(workspace_id=workspace.id).count() == 6
     assert db_session.query(FeedSource).filter_by(workspace_id=workspace.id).count() >= 3
     preset = db_session.query(RagPreset).filter_by(workspace_id=workspace.id, is_default=True).one()
+    assert preset.scope_id == workspace.id
     assert preset.config["mode"] == "chah"
+    assert preset.config["ragPipelineMode"] == "chah"
+    assert preset.config["ragCollectionName"] == "sentinel-ci-open-intelligence"
+    assert preset.config["ragTopK"] == 6
     assert preset.config["asyncRetrieval"] is True
 
 
@@ -103,3 +116,24 @@ def test_mission_room_navigation_prefers_workspace_intelligence_system(db_sessio
 
     assert presse["system_name"] == "Veille Presse & Signaux Faibles"
     assert veille["system_id"] == presse["system_id"]
+
+
+def test_rag_preset_resolver_does_not_borrow_other_workspace_defaults(db_session):
+    a = Workspace(id="workspace-a", slug="andritz", name="Andritz")
+    b = Workspace(id="workspace-b", slug="sentinel-ci", name="SENTINEL-CI")
+    db_session.add_all([a, b])
+    db_session.add(
+        RagPreset(
+            workspace_id=a.id,
+            name="Andritz default",
+            scope="workspace",
+            scope_id=a.id,
+            config={"ragCollectionName": "andritz-secure-deposit"},
+            is_default=True,
+        )
+    )
+    db_session.commit()
+
+    resolved = RagPresetService.resolve_for(db_session, workspace_id=b.id)
+
+    assert resolved["ragCollectionName"] == "documents"

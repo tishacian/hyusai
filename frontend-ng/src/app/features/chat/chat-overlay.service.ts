@@ -25,15 +25,21 @@ export class ChatOverlayService {
   readonly startMode = signal<ChatStartMode>('quick');
   readonly preselectedSystemId = signal<string | null>(null);
   readonly preselectedContextId = signal<string | null>(null);
+  readonly assistantProfile = signal<string | null>(null);
+  readonly initialPrompt = signal<string | null>(null);
 
   open(options?: {
     mode?: ChatStartMode;
     systemId?: string | null;
     contextId?: string | null;
+    assistantProfile?: string | null;
+    initialPrompt?: string | null;
   }): void {
     this.startMode.set(options?.mode ?? 'quick');
     this.preselectedSystemId.set(options?.systemId ?? null);
     this.preselectedContextId.set(options?.contextId ?? null);
+    this.assistantProfile.set(options?.assistantProfile ?? null);
+    this.initialPrompt.set(options?.initialPrompt ?? null);
     this.isOpen.set(true);
   }
 

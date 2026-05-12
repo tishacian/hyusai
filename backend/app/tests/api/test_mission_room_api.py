@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import mission_room
 from app.models.audit import AuditLog
+from app.models.intelligence import FeedArticle, FeedSource
+from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace
 
@@ -58,6 +60,73 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert "mission_room.navigation.viewed" in event_types
     assert "mission_room.cockpit.viewed" in event_types
     assert "mission_room.search.performed" in event_types
+
+
+def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant_leak(db_session):
+    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    other = Workspace(id="workspace-andritz", slug="andritz", name="Andritz", mode="standard")
+    user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
+    source = FeedSource(
+        id="feed-sentinel",
+        workspace_id=workspace.id,
+        name="Africanews",
+        url="https://example.test/rss",
+        active=True,
+    )
+    other_source = FeedSource(
+        id="feed-andritz",
+        workspace_id=other.id,
+        name="Andritz private",
+        url="https://andritz.example.test/rss",
+        active=True,
+    )
+    article = FeedArticle(
+        id="article-ci",
+        source_id=source.id,
+        title="Cote d'Ivoire: signaux publics autour d'un projet prioritaire",
+        summary="Plusieurs sources publiques convergent vers un besoin de communication preventive.",
+        url="https://example.test/article-ci",
+        embedded=True,
+        relevance_score=0.87,
+        analysis={"risk_level": "high", "sentiment": "mixed", "entities": ["Cote d'Ivoire", "Abidjan"]},
+    )
+    other_article = FeedArticle(
+        id="article-andritz",
+        source_id=other_source.id,
+        title="Andritz internal deposit",
+        summary="This must not leak into SENTINEL-CI.",
+        embedded=True,
+        relevance_score=0.99,
+        analysis={"risk_level": "critical", "sentiment": "negative", "entities": ["Andritz"]},
+    )
+    run = Run(
+        id="run-intel-ci",
+        workspace_id=workspace.id,
+        input_ref={"source": "intelligence.analyze"},
+        output_ref={},
+        status="completed",
+        decision="brief_ready",
+    )
+    db_session.add_all([workspace, other, user, source, other_source, article, other_article, run])
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    news = client.get("/api/v1/mission-room/news")
+    cockpit = client.get("/api/v1/mission-room/cockpit")
+
+    assert news.status_code == 200
+    news_body = news.json()
+    assert news_body["source_health"]["live_news_used"] is True
+    assert news_body["source_health"]["last_run_id"] == run.id
+    assert news_body["source_health"]["high_risk"] == 1
+    assert news_body["executive_alerts"][0]["article_id"] == article.id
+    assert "Andritz" not in str(news_body)
+    assert cockpit.status_code == 200
+    assert cockpit.json()["press_intelligence"]["last_run_id"] == run.id
+
+    audit = db_session.query(AuditLog).filter_by(event_type="mission_room.news.synthesized").one()
+    assert audit.details["last_run_id"] == run.id
+    assert audit.details["live_news_used"] is True
 
 
 def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_session):

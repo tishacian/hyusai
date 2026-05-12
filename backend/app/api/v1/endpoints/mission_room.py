@@ -97,13 +97,19 @@ async def cockpit(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = cockpit_payload(workspace)
+    payload = cockpit_payload(workspace, db=db)
+    press = payload.get("press_intelligence") or {}
     _audit(
         db=db,
         workspace=workspace,
         user=user,
         event_type="mission_room.cockpit.viewed",
-        details={"surface": "cockpit", "priorities": len(payload.get("priorities") or [])},
+        details={
+            "surface": "cockpit",
+            "priorities": len(payload.get("priorities") or []),
+            "last_run_id": press.get("last_run_id"),
+            "live_news_used": bool(press.get("live_news_used")),
+        },
     )
     return payload
 
@@ -238,13 +244,20 @@ async def news(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = news_payload(workspace)
+    payload = news_payload(workspace, db=db)
+    source_health = payload.get("source_health") or {}
     _audit(
         db=db,
         workspace=workspace,
         user=user,
         event_type="mission_room.news.synthesized",
-        details={"signals": len(payload.get("signals") or []), "advisory_only": True},
+        details={
+            "signals": len(payload.get("signals") or []),
+            "executive_alert_count": len(payload.get("executive_alerts") or []),
+            "last_run_id": source_health.get("last_run_id"),
+            "live_news_used": bool(source_health.get("live_news_used")),
+            "advisory_only": True,
+        },
     )
     return payload
 

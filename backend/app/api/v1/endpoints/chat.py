@@ -67,6 +67,11 @@ class ChatRequest(BaseModel):
     # hypothetical | trivial | auto). When unset or "auto" the orchestrator
     # runs the mode_selector heuristic.
     prompt_type: Optional[str] = None
+    # Workspace-scoped Knowledge Scope aggregating one or more collections.
+    knowledge_scope: Optional[str] = None
+    # Product-facing assistant profile. It does not bypass backend policy; it
+    # carries UI/prompt intent into the Run ledger for audit and replay.
+    assistant_profile: Optional[str] = None
 
 
 def _resolve_system_id(
@@ -213,6 +218,10 @@ def _collect_chat_chunk(
             state["retrieval_worker_task_id"] = details.get("task_id")
         if details.get("fallback"):
             state["retrieval_fallback"] = details.get("fallback_reason") or True
+        if details.get("scope"):
+            state["knowledge_scope"] = details.get("scope")
+        if details.get("collections_touched"):
+            state["collections_touched"] = details.get("collections_touched")
     if chunk.get("chunk_type") == "decision_step" and chunk.get("decision_step"):
         decision_step = chunk.get("decision_step")
         existing_index = next(
@@ -348,6 +357,8 @@ async def chat_completion(
             "retrieval_metrics": None,
             "retrieval_worker_task_id": None,
             "retrieval_fallback": None,
+            "knowledge_scope": None,
+            "collections_touched": None,
         }
         full_content: list[str] = []
         run_started_at = datetime.utcnow()
@@ -438,6 +449,9 @@ async def chat_completion(
                 "retrieval_metrics": chunk_state["retrieval_metrics"],
                 "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
                 "retrieval_fallback": chunk_state["retrieval_fallback"],
+                "knowledge_scope": request.knowledge_scope or chunk_state.get("knowledge_scope"),
+                "assistant_profile": request.assistant_profile,
+                "collections_touched": chunk_state.get("collections_touched"),
             },
         )
 
@@ -589,6 +603,8 @@ async def chat_stream(
                 "retrieval_metrics": None,
                 "retrieval_worker_task_id": None,
                 "retrieval_fallback": None,
+                "knowledge_scope": None,
+                "collections_touched": None,
             }
             import time as _time
             run_started_at = datetime.utcnow()
@@ -736,6 +752,9 @@ async def chat_stream(
                         "retrieval_metrics": chunk_state["retrieval_metrics"],
                         "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
                         "retrieval_fallback": chunk_state["retrieval_fallback"],
+                        "knowledge_scope": request.knowledge_scope or chunk_state.get("knowledge_scope"),
+                        "assistant_profile": request.assistant_profile,
+                        "collections_touched": chunk_state.get("collections_touched"),
                     },
                 )
             if run_id:

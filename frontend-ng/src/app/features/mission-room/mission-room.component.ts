@@ -120,12 +120,42 @@ interface MapZone {
 
 interface NewsSignal {
   id: string;
+  article_id?: string;
   title: string;
   risk_level: string;
   sentiment: string;
   summary: string;
   source: string;
   sources: string[];
+  zone?: string;
+  impact_ci?: string;
+  why_it_matters?: string;
+  recommended_action?: string;
+  confidence?: number;
+  source_count?: number;
+  url?: string | null;
+  run_id?: string | null;
+  entities?: string[];
+}
+
+interface NewsSourceHealth {
+  active_feeds: number;
+  total_articles: number;
+  analyzed: number;
+  high_risk: number;
+  last_run_id?: string | null;
+  last_run_status?: string;
+  last_updated?: string | null;
+  coverage_label?: string;
+  live_news_used?: boolean;
+  source_entities?: string[];
+}
+
+interface NewsBriefingNote {
+  headline: string;
+  bullets: string[];
+  talking_points: string[];
+  decisions_expected: string[];
 }
 
 interface DecisionItem {
@@ -166,6 +196,8 @@ interface MissionCockpit {
   assistant_prompts: string[];
   messages: MessageItem[];
   decision_focus: DecisionItem[];
+  press_intelligence?: NewsSourceHealth;
+  what_changed?: string[];
   sources: SourceRef[];
 }
 
@@ -200,6 +232,11 @@ interface MissionMap {
 interface MissionNews {
   summary: string;
   signals: NewsSignal[];
+  executive_alerts?: NewsSignal[];
+  briefing_note?: NewsBriefingNote;
+  source_health?: NewsSourceHealth;
+  media_sources?: { label: string; coverage: number; count: number }[];
+  analysis_link?: { system_id?: string | null; run_id?: string | null; label?: string };
   sources: SourceRef[];
 }
 
@@ -716,11 +753,35 @@ export class MissionRailComponent {
       </section>
 
       <section class="metrics-grid">
-        <app-mission-metric-card label="Alertes presse" [value]="kpi('press_alerts')" caption="articles negatifs" tone="critical" />
+        <app-mission-metric-card label="Alertes presse" [value]="kpi('press_alerts')" caption="signaux prioritaires" tone="critical" />
         <app-mission-metric-card label="Emails" [value]="kpi('emails')" caption="2 urgents" tone="watch" />
         <app-mission-metric-card label="Reunions" [value]="kpi('meetings')" caption="prochaine dans 1h46" tone="info" />
-        <app-mission-metric-card label="Reputation" [value]="kpi('reputation_score')" caption="80 articles analyses" tone="good" />
+        <app-mission-metric-card label="Veille qualifiee" [value]="kpi('analyzed_articles')" caption="articles analyses" tone="good" />
         <app-mission-metric-card label="Decisions" [value]="decisions()?.decisions?.length || 0" caption="validation requise" tone="watch" />
+      </section>
+
+      <section class="executive-strip" aria-label="Synthese presse executive">
+        <article class="content-panel executive-brief">
+          <span class="eyebrow">Ce qui a change depuis le dernier briefing</span>
+          <h2>Brief presse priorise</h2>
+          <ul>
+            @for (item of cockpit()?.what_changed || news()?.briefing_note?.bullets || []; track item) {
+              <li>{{ item }}</li>
+            }
+          </ul>
+          <div class="brief-meta">
+            <span>{{ cockpit()?.press_intelligence?.coverage_label || news()?.source_health?.coverage_label || 'Veille qualifiee' }}</span>
+            <span>{{ intelligenceStatusLabel(cockpit()?.press_intelligence?.last_run_status || news()?.source_health?.last_run_status) }}</span>
+          </div>
+        </article>
+        @for (alert of newsAlerts().slice(0, 2); track alert.id) {
+          <article class="content-panel decision-signal">
+            <span class="status-pill" [class]="alert.risk_level">{{ ministerialRisk(alert.risk_level) }}</span>
+            <h3>{{ alert.title }}</h3>
+            <p>{{ alert.impact_ci || alert.summary }}</p>
+            <small>{{ alert.zone || alert.source }} · confiance {{ confidencePct(alert.confidence) }}</small>
+          </article>
+        }
       </section>
 
       <section class="cockpit-grid">
@@ -976,30 +1037,106 @@ export class MissionRailComponent {
     </ng-template>
 
     <ng-template #newsView>
-      <section class="two-column">
-        <article class="content-panel span-2">
-          <span class="eyebrow">Presse et intelligence ouverte</span>
+      <section class="ministerial-news">
+        <article class="content-panel span-2 news-brief-hero">
+          <span class="eyebrow">Brief presse & signaux faibles</span>
           <div class="panel-heading-row">
-            <h2>Synthese des signaux</h2>
+            <h2>{{ news()?.briefing_note?.headline || 'Synthese executive' }}</h2>
             <a
               class="action-button compact"
               [routerLink]="systemRouteFor('presse') || '/intelligence'"
               [queryParams]="{ facet: 'intelligence' }"
             >
               <ck-glyph name="pulse" [size]="14" />
-              <span>Ouvrir News Lab</span>
+              <span>Inspecter l'atelier de veille</span>
             </a>
           </div>
           <p>{{ news()?.summary }}</p>
+          <div class="brief-meta">
+            <span>{{ news()?.source_health?.coverage_label || 'Sources qualifiees' }}</span>
+            <span>{{ intelligenceStatusLabel(news()?.source_health?.last_run_status) }}</span>
+            <span>{{ news()?.source_health?.high_risk || 0 }} signaux prioritaires</span>
+          </div>
         </article>
-        @for (signal of news()?.signals || []; track signal.id) {
-          <article class="content-panel">
-            <span class="status-pill" [class]="signal.risk_level">{{ signal.risk_level }}</span>
-            <h3>{{ signal.title }}</h3>
-            <p>{{ signal.summary }}</p>
-            <small>{{ signal.source }} · sentiment {{ signal.sentiment }}</small>
+
+        <article class="content-panel now-panel">
+          <span class="eyebrow">A retenir maintenant</span>
+          <ul>
+            @for (bullet of news()?.briefing_note?.bullets || []; track bullet) {
+              <li>{{ bullet }}</li>
+            }
+          </ul>
+        </article>
+
+        <article class="content-panel source-health-panel">
+          <span class="eyebrow">Couverture de veille</span>
+          <div class="health-grid">
+            <article>
+              <strong>{{ news()?.source_health?.active_feeds || 0 }}</strong>
+              <span>sources actives</span>
+            </article>
+            <article>
+              <strong>{{ news()?.source_health?.analyzed || 0 }}</strong>
+              <span>articles analyses</span>
+            </article>
+            <article>
+              <strong>{{ news()?.source_health?.high_risk || 0 }}</strong>
+              <span>prioritaires</span>
+            </article>
+          </div>
+          <p>La Mission Room restitue les signaux utiles au pilotage. L'atelier conserve le diagnostic detaille et les sources brutes.</p>
+        </article>
+
+        <div class="executive-alert-grid span-2">
+          @for (signal of newsAlerts(); track signal.id) {
+            <article class="content-panel executive-alert-card">
+              <div class="panel-heading-row">
+                <span class="status-pill" [class]="signal.risk_level">{{ ministerialRisk(signal.risk_level) }}</span>
+                <small>{{ signal.zone || signal.source }} · confiance {{ confidencePct(signal.confidence) }}</small>
+              </div>
+              <h3>{{ signal.title }}</h3>
+              <p>{{ signal.impact_ci || signal.summary }}</p>
+              <dl>
+                <div>
+                  <dt>Pourquoi c'est sensible</dt>
+                  <dd>{{ signal.why_it_matters || signal.summary }}</dd>
+                </div>
+                <div>
+                  <dt>Action proposee</dt>
+                  <dd>{{ signal.recommended_action || 'Qualifier les sources avant diffusion cabinet.' }}</dd>
+                </div>
+              </dl>
+              <div class="source-row">
+                @for (source of signal.sources; track source) {
+                  <app-mission-source-pill [label]="sourceLabel(source)" (click)="showSource(source)" />
+                }
+              </div>
+            </article>
+          }
+        </div>
+
+        <article class="content-panel">
+          <span class="eyebrow">Elements de langage</span>
+          <h2>Position recommandee</h2>
+          <ul class="language-list">
+            @for (line of news()?.briefing_note?.talking_points || []; track line) {
+              <li>{{ line }}</li>
+            }
+          </ul>
+        </article>
+
+        <article class="content-panel">
+          <span class="eyebrow">Decisions attendues</span>
+          <h2>Arbitrages cabinet</h2>
+          <div class="decision-list">
+            @for (item of news()?.briefing_note?.decisions_expected || []; track item) {
+              <button type="button" (click)="createDraft('decision-press-lines', 'decision')">
+                <strong>{{ item }}</strong>
+                <small>Validation humaine requise avant diffusion.</small>
+              </button>
+            }
+          </div>
           </article>
-        }
       </section>
     </ng-template>
 
@@ -1429,6 +1566,46 @@ export class MissionRailComponent {
         grid-template-columns: repeat(12, minmax(0, 1fr));
         gap: 14px;
       }
+      .executive-strip {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin: 0 0 14px;
+      }
+      .executive-brief ul,
+      .now-panel ul,
+      .language-list {
+        margin: 12px 0 0;
+        padding-left: 18px;
+        color: var(--mission-text-soft);
+        line-height: 1.55;
+      }
+      .executive-brief li,
+      .now-panel li,
+      .language-list li {
+        margin: 7px 0;
+      }
+      .brief-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .brief-meta span {
+        padding: 5px 8px;
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        background: var(--mission-panel-hi);
+        color: var(--mission-text-muted);
+        font-size: 12px;
+      }
+      .decision-signal h3 {
+        margin: 10px 0 8px;
+      }
+      .decision-signal p {
+        color: var(--mission-text-soft);
+        line-height: 1.45;
+      }
       .cockpit-grid > *:nth-child(1),
       .cockpit-grid > *:nth-child(2),
       .cockpit-grid > *:nth-child(5),
@@ -1654,6 +1831,12 @@ export class MissionRailComponent {
         gap: 16px;
         align-items: start;
       }
+      .ministerial-news {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+        gap: 16px;
+        align-items: start;
+      }
       .span-2 { grid-column: 1 / -1; }
       .content-panel {
         padding: 18px;
@@ -1672,6 +1855,73 @@ export class MissionRailComponent {
       .content-panel p {
         color: var(--mission-text-soft);
         line-height: 1.55;
+      }
+      .news-brief-hero {
+        background:
+          linear-gradient(135deg, rgba(139, 216, 255, 0.10), rgba(66, 217, 155, 0.04)),
+          var(--mission-panel);
+      }
+      .health-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin: 14px 0;
+      }
+      .health-grid article {
+        padding: 12px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-panel-hi);
+      }
+      .health-grid strong,
+      .health-grid span {
+        display: block;
+      }
+      .health-grid strong {
+        font-family: var(--ck-font-mono);
+        font-size: 22px;
+        color: var(--mission-accent);
+      }
+      .health-grid span {
+        margin-top: 4px;
+        color: var(--mission-text-muted);
+        font-size: 12px;
+      }
+      .executive-alert-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .executive-alert-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .executive-alert-card .panel-heading-row small {
+        color: var(--mission-text-muted);
+        text-align: right;
+      }
+      .executive-alert-card dl {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+      }
+      .executive-alert-card dl div {
+        padding-top: 10px;
+        border-top: 1px solid var(--mission-border);
+      }
+      .executive-alert-card dt {
+        margin-bottom: 4px;
+        color: var(--mission-accent);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+      .executive-alert-card dd {
+        margin: 0;
+        color: var(--mission-text-soft);
+        line-height: 1.45;
       }
       .action-panel {
         display: flex;
@@ -1806,8 +2056,10 @@ export class MissionRailComponent {
         .mission-shell { grid-template-columns: 200px minmax(0, 1fr); }
         .mission-main { padding: 24px; }
         .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .executive-strip,
+        .executive-alert-grid { grid-template-columns: 1fr; }
         .cockpit-grid > * { grid-column: span 12 !important; }
-        .two-column, .map-layout { grid-template-columns: 1fr; }
+        .two-column, .ministerial-news, .map-layout { grid-template-columns: 1fr; }
       }
       @media (max-width: 840px) {
         :host { height: auto; overflow: auto; }
@@ -1950,6 +2202,32 @@ export class MissionRoomComponent implements OnInit {
     return `${reputation.score}% +${reputation.delta}pts`;
   }
 
+  newsAlerts(): NewsSignal[] {
+    const payload = this.news();
+    return payload?.executive_alerts?.length ? payload.executive_alerts : payload?.signals || [];
+  }
+
+  ministerialRisk(level: string): string {
+    const normalized = (level || '').toLowerCase();
+    if (normalized === 'critical' || normalized === 'high') return 'prioritaire';
+    if (normalized === 'medium') return 'a suivre';
+    return 'veille';
+  }
+
+  confidencePct(value?: number): string {
+    const confidence = typeof value === 'number' ? value : 0.62;
+    return `${Math.round(Math.max(0, Math.min(confidence, 1)) * 100)}%`;
+  }
+
+  intelligenceStatusLabel(status?: string): string {
+    const normalized = (status || '').toLowerCase();
+    if (normalized === 'completed') return 'veille a jour';
+    if (normalized === 'running') return 'veille en cours';
+    if (normalized === 'failed') return 'veille a verifier';
+    if (normalized === 'fixture') return 'scenario de reference';
+    return 'veille prete';
+  }
+
   barHeight(value: number): number {
     return Math.max(8, Math.min(100, (value / 50) * 100));
   }
@@ -1991,6 +2269,10 @@ export class MissionRoomComponent implements OnInit {
   }
 
   focusPriority(priority: Priority): void {
+    if (priority.kind === 'decision_required') {
+      this.router.navigateByUrl('/hypervisor/mission-room/presse');
+      return;
+    }
     if (priority.id === 'prio-security-north') {
       this.selectZoneByName('Nord');
       return;
@@ -2015,8 +2297,12 @@ export class MissionRoomComponent implements OnInit {
     this.selectedSource.set(this.sources().get(sourceId) || null);
   }
 
-  openAssistant(_prompt?: string): void {
-    this.chat.open({ mode: 'quick' });
+  openAssistant(prompt?: string): void {
+    this.chat.open({
+      mode: 'quick',
+      assistantProfile: 'vigie_executive',
+      initialPrompt: prompt || null,
+    });
   }
 
   draftForProject(project: Project): void {

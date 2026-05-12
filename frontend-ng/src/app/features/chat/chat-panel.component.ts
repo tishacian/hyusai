@@ -4,6 +4,7 @@ import {
   Component,
   DestroyRef,
   computed,
+  effect,
   inject,
   input,
   signal,
@@ -79,6 +80,16 @@ interface SuggestionCard {
   icon: string;
   label: string;
   prompt: string;
+}
+
+interface AssistantProfile {
+  key: string;
+  label?: string;
+  subtitle?: string;
+  default_knowledge_scope?: string;
+  executive_mode?: boolean;
+  prompt_pack?: SuggestionCard[];
+  hidden_controls?: string[];
 }
 
 interface ReasoningTemplate {
@@ -222,6 +233,31 @@ const STEP_ICONS: Record<string, string> = {
   imports: [FormsModule, RouterLink, IconComponent, RuntimeStatusBadgeComponent],
   template: `
     <div class="flex flex-col h-full">
+      @if (executiveMode()) {
+        <div class="px-4 py-3 border-b border-white/5 bg-white/[0.025]">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-[10px] uppercase tracking-[0.18em] text-brand-300 font-semibold">
+                {{ assistantLabel() }} · Briefing souverain · Sources qualifiées
+              </div>
+              <div class="mt-1 text-xs text-gray-300 truncate">
+                {{ assistantScopeLabel() }}
+              </div>
+            </div>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] ring-1 ring-white/10 bg-white/[0.04] text-gray-300 hover:text-white hover:bg-white/[0.07] transition"
+              (click)="traceOpen.set(!traceOpen())"
+              [title]="traceOpen() ? 'Masquer les paramètres avancés' : 'Afficher traçabilité et paramètres avancés'"
+            >
+              <app-icon name="sliders-horizontal" [size]="13" />
+              Traçabilité
+            </button>
+          </div>
+        </div>
+      }
+
+      @if (!executiveMode() || traceOpen()) {
       <!-- Toolbar -->
       <div
         class="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-white/5 bg-white/[0.02]"
@@ -300,7 +336,9 @@ const STEP_ICONS: Record<string, string> = {
           </button>
         </div>
       </div>
+      }
 
+      @if (!executiveMode() || traceOpen()) {
       <div class="px-4 py-2 border-b border-white/5 bg-black/[0.08] flex items-center gap-2 text-[11px] text-gray-400 flex-wrap">
         <span class="inline-flex items-center gap-1.5 text-gray-300 font-medium">
           <app-icon name="waves" [size]="13" class="text-brand-300" />
@@ -375,6 +413,7 @@ const STEP_ICONS: Record<string, string> = {
           <span class="text-brand-200 truncate max-w-xs">“{{ voicePartial() }}”</span>
         }
       </div>
+      }
 
       <!-- Messages -->
       <div
@@ -389,13 +428,13 @@ const STEP_ICONS: Record<string, string> = {
               <app-icon name="sparkles" [size]="20" class="text-brand-300" />
             </div>
             <div class="text-sm font-semibold text-gray-900 dark:text-white">
-              Start a conversation
+              {{ emptyTitle() }}
             </div>
             <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xs text-center">
-              Try one of these prompts or ask anything about your corpus.
+              {{ emptySubtitle() }}
             </p>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-5 w-full max-w-2xl">
-              @for (s of suggestions; track s.prompt) {
+              @for (s of activeSuggestions(); track s.prompt) {
                 <button
                   type="button"
                   class="text-left px-3 py-2.5 rounded-md ring-1 ring-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:ring-brand-500/30 transition group"
@@ -944,7 +983,7 @@ const STEP_ICONS: Record<string, string> = {
           name="userInput"
           rows="1"
           class="flex-1 resize-none px-4 py-2.5 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400 text-sm max-h-32"
-          placeholder="Ask anything… (Shift+Enter for newline)"
+          [placeholder]="inputPlaceholder()"
           [disabled]="streaming()"
           (keydown)="onKey($event)"
         ></textarea>
@@ -954,7 +993,7 @@ const STEP_ICONS: Record<string, string> = {
           class="px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white rounded-xl transition text-sm font-medium flex items-center gap-1.5"
         >
           <app-icon [name]="streaming() ? 'loader-2' : 'send'" [size]="14" [class.animate-spin]="streaming()" />
-          {{ streaming() ? 'Streaming' : 'Send' }}
+          {{ streaming() ? 'Streaming' : sendLabel() }}
         </button>
       </form>
     </div>
@@ -975,6 +1014,8 @@ export class ChatPanelComponent {
    * the orchestrator knows to ground answers on the dropped documents.
    */
   readonly contextId = input<string | null>(null);
+  readonly assistantProfileKey = input<string | null>(null);
+  readonly initialPrompt = input<string | null>(null);
 
   private readonly sse = inject(SseService);
   private readonly api = inject(ApiService);
@@ -1009,6 +1050,53 @@ export class ChatPanelComponent {
   readonly chatRuntimeLabel = computed(() =>
     this.isDemoMode() ? 'managed runtime' : this.settings.settings().defaultModel || '—',
   );
+  readonly traceOpen = signal(false);
+
+  readonly activeAssistantProfile = computed<AssistantProfile | null>(() => {
+    const settings = this.workspace.current()?.settings;
+    const explicitKey = this.assistantProfileKey();
+    const defaultKey = typeof settings?.['assistant_profile_default'] === 'string'
+      ? settings['assistant_profile_default']
+      : null;
+    const key = explicitKey || defaultKey;
+    if (!key) return null;
+    const profiles = settings?.['assistant_profiles'];
+    if (!Array.isArray(profiles)) return null;
+    const match = (profiles as AssistantProfile[]).find((profile) => profile.key === key);
+    return match ?? null;
+  });
+
+  readonly executiveMode = computed(() => this.activeAssistantProfile()?.executive_mode === true);
+  readonly assistantLabel = computed(() => this.activeAssistantProfile()?.label || 'Agentium');
+  readonly activeKnowledgeScope = computed(() => this.activeAssistantProfile()?.default_knowledge_scope || null);
+  readonly assistantScopeLabel = computed(() => {
+    const settings = this.workspace.current()?.settings;
+    const scopeKey = this.activeKnowledgeScope();
+    const scopes = settings?.['knowledge_scopes'];
+    if (scopeKey && Array.isArray(scopes)) {
+      const scope = (scopes as Array<Record<string, unknown>>).find((item) => item['key'] === scopeKey);
+      if (scope?.['label']) return `Sources : ${scope['label']}`;
+    }
+    return 'Sources : workspace';
+  });
+
+  readonly activeSuggestions = computed<SuggestionCard[]>(() => {
+    const pack = this.activeAssistantProfile()?.prompt_pack;
+    return Array.isArray(pack) && pack.length > 0 ? pack : this.suggestions;
+  });
+
+  readonly emptyTitle = computed(() => this.executiveMode() ? `Interroger ${this.assistantLabel()}` : 'Start a conversation');
+  readonly emptySubtitle = computed(() =>
+    this.executiveMode()
+      ? 'Posez une question sur les signaux, projets, sources et décisions attendues.'
+      : 'Try one of these prompts or ask anything about your corpus.',
+  );
+  readonly inputPlaceholder = computed(() =>
+    this.executiveMode()
+      ? 'Interroger VIGIE sur les sources du workspace...'
+      : 'Ask anything… (Shift+Enter for newline)',
+  );
+  readonly sendLabel = computed(() => this.executiveMode() ? 'Interroger' : 'Send');
 
   readonly ragModeHint = computed(() => {
     const slug = this.ragModeOverride();
@@ -1166,7 +1254,17 @@ export class ChatPanelComponent {
     },
   ];
 
+  private initialPromptApplied = false;
+
   constructor() {
+    effect(() => {
+      const prompt = this.initialPrompt();
+      if (prompt && !this.initialPromptApplied) {
+        this.userInput = prompt;
+        this.initialPromptApplied = true;
+        this.cdr.markForCheck();
+      }
+    });
     this.settings.refresh();
     this.health.load().subscribe();
     this.loadReasoningTemplates();
@@ -1675,6 +1773,8 @@ export class ChatPanelComponent {
         rag_mode_override: ragOverride !== 'auto' ? ragOverride : null,
         // Per-query reasoning template; "auto" lets the mode_selector decide.
         prompt_type: promptTypeSel !== 'auto' ? promptTypeSel : null,
+        knowledge_scope: this.activeKnowledgeScope(),
+        assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
         system_prompt: (s['systemPrompt'] as string | undefined) ?? null,
         agent_preferences: {
           model_preferences: {

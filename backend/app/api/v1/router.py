@@ -30,6 +30,7 @@ from app.api.v1.endpoints import (
     reasoning,
     help_content,
     telemetry,
+    knowledge,
     knowledge_capture,
     iam,
     secure_deposit,
@@ -71,6 +72,7 @@ api_router.include_router(contexts.router,      prefix="/contexts",      tags=["
 api_router.include_router(reasoning.router,     prefix="/reasoning",     tags=["reasoning"])
 api_router.include_router(help_content.router,  prefix="/help-content",  tags=["help-content"])
 api_router.include_router(telemetry.router,      prefix="/telemetry",     tags=["telemetry"])
+api_router.include_router(knowledge.router,      prefix="/knowledge",     tags=["knowledge"])
 api_router.include_router(knowledge_capture.router, prefix="/knowledge-capture", tags=["knowledge-capture"])
 api_router.include_router(iam.router, prefix="/iam", tags=["iam"])
 api_router.include_router(secure_deposit.internal_router, prefix="/sftp", tags=["secure-deposit"])

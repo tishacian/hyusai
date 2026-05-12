@@ -45,6 +45,8 @@ class SettingsManager:
                         db.query(RagPreset)
                         .filter(
                             RagPreset.scope == "workspace",
+                            RagPreset.workspace_id.is_(None),
+                            RagPreset.scope_id.is_(None),
                             RagPreset.is_default.is_(True),
                         )
                         .order_by(RagPreset.created_at.asc())
@@ -211,4 +213,3 @@ def get_resolved_settings(
 def reload_app_settings():
     """Reload application settings from database"""
     get_settings_manager().reload_settings()
-

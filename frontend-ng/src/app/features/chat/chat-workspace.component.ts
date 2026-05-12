@@ -11,6 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { ToastrService } from 'ngx-toastr';
 import { CanonicalApiService, type Context, type System } from '@app/core/canonical-api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { TagComponent } from '@app/shared/cockpit';
 import { ChatPanelComponent } from './chat-panel.component';
@@ -80,23 +81,33 @@ interface SessionDoc {
     <div class="t-shell" [class.t-inline]="inline()">
       <!-- Header — system picker + mode badge -->
       <header class="t-header">
-        <div class="t-header-left">
-          <ck-tag [tone]="modeTone()" variant="solid">{{ modeLabel() }}</ck-tag>
-          <span class="t-header-hint">{{ modeHint() }}</span>
-        </div>
-        <div class="t-header-right">
-          <label class="t-picker-label">System</label>
-          <select
-            class="t-picker"
-            [(ngModel)]="selectedSystemId"
-            (ngModelChange)="onSystemChange($event)"
-          >
-            <option [ngValue]="null">— Quick ask (workspace defaults)</option>
-            @for (s of systems(); track s.id) {
-              <option [ngValue]="s.id">{{ s.name }}</option>
-            }
-          </select>
-        </div>
+        @if (executiveAssistant()) {
+          <div class="t-header-left">
+            <ck-tag tone="cool" variant="solid">Question directe</ck-tag>
+            <span class="t-header-hint">{{ assistantSubtitle() }}</span>
+          </div>
+          <div class="t-header-right">
+            <span class="t-source-pill">{{ assistantScopeLabel() }}</span>
+          </div>
+        } @else {
+          <div class="t-header-left">
+            <ck-tag [tone]="modeTone()" variant="solid">{{ modeLabel() }}</ck-tag>
+            <span class="t-header-hint">{{ modeHint() }}</span>
+          </div>
+          <div class="t-header-right">
+            <label class="t-picker-label">System</label>
+            <select
+              class="t-picker"
+              [(ngModel)]="selectedSystemId"
+              (ngModelChange)="onSystemChange($event)"
+            >
+              <option [ngValue]="null">— Quick ask (workspace defaults)</option>
+              @for (s of systems(); track s.id) {
+                <option [ngValue]="s.id">{{ s.name }}</option>
+              }
+            </select>
+          </div>
+        }
       </header>
 
       <!-- Body: two-column (side panel in inline mode, full split in full-screen) -->
@@ -239,6 +250,8 @@ interface SessionDoc {
           <app-chat-panel
             [systemId]="selectedSystemId"
             [contextId]="ephemeralContextId()"
+            [assistantProfileKey]="assistantProfileKey()"
+            [initialPrompt]="initialPrompt()"
           />
         </section>
       </div>
@@ -302,6 +315,19 @@ interface SessionDoc {
       padding: 4px 8px;
       min-width: 200px;
       max-width: 260px;
+    }
+    .t-source-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(125, 211, 252, 0.22);
+      background: rgba(125, 211, 252, 0.08);
+      color: var(--ck-signal-cool);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
     }
     .t-body {
       flex: 1 1 auto;
@@ -566,6 +592,7 @@ export class ChatWorkspaceComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
+  private readonly workspace = inject(WorkspaceService);
 
   /** When `true`, render the compact (overlay) layout. Full-screen otherwise. */
   readonly inline = input<boolean>(false);
@@ -575,6 +602,10 @@ export class ChatWorkspaceComponent implements OnInit {
   readonly initialSystemId = input<string | null>(null);
   /** Optional ephemeral Context id to reuse (e.g. URL-shared session). */
   readonly initialContextId = input<string | null>(null);
+  /** Optional workspace assistant profile (VIGIE, support copilot, etc.). */
+  readonly assistantProfileKey = input<string | null>(null);
+  /** Optional prompt prefilled when the assistant opens from a workspace app. */
+  readonly initialPrompt = input<string | null>(null);
 
   readonly systems = signal<System[]>([]);
   selectedSystemId: string | null = null;
@@ -594,6 +625,32 @@ export class ChatWorkspaceComponent implements OnInit {
 
   /** Collapsed state of the dropzone in inline mode (always open full-screen). */
   readonly dropOpen = signal(true);
+
+  readonly activeAssistantProfile = computed<Record<string, unknown> | null>(() => {
+    const key = this.assistantProfileKey() || this.workspace.current()?.settings?.['assistant_profile_default'];
+    if (!key) return null;
+    const profiles = this.workspace.current()?.settings?.['assistant_profiles'];
+    if (!Array.isArray(profiles)) return null;
+    return (profiles as Record<string, unknown>[]).find((profile) => profile['key'] === key) ?? null;
+  });
+
+  readonly executiveAssistant = computed(() => this.activeAssistantProfile()?.['executive_mode'] === true);
+
+  readonly assistantSubtitle = computed(() => {
+    const profile = this.activeAssistantProfile();
+    return String(profile?.['subtitle'] || 'Sources du workspace');
+  });
+
+  readonly assistantScopeLabel = computed(() => {
+    const profile = this.activeAssistantProfile();
+    const scopeKey = String(profile?.['default_knowledge_scope'] || '');
+    const scopes = this.workspace.current()?.settings?.['knowledge_scopes'];
+    if (Array.isArray(scopes)) {
+      const scope = (scopes as Record<string, unknown>[]).find((item) => item['key'] === scopeKey);
+      if (scope?.['label']) return `Sources : ${scope['label']}`;
+    }
+    return 'Sources du workspace';
+  });
 
   readonly modeLabel = computed<string>(() => {
     if (this.ephemeralContextId()) return 'Drop-and-ask';

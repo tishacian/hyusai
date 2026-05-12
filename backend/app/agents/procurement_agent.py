@@ -66,18 +66,14 @@ class OmniRAGAgent(BaseAgent):
         ``<slug>__``, giving the same isolation the dropzone upload path
         already uses.
         """
-        from app.core.settings_manager import get_resolved_settings
         from app.services.rag.document_service import DocumentService
+        from app.services.rag.context import get_retrieval_profile
 
         request = request or {}
         workspace_slug = request.get("workspace_slug")
-        app_settings = get_resolved_settings(
-            workspace_id=request.get("workspace_id"),
-            capability_id=request.get("capability_id"),
-            system_id=request.get("system_id"),
-        )
-        collection_name = app_settings.get("ragCollectionName", "documents")
-        vector_db_type = app_settings.get("ragVectorDBType", "faiss")
+        profile = get_retrieval_profile(request)
+        collection_name = profile.get("collection", "documents")
+        vector_db_type = profile.get("vector_db", "faiss")
 
         cache_key = (workspace_slug, collection_name, vector_db_type)
         svc = self._document_services.get(cache_key)
@@ -224,10 +220,17 @@ class OmniRAGAgent(BaseAgent):
 
         profile = get_retrieval_profile(request)
         rag_mode = profile.get("rag_mode")
-        doc_svc = None if settings.rag_retrieval_worker_enabled else self._get_document_service(request)
-        use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
-            doc_svc, rewritten, rag_mode
-        )
+        collections = profile.get("collections") or [profile["collection"]]
+        is_multi_collection = len(collections) > 1
+        doc_svc = None if settings.rag_retrieval_worker_enabled or is_multi_collection else self._get_document_service(request)
+        if is_multi_collection:
+            use_hybrid = True
+            mode_label = "multi_collection"
+            mode_reason = f"Knowledge Scope {profile.get('knowledge_scope') or 'workspace_default'} across {len(collections)} collections"
+        else:
+            use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
+                doc_svc, rewritten, rag_mode
+            )
         retriever_name = "HybridRetriever" if use_hybrid else "VectorRetriever"
         retriever_title = (
             "FAISS + BM25 (RRF)" if use_hybrid else "FAISS dense (naive)"
@@ -245,6 +248,10 @@ class OmniRAGAgent(BaseAgent):
             retriever_name = "CHAHBackendRetriever"
             retriever_title = "Parallel hybrid + RRF (C-HAH-like)"
             method_line = f"Method: parallel hybrid over query variants → RRF merge · top_k: {profile['top_k']}"
+        elif mode_label == "multi_collection":
+            retriever_name = "KnowledgeScopeRetriever"
+            retriever_title = f"{profile.get('scope_label') or 'Knowledge Scope'}"
+            method_line = f"Method: {rag_mode or 'auto'} per collection → RRF merge · top_k: {profile['top_k']}"
 
         step_start = time.time()
         sid = f"kb-retrieval-{uid}"
@@ -252,6 +259,10 @@ class OmniRAGAgent(BaseAgent):
         retrieval_fallback = False
         base_retrieval_details = {
             "collection": profile["collection"],
+            "collections": collections,
+            "scope": profile.get("knowledge_scope"),
+            "scope_label": profile.get("scope_label"),
+            "collections_touched": collections,
             "vector_db": profile["vector_db"],
             "top_k": profile["top_k"],
             "pipeline": mode_label,
@@ -295,9 +306,10 @@ class OmniRAGAgent(BaseAgent):
                     details={**base_retrieval_details, "task_id": retrieval_task_id},
                     message="Retrieval worker timed out; falling back to inline retrieval",
                 )
+                fallback_doc_svc = None if is_multi_collection else (doc_svc or self._get_document_service(request))
                 retrieval_context = await retrieve_rag_context(
                     request,
-                    doc_svc=doc_svc or self._get_document_service(request),
+                    doc_svc=fallback_doc_svc,
                     fallback_reason="worker_timeout",
                 )
             except Exception as exc:  # noqa: BLE001
@@ -312,9 +324,10 @@ class OmniRAGAgent(BaseAgent):
                     },
                     message="Retrieval worker failed; falling back to inline retrieval",
                 )
+                fallback_doc_svc = None if is_multi_collection else (doc_svc or self._get_document_service(request))
                 retrieval_context = await retrieve_rag_context(
                     request,
-                    doc_svc=doc_svc or self._get_document_service(request),
+                    doc_svc=fallback_doc_svc,
                     fallback_reason="worker_error",
                 )
         else:
@@ -328,7 +341,9 @@ class OmniRAGAgent(BaseAgent):
         n_chunks = len(retrieval_context["chunks"])
         scores = retrieval_context.get("scores", [])
         top_score = f"{scores[0]:.3f}" if scores else "—"
-        if retrieval_context.get("pipeline") == "hah_backend":
+        if str(retrieval_context.get("pipeline", "")).startswith("multi_"):
+            done_method = "Knowledge Scope multi-collection RRF"
+        elif retrieval_context.get("pipeline") == "hah_backend":
             done_method = "HAH-like two-pass + RRF"
         elif retrieval_context.get("pipeline") == "chah_backend":
             done_method = "C-HAH-like parallel + RRF"
@@ -550,6 +565,10 @@ Answer the user's question using the context above. Cite sources by their
             page = meta.get("page")
             if page is not None:
                 source_entry["page"] = page
+            collection = meta.get("collection") or meta.get("collection_name")
+            if collection:
+                source_entry["collection"] = collection
+                source_entry["collection_name"] = collection
             keywords = meta.get("document_extracted_keywords")
             if keywords:
                 source_entry["keywords"] = list(keywords)[:5]

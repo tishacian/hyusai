@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, HostListener, computed, inject } from '@angular/core';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { ChatOverlayService } from './chat-overlay.service';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
 
@@ -39,6 +40,8 @@ import { ChatWorkspaceComponent } from './chat-workspace.component';
           [startMode]="overlay.startMode()"
           [initialSystemId]="overlay.preselectedSystemId()"
           [initialContextId]="overlay.preselectedContextId()"
+          [assistantProfileKey]="overlay.assistantProfile()"
+          [initialPrompt]="overlay.initialPrompt()"
         />
       }
     </ck-panel>
@@ -56,10 +59,23 @@ import { ChatWorkspaceComponent } from './chat-workspace.component';
 export class ChatOverlayComponent {
   readonly overlay = inject(ChatOverlayService);
   protected readonly i18n = inject(I18nService);
+  private readonly workspace = inject(WorkspaceService);
+
+  readonly activeProfile = computed<Record<string, unknown> | null>(() => {
+    const key = this.overlay.assistantProfile();
+    if (!key) return null;
+    const settings = this.workspace.current()?.settings as Record<string, unknown> | undefined;
+    const profiles = Array.isArray(settings?.['assistant_profiles'])
+      ? settings?.['assistant_profiles'] as Record<string, unknown>[]
+      : [];
+    return profiles.find((profile) => profile['key'] === key) ?? null;
+  });
 
   readonly title = computed<string>(() => {
     // Read locale so the title re-renders when the user toggles FR/EN.
     this.i18n.locale();
+    const profile = this.activeProfile();
+    if (profile?.['label']) return `Interroger ${profile['label']}`;
     switch (this.overlay.startMode()) {
       case 'drop':   return this.i18n.t('palette.hint.drop_files');
       case 'system': return this.i18n.t('palette.hint.chat_system');

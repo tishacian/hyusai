@@ -136,6 +136,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         notes="Includes canonical collection ledger plus compatibility document routes.",
     ),
     SurfaceMetadata(
+        "/api/v1/knowledge",
+        "Knowledge",
+        "Knowledge",
+        "canonical",
+        "workspace-user",
+        "Knowledge",
+        ("/knowledge", "/chat", "/hypervisor/mission-room"),
+        notes="Workspace Knowledge Scopes: named multi-collection retrieval surfaces for assistants.",
+    ),
+    SurfaceMetadata(
         "/api/v1/runs",
         "Operate",
         "Run",

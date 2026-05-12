@@ -215,13 +215,30 @@ class RagPresetService:
                 )
                 .all()
             )
+            # Backward compatibility for pre-canonical workspace defaults
+            # created with workspace_id set but scope_id left NULL.
+            if not candidates:
+                candidates += (
+                    db.query(RagPreset)
+                    .filter(
+                        RagPreset.scope == "workspace",
+                        RagPreset.workspace_id == workspace_id,
+                        RagPreset.scope_id.is_(None),
+                        RagPreset.is_default.is_(True),
+                    )
+                    .all()
+                )
 
-        # Fallback to any workspace-scope default (demo single-tenant case).
+        # Fallback only to a global workspace default. Never borrow another
+        # workspace's default preset: that would leak collection/provider
+        # choices across tenants.
         if not candidates:
             row = (
                 db.query(RagPreset)
                 .filter(
                     RagPreset.scope == "workspace",
+                    RagPreset.workspace_id.is_(None),
+                    RagPreset.scope_id.is_(None),
                     RagPreset.is_default.is_(True),
                 )
                 .order_by(RagPreset.created_at.asc())

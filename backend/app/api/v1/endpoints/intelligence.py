@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.intelligence.feed_manager import get_articles
 from app.services.intelligence.batch import run_batch, get_dashboard_data
+from app.services.intelligence.knowledge_sync import sync_intelligence_to_knowledge
 
 router = APIRouter()
 
@@ -287,6 +288,41 @@ async def trigger_batch(
 
             if run and invocation:
                 dashboard_payload = get_dashboard_data(db, workspace_id=workspace.id)
+                knowledge_sync = {"status": "skipped"}
+                sync_started = {
+                    "type": "knowledge_sync_started",
+                    "collection_slug": "sentinel-ci-open-intelligence",
+                    "run_id": run.id,
+                    "system_id": run.system_id,
+                }
+                events.append(sync_started)
+                yield f"data: {json.dumps(sync_started)}\n\n"
+                try:
+                    knowledge_sync = await sync_intelligence_to_knowledge(
+                        db,
+                        workspace,
+                        dashboard_payload=dashboard_payload,
+                    )
+                    sync_event = {
+                        "type": "knowledge_sync_completed",
+                        "run_id": run.id,
+                        "system_id": run.system_id,
+                        **knowledge_sync,
+                    }
+                except Exception as sync_error:  # noqa: BLE001
+                    knowledge_sync = {
+                        "status": "error",
+                        "collection_slug": "sentinel-ci-open-intelligence",
+                        "error": str(sync_error),
+                    }
+                    sync_event = {
+                        "type": "knowledge_sync_error",
+                        "run_id": run.id,
+                        "system_id": run.system_id,
+                        **knowledge_sync,
+                    }
+                events.append(sync_event)
+                yield f"data: {json.dumps(sync_event)}\n\n"
                 duration_ms = (time.monotonic() - started) * 1000
                 invocation.status = "failed" if had_error else "completed"
                 invocation.output_ref = {
@@ -295,6 +331,7 @@ async def trigger_batch(
                         "kpis": dashboard_payload.get("kpis"),
                         "synthesis": dashboard_payload.get("synthesis"),
                     },
+                    "knowledge_sync": knowledge_sync,
                 }
                 invocation.completed_at = datetime.utcnow()
                 invocation.latency_ms = duration_ms
@@ -313,6 +350,7 @@ async def trigger_batch(
                     },
                     "intelligence_dashboard": dashboard_payload,
                     "reference_synthesis": dashboard_payload.get("synthesis"),
+                    "knowledge_sync": knowledge_sync,
                     "events": events[-25:],
                 }
                 if had_error:

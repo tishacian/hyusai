@@ -3,7 +3,8 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
-from app.services.rag.context import retrieve_rag_context
+from app.services.rag import context as rag_context
+from app.services.rag.context import get_retrieval_profile, retrieve_rag_context
 
 
 class FakeDocumentService:
@@ -70,3 +71,75 @@ def test_rag_retrieve_context_task_delegates_to_service(monkeypatch):
     finally:
         sys.modules.pop("app.workers.celery_app", None)
         sys.modules.pop("app.workers.tasks", None)
+
+
+def test_retrieval_profile_uses_workspace_default_rag_mode(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "get_resolved_settings",
+        lambda **_kwargs: {
+            "ragCollectionName": "sentinel-ci-open-intelligence",
+            "ragVectorDBType": "qdrant",
+            "ragTopK": 6,
+            "ragPipelineMode": "chah",
+        },
+    )
+
+    profile = get_retrieval_profile(
+        {
+            "query": "Quels signaux presse concernent la Cote d'Ivoire ?",
+            "workspace_id": "workspace-sentinel",
+            "workspace_slug": "sentinel-ci",
+        }
+    )
+
+    assert profile["rag_mode"] == "chah"
+    assert profile["collection"] == "sentinel-ci-open-intelligence"
+    assert profile["vector_db"] == "qdrant"
+    assert profile["top_k"] == 6
+
+
+def test_retrieval_profile_uses_workspace_knowledge_scope(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "get_resolved_settings",
+        lambda **_kwargs: {
+            "ragCollectionName": "documents",
+            "ragVectorDBType": "qdrant",
+            "ragTopK": 5,
+            "ragPipelineMode": "hybrid",
+        },
+    )
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "vigie",
+            "label": "Presse + Projets + Briefings + Carte",
+            "collection_slugs": [
+                "sentinel-ci-open-intelligence",
+                "sentinel-ci-projects",
+            ],
+            "default_mode": "chah",
+            "top_k": 8,
+        },
+    )
+
+    profile = get_retrieval_profile(
+        {
+            "query": "Quels arbitrages sont attendus ?",
+            "workspace_id": "workspace-sentinel",
+            "workspace_slug": "sentinel-ci",
+            "knowledge_scope": "vigie",
+        }
+    )
+
+    assert profile["knowledge_scope"] == "vigie"
+    assert profile["scope_label"] == "Presse + Projets + Briefings + Carte"
+    assert profile["collection"] == "sentinel-ci-open-intelligence"
+    assert profile["collections"] == [
+        "sentinel-ci-open-intelligence",
+        "sentinel-ci-projects",
+    ]
+    assert profile["rag_mode"] == "chah"
+    assert profile["top_k"] == 8

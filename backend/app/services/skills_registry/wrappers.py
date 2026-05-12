@@ -173,12 +173,16 @@ async def _claim_audit_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]]
 
 
 async def _intelligence_batch_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from app.services.intelligence.batch import run_batch
+    from app.db.base import SessionLocal
+    from app.models.workspace import Workspace
+    from app.services.intelligence.batch import get_dashboard_data, run_batch
+    from app.services.intelligence.knowledge_sync import sync_intelligence_to_knowledge
 
     ctx = ctx or {}
     ingested = 0
     errors = 0
     events: list[str] = []
+    knowledge_sync: dict[str, Any] = {"status": "skipped"}
     target_id = (payload.get("target_id") or (payload.get("feed_ids") or [None])[0])
     async for event in run_batch(
         target_id=target_id,
@@ -191,7 +195,29 @@ async def _intelligence_batch_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
             ingested += 1
         if event.get("type") == "error" or event.get("status") == "error":
             errors += 1
-    return {"ingested": ingested, "errors": errors, "events": events}
+
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if workspace_id:
+        db = SessionLocal()
+        try:
+            workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+            if workspace:
+                dashboard = get_dashboard_data(db, workspace_id=workspace.id)
+                knowledge_sync = await sync_intelligence_to_knowledge(
+                    db,
+                    workspace,
+                    dashboard_payload=dashboard,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "intelligence_batch_v1.knowledge_sync_failed",
+                workspace_id=workspace_id,
+                error=str(exc),
+            )
+            knowledge_sync = {"status": "error", "error": str(exc)}
+        finally:
+            db.close()
+    return {"ingested": ingested, "errors": errors, "events": events, "knowledge_sync": knowledge_sync}
 
 
 def _workspace_from_context(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Any:

@@ -18,6 +18,7 @@ from app.models.capability import Capability
 from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.rag_preset import RagPreset
+from app.models.run import Run
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.user import User
@@ -383,6 +384,247 @@ def _workspace_meta(workspace: Workspace) -> dict[str, Any]:
     return {"id": workspace.id, "slug": workspace.slug, "name": workspace.name}
 
 
+def _risk_rank(level: str | None) -> int:
+    return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(str(level or "low").lower(), 1)
+
+
+def _confidence(value: Any) -> float:
+    try:
+        score = float(value or 0)
+    except (TypeError, ValueError):
+        score = 0.0
+    if score > 1:
+        score = score / 100
+    return round(max(0.34, min(score or 0.62, 0.94)), 2)
+
+
+def _short_text(value: str | None, limit: int = 190) -> str:
+    text = " ".join((value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _infer_zone(text: str) -> str:
+    normalized = (text or "").lower()
+    if any(token in normalized for token in ("abidjan", "plateau", "yamoussoukro", "côte d'ivoire", "cote d'ivoire", "ivory coast")):
+        return "Cote d'Ivoire"
+    if any(token in normalized for token in ("mali", "sahel", "bamako", "niger", "burkina")):
+        return "Sahel / Afrique de l'Ouest"
+    if any(token in normalized for token in ("ghana", "liberia", "guinea", "guinée", "gambia", "sierra leone")):
+        return "Afrique de l'Ouest"
+    if any(token in normalized for token in ("congo", "rdc", "uganda", "kenya", "nairobi")):
+        return "Afrique élargie"
+    return "Veille ouverte"
+
+
+def _action_for_risk(level: str | None) -> str:
+    rank = _risk_rank(level)
+    if rank >= 3:
+        return "Demander une note cabinet courte, qualifier les sources primaires et préparer une communication préventive."
+    if rank == 2:
+        return "Maintenir la veille, vérifier la convergence des sources et préparer un point de langage si le signal se confirme."
+    return "Conserver en suivi, sans action ministérielle immédiate."
+
+
+def _latest_intelligence_run(db: DBSession, workspace: Workspace) -> Optional[Run]:
+    systems = db.query(System).filter(System.workspace_id == workspace.id).all()
+    preferred = _system_for_navigation_item(
+        _system_map(db, workspace),
+        systems,
+        {"variant": "intelligence"},
+    )
+    query = db.query(Run).filter(Run.workspace_id == workspace.id)
+    if preferred:
+        query = query.filter(Run.system_id == preferred.id)
+    else:
+        recent = query.order_by(Run.started_at.desc()).limit(25).all()
+        return next((run for run in recent if (run.input_ref or {}).get("source") == "intelligence.analyze"), None)
+    return query.order_by(Run.started_at.desc()).first()
+
+
+def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> dict[str, Any]:
+    """Bridge News Lab diagnostics into a ministerial, advisory payload."""
+    fallback = {
+        "workspace": _workspace_meta(workspace),
+        "signals": _clone(NEWS_SIGNALS),
+        "executive_alerts": _clone(NEWS_SIGNALS),
+        "summary": "Trois signaux dominent : retards sociaux au nord, perception de cooperation FR-CI, et besoin d'une communication preventive non militaire.",
+        "briefing_note": {
+            "headline": "Veille ouverte qualifiee",
+            "bullets": [
+                "Retards sociaux au nord : risque de perception d'abandon.",
+                "Cooperation FR-CI : dynamique positive mais fragile.",
+                "Communication preventive recommandee avant amplification mediatique.",
+            ],
+            "talking_points": [
+                "Coordination preventive avec les autorites locales.",
+                "Continuité des services publics et suivi transparent des projets.",
+            ],
+            "decisions_expected": [
+                "Valider les elements de langage presse.",
+                "Mandater une note cabinet sur les zones nord.",
+            ],
+        },
+        "source_health": {
+            "active_feeds": 0,
+            "total_articles": 0,
+            "analyzed": 0,
+            "high_risk": len([s for s in NEWS_SIGNALS if s.get("risk_level") == "high"]),
+            "last_run_id": None,
+            "last_run_status": "fixture",
+            "coverage_label": "scenario de demonstration",
+            "live_news_used": False,
+        },
+        "media_sources": _clone(
+            [
+                {"label": "Presse nationale", "coverage": 72, "count": 45},
+                {"label": "Presse internationale", "coverage": 58, "count": 28},
+                {"label": "Reseaux sociaux", "coverage": 41, "count": 156},
+                {"label": "Agences de presse", "coverage": 65, "count": 18},
+            ]
+        ),
+        "sources": source_index(),
+    }
+    if not db:
+        return fallback
+
+    try:
+        from app.services.intelligence.batch import get_dashboard_data
+
+        dashboard = get_dashboard_data(db, workspace_id=workspace.id)
+    except Exception:
+        return fallback
+
+    latest_run = _latest_intelligence_run(db, workspace)
+    kpis = dashboard.get("kpis") or {}
+    synthesis = dashboard.get("synthesis") or {}
+    articles = dashboard.get("articles") or []
+    ranked = sorted(
+        articles,
+        key=lambda article: (
+            _risk_rank(article.get("risk_level")),
+            float(article.get("relevance_score") or 0),
+            article.get("published_at") or "",
+        ),
+        reverse=True,
+    )
+    if not ranked:
+        fallback["source_health"].update(
+            {
+                "active_feeds": kpis.get("active_feeds", 0),
+                "total_articles": kpis.get("total_articles", 0),
+                "analyzed": kpis.get("analyzed", 0),
+                "last_run_id": latest_run.id if latest_run else None,
+                "last_run_status": latest_run.status if latest_run else "standby",
+            }
+        )
+        return fallback
+
+    dynamic_sources: list[dict[str, Any]] = []
+    alerts: list[dict[str, Any]] = []
+    for idx, article in enumerate(ranked[:5]):
+        source_id = f"src-live-news-{idx + 1}"
+        title = _short_text(article.get("title") or "Signal de veille", 110)
+        summary = _short_text(article.get("summary") or title)
+        risk_level = str(article.get("risk_level") or "medium").lower()
+        zone = _infer_zone(f"{title} {summary} {' '.join(article.get('entities') or [])}")
+        confidence = _confidence(article.get("relevance_score"))
+        dynamic_sources.append(
+            {
+                "id": source_id,
+                "label": _short_text(title, 76),
+                "kind": "rss_press",
+                "confidence": confidence,
+                "age": "flux public",
+            }
+        )
+        alerts.append(
+            {
+                "id": f"live-news-{article.get('id') or idx}",
+                "article_id": article.get("id"),
+                "title": title,
+                "risk_level": risk_level,
+                "sentiment": article.get("sentiment") or "neutral",
+                "summary": summary,
+                "source": zone,
+                "sources": [source_id],
+                "zone": zone,
+                "impact_ci": (
+                    "Impact direct a qualifier pour la Cote d'Ivoire."
+                    if zone == "Cote d'Ivoire"
+                    else "Signal regional a surveiller pour ses effets de perception, cooperation ou coordination publique."
+                ),
+                "why_it_matters": summary,
+                "recommended_action": _action_for_risk(risk_level),
+                "confidence": confidence,
+                "source_count": 1,
+                "url": article.get("url"),
+                "run_id": latest_run.id if latest_run else None,
+                "entities": article.get("entities") or [],
+            }
+        )
+
+    total = int(kpis.get("total_articles") or 0)
+    analyzed = int(kpis.get("analyzed") or 0)
+    active = int(kpis.get("active_feeds") or 0)
+    high_risk = int(kpis.get("high_risk") or 0)
+    analyzed_pct = round((analyzed / total) * 100) if total else 0
+    high_pct = round((high_risk / max(analyzed, 1)) * 100) if analyzed else 0
+    entity_names = [item.get("name") for item in (dashboard.get("top_entities") or []) if item.get("name")]
+    key_findings = [_short_text(item, 170) for item in (synthesis.get("key_findings") or []) if item][:3]
+    bullets = key_findings or [
+        "La veille publique est disponible et doit etre qualifiee avant diffusion cabinet.",
+        "Les signaux regionaux sont a relier aux priorites Cote d'Ivoire.",
+        "Les alertes haut risque restent advisory-only et sources-requises.",
+    ]
+    payload = {
+        "workspace": _workspace_meta(workspace),
+        "signals": alerts[:3],
+        "executive_alerts": alerts[:3],
+        "summary": synthesis.get("summary") or fallback["summary"],
+        "briefing_note": {
+            "headline": "Brief presse et signaux faibles",
+            "bullets": bullets,
+            "talking_points": [
+                "Répondre uniquement sur faits sourcés et convergence de sources publiques.",
+                "Qualifier l'impact Côte d'Ivoire avant toute prise de parole.",
+                "Rappeler le caractère préventif et non militaire des actions proposées.",
+            ],
+            "decisions_expected": [
+                "Qualifier les alertes prioritaires pour point cabinet.",
+                "Valider ou ajourner les éléments de langage associés.",
+                "Promouvoir les signaux confirmés vers la base Knowledge.",
+            ],
+        },
+        "source_health": {
+            "active_feeds": active,
+            "total_articles": total,
+            "analyzed": analyzed,
+            "high_risk": high_risk,
+            "last_run_id": latest_run.id if latest_run else None,
+            "last_run_status": latest_run.status if latest_run else "standby",
+            "last_updated": latest_run.completed_at.isoformat() + "Z" if latest_run and latest_run.completed_at else None,
+            "coverage_label": f"{active} sources publiques · {analyzed} articles qualifies",
+            "live_news_used": True,
+            "source_entities": entity_names[:8],
+        },
+        "media_sources": [
+            {"label": "Sources actives", "coverage": 100 if active else 0, "count": active},
+            {"label": "Articles analyses", "coverage": analyzed_pct, "count": analyzed},
+            {"label": "Signaux prioritaires", "coverage": high_pct, "count": high_risk},
+            {"label": "Confiance sources", "coverage": round(sum(a["confidence"] for a in alerts) / max(len(alerts), 1) * 100), "count": len(alerts)},
+        ],
+        "analysis_link": {
+            "system_id": latest_run.system_id if latest_run else None,
+            "run_id": latest_run.id if latest_run else None,
+            "label": "Atelier de veille",
+        },
+        "sources": [*source_index(), *dynamic_sources],
+    }
+    return payload
+
+
 def _system_map(db: DBSession, workspace: Workspace) -> dict[str, System]:
     systems = db.query(System).filter(System.workspace_id == workspace.id).all()
     result: dict[str, System] = {}
@@ -545,8 +787,39 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
     }
 
 
-def cockpit_payload(workspace: Workspace) -> dict[str, Any]:
+def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
     overview = overview_payload(workspace)
+    news = _executive_news_payload(workspace, db)
+    alerts = news.get("executive_alerts") or news.get("signals") or _clone(NEWS_SIGNALS)
+    source_health = news.get("source_health") or {}
+    if alerts:
+        live_priorities = [
+            {
+                "id": f"prio-{alert.get('id')}",
+                "kind": "decision_required",
+                "title": alert.get("title"),
+                "summary": alert.get("impact_ci") or alert.get("summary"),
+                "deadline": "avant point cabinet",
+                "sources": alert.get("sources") or [],
+                "tone": "critical" if _risk_rank(alert.get("risk_level")) >= 3 else "watch",
+            }
+            for alert in alerts[:2]
+        ]
+        overview["priorities"] = [overview["priorities"][0], *live_priorities][:3]
+    overview["latest_alerts"] = alerts[:3]
+    overview["media_sources"] = news.get("media_sources") or overview["media_sources"]
+    overview["kpis"].update(
+        {
+            "press_alerts": source_health.get("high_risk", overview["kpis"]["press_alerts"]),
+            "negative_articles": source_health.get("high_risk", overview["kpis"]["negative_articles"]),
+            "analyzed_articles": source_health.get("analyzed", overview["kpis"]["analyzed_articles"]),
+            "active_feeds": source_health.get("active_feeds", 0),
+            "total_articles": source_health.get("total_articles", 0),
+        }
+    )
+    overview["press_intelligence"] = source_health
+    overview["what_changed"] = (news.get("briefing_note") or {}).get("bullets") or []
+    overview["sources"] = news.get("sources") or overview["sources"]
     return {
         **overview,
         "layout": {
@@ -629,13 +902,8 @@ def map_payload(workspace: Workspace) -> dict[str, Any]:
     }
 
 
-def news_payload(workspace: Workspace) -> dict[str, Any]:
-    return {
-        "workspace": _workspace_meta(workspace),
-        "signals": _clone(NEWS_SIGNALS),
-        "summary": "Trois signaux dominent : retards sociaux au nord, perception de cooperation FR-CI, et besoin d'une communication preventive non militaire.",
-        "sources": source_index(),
-    }
+def news_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
+    return _executive_news_payload(workspace, db)
 
 
 def timeline_payload(workspace: Workspace) -> dict[str, Any]:
@@ -899,7 +1167,11 @@ def _ensure_rag_preset(db: DBSession, workspace: Workspace) -> None:
     )
     config = {
         "mode": "chah",
+        "ragPipelineMode": "chah",
+        "rag_pipeline_mode": "chah",
+        "ragCollectionName": "sentinel-ci-open-intelligence",
         "topK": 6,
+        "ragTopK": 6,
         "promptType": "executive_briefing",
         "asyncRetrieval": True,
         "sourcePolicy": "sources_required",
@@ -907,6 +1179,9 @@ def _ensure_rag_preset(db: DBSession, workspace: Workspace) -> None:
     }
     if existing:
         existing.config = config
+        existing.scope = "workspace"
+        existing.scope_id = workspace.id
+        existing.workspace_id = workspace.id
         existing.is_default = True
         return
     db.add(
@@ -914,7 +1189,7 @@ def _ensure_rag_preset(db: DBSession, workspace: Workspace) -> None:
             workspace_id=workspace.id,
             name=name,
             scope="workspace",
-            scope_id=None,
+            scope_id=workspace.id,
             config=config,
             is_default=True,
         )
@@ -1044,6 +1319,73 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "workspace_app_shell": "immersive",
             "workspace_app_label": SENTINEL_WORKSPACE_NAME,
             "workspace_app_default_view": "cockpit",
+            "assistant_profile_default": "vigie_executive",
+            "knowledge_scopes": [
+                {
+                    "key": "vigie",
+                    "label": "Presse + Projets + Briefings + Carte",
+                    "description": "Sources qualifiees pour briefing gouvernemental.",
+                    "collection_slugs": [
+                        "sentinel-ci-open-intelligence",
+                        "sentinel-ci-projects",
+                        "sentinel-ci-ministerial-briefs",
+                        "sentinel-ci-territorial-map",
+                    ],
+                    "default_mode": "chah",
+                    "top_k": 8,
+                    "is_default": True,
+                },
+                {
+                    "key": "open_intelligence",
+                    "label": "Presse et signaux faibles",
+                    "description": "Articles RSS et syntheses News Lab consolides.",
+                    "collection_slugs": ["sentinel-ci-open-intelligence"],
+                    "default_mode": "chah",
+                    "top_k": 8,
+                    "is_default": False,
+                },
+            ],
+            "assistant_profiles": [
+                {
+                    "key": "vigie_executive",
+                    "label": "VIGIE",
+                    "subtitle": "Briefing souverain · Sources qualifiees",
+                    "default_knowledge_scope": "vigie",
+                    "executive_mode": True,
+                    "tone": "ministerial",
+                    "allowed_actions": ["cite_sources", "draft_instruction", "open_news_lab"],
+                    "hidden_controls": [
+                        "provider",
+                        "model",
+                        "system_picker",
+                        "retrieval",
+                        "reasoning",
+                        "voice_runtime",
+                    ],
+                    "prompt_pack": [
+                        {
+                            "icon": "newspaper",
+                            "label": "Synthese du jour",
+                            "prompt": "Quels signaux necessitent une attention cabinet aujourd'hui ?",
+                        },
+                        {
+                            "icon": "shield-check",
+                            "label": "Sources et confiance",
+                            "prompt": "Quelles sources soutiennent cette alerte ?",
+                        },
+                        {
+                            "icon": "check-circle",
+                            "label": "Decision requise",
+                            "prompt": "Quels arbitrages sont attendus cette semaine ?",
+                        },
+                        {
+                            "icon": "message-square",
+                            "label": "Langage public",
+                            "prompt": "Prepare des elements de langage prudents et sources.",
+                        },
+                    ],
+                }
+            ],
             "mission_room": {
                 "enabled": True,
                 "country": "Cote d'Ivoire",
