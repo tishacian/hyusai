@@ -2,7 +2,7 @@ import { Injectable, inject, signal, computed, effect } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
 
-export type WorkspaceMode = 'builder' | 'operator' | 'executive';
+export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo';
 
 export interface WorkspaceInfo {
   id: string;
@@ -117,6 +117,7 @@ export class WorkspaceService {
   readonly isBuilderMode = computed(() => this.mode() === 'builder');
   readonly isOperatorMode = computed(() => this.mode() === 'operator');
   readonly isExecutiveMode = computed(() => this.mode() === 'executive');
+  readonly isDemoMode = computed(() => this.mode() === 'demo');
 
   constructor() {
     effect(() => {

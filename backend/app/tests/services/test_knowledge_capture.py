@@ -27,6 +27,8 @@ def test_seeded_expert_capture_capability_and_bound_skills(db_session):
     assert runtime_status("semantic_search_v1") == "bound"
     assert runtime_status("voice_transcribe_v1") == "bound"
     assert runtime_status("voice_tts_v1") == "bound"
+    assert runtime_status("voice_realtime_session_v1") == "bound"
+    assert runtime_status("voice_oracle_turn_v1") == "bound"
     assert runtime_status("knowledge_gap_analysis_v1") == "bound"
     assert runtime_status("expert_interview_plan_v1") == "bound"
 
@@ -42,7 +44,7 @@ def test_expert_capture_system_seed_populates_flow_and_session_binding(db_sessio
     assert system.name == "Expert Knowledge Capture"
     assert system.execution_mode == "human_augmented"
     assert system.retrieval_mode_default == "chah"
-    assert len(system.skill_ids) == 8
+    assert len(system.skill_ids) == 12
     assert system.flow_definition["variant"] == "expert_knowledge_capture"
     assert system.flow_definition["ui"]["type"] == "knowledge_capture"
     assert system.flow_definition["ui"]["entry_route"] == "capture"

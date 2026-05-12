@@ -106,7 +106,7 @@ const FIELD =
               </p>
             </div>
           </div>
-          <div class="grid gap-3 md:grid-cols-3">
+          <div class="grid gap-3 md:grid-cols-4">
             @for (m of modes; track m.key) {
               <button
                 type="button"
@@ -206,6 +206,12 @@ export class WorkspaceGeneralComponent {
       label: 'Executive',
       icon: 'briefcase',
       description: 'Full portfolio view with Hypervisor, ROI, balance sheet and capability ranking.',
+    },
+    {
+      key: 'demo',
+      label: 'Demo',
+      icon: 'eye-off',
+      description: 'Operator-safe surface: provider and model implementation details are hidden.',
     },
   ];
 

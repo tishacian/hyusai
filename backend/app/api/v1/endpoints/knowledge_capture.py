@@ -106,7 +106,7 @@ class CapturePlanRequest(BaseModel):
     context_id: Optional[str] = None
     system_id: Optional[str] = None
     knowledge_refs: List[str] = Field(default_factory=list)
-    voice_runtime: str = "cascade"
+    voice_runtime: str = "cascade_openai"
 
 
 class CaptureTurnRequest(BaseModel):
@@ -164,7 +164,7 @@ async def voice_runtimes(
         resource_attrs={"capability": CAPTURE_CAPABILITY},
         audit_prefix="kc",
     )
-    return list_voice_runtime_providers()
+    return list_voice_runtime_providers(workspace=workspace)
 
 
 @router.post("/plans")

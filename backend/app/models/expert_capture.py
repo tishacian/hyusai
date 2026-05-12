@@ -28,7 +28,7 @@ class ExpertCaptureSession(Base):
     objective = Column(Text, nullable=False)
     expert_profile = Column(Text, nullable=True)
     duration_minutes = Column(Integer, nullable=False, default=20)
-    voice_runtime = Column(String(80), nullable=False, default="cascade")
+    voice_runtime = Column(String(80), nullable=False, default="cascade_openai")
     status = Column(String(40), nullable=False, default="planned", index=True)
 
     plan = Column(JSON, default=dict)

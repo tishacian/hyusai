@@ -549,13 +549,13 @@ interface PipelineStage {
         </section>
         <section class="t-card t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="cpu" [size]="14" class="text-brand-400" /> Model
+            <app-icon name="cpu" [size]="14" class="text-brand-400" /> {{ isDemoMode() ? 'Runtime' : 'Model' }}
           </h3>
           <div class="space-y-3 text-sm text-gray-300">
             <div>
-              Default model:
+              {{ isDemoMode() ? 'Runtime policy:' : 'Default model:' }}
               <span class="text-white font-mono">{{ effectiveModel() }}</span>
-              @if (systemDefaults()?.default_model) {
+              @if (!isDemoMode() && systemDefaults()?.default_model) {
                 <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20">
                   override
                 </span>
@@ -563,10 +563,10 @@ interface PipelineStage {
             </div>
             <div>
               Reasoning template:
-              <span class="text-white font-mono">{{ systemDefaults()?.default_prompt_type || 'auto' }}</span>
+              <span class="text-white font-mono">{{ isDemoMode() ? 'managed' : (systemDefaults()?.default_prompt_type || 'auto') }}</span>
             </div>
-            <div>Temperature: <span class="text-white font-mono">{{ settings.settings().temperature?.toFixed(2) ?? '—' }}</span></div>
-            <div>Max tokens: <span class="text-white font-mono">{{ settings.settings().maxTokens ?? '—' }}</span></div>
+            <div>Temperature: <span class="text-white font-mono">{{ isDemoMode() ? 'managed' : (settings.settings().temperature?.toFixed(2) ?? '—') }}</span></div>
+            <div>Max tokens: <span class="text-white font-mono">{{ isDemoMode() ? 'managed' : (settings.settings().maxTokens ?? '—') }}</span></div>
           </div>
         </section>
         <section class="t-card t-elevated rounded-md p-5">
@@ -660,6 +660,7 @@ export class SystemViewComponent implements OnInit {
   /** Side panels — Settings and Chat live here, never as tabs. */
   readonly settingsPanelOpen = signal(false);
   readonly chatPanelOpen = signal(false);
+  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
 
   readonly systemDefaults = signal<{
     default_prompt_type?: string | null;
@@ -690,6 +691,7 @@ export class SystemViewComponent implements OnInit {
   });
 
   readonly effectiveModel = computed(() => {
+    if (this.isDemoMode()) return 'Managed by workspace';
     const d = this.systemDefaults();
     return d?.default_model || this.settings.settings().defaultModel || '—';
   });
@@ -804,12 +806,14 @@ export class SystemViewComponent implements OnInit {
       },
       {
         key: 'model',
-        title: 'Model',
-        description: 'Default LLM, temperature, max tokens.',
+        title: this.isDemoMode() ? 'Runtime' : 'Model',
+        description: this.isDemoMode()
+          ? 'Provider and model details are managed by workspace policy.'
+          : 'Default LLM, temperature, max tokens.',
         icon: 'cpu',
-        cta: 'Configure',
+        cta: this.isDemoMode() ? 'Review' : 'Configure',
         route: '/settings',
-        done: hasModel,
+        done: this.isDemoMode() ? true : hasModel,
       },
       {
         key: 'guardrails',

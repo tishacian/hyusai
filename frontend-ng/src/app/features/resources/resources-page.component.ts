@@ -11,6 +11,7 @@ import { NgClass } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { StatReadoutComponent } from '@app/shared/cockpit';
@@ -60,7 +61,7 @@ type Tab = 'models' | 'connectors';
       breadcrumb="Configure"
       title="Resources"
       icon="plug"
-      subtitle="Models, connectors and apps available to your systems."
+      [subtitle]="isDemoMode() ? 'Connectors and apps available to your systems.' : 'Models, connectors and apps available to your systems.'"
     >
       <button
         type="button"
@@ -75,12 +76,16 @@ type Tab = 'models' | 'connectors';
 
     <!-- KPIs -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-      <ck-stat-readout variant="tile" label="Models" [value]="models().length" icon="cpu" />
-      <ck-stat-readout variant="tile"
-        label="Providers"
-        [value]="providers().length"
-        icon="server"
-      />
+      @if (isDemoMode()) {
+        <ck-stat-readout variant="tile" label="Runtime" value="Managed" icon="shield-check" />
+      } @else {
+        <ck-stat-readout variant="tile" label="Models" [value]="models().length" icon="cpu" />
+        <ck-stat-readout variant="tile"
+          label="Providers"
+          [value]="providers().length"
+          icon="server"
+        />
+      }
       <ck-stat-readout variant="tile"
         label="Connectors"
         [value]="connectorsAvailable()"
@@ -128,7 +133,18 @@ type Tab = 'models' | 'connectors';
 
     <!-- Models tab -->
     @if (tab() === 'models') {
-      <section class="t-card t-elevated rounded-md overflow-hidden">
+      @if (isDemoMode()) {
+        <section class="t-card t-elevated rounded-md p-8 text-center">
+          <div class="w-12 h-12 rounded-md bg-brand-500/10 ring-1 ring-brand-500/30 text-brand-300 flex items-center justify-center mx-auto mb-3">
+            <app-icon name="shield-check" [size]="20" />
+          </div>
+          <h3 class="text-sm font-semibold text-white mb-2">Managed runtime</h3>
+          <p class="text-xs text-gray-400 max-w-md mx-auto">
+            Provider and model catalog details are hidden while this workspace is in demo mode.
+          </p>
+        </section>
+      } @else {
+        <section class="t-card t-elevated rounded-md overflow-hidden">
         <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
             <app-icon name="cpu" [size]="16" class="text-brand-400" />
@@ -197,7 +213,8 @@ type Tab = 'models' | 'connectors';
             }
           </ul>
         }
-      </section>
+        </section>
+      }
     }
 
     <!-- Connectors tab -->
@@ -367,12 +384,14 @@ export class ResourcesPageComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastrService);
   private readonly router = inject(Router);
+  private readonly workspace = inject(WorkspaceService);
 
   readonly APPS = APPS;
   readonly categories = CONNECTOR_CATEGORIES;
   readonly allConnectors = CONNECTORS;
 
   readonly tab = signal<Tab>('models');
+  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
 
   readonly models = signal<ModelInfo[]>([]);
   readonly loading = signal(false);

@@ -26,6 +26,7 @@ import {
   type System,
 } from '@app/core/canonical-api.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import type { AppSettings } from '@app/core/settings.service';
 
 type DraftState = {
@@ -410,10 +411,15 @@ type DraftState = {
               </span>
             </div>
             <dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-              <dt class="text-gray-500">Provider</dt>
-              <dd class="text-gray-100 ck-mono">{{ r.config.defaultProvider ?? '—' }}</dd>
-              <dt class="text-gray-500">Model</dt>
-              <dd class="text-gray-100 ck-mono">{{ r.config.defaultModel ?? '—' }}</dd>
+              @if (isDemoMode()) {
+                <dt class="text-gray-500">Runtime</dt>
+                <dd class="text-gray-100 ck-mono">Managed</dd>
+              } @else {
+                <dt class="text-gray-500">Provider</dt>
+                <dd class="text-gray-100 ck-mono">{{ r.config.defaultProvider ?? '—' }}</dd>
+                <dt class="text-gray-500">Model</dt>
+                <dd class="text-gray-100 ck-mono">{{ r.config.defaultModel ?? '—' }}</dd>
+              }
               <dt class="text-gray-500">Mode</dt>
               <dd class="text-gray-100 ck-mono">{{ r.config.ragPipelineMode ?? '—' }}</dd>
               <dt class="text-gray-500">Top-K</dt>
@@ -432,6 +438,8 @@ export class PresetsListComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
   private readonly toastr = inject(ToastrService);
   private readonly zoom = inject(ZoomContextService);
+  private readonly workspace = inject(WorkspaceService);
+  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
 
   readonly presets = signal<RagPreset[]>([]);
   readonly capabilities = signal<Capability[]>([]);
@@ -550,6 +558,11 @@ export class PresetsListComponent implements OnInit {
 
   summarize(p: RagPreset): string {
     const cfg = p.config ?? {};
+    if (this.isDemoMode()) {
+      const topK = cfg.ragTopK ?? '—';
+      const mode = cfg.ragPipelineMode ?? (cfg.ragUseHybridSearch ? 'hybrid' : 'vector');
+      return `Runtime managed · Top-K ${topK} · Mode ${mode}`;
+    }
     const provider = cfg.defaultProvider ?? '—';
     const model = cfg.defaultModel ?? '—';
     const topK = cfg.ragTopK ?? '—';

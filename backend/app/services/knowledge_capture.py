@@ -242,7 +242,7 @@ def build_interview_plan(
         "objective": objective,
         "expert_profile": expert_profile,
         "duration_minutes": duration,
-        "voice_runtime": "cascade",
+        "voice_runtime": "cascade_openai",
         "agenda": [
             {"label": "Frame objective and scope", "estimated_minutes": 2},
             {"label": "Resolve prioritized knowledge gaps", "estimated_minutes": available_question_minutes},
@@ -955,7 +955,7 @@ def create_capture_plan(
     context_id: Optional[str],
     system_id: Optional[str],
     knowledge_refs: Optional[List[str]],
-    voice_runtime: str = "cascade",
+    voice_runtime: str = "cascade_openai",
     created_by_user_id: Optional[str] = None,
 ) -> ExpertCaptureSession:
     ctx = _load_context(db, workspace_id, context_id)

@@ -9,14 +9,17 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { ToastrService, ActiveToast } from 'ngx-toastr';
-import { ApiService } from '@app/core/api.service';
+import { ApiService, VoiceRuntimeCatalog, VoiceRuntimeProviderOption } from '@app/core/api.service';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { SettingsService } from '@app/core/settings.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
+import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { RuntimeStatusBadgeComponent } from '@app/shared/cockpit';
 
 interface DecisionStep {
@@ -85,6 +88,7 @@ interface ReasoningTemplate {
 }
 
 type RagModeChoice = 'auto' | 'naive' | 'hybrid' | 'hah' | 'chah';
+type VoiceTransportChoice = 'batch_http' | 'backend_ws';
 
 const RAG_MODE_CHOICES: { slug: RagModeChoice; label: string; hint: string }[] = [
   { slug: 'auto', label: 'Auto', hint: 'Use workspace default' },
@@ -226,7 +230,7 @@ const STEP_ICONS: Record<string, string> = {
           <app-icon name="circle-dot" [size]="12" class="text-emerald-400" />
           <span class="uppercase tracking-wider font-semibold">Chat</span>
           <span class="text-gray-600">·</span>
-          <span class="font-mono truncate">{{ settings.settings().defaultModel || '—' }}</span>
+          <span class="font-mono truncate">{{ chatRuntimeLabel() }}</span>
           <span class="text-gray-600">·</span>
 
           <!-- Per-query retrieval mode chip -->
@@ -295,6 +299,74 @@ const STEP_ICONS: Record<string, string> = {
             <app-icon name="trash-2" [size]="14" />
           </button>
         </div>
+      </div>
+
+      <div class="px-4 py-2 border-b border-white/5 bg-black/[0.08] flex items-center gap-2 text-[11px] text-gray-400 flex-wrap">
+        <span class="inline-flex items-center gap-1.5 text-gray-300 font-medium">
+          <app-icon name="waves" [size]="13" class="text-brand-300" />
+          Voice runtime
+        </span>
+        @if (isDemoMode()) {
+          <span
+            class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 ring-1 ring-white/10 text-gray-200"
+            title="Provider and model details are hidden in workspace demo mode."
+          >
+            <app-icon name="shield-check" [size]="12" class="text-brand-300" />
+            Managed runtime
+          </span>
+        } @else {
+          <select
+            class="bg-white/5 border border-white/10 rounded px-2 py-1 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-400"
+            [ngModel]="voiceProvider()"
+            (ngModelChange)="onVoiceProviderChange($event)"
+            [title]="selectedVoiceDescription()"
+          >
+            @for (runtime of voiceRuntimeOptions(); track runtime.slug) {
+              <option [value]="runtime.slug">{{ voiceRuntimeLabel(runtime) }}</option>
+            }
+          </select>
+        }
+        <div class="inline-flex overflow-hidden rounded-lg border border-white/10 bg-white/[0.03]">
+          <button
+            type="button"
+            class="px-2.5 py-1 transition"
+            [class.bg-brand-500\\/20]="voiceTransport() === 'batch_http'"
+            [class.text-brand-100]="voiceTransport() === 'batch_http'"
+            [class.text-gray-400]="voiceTransport() !== 'batch_http'"
+            (click)="setVoiceTransport('batch_http')"
+            title="Record one audio segment, then transcribe through /voice/transcribe."
+          >
+            Batch
+          </button>
+          <button
+            type="button"
+            class="px-2.5 py-1 transition disabled:opacity-40"
+            [class.bg-brand-500\\/20]="voiceTransport() === 'backend_ws'"
+            [class.text-brand-100]="voiceTransport() === 'backend_ws'"
+            [class.text-gray-400]="voiceTransport() !== 'backend_ws'"
+            [disabled]="!canUseVoiceSession()"
+            (click)="setVoiceTransport('backend_ws')"
+            title="Use Agentium voice session events: text.partial, text.final, runtime.metric."
+          >
+            Session
+          </button>
+        </div>
+        <label class="inline-flex items-center gap-1.5 text-gray-400">
+          <input
+            type="checkbox"
+            class="accent-brand-500"
+            [ngModel]="voiceAutoSend()"
+            (ngModelChange)="voiceAutoSend.set($event)"
+            [disabled]="!canTranscribeVoice()"
+          />
+          Auto-send final transcript
+        </label>
+        <span [class]="voiceStatusClass()">{{ voiceStatusLabel() }}</span>
+        <span class="text-gray-600">·</span>
+        <span class="truncate max-w-[36rem]" [title]="voiceRuntimeDetail()">{{ voiceRuntimeDetail() }}</span>
+        @if (voicePartial()) {
+          <span class="text-brand-200 truncate max-w-xs">“{{ voicePartial() }}”</span>
+        }
       </div>
 
       <!-- Messages -->
@@ -849,8 +921,8 @@ const STEP_ICONS: Record<string, string> = {
           [class.bg-white\\/5]="!recording() && !transcribing()"
           [class.ring-white\\/10]="!recording() && !transcribing()"
           [class.text-gray-300]="!recording() && !transcribing()"
-          [disabled]="transcribing()"
-          [title]="transcribing() ? 'Transcribing…' : (recording() ? 'Stop recording' : 'Record voice')"
+          [disabled]="transcribing() || !canTranscribeVoice()"
+          [title]="voiceMicTitle()"
           (click)="toggleMic()"
         >
           <app-icon
@@ -903,8 +975,10 @@ export class ChatPanelComponent {
   private readonly toast = inject(ToastrService);
   private readonly router = inject(Router);
   private readonly health = inject(RuntimeHealthService);
+  private readonly voiceSession = inject(VoiceSessionService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly workspace = inject(WorkspaceService);
   readonly settings = inject(SettingsService);
 
   messages = signal<ChatMessage[]>([]);
@@ -918,6 +992,16 @@ export class ChatPanelComponent {
   readonly ragModeOverride = signal<RagModeChoice>('auto');
   readonly promptType = signal<string>('auto');
   readonly reasoningTemplates = signal<ReasoningTemplate[]>([]);
+  readonly voiceRuntimes = signal<VoiceRuntimeCatalog | null>(null);
+  readonly voiceProvider = signal('cascade_openai');
+  readonly voiceTransport = signal<VoiceTransportChoice>('batch_http');
+  readonly voiceAutoSend = signal(false);
+  readonly voicePartial = signal('');
+  readonly voiceNotice = signal<string | null>(null);
+  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
+  readonly chatRuntimeLabel = computed(() =>
+    this.isDemoMode() ? 'managed runtime' : this.settings.settings().defaultModel || '—',
+  );
 
   readonly ragModeHint = computed(() => {
     const slug = this.ragModeOverride();
@@ -934,6 +1018,73 @@ export class ChatPanelComponent {
     const slug = this.promptType();
     if (slug === 'auto') return 'Heuristic selector picks the template per query';
     return this.reasoningTemplates().find((t) => t.slug === slug)?.description ?? '';
+  });
+
+  readonly voiceRuntimeOptions = computed<VoiceRuntimeProviderOption[]>(() => {
+    const catalog = this.voiceRuntimes();
+    return catalog?.providers?.length
+      ? catalog.providers
+      : [
+          {
+            slug: 'cascade_openai',
+            status: 'unconfigured',
+            transport: 'backend_ws',
+            capabilities: { batch_transcription: true, tts: true, barge_in: true },
+          },
+        ];
+  });
+
+  readonly selectedVoiceRuntime = computed<VoiceRuntimeProviderOption | null>(() => {
+    const provider = this.voiceProvider();
+    return this.voiceRuntimeOptions().find((runtime) => runtime.slug === provider) ?? null;
+  });
+
+  readonly canUseVoiceSession = computed(() => {
+    const caps = this.selectedVoiceRuntime()?.capabilities ?? {};
+    return Boolean(caps['streaming_transcription'] || caps['batch_transcription']);
+  });
+
+  readonly canTranscribeVoice = computed(() => {
+    const caps = this.selectedVoiceRuntime()?.capabilities ?? {};
+    return Boolean(caps['streaming_transcription'] || caps['batch_transcription'] || this.hasCascadeFallback());
+  });
+
+  readonly voiceStatusLabel = computed(() => {
+    const runtime = this.selectedVoiceRuntime();
+    if (!runtime) return 'runtime unknown';
+    if (this.voiceNotice()) return this.voiceNotice();
+    if (this.isDemoMode()) return 'managed';
+    const status = runtime.status || 'unknown';
+    if (status === 'bound') return 'ready';
+    if (status === 'disabled') return 'disabled';
+    if (status === 'unconfigured') return 'fallback required';
+    if (status === 'experimental') return 'experimental';
+    return status.replace(/_/g, ' ');
+  });
+
+  readonly voiceStatusClass = computed(() => {
+    const status = this.selectedVoiceRuntime()?.status || 'unknown';
+    if (this.voiceNotice()) return 'px-2 py-1 rounded bg-brand-500/10 text-brand-100 ring-1 ring-brand-300/20';
+    if (status === 'bound') return 'px-2 py-1 rounded bg-emerald-500/10 text-emerald-200 ring-1 ring-emerald-400/20';
+    if (status === 'disabled' || status === 'unconfigured') return 'px-2 py-1 rounded bg-amber-500/10 text-amber-200 ring-1 ring-amber-400/20';
+    if (status === 'experimental') return 'px-2 py-1 rounded bg-violet-500/10 text-violet-200 ring-1 ring-violet-400/20';
+    return 'px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10';
+  });
+
+  readonly voiceRuntimeDetail = computed(() => {
+    if (this.isDemoMode()) return 'Provider and model details hidden by workspace demo mode';
+    const runtime = this.selectedVoiceRuntime();
+    const caps = runtime?.capabilities ?? {};
+    const input = caps['streaming_transcription']
+      ? 'streaming STT'
+      : caps['batch_transcription']
+        ? 'batch STT'
+        : this.hasCascadeFallback()
+          ? 'input fallback cascade'
+          : 'no STT';
+    const output = caps['tts'] || caps['speech_to_speech'] ? 'native output' : this.hasCascadeFallback() ? 'output fallback cascade' : 'no TTS';
+    const transport = this.voiceTransport() === 'backend_ws' ? 'Agentium session events' : 'HTTP batch';
+    return `${input} · ${output} · ${transport}`;
   });
 
   recording = signal(false);
@@ -957,6 +1108,8 @@ export class ChatPanelComponent {
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
   private currentAudio: HTMLAudioElement | null = null;
+  private voiceConnection: VoiceSessionConnection | null = null;
+  private chatVoiceSessionId = `chat-${crypto.randomUUID?.() || Date.now()}`;
   private streamStart = 0;
 
   // TTS pipeline state — we flush completed sentences from the LLM
@@ -1003,9 +1156,11 @@ export class ChatPanelComponent {
     this.settings.refresh();
     this.health.load().subscribe();
     this.loadReasoningTemplates();
+    this.loadVoiceRuntimes();
     this.destroyRef.onDestroy(() => {
       this.currentAudio?.pause();
       if (this.mediaRecorder?.state === 'recording') this.mediaRecorder.stop();
+      this.voiceConnection?.close();
     });
   }
 
@@ -1016,6 +1171,87 @@ export class ChatPanelComponent {
         next: (res) => this.reasoningTemplates.set(res?.templates ?? []),
         error: () => this.reasoningTemplates.set([]),
       });
+  }
+
+  private loadVoiceRuntimes(): void {
+    this.api.listVoiceRuntimes().subscribe({
+      next: (catalog) => {
+        this.voiceRuntimes.set(catalog);
+        const current = this.voiceProvider();
+        const allowed = catalog.allowed_providers || [];
+        if (!allowed.includes(current)) {
+          this.voiceProvider.set(catalog.default_provider || allowed[0] || 'cascade_openai');
+        }
+      },
+      error: () => {
+        this.voiceRuntimes.set(null);
+        this.voiceProvider.set('cascade_openai');
+      },
+    });
+  }
+
+  voiceRuntimeLabel(runtime: VoiceRuntimeProviderOption): string {
+    if (this.isDemoMode()) return 'Managed runtime';
+    const label = runtime.slug.replace(/_/g, ' ');
+    if (runtime.status === 'bound') return label;
+    return `${label} · ${runtime.status}`;
+  }
+
+  selectedVoiceDescription(): string {
+    if (this.isDemoMode()) return 'Provider and model details are hidden in demo mode.';
+    return this.selectedVoiceRuntime()?.description || this.voiceRuntimeDetail();
+  }
+
+  onVoiceProviderChange(slug: string): void {
+    this.voiceProvider.set(slug || 'cascade_openai');
+    this.voicePartial.set('');
+    this.voiceNotice.set(null);
+    this.closeVoiceSession();
+    if (!this.canUseVoiceSession()) {
+      this.voiceTransport.set('batch_http');
+    }
+  }
+
+  setVoiceTransport(transport: VoiceTransportChoice): void {
+    if (transport === 'backend_ws' && !this.canUseVoiceSession()) {
+      this.toast.info(this.isDemoMode() ? 'This voice runtime does not expose a session path.' : 'This provider does not expose an Agentium voice session path.', 'Voice');
+      return;
+    }
+    this.voiceTransport.set(transport);
+    this.voiceNotice.set(null);
+    if (transport === 'batch_http') this.closeVoiceSession();
+  }
+
+  voiceMicTitle(): string {
+    if (!this.canTranscribeVoice()) return this.isDemoMode() ? 'Voice runtime cannot transcribe audio' : 'Selected provider cannot transcribe voice';
+    if (this.transcribing()) return this.isDemoMode() ? 'Transcribing…' : `Transcribing with ${this.voiceInputProvider()}…`;
+    if (this.recording()) return 'Stop recording';
+    if (this.isDemoMode()) return `Record voice · ${this.voiceTransport() === 'backend_ws' ? 'session' : 'batch'}`;
+    return `Record voice · ${this.voiceInputProvider()} · ${this.voiceTransport() === 'backend_ws' ? 'session' : 'batch'}`;
+  }
+
+  private voiceRuntimeNotice(label: string, provider?: string | null): string {
+    if (this.isDemoMode()) return label;
+    return provider ? `${label} · ${provider}` : label;
+  }
+
+  private hasCascadeFallback(): boolean {
+    const catalog = this.voiceRuntimes();
+    return !catalog || (catalog.fallback_providers || []).includes('cascade_openai') || (catalog.allowed_providers || []).includes('cascade_openai');
+  }
+
+  private voiceInputProvider(): string {
+    const runtime = this.selectedVoiceRuntime();
+    const caps = runtime?.capabilities ?? {};
+    if (caps['batch_transcription'] || caps['streaming_transcription']) return runtime?.slug || 'cascade_openai';
+    return this.hasCascadeFallback() ? 'cascade_openai' : runtime?.slug || 'cascade_openai';
+  }
+
+  private voiceOutputProvider(): string {
+    const runtime = this.selectedVoiceRuntime();
+    const caps = runtime?.capabilities ?? {};
+    if (caps['tts'] || caps['speech_to_speech']) return runtime?.slug || 'cascade_openai';
+    return this.hasCascadeFallback() ? 'cascade_openai' : runtime?.slug || 'cascade_openai';
   }
 
   isTrailOpen(id: string): boolean {
@@ -1642,8 +1878,12 @@ export class ChatPanelComponent {
 
   toggleTTS(): void {
     const next = !this.ttsEnabled();
+    if (next && !this.voiceOutputProvider()) {
+      this.toast.error(this.isDemoMode() ? 'Voice runtime cannot synthesize speech.' : 'Selected voice provider cannot synthesize speech.', 'Voice');
+      return;
+    }
     this.ttsEnabled.set(next);
-    this.toast.info(next ? 'Voice output enabled' : 'Voice output disabled');
+    this.toast.info(next ? this.voiceRuntimeNotice('Voice output enabled', this.voiceOutputProvider()) : 'Voice output disabled');
     if (!next) {
       // Stop any playing audio and drop queued chunks so the user isn't
       // surprised by lagging TTS coming through after they muted.
@@ -1652,6 +1892,10 @@ export class ChatPanelComponent {
   }
 
   async toggleMic(): Promise<void> {
+    if (!this.canTranscribeVoice()) {
+      this.toast.error(this.isDemoMode() ? 'Voice runtime cannot transcribe audio.' : 'Selected voice provider cannot transcribe audio.', 'Voice');
+      return;
+    }
     if (this.recording()) {
       this.mediaRecorder?.stop();
       return;
@@ -1678,8 +1922,14 @@ export class ChatPanelComponent {
   }
 
   private transcribe(blob: Blob): void {
+    if (this.voiceTransport() === 'backend_ws' && this.canUseVoiceSession()) {
+      void this.transcribeViaVoiceSession(blob);
+      return;
+    }
     this.transcribing.set(true);
-    this.api.transcribeAudio(blob).subscribe({
+    const provider = this.voiceInputProvider();
+    this.voiceNotice.set(this.voiceRuntimeNotice('Transcribing', provider));
+    this.api.transcribeAudio(blob, 'recording.webm', provider).subscribe({
       next: (res) => {
         // The response-side mutation of a plain property (``userInput``)
         // doesn't propagate through OnPush change detection on its own
@@ -1692,15 +1942,125 @@ export class ChatPanelComponent {
           this.toast.info('No speech detected in the recording', 'Voice');
         }
         this.transcribing.set(false);
+        this.voiceNotice.set(
+          res?.fallback
+            ? this.voiceRuntimeNotice('Fallback used', res.provider || provider)
+            : this.voiceRuntimeNotice('Transcript ready', res.provider || provider),
+        );
         this.cdr.markForCheck();
       },
       error: (err) => {
         this.transcribing.set(false);
+        this.voiceNotice.set(null);
         this.cdr.markForCheck();
-        const detail = err?.error?.detail || err?.message || 'Transcription failed';
+        const detail = this.voiceErrorMessage(err, 'Transcription failed');
         this.toast.error(detail, 'Voice');
       },
     });
+  }
+
+  private async transcribeViaVoiceSession(blob: Blob): Promise<void> {
+    this.transcribing.set(true);
+    this.voicePartial.set('');
+    this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', this.voiceInputProvider()));
+    const connection = this.ensureVoiceSession();
+    if (!connection) {
+      this.voiceTransport.set('batch_http');
+      this.transcribe(blob);
+      return;
+    }
+    try {
+      const turnId = crypto.randomUUID?.() || String(Date.now());
+      await connection.sendAudioFrame(blob, { turn_id: turnId, content_type: blob.type || 'audio/webm' });
+      connection.endpoint({ turn_id: turnId });
+    } catch (err) {
+      this.transcribing.set(false);
+      this.voiceNotice.set(null);
+      this.toast.error(this.voiceErrorMessage(err, 'Voice session failed'), 'Voice');
+      this.closeVoiceSession();
+      this.cdr.markForCheck();
+    }
+  }
+
+  private ensureVoiceSession(): VoiceSessionConnection | null {
+    if (this.voiceConnection) return this.voiceConnection;
+    try {
+      const connection = this.voiceSession.open(this.chatVoiceSessionId);
+      this.voiceConnection = connection;
+      connection.events$
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((event) => this.handleVoiceSessionEvent(event));
+      connection.start({
+        runtime: this.voiceInputProvider(),
+        provider: this.voiceInputProvider(),
+        transport: 'backend_ws',
+        capability: 'voice2voice_interaction',
+        mode: 'manual',
+        codec: { input: 'webm', channels: 1 },
+        fallback_policy: 'cascade_openai',
+      });
+      return connection;
+    } catch {
+      this.voiceConnection = null;
+      return null;
+    }
+  }
+
+  private closeVoiceSession(): void {
+    this.voiceConnection?.close();
+    this.voiceConnection = null;
+    this.chatVoiceSessionId = `chat-${crypto.randomUUID?.() || Date.now()}`;
+  }
+
+  private handleVoiceSessionEvent(event: VoiceSessionEvent): void {
+    const payload = event.payload || {};
+    if (event.type === 'session.ready') {
+      this.voiceNotice.set('Voice session ready');
+      return;
+    }
+    if (event.type === 'text.partial') {
+      const text = String(payload['text'] || '').trim();
+      if (text) this.voicePartial.set(text);
+      return;
+    }
+    if (event.type === 'text.final') {
+      const text = String(payload['text'] || '').trim();
+      if (text) {
+        this.userInput = (this.userInput ? `${this.userInput} ` : '') + text;
+      } else {
+        this.toast.info('No speech detected in the recording', 'Voice');
+      }
+      this.voicePartial.set('');
+      this.transcribing.set(false);
+      this.voiceNotice.set(payload['fallback_used'] ? 'Transcript ready · fallback used' : 'Transcript ready');
+      this.cdr.markForCheck();
+      if (this.voiceAutoSend() && this.userInput.trim() && !this.streaming()) {
+        queueMicrotask(() => this.send());
+      }
+      return;
+    }
+    if (event.type === 'runtime.metric') {
+      const provider = payload['provider'];
+      if (provider) this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', String(provider)));
+      return;
+    }
+    if (event.type === 'session.error') {
+      this.transcribing.set(false);
+      this.voicePartial.set('');
+      this.voiceNotice.set(null);
+      this.toast.error(String(payload['message'] || 'Voice session failed'), 'Voice');
+      this.closeVoiceSession();
+      this.cdr.markForCheck();
+    }
+  }
+
+  private voiceErrorMessage(err: unknown, fallback: string): string {
+    const anyErr = err as any;
+    const detail = anyErr?.error?.detail;
+    if (typeof detail === 'string') return detail;
+    if (detail?.message) return String(detail.message);
+    if (anyErr?.message) return String(anyErr.message);
+    return fallback;
   }
 
   /**
@@ -1794,7 +2154,7 @@ export class ChatPanelComponent {
     // star bold star star"), and cap at the backend limit.
     const clean = text.replace(/[#*_`\[\]|]/g, '').slice(0, 4000);
     if (!clean.trim()) return;
-    this.api.synthesizeSpeech(clean).subscribe({
+    this.api.synthesizeSpeech(clean, 'nova', this.voiceOutputProvider()).subscribe({
       next: (blob) => {
         if (this.ttsAborted) return;
         const url = URL.createObjectURL(blob);

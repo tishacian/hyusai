@@ -53,6 +53,24 @@ export interface CaptureEventAmendRequest {
   reason?: string | null;
 }
 
+export interface VoiceRuntimeProviderOption {
+  slug: string;
+  status: string;
+  description?: string;
+  transport?: string;
+  models?: string[];
+  capabilities?: Record<string, boolean>;
+}
+
+export interface VoiceRuntimeCatalog {
+  default_provider: string;
+  allowed_providers: string[];
+  fallback_providers: string[];
+  events: string[];
+  providers: VoiceRuntimeProviderOption[];
+  decision_rule?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -83,23 +101,32 @@ export class ApiService {
   }
 
   /** Upload an audio blob and receive a transcription. */
-  transcribeAudio(blob: Blob, filename = 'recording.webm'): Observable<{ text: string }> {
+  transcribeAudio(
+    blob: Blob,
+    filename = 'recording.webm',
+    provider?: string | null,
+  ): Observable<{ text: string; provider?: string; model?: string; fallback?: boolean }> {
     const form = new FormData();
     form.append('file', blob, filename);
-    return this.http.post<{ text: string }>(`${this.base}/voice/transcribe`, form);
+    const options = provider ? { params: new HttpParams().set('provider', provider) } : {};
+    return this.http.post<{ text: string; provider?: string; model?: string; fallback?: boolean }>(
+      `${this.base}/voice/transcribe`,
+      form,
+      options,
+    );
   }
 
   /** Synthesize speech (returns a playable audio Blob). */
-  synthesizeSpeech(text: string, voice = 'nova'): Observable<Blob> {
+  synthesizeSpeech(text: string, voice = 'nova', provider?: string | null): Observable<Blob> {
     return this.http.post(
       `${this.base}/voice/synthesize`,
-      { text, voice },
+      { text, voice, provider: provider || undefined },
       { responseType: 'blob' },
     );
   }
 
-  listVoiceRuntimes(): Observable<unknown> {
-    return this.get('/knowledge-capture/voice-runtimes');
+  listVoiceRuntimes(): Observable<VoiceRuntimeCatalog> {
+    return this.get<VoiceRuntimeCatalog>('/voice/runtimes');
   }
 
   createCapturePlan(body: CapturePlanRequest): Observable<unknown> {

@@ -21,7 +21,7 @@ The realignment plan (`docs/agentium-realignment-plan.md`) landed across five wa
 | RAG presets (`Auto` / `Semantic` / `Hybrid` / `HAH` / `OmniRAG`) gated by `/skills/runtime-health` | §16 | 🟡 Partial | ✅ Shipped |
 | Title-bar live telemetry from `/telemetry/live` with neutral idle state | §38 | 🟡 Partial | ✅ Shipped |
 | `execution_mode` first-class on `System` (`real_time_decision` / `batch_processing` / `event_driven_automation` / `continuous_monitoring` / `human_augmented`) with `execution_profile` SLA | §20.6 | 🔵 Planned | ✅ Shipped |
-| Workspace modes `builder` / `operator` / `executive` with progressive disclosure of Hypervisor and ROI | §34, §38 | 🔵 Planned | ✅ Shipped |
+| Workspace modes `builder` / `operator` / `executive` / `demo` with progressive disclosure and demo-safe runtime redaction | §34, §38 | 🔵 Planned | ✅ Shipped |
 | Resources / Apps / Connectors honest catalog-only labelling (no fake wiring) | §30 | 🟡 Partial | ✅ Shipped |
 | Governance audit — actor / kind filters, CSV export, pagination, read-only RBAC banner | §33 | 🟡 Partial | ✅ Shipped |
 | Persona-aware help tooltips (`<ck-help>` + `/help-content` registry, 17 IDs covering Hypervisor / Steering / Builder / Runs / Workspace) | §38 | 🔵 Planned | ✅ Shipped |
@@ -3417,9 +3417,10 @@ In one unified model
 
 Agentium must explicitly support a **Builder Onboarding Mode** where ROI is not the primary entry point.
 
-> **✅ Shipped** — workspace modes `builder`, `operator`, and
-> `executive` are persisted on the workspace and drive progressive
-> disclosure in the cockpit chrome.
+> **✅ Shipped** — workspace modes `builder`, `operator`, `executive`,
+> and `demo` are persisted on the workspace and drive progressive
+> disclosure in the cockpit chrome. `demo` keeps the product flow intact
+> while hiding provider/model implementation details from the UI.
 > **🟡 Evolving** — the remaining work is not a mode toggle; it is the
 > finer adaptation of surface density and business copy as a workspace
 > matures.
@@ -3478,7 +3479,7 @@ Then:
 
 > Adoption starts with execution. Scaling requires economics.
 
-> **🔵 Planned** — no explicit mode switch exists. A `workspace.mode ∈ {builder, operator, executive}` field + route-gating middleware would deliver this with low engineering cost.
+> **✅ Shipped** — explicit mode switching exists via `workspace.mode ∈ {builder, operator, executive, demo}`.
 
 ---
 

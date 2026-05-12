@@ -452,3 +452,54 @@ Decision :
 Le plan est valide comme **cadrage structurel**.
 
 Prochaine action uniquement sur demande explicite : implementation **J1 — Protocole + Inner Monologue cote cascade**.
+
+---
+
+## 11. Canonisation multi-provider Agentium
+
+La canonisation V2V ajoute une contrainte produit durable : **OpenAI Realtime est une implementation de reference, pas une dependance obligatoire**. Le contrat Agentium reste compatible avec les lanes locales ou open-source pour STT, TTS, traduction et speech-to-speech.
+
+### Providers canoniques
+
+| Provider | Usage | Transport par defaut | Statut |
+| --- | --- | --- | --- |
+| `cascade_openai` | STT batch + oracle Agentium + TTS segmente | `backend_ws` | fallback production |
+| `openai_realtime` | speech-to-speech, transcription live, traduction, tool calls | `webrtc` ou `backend_ws` | optionnel / flag |
+| `local_stt` | Whisper/faster-whisper/whisper.cpp via service local | `backend_ws` | contrat HTTP |
+| `local_tts` | Piper, XTTS, Kokoro ou equivalent via service local | `backend_ws` | contrat HTTP |
+| `local_realtime` | future lane locale voice-to-voice | `backend_ws` ou WS local | contrat reserve |
+| `realtime_gpu` | runtime GPU Moshi/KAME-like | WS specialise | experimental |
+
+Chaque provider declare explicitement ses capabilities : `batch_transcription`, `streaming_transcription`, `tts`, `speech_to_speech`, `translation`, `barge_in`, `tool_calls`. Une action non supportee doit produire `provider_capability_unsupported`, jamais un echec opaque.
+
+### Resolution et fallback
+
+La resolution est standardisee dans cet ordre :
+
+1. override local au node Flow Builder ;
+2. override runtime voice du System ;
+3. configuration du Workspace ;
+4. default global.
+
+Le fallback technique est explicite : `openai_realtime` peut revenir vers `cascade_openai` ou un provider local configure. Les settings Docker exposent `VOICE_RUNTIME_DEFAULT_PROVIDER`, `VOICE_RUNTIME_ALLOWED_PROVIDERS`, `VOICE_RUNTIME_FALLBACK_PROVIDERS` et les endpoints locaux `LOCAL_STT_ENDPOINT_URL`, `LOCAL_TTS_ENDPOINT_URL`, `LOCAL_REALTIME_ENDPOINT_URL`.
+
+### Skills et capability
+
+Les briques voice sont maintenant des skills reutilisables :
+
+- `voice_realtime_session_v1`
+- `voice_realtime_transcribe_v1`
+- `voice_realtime_speak_v1`
+- `voice_realtime_translate_v1`
+- `voice_oracle_turn_v1`
+- `voice_transcribe_v1` et `voice_tts_v1` restent les fallbacks cascade.
+
+La capability universelle `voice2voice_interaction` regroupe ces skills. `expert_knowledge_capture` consomme ces primitives au lieu de garder une voice loop implicite, et le Flow Builder expose les nodes Voice correspondants.
+
+### Gouvernance
+
+Les events Agentium sont provider-neutral : `text.partial`, `text.final`, `audio.out`, `translation.partial`, `translation.final`, `barge_in`, `oracle.action`, `runtime.metric`. Les metriques doivent inclure provider, modele, transport, latence, fallback et confiance transcript. Aucun stockage audio brut par defaut ; une policy workspace explicite sera requise si ce besoin apparait.
+
+### Chat canonique
+
+Le Chat consomme la meme couche via `/api/v1/voice/runtimes`, `/api/v1/voice/transcribe`, `/api/v1/voice/synthesize` et, en mode `Session`, `/api/v1/voice/sessions/{session_id}`. L'UI expose le provider, le transport `Batch` ou `Session`, l'auto-send du transcript final et les fallbacks effectifs, afin que le chat reste une surface generale tout en reutilisant les primitives `voice2voice_interaction`.

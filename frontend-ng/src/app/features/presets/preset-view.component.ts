@@ -20,6 +20,7 @@ import {
   RagPresetService,
   type RagPreset,
 } from '@app/core/rag-preset.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import type { AppSettings } from '@app/core/settings.service';
 
 type PresetTab = 'generation' | 'retrieval' | 'chunking' | 'experience';
@@ -133,40 +134,49 @@ const CHUNKING_METHODS = [
       >
         <ck-tab id="generation" label="Generation">
           <section class="t-card t-elevated rounded-md p-5 space-y-4">
-            <div>
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                Provider
-              </label>
-              <div class="grid grid-cols-3 gap-1.5 mt-1.5">
-                @for (p of providers; track p.value) {
-                  <button
-                    type="button"
-                    class="px-3 py-2 rounded text-xs font-medium ring-1 transition"
-                    [class.bg-brand-500\\/15]="draft().defaultProvider === p.value"
-                    [class.text-brand-200]="draft().defaultProvider === p.value"
-                    [class.ring-brand-500\\/40]="draft().defaultProvider === p.value"
-                    [class.bg-white\\/5]="draft().defaultProvider !== p.value"
-                    [class.text-gray-300]="draft().defaultProvider !== p.value"
-                    [class.ring-white\\/10]="draft().defaultProvider !== p.value"
-                    (click)="patch({ defaultProvider: p.value })"
-                  >
-                    {{ p.label }}
-                  </button>
-                }
+            @if (isDemoMode()) {
+              <div class="rounded-md bg-white/5 ring-1 ring-white/10 p-4">
+                <div class="text-sm font-semibold text-white">Managed runtime</div>
+                <p class="text-xs text-gray-400 mt-2">
+                  Provider and model names are hidden while this workspace is in demo mode.
+                </p>
               </div>
-            </div>
-            <div>
-              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                Model
-              </label>
-              <input
-                type="text"
-                [ngModel]="draft().defaultModel"
-                (ngModelChange)="patch({ defaultModel: $event })"
-                class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
-                placeholder="e.g. gpt-4o-mini"
-              />
-            </div>
+            } @else {
+              <div>
+                <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
+                  Provider
+                </label>
+                <div class="grid grid-cols-3 gap-1.5 mt-1.5">
+                  @for (p of providers; track p.value) {
+                    <button
+                      type="button"
+                      class="px-3 py-2 rounded text-xs font-medium ring-1 transition"
+                      [class.bg-brand-500\\/15]="draft().defaultProvider === p.value"
+                      [class.text-brand-200]="draft().defaultProvider === p.value"
+                      [class.ring-brand-500\\/40]="draft().defaultProvider === p.value"
+                      [class.bg-white\\/5]="draft().defaultProvider !== p.value"
+                      [class.text-gray-300]="draft().defaultProvider !== p.value"
+                      [class.ring-white\\/10]="draft().defaultProvider !== p.value"
+                      (click)="patch({ defaultProvider: p.value })"
+                    >
+                      {{ p.label }}
+                    </button>
+                  }
+                </div>
+              </div>
+              <div>
+                <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
+                  Model
+                </label>
+                <input
+                  type="text"
+                  [ngModel]="draft().defaultModel"
+                  (ngModelChange)="patch({ defaultModel: $event })"
+                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                  placeholder="e.g. gpt-4o-mini"
+                />
+              </div>
+            }
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
@@ -417,6 +427,8 @@ export class PresetViewComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly service = inject(RagPresetService);
   private readonly toastr = inject(ToastrService);
+  private readonly workspace = inject(WorkspaceService);
+  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
 
   readonly providers = PROVIDERS;
   readonly pipelineModes = PIPELINE_MODES;
@@ -458,7 +470,7 @@ export class PresetViewComponent implements OnInit {
   readonly kpis = computed<CkObjectKpi[]>(() => {
     const cfg = this.draft();
     return [
-      { label: 'Provider', value: String(cfg.defaultProvider ?? '—') },
+      { label: this.isDemoMode() ? 'Runtime' : 'Provider', value: this.isDemoMode() ? 'Managed' : String(cfg.defaultProvider ?? '—') },
       {
         label: 'Mode',
         value: String(cfg.ragPipelineMode ?? (cfg.ragUseHybridSearch ? 'hybrid' : 'vector')),
@@ -481,7 +493,7 @@ export class PresetViewComponent implements OnInit {
       'ragPipelineMode', 'ragTopK', 'ragSimilarityThreshold',
       'ragUseHybridSearch', 'ragVectorWeight', 'ragBM25Weight',
       'ragChunkSize', 'ragChunkOverlap',
-    ];
+    ].filter((k) => !this.isDemoMode() || (k !== 'defaultProvider' && k !== 'defaultModel'));
     const rows: { key: string; base: string; next: string }[] = [];
     for (const k of keys) {
       const a = (base as any)[k];

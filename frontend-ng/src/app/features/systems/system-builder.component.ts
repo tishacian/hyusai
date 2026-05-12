@@ -20,6 +20,7 @@ import {
 } from '@app/core/flow-serializer.service';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { SettingsService } from '@app/core/settings.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -639,21 +640,30 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               </div>
               <div>
                 <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  Model override (optional)
+                  {{ isDemoMode() ? 'Runtime policy' : 'Model override (optional)' }}
                 </div>
-                <select
-                  [(ngModel)]="draft.default_model"
-                  class="w-full ck-surface rounded"
-                  style="padding:10px 12px; background:var(--ck-bg-inset); color:var(--ck-fg-1); font-size:13px;"
-                >
-                  <option value="">Workspace default</option>
-                  @for (m of availableModels(); track m.id) {
-                    <option [value]="m.id">{{ m.label }}</option>
-                  }
-                </select>
-                <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
-                  Pins a specific provider/model for every Run of this System.
-                </p>
+                @if (isDemoMode()) {
+                  <div class="w-full ck-surface rounded" style="padding:10px 12px; background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:13px;">
+                    Managed by workspace
+                  </div>
+                  <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
+                    Provider and model details are hidden while this workspace is in demo mode.
+                  </p>
+                } @else {
+                  <select
+                    [(ngModel)]="draft.default_model"
+                    class="w-full ck-surface rounded"
+                    style="padding:10px 12px; background:var(--ck-bg-inset); color:var(--ck-fg-1); font-size:13px;"
+                  >
+                    <option value="">Workspace default</option>
+                    @for (m of availableModels(); track m.id) {
+                      <option [value]="m.id">{{ m.label }}</option>
+                    }
+                  </select>
+                  <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
+                    Pins a specific provider/model for every Run of this System.
+                  </p>
+                }
               </div>
             </div>
 
@@ -736,7 +746,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                   MAX COST <span class="ck-tnum" style="color:var(--ck-fg-2);">\${{ draft.max_cost.toFixed(2) }}</span> ·
                   MAX LATENCY <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ draft.max_latency_ms }} ms</span><br />
                   CONFIDENCE ≥ <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ draft.confidence_threshold.toFixed(2) }}</span> ·
-                  TEMP <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ draft.temperature.toFixed(2) }}</span>
+                  TEMP <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ isDemoMode() ? 'managed' : draft.temperature.toFixed(2) }}</span>
                 </div>
               </div>
             </div>
@@ -847,7 +857,9 @@ export class SystemBuilderComponent implements OnInit {
   private readonly store = inject(SystemsStore);
   private readonly zoom = inject(ZoomContextService);
   private readonly serializer = inject(FlowSerializerService);
+  private readonly workspace = inject(WorkspaceService);
   readonly settings = inject(SettingsService);
+  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
 
   /**
    * When set, the builder is editing an existing System (Flow → Form

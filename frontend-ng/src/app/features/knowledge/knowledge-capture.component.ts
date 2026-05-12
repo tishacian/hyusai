@@ -22,6 +22,7 @@ interface CaptureSession {
   context_id?: string | null;
   system_id?: string | null;
   created_by_user_id?: string | null;
+  voice_runtime?: string | null;
   title: string;
   objective: string;
   status: string;
@@ -175,7 +176,7 @@ interface ProposalFact {
         </div>
         <div class="flex flex-col items-end gap-2">
           <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
-            Phase 0 · cascade voice runtime
+            Voice2Voice · multi-provider
           </span>
           <span class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-brand-500/10 ring-1 ring-brand-300/20 text-brand-100">
             <app-icon name="shield-check" [size]="12" />
@@ -657,7 +658,7 @@ interface ProposalFact {
                         @if (voiceNotice(); as notice) {
                           <div [class]="voiceNoticeClass()">{{ notice }}</div>
                         } @else {
-                          <div class="text-[10px] text-gray-500 truncate">cascade · en-fr · retrieval prefetch</div>
+                          <div class="text-[10px] text-gray-500 truncate">{{ runtimeLabel(s.voice_runtime) }} · retrieval prefetch</div>
                         }
                       </div>
                     </div>
@@ -929,7 +930,7 @@ interface ProposalFact {
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <span class="block text-[9px] uppercase tracking-wider text-gray-500">Runtime</span>
-                  <span class="text-gray-200">cascade · chunked capture · segmented TTS</span>
+                  <span class="text-gray-200">{{ runtimeLabel(s.voice_runtime) }}</span>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <span class="block text-[9px] uppercase tracking-wider text-gray-500">Status</span>
@@ -1242,6 +1243,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   private readonly voiceSession = inject(VoiceSessionService);
   private readonly workspace = inject(WorkspaceService);
   readonly permissions = inject(PermissionsService);
+  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
 
   objective =
     'Capture tacit troubleshooting and offer reasoning from a senior industrial expert.';
@@ -1430,7 +1432,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         duration_minutes: Number(this.durationMinutes) || 20,
         context_id: this.contextId || null,
         system_id: this.systemId || null,
-        voice_runtime: 'cascade',
+        voice_runtime: 'cascade_openai',
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -2330,8 +2332,10 @@ export class KnowledgeCaptureComponent implements OnInit {
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe((event) => this.handleVoiceSessionEvent(event));
       this.voiceConnection.start({
-        runtime: 'cascade',
-        capability: 'expert_knowledge_capture',
+        runtime: session.voice_runtime || 'cascade_openai',
+        provider: session.voice_runtime || 'cascade_openai',
+        transport: 'backend_ws',
+        capability: 'voice2voice_interaction',
         context_id: session.context_id || this.contextId || null,
         system_id: session.system_id || this.systemId || null,
         mode: 'conversation_only',
@@ -2348,6 +2352,17 @@ export class KnowledgeCaptureComponent implements OnInit {
   private closeVoiceConnection(): void {
     this.voiceConnection?.close();
     this.voiceConnection = null;
+  }
+
+  runtimeLabel(runtime?: string | null): string {
+    if (this.isDemoMode()) return 'Managed voice runtime';
+    const value = runtime || 'cascade_openai';
+    if (value === 'cascade' || value === 'cascade_openai') return 'cascade_openai · batch STT · segmented TTS';
+    if (value === 'openai_realtime') return 'openai_realtime · speech-to-speech';
+    if (value === 'local_stt') return 'local_stt · open-source STT';
+    if (value === 'local_tts') return 'local_tts · open-source TTS';
+    if (value === 'local_realtime') return 'local_realtime · local V2V';
+    return value;
   }
 
   private handleVoiceSessionEvent(event: VoiceSessionEvent): void {

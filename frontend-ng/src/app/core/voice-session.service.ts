@@ -11,9 +11,12 @@ export type VoiceSessionEventType =
   | 'audio.out'
   | 'text.partial'
   | 'text.final'
+  | 'translation.partial'
+  | 'translation.final'
   | 'evaluation.delta'
   | 'prompt.next'
   | 'barge_in'
+  | 'oracle.action'
   | 'runtime.metric'
   | 'session.error'
   | 'session.close';
@@ -29,6 +32,12 @@ export interface VoiceSessionEvent {
 
 export interface VoiceSessionStartOptions {
   runtime?: string;
+  provider?: string;
+  model?: string | null;
+  transport?: 'backend_ws' | 'webrtc' | string;
+  language?: string | null;
+  output_language?: string | null;
+  fallback_policy?: string | null;
   capability?: string;
   context_id?: string | null;
   system_id?: string | null;
@@ -88,8 +97,14 @@ export class VoiceSessionConnection {
 
   start(options: VoiceSessionStartOptions): void {
     this.send('session.start', {
-      runtime: options.runtime || 'cascade',
-      capability: options.capability || 'expert_knowledge_capture',
+      runtime: options.runtime || options.provider || 'cascade_openai',
+      provider: options.provider || options.runtime || 'cascade_openai',
+      model: options.model || null,
+      transport: options.transport || 'backend_ws',
+      language: options.language || null,
+      output_language: options.output_language || null,
+      fallback_policy: options.fallback_policy || 'cascade_openai',
+      capability: options.capability || 'voice2voice_interaction',
       context_id: options.context_id || null,
       system_id: options.system_id || null,
       mode: options.mode || 'conversation_only',

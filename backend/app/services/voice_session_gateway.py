@@ -21,15 +21,22 @@ from app.models.expert_capture import ExpertCaptureSession
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.knowledge_capture import append_turn, get_session
-from app.services.voice_runtime import get_voice_runtime_provider
+from app.services.voice_runtime import (
+    VoiceProviderError,
+    get_voice_runtime_provider,
+    resolve_voice_runtime_slug,
+)
 
 
 @dataclass
 class VoiceSessionState:
     session_id: str
-    runtime: str = "cascade"
-    capability: str = "expert_knowledge_capture"
+    runtime: str = "cascade_openai"
+    capability: str = "voice2voice_interaction"
     mode: str = "conversation_only"
+    transport: str = "backend_ws"
+    model: Optional[str] = None
+    fallback_policy: str = "cascade_openai"
     codec: Dict[str, Any] = field(default_factory=dict)
     sequence: int = 0
     audio_chunks: list[bytes] = field(default_factory=list)
@@ -67,7 +74,7 @@ class VoiceSessionGateway:
                 workspace=workspace,
                 resource_kind="voice_runtime",
                 action="read",
-                resource_attrs={"capability": "expert_knowledge_capture"},
+                resource_attrs={"capability": "voice2voice_interaction"},
                 audit_prefix="kc",
             )
         except HTTPException as exc:
@@ -75,7 +82,11 @@ class VoiceSessionGateway:
             await websocket.close(code=4403)
             return
 
-        state = VoiceSessionState(session_id=session_id)
+        try:
+            default_runtime = resolve_voice_runtime_slug(None, workspace_settings=workspace.settings)
+        except VoiceProviderError:
+            default_runtime = "cascade_openai"
+        state = VoiceSessionState(session_id=session_id, runtime=default_runtime)
         capture_session = self._capture_session(db, workspace.id, session_id)
         if capture_session:
             try:
@@ -98,7 +109,12 @@ class VoiceSessionGateway:
                 await websocket.close(code=4403)
                 return
 
-        await self._send(websocket, state, "session.ready", {"runtime": state.runtime, "provider": "cascade"})
+        await self._send(
+            websocket,
+            state,
+            "session.ready",
+            {"runtime": state.runtime, "provider": state.runtime, "transport": state.transport},
+        )
         try:
             while True:
                 event = await websocket.receive_json()
@@ -119,11 +135,36 @@ class VoiceSessionGateway:
         event_type = str(event.get("type") or "")
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         if event_type == "session.start":
-            state.runtime = str(payload.get("runtime") or "cascade")
+            try:
+                state.runtime = resolve_voice_runtime_slug(
+                    str(payload.get("provider") or payload.get("runtime") or state.runtime),
+                    workspace_settings=workspace.settings,
+                    system_voice=payload.get("system_voice") if isinstance(payload.get("system_voice"), dict) else None,
+                    node_config=payload.get("node_config") if isinstance(payload.get("node_config"), dict) else None,
+                )
+            except VoiceProviderError as exc:
+                await self._send_error(websocket, exc.code, str(exc), state=state)
+                return
             state.capability = str(payload.get("capability") or state.capability)
             state.mode = str(payload.get("mode") or state.mode)
+            state.transport = str(payload.get("transport") or state.transport)
+            state.model = str(payload.get("model")) if payload.get("model") else None
+            state.fallback_policy = str(payload.get("fallback_policy") or state.fallback_policy)
             state.codec = payload.get("codec") if isinstance(payload.get("codec"), dict) else {}
-            await self._send(websocket, state, "runtime.metric", {"metric": "session_started", "value_ms": 0})
+            await self._send(
+                websocket,
+                state,
+                "runtime.metric",
+                {
+                    "metric": "session_started",
+                    "value_ms": 0,
+                    "provider": state.runtime,
+                    "model": state.model,
+                    "transport": state.transport,
+                    "capability": state.capability,
+                    "fallback_policy": state.fallback_policy,
+                },
+            )
             return
         if event_type == "audio.frame":
             await self._handle_audio_frame(websocket, state, payload)
@@ -133,6 +174,9 @@ class VoiceSessionGateway:
             return
         if event_type == "barge_in":
             await self._send(websocket, state, "barge_in", {"status": "accepted", **payload})
+            return
+        if event_type in {"text.partial", "text.final", "translation.partial", "translation.final", "oracle.action", "runtime.metric"}:
+            await self._send(websocket, state, event_type, payload)
             return
         if event_type == "session.close":
             await self._send(websocket, state, "session.close", {"status": "ok"})
@@ -183,7 +227,12 @@ class VoiceSessionGateway:
             await self._send_error(websocket, "empty_audio", "audio.endpoint received without audio frames", state=state)
             return
         state.endpoint_at = time.perf_counter()
-        provider = get_voice_runtime_provider(state.runtime)
+        try:
+            provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
+        except VoiceProviderError as exc:
+            await self._send_error(websocket, exc.code, str(exc), state=state)
+            state.turn_started_at = None
+            return
         audio_bytes = b"".join(state.audio_chunks)
         state.audio_chunks = []
         started = state.turn_started_at or state.endpoint_at
@@ -193,6 +242,10 @@ class VoiceSessionGateway:
                 filename=f"{state.client_turn_id or 'voice-session'}.webm",
                 content_type=state.content_type,
             )
+        except VoiceProviderError as exc:
+            await self._send_error(websocket, exc.code, str(exc), state=state)
+            state.turn_started_at = None
+            return
         except Exception as exc:
             await self._send_error(websocket, "transcribe_failed", str(exc), state=state)
             state.turn_started_at = None
@@ -204,7 +257,10 @@ class VoiceSessionGateway:
             "first_text": first_text_ms,
             "final_text": first_text_ms,
             "audio_bytes": len(audio_bytes),
-            "runtime_provider": state.runtime,
+            "runtime_provider": transcript.get("provider") or state.runtime,
+            "runtime_requested_provider": transcript.get("requested_provider") or state.runtime,
+            "runtime_model": transcript.get("model") or state.model,
+            "fallback_used": bool(transcript.get("fallback")),
         }
         if text:
             state.text_partials.append(text)
@@ -224,14 +280,26 @@ class VoiceSessionGateway:
                     "text": text,
                     "confidence": transcript.get("confidence"),
                     "latency_ms": first_text_ms,
-                    "source": f"{state.runtime}_stt",
+                    "source": f"{transcript.get('provider') or state.runtime}_stt",
+                    "provider": transcript.get("provider") or state.runtime,
+                    "requested_provider": transcript.get("requested_provider") or state.runtime,
+                    "model": transcript.get("model") or state.model,
+                    "fallback_used": bool(transcript.get("fallback")),
                 },
             )
         await self._send(
             websocket,
             state,
             "runtime.metric",
-            {"metric": "time_to_first_text", "value_ms": first_text_ms, "turn_id": state.client_turn_id},
+            {
+                "metric": "time_to_first_text",
+                "value_ms": first_text_ms,
+                "turn_id": state.client_turn_id,
+                "provider": transcript.get("provider") or state.runtime,
+                "model": transcript.get("model") or state.model,
+                "transport": state.transport,
+                "fallback_used": bool(transcript.get("fallback")),
+            },
         )
 
         capture_session = self._capture_session(db, workspace.id, state.session_id)
@@ -299,6 +367,9 @@ class VoiceSessionGateway:
     ) -> None:
         try:
             speech = await provider.synthesize_bytes(text[:600])
+        except VoiceProviderError as exc:
+            await self._send_error(websocket, exc.code, str(exc), state=state)
+            return
         except Exception as exc:
             await self._send_error(websocket, "synthesize_failed", str(exc), state=state)
             return
@@ -307,7 +378,15 @@ class VoiceSessionGateway:
             websocket,
             state,
             "runtime.metric",
-            {"metric": "time_to_first_audio", "value_ms": first_audio_ms, "turn_id": state.client_turn_id},
+            {
+                "metric": "time_to_first_audio",
+                "value_ms": first_audio_ms,
+                "turn_id": state.client_turn_id,
+                "provider": speech.get("provider") or state.runtime,
+                "model": speech.get("model") or state.model,
+                "transport": state.transport,
+                "fallback_used": bool(speech.get("fallback")),
+            },
         )
         await self._send(
             websocket,
@@ -319,6 +398,9 @@ class VoiceSessionGateway:
                 "audio_base64": speech.get("audio_base64"),
                 "bytes": speech.get("bytes"),
                 "model": speech.get("model"),
+                "provider": speech.get("provider") or state.runtime,
+                "requested_provider": speech.get("requested_provider") or state.runtime,
+                "fallback_used": bool(speech.get("fallback")),
                 "latency_ms": first_audio_ms,
             },
         )
@@ -337,6 +419,8 @@ class VoiceSessionGateway:
             voice_metrics["last_latency_ms"] = latency
             voice_metrics["turns"] = int(voice_metrics.get("turns") or 0) + 1
             voice_metrics["runtime_provider"] = latency.get("runtime_provider")
+            voice_metrics["runtime_requested_provider"] = latency.get("runtime_requested_provider")
+            voice_metrics["fallback_used"] = latency.get("fallback_used")
             metrics["voice_stream"] = voice_metrics
             session.metrics = metrics
             db.commit()

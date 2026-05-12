@@ -131,7 +131,7 @@ class WorkspaceUpdate(BaseModel):
 
 
 class WorkspaceModeUpdate(BaseModel):
-    mode: str  # builder | operator | executive
+    mode: str  # builder | operator | executive | demo
 
 
 class MemberInvite(BaseModel):
@@ -875,7 +875,7 @@ async def update_workspace(
     if body.settings is not None:
         workspace.settings = body.settings
     if body.mode is not None:
-        if body.mode not in ("builder", "operator", "executive"):
+        if body.mode not in ("builder", "operator", "executive", "demo"):
             raise HTTPException(status_code=422, detail="Invalid workspace mode")
         workspace.mode = body.mode
 
@@ -910,9 +910,10 @@ async def update_workspace_mode(
     - `builder`   → System Builder focused, hides Hypervisor/ROI.
     - `operator`  → Runs + steering focused, Hypervisor visible but reduced.
     - `executive` → Full portfolio view (default).
+    - `demo`      → Operator-safe surface, hides provider/model implementation details.
     The underlying data never changes; only the shell surface adapts.
     """
-    if body.mode not in ("builder", "operator", "executive"):
+    if body.mode not in ("builder", "operator", "executive", "demo"):
         raise HTTPException(status_code=422, detail="Invalid workspace mode")
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_admin(membership)

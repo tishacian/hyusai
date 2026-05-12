@@ -644,8 +644,8 @@ items:
     by_persona:
       builder:
         summary:
-          en: "Switch to Operator or Executive to change perspective without leaving the workspace."
-          fr: "Bascule en mode Operator ou Executive pour changer de perspective sans quitter le workspace."
+          en: "Switch to Operator, Executive, or Demo to change perspective without leaving the workspace."
+          fr: "Bascule en mode Operator, Executive ou Demo pour changer de perspective sans quitter le workspace."
         user_story:
           en: "As a builder, I switch to operator to test the daily experience."
           fr: "En tant que builder, je passe en mode operator pour tester l'expérience quotidienne."
@@ -653,8 +653,8 @@ items:
         related_actions: []
       operator:
         summary:
-          en: "Adjusts the UI (density, panels, navigation) to your current role."
-          fr: "Ajuste l'interface (densité, panneaux, navigation) à ton rôle courant."
+          en: "Adjusts the UI (density, panels, navigation); Demo hides provider/model details."
+          fr: "Ajuste l'interface (densité, panneaux, navigation) ; Demo masque les détails provider/modèle."
         user_story:
           en: "As an operator, I switch to executive before a quarterly review."
           fr: "En tant qu'operator, je bascule en mode executive avant une revue trimestrielle."
@@ -662,8 +662,8 @@ items:
         related_actions: []
       executive:
         summary:
-          en: "Executive mode = low density, focus on portfolio/decisions/balance sheet."
-          fr: "Mode executive = densité basse, focus portfolio/decisions/balance sheet."
+          en: "Executive mode = low density; Demo mode keeps the flow presentation-safe."
+          fr: "Mode executive = densité basse ; Demo garde le parcours présentable sans détails techniques."
         user_story:
           en: "As an executive, I stay in executive mode 90% of the time."
           fr: "En tant que dirigeant, je reste en mode executive 90% du temps."

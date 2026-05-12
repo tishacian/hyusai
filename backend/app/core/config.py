@@ -73,6 +73,26 @@ class Settings(BaseSettings):
     openai_responses_api_enabled: bool = False
     openai_responses_include_reasoning_encrypted_content: bool = True
 
+    # Voice2Voice runtime provider plane. OpenAI Realtime is an optional lane;
+    # cascade_openai remains the production-safe default and local providers are
+    # integrated through HTTP/WebSocket contracts rather than heavy in-process
+    # model dependencies.
+    voice_runtime_default_provider: str = "cascade_openai"
+    voice_runtime_allowed_providers: str = "cascade_openai,openai_realtime,local_stt,local_tts,local_realtime,realtime_gpu"
+    voice_runtime_fallback_providers: str = "cascade_openai"
+    voice_realtime_default_transport: str = "backend_ws"
+    voice_realtime_webrtc_enabled: bool = False
+    openai_realtime_enabled: bool = False
+    openai_realtime_enabled_workspace_slugs: str = "andritz"
+    openai_realtime_model: str = "gpt-realtime-2"
+    openai_realtime_transcribe_model: str = "gpt-realtime-whisper"
+    openai_realtime_translate_model: str = "gpt-realtime-translate"
+    openai_realtime_api_base: str = "https://api.openai.com/v1"
+    openai_realtime_ephemeral_ttl_seconds: int = 600
+    local_stt_endpoint_url: Optional[str] = None
+    local_tts_endpoint_url: Optional[str] = None
+    local_realtime_endpoint_url: Optional[str] = None
+
     # Keycloak OIDC (papai-org realm, core-service client)
     # keycloak_url: public URL, used for "iss" validation and user-facing links
     # keycloak_url_internal: server-to-server URL (admin API, token, JWKS) — defaults to keycloak_url

@@ -96,10 +96,18 @@ SECURE_DEPOSIT_MANIFEST = CapabilityIAMManifest(
     ),
 )
 
+VOICE2VOICE_MANIFEST = CapabilityIAMManifest(
+    capability_id="voice2voice_interaction",
+    permissions=(
+        PermissionRule("voice_runtime", "read", ALL_CAPTURE_ROLES),
+    ),
+)
+
 
 MANIFESTS: Dict[str, CapabilityIAMManifest] = {
     CAPTURE_MANIFEST.capability_id: CAPTURE_MANIFEST,
     SECURE_DEPOSIT_MANIFEST.capability_id: SECURE_DEPOSIT_MANIFEST,
+    VOICE2VOICE_MANIFEST.capability_id: VOICE2VOICE_MANIFEST,
 }
 
 

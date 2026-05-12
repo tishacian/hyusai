@@ -15,19 +15,29 @@ Implementation notes:
   blocking call, preserving the streaming response pattern.
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, WebSocket
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
 
 from app.db.base import get_db
 from app.core.iam.dependencies import PermissionContext, require_permission
 from app.core.logging import get_logger
+from app.models.expert_capture import ExpertCaptureSession
 from sqlalchemy.orm import Session as DBSession
 from app.services.voice_runtime import (
+    VoiceProviderCapabilityUnsupported,
+    VoiceProviderError,
+    VoiceProviderNotAllowed,
+    VoiceProviderUnavailable,
+    build_openai_realtime_session,
+    create_openai_realtime_call,
+    create_openai_realtime_client_secret,
     get_voice_runtime_provider,
     list_voice_runtime_providers,
+    resolve_voice_runtime_slug,
     stream_response_bytes,
 )
 from app.services.voice_session_gateway import VoiceSessionGateway
@@ -39,7 +49,7 @@ router = APIRouter()
 voice_read = require_permission(
     "voice_runtime",
     "read",
-    static_attrs={"capability": "expert_knowledge_capture"},
+    static_attrs={"capability": "voice2voice_interaction"},
     audit_prefix="kc",
 )
 
@@ -47,6 +57,32 @@ voice_read = require_permission(
 class SynthesizeRequest(BaseModel):
     text: str
     voice: str = "nova"
+    provider: Optional[str] = None
+
+
+class RealtimeSessionRequest(BaseModel):
+    provider: str = "openai_realtime"
+    model: Optional[str] = None
+    voice: str = "marin"
+    instructions: Optional[str] = None
+    input_language: Optional[str] = None
+    output_language: Optional[str] = None
+    transport: str = "webrtc"
+    capability: str = "voice2voice_interaction"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RealtimeCallRequest(RealtimeSessionRequest):
+    sdp: str
+
+
+class VoiceMirrorEventRequest(BaseModel):
+    type: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    transport: Optional[str] = None
+    sequence: Optional[int] = None
 
 
 @router.websocket("/sessions/{session_id}")
@@ -67,14 +103,15 @@ async def voice_session_socket(
 
 
 @router.get("/runtimes")
-async def voice_runtimes(_permission: PermissionContext = Depends(voice_read)):
-    return list_voice_runtime_providers()
+async def voice_runtimes(permission: PermissionContext = Depends(voice_read)):
+    return list_voice_runtime_providers(workspace=permission.workspace)
 
 
 @router.post("/transcribe")
 async def transcribe_audio(
     file: UploadFile = File(...),
-    _permission: PermissionContext = Depends(voice_read),
+    provider_slug: Optional[str] = Query(None, alias="provider"),
+    permission: PermissionContext = Depends(voice_read),
 ):
     audio_bytes = await file.read()
     filename = file.filename or "recording.webm"
@@ -85,13 +122,16 @@ async def transcribe_audio(
         content_type=content_type,
         bytes=len(audio_bytes),
     )
-    provider = get_voice_runtime_provider("cascade")
+    provider = get_voice_runtime_provider(provider_slug or "cascade_openai", workspace_settings=permission.workspace.settings)
     try:
         return await provider.transcribe(
             audio_bytes,
             filename=filename,
             content_type=content_type,
         )
+    except VoiceProviderError as exc:
+        status = 403 if isinstance(exc, VoiceProviderNotAllowed) else 503
+        raise HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)}) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -102,10 +142,10 @@ async def transcribe_audio(
 @router.post("/synthesize")
 async def synthesize_speech(
     req: SynthesizeRequest,
-    _permission: PermissionContext = Depends(voice_read),
+    permission: PermissionContext = Depends(voice_read),
 ):
     try:
-        provider = get_voice_runtime_provider("cascade")
+        provider = get_voice_runtime_provider(req.provider or "cascade_openai", workspace_settings=permission.workspace.settings)
         speech = await provider.create_speech(req.text, voice=req.voice)
         logger.info(
             "synthesize: streaming",
@@ -115,8 +155,119 @@ async def synthesize_speech(
         return StreamingResponse(stream_response_bytes(speech.response), media_type="audio/mpeg")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except VoiceProviderError as exc:
+        status = 400 if isinstance(exc, VoiceProviderCapabilityUnsupported) else 503
+        raise HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)}) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("synthesize: failed", error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/realtime/client-secret")
+async def realtime_client_secret(
+    req: RealtimeSessionRequest,
+    permission: PermissionContext = Depends(voice_read),
+):
+    try:
+        provider = resolve_voice_runtime_slug(req.provider, workspace_settings=permission.workspace.settings)
+        if provider != "openai_realtime":
+            raise VoiceProviderCapabilityUnsupported("Ephemeral Realtime client secrets are only supported by openai_realtime")
+        session = build_openai_realtime_session(
+            model=req.model,
+            voice=req.voice,
+            instructions=req.instructions,
+            input_language=req.input_language,
+            output_language=req.output_language,
+            capability=req.capability,
+            metadata={
+                **(req.metadata or {}),
+                "workspace_id": permission.workspace.id,
+                "user_id": permission.user.id,
+                "transport": req.transport,
+            },
+        )
+        token = await create_openai_realtime_client_secret(workspace_slug=permission.workspace.slug, session=session)
+        return {"provider": provider, "session": session, "client_secret": token}
+    except VoiceProviderError as exc:
+        status = 403 if isinstance(exc, VoiceProviderNotAllowed) else 503
+        if isinstance(exc, VoiceProviderCapabilityUnsupported):
+            status = 400
+        raise HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)}) from exc
+    except httpx.HTTPStatusError as exc:
+        logger.warning("voice.realtime.client_secret.http_error", status=exc.response.status_code, body=exc.response.text[:500])
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "openai_realtime_error", "message": exc.response.text}) from exc
+
+
+@router.post("/realtime/calls")
+async def realtime_call(
+    req: RealtimeCallRequest,
+    permission: PermissionContext = Depends(voice_read),
+):
+    try:
+        provider = resolve_voice_runtime_slug(req.provider, workspace_settings=permission.workspace.settings)
+        if provider != "openai_realtime":
+            raise VoiceProviderCapabilityUnsupported("Realtime WebRTC calls are only supported by openai_realtime")
+        session = build_openai_realtime_session(
+            model=req.model,
+            voice=req.voice,
+            instructions=req.instructions,
+            input_language=req.input_language,
+            output_language=req.output_language,
+            capability=req.capability,
+            metadata={
+                **(req.metadata or {}),
+                "workspace_id": permission.workspace.id,
+                "user_id": permission.user.id,
+                "transport": req.transport,
+            },
+        )
+        answer_sdp = await create_openai_realtime_call(
+            workspace_slug=permission.workspace.slug,
+            sdp=req.sdp,
+            session=session,
+        )
+        return Response(answer_sdp, media_type="application/sdp")
+    except VoiceProviderError as exc:
+        status = 403 if isinstance(exc, VoiceProviderNotAllowed) else 503
+        if isinstance(exc, VoiceProviderCapabilityUnsupported):
+            status = 400
+        raise HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)}) from exc
+    except httpx.HTTPStatusError as exc:
+        logger.warning("voice.realtime.calls.http_error", status=exc.response.status_code, body=exc.response.text[:500])
+        raise HTTPException(status_code=exc.response.status_code, detail={"code": "openai_realtime_error", "message": exc.response.text}) from exc
+
+
+@router.post("/sessions/{session_id}/events")
+async def mirror_voice_session_event(
+    session_id: str,
+    req: VoiceMirrorEventRequest,
+    permission: PermissionContext = Depends(voice_read),
+    db: DBSession = Depends(get_db),
+):
+    session = (
+        db.query(ExpertCaptureSession)
+        .filter(
+            ExpertCaptureSession.id == session_id,
+            ExpertCaptureSession.workspace_id == permission.workspace.id,
+        )
+        .first()
+    )
+    if session:
+        metrics = dict(session.metrics or {})
+        mirror = dict(metrics.get("voice_mirror") or {})
+        mirror["events"] = int(mirror.get("events") or 0) + 1
+        mirror["last_event_type"] = req.type
+        mirror["last_provider"] = req.provider
+        mirror["last_model"] = req.model
+        mirror["last_transport"] = req.transport
+        metrics["voice_mirror"] = mirror
+        session.metrics = metrics
+        db.commit()
+    return {
+        "status": "recorded",
+        "session_id": session_id,
+        "event_type": req.type,
+        "mirrored": bool(session),
+    }

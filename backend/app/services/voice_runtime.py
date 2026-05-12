@@ -1,17 +1,19 @@
-"""Voice runtime providers for capture and chat surfaces.
+"""Voice runtime providers for capture, chat and Flow Builder nodes.
 
-The product path starts with a reliable cascade provider (recording -> STT
--> knowledge oracle -> TTS). Realtime/GPU providers can be added behind
-the same interface once user tests justify the operational cost.
+Agentium keeps the production path provider-neutral: OpenAI Realtime is an
+optional low-latency lane, while local/open-source STT, TTS and future
+speech-to-speech runtimes can implement the same contract over HTTP or WS.
 """
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import os
-from base64 import b64encode
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Dict, Iterable, Literal, Protocol
+from typing import Any, AsyncIterator, Dict, Iterable, Literal, Protocol, Sequence
 
+import httpx
 import openai
 
 from app.core.config import settings
@@ -23,6 +25,47 @@ _TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe
 _TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 _sync_client: openai.OpenAI | None = None
 _async_client: openai.AsyncOpenAI | None = None
+
+VOICE_CAPABILITIES = (
+    "batch_transcription",
+    "streaming_transcription",
+    "tts",
+    "speech_to_speech",
+    "translation",
+    "barge_in",
+    "tool_calls",
+)
+VOICE_EVENTS = (
+    "text.partial",
+    "text.final",
+    "audio.out",
+    "translation.partial",
+    "translation.final",
+    "barge_in",
+    "oracle.action",
+    "runtime.metric",
+)
+
+_ALIASES = {
+    "cascade": "cascade_openai",
+    "openai": "cascade_openai",
+    "phase0": "cascade_openai",
+    "openai_cascade": "cascade_openai",
+    "cascade_openai": "cascade_openai",
+    "realtime": "openai_realtime",
+    "gpt_realtime": "openai_realtime",
+    "gpt-realtime": "openai_realtime",
+    "openai_realtime": "openai_realtime",
+    "whisper": "local_stt",
+    "local_whisper": "local_stt",
+    "local_stt": "local_stt",
+    "local_tts": "local_tts",
+    "local_voice": "local_realtime",
+    "local_realtime": "local_realtime",
+    "realtime_gpu": "realtime_gpu",
+    "moshi": "realtime_gpu",
+    "kame": "realtime_gpu",
+}
 
 
 @dataclass
@@ -40,8 +83,25 @@ class VoiceToken:
     meta: Dict[str, Any] | None = None
 
 
+class VoiceProviderError(RuntimeError):
+    code = "voice_provider_error"
+
+
+class VoiceProviderCapabilityUnsupported(VoiceProviderError):
+    code = "provider_capability_unsupported"
+
+
+class VoiceProviderNotAllowed(VoiceProviderError):
+    code = "provider_not_allowed"
+
+
+class VoiceProviderUnavailable(VoiceProviderError):
+    code = "provider_unavailable"
+
+
 class VoiceRuntimeProvider(Protocol):
     slug: str
+    capabilities: Dict[str, bool]
 
     async def transcribe(
         self,
@@ -65,6 +125,73 @@ class VoiceRuntimeProvider(Protocol):
         ...
 
 
+def _split_csv(value: str | Sequence[str] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return [str(part).strip() for part in value if str(part).strip()]
+
+
+def _voice_settings(workspace_settings: Any | None = None) -> Dict[str, Any]:
+    if not isinstance(workspace_settings, dict):
+        return {}
+    value = workspace_settings.get("voice_runtime") or workspace_settings.get("voice") or {}
+    return value if isinstance(value, dict) else {}
+
+
+def normalize_voice_provider_slug(slug: str | None) -> str:
+    raw = (slug or settings.voice_runtime_default_provider or "cascade_openai").strip()
+    return _ALIASES.get(raw, raw)
+
+
+def allowed_voice_providers(workspace_settings: Any | None = None) -> list[str]:
+    voice = _voice_settings(workspace_settings)
+    raw = voice.get("allowed_providers") or settings.voice_runtime_allowed_providers
+    providers = [normalize_voice_provider_slug(item) for item in _split_csv(raw)]
+    return providers or ["cascade_openai"]
+
+
+def fallback_voice_providers(workspace_settings: Any | None = None) -> list[str]:
+    voice = _voice_settings(workspace_settings)
+    raw = voice.get("fallback_providers") or settings.voice_runtime_fallback_providers
+    allowed = set(allowed_voice_providers(workspace_settings))
+    return [provider for provider in (normalize_voice_provider_slug(item) for item in _split_csv(raw)) if provider in allowed]
+
+
+def resolve_voice_runtime_slug(
+    requested: str | None = None,
+    *,
+    workspace_settings: Any | None = None,
+    system_voice: Dict[str, Any] | None = None,
+    node_config: Dict[str, Any] | None = None,
+) -> str:
+    """Resolve node -> system -> workspace -> global provider priority."""
+    voice = _voice_settings(workspace_settings)
+    candidate = (
+        (node_config or {}).get("provider")
+        or (node_config or {}).get("runtime")
+        or (system_voice or {}).get("provider")
+        or (system_voice or {}).get("runtime")
+        or requested
+        or voice.get("default_provider")
+        or settings.voice_runtime_default_provider
+    )
+    slug = normalize_voice_provider_slug(str(candidate) if candidate else None)
+    allowed = set(allowed_voice_providers(workspace_settings))
+    if slug not in allowed:
+        raise VoiceProviderNotAllowed(f"Voice provider '{slug}' is not allowed for this workspace")
+    return slug
+
+
+def fallback_voice_runtime_slug(failed_slug: str, workspace_settings: Any | None = None) -> str | None:
+    failed = normalize_voice_provider_slug(failed_slug)
+    for provider in fallback_voice_providers(workspace_settings):
+        if provider != failed:
+            return provider
+    return None
+
+
 def _get_client() -> openai.OpenAI:
     global _sync_client
     if _sync_client is None:
@@ -79,10 +206,26 @@ def _get_async_client() -> openai.AsyncOpenAI:
     return _async_client
 
 
-class CascadeVoiceRuntime:
-    """OpenAI-backed cascade provider used by the Phase 0 product path."""
+def _assert_capability(provider: VoiceRuntimeProvider, capability: str) -> None:
+    if not provider.capabilities.get(capability):
+        raise VoiceProviderCapabilityUnsupported(
+            f"Voice provider '{provider.slug}' does not support capability '{capability}'"
+        )
 
-    slug = "cascade"
+
+class CascadeVoiceRuntime:
+    """OpenAI-backed cascade provider used by the production-safe path."""
+
+    slug = "cascade_openai"
+    capabilities = {
+        "batch_transcription": True,
+        "streaming_transcription": False,
+        "tts": True,
+        "speech_to_speech": False,
+        "translation": False,
+        "barge_in": True,
+        "tool_calls": False,
+    }
 
     async def transcribe(
         self,
@@ -91,8 +234,9 @@ class CascadeVoiceRuntime:
         filename: str = "recording.webm",
         content_type: str = "audio/webm",
     ) -> Dict[str, Any]:
+        _assert_capability(self, "batch_transcription")
         if not settings.openai_api_key:
-            raise RuntimeError("OpenAI API key not configured")
+            raise VoiceProviderUnavailable("OpenAI API key not configured")
 
         async def _call(model: str) -> Dict[str, Any]:
             client = _get_async_client()
@@ -102,7 +246,7 @@ class CascadeVoiceRuntime:
             )
             text = result.text or ""
             logger.info(
-                "voice_runtime.transcribe: completed",
+                "voice_runtime.transcribe.completed",
                 provider=self.slug,
                 model=model,
                 text_chars=len(text),
@@ -113,19 +257,21 @@ class CascadeVoiceRuntime:
             return await _call(_TRANSCRIBE_MODEL)
         except Exception as primary_err:
             logger.warning(
-                "voice_runtime.transcribe: primary model failed",
+                "voice_runtime.transcribe.primary_failed",
                 model=_TRANSCRIBE_MODEL,
                 error=str(primary_err),
             )
             if _TRANSCRIBE_MODEL != "whisper-1":
                 fallback = await _call("whisper-1")
                 fallback["fallback"] = True
+                fallback["fallback_reason"] = "primary_transcribe_model_failed"
                 return fallback
             raise
 
     async def create_speech(self, text: str, *, voice: str = "nova") -> SpeechResponse:
+        _assert_capability(self, "tts")
         if not settings.openai_api_key:
-            raise RuntimeError("OpenAI API key not configured")
+            raise VoiceProviderUnavailable("OpenAI API key not configured")
         if not text or len(text) > 4096:
             raise ValueError("Text must be 1-4096 characters")
 
@@ -144,7 +290,7 @@ class CascadeVoiceRuntime:
             return SpeechResponse(response=response, model=_TTS_MODEL)
         except Exception as primary_err:
             logger.warning(
-                "voice_runtime.synthesize: primary model failed",
+                "voice_runtime.synthesize.primary_failed",
                 model=_TTS_MODEL,
                 error=str(primary_err),
             )
@@ -158,7 +304,7 @@ class CascadeVoiceRuntime:
         audio_bytes = b"".join(speech.response.iter_bytes(4096))
         return {
             "audio_bytes": audio_bytes,
-            "audio_base64": b64encode(audio_bytes).decode("ascii"),
+            "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
             "content_type": "audio/mpeg",
             "model": speech.model,
             "provider": self.slug,
@@ -166,12 +312,6 @@ class CascadeVoiceRuntime:
         }
 
     async def stream_in(self, frames: AsyncIterator[bytes]) -> AsyncIterator[VoiceToken]:
-        """Streaming-compatible cascade shim.
-
-        The cascade provider still transcribes complete audio segments. This
-        method gives the gateway a provider-neutral shape for J1 and lets a
-        realtime provider later yield native semantic/acoustic tokens.
-        """
         chunks: list[bytes] = []
         async for frame in frames:
             chunks.append(frame)
@@ -180,7 +320,12 @@ class CascadeVoiceRuntime:
             return
         result = await self.transcribe(b"".join(chunks))
         text = str(result.get("text") or "")
-        yield VoiceToken(kind="text", payload=text, ts_ms=0, meta={"provider": self.slug, "model": result.get("model")})
+        yield VoiceToken(
+            kind="text",
+            payload=text,
+            ts_ms=0,
+            meta={"provider": self.slug, "model": result.get("model"), "fallback": result.get("fallback", False)},
+        )
 
     async def stream_out(self, tokens: AsyncIterator[VoiceToken]) -> AsyncIterator[bytes]:
         async for token in tokens:
@@ -190,70 +335,363 @@ class CascadeVoiceRuntime:
             yield audio["audio_bytes"]
 
 
+class OpenAIRealtimeVoiceRuntime:
+    """Realtime lane descriptor with cascade fallback for batch calls.
+
+    Browser-grade speech-to-speech uses the `/voice/realtime/*` endpoints to
+    mint an OpenAI session or proxy SDP. The legacy batch methods remain usable
+    by falling back to cascade_openai so existing Capture flows do not break
+    when a system is configured with `openai_realtime`.
+    """
+
+    slug = "openai_realtime"
+    capabilities = {
+        "batch_transcription": False,
+        "streaming_transcription": True,
+        "tts": False,
+        "speech_to_speech": True,
+        "translation": True,
+        "barge_in": True,
+        "tool_calls": True,
+    }
+
+    async def transcribe(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        fallback = await CascadeVoiceRuntime().transcribe(*args, **kwargs)
+        fallback["requested_provider"] = self.slug
+        fallback["fallback"] = True
+        fallback["fallback_reason"] = "openai_realtime_batch_transcription_uses_cascade"
+        return fallback
+
+    async def create_speech(self, text: str, *, voice: str = "nova") -> SpeechResponse:
+        return await CascadeVoiceRuntime().create_speech(text, voice=voice)
+
+    async def synthesize_bytes(self, text: str, *, voice: str = "nova") -> Dict[str, Any]:
+        fallback = await CascadeVoiceRuntime().synthesize_bytes(text, voice=voice)
+        fallback["requested_provider"] = self.slug
+        fallback["fallback"] = True
+        fallback["fallback_reason"] = "openai_realtime_tts_uses_cascade"
+        return fallback
+
+    async def stream_in(self, *args: Any, **kwargs: Any) -> AsyncIterator[VoiceToken]:
+        raise VoiceProviderCapabilityUnsupported("OpenAI Realtime streaming is exposed through WebRTC/WS session endpoints")
+
+    async def stream_out(self, *args: Any, **kwargs: Any) -> AsyncIterator[bytes]:
+        raise VoiceProviderCapabilityUnsupported("OpenAI Realtime streaming is exposed through WebRTC/WS session endpoints")
+
+
+class LocalHttpVoiceRuntime:
+    """Local/open-source provider via a stable HTTP contract."""
+
+    def __init__(self, slug: str, endpoint_url: str | None, capabilities: Dict[str, bool], model: str | None = None):
+        self.slug = slug
+        self.endpoint_url = endpoint_url
+        self.capabilities = capabilities
+        self.model = model
+
+    def _endpoint(self) -> str:
+        if not self.endpoint_url:
+            raise VoiceProviderUnavailable(f"Local provider '{self.slug}' endpoint is not configured")
+        return self.endpoint_url.rstrip("/")
+
+    async def transcribe(
+        self,
+        audio_bytes: bytes,
+        *,
+        filename: str = "recording.webm",
+        content_type: str = "audio/webm",
+    ) -> Dict[str, Any]:
+        _assert_capability(self, "batch_transcription")
+        payload = {
+            "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+            "filename": filename,
+            "content_type": content_type,
+            "model": self.model,
+        }
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(f"{self._endpoint()}/transcribe", json=payload)
+            response.raise_for_status()
+            data = response.json()
+        text = str(data.get("text") or data.get("transcript") or "")
+        return {
+            **data,
+            "text": text,
+            "transcript": text,
+            "provider": self.slug,
+            "model": data.get("model") or self.model,
+        }
+
+    async def create_speech(self, text: str, *, voice: str = "nova") -> SpeechResponse:
+        _assert_capability(self, "tts")
+        result = await self.synthesize_bytes(text, voice=voice)
+        return SpeechResponse(response=_BytesSpeechResponse(result["audio_bytes"]), model=result.get("model") or self.model or self.slug)
+
+    async def synthesize_bytes(self, text: str, *, voice: str = "nova") -> Dict[str, Any]:
+        _assert_capability(self, "tts")
+        payload = {"text": text, "voice": voice, "model": self.model}
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(f"{self._endpoint()}/synthesize", json=payload)
+            response.raise_for_status()
+            content_type = response.headers.get("content-type") or "audio/wav"
+            if content_type.startswith("application/json"):
+                data = response.json()
+                raw = base64.b64decode(str(data.get("audio_base64") or ""))
+                content_type = data.get("content_type") or "audio/wav"
+                model = data.get("model") or self.model
+            else:
+                raw = response.content
+                model = self.model
+        return {
+            "audio_bytes": raw,
+            "audio_base64": base64.b64encode(raw).decode("ascii"),
+            "content_type": content_type,
+            "model": model,
+            "provider": self.slug,
+            "bytes": len(raw),
+        }
+
+    async def stream_in(self, *args: Any, **kwargs: Any) -> AsyncIterator[VoiceToken]:
+        raise VoiceProviderCapabilityUnsupported(f"Provider '{self.slug}' streaming input is not bound in-process")
+
+    async def stream_out(self, *args: Any, **kwargs: Any) -> AsyncIterator[bytes]:
+        raise VoiceProviderCapabilityUnsupported(f"Provider '{self.slug}' streaming output is not bound in-process")
+
+
 class RealtimeVoiceRuntime:
     """Experimental GPU lane placeholder for Moshi/KAME-like providers."""
 
     slug = "realtime_gpu"
+    capabilities = {
+        "batch_transcription": False,
+        "streaming_transcription": True,
+        "tts": False,
+        "speech_to_speech": True,
+        "translation": False,
+        "barge_in": True,
+        "tool_calls": True,
+    }
 
     async def transcribe(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        raise NotImplementedError("Realtime GPU voice runtime is experimental and not bound")
+        raise VoiceProviderUnavailable("Realtime GPU voice runtime is experimental and not bound")
 
     async def create_speech(self, *args: Any, **kwargs: Any) -> SpeechResponse:
-        raise NotImplementedError("Realtime GPU voice runtime is experimental and not bound")
+        raise VoiceProviderUnavailable("Realtime GPU voice runtime is experimental and not bound")
 
     async def synthesize_bytes(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        raise NotImplementedError("Realtime GPU voice runtime is experimental and not bound")
+        raise VoiceProviderUnavailable("Realtime GPU voice runtime is experimental and not bound")
 
     async def stream_in(self, *args: Any, **kwargs: Any) -> AsyncIterator[VoiceToken]:
-        raise NotImplementedError("Realtime GPU voice runtime is experimental and not bound")
+        raise VoiceProviderUnavailable("Realtime GPU voice runtime is experimental and not bound")
 
     async def stream_out(self, *args: Any, **kwargs: Any) -> AsyncIterator[bytes]:
-        raise NotImplementedError("Realtime GPU voice runtime is experimental and not bound")
+        raise VoiceProviderUnavailable("Realtime GPU voice runtime is experimental and not bound")
 
 
-def get_voice_runtime_provider(slug: str = "cascade") -> VoiceRuntimeProvider:
-    if slug in {"cascade", "openai", "phase0"}:
+class _BytesSpeechResponse:
+    def __init__(self, audio_bytes: bytes):
+        self._audio_bytes = audio_bytes
+
+    def iter_bytes(self, chunk_size: int = 4096) -> Iterable[bytes]:
+        for idx in range(0, len(self._audio_bytes), chunk_size):
+            yield self._audio_bytes[idx : idx + chunk_size]
+
+
+def get_voice_runtime_provider(
+    slug: str | None = "cascade_openai",
+    *,
+    workspace_settings: Any | None = None,
+) -> VoiceRuntimeProvider:
+    resolved = resolve_voice_runtime_slug(slug, workspace_settings=workspace_settings)
+    if resolved == "cascade_openai":
         return CascadeVoiceRuntime()
-    if slug in {"realtime", "realtime_gpu", "moshi", "kame"}:
+    if resolved == "openai_realtime":
+        return OpenAIRealtimeVoiceRuntime()
+    if resolved == "local_stt":
+        return LocalHttpVoiceRuntime(
+            "local_stt",
+            settings.local_stt_endpoint_url,
+            {
+                "batch_transcription": True,
+                "streaming_transcription": True,
+                "tts": False,
+                "speech_to_speech": False,
+                "translation": False,
+                "barge_in": False,
+                "tool_calls": False,
+            },
+        )
+    if resolved == "local_tts":
+        return LocalHttpVoiceRuntime(
+            "local_tts",
+            settings.local_tts_endpoint_url,
+            {
+                "batch_transcription": False,
+                "streaming_transcription": False,
+                "tts": True,
+                "speech_to_speech": False,
+                "translation": False,
+                "barge_in": False,
+                "tool_calls": False,
+            },
+        )
+    if resolved == "local_realtime":
+        return LocalHttpVoiceRuntime(
+            "local_realtime",
+            settings.local_realtime_endpoint_url,
+            {
+                "batch_transcription": False,
+                "streaming_transcription": True,
+                "tts": True,
+                "speech_to_speech": True,
+                "translation": True,
+                "barge_in": True,
+                "tool_calls": True,
+            },
+        )
+    if resolved == "realtime_gpu":
         return RealtimeVoiceRuntime()
-    raise ValueError(f"Unknown voice runtime provider: {slug}")
+    raise ValueError(f"Unknown voice runtime provider: {resolved}")
 
 
-def list_voice_runtime_providers() -> Dict[str, Any]:
+def _provider_status(slug: str, workspace_slug: str | None = None) -> str:
+    if slug == "cascade_openai":
+        return "bound" if settings.openai_api_key else "unconfigured"
+    if slug == "openai_realtime":
+        if not settings.openai_realtime_enabled:
+            return "disabled"
+        if workspace_slug and workspace_slug not in set(_split_csv(settings.openai_realtime_enabled_workspace_slugs)):
+            return "workspace_disabled"
+        return "bound" if settings.openai_api_key else "unconfigured"
+    if slug == "local_stt":
+        return "bound" if settings.local_stt_endpoint_url else "unconfigured"
+    if slug == "local_tts":
+        return "bound" if settings.local_tts_endpoint_url else "unconfigured"
+    if slug == "local_realtime":
+        return "bound" if settings.local_realtime_endpoint_url else "unconfigured"
+    if slug == "realtime_gpu":
+        return "experimental"
+    return "unknown"
+
+
+def _provider_descriptor(slug: str, workspace_slug: str | None = None) -> Dict[str, Any]:
+    provider = get_voice_runtime_provider(slug, workspace_settings={"voice_runtime": {"allowed_providers": [slug]}})
+    descriptions = {
+        "cascade_openai": "Reliable fallback lane: recorded chunks -> STT -> Agentium oracle -> segmented TTS.",
+        "openai_realtime": "Optional OpenAI Realtime lane for live speech-to-speech, transcription, translation and tool calls.",
+        "local_stt": "Local/open-source transcription lane exposed through Agentium's HTTP provider contract.",
+        "local_tts": "Local/open-source speech synthesis lane exposed through Agentium's HTTP provider contract.",
+        "local_realtime": "Future local speech-to-speech lane exposed through Agentium's provider contract.",
+        "realtime_gpu": "Experimental GPU lane for Moshi/KAME-like realtime speech runtimes.",
+    }
     return {
-        "providers": [
-            {
-                "slug": "cascade",
-                "status": "bound",
-                "description": "Phase 0 provider: recording -> STT -> knowledge oracle -> segmented TTS.",
-                "requires_gpu": False,
-                "capabilities": {
-                    "chunked_capture": True,
-                    "segmented_tts": True,
-                    "barge_in_ui": True,
-                    "streaming_ws": True,
-                    "full_duplex": False,
-                },
-            },
-            {
-                "slug": "realtime_gpu",
-                "status": "experimental",
-                "description": "GPU spike lane for Moshi/KAME-like realtime speech guided by the platform oracle.",
-                "requires_gpu": True,
-                "capabilities": {
-                    "chunked_capture": True,
-                    "segmented_tts": True,
-                    "barge_in_ui": True,
-                    "streaming_ws": True,
-                    "full_duplex": True,
-                },
-            },
-        ],
+        "slug": slug,
+        "status": _provider_status(slug, workspace_slug=workspace_slug),
+        "description": descriptions.get(slug, ""),
+        "requires_gpu": slug in {"local_realtime", "realtime_gpu"},
+        "transport": "webrtc" if slug == "openai_realtime" else "backend_ws",
+        "models": _provider_models(slug),
+        "capabilities": {cap: bool(provider.capabilities.get(cap)) for cap in VOICE_CAPABILITIES},
+    }
+
+
+def _provider_models(slug: str) -> list[str]:
+    if slug == "cascade_openai":
+        return [_TRANSCRIBE_MODEL, _TTS_MODEL]
+    if slug == "openai_realtime":
+        return [
+            settings.openai_realtime_model,
+            settings.openai_realtime_transcribe_model,
+            settings.openai_realtime_translate_model,
+        ]
+    return []
+
+
+def list_voice_runtime_providers(workspace: Any | None = None) -> Dict[str, Any]:
+    workspace_settings = getattr(workspace, "settings", None) if workspace is not None else None
+    workspace_slug = getattr(workspace, "slug", None) if workspace is not None else None
+    allowed = allowed_voice_providers(workspace_settings)
+    default_provider = resolve_voice_runtime_slug(None, workspace_settings=workspace_settings)
+    return {
+        "default_provider": default_provider,
+        "allowed_providers": allowed,
+        "fallback_providers": fallback_voice_providers(workspace_settings),
+        "events": list(VOICE_EVENTS),
+        "providers": [_provider_descriptor(slug, workspace_slug=workspace_slug) for slug in allowed],
         "decision_rule": (
-            "Use realtime_gpu as a product dependency only if user tests improve fluency "
-            "without reducing capture precision, auditability or governance."
+            "Use realtime providers only when user tests improve fluency without reducing "
+            "capture precision, transcript quality, auditability or governance."
         ),
     }
+
+
+def build_openai_realtime_session(
+    *,
+    model: str | None = None,
+    voice: str = "marin",
+    instructions: str | None = None,
+    input_language: str | None = None,
+    output_language: str | None = None,
+    capability: str = "voice2voice_interaction",
+    metadata: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    session: Dict[str, Any] = {
+        "type": "realtime",
+        "model": model or settings.openai_realtime_model,
+        "audio": {"output": {"voice": voice}},
+        "metadata": {"agentium_capability": capability, **(metadata or {})},
+    }
+    if instructions:
+        session["instructions"] = instructions
+    if input_language:
+        session.setdefault("audio", {}).setdefault("input", {})["language"] = input_language
+    if output_language:
+        session["metadata"]["output_language"] = output_language
+    return session
+
+
+def _ensure_openai_realtime_enabled(workspace_slug: str | None = None) -> None:
+    if not settings.openai_realtime_enabled:
+        raise VoiceProviderUnavailable("OpenAI Realtime is disabled for this environment")
+    if workspace_slug and workspace_slug not in set(_split_csv(settings.openai_realtime_enabled_workspace_slugs)):
+        raise VoiceProviderNotAllowed("OpenAI Realtime is not enabled for this workspace")
+    if not settings.openai_api_key:
+        raise VoiceProviderUnavailable("OpenAI API key not configured")
+
+
+async def create_openai_realtime_client_secret(
+    *,
+    workspace_slug: str | None,
+    session: Dict[str, Any],
+) -> Dict[str, Any]:
+    _ensure_openai_realtime_enabled(workspace_slug)
+    url = f"{settings.openai_realtime_api_base.rstrip('/')}/realtime/client_secrets"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"},
+            json={"session": session},
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def create_openai_realtime_call(
+    *,
+    workspace_slug: str | None,
+    sdp: str,
+    session: Dict[str, Any],
+) -> str:
+    _ensure_openai_realtime_enabled(workspace_slug)
+    if not settings.voice_realtime_webrtc_enabled:
+        raise VoiceProviderUnavailable("OpenAI Realtime WebRTC proxy is disabled for this environment")
+    url = f"{settings.openai_realtime_api_base.rstrip('/')}/realtime/calls"
+    files = {
+        "sdp": (None, sdp, "application/sdp"),
+        "session": (None, json.dumps(session), "application/json"),
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(url, headers={"Authorization": f"Bearer {settings.openai_api_key}"}, files=files)
+        response.raise_for_status()
+        return response.text
 
 
 def stream_response_bytes(response: Any, chunk_size: int = 4096) -> Iterable[bytes]:

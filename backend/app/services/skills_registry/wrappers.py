@@ -215,7 +215,7 @@ async def _sharepoint_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[s
 async def _voice_transcribe_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
-    provider = get_voice_runtime_provider((payload.get("provider") or "cascade"))
+    provider = get_voice_runtime_provider((payload.get("provider") or "cascade_openai"))
     audio_bytes = _audio_bytes_from_payload(payload)
     result = await provider.transcribe(
         audio_bytes,
@@ -234,7 +234,7 @@ async def _voice_transcribe_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, 
 async def _voice_tts_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.services.voice_runtime import get_voice_runtime_provider
 
-    provider = get_voice_runtime_provider((payload.get("provider") or "cascade"))
+    provider = get_voice_runtime_provider((payload.get("provider") or "cascade_openai"))
     result = await provider.synthesize_bytes(
         payload["text"],
         voice=payload.get("voice") or "nova",
@@ -246,6 +246,119 @@ async def _voice_tts_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] =
         "model": result.get("model"),
         "provider": result.get("provider"),
         "bytes": result.get("bytes"),
+    }
+
+
+async def _voice_realtime_session_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.voice_runtime import (
+        build_openai_realtime_session,
+        list_voice_runtime_providers,
+        resolve_voice_runtime_slug,
+    )
+
+    ctx = ctx or {}
+    provider = resolve_voice_runtime_slug(payload.get("provider") or ctx.get("voice_provider"))
+    session = build_openai_realtime_session(
+        model=payload.get("model"),
+        voice=payload.get("voice") or "marin",
+        instructions=payload.get("instructions"),
+        input_language=payload.get("language") or payload.get("input_language"),
+        output_language=payload.get("output_language"),
+        capability=payload.get("capability") or "voice2voice_interaction",
+        metadata={"transport": payload.get("transport") or "backend_ws"},
+    )
+    catalog = list_voice_runtime_providers()
+    provider_meta = next((item for item in catalog.get("providers", []) if item.get("slug") == provider), None)
+    return {
+        "provider": provider,
+        "model": payload.get("model"),
+        "transport": payload.get("transport") or "backend_ws",
+        "session": session if provider == "openai_realtime" else None,
+        "capabilities": (provider_meta or {}).get("capabilities", {}),
+        "fallback_policy": payload.get("fallback_policy") or "cascade_openai",
+        "events": catalog.get("events", []),
+    }
+
+
+async def _voice_realtime_transcribe_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider(payload.get("provider") or "cascade_openai")
+    audio_bytes = _audio_bytes_from_payload(payload)
+    result = await provider.transcribe(
+        audio_bytes,
+        filename=payload.get("filename") or "recording.webm",
+        content_type=payload.get("content_type") or "audio/webm",
+    )
+    text = result.get("text") or result.get("transcript") or ""
+    return {
+        "transcript": text,
+        "text": text,
+        "text_events": [
+            {"type": "text.partial", "text": text, "provider": result.get("provider")},
+            {"type": "text.final", "text": text, "provider": result.get("provider")},
+        ],
+        "model": result.get("model"),
+        "provider": result.get("provider"),
+        "requested_provider": result.get("requested_provider") or payload.get("provider"),
+        "fallback": result.get("fallback", False),
+        "fallback_reason": result.get("fallback_reason"),
+    }
+
+
+async def _voice_realtime_speak_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider(payload.get("provider") or "cascade_openai")
+    result = await provider.synthesize_bytes(payload["text"], voice=payload.get("voice") or "nova")
+    return {
+        "audio_base64": result.get("audio_base64"),
+        "content_type": result.get("content_type"),
+        "model": result.get("model"),
+        "provider": result.get("provider"),
+        "requested_provider": result.get("requested_provider") or payload.get("provider"),
+        "bytes": result.get("bytes"),
+        "fallback": result.get("fallback", False),
+        "events": [{"type": "audio.out", "bytes": result.get("bytes"), "provider": result.get("provider")}],
+    }
+
+
+async def _voice_realtime_translate_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.voice_runtime import get_voice_runtime_provider
+
+    provider = get_voice_runtime_provider(payload.get("provider") or "openai_realtime")
+    if not provider.capabilities.get("translation"):
+        return {
+            "status": "degraded",
+            "warning": "provider_capability_unsupported",
+            "provider": provider.slug,
+            "source_text": payload.get("text") or "",
+            "translated_text": payload.get("text") or "",
+        }
+    return {
+        "status": "deferred",
+        "provider": provider.slug,
+        "model": payload.get("model"),
+        "source_language": payload.get("source_language") or payload.get("language"),
+        "target_language": payload.get("target_language") or payload.get("output_language"),
+        "events": ["translation.partial", "translation.final"],
+    }
+
+
+async def _voice_oracle_turn_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.knowledge_capture import evaluate_expert_answer
+
+    evaluation = evaluate_expert_answer(
+        answer=payload.get("answer") or payload.get("text") or "",
+        question=payload.get("question"),
+        gap=payload.get("gap"),
+    )
+    verdict = evaluation.get("verdict")
+    action = "next_prompt" if verdict != "sufficient" else "capture_fact"
+    return {
+        "action": action,
+        "evaluation": evaluation,
+        "events": [{"type": "oracle.action", "action": action, "verdict": verdict}],
     }
 
 
@@ -473,6 +586,11 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None,                                    "stub"),
     "voice_transcribe_v1":     (_voice_transcribe_v1,     "app.services.voice_runtime",            "bound"),
     "voice_tts_v1":            (_voice_tts_v1,            "app.services.voice_runtime",            "bound"),
+    "voice_realtime_session_v1": (_voice_realtime_session_v1, "app.services.voice_runtime",         "bound"),
+    "voice_realtime_transcribe_v1": (_voice_realtime_transcribe_v1, "app.services.voice_runtime",   "bound"),
+    "voice_realtime_speak_v1":  (_voice_realtime_speak_v1, "app.services.voice_runtime",            "bound"),
+    "voice_realtime_translate_v1": (_voice_realtime_translate_v1, "app.services.voice_runtime",     "bound"),
+    "voice_oracle_turn_v1":     (_voice_oracle_turn_v1,   "app.services.knowledge_capture",         "bound"),
     "knowledge_gap_analysis_v1": (_knowledge_gap_analysis_v1, "app.services.knowledge_capture",     "bound"),
     "expert_interview_plan_v1": (_expert_interview_plan_v1, "app.services.knowledge_capture",      "bound"),
     "expert_answer_evaluator_v1": (_expert_answer_evaluator_v1, "app.services.knowledge_capture",  "bound"),

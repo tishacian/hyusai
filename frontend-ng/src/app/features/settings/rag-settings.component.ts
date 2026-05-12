@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { SettingsService, AppSettings } from '@app/core/settings.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 
@@ -64,44 +65,56 @@ const RAG_MODES = [
       <section class="t-card t-elevated rounded-md p-5">
         <div class="flex items-center gap-2 mb-4">
           <app-icon name="cpu" [size]="16" class="text-brand-400" />
-          <h3 class="text-sm font-semibold text-white">Model & generation</h3>
+          <h3 class="text-sm font-semibold text-white">{{ isDemoMode() ? 'Runtime & generation' : 'Model & generation' }}</h3>
         </div>
 
         <div class="space-y-4">
-          <div>
-            <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Provider</label>
-            <div class="grid grid-cols-3 gap-1.5 mt-1.5">
-              @for (p of providers; track p.value) {
-                <button
-                  type="button"
-                  class="px-3 py-2 rounded text-xs font-medium ring-1 transition"
-                  [class.bg-brand-500\\/15]="draft().defaultProvider === p.value"
-                  [class.text-brand-200]="draft().defaultProvider === p.value"
-                  [class.ring-brand-500\\/40]="draft().defaultProvider === p.value"
-                  [class.bg-white\\/5]="draft().defaultProvider !== p.value"
-                  [class.text-gray-300]="draft().defaultProvider !== p.value"
-                  [class.ring-white\\/10]="draft().defaultProvider !== p.value"
-                  (click)="setProvider(p.value)"
-                >
-                  {{ p.label }}
-                </button>
-              }
+          @if (isDemoMode()) {
+            <div class="rounded-md bg-white/5 ring-1 ring-white/10 p-4">
+              <div class="flex items-center gap-2 text-sm font-semibold text-white">
+                <app-icon name="shield-check" [size]="15" class="text-brand-300" />
+                Managed runtime
+              </div>
+              <p class="text-xs text-gray-400 mt-2 leading-relaxed">
+                Provider and model names are hidden in demo mode. Generation settings still apply, and backend policy remains authoritative.
+              </p>
             </div>
-          </div>
+          } @else {
+            <div>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Provider</label>
+              <div class="grid grid-cols-3 gap-1.5 mt-1.5">
+                @for (p of providers; track p.value) {
+                  <button
+                    type="button"
+                    class="px-3 py-2 rounded text-xs font-medium ring-1 transition"
+                    [class.bg-brand-500\\/15]="draft().defaultProvider === p.value"
+                    [class.text-brand-200]="draft().defaultProvider === p.value"
+                    [class.ring-brand-500\\/40]="draft().defaultProvider === p.value"
+                    [class.bg-white\\/5]="draft().defaultProvider !== p.value"
+                    [class.text-gray-300]="draft().defaultProvider !== p.value"
+                    [class.ring-white\\/10]="draft().defaultProvider !== p.value"
+                    (click)="setProvider(p.value)"
+                  >
+                    {{ p.label }}
+                  </button>
+                }
+              </div>
+            </div>
 
-          <div>
-            <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Model</label>
-            <select
-              class="w-full mt-1.5 bg-white/5 ring-1 ring-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-brand-400"
-              [ngModel]="draft().defaultModel"
-              (ngModelChange)="patch({ defaultModel: $event })"
-              name="model"
-            >
-              @for (m of availableModels(); track m) {
-                <option [value]="m">{{ m }}</option>
-              }
-            </select>
-          </div>
+            <div>
+              <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Model</label>
+              <select
+                class="w-full mt-1.5 bg-white/5 ring-1 ring-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-brand-400"
+                [ngModel]="draft().defaultModel"
+                (ngModelChange)="patch({ defaultModel: $event })"
+                name="model"
+              >
+                @for (m of availableModels(); track m) {
+                  <option [value]="m">{{ m }}</option>
+                }
+              </select>
+            </div>
+          }
 
           <div>
             <div class="flex justify-between items-baseline">
@@ -342,6 +355,7 @@ const RAG_MODES = [
 export class RagSettingsComponent implements OnInit {
   private readonly settings = inject(SettingsService);
   private readonly toast = inject(ToastrService);
+  private readonly workspace = inject(WorkspaceService);
 
   readonly providers = PROVIDERS;
   readonly ragModes = RAG_MODES;
@@ -354,6 +368,7 @@ export class RagSettingsComponent implements OnInit {
 
   draft = signal<AppSettings>({ ...this.settings.settings() });
   saving = signal(false);
+  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
 
   readonly dirty = computed(() => {
     return JSON.stringify(this.draft()) !== JSON.stringify(this.settings.settings());
