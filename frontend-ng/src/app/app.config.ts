@@ -2,6 +2,7 @@ import { APP_INITIALIZER, ApplicationConfig, provideZonelessChangeDetection } fr
 import { provideRouter, withPreloading } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { Chart, registerables } from 'chart.js';
 import { provideToastr } from 'ngx-toastr';
 
 import { routes } from './app.routes';
@@ -10,6 +11,8 @@ import { provideLucideIcons } from './shared/ui/icon-registry';
 import { AuthBootstrapService } from './core/auth-bootstrap.service';
 import { IdlePreloadStrategy } from './core/idle-preload.strategy';
 import { HelpService } from './core/help.service';
+
+Chart.register(...registerables);
 
 export const appConfig: ApplicationConfig = {
   providers: [
