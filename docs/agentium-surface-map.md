@@ -45,6 +45,11 @@ fork: the demo behavior is carried by workspace `mode=demo`, workspace
 settings, seeded Capabilities/Skills, System `flow_definition.variant`, and
 the Mission Room API surface.
 
+The workspace is anchored on Cote d'Ivoire. Its intelligence perimeter covers
+Cote d'Ivoire, West Africa, the Sahel and the Gulf of Guinea. The News Lab
+should therefore prefer African public RSS feeds and surface source health
+before using demo fallback content.
+
 The Mission Room uses the Agentium Workspace App pattern: `workspace_app_shell =
 "immersive"` hides the standard OS chrome only for `/hypervisor/mission-room/:view`,
 while auth, audit, IAM, chat overlay, workspace switch and blueprint export remain

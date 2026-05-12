@@ -821,24 +821,46 @@ def _ensure_feed(db: DBSession, workspace: Workspace, name: str, url: str, categ
 
 def _ensure_target(db: DBSession, workspace: Workspace) -> None:
     name = "SENTINEL-CI ministerial signals"
+    description = (
+        "Cote d'Ivoire ministerial watch with West African and Sahel context: "
+        "public action, government continuity, defense-adjacent risks, weak signals, "
+        "territorial projects, logistics, cooperation narratives and crisis communication."
+    )
+    keywords = [
+        "Cote d'Ivoire",
+        "Ivory Coast",
+        "Abidjan",
+        "Yamoussoukro",
+        "Afrique de l'Ouest",
+        "West Africa",
+        "Sahel",
+        "Golfe de Guinee",
+        "ministere",
+        "defense",
+        "securite",
+        "rumeur",
+        "projet public",
+        "cooperation",
+    ]
     existing = (
         db.query(SemanticTarget)
         .filter(SemanticTarget.workspace_id == workspace.id, SemanticTarget.name == name)
         .first()
     )
     if existing:
+        existing.description = description
+        existing.keywords = keywords
+        existing.relevance_threshold = 0.16
+        existing.active = True
         return
     db.add(
         SemanticTarget(
             id=str(uuid4()),
             workspace_id=workspace.id,
             name=name,
-            description=(
-                "Defense, government continuity, Cote d'Ivoire, ministerial briefing, "
-                "public action, weak signals, logistics, territorial projects and crisis communication."
-            ),
-            keywords=["Cote d'Ivoire", "ministere", "defense", "Sahel", "rumeur", "projet", "cooperation"],
-            relevance_threshold=0.18,
+            description=description,
+            keywords=keywords,
+            relevance_threshold=0.16,
             active=True,
         )
     )
@@ -1025,6 +1047,9 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "mission_room": {
                 "enabled": True,
                 "country": "Cote d'Ivoire",
+                "country_code": "CI",
+                "region_scope": ["Cote d'Ivoire", "West Africa", "Sahel", "Gulf of Guinea"],
+                "news_source_policy": "African public RSS first; synthetic demo fixtures only when feeds are unavailable.",
                 "label": SENTINEL_ASSISTANT_NAME,
                 "root_route": MISSION_ROOM_ROOT,
                 "default_view": "cockpit",
@@ -1065,9 +1090,12 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         _ensure_collection(db, workspace, slug, name, description)
 
     for name, url, category in (
+        ("BBC Africa", "https://feeds.bbci.co.uk/news/world/africa/rss.xml", "africa"),
+        ("Jeune Afrique", "https://www.jeuneafrique.com/feed/", "africa-fr"),
+        ("AllAfrica West Africa", "https://allafrica.com/tools/headlines/rdf/westafrica/headlines.rdf", "west-africa"),
+        ("Africanews", "https://www.africanews.com/feed/rss", "africa"),
         ("France 24 Afrique", "https://www.france24.com/fr/afrique/rss", "afrique"),
         ("RFI Afrique", "https://www.rfi.fr/fr/afrique/rss", "afrique"),
-        ("BBC Africa", "https://feeds.bbci.co.uk/news/world/africa/rss.xml", "africa"),
     ):
         _ensure_feed(db, workspace, name, url, category)
     _ensure_target(db, workspace)

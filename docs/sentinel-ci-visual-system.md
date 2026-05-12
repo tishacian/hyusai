@@ -2,6 +2,10 @@
 
 SENTINEL-CI is a workspace app, not a standalone skin. It must feel like a sovereign mission room hosted by Agentium: dense, calm, auditable, confidential and executive-ready.
 
+## Geographic Anchor
+
+SENTINEL-CI is localized around Cote d'Ivoire, with a West Africa / Sahel / Gulf of Guinea watch perimeter. News intelligence should privilege African public RSS sources and only use synthetic fixtures as a demo-safe fallback when live sources are unavailable. The canonical News Lab baseline includes BBC Africa, Jeune Afrique, AllAfrica West Africa and Africanews, with France 24 Afrique and RFI Afrique kept as useful but non-critical sources when reachable.
+
 ## Product Tone
 
 - Use operational language: sources qualifiees, arbitrage, validation humaine, canaux habilites, briefing, signaux faibles.

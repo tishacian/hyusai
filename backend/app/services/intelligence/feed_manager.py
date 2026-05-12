@@ -8,6 +8,11 @@ from app.db.base import SessionLocal
 
 logger = get_logger(__name__)
 
+RSS_REQUEST_HEADERS = {
+    "User-Agent": "Agentium-SENTINEL-CI/1.0 (+https://agentium.papai.ai)",
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+}
+
 
 async def fetch_feed(url: str) -> list[dict]:
     """Fetch and parse an RSS feed. Returns list of article dicts."""
@@ -20,7 +25,7 @@ async def fetch_feed(url: str) -> list[dict]:
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url, follow_redirects=True)
+            resp = await client.get(url, follow_redirects=True, headers=RSS_REQUEST_HEADERS)
             resp.raise_for_status()
         feed = feedparser.parse(resp.text)
     except Exception as e:
