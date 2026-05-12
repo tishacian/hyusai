@@ -264,40 +264,56 @@ interface DraftInstruction {
       :host { display: block; min-width: 0; }
       .metric-card {
         font-family: var(--ck-font-sans);
-        min-height: 96px;
-        padding: 14px;
-        border: 1px solid var(--ck-stroke-2);
-        background: var(--ck-bg-panel);
-        border-radius: 8px;
+        min-height: 100px;
+        padding: 15px;
+        border: 1px solid var(--mission-border, var(--ck-stroke-2));
+        background: var(--mission-panel, var(--ck-bg-panel));
+        border-radius: var(--mission-radius, 8px);
+        box-shadow: var(--mission-shadow-card, none);
         display: flex;
         flex-direction: column;
         justify-content: space-between;
         min-width: 0;
+        position: relative;
+        overflow: hidden;
+      }
+      .metric-card::before {
+        content: '';
+        position: absolute;
+        inset: 0 0 auto;
+        height: 2px;
+        background: var(--mission-accent-muted, rgba(125, 211, 252, 0.28));
+        opacity: 0.74;
       }
       .metric-card span {
-        color: var(--ck-fg-3);
+        color: var(--mission-text-muted, var(--ck-fg-3));
         font-family: var(--ck-font-mono);
         font-size: 10px;
         text-transform: uppercase;
-        letter-spacing: 0.14em;
+        letter-spacing: 0.13em;
       }
       .metric-card strong {
         font-family: var(--ck-font-mono);
         font-variant-numeric: tabular-nums;
-        color: var(--ck-fg-1);
-        font-size: 28px;
+        color: var(--mission-text, var(--ck-fg-1));
+        font-size: 27px;
+        font-weight: 600;
         line-height: 1;
-        letter-spacing: -0.01em;
+        letter-spacing: 0;
       }
       .metric-card small {
-        color: var(--ck-fg-4);
+        color: var(--mission-text-faint, var(--ck-fg-4));
         font-size: 12px;
         overflow-wrap: anywhere;
       }
-      .metric-card.critical strong { color: var(--ck-signal-neg); }
-      .metric-card.watch strong { color: var(--ck-signal-warn); }
-      .metric-card.good strong { color: var(--ck-signal-pos); }
-      .metric-card.info strong { color: var(--ck-signal-cool); }
+      .metric-card.critical::before { background: var(--mission-danger, var(--ck-signal-neg)); }
+      .metric-card.watch::before { background: var(--mission-warn, var(--ck-signal-warn)); }
+      .metric-card.good::before { background: var(--mission-trust, var(--ck-signal-pos)); }
+      .metric-card.info::before { background: var(--mission-accent, var(--ck-signal-cool)); }
+      .metric-card.critical strong { color: var(--mission-danger, var(--ck-signal-neg)); }
+      .metric-card.watch strong { color: var(--mission-warn, var(--ck-signal-warn)); }
+      .metric-card.good strong { color: var(--mission-trust, var(--ck-signal-pos)); }
+      .metric-card.info strong { color: var(--mission-accent, var(--ck-signal-cool)); }
     `,
   ],
 })
@@ -334,13 +350,15 @@ export class MissionMetricCardComponent {
         min-height: 220px;
         height: 100%;
         padding: 16px;
-        border: 1px solid var(--ck-stroke-2);
-        border-radius: 8px;
-        background: var(--ck-bg-panel);
+        border: 1px solid var(--mission-border, var(--ck-stroke-2));
+        border-radius: var(--mission-radius, 8px);
+        background: var(--mission-panel, var(--ck-bg-panel));
+        box-shadow: var(--mission-shadow-card, none);
         display: flex;
         flex-direction: column;
         gap: 14px;
         min-width: 0;
+        overflow: hidden;
       }
       .chart-panel.tall { min-height: 300px; }
       .chart-head {
@@ -350,23 +368,25 @@ export class MissionMetricCardComponent {
         align-items: flex-start;
       }
       .chart-head span {
-        color: var(--ck-fg-4);
+        color: var(--mission-text-faint, var(--ck-fg-4));
         font-family: var(--ck-font-mono);
         font-size: 10px;
-        letter-spacing: 0.16em;
+        letter-spacing: 0.13em;
         text-transform: uppercase;
       }
       .chart-head h2 {
         margin: 5px 0 0;
-        color: var(--ck-fg-1);
+        color: var(--mission-text, var(--ck-fg-1));
         font-size: 18px;
+        font-weight: 650;
         letter-spacing: 0;
       }
       .chart-head strong {
         font-family: var(--ck-font-mono);
         font-variant-numeric: tabular-nums;
-        color: var(--ck-signal-pos);
+        color: var(--mission-trust, var(--ck-signal-pos));
         font-size: 22px;
+        font-weight: 600;
       }
     `,
   ],
@@ -388,10 +408,10 @@ export class MissionChartPanelComponent {
       :host { display: inline-flex; min-width: 0; }
       .source-pill {
         max-width: 100%;
-        border: 1px solid var(--ck-stroke-hot);
+        border: 1px solid var(--mission-border-strong, var(--ck-stroke-hot));
         border-radius: 999px;
-        background: rgba(125, 211, 252, 0.08);
-        color: var(--ck-signal-cool);
+        background: var(--mission-accent-wash, rgba(125, 211, 252, 0.08));
+        color: var(--mission-accent, var(--ck-signal-cool));
         padding: 5px 8px;
         font-family: var(--ck-font-mono);
         font-size: 10px;
@@ -444,8 +464,8 @@ export class MissionSourcePillComponent {
       <div class="rail-spacer"></div>
 
       <div class="demo-card">
-        <span>Mode demo</span>
-        <strong>Sources synthetiques + RSS public</strong>
+        <span>Sources qualifiees</span>
+        <strong>Institutionnel · presse · signaux faibles</strong>
       </div>
       <div class="rail-alerts">
         <ck-glyph name="warn" [size]="13" />
@@ -473,8 +493,8 @@ export class MissionSourcePillComponent {
         width: 220px;
         height: 100%;
         padding: 18px 16px;
-        background: var(--ck-bg-base);
-        border-right: 1px solid var(--ck-stroke-2);
+        background: var(--mission-rail-bg, var(--ck-bg-base));
+        border-right: 1px solid var(--mission-border, var(--ck-stroke-2));
         display: flex;
         flex-direction: column;
         gap: 14px;
@@ -484,20 +504,21 @@ export class MissionSourcePillComponent {
         display: flex;
         align-items: center;
         gap: 10px;
-        color: var(--ck-fg-1);
+        color: var(--mission-text, var(--ck-fg-1));
         min-width: 0;
       }
       .brand-mark {
         width: 34px;
         height: 34px;
-        border-radius: 50%;
+        border-radius: 9px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        color: var(--ck-on-signal);
+        color: var(--mission-accent, var(--ck-signal-cool));
         font-weight: 800;
-        background: linear-gradient(135deg, var(--ck-signal-cool), var(--ck-signal-violet));
-        box-shadow: var(--ck-glow-cool);
+        background: var(--mission-accent-wash, rgba(125, 211, 252, 0.08));
+        border: 1px solid var(--mission-border-strong, var(--ck-stroke-hot));
+        box-shadow: var(--mission-shadow-card, none);
       }
       .rail-brand strong {
         display: block;
@@ -507,10 +528,10 @@ export class MissionSourcePillComponent {
         text-transform: uppercase;
       }
       .rail-brand small {
-        color: var(--ck-fg-3);
+        color: var(--mission-text-muted, var(--ck-fg-3));
         font-family: var(--ck-font-mono);
         font-size: 10px;
-        letter-spacing: 0.22em;
+        letter-spacing: 0.18em;
       }
       .rail-search,
       .mission-nav-item,
@@ -520,16 +541,16 @@ export class MissionSourcePillComponent {
         gap: 9px;
         min-height: 34px;
         padding: 8px 10px;
-        border-radius: 7px;
-        color: var(--ck-fg-2);
+        border-radius: var(--mission-radius-sm, 7px);
+        color: var(--mission-text-soft, var(--ck-fg-2));
         text-decoration: none;
         font-size: 13px;
         min-width: 0;
       }
       .rail-search {
-        border: 1px solid var(--ck-stroke-2);
-        background: var(--ck-bg-inset);
-        color: var(--ck-fg-4);
+        border: 1px solid var(--mission-border, var(--ck-stroke-2));
+        background: var(--mission-inset, var(--ck-bg-inset));
+        color: var(--mission-text-faint, var(--ck-fg-4));
       }
       .mission-nav {
         display: flex;
@@ -540,25 +561,25 @@ export class MissionSourcePillComponent {
       .mission-nav-item.active,
       .mission-nav-item:hover,
       .rail-admin:hover {
-        background: var(--ck-bg-panel-hi);
-        color: var(--ck-fg-1);
+        background: var(--mission-panel-hi, var(--ck-bg-panel-hi));
+        color: var(--mission-text, var(--ck-fg-1));
       }
       .mission-nav-item.active {
-        color: var(--ck-signal-cool);
-        box-shadow: inset 3px 0 0 var(--ck-signal-cool);
+        color: var(--mission-accent, var(--ck-signal-cool));
+        box-shadow: inset 3px 0 0 var(--mission-accent, var(--ck-signal-cool));
       }
       .rail-spacer { flex: 1 1 auto; min-height: 8px; }
       .demo-card {
         padding: 10px;
-        border: 1px solid rgba(167, 139, 250, 0.24);
-        border-radius: 8px;
-        color: var(--ck-signal-violet);
-        background: rgba(167, 139, 250, 0.08);
+        border: 1px solid var(--mission-border, var(--ck-stroke-2));
+        border-radius: var(--mission-radius, 8px);
+        color: var(--mission-accent, var(--ck-signal-cool));
+        background: var(--mission-panel-hi, var(--ck-bg-panel-hi));
       }
       .demo-card span,
       .rail-clock span {
         display: block;
-        color: var(--ck-fg-4);
+        color: var(--mission-text-faint, var(--ck-fg-4));
         font-size: 11px;
       }
       .demo-card strong {
@@ -571,9 +592,10 @@ export class MissionSourcePillComponent {
         align-items: center;
         gap: 8px;
         padding: 9px 10px;
-        color: var(--ck-signal-neg);
-        border-radius: 8px;
-        background: rgba(239, 90, 111, 0.11);
+        color: var(--mission-danger, var(--ck-signal-neg));
+        border-radius: var(--mission-radius, 8px);
+        background: var(--mission-danger-wash, rgba(239, 90, 111, 0.11));
+        border: 1px solid rgba(239, 90, 111, 0.20);
       }
       .rail-admin {
         padding: 6px 8px;
@@ -584,7 +606,7 @@ export class MissionSourcePillComponent {
         display: block;
         font-family: var(--ck-font-mono);
         font-variant-numeric: tabular-nums;
-        color: var(--ck-fg-1);
+        color: var(--mission-text, var(--ck-fg-1));
         font-size: 24px;
         font-weight: 500;
         letter-spacing: -0.01em;
@@ -630,10 +652,17 @@ export class MissionRailComponent {
           </div>
         } @else {
           <header class="mission-hero">
-            <div>
-              <span class="eyebrow">AI Government Mission Room</span>
+            <div class="hero-copy">
+              <div class="hero-meta">
+                <span class="eyebrow">AI Government Mission Room</span>
+                <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
+              </div>
               <h1>{{ cockpit()?.title || 'Bonjour, Ministre.' }}</h1>
-              <p>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</p>
+              <p>
+                <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
+                <span class="hero-dot"></span>
+                <span>Vision executive consolidee</span>
+              </p>
             </div>
             <div class="hero-actions">
               <a routerLink="/hypervisor/mission-room/briefing" class="action-button primary">
@@ -802,7 +831,7 @@ export class MissionRailComponent {
         <article class="content-panel span-2">
           <span class="eyebrow">Briefing quotidien</span>
           <h2>{{ briefing()?.title }}</h2>
-          <p>Briefing genere sous controle humain, sources visibles, aucune action externe automatique.</p>
+          <p>Synthese du jour, sources visibles et decisions preparees pour validation.</p>
         </article>
         @for (section of briefing()?.sections || []; track section.id) {
           <article class="content-panel">
@@ -874,7 +903,7 @@ export class MissionRailComponent {
     <ng-template #timelineView>
       <section class="two-column">
         <article class="content-panel">
-          <span class="eyebrow">Agenda autorise</span>
+          <span class="eyebrow">Agenda ministeriel</span>
           <h2>Deroule de la journee</h2>
           <ol class="agenda-list large">
             @for (item of timeline()?.agenda || []; track item.time) {
@@ -902,7 +931,7 @@ export class MissionRailComponent {
 
     <ng-template #messagesView>
       <section class="content-panel">
-        <span class="eyebrow">Messages autorises</span>
+        <span class="eyebrow">Messages prioritaires</span>
         <h2>Priorites institutionnelles</h2>
         <div class="message-list">
           @for (message of timeline()?.messages || []; track message.id) {
@@ -931,8 +960,8 @@ export class MissionRailComponent {
           </div>
         </article>
         <article class="content-panel">
-          <span class="eyebrow">Sources demo</span>
-          <h2>Knowledge metadata-only</h2>
+          <span class="eyebrow">Sources de reference</span>
+          <h2>Bibliotheque de mission</h2>
           <div class="library-list">
             @for (item of library()?.items || []; track item.id) {
               <article>
@@ -1025,7 +1054,7 @@ export class MissionRailComponent {
         <article class="content-panel">
           <span class="eyebrow">Decisions</span>
           <h2>Validation humaine requise</h2>
-          <p>Les recommandations restent advisory-only. Aucun envoi externe n'est declenche par la demo.</p>
+          <p>Les recommandations preparent l'arbitrage ; chaque instruction reste soumise a validation.</p>
           <div class="decision-list">
             @for (decision of decisions()?.decisions || []; track decision.id) {
               <button type="button" (click)="createDraft(decision.target_id, decision.target_type)">
@@ -1127,7 +1156,7 @@ export class MissionRailComponent {
         <article class="content-panel">
           <span class="eyebrow">{{ assistantName() }}</span>
           <h2>Assistant transversal Chat / V2V</h2>
-          <p>Mode demo : l'interface affiche l'architecture fonctionnelle, pas les providers ou modeles sous-jacents.</p>
+          <p>L'assistant combine conversation, recherche sourcee et oracle de contexte pour preparer l'action.</p>
           <button type="button" class="action-button wide" (click)="openAssistant()">
             <ck-glyph name="crosshair" [size]="15" />
             <span>Ouvrir {{ assistantName() }}</span>
@@ -1151,10 +1180,35 @@ export class MissionRailComponent {
   styles: [
     `
       :host {
+        --mission-bg: #05080c;
+        --mission-bg-grid: rgba(125, 211, 252, 0.035);
+        --mission-rail-bg: linear-gradient(180deg, #05080c 0%, #060a10 100%);
+        --mission-panel: linear-gradient(180deg, rgba(15, 22, 32, 0.96) 0%, rgba(10, 15, 23, 0.98) 100%);
+        --mission-panel-hi: rgba(18, 27, 39, 0.92);
+        --mission-inset: rgba(4, 8, 13, 0.84);
+        --mission-border: rgba(156, 184, 212, 0.14);
+        --mission-border-strong: rgba(125, 211, 252, 0.28);
+        --mission-text: #f4f7fb;
+        --mission-text-soft: #c4ceda;
+        --mission-text-muted: #8996a8;
+        --mission-text-faint: #596678;
+        --mission-accent: #8bd8ff;
+        --mission-accent-strong: #54c7f3;
+        --mission-accent-muted: rgba(139, 216, 255, 0.38);
+        --mission-accent-wash: rgba(139, 216, 255, 0.09);
+        --mission-trust: #42d99b;
+        --mission-trust-wash: rgba(66, 217, 155, 0.10);
+        --mission-warn: #eab85c;
+        --mission-warn-wash: rgba(234, 184, 92, 0.12);
+        --mission-danger: #f06476;
+        --mission-danger-wash: rgba(240, 100, 118, 0.12);
+        --mission-radius-sm: 6px;
+        --mission-radius: 8px;
+        --mission-shadow-card: 0 16px 42px rgba(0, 0, 0, 0.22);
         display: block;
         height: 100vh;
         overflow: hidden;
-        background: var(--ck-bg-base);
+        background: var(--mission-bg);
         font-family: var(--ck-font-sans);
         font-feature-settings: "tnum", "zero";
       }
@@ -1163,55 +1217,92 @@ export class MissionRailComponent {
         display: grid;
         grid-template-columns: 220px minmax(0, 1fr);
         background:
-          radial-gradient(circle at 82% 4%, rgba(125, 211, 252, 0.12), transparent 30%),
-          radial-gradient(circle at 18% 12%, rgba(167, 139, 250, 0.08), transparent 28%),
-          var(--ck-bg-base);
-        color: var(--ck-fg-1);
+          linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.016) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(125, 211, 252, 0.045) 0%, rgba(5, 8, 12, 0) 32%),
+          var(--mission-bg);
+        background-size: 48px 48px, 48px 48px, auto, auto;
+        color: var(--mission-text);
         min-width: 0;
       }
       .mission-main {
         min-width: 0;
         overflow: auto;
-        padding: 28px 36px 42px;
+        padding: 26px 34px 42px;
       }
       .loading-panel {
         min-height: 360px;
         display: grid;
         place-items: center;
         gap: 14px;
-        color: var(--ck-fg-2);
+        color: var(--mission-text-soft);
       }
       .dots {
         width: 96px;
         height: 10px;
         border-radius: 999px;
-        background: repeating-linear-gradient(90deg, var(--ck-signal-cool) 0 8px, transparent 8px 18px);
+        background: repeating-linear-gradient(90deg, var(--mission-accent) 0 8px, transparent 8px 18px);
       }
       .mission-hero {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         justify-content: space-between;
         gap: 24px;
-        margin: 0 0 22px;
+        margin: 0 0 20px;
+        padding: 0 0 18px;
+        border-bottom: 1px solid var(--mission-border);
+      }
+      .hero-copy {
+        min-width: 0;
+      }
+      .hero-meta {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
       }
       .eyebrow {
         display: block;
-        color: var(--ck-signal-cool);
+        color: var(--mission-accent);
         font-family: var(--ck-font-mono);
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 0.16em;
       }
-      .mission-hero h1 {
-        margin: 6px 0 2px;
-        font-size: clamp(34px, 4vw, 52px);
-        font-weight: 700;
+      .hero-status {
+        border: 1px solid rgba(66, 217, 155, 0.24);
+        border-radius: 999px;
+        background: var(--mission-trust-wash);
+        color: var(--mission-trust);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
         line-height: 1;
-        letter-spacing: -0.01em;
+        padding: 5px 8px;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .mission-hero h1 {
+        margin: 8px 0 6px;
+        color: var(--mission-text);
+        font-size: clamp(34px, 3.2vw, 44px);
+        font-weight: 650;
+        line-height: 1.02;
+        letter-spacing: 0;
       }
       .mission-hero p {
+        display: flex;
+        align-items: center;
+        gap: 9px;
         margin: 0;
-        color: var(--ck-fg-3);
+        color: var(--mission-text-muted);
+        font-size: 14px;
+      }
+      .hero-dot {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--mission-border-strong);
       }
       .hero-actions,
       .source-row,
@@ -1223,12 +1314,12 @@ export class MissionRailComponent {
       }
       .action-button,
       .inline-action {
-        min-height: 38px;
-        border: 1px solid var(--ck-stroke-2);
-        background: var(--ck-bg-panel-hi);
-        color: var(--ck-fg-1);
-        border-radius: 8px;
-        padding: 9px 12px;
+        min-height: 36px;
+        border: 1px solid var(--mission-border);
+        background: var(--mission-panel-hi);
+        color: var(--mission-text);
+        border-radius: var(--mission-radius);
+        padding: 8px 11px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -1237,11 +1328,11 @@ export class MissionRailComponent {
         cursor: pointer;
       }
       .action-button.primary {
-        border-color: var(--ck-stroke-hot);
-        background: var(--ck-signal-cool);
-        color: var(--ck-on-signal);
-        font-weight: 700;
-        box-shadow: var(--ck-glow-cool);
+        border-color: var(--mission-border-strong);
+        background: var(--mission-accent-wash);
+        color: var(--mission-accent);
+        font-weight: 650;
+        box-shadow: none;
       }
       .action-button.wide {
         width: 100%;
@@ -1256,24 +1347,25 @@ export class MissionRailComponent {
       .priority-card {
         min-height: 150px;
         padding: 18px;
-        border: 1px solid var(--ck-stroke-2);
-        background: linear-gradient(135deg, rgba(125, 211, 252, 0.12), var(--ck-bg-panel));
-        color: var(--ck-fg-1);
-        border-radius: 8px;
+        border: 1px solid var(--mission-border);
+        background: linear-gradient(135deg, var(--mission-accent-wash), rgba(10, 15, 23, 0.96));
+        color: var(--mission-text);
+        border-radius: var(--mission-radius);
+        box-shadow: var(--mission-shadow-card);
         text-align: left;
         cursor: pointer;
         min-width: 0;
       }
       .priority-card.critical {
-        background: linear-gradient(135deg, rgba(239, 90, 111, 0.18), var(--ck-bg-panel));
-        border-color: rgba(239, 90, 111, 0.28);
+        background: linear-gradient(135deg, var(--mission-danger-wash), rgba(10, 15, 23, 0.96));
+        border-color: rgba(240, 100, 118, 0.28);
       }
       .priority-card.watch {
-        background: linear-gradient(135deg, rgba(245, 184, 74, 0.16), var(--ck-bg-panel));
-        border-color: rgba(245, 184, 74, 0.24);
+        background: linear-gradient(135deg, var(--mission-warn-wash), rgba(10, 15, 23, 0.96));
+        border-color: rgba(234, 184, 92, 0.24);
       }
       .priority-card span {
-        color: var(--ck-signal-cool);
+        color: var(--mission-accent);
         font-family: var(--ck-font-mono);
         font-size: 10px;
         text-transform: uppercase;
@@ -1287,10 +1379,10 @@ export class MissionRailComponent {
         letter-spacing: -0.01em;
       }
       .priority-card p {
-        color: var(--ck-fg-2);
+        color: var(--mission-text-soft);
         line-height: 1.45;
       }
-      .priority-card small { color: var(--ck-fg-3); }
+      .priority-card small { color: var(--mission-text-muted); }
       .metrics-grid {
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1320,11 +1412,11 @@ export class MissionRailComponent {
         fill: none;
         stroke-width: 3;
       }
-      .line.danger { stroke: var(--ck-signal-neg); }
-      .line.good { stroke: var(--ck-signal-pos); }
-      .line.muted { stroke: var(--ck-stroke-3); stroke-width: 1; stroke-dasharray: 4 5; }
+      .line.danger { stroke: var(--mission-danger); }
+      .line.good { stroke: var(--mission-trust); }
+      .line.muted { stroke: var(--mission-border-strong); stroke-width: 1; stroke-dasharray: 4 5; }
       .line.soft { opacity: 0.65; }
-      .area.danger { fill: rgba(239, 90, 111, 0.14); }
+      .area.danger { fill: var(--mission-danger-wash); }
       .bar-chart {
         height: 150px;
         display: grid;
@@ -1351,10 +1443,10 @@ export class MissionRailComponent {
         border-radius: 4px 4px 0 0;
         min-height: 8px;
       }
-      .bar.primary { background: var(--ck-signal-cool); }
-      .bar.grey { background: var(--ck-stroke-3); }
+      .bar.primary { background: var(--mission-accent); }
+      .bar.grey { background: rgba(156, 184, 212, 0.22); }
       .bar-col small {
-        color: var(--ck-fg-4);
+        color: var(--mission-text-faint);
         font-family: var(--ck-font-mono);
         font-size: 10px;
         font-variant-numeric: tabular-nums;
@@ -1370,7 +1462,7 @@ export class MissionRailComponent {
         width: 132px;
         aspect-ratio: 1;
         border-radius: 50%;
-        background: conic-gradient(var(--ck-signal-pos) 0 calc(var(--value) * 1%), var(--ck-signal-warn) 0 86%, var(--ck-signal-neg) 0 100%);
+        background: conic-gradient(var(--mission-trust) 0 calc(var(--value) * 1%), var(--mission-warn) 0 86%, var(--mission-danger) 0 100%);
         display: grid;
         place-items: center;
         position: relative;
@@ -1380,7 +1472,7 @@ export class MissionRailComponent {
         position: absolute;
         inset: 16px;
         border-radius: 50%;
-        background: var(--ck-bg-panel-hi);
+        background: var(--mission-panel-hi);
       }
       .donut strong,
       .donut span {
@@ -1395,12 +1487,12 @@ export class MissionRailComponent {
         letter-spacing: -0.01em;
         transform: translateY(-7px);
       }
-      .donut span { color: var(--ck-fg-3); font-size: 11px; transform: translateY(16px); }
+      .donut span { color: var(--mission-text-muted); font-size: 11px; transform: translateY(16px); }
       .legend {
         display: flex;
         flex-direction: column;
         gap: 9px;
-        color: var(--ck-fg-2);
+        color: var(--mission-text-soft);
         font-size: 12px;
         font-variant-numeric: tabular-nums;
       }
@@ -1411,14 +1503,14 @@ export class MissionRailComponent {
         border-radius: 50%;
         margin-right: 6px;
       }
-      .good { color: var(--ck-signal-pos); }
-      .watch { color: var(--ck-signal-warn); }
-      .critical, .red { color: var(--ck-signal-neg); }
-      .orange { color: var(--ck-signal-warn); }
-      .green { color: var(--ck-signal-pos); }
-      .legend i.good { background: var(--ck-signal-pos); }
-      .legend i.watch { background: var(--ck-signal-warn); }
-      .legend i.critical { background: var(--ck-signal-neg); }
+      .good { color: var(--mission-trust); }
+      .watch { color: var(--mission-warn); }
+      .critical, .red { color: var(--mission-danger); }
+      .orange { color: var(--mission-warn); }
+      .green { color: var(--mission-trust); }
+      .legend i.good { background: var(--mission-trust); }
+      .legend i.watch { background: var(--mission-warn); }
+      .legend i.critical { background: var(--mission-danger); }
       .zone-bars,
       .source-bars {
         display: flex;
@@ -1431,7 +1523,7 @@ export class MissionRailComponent {
         grid-template-columns: 92px minmax(0, 1fr) 42px;
         align-items: center;
         gap: 10px;
-        color: var(--ck-fg-2);
+        color: var(--mission-text-soft);
         background: transparent;
         border: 0;
         text-align: left;
@@ -1441,19 +1533,19 @@ export class MissionRailComponent {
       .source-bars i {
         height: 7px;
         border-radius: 999px;
-        background: var(--ck-bg-inset);
+        background: var(--mission-inset);
         overflow: hidden;
       }
       .zone-bars b,
       .source-bars b {
         display: block;
         height: 100%;
-        background: var(--ck-signal-cool);
+        background: var(--mission-accent);
         border-radius: inherit;
       }
-      .zone-bars b.critical { background: var(--ck-signal-neg); }
-      .zone-bars b.watch { background: var(--ck-signal-warn); }
-      .zone-bars b.stable { background: var(--ck-signal-pos); }
+      .zone-bars b.critical { background: var(--mission-danger); }
+      .zone-bars b.watch { background: var(--mission-warn); }
+      .zone-bars b.stable { background: var(--mission-trust); }
       .compact-list,
       .agenda-list {
         margin: 0;
@@ -1462,8 +1554,8 @@ export class MissionRailComponent {
       }
       .compact-list li {
         padding: 6px 0;
-        color: var(--ck-fg-2);
-        border-top: 1px solid var(--ck-stroke-2);
+        color: var(--mission-text-soft);
+        border-top: 1px solid var(--mission-border);
         overflow-wrap: anywhere;
       }
       .agenda-list {
@@ -1478,19 +1570,19 @@ export class MissionRailComponent {
       }
       .agenda-list.large li {
         padding: 12px 0;
-        border-bottom: 1px solid var(--ck-stroke-2);
+        border-bottom: 1px solid var(--mission-border);
       }
       .agenda-list time {
-        color: var(--ck-fg-4);
+        color: var(--mission-text-faint);
         font-family: var(--ck-font-mono);
         font-size: 11px;
         font-variant-numeric: tabular-nums;
       }
       .agenda-list strong {
         display: block;
-        color: var(--ck-fg-1);
+        color: var(--mission-text);
       }
-      .agenda-list span { color: var(--ck-fg-3); font-size: 12px; }
+      .agenda-list span { color: var(--mission-text-muted); font-size: 12px; }
       .keyword-grid {
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1499,14 +1591,15 @@ export class MissionRailComponent {
       .keyword-grid.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .keyword-grid article {
         padding: 12px;
-        border-radius: 8px;
-        background: var(--ck-bg-panel-hi);
+        border-radius: var(--mission-radius);
+        background: var(--mission-panel-hi);
+        border: 1px solid var(--mission-border);
         min-width: 0;
       }
       .keyword-grid span,
       .keyword-grid small {
         display: block;
-        color: var(--ck-fg-3);
+        color: var(--mission-text-muted);
         font-size: 11px;
         overflow-wrap: anywhere;
       }
@@ -1518,8 +1611,8 @@ export class MissionRailComponent {
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.01em;
       }
-      .keyword-grid small { color: var(--ck-signal-pos); }
-      .keyword-grid small.down { color: var(--ck-signal-neg); }
+      .keyword-grid small { color: var(--mission-trust); }
+      .keyword-grid small.down { color: var(--mission-danger); }
       .two-column {
         display: grid;
         grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
@@ -1529,9 +1622,10 @@ export class MissionRailComponent {
       .span-2 { grid-column: 1 / -1; }
       .content-panel {
         padding: 18px;
-        border: 1px solid var(--ck-stroke-2);
-        background: var(--ck-bg-panel);
-        border-radius: 8px;
+        border: 1px solid var(--mission-border);
+        background: var(--mission-panel);
+        border-radius: var(--mission-radius);
+        box-shadow: var(--mission-shadow-card);
         min-width: 0;
       }
       .content-panel h2,
@@ -1541,7 +1635,7 @@ export class MissionRailComponent {
         letter-spacing: -0.01em;
       }
       .content-panel p {
-        color: var(--ck-fg-2);
+        color: var(--mission-text-soft);
         line-height: 1.55;
       }
       .action-panel {
@@ -1555,7 +1649,8 @@ export class MissionRailComponent {
       .status-pill {
         padding: 6px 9px;
         border-radius: 999px;
-        background: var(--ck-bg-panel-hi);
+        background: var(--mission-panel-hi);
+        border: 1px solid var(--mission-border);
         font-size: 12px;
       }
       .project-list,
@@ -1575,23 +1670,23 @@ export class MissionRailComponent {
       .prompt-list button {
         width: 100%;
         text-align: left;
-        border: 1px solid var(--ck-stroke-2);
-        background: var(--ck-bg-panel-hi);
-        color: var(--ck-fg-1);
-        border-radius: 8px;
+        border: 1px solid var(--mission-border);
+        background: var(--mission-panel-hi);
+        color: var(--mission-text);
+        border-radius: var(--mission-radius);
         padding: 12px;
         display: grid;
         gap: 6px;
         cursor: pointer;
       }
       .project-list button.active {
-        border-color: var(--ck-stroke-hot);
-        background: rgba(125, 211, 252, 0.08);
+        border-color: var(--mission-border-strong);
+        background: var(--mission-accent-wash);
       }
       .project-list small,
       .decision-list small,
       .library-list small {
-        color: var(--ck-fg-3);
+        color: var(--mission-text-muted);
       }
       .selected-detail dl {
         display: grid;
@@ -1603,16 +1698,16 @@ export class MissionRailComponent {
         grid-template-columns: 120px minmax(0, 1fr);
         gap: 12px;
         padding: 8px 0;
-        border-top: 1px solid var(--ck-stroke-2);
+        border-top: 1px solid var(--mission-border);
       }
-      dt { color: var(--ck-fg-4); }
-      dd { margin: 0; color: var(--ck-fg-2); }
+      dt { color: var(--mission-text-faint); }
+      dd { margin: 0; color: var(--mission-text-soft); }
       .message-list article,
       .library-list article {
         padding: 13px;
-        border: 1px solid var(--ck-stroke-2);
-        border-radius: 8px;
-        background: var(--ck-bg-panel-hi);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-panel-hi);
       }
       .message-list article {
         display: grid;
@@ -1620,38 +1715,39 @@ export class MissionRailComponent {
         gap: 12px;
       }
       .message-list time {
-        color: var(--ck-signal-cool);
+        color: var(--mission-accent);
         font-family: var(--ck-font-mono);
         font-size: 11px;
         font-variant-numeric: tabular-nums;
       }
       .message-list span {
         display: block;
-        color: var(--ck-fg-3);
+        color: var(--mission-text-muted);
         margin-top: 3px;
       }
       .status-pill.high,
-      .status-pill.critical { color: var(--ck-signal-neg); background: rgba(239, 90, 111, 0.14); }
-      .status-pill.medium { color: var(--ck-signal-warn); background: rgba(245, 184, 74, 0.14); }
+      .status-pill.critical { color: var(--mission-danger); background: var(--mission-danger-wash); }
+      .status-pill.medium { color: var(--mission-warn); background: var(--mission-warn-wash); }
       .map-layout { grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr); }
       .territory-map {
         width: 100%;
         min-height: 560px;
-        border-radius: 8px;
+        border-radius: var(--mission-radius);
         background:
-          linear-gradient(var(--ck-stroke-1) 1px, transparent 1px),
-          linear-gradient(90deg, var(--ck-stroke-1) 1px, transparent 1px),
-          var(--ck-bg-inset);
+          linear-gradient(var(--mission-bg-grid) 1px, transparent 1px),
+          linear-gradient(90deg, var(--mission-bg-grid) 1px, transparent 1px),
+          var(--mission-inset);
         background-size: 28px 28px;
+        border: 1px solid var(--mission-border);
       }
       .territory-map polygon {
-        stroke: var(--ck-stroke-3);
+        stroke: rgba(244, 247, 251, 0.28);
         stroke-width: 2;
         cursor: pointer;
         transition: opacity 120ms;
       }
       .territory-map text {
-        fill: var(--ck-fg-1);
+        fill: var(--mission-text);
         font-family: var(--ck-font-sans);
         font-size: 16px;
         font-weight: 700;
@@ -1665,10 +1761,10 @@ export class MissionRailComponent {
       }
       .search-form input {
         min-height: 40px;
-        border: 1px solid var(--ck-stroke-2);
-        background: var(--ck-bg-inset);
-        color: var(--ck-fg-1);
-        border-radius: 8px;
+        border: 1px solid var(--mission-border);
+        background: var(--mission-inset);
+        color: var(--mission-text);
+        border-radius: var(--mission-radius);
         padding: 0 12px;
       }
       @media (max-width: 1200px) {
@@ -1844,9 +1940,9 @@ export class MissionRoomComponent implements OnInit {
   }
 
   zoneFill(zone: MapZone): string {
-    if (zone.tone === 'critical') return 'var(--ck-signal-neg)';
-    if (zone.tone === 'watch') return 'var(--ck-signal-warn)';
-    return 'var(--ck-signal-pos)';
+    if (zone.tone === 'critical') return 'var(--mission-danger)';
+    if (zone.tone === 'watch') return 'var(--mission-warn)';
+    return 'var(--mission-trust)';
   }
 
   selectZoneByName(name: string): void {

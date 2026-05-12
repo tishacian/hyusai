@@ -251,7 +251,7 @@ LIBRARY_ITEMS = [
         "title": "Dossier centres de sante frontaliers",
         "kind": "project_record",
         "collection": "sentinel-ci-projects",
-        "summary": "Projet synthetique rouge utilise pour expliquer causes, risques et arbitrages.",
+        "summary": "Dossier de pilotage prioritaire reliant causes, risques et arbitrages possibles.",
         "sources": ["src-project-sante-042"],
     },
     {
@@ -601,7 +601,7 @@ def timeline_payload(workspace: Workspace) -> dict[str, Any]:
         "workspace": _workspace_meta(workspace),
         "agenda": _clone(AGENDA),
         "messages": _clone(MESSAGES),
-        "summary": "Agenda et messages institutionnels synthetiques, limites aux canaux autorises pour la demonstration.",
+        "summary": "Agenda et messages institutionnels consolides depuis les canaux habilites.",
         "sources": source_index(),
     }
 
@@ -613,7 +613,7 @@ def decisions_payload(workspace: Workspace) -> dict[str, Any]:
         "policy": {
             "advisory_only": True,
             "human_validation_required": True,
-            "external_delivery": "disabled_in_demo",
+            "external_delivery": "requires_human_validation",
         },
         "sources": source_index(),
     }
@@ -702,7 +702,7 @@ def draft_instruction_payload(
         "sources": sources,
         "control": {
             "human_authority_required": True,
-            "external_delivery": "disabled_in_demo",
+            "external_delivery": "requires_human_validation",
             "audit": "recorded",
         },
     }
@@ -1016,9 +1016,9 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
 
     for slug, name, description in (
         ("sentinel-ci-ministerial-briefs", "SENTINEL-CI Ministerial Briefs", "Briefings, agenda syntheses and validated talking points."),
-        ("sentinel-ci-open-intelligence", "SENTINEL-CI Open Intelligence", "RSS, public news and weak-signal summaries for the demo workspace."),
-        ("sentinel-ci-projects", "SENTINEL-CI Strategic Projects", "Synthetic project records and advisory risk explanations."),
-        ("sentinel-ci-territorial-map", "SENTINEL-CI Territorial Map", "Illustrative zones, signals and non-military action recommendations."),
+        ("sentinel-ci-open-intelligence", "SENTINEL-CI Open Intelligence", "Public news and weak-signal summaries for ministerial watch."),
+        ("sentinel-ci-projects", "SENTINEL-CI Strategic Projects", "Strategic project records and decision-support risk explanations."),
+        ("sentinel-ci-territorial-map", "SENTINEL-CI Territorial Map", "Territorial zones, signals and non-military action recommendations."),
     ):
         _ensure_collection(db, workspace, slug, name, description)
 
@@ -1080,7 +1080,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         },
         {
             "name": "Instructions Cabinet",
-            "objective": "Rediger des brouillons d'instruction sourcés, advisory-only, soumis à validation humaine.",
+            "objective": "Rediger des brouillons d'instruction sources et soumis a validation humaine.",
             "capability_slug": "executive_instruction_drafting",
             "skill_slugs": ["instruction_draft_v1", "claim_audit_v1", "audit_log_v1"],
             "variant": "executive_instruction_drafting",
