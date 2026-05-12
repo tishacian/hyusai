@@ -412,7 +412,7 @@ export class MissionSourcePillComponent {
         <span class="brand-mark">S</span>
         <div>
           <strong>SENTINEL-CI</strong>
-          <small>ARIA</small>
+          <small>{{ assistantName }}</small>
         </div>
       </div>
 
@@ -582,6 +582,7 @@ export class MissionRailComponent {
   @Input() items: MissionNavigationItem[] = [];
   @Input() activeView: MissionView = 'cockpit';
   @Input() adminRoute = '/workspace';
+  @Input() assistantName = 'VIGIE';
 }
 
 @Component({
@@ -604,6 +605,7 @@ export class MissionRailComponent {
         [items]="navigation()?.items || fallbackNav"
         [activeView]="currentView()"
         [adminRoute]="adminRoute()"
+        [assistantName]="assistantName()"
       />
 
       <main class="mission-main ck-scroll">
@@ -626,7 +628,7 @@ export class MissionRailComponent {
               </a>
               <button type="button" class="action-button" (click)="openAssistant()">
                 <ck-glyph name="crosshair" [size]="15" />
-                <span>ARIA</span>
+                <span>{{ assistantName() }}</span>
               </button>
             </div>
           </header>
@@ -878,7 +880,7 @@ export class MissionRailComponent {
           <p>{{ timeline()?.summary }}</p>
           <button type="button" class="action-button wide" (click)="openAssistant('Prepare une synthese agenda.')">
             <ck-glyph name="bolt" [size]="14" />
-            <span>Demander une synthese ARIA</span>
+            <span>Demander une synthese {{ assistantName() }}</span>
           </button>
         </article>
       </section>
@@ -1109,12 +1111,12 @@ export class MissionRailComponent {
     <ng-template #assistantView>
       <section class="two-column">
         <article class="content-panel">
-          <span class="eyebrow">ARIA</span>
+          <span class="eyebrow">{{ assistantName() }}</span>
           <h2>Assistant transversal Chat / V2V</h2>
           <p>Mode demo : l'interface affiche l'architecture fonctionnelle, pas les providers ou modeles sous-jacents.</p>
           <button type="button" class="action-button wide" (click)="openAssistant()">
             <ck-glyph name="crosshair" [size]="15" />
-            <span>Ouvrir ARIA</span>
+            <span>Ouvrir {{ assistantName() }}</span>
           </button>
         </article>
         <article class="content-panel">
@@ -1684,6 +1686,7 @@ export class MissionRoomComponent implements OnInit {
   });
 
   readonly adminRoute = computed(() => `/workspace/${this.workspace.currentSlug() || 'sentinel-ci'}`);
+  readonly assistantName = computed(() => this.navigation()?.app?.assistant_label || 'VIGIE');
 
   readonly sources = computed(() => {
     const rows = [

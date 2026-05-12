@@ -27,6 +27,7 @@ from app.services.audit_logger import emit_audit_event
 
 SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
 SENTINEL_WORKSPACE_NAME = "SENTINEL-CI"
+SENTINEL_ASSISTANT_NAME = "VIGIE"
 MISSION_ROOM_ROOT = "/hypervisor/mission-room"
 MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
 
@@ -427,7 +428,7 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
         "workspace": _workspace_meta(workspace),
         "app": {
             "label": "SENTINEL-CI",
-            "assistant_label": "ARIA",
+            "assistant_label": SENTINEL_ASSISTANT_NAME,
             "shell": "immersive",
             "default_route": MISSION_ROOM_ROUTE,
             "default_view": "cockpit",
@@ -901,6 +902,7 @@ def _ensure_system(
     skill_slugs: list[str],
     variant: str,
     execution_mode: str = "human_augmented",
+    legacy_names: Optional[list[str]] = None,
 ) -> Optional[System]:
     capability = _capability_by_slug(db, capability_slug)
     if not capability:
@@ -908,11 +910,12 @@ def _ensure_system(
     skill_ids = _slug_skill_ids(db, skill_slugs)
     existing = (
         db.query(System)
-        .filter(System.workspace_id == workspace.id, System.name == name)
+        .filter(System.workspace_id == workspace.id, System.name.in_([name, *(legacy_names or [])]))
         .first()
     )
     flow = _flow(variant, skill_slugs, name)
     if existing:
+        existing.name = name
         existing.objective = objective
         existing.capability_id = capability.id
         existing.skill_ids = skill_ids
@@ -980,7 +983,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "mission_room": {
                 "enabled": True,
                 "country": "Cote d'Ivoire",
-                "label": "ARIA",
+                "label": SENTINEL_ASSISTANT_NAME,
                 "root_route": MISSION_ROOM_ROOT,
                 "default_view": "cockpit",
                 "navigation": NAVIGATION_ITEMS,
@@ -1031,7 +1034,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
 
     system_specs = [
         {
-            "name": "ARIA / SENTINEL-CI Mission Room",
+            "name": "SENTINEL-CI Mission Room",
+            "legacy_names": ["ARIA / SENTINEL-CI Mission Room"],
             "objective": "Consolider briefing, signaux faibles, projets, carte et actions ministerielles sous controle humain.",
             "capability_slug": "government_mission_room",
             "skill_slugs": [

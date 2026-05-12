@@ -159,7 +159,7 @@ See `docs/skills-runtime.md` for full contract.
 
 ```
 /hypervisor              Balance sheet + what-if (4 levers) + decisions feed
-/hypervisor/mission-room/:view Demo Government Mission Room workspace app (ARIA / SENTINEL-CI)
+/hypervisor/mission-room/:view Demo Government Mission Room workspace app (VIGIE / SENTINEL-CI)
 /steering                Control policies + adaptive policies + simulate
 /steering/contexts       First-class context manager
 /capabilities            Business catalog (+ drill-down /capabilities/:id)

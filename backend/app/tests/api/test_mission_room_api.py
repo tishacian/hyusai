@@ -47,6 +47,7 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
 
     assert navigation.status_code == 200
     assert navigation.json()["app"]["default_view"] == "cockpit"
+    assert navigation.json()["app"]["assistant_label"] == "VIGIE"
     assert navigation.json()["items"][0]["route"] == "/hypervisor/mission-room/cockpit"
     assert cockpit.status_code == 200
     assert cockpit.json()["layout"]["variant"] == "executive_grid"
