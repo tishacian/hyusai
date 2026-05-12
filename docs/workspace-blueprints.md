@@ -57,3 +57,13 @@ a hardcoded tenant:
 - Staging and proposals remain review queues.
 - Knowledge collections are exported as collection contracts, not as raw files
   or vector data.
+
+## Workspace App Pattern
+
+SENTINEL-CI demonstrates the Workspace App extension point. A blueprint may
+carry demo settings such as `workspace_app_shell = "immersive"`,
+`workspace_app_label`, `workspace_app_default_view` and a `default_route` like
+`/hypervisor/mission-room/cockpit`. Importing that blueprint recreates the
+Systems, Capabilities, Skill bindings, RAG preset and metadata-only Knowledge
+collections that power the immersive app, while the chrome behavior remains a
+generic Agentium shell capability rather than a tenant-specific fork.

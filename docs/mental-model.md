@@ -100,7 +100,7 @@ Impact        aggregated cost / value / ROI per capability & system
 |-------|---------|
 | `/catalog/endpoints`, `/catalog/surfaces` | Machine-readable Agentium surface catalog (UI route ↔ API ↔ mental object ↔ stability status) |
 | `/blueprints/workspace/*` | Workspace Blueprint export/import: structure and configuration without members, secrets, files or vectors |
-| `/mission-room/*` | Government Mission Room demo cockpit: briefing, open intelligence, projects, map and advisory draft actions |
+| `/mission-room/*` | Government Mission Room workspace app: navigation, cockpit, briefing, timeline, decisions, search, map and advisory draft actions |
 | `/systems`, `/systems/:id`, `/systems/:id/runs` | CRUD + execution |
 | `/capabilities`, `/capabilities/:id` | Business-level catalog |
 | `/skills`, `/skills/runtime-health`, `/skills/:slug` | Registry + tri-state health |
@@ -159,7 +159,7 @@ See `docs/skills-runtime.md` for full contract.
 
 ```
 /hypervisor              Balance sheet + what-if (4 levers) + decisions feed
-/hypervisor/mission-room Demo Government Mission Room workbench (ARIA / SENTINEL-CI)
+/hypervisor/mission-room/:view Demo Government Mission Room workspace app (ARIA / SENTINEL-CI)
 /steering                Control policies + adaptive policies + simulate
 /steering/contexts       First-class context manager
 /capabilities            Business catalog (+ drill-down /capabilities/:id)

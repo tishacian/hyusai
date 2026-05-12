@@ -33,17 +33,22 @@ This document is the human-readable companion to the runtime catalog exposed at
 
 | Government mission-room need | Agentium object | UI route | API prefix | Status |
 |---|---|---|---|---|
-| Ministerial cockpit and daily briefing | `Workbench` | `/hypervisor/mission-room` | `/api/v1/mission-room` | `canonical` |
-| Open intelligence and RSS weak signals | `Run` | `/hypervisor/mission-room`, `/intelligence` | `/api/v1/mission-room`, `/api/v1/intelligence` | `canonical` |
-| Strategic project pilotage | `System` / `Workbench` | `/hypervisor/mission-room`, `/systems` | `/api/v1/mission-room`, `/api/v1/systems` | `canonical` |
-| Territorial action map | `Workbench` | `/hypervisor/mission-room` | `/api/v1/mission-room/map` | `canonical` |
-| Draft cabinet instructions | `Review Queue` | `/hypervisor/mission-room` | `/api/v1/mission-room/actions/draft` | `canonical` |
+| Ministerial cockpit and daily briefing | `Workbench` | `/hypervisor/mission-room/cockpit`, `/hypervisor/mission-room/briefing` | `/api/v1/mission-room/cockpit`, `/api/v1/mission-room/briefing` | `canonical` |
+| Open intelligence and RSS weak signals | `Run` | `/hypervisor/mission-room/presse`, `/hypervisor/mission-room/veille`, `/intelligence` | `/api/v1/mission-room/news`, `/api/v1/intelligence` | `canonical` |
+| Strategic project pilotage | `System` / `Workbench` | `/hypervisor/mission-room/pilotage`, `/hypervisor/mission-room/projets`, `/systems` | `/api/v1/mission-room/projects`, `/api/v1/systems` | `canonical` |
+| Territorial action map | `Workbench` | `/hypervisor/mission-room/strategie` | `/api/v1/mission-room/map` | `canonical` |
+| Draft cabinet instructions | `Review Queue` | `/hypervisor/mission-room/decisions` | `/api/v1/mission-room/decisions`, `/api/v1/mission-room/actions/draft` | `canonical` |
 | Recreate the demo workspace elsewhere | `Workspace` | `/governance/blueprints` | `/api/v1/blueprints` | `canonical` |
 
 SENTINEL-CI is deliberately a workspace pattern, not a hardcoded client
 fork: the demo behavior is carried by workspace `mode=demo`, workspace
 settings, seeded Capabilities/Skills, System `flow_definition.variant`, and
 the Mission Room API surface.
+
+The Mission Room uses the Agentium Workspace App pattern: `workspace_app_shell =
+"immersive"` hides the standard OS chrome only for `/hypervisor/mission-room/:view`,
+while auth, audit, IAM, chat overlay, workspace switch and blueprint export remain
+platform-governed.
 
 ## API Stability States
 

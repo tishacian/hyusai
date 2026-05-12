@@ -830,6 +830,7 @@ async def list_workspaces(user: User = Depends(get_current_user), db: DBSession 
                 "role_template": normalize_role_template(getattr(m, "role_template", None), m.role),
                 "member_count": member_count,
                 "created_at": ws.created_at.isoformat() if ws.created_at else None,
+                "settings": ws.settings or {},
                 "mode": getattr(ws, "mode", "executive") or "executive",
             })
     return result

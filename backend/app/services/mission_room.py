@@ -27,7 +27,26 @@ from app.services.audit_logger import emit_audit_event
 
 SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
 SENTINEL_WORKSPACE_NAME = "SENTINEL-CI"
-MISSION_ROOM_ROUTE = "/hypervisor/mission-room"
+MISSION_ROOM_ROOT = "/hypervisor/mission-room"
+MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
+
+
+NAVIGATION_ITEMS = [
+    {"key": "cockpit", "label": "Cockpit", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
+    {"key": "briefing", "label": "Briefing", "glyph": "ledger", "variant": "ministerial_daily_briefing", "object": "Workbench"},
+    {"key": "pilotage", "label": "Pilotage", "glyph": "telemetry", "variant": "strategic_project_pilotage", "object": "System"},
+    {"key": "agenda", "label": "Agenda", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
+    {"key": "messages", "label": "Messages", "glyph": "layers", "variant": "government_mission_room", "object": "Workbench"},
+    {"key": "bibliotheque", "label": "Bibliotheque", "glyph": "cube", "variant": "government_mission_room", "object": "Knowledge"},
+    {"key": "projets", "label": "Projets", "glyph": "flow", "variant": "strategic_project_pilotage", "object": "System"},
+    {"key": "presse", "label": "Presse", "glyph": "pulse", "variant": "intelligence", "object": "Run"},
+    {"key": "reputation", "label": "E-Reputation", "glyph": "focus", "variant": "intelligence", "object": "Run"},
+    {"key": "veille", "label": "Veille", "glyph": "crosshair", "variant": "intelligence", "object": "Run"},
+    {"key": "decisions", "label": "Decisions", "glyph": "check", "variant": "executive_instruction_drafting", "object": "Review Queue"},
+    {"key": "strategie", "label": "Strategie", "glyph": "sliders", "variant": "territorial_action_map", "object": "Workbench"},
+    {"key": "recherche", "label": "Recherche", "glyph": "zoom-in", "variant": "government_mission_room", "object": "Knowledge"},
+    {"key": "assistant", "label": "Assistant", "glyph": "bolt", "variant": "government_mission_room", "object": "Workbench"},
+]
 
 
 SOURCES = [
@@ -154,6 +173,96 @@ NEWS_SIGNALS = [
     },
 ]
 
+MESSAGES = [
+    {
+        "id": "msg-konate-001",
+        "from": "Gen. Konate",
+        "subject": "Situation securitaire nord",
+        "time": "09:15",
+        "priority": "urgent",
+        "summary": "Demande d'arbitrage sur reception de materiels et communication preventive.",
+        "sources": ["src-cabinet-brief-001"],
+    },
+    {
+        "id": "msg-cabinet-014",
+        "from": "Directeur de cabinet",
+        "subject": "Elements de langage point presse",
+        "time": "10:05",
+        "priority": "watch",
+        "summary": "Validation attendue avant 11h pour clarifier la position institutionnelle.",
+        "sources": ["src-agenda-jour-015", "src-press-rfi-017"],
+    },
+    {
+        "id": "msg-territory-027",
+        "from": "Cellule coordination terrain",
+        "subject": "Suivi projets frontaliers",
+        "time": "10:42",
+        "priority": "normal",
+        "summary": "Remontee terrain coherente avec les risques projet et la veille presse.",
+        "sources": ["src-project-sante-042"],
+    },
+]
+
+DECISIONS = [
+    {
+        "id": "decision-north-mission",
+        "title": "Mission terrain preventive Nord",
+        "status": "validation_required",
+        "risk": "high",
+        "recommendation": "Valider une mission non militaire coordonnee avec autorites locales et communication ciblee.",
+        "target_id": "zone-nord",
+        "target_type": "zone",
+        "sources": ["src-cabinet-brief-001", "src-project-sante-042", "src-press-rfi-017"],
+    },
+    {
+        "id": "decision-project-red",
+        "title": "Relance cabinet projet centres de sante",
+        "status": "draft_ready",
+        "risk": "high",
+        "recommendation": "Demander note d'arbitrage sous 24h avec options budget, terrain et replanification.",
+        "target_id": "proj-health-north",
+        "target_type": "project",
+        "sources": ["src-project-sante-042", "src-cabinet-brief-001"],
+    },
+    {
+        "id": "decision-press-lines",
+        "title": "Elements de langage presse",
+        "status": "review",
+        "risk": "medium",
+        "recommendation": "Valider un message de coordination preventive et de continuite des services publics.",
+        "target_id": "proj-civic-radio",
+        "target_type": "project",
+        "sources": ["src-press-rfi-017", "src-agenda-jour-015"],
+    },
+]
+
+LIBRARY_ITEMS = [
+    {
+        "id": "lib-briefing-template",
+        "title": "Modele briefing ministre",
+        "kind": "template",
+        "collection": "sentinel-ci-ministerial-briefs",
+        "summary": "Structure priorites, risques, decisions attendues, actions et sources.",
+        "sources": ["src-cabinet-brief-001"],
+    },
+    {
+        "id": "lib-project-record",
+        "title": "Dossier centres de sante frontaliers",
+        "kind": "project_record",
+        "collection": "sentinel-ci-projects",
+        "summary": "Projet synthetique rouge utilise pour expliquer causes, risques et arbitrages.",
+        "sources": ["src-project-sante-042"],
+    },
+    {
+        "id": "lib-map-signals",
+        "title": "Signaux carte territoriale",
+        "kind": "map_context",
+        "collection": "sentinel-ci-territorial-map",
+        "summary": "Zones, niveaux d'alerte et recommandations preventives non militaires.",
+        "sources": ["src-cabinet-brief-001", "src-press-rfi-017"],
+    },
+]
+
 PROJECTS = [
     {
         "id": "proj-health-north",
@@ -269,9 +378,71 @@ def source_index() -> list[dict[str, Any]]:
     return _clone(SOURCES)
 
 
+def _workspace_meta(workspace: Workspace) -> dict[str, Any]:
+    return {"id": workspace.id, "slug": workspace.slug, "name": workspace.name}
+
+
+def _system_map(db: DBSession, workspace: Workspace) -> dict[str, System]:
+    systems = db.query(System).filter(System.workspace_id == workspace.id).all()
+    result: dict[str, System] = {}
+    for system in systems:
+        variant = (system.flow_definition or {}).get("variant")
+        if variant and variant not in result:
+            result[str(variant)] = system
+    return result
+
+
+def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
+    systems_by_variant = _system_map(db, workspace)
+    api_by_view = {
+        "cockpit": "/api/v1/mission-room/cockpit",
+        "briefing": "/api/v1/mission-room/briefing",
+        "pilotage": "/api/v1/mission-room/projects",
+        "agenda": "/api/v1/mission-room/timeline",
+        "messages": "/api/v1/mission-room/timeline",
+        "bibliotheque": "/api/v1/mission-room/library",
+        "projets": "/api/v1/mission-room/projects",
+        "presse": "/api/v1/mission-room/news",
+        "reputation": "/api/v1/mission-room/news",
+        "veille": "/api/v1/mission-room/news",
+        "decisions": "/api/v1/mission-room/decisions",
+        "strategie": "/api/v1/mission-room/map",
+        "recherche": "/api/v1/mission-room/search",
+        "assistant": "/api/v1/chat/stream",
+    }
+    items: list[dict[str, Any]] = []
+    for item in NAVIGATION_ITEMS:
+        system = systems_by_variant.get(item["variant"])
+        items.append(
+            {
+                **item,
+                "route": f"{MISSION_ROOM_ROOT}/{item['key']}",
+                "api": api_by_view[item["key"]],
+                "system_id": system.id if system else None,
+                "system_name": system.name if system else None,
+                "workbench": item["object"],
+            }
+        )
+    return {
+        "workspace": _workspace_meta(workspace),
+        "app": {
+            "label": "SENTINEL-CI",
+            "assistant_label": "ARIA",
+            "shell": "immersive",
+            "default_route": MISSION_ROOM_ROUTE,
+            "default_view": "cockpit",
+        },
+        "items": items,
+        "exit_routes": [
+            {"label": "Agentium OS", "route": "/systems"},
+            {"label": "Workspace Admin", "route": f"/workspace/{workspace.slug}"},
+        ],
+    }
+
+
 def overview_payload(workspace: Workspace) -> dict[str, Any]:
     return {
-        "workspace": {"id": workspace.id, "slug": workspace.slug, "name": workspace.name},
+        "workspace": _workspace_meta(workspace),
         "title": "Bonjour, Ministre.",
         "date_label": "Mercredi 15 Avril 2026",
         "mode": "demo",
@@ -331,9 +502,24 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
     }
 
 
+def cockpit_payload(workspace: Workspace) -> dict[str, Any]:
+    overview = overview_payload(workspace)
+    return {
+        **overview,
+        "layout": {
+            "variant": "executive_grid",
+            "density": "desktop_laptop",
+            "charts": ["threat_trend", "communications_flow", "ops_state", "reputation", "media_sources", "keyword_trends"],
+        },
+        "decision_focus": _clone(DECISIONS[:2]),
+        "messages": _clone(MESSAGES),
+        "library": _clone(LIBRARY_ITEMS),
+    }
+
+
 def briefing_payload(workspace: Workspace) -> dict[str, Any]:
     return {
-        "workspace": {"id": workspace.id, "slug": workspace.slug, "name": workspace.name},
+        "workspace": _workspace_meta(workspace),
         "title": "Briefing quotidien ministre",
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "sections": [
@@ -373,7 +559,7 @@ def briefing_payload(workspace: Workspace) -> dict[str, Any]:
 
 def projects_payload(workspace: Workspace) -> dict[str, Any]:
     return {
-        "workspace": {"id": workspace.id, "slug": workspace.slug, "name": workspace.name},
+        "workspace": _workspace_meta(workspace),
         "summary": {
             "total": len(PROJECTS),
             "red": sum(1 for p in PROJECTS if p["weather"] == "red"),
@@ -387,7 +573,7 @@ def projects_payload(workspace: Workspace) -> dict[str, Any]:
 
 def map_payload(workspace: Workspace) -> dict[str, Any]:
     return {
-        "workspace": {"id": workspace.id, "slug": workspace.slug, "name": workspace.name},
+        "workspace": _workspace_meta(workspace),
         "question": "Quelles zones necessitent une action preventive non militaire ce mois-ci ?",
         "map": {
             "country": "Cote d'Ivoire",
@@ -402,9 +588,70 @@ def map_payload(workspace: Workspace) -> dict[str, Any]:
 
 def news_payload(workspace: Workspace) -> dict[str, Any]:
     return {
-        "workspace": {"id": workspace.id, "slug": workspace.slug, "name": workspace.name},
+        "workspace": _workspace_meta(workspace),
         "signals": _clone(NEWS_SIGNALS),
         "summary": "Trois signaux dominent : retards sociaux au nord, perception de cooperation FR-CI, et besoin d'une communication preventive non militaire.",
+        "sources": source_index(),
+    }
+
+
+def timeline_payload(workspace: Workspace) -> dict[str, Any]:
+    return {
+        "workspace": _workspace_meta(workspace),
+        "agenda": _clone(AGENDA),
+        "messages": _clone(MESSAGES),
+        "summary": "Agenda et messages institutionnels synthetiques, limites aux canaux autorises pour la demonstration.",
+        "sources": source_index(),
+    }
+
+
+def decisions_payload(workspace: Workspace) -> dict[str, Any]:
+    return {
+        "workspace": _workspace_meta(workspace),
+        "decisions": _clone(DECISIONS),
+        "policy": {
+            "advisory_only": True,
+            "human_validation_required": True,
+            "external_delivery": "disabled_in_demo",
+        },
+        "sources": source_index(),
+    }
+
+
+def library_payload(workspace: Workspace) -> dict[str, Any]:
+    return {
+        "workspace": _workspace_meta(workspace),
+        "items": _clone(LIBRARY_ITEMS),
+        "collections": [
+            "sentinel-ci-ministerial-briefs",
+            "sentinel-ci-open-intelligence",
+            "sentinel-ci-projects",
+            "sentinel-ci-territorial-map",
+        ],
+        "sources": source_index(),
+    }
+
+
+def search_payload(workspace: Workspace, query: str) -> dict[str, Any]:
+    normalized = (query or "").strip().lower()
+    candidates: list[dict[str, Any]] = []
+    for item in [*PRIORITIES, *NEWS_SIGNALS, *PROJECTS, *MAP_ZONES, *MESSAGES, *DECISIONS, *LIBRARY_ITEMS]:
+        text = " ".join(str(value) for value in item.values()).lower()
+        if not normalized or normalized in text:
+            candidates.append(
+                {
+                    "id": item.get("id"),
+                    "title": item.get("title") or item.get("name") or item.get("subject"),
+                    "kind": item.get("kind") or item.get("target_type") or item.get("weather") or "signal",
+                    "summary": item.get("summary") or item.get("risk") or item.get("recommendation") or "",
+                    "sources": item.get("sources") or [],
+                }
+            )
+    return {
+        "workspace": _workspace_meta(workspace),
+        "query": query,
+        "results": candidates[:20],
+        "total": len(candidates),
         "sources": source_index(),
     }
 
@@ -727,7 +974,17 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "demo_profile": "government_mission_room",
             "default_route": MISSION_ROOM_ROUTE,
             "hide_provider_details": True,
-            "mission_room": {"enabled": True, "country": "Cote d'Ivoire", "label": "ARIA"},
+            "workspace_app_shell": "immersive",
+            "workspace_app_label": SENTINEL_WORKSPACE_NAME,
+            "workspace_app_default_view": "cockpit",
+            "mission_room": {
+                "enabled": True,
+                "country": "Cote d'Ivoire",
+                "label": "ARIA",
+                "root_route": MISSION_ROOM_ROOT,
+                "default_view": "cockpit",
+                "navigation": NAVIGATION_ITEMS,
+            },
         }
     )
     workspace.settings = settings

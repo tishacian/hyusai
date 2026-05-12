@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
@@ -19,11 +19,17 @@ from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.mission_room import (
     briefing_payload,
+    cockpit_payload,
+    decisions_payload,
     draft_instruction_payload,
+    library_payload,
     map_payload,
+    navigation_payload,
     news_payload,
     overview_payload,
     projects_payload,
+    search_payload,
+    timeline_payload,
 )
 
 router = APIRouter()
@@ -68,6 +74,40 @@ async def overview(
     return payload
 
 
+@router.get("/navigation")
+async def navigation(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = navigation_payload(db, workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.navigation.viewed",
+        details={"views": len(payload.get("items") or []), "surface": "navigation"},
+    )
+    return payload
+
+
+@router.get("/cockpit")
+async def cockpit(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = cockpit_payload(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.cockpit.viewed",
+        details={"surface": "cockpit", "priorities": len(payload.get("priorities") or [])},
+    )
+    return payload
+
+
 @router.get("/briefing")
 async def briefing(
     workspace: Workspace = Depends(get_current_workspace),
@@ -85,6 +125,27 @@ async def briefing(
     return payload
 
 
+@router.get("/timeline")
+async def timeline(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = timeline_payload(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.timeline.viewed",
+        details={
+            "agenda": len(payload.get("agenda") or []),
+            "messages": len(payload.get("messages") or []),
+            "synthetic": True,
+        },
+    )
+    return payload
+
+
 @router.get("/projects")
 async def projects(
     workspace: Workspace = Depends(get_current_workspace),
@@ -98,6 +159,58 @@ async def projects(
         user=user,
         event_type="mission_room.projects.explained",
         details={"projects": len(payload.get("projects") or []), "advisory_only": True},
+    )
+    return payload
+
+
+@router.get("/decisions")
+async def decisions(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = decisions_payload(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.decisions.viewed",
+        details={"decisions": len(payload.get("decisions") or []), "advisory_only": True},
+    )
+    return payload
+
+
+@router.get("/library")
+async def library(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = library_payload(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.library.viewed",
+        details={"items": len(payload.get("items") or []), "metadata_only": True},
+    )
+    return payload
+
+
+@router.get("/search")
+async def search(
+    q: str = Query("", max_length=200),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = search_payload(workspace, q)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.search.performed",
+        details={"query": q, "results": payload.get("total"), "synthetic_scope": True},
     )
     return payload
 

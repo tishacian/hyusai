@@ -55,7 +55,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
   {
     id: 'mission-room',
     label: 'Mission Room',
-    route: '/hypervisor/mission-room',
+    route: '/hypervisor/mission-room/cockpit',
     lens: 'hypervisor',
     object: 'Workbench',
     scope: 'workspace',

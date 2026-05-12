@@ -67,8 +67,8 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "canonical",
         "workspace-user",
         "Government Mission Room",
-        ("/hypervisor/mission-room",),
-        notes="Executive demo cockpit: briefing, open intelligence, projects, map and advisory actions.",
+        ("/hypervisor/mission-room", "/hypervisor/mission-room/:view"),
+        notes="Immersive workspace app: briefing, open intelligence, projects, map and advisory actions.",
     ),
     SurfaceMetadata(
         "/api/v1/auth",

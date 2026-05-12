@@ -30,8 +30,11 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert first["workspace_created"] == 1
     assert second["workspace_created"] == 0
     assert workspace.mode == "demo"
-    assert workspace.settings["default_route"] == "/hypervisor/mission-room"
+    assert workspace.settings["default_route"] == "/hypervisor/mission-room/cockpit"
+    assert workspace.settings["workspace_app_shell"] == "immersive"
+    assert workspace.settings["workspace_app_default_view"] == "cockpit"
     assert workspace.settings["hide_provider_details"] is True
+    assert len(workspace.settings["mission_room"]["navigation"]) >= 10
     assert db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).count() == 1
     assert db_session.query(System).filter_by(workspace_id=workspace.id).count() == 6
     assert db_session.query(FeedSource).filter_by(workspace_id=workspace.id).count() >= 3

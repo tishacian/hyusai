@@ -13,6 +13,7 @@ export interface WorkspaceInfo {
   member_count?: number;
   created_at?: string;
   mode?: WorkspaceMode;
+  settings?: Record<string, unknown>;
 }
 
 export interface WorkspaceDetail {

@@ -241,7 +241,7 @@ export class SideRailComponent {
 
   routeFor(v: CockpitVerb): string {
     if (v.key === 'hypervisor' && this.workspace.isDemoMode()) {
-      return '/hypervisor/mission-room';
+      return '/hypervisor/mission-room/cockpit';
     }
     return v.primaryRoute;
   }
