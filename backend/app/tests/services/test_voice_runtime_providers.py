@@ -16,6 +16,7 @@ from app.services.voice_runtime import (
     list_voice_runtime_providers,
     resolve_voice_runtime_slug,
 )
+from app.services.voice_tandem_oracle import VoiceTandemOracle
 
 
 def test_voice_provider_resolution_priority_and_aliases(monkeypatch):
@@ -58,8 +59,12 @@ def test_voice_provider_catalog_exposes_capabilities(monkeypatch):
 
     assert catalog["default_provider"] == "cascade_openai"
     assert providers["cascade_openai"]["capabilities"]["batch_transcription"] is True
+    assert providers["cascade_openai"]["capabilities"]["oracle_injection"] is True
     assert providers["cascade_openai"]["capabilities"]["speech_to_speech"] is False
     assert providers["openai_realtime"]["capabilities"]["speech_to_speech"] is True
+    assert providers["openai_realtime"]["capabilities"]["micro_turn_streaming"] is True
+    assert "oracle.delta" in catalog["events"]
+    assert "oracle.superseded" in catalog["events"]
     assert "runtime.metric" in catalog["events"]
 
 
@@ -97,6 +102,7 @@ def test_voice_skills_and_capability_seed_are_idempotent(db_session):
     assert runtime_status("voice_realtime_speak_v1") == "bound"
     assert runtime_status("voice_realtime_translate_v1") == "bound"
     assert runtime_status("voice_oracle_turn_v1") == "bound"
+    assert runtime_status("voice_tandem_oracle_v1") == "bound"
 
     skills_by_id = {skill.id: skill.slug for skill in db_session.query(Skill).all()}
     voice_capability = db_session.query(Capability).filter(Capability.slug == "voice2voice_interaction").one()
@@ -104,3 +110,25 @@ def test_voice_skills_and_capability_seed_are_idempotent(db_session):
 
     assert "voice_realtime_session_v1" in [skills_by_id[item] for item in voice_capability.skill_ids]
     assert "voice_oracle_turn_v1" in [skills_by_id[item] for item in expert_capability.skill_ids]
+    assert "voice_tandem_oracle_v1" in [skills_by_id[item] for item in voice_capability.skill_ids]
+    assert "voice_tandem_oracle_v1" in [skills_by_id[item] for item in expert_capability.skill_ids]
+
+
+def test_tandem_oracle_latest_signal_wins():
+    oracle = VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
+
+    first = oracle.observe_partial("The bearing overheats", turn_id="turn-1", force=True)
+    second = oracle.observe_partial("The bearing overheats after startup", turn_id="turn-1", force=True)
+    committed = oracle.commit_final(
+        "The bearing overheats after startup",
+        turn_id="turn-1",
+        evaluation={"verdict": "needs_followup", "confidence": 0.82},
+        next_prompt="Which startup condition changes the load?",
+    )
+
+    assert [event["type"] for event in first] == ["oracle.delta", "runtime.metric"]
+    assert [event["type"] for event in second][:2] == ["oracle.superseded", "oracle.delta"]
+    assert [event["type"] for event in committed][:3] == ["oracle.superseded", "oracle.action", "runtime.metric"]
+    assert committed[-1]["type"] == "oracle.commit"
+    assert committed[-1]["payload"]["action"] == "next_prompt"
+    assert committed[-1]["payload"]["partial_seq"] == 3

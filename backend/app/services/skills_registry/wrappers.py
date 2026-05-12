@@ -362,6 +362,52 @@ async def _voice_oracle_turn_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
     }
 
 
+async def _voice_tandem_oracle_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.voice_tandem_oracle import VoiceTandemOracle
+
+    ctx = ctx or {}
+    oracle = VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
+    turn_id = str(payload.get("turn_id") or ctx.get("turn_id") or "flow-turn")
+    duration_ms = int(payload.get("duration_ms") or 0)
+    events: list[Dict[str, Any]] = []
+    partial_text = payload.get("partial_text") or payload.get("text")
+    if partial_text:
+        events.extend(
+            oracle.observe_partial(
+                str(partial_text),
+                turn_id=turn_id,
+                input_state={
+                    "transcript_state": "partial",
+                    "provider": payload.get("provider"),
+                    "transport": payload.get("transport") or "backend_ws",
+                },
+                output_state={"oracle_state": "thinking"},
+                duration_ms=duration_ms,
+                force=True,
+            )
+        )
+    final_text = payload.get("final_text") or (payload.get("text") if payload.get("is_final") else None)
+    if final_text:
+        events.extend(
+            oracle.commit_final(
+                str(final_text),
+                turn_id=turn_id,
+                evaluation=payload.get("evaluation") if isinstance(payload.get("evaluation"), dict) else None,
+                next_prompt=payload.get("next_prompt"),
+                sources=payload.get("sources") if isinstance(payload.get("sources"), list) else None,
+                duration_ms=duration_ms,
+            )
+        )
+    return {
+        "mode": "tandem_oracle",
+        "committed": any(event.get("type") == "oracle.commit" for event in events),
+        "events": events,
+        "provider": payload.get("provider"),
+        "transport": payload.get("transport") or "backend_ws",
+        "fallback_policy": payload.get("fallback_policy"),
+    }
+
+
 def _audio_bytes_from_payload(payload: Dict[str, Any]) -> bytes:
     if payload.get("audio_bytes"):
         raw = payload["audio_bytes"]
@@ -591,6 +637,7 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "voice_realtime_speak_v1":  (_voice_realtime_speak_v1, "app.services.voice_runtime",            "bound"),
     "voice_realtime_translate_v1": (_voice_realtime_translate_v1, "app.services.voice_runtime",     "bound"),
     "voice_oracle_turn_v1":     (_voice_oracle_turn_v1,   "app.services.knowledge_capture",         "bound"),
+    "voice_tandem_oracle_v1":   (_voice_tandem_oracle_v1, "app.services.voice_tandem_oracle",       "bound"),
     "knowledge_gap_analysis_v1": (_knowledge_gap_analysis_v1, "app.services.knowledge_capture",     "bound"),
     "expert_interview_plan_v1": (_expert_interview_plan_v1, "app.services.knowledge_capture",      "bound"),
     "expert_answer_evaluator_v1": (_expert_answer_evaluator_v1, "app.services.knowledge_capture",  "bound"),

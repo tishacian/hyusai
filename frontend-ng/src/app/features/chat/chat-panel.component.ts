@@ -351,6 +351,13 @@ const STEP_ICONS: Record<string, string> = {
             Session
           </button>
         </div>
+        <span
+          class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-cyan-500/10 text-cyan-100 ring-1 ring-cyan-300/20"
+          [title]="voiceTandemOracleHint()"
+        >
+          <app-icon name="activity" [size]="12" />
+          Tandem oracle
+        </span>
         <label class="inline-flex items-center gap-1.5 text-gray-400">
           <input
             type="checkbox"
@@ -1084,8 +1091,15 @@ export class ChatPanelComponent {
           : 'no STT';
     const output = caps['tts'] || caps['speech_to_speech'] ? 'native output' : this.hasCascadeFallback() ? 'output fallback cascade' : 'no TTS';
     const transport = this.voiceTransport() === 'backend_ws' ? 'Agentium session events' : 'HTTP batch';
-    return `${input} · ${output} · ${transport}`;
+    const oracle = caps['oracle_injection'] || caps['background_tool_calls'] ? 'tandem oracle' : 'oracle via fallback';
+    return `${input} · ${output} · ${transport} · ${oracle}`;
   });
+
+  readonly voiceTandemOracleHint = computed(() =>
+    this.isDemoMode()
+      ? 'Realtime voice loop plus background Knowledge oracle. Provider details are hidden.'
+      : 'Realtime loop + background oracle with latest-wins events: oracle.delta, oracle.superseded, oracle.action and oracle.commit.',
+  );
 
   recording = signal(false);
   /**
@@ -1998,6 +2012,8 @@ export class ChatPanelComponent {
         mode: 'manual',
         codec: { input: 'webm', channels: 1 },
         fallback_policy: 'cascade_openai',
+        tandem_oracle: true,
+        oracle: { min_interval_ms: 350, min_delta_chars: 24 },
       });
       return connection;
     } catch {
@@ -2041,7 +2057,28 @@ export class ChatPanelComponent {
     }
     if (event.type === 'runtime.metric') {
       const provider = payload['provider'];
-      if (provider) this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', String(provider)));
+      if (payload['metric'] === 'micro_turn') {
+        this.voiceNotice.set('Tandem oracle tracking micro-turns');
+      } else if (provider) {
+        this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', String(provider)));
+      }
+      return;
+    }
+    if (event.type === 'oracle.delta') {
+      this.voiceNotice.set('Tandem oracle updating');
+      return;
+    }
+    if (event.type === 'oracle.superseded') {
+      this.voiceNotice.set('Tandem oracle refreshed');
+      return;
+    }
+    if (event.type === 'oracle.action') {
+      const action = String(payload['action'] || 'action').replace(/_/g, ' ');
+      this.voiceNotice.set(`Oracle action · ${action}`);
+      return;
+    }
+    if (event.type === 'oracle.commit') {
+      this.voiceNotice.set('Oracle committed latest turn');
       return;
     }
     if (event.type === 'session.error') {

@@ -77,6 +77,7 @@ type Voice2VoiceState =
   | 'listening'
   | 'partial_transcribing'
   | 'retrieving'
+  | 'oracle_updating'
   | 'thinking'
   | 'speaking'
   | 'interrupted';
@@ -176,7 +177,7 @@ interface ProposalFact {
         </div>
         <div class="flex flex-col items-end gap-2">
           <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
-            Voice2Voice · multi-provider
+            Voice2Voice · Tandem oracle
           </span>
           <span class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-brand-500/10 ring-1 ring-brand-300/20 text-brand-100">
             <app-icon name="shield-check" [size]="12" />
@@ -658,7 +659,7 @@ interface ProposalFact {
                         @if (voiceNotice(); as notice) {
                           <div [class]="voiceNoticeClass()">{{ notice }}</div>
                         } @else {
-                          <div class="text-[10px] text-gray-500 truncate">{{ runtimeLabel(s.voice_runtime) }} · retrieval prefetch</div>
+                          <div class="text-[10px] text-gray-500 truncate">{{ voiceRuntimeArchitecture(s.voice_runtime) }}</div>
                         }
                       </div>
                     </div>
@@ -930,7 +931,7 @@ interface ProposalFact {
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <span class="block text-[9px] uppercase tracking-wider text-gray-500">Runtime</span>
-                  <span class="text-gray-200">{{ runtimeLabel(s.voice_runtime) }}</span>
+                  <span class="text-gray-200">{{ voiceRuntimeArchitecture(s.voice_runtime) }}</span>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <span class="block text-[9px] uppercase tracking-wider text-gray-500">Status</span>
@@ -1845,6 +1846,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       listening: 'Listening',
       partial_transcribing: 'Live transcription',
       retrieving: 'Retrieving context',
+      oracle_updating: 'Oracle updating',
       thinking: 'Evaluating',
       speaking: 'AI speaking',
       interrupted: 'Interrupted',
@@ -1910,6 +1912,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.speaking()) return 'AI asking';
     if (this.recording()) return 'Expert answering';
     if (this.transcribing()) return 'Processing turn';
+    if (this.voiceState() === 'oracle_updating') return 'Oracle updating';
     if (this.voiceState() === 'thinking') return 'Evaluating answer';
     if (this.proposal()) return 'Proposal ready';
     const step = this.lastConversationStep();
@@ -1946,7 +1949,11 @@ export class KnowledgeCaptureComponent implements OnInit {
         label: 'Answer',
         detail: this.recording() ? 'recording expert' : this.transcribing() ? 'finalizing transcript' : this.voiceStateLabel(),
         icon: 'mic',
-        state: !started ? 'pending' : (this.recording() || this.transcribing() || this.voiceState() === 'thinking') ? 'active' : hasAnswer ? 'done' : 'pending',
+        state: !started
+          ? 'pending'
+          : (this.recording() || this.transcribing() || this.voiceState() === 'thinking' || this.voiceState() === 'oracle_updating')
+            ? 'active'
+            : hasAnswer ? 'done' : 'pending',
       },
       {
         id: 'proposal',
@@ -2340,6 +2347,8 @@ export class KnowledgeCaptureComponent implements OnInit {
         system_id: session.system_id || this.systemId || null,
         mode: 'conversation_only',
         codec: { input: 'webm', channels: 1 },
+        tandem_oracle: true,
+        oracle: { min_interval_ms: 300, min_delta_chars: 20 },
       });
       return this.voiceConnection;
     } catch {
@@ -2363,6 +2372,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (value === 'local_tts') return 'local_tts · open-source TTS';
     if (value === 'local_realtime') return 'local_realtime · local V2V';
     return value;
+  }
+
+  voiceRuntimeArchitecture(runtime?: string | null): string {
+    const label = this.runtimeLabel(runtime);
+    return this.isDemoMode() ? `${label} · Tandem oracle` : `${label} · tandem oracle latest-wins`;
   }
 
   private handleVoiceSessionEvent(event: VoiceSessionEvent): void {
@@ -2410,6 +2424,27 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.setVoiceNotice('Next prompt prepared by the streaming capture oracle.', 'info');
       return;
     }
+    if (event.type === 'oracle.delta') {
+      this.voiceState.set('oracle_updating');
+      this.setVoiceNotice('Tandem oracle is updating from the latest partial transcript.', 'info');
+      return;
+    }
+    if (event.type === 'oracle.superseded') {
+      this.voiceState.set('oracle_updating');
+      this.setVoiceNotice('Older oracle signal superseded by the latest transcript.', 'info');
+      return;
+    }
+    if (event.type === 'oracle.action') {
+      const action = String(payload['action'] || 'action').replace(/_/g, ' ');
+      this.voiceState.set('thinking');
+      this.setVoiceNotice(`Tandem oracle action ready: ${action}.`, 'info');
+      return;
+    }
+    if (event.type === 'oracle.commit') {
+      this.voiceState.set('thinking');
+      this.setVoiceNotice('Tandem oracle committed the latest governed turn.', 'info');
+      return;
+    }
     if (event.type === 'audio.out') {
       this.playServerAudio(payload);
       return;
@@ -2417,6 +2452,9 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (event.type === 'runtime.metric') {
       const metric = payload['metric'];
       const value = payload['value_ms'];
+      if (metric === 'micro_turn') {
+        this.voiceState.set('oracle_updating');
+      }
       if (typeof metric === 'string' && typeof value === 'number') {
         this.retrieval.update((current) => ({ ...current, latency_ms: value }));
       }
@@ -2596,7 +2634,12 @@ export class KnowledgeCaptureComponent implements OnInit {
   voiceWaveHeight(base: number): number {
     if (this.recording()) return base;
     if (this.speaking()) return Math.max(8, Math.round(base * 0.75));
-    if (this.transcribing() || this.voiceState() === 'thinking' || this.voiceState() === 'retrieving') {
+    if (
+      this.transcribing() ||
+      this.voiceState() === 'thinking' ||
+      this.voiceState() === 'retrieving' ||
+      this.voiceState() === 'oracle_updating'
+    ) {
       return Math.max(6, Math.round(base * 0.45));
     }
     return 6;
@@ -2607,6 +2650,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.transcribing()) return 'Finalizing transcript';
     if (this.speaking()) return 'AI is speaking';
     if (this.voiceState() === 'retrieving') return 'Retrieving context';
+    if (this.voiceState() === 'oracle_updating') return 'Oracle updating';
     if (this.voiceState() === 'thinking') return 'Evaluating answer';
     if (this.conversationMode() === 'conversation_only' && this.conversationSessionActive()) {
       return 'Conversation armed';

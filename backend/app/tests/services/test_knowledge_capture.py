@@ -29,6 +29,7 @@ def test_seeded_expert_capture_capability_and_bound_skills(db_session):
     assert runtime_status("voice_tts_v1") == "bound"
     assert runtime_status("voice_realtime_session_v1") == "bound"
     assert runtime_status("voice_oracle_turn_v1") == "bound"
+    assert runtime_status("voice_tandem_oracle_v1") == "bound"
     assert runtime_status("knowledge_gap_analysis_v1") == "bound"
     assert runtime_status("expert_interview_plan_v1") == "bound"
 
@@ -44,13 +45,14 @@ def test_expert_capture_system_seed_populates_flow_and_session_binding(db_sessio
     assert system.name == "Expert Knowledge Capture"
     assert system.execution_mode == "human_augmented"
     assert system.retrieval_mode_default == "chah"
-    assert len(system.skill_ids) == 12
+    assert len(system.skill_ids) == 13
     assert system.flow_definition["variant"] == "expert_knowledge_capture"
     assert system.flow_definition["ui"]["type"] == "knowledge_capture"
     assert system.flow_definition["ui"]["entry_route"] == "capture"
     assert [issue for issue in validate_flow(system.flow_definition) if issue.level == "error"] == []
     node_ids = {node["id"] for node in system.flow_definition["nodes"]}
     assert "skill.semantic_search_prefetch" in node_ids
+    assert "skill.voice_tandem_oracle" in node_ids
     assert "hitl.proposal_review" in node_ids
 
     session = create_capture_plan(

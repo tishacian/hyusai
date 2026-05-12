@@ -16,7 +16,10 @@ export type VoiceSessionEventType =
   | 'evaluation.delta'
   | 'prompt.next'
   | 'barge_in'
+  | 'oracle.delta'
   | 'oracle.action'
+  | 'oracle.commit'
+  | 'oracle.superseded'
   | 'runtime.metric'
   | 'session.error'
   | 'session.close';
@@ -38,6 +41,11 @@ export interface VoiceSessionStartOptions {
   language?: string | null;
   output_language?: string | null;
   fallback_policy?: string | null;
+  tandem_oracle?: boolean;
+  oracle?: {
+    min_interval_ms?: number;
+    min_delta_chars?: number;
+  };
   capability?: string;
   context_id?: string | null;
   system_id?: string | null;
@@ -104,6 +112,8 @@ export class VoiceSessionConnection {
       language: options.language || null,
       output_language: options.output_language || null,
       fallback_policy: options.fallback_policy || 'cascade_openai',
+      tandem_oracle: options.tandem_oracle ?? true,
+      oracle: options.oracle || { min_interval_ms: 350, min_delta_chars: 24 },
       capability: options.capability || 'voice2voice_interaction',
       context_id: options.context_id || null,
       system_id: options.system_id || null,

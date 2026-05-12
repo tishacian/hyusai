@@ -75,6 +75,10 @@ Elle porte des events types :
 | `evaluation.delta` | server -> client | Score/verdict en cours si disponible. |
 | `prompt.next` | server -> client | Relance ou question suivante. |
 | `barge_in` | client/server -> server/client | Interruption detectee ou acceptee. |
+| `oracle.delta` | server -> client | Signal oracle provisoire issu d'un micro-tour vocal. |
+| `oracle.superseded` | server -> client | Marque un signal oracle remplace par un plus recent. |
+| `oracle.action` | server -> client | Action oracle applicable au tour courant. |
+| `oracle.commit` | server -> client | Commit gouvernable du dernier signal oracle valide. |
 | `runtime.metric` | server -> client | Latence, TTFB audio/text, VAD, provider. |
 | `session.error` | server -> client | Erreur recuperable ou fatale. |
 | `session.close` | bidirectionnel | Fin controlee. |
@@ -243,6 +247,10 @@ type VoiceSessionEvent = {
     | 'evaluation.delta'
     | 'prompt.next'
     | 'barge_in'
+    | 'oracle.delta'
+    | 'oracle.superseded'
+    | 'oracle.action'
+    | 'oracle.commit'
     | 'runtime.metric'
     | 'session.error'
     | 'session.close';
@@ -472,6 +480,8 @@ La canonisation V2V ajoute une contrainte produit durable : **OpenAI Realtime es
 
 Chaque provider declare explicitement ses capabilities : `batch_transcription`, `streaming_transcription`, `tts`, `speech_to_speech`, `translation`, `barge_in`, `tool_calls`. Une action non supportee doit produire `provider_capability_unsupported`, jamais un echec opaque.
 
+Le contrat a ete etendu pour les patterns type KAME / Thinking Machines : `micro_turn_streaming`, `oracle_injection`, `simultaneous_output`, `background_tool_calls`, `time_awareness`. `cascade_openai` supporte l'oracle en mode degrade, tandis que `openai_realtime`, `local_realtime` et `realtime_gpu` peuvent exposer ces signaux de facon plus naturelle quand leur runtime le permet.
+
 ### Resolution et fallback
 
 La resolution est standardisee dans cet ordre :
@@ -492,14 +502,47 @@ Les briques voice sont maintenant des skills reutilisables :
 - `voice_realtime_speak_v1`
 - `voice_realtime_translate_v1`
 - `voice_oracle_turn_v1`
+- `voice_tandem_oracle_v1`
 - `voice_transcribe_v1` et `voice_tts_v1` restent les fallbacks cascade.
 
 La capability universelle `voice2voice_interaction` regroupe ces skills. `expert_knowledge_capture` consomme ces primitives au lieu de garder une voice loop implicite, et le Flow Builder expose les nodes Voice correspondants.
 
 ### Gouvernance
 
-Les events Agentium sont provider-neutral : `text.partial`, `text.final`, `audio.out`, `translation.partial`, `translation.final`, `barge_in`, `oracle.action`, `runtime.metric`. Les metriques doivent inclure provider, modele, transport, latence, fallback et confiance transcript. Aucun stockage audio brut par defaut ; une policy workspace explicite sera requise si ce besoin apparait.
+Les events Agentium sont provider-neutral : `text.partial`, `text.final`, `audio.out`, `translation.partial`, `translation.final`, `barge_in`, `oracle.delta`, `oracle.superseded`, `oracle.action`, `oracle.commit`, `runtime.metric`. Les metriques doivent inclure provider, modele, transport, latence, fallback et confiance transcript. Aucun stockage audio brut par defaut ; une policy workspace explicite sera requise si ce besoin apparait.
 
 ### Chat canonique
 
 Le Chat consomme la meme couche via `/api/v1/voice/runtimes`, `/api/v1/voice/transcribe`, `/api/v1/voice/synthesize` et, en mode `Session`, `/api/v1/voice/sessions/{session_id}`. L'UI expose le provider, le transport `Batch` ou `Session`, l'auto-send du transcript final et les fallbacks effectifs, afin que le chat reste une surface generale tout en reutilisant les primitives `voice2voice_interaction`.
+
+---
+
+## 12. Tandem Oracle Loop — alignement KAME / Interaction Models
+
+Le pattern retenu pour Agentium est un **Tandem Oracle Loop** :
+
+- la boucle voix rapide continue de publier `text.partial`, `text.final`, `audio.out` et `runtime.metric` sans attendre les outils longs ;
+- l'oracle de fond consomme les micro-tours et le contexte Agentium, puis emet `oracle.delta`, `oracle.superseded`, `oracle.action` et `oracle.commit` ;
+- chaque signal porte `turn_id`, `partial_seq`, `confidence`, `sources`, `supersedes` et un `micro_turn` temporel ;
+- la regle produit est **latest oracle wins** : un signal ancien est marque `oracle.superseded` avant qu'une action plus recente ne soit appliquee ;
+- la Knowledge Capture continue de fonder les propositions gouvernables sur le transcript final, pas sur une hypothese partielle.
+
+Ce pattern reprend les principes utiles de KAME et des interaction models sans importer leur runtime :
+
+- pas de dependance directe a Moshi, Google STT ou OpenAI ;
+- pas de session unique hardcodee ;
+- pas de stockage audio brut par defaut ;
+- compatibilite avec `cascade_openai`, `openai_realtime`, `local_realtime` et `realtime_gpu`.
+
+Implementation actuelle :
+
+| Couche | Composant |
+| --- | --- |
+| Orchestration | `backend/app/services/voice_tandem_oracle.py` |
+| Gateway WS | `backend/app/services/voice_session_gateway.py` |
+| Provider contract | `backend/app/services/voice_runtime.py` |
+| Skill reusable | `voice_tandem_oracle_v1` |
+| Flow Builder | node `voice_tandem_oracle_v1` |
+| UI | Chat + Knowledge Capture affichent le mode Tandem oracle |
+
+Le mode workspace `demo` masque toujours les details provider/modele. Il montre l'architecture fonctionnelle ("Tandem oracle") sans reveler la lane concrete.

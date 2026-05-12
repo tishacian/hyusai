@@ -1238,6 +1238,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     { type: 'llm', icon: 'brain', label: 'LLM', description: 'Call a language model', tone: 'cyan', kind: 'task', typeLabel: 'LLM' },
     { type: 'voice_realtime_session_v1', icon: 'mic', label: 'Voice session', description: 'Resolve provider, model, transport and fallback policy', tone: 'cyan', kind: 'task', typeLabel: 'VOICE' },
     { type: 'voice_realtime_transcribe_v1', icon: 'message-circle', label: 'Live transcribe', description: 'Emit text.partial and text.final from speech', tone: 'cyan', kind: 'task', typeLabel: 'VOICE' },
+    { type: 'voice_tandem_oracle_v1', icon: 'activity', label: 'Tandem oracle', description: 'Realtime loop + background oracle with latest-wins events', tone: 'violet', kind: 'task', typeLabel: 'ORACLE' },
     { type: 'voice_oracle_turn_v1', icon: 'brain', label: 'Voice oracle', description: 'Decide next voice action from context and evaluation', tone: 'violet', kind: 'task', typeLabel: 'ORACLE' },
     { type: 'voice_realtime_speak_v1', icon: 'volume-2', label: 'Speak', description: 'Emit audio.out through the selected provider', tone: 'cyan', kind: 'task', typeLabel: 'VOICE' },
     { type: 'voice_realtime_translate_v1', icon: 'globe-2', label: 'Translate', description: 'Live translation for multilingual voice sessions', tone: 'emerald', kind: 'task', typeLabel: 'VOICE' },
@@ -1272,18 +1273,20 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     {
       id: 'voice-v2v',
       label: 'Voice2Voice · Provider-neutral',
-      description: 'Voice session → transcribe → oracle → speak',
+      description: 'Voice session → transcribe → tandem oracle → speak',
       build: (add, connect) => {
         const a = add('input', 60, 220);
         const s = add('voice_realtime_session_v1', 290, 220);
         const t = add('voice_realtime_transcribe_v1', 540, 220);
-        const o = add('voice_oracle_turn_v1', 790, 220);
-        const sp = add('voice_realtime_speak_v1', 1040, 220);
-        const out = add('output', 1290, 220);
+        const o = add('voice_tandem_oracle_v1', 790, 220);
+        const c = add('voice_oracle_turn_v1', 1040, 220);
+        const sp = add('voice_realtime_speak_v1', 1290, 220);
+        const out = add('output', 1540, 220);
         connect(a, s);
         connect(s, t);
         connect(t, o);
-        connect(o, sp);
+        connect(o, c);
+        connect(c, sp);
         connect(sp, out);
       },
     },

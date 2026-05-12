@@ -34,6 +34,11 @@ VOICE_CAPABILITIES = (
     "translation",
     "barge_in",
     "tool_calls",
+    "micro_turn_streaming",
+    "oracle_injection",
+    "simultaneous_output",
+    "background_tool_calls",
+    "time_awareness",
 )
 VOICE_EVENTS = (
     "text.partial",
@@ -42,7 +47,10 @@ VOICE_EVENTS = (
     "translation.partial",
     "translation.final",
     "barge_in",
+    "oracle.delta",
     "oracle.action",
+    "oracle.commit",
+    "oracle.superseded",
     "runtime.metric",
 )
 
@@ -225,6 +233,11 @@ class CascadeVoiceRuntime:
         "translation": False,
         "barge_in": True,
         "tool_calls": False,
+        "micro_turn_streaming": False,
+        "oracle_injection": True,
+        "simultaneous_output": False,
+        "background_tool_calls": True,
+        "time_awareness": True,
     }
 
     async def transcribe(
@@ -353,6 +366,11 @@ class OpenAIRealtimeVoiceRuntime:
         "translation": True,
         "barge_in": True,
         "tool_calls": True,
+        "micro_turn_streaming": True,
+        "oracle_injection": True,
+        "simultaneous_output": True,
+        "background_tool_calls": True,
+        "time_awareness": True,
     }
 
     async def transcribe(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -468,6 +486,11 @@ class RealtimeVoiceRuntime:
         "translation": False,
         "barge_in": True,
         "tool_calls": True,
+        "micro_turn_streaming": True,
+        "oracle_injection": True,
+        "simultaneous_output": True,
+        "background_tool_calls": True,
+        "time_awareness": True,
     }
 
     async def transcribe(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -517,6 +540,11 @@ def get_voice_runtime_provider(
                 "translation": False,
                 "barge_in": False,
                 "tool_calls": False,
+                "micro_turn_streaming": True,
+                "oracle_injection": False,
+                "simultaneous_output": False,
+                "background_tool_calls": False,
+                "time_awareness": True,
             },
         )
     if resolved == "local_tts":
@@ -531,6 +559,11 @@ def get_voice_runtime_provider(
                 "translation": False,
                 "barge_in": False,
                 "tool_calls": False,
+                "micro_turn_streaming": False,
+                "oracle_injection": False,
+                "simultaneous_output": False,
+                "background_tool_calls": False,
+                "time_awareness": True,
             },
         )
     if resolved == "local_realtime":
@@ -545,6 +578,11 @@ def get_voice_runtime_provider(
                 "translation": True,
                 "barge_in": True,
                 "tool_calls": True,
+                "micro_turn_streaming": True,
+                "oracle_injection": True,
+                "simultaneous_output": True,
+                "background_tool_calls": True,
+                "time_awareness": True,
             },
         )
     if resolved == "realtime_gpu":

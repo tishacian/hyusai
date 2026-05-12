@@ -6,6 +6,7 @@ monologue text track, minimal latency metrics and HTTP fallback compatibility.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 import uuid
@@ -20,12 +21,14 @@ from app.core.iam.dependencies import enforce_permission
 from app.models.expert_capture import ExpertCaptureSession
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.audit_logger import emit_audit_event
 from app.services.knowledge_capture import append_turn, get_session
 from app.services.voice_runtime import (
     VoiceProviderError,
     get_voice_runtime_provider,
     resolve_voice_runtime_slug,
 )
+from app.services.voice_tandem_oracle import VoiceTandemOracle
 
 
 @dataclass
@@ -48,6 +51,9 @@ class VoiceSessionState:
     content_type: str = "audio/webm"
     turn_started_at: Optional[float] = None
     endpoint_at: Optional[float] = None
+    tandem_oracle_enabled: bool = True
+    oracle: VoiceTandemOracle = field(default_factory=VoiceTandemOracle)
+    send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class VoiceSessionGateway:
@@ -113,7 +119,12 @@ class VoiceSessionGateway:
             websocket,
             state,
             "session.ready",
-            {"runtime": state.runtime, "provider": state.runtime, "transport": state.transport},
+            {
+                "runtime": state.runtime,
+                "provider": state.runtime,
+                "transport": state.transport,
+                "tandem_oracle": state.tandem_oracle_enabled,
+            },
         )
         try:
             while True:
@@ -151,6 +162,12 @@ class VoiceSessionGateway:
             state.model = str(payload.get("model")) if payload.get("model") else None
             state.fallback_policy = str(payload.get("fallback_policy") or state.fallback_policy)
             state.codec = payload.get("codec") if isinstance(payload.get("codec"), dict) else {}
+            state.tandem_oracle_enabled = bool(payload.get("tandem_oracle", True))
+            oracle_config = payload.get("oracle") if isinstance(payload.get("oracle"), dict) else {}
+            state.oracle = VoiceTandemOracle(
+                min_interval_ms=int(oracle_config.get("min_interval_ms") or 350),
+                min_delta_chars=int(oracle_config.get("min_delta_chars") or 24),
+            )
             await self._send(
                 websocket,
                 state,
@@ -163,6 +180,7 @@ class VoiceSessionGateway:
                     "transport": state.transport,
                     "capability": state.capability,
                     "fallback_policy": state.fallback_policy,
+                    "tandem_oracle": state.tandem_oracle_enabled,
                 },
             )
             return
@@ -175,7 +193,21 @@ class VoiceSessionGateway:
         if event_type == "barge_in":
             await self._send(websocket, state, "barge_in", {"status": "accepted", **payload})
             return
-        if event_type in {"text.partial", "text.final", "translation.partial", "translation.final", "oracle.action", "runtime.metric"}:
+        if event_type == "text.partial":
+            await self._handle_text_partial(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
+            return
+        if event_type == "text.final":
+            await self._handle_text_final(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
+            return
+        if event_type in {
+            "translation.partial",
+            "translation.final",
+            "oracle.delta",
+            "oracle.action",
+            "oracle.commit",
+            "oracle.superseded",
+            "runtime.metric",
+        }:
             await self._send(websocket, state, event_type, payload)
             return
         if event_type == "session.close":
@@ -210,6 +242,58 @@ class VoiceSessionGateway:
             state.content_type = str(payload.get("content_type") or payload.get("encoding") or "audio/webm")
             await self._send(websocket, state, "runtime.metric", {"metric": "audio_started", "value_ms": 0})
         state.audio_chunks.append(chunk)
+
+    async def _handle_text_partial(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        payload: Dict[str, Any],
+    ) -> None:
+        turn_id = str(payload.get("turn_id") or state.client_turn_id or uuid.uuid4())
+        state.client_turn_id = turn_id
+        text = str(payload.get("text") or "")
+        await self._send(websocket, state, "text.partial", {**payload, "turn_id": turn_id})
+        if not state.tandem_oracle_enabled:
+            return
+        events = state.oracle.observe_partial(
+            text,
+            turn_id=turn_id,
+            input_state={
+                "transcript_state": "partial",
+                "provider": payload.get("provider") or state.runtime,
+                "transport": state.transport,
+            },
+            output_state={"oracle_state": "thinking"},
+            duration_ms=int(payload.get("duration_ms") or payload.get("latency_ms") or 0),
+        )
+        await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
+
+    async def _handle_text_final(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        payload: Dict[str, Any],
+    ) -> None:
+        turn_id = str(payload.get("turn_id") or state.client_turn_id or uuid.uuid4())
+        state.client_turn_id = turn_id
+        text = str(payload.get("text") or "")
+        await self._send(websocket, state, "text.final", {**payload, "turn_id": turn_id})
+        if not state.tandem_oracle_enabled:
+            return
+        events = state.oracle.commit_final(
+            text,
+            turn_id=turn_id,
+            duration_ms=int(payload.get("duration_ms") or payload.get("latency_ms") or 0),
+        )
+        await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
 
     async def _handle_audio_endpoint(
         self,
@@ -264,12 +348,34 @@ class VoiceSessionGateway:
         }
         if text:
             state.text_partials.append(text)
+            oracle_events: list[Dict[str, Any]] = []
+            partial_seq = None
+            if state.tandem_oracle_enabled:
+                oracle_events = state.oracle.observe_partial(
+                    text,
+                    turn_id=state.client_turn_id or str(uuid.uuid4()),
+                    input_state={
+                        "transcript_state": "partial",
+                        "provider": transcript.get("provider") or state.runtime,
+                        "transport": state.transport,
+                    },
+                    output_state={"oracle_state": "thinking"},
+                    duration_ms=first_text_ms,
+                    force=True,
+                )
+                partial_seq = self._oracle_partial_seq(oracle_events)
             await self._send(
                 websocket,
                 state,
                 "text.partial",
-                {"turn_id": state.client_turn_id, "text": text, "latency_ms": first_text_ms},
+                {
+                    "turn_id": state.client_turn_id,
+                    "partial_seq": partial_seq,
+                    "text": text,
+                    "latency_ms": first_text_ms,
+                },
             )
+            await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=oracle_events)
             await self._send(
                 websocket,
                 state,
@@ -333,6 +439,22 @@ class VoiceSessionGateway:
                     "session": result.get("session"),
                 },
             )
+            if state.tandem_oracle_enabled:
+                oracle_events = state.oracle.commit_final(
+                    text,
+                    turn_id=state.client_turn_id or str(uuid.uuid4()),
+                    evaluation=result.get("evaluation") if isinstance(result.get("evaluation"), dict) else None,
+                    next_prompt=result.get("next_prompt") if result.get("next_prompt") else None,
+                    duration_ms=turn_to_prompt_ms,
+                )
+                await self._emit_oracle_events(
+                    websocket,
+                    db,
+                    user=user,
+                    workspace=workspace,
+                    state=state,
+                    events=oracle_events,
+                )
             next_prompt = result.get("next_prompt")
             if next_prompt:
                 await self._send(
@@ -349,6 +471,13 @@ class VoiceSessionGateway:
                     },
                 )
                 await self._send_prompt_audio(websocket, state, provider, str(next_prompt), started)
+        elif state.tandem_oracle_enabled and text:
+            oracle_events = state.oracle.commit_final(
+                text,
+                turn_id=state.client_turn_id or str(uuid.uuid4()),
+                duration_ms=first_text_ms,
+            )
+            await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=oracle_events)
 
         state.turn_started_at = None
         state.endpoint_at = None
@@ -404,6 +533,55 @@ class VoiceSessionGateway:
                 "latency_ms": first_audio_ms,
             },
         )
+
+    async def _emit_oracle_events(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        events: list[Dict[str, Any]],
+    ) -> None:
+        for event in events:
+            event_type = str(event.get("type") or "")
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            enriched = {
+                **payload,
+                "provider": payload.get("provider") or state.runtime,
+                "transport": payload.get("transport") or state.transport,
+                "capability": payload.get("capability") or state.capability,
+            }
+            await self._send(websocket, state, event_type, enriched)
+            if event_type == "oracle.action":
+                emit_audit_event(
+                    workspace_id=workspace.id,
+                    event_type="voice.oracle.action",
+                    actor=user.email or user.username or user.id,
+                    details={
+                        "session_id": state.session_id,
+                        "turn_id": enriched.get("turn_id"),
+                        "partial_seq": enriched.get("partial_seq"),
+                        "oracle_id": enriched.get("oracle_id"),
+                        "action": enriched.get("action"),
+                        "reason": enriched.get("reason"),
+                        "policy": "latest_oracle_wins",
+                        "provider": state.runtime,
+                        "transport": state.transport,
+                    },
+                )
+
+    @staticmethod
+    def _oracle_partial_seq(events: list[Dict[str, Any]]) -> Optional[int]:
+        for event in events:
+            if event.get("type") == "oracle.delta":
+                payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+                try:
+                    return int(payload.get("partial_seq"))
+                except (TypeError, ValueError):
+                    return None
+        return None
 
     def _merge_capture_metrics(
         self,
@@ -510,14 +688,15 @@ class VoiceSessionGateway:
         event_type: str,
         payload: Dict[str, Any],
     ) -> None:
-        state.sequence += 1
-        await websocket.send_json(
-            {
-                "id": str(uuid.uuid4()),
-                "session_id": state.session_id,
-                "type": event_type,
-                "ts_ms": int(time.time() * 1000),
-                "sequence": state.sequence,
-                "payload": payload,
-            }
-        )
+        async with state.send_lock:
+            state.sequence += 1
+            await websocket.send_json(
+                {
+                    "id": str(uuid.uuid4()),
+                    "session_id": state.session_id,
+                    "type": event_type,
+                    "ts_ms": int(time.time() * 1000),
+                    "sequence": state.sequence,
+                    "payload": payload,
+                }
+            )
