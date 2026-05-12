@@ -100,6 +100,7 @@ Impact        aggregated cost / value / ROI per capability & system
 |-------|---------|
 | `/catalog/endpoints`, `/catalog/surfaces` | Machine-readable Agentium surface catalog (UI route ↔ API ↔ mental object ↔ stability status) |
 | `/blueprints/workspace/*` | Workspace Blueprint export/import: structure and configuration without members, secrets, files or vectors |
+| `/mission-room/*` | Government Mission Room demo cockpit: briefing, open intelligence, projects, map and advisory draft actions |
 | `/systems`, `/systems/:id`, `/systems/:id/runs` | CRUD + execution |
 | `/capabilities`, `/capabilities/:id` | Business-level catalog |
 | `/skills`, `/skills/runtime-health`, `/skills/:slug` | Registry + tri-state health |
@@ -142,6 +143,9 @@ surfaces must appear in `/catalog/endpoints` before shipping.
 | `eval_radar_v1` | ✅ bound | `backend/app/services/skills/eval_radar.py` |
 | `claim_audit_v1` | ✅ bound | `backend/app/services/skills/claim_audit.py` |
 | `intelligence_batch_v1` | ✅ bound | `backend/app/services/skills/intelligence_batch.py` |
+| `ministerial_briefing_v1`, `news_signal_synthesis_v1` | ✅ bound | `backend/app/services/mission_room.py` |
+| `project_risk_explainer_v1`, `territorial_signal_map_v1` | ✅ bound | `backend/app/services/mission_room.py` |
+| `instruction_draft_v1` | ✅ bound | `backend/app/services/mission_room.py` |
 | `audit_log_v1` | ✅ bound | `backend/app/services/skills/audit_log.py` |
 | `ollama_llm_v1`, `azure_llm_v1` | ✅ bound | `backend/app/services/llm/*` |
 | `sharepoint_ingestion_v1` | 🟡 stub | schemas present, ingestion not wired |
@@ -155,6 +159,7 @@ See `docs/skills-runtime.md` for full contract.
 
 ```
 /hypervisor              Balance sheet + what-if (4 levers) + decisions feed
+/hypervisor/mission-room Demo Government Mission Room workbench (ARIA / SENTINEL-CI)
 /steering                Control policies + adaptive policies + simulate
 /steering/contexts       First-class context manager
 /capabilities            Business catalog (+ drill-down /capabilities/:id)

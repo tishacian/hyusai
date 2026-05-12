@@ -32,29 +32,44 @@ DEFAULT_FILTER = {
 }
 
 
-def ensure_intelligence_defaults(db) -> bool:
-    """Insert default feed / target / filter if tables are empty. Returns True if anything was added."""
+def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
+    """Insert default feed / target / filter if missing.
+
+    When ``workspace_id`` is set, defaults are created only for that workspace.
+    This keeps demo workspaces self-contained even if global defaults already
+    exist from an earlier bootstrap.
+    """
     from app.models.intelligence import FeedSource, SemanticTarget, SafetyFilter
 
     added = False
-    if db.query(FeedSource).count() == 0:
+    feeds_q = db.query(FeedSource)
+    targets_q = db.query(SemanticTarget)
+    filters_q = db.query(SafetyFilter)
+    if workspace_id:
+        feeds_q = feeds_q.filter(FeedSource.workspace_id == workspace_id)
+        targets_q = targets_q.filter(SemanticTarget.workspace_id == workspace_id)
+        filters_q = filters_q.filter(SafetyFilter.workspace_id == workspace_id)
+
+    if feeds_q.count() == 0:
         for feed in DEFAULT_FEEDS:
             db.add(
                 FeedSource(
                     id=str(uuid.uuid4()),
+                    workspace_id=workspace_id,
                     name=feed["name"],
                     url=feed["url"],
                     category=feed["category"],
                     refresh_interval=3600,
                     active=True,
                 )
-            )
+        )
         added = True
-        logger.info("Seeded default RSS feeds for intelligence batch", count=len(DEFAULT_FEEDS))
-    if db.query(SemanticTarget).count() == 0:
+        logger.info("Seeded default RSS feeds for intelligence batch", count=len(DEFAULT_FEEDS), workspace_id=workspace_id)
+    if targets_q.count() == 0:
         db.add(
             SemanticTarget(
                 id=str(uuid.uuid4()),
+                workspace_id=workspace_id,
                 name=DEFAULT_TARGET["name"],
                 description=DEFAULT_TARGET["description"],
                 keywords=DEFAULT_TARGET["keywords"],
@@ -63,19 +78,23 @@ def ensure_intelligence_defaults(db) -> bool:
             )
         )
         added = True
-        logger.info("Seeded default semantic target for intelligence batch")
+        logger.info("Seeded default semantic target for intelligence batch", workspace_id=workspace_id)
     else:
-        default_t = db.query(SemanticTarget).filter(
+        default_q = db.query(SemanticTarget).filter(
             SemanticTarget.name.contains("(default)")
-        ).first()
+        )
+        if workspace_id:
+            default_q = default_q.filter(SemanticTarget.workspace_id == workspace_id)
+        default_t = default_q.first()
         if default_t and default_t.relevance_threshold != DEFAULT_TARGET["relevance_threshold"]:
             default_t.relevance_threshold = DEFAULT_TARGET["relevance_threshold"]
             added = True
-            logger.info("Updated default target relevance_threshold", new=DEFAULT_TARGET["relevance_threshold"])
-    if db.query(SafetyFilter).count() == 0:
+            logger.info("Updated default target relevance_threshold", new=DEFAULT_TARGET["relevance_threshold"], workspace_id=workspace_id)
+    if filters_q.count() == 0:
         db.add(
             SafetyFilter(
                 id=str(uuid.uuid4()),
+                workspace_id=workspace_id,
                 name=DEFAULT_FILTER["name"],
                 prompt_template=DEFAULT_FILTER["prompt_template"],
                 severity=DEFAULT_FILTER["severity"],
@@ -83,7 +102,7 @@ def ensure_intelligence_defaults(db) -> bool:
             )
         )
         added = True
-        logger.info("Seeded default safety filter for intelligence batch")
+        logger.info("Seeded default safety filter for intelligence batch", workspace_id=workspace_id)
     if added:
         db.commit()
     return added
@@ -102,7 +121,7 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
     batch_id = str(uuid.uuid4())[:8]
 
     try:
-        ensure_intelligence_defaults(db)
+        ensure_intelligence_defaults(db, workspace_id=workspace_id)
         sources_q = db.query(FeedSource).filter(FeedSource.active == True)
         targets_q = db.query(SemanticTarget).filter(SemanticTarget.active == True)
         filters_q = db.query(SafetyFilter).filter(SafetyFilter.active == True)
@@ -221,7 +240,7 @@ def get_dashboard_data(db, workspace_id: str = None) -> dict:
     from app.models.intelligence import FeedSource, FeedArticle
     from sqlalchemy import func
 
-    ensure_intelligence_defaults(db)
+    ensure_intelligence_defaults(db, workspace_id=workspace_id)
     sources_q = db.query(FeedSource).filter(FeedSource.active == True)
     if workspace_id:
         sources_q = sources_q.filter(FeedSource.workspace_id == workspace_id)

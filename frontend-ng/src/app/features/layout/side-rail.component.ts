@@ -43,7 +43,7 @@ import { COCKPIT_VERBS, type CockpitVerb } from '@app/core/navigation.catalog';
       <nav class="ck-rail-nav" aria-label="Cockpit workspaces">
         @for (v of visibleVerbs(); track v.key) {
           <a
-            [routerLink]="v.primaryRoute"
+            [routerLink]="routeFor(v)"
             class="ck-rail-item"
             [class.ck-rail-item-active]="isActive(v)"
             [title]="i18n.t('nav.' + v.key) + ' — ' + i18n.t('nav.hint.' + v.key)"
@@ -237,6 +237,13 @@ export class SideRailComponent {
   isActive(v: CockpitVerb): boolean {
     const path = this.currentPath();
     return v.matches.some((m) => path === m || path.startsWith(m + '/'));
+  }
+
+  routeFor(v: CockpitVerb): string {
+    if (v.key === 'hypervisor' && this.workspace.isDemoMode()) {
+      return '/hypervisor/mission-room';
+    }
+    return v.primaryRoute;
   }
 
   onEnter(): void {

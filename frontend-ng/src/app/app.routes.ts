@@ -22,6 +22,11 @@ export const routes: Routes = [
     children: [
       { path: '', redirectTo: 'hypervisor', pathMatch: 'full' },
       {
+        path: 'hypervisor/mission-room',
+        loadComponent: () =>
+          import('./features/mission-room/mission-room.component').then((m) => m.MissionRoomComponent),
+      },
+      {
         path: 'hypervisor',
         loadComponent: () =>
           import('./features/hypervisor/hypervisor.component').then((m) => m.HypervisorComponent),

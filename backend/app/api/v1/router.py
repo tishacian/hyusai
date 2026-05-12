@@ -35,6 +35,7 @@ from app.api.v1.endpoints import (
     secure_deposit,
     catalog,
     blueprints,
+    mission_room,
 )
 
 api_router = APIRouter()
@@ -76,3 +77,4 @@ api_router.include_router(secure_deposit.internal_router, prefix="/sftp", tags=[
 api_router.include_router(secure_deposit.public_router, prefix="/deposit-links", tags=["deposit-links"])
 api_router.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
 api_router.include_router(blueprints.router, prefix="/blueprints", tags=["blueprints"])
+api_router.include_router(mission_room.router, prefix="/mission-room", tags=["mission-room"])

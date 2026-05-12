@@ -36,7 +36,7 @@ class SurfaceMetadata:
     notes: str = ""
 
 
-CATALOG_VERSION = "2026-05-11"
+CATALOG_VERSION = "2026-05-12"
 
 
 SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
@@ -59,6 +59,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "Platform",
         ("/governance/blueprints",),
         notes="Export/import workspace structure and configuration without members, secrets or raw data.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/mission-room",
+        "Hypervisor",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Government Mission Room",
+        ("/hypervisor/mission-room",),
+        notes="Executive demo cockpit: briefing, open intelligence, projects, map and advisory actions.",
     ),
     SurfaceMetadata(
         "/api/v1/auth",

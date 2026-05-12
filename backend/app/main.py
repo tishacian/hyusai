@@ -70,12 +70,15 @@ async def lifespan(app: FastAPI):
             ensure_expert_capture_system_for_all_workspaces,
             ensure_intelligence_system_for_all_workspaces,
         )
+        from app.services.mission_room import ensure_sentinel_ci_workspace
 
         with SessionLocal() as _db:
             intel_report = ensure_intelligence_system_for_all_workspaces(_db)
             expert_capture_report = ensure_expert_capture_system_for_all_workspaces(_db)
+            sentinel_report = ensure_sentinel_ci_workspace(_db)
         logger.info("Intelligence System seeded", **intel_report)
         logger.info("Expert Knowledge Capture System seeded", **expert_capture_report)
+        logger.info("SENTINEL-CI demo workspace seeded", **sentinel_report)
     except Exception as e:
         logger.warning(
             "System seeding failed (non-blocking)", error=str(e)

@@ -53,6 +53,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Portfolio balance sheet, recommendations and what-if decisions.',
   },
   {
+    id: 'mission-room',
+    label: 'Mission Room',
+    route: '/hypervisor/mission-room',
+    lens: 'hypervisor',
+    object: 'Workbench',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/mission-room',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'Executive government cockpit for briefing, projects, open intelligence, map and advisory actions.',
+  },
+  {
     id: 'systems',
     label: 'Systems',
     route: '/systems',

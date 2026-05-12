@@ -1,0 +1,153 @@
+"""Government mission-room demo endpoints.
+
+All payloads are workspace-scoped and advisory-only. The public product shape is
+generic (`mission-room`) while SENTINEL-CI is supplied by the seeded demo
+workspace and fixtures.
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from sqlalchemy.orm import Session as DBSession
+
+from app.core.auth import get_current_user, get_current_workspace
+from app.db.base import get_db
+from app.models.user import User
+from app.models.workspace import Workspace
+from app.services.audit_logger import emit_audit_event
+from app.services.mission_room import (
+    briefing_payload,
+    draft_instruction_payload,
+    map_payload,
+    news_payload,
+    overview_payload,
+    projects_payload,
+)
+
+router = APIRouter()
+
+
+class DraftInstructionRequest(BaseModel):
+    target_id: str
+    target_type: str = "project"
+    instruction_type: str = "dircab_instruction"
+    tone: Optional[str] = "ministerial"
+
+
+def _actor(user: User) -> str:
+    return user.email or user.username or user.id
+
+
+def _audit(
+    *,
+    db: DBSession,
+    workspace: Workspace,
+    user: User,
+    event_type: str,
+    details: dict,
+) -> None:
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type=event_type,
+        actor=_actor(user),
+        details=details,
+    )
+
+
+@router.get("/overview")
+async def overview(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = overview_payload(workspace)
+    _audit(db=db, workspace=workspace, user=user, event_type="mission_room.overview.viewed", details={"surface": "overview"})
+    return payload
+
+
+@router.get("/briefing")
+async def briefing(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = briefing_payload(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.briefing.generated",
+        details={"sections": len(payload.get("sections") or []), "advisory_only": True},
+    )
+    return payload
+
+
+@router.get("/projects")
+async def projects(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = projects_payload(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.projects.explained",
+        details={"projects": len(payload.get("projects") or []), "advisory_only": True},
+    )
+    return payload
+
+
+@router.get("/map")
+async def strategic_map(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = map_payload(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.map.generated",
+        details={"zones": len(payload.get("zones") or []), "accuracy": (payload.get("map") or {}).get("accuracy")},
+    )
+    return payload
+
+
+@router.get("/news")
+async def news(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = news_payload(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.news.synthesized",
+        details={"signals": len(payload.get("signals") or []), "advisory_only": True},
+    )
+    return payload
+
+
+@router.post("/actions/draft")
+async def draft_action(
+    body: DraftInstructionRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    return draft_instruction_payload(
+        workspace=workspace,
+        actor=_actor(user),
+        target_id=body.target_id,
+        target_type=body.target_type,
+        instruction_type=body.instruction_type,
+        db=db,
+    )

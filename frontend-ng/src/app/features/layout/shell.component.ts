@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Router, RouterOutlet } from '@angular/router';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { TitleBarComponent } from './title-bar.component';
 import { SideRailComponent } from './side-rail.component';
@@ -62,8 +62,14 @@ import { ChatOverlayComponent } from '@app/features/chat/chat-overlay.component'
 })
 export class ShellComponent {
   private readonly workspaceService = inject(WorkspaceService);
+  private readonly router = inject(Router);
 
   constructor() {
-    this.workspaceService.loadWorkspaces().subscribe();
+    this.workspaceService.loadWorkspaces().subscribe(() => {
+      const path = (this.router.url || '/').split('?')[0];
+      if (this.workspaceService.isDemoMode() && (path === '/' || path === '/hypervisor')) {
+        this.router.navigateByUrl('/hypervisor/mission-room');
+      }
+    });
   }
 }

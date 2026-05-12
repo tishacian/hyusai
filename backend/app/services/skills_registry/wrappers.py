@@ -21,6 +21,7 @@ import base64
 import uuid
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 from app.core.logging import get_logger
@@ -191,6 +192,85 @@ async def _intelligence_batch_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
         if event.get("type") == "error" or event.get("status") == "error":
             errors += 1
     return {"ingested": ingested, "errors": errors, "events": events}
+
+
+def _workspace_from_context(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Any:
+    ctx = ctx or {}
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id") or "demo-workspace"
+    workspace_slug = ctx.get("workspace_slug") or payload.get("workspace_slug") or "workspace"
+    workspace_name = payload.get("workspace_name") or workspace_slug
+    return SimpleNamespace(id=workspace_id, slug=workspace_slug, name=workspace_name)
+
+
+async def _ministerial_briefing_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import briefing_payload
+
+    workspace = _workspace_from_context(payload, ctx)
+    briefing = briefing_payload(workspace)
+    return {
+        "briefing": briefing,
+        "sources": briefing.get("sources", []),
+        "status": "ready",
+    }
+
+
+async def _news_signal_synthesis_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import news_payload
+
+    workspace = _workspace_from_context(payload, ctx)
+    news = news_payload(workspace)
+    return {
+        "summary": news.get("summary"),
+        "signals": news.get("signals", []),
+        "sources": news.get("sources", []),
+    }
+
+
+async def _project_risk_explainer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import projects_payload
+
+    workspace = _workspace_from_context(payload, ctx)
+    projects = projects_payload(workspace)
+    project_id = payload.get("project_id") or payload.get("target_id")
+    project = next(
+        (item for item in projects.get("projects", []) if item.get("id") == project_id),
+        (projects.get("projects") or [None])[0],
+    )
+    if not project:
+        return {"status": "no_project", "project": None, "explanation": {}, "sources": []}
+    return {
+        "project": project,
+        "explanation": {
+            "cause": project.get("cause"),
+            "risk": project.get("risk"),
+            "options": project.get("options", []),
+            "advisory_only": True,
+        },
+        "sources": project.get("sources", []),
+    }
+
+
+async def _territorial_signal_map_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import map_payload
+
+    workspace = _workspace_from_context(payload, ctx)
+    return map_payload(workspace)
+
+
+async def _instruction_draft_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import draft_instruction_payload
+
+    ctx = ctx or {}
+    workspace = _workspace_from_context(payload, ctx)
+    actor = ctx.get("actor") or payload.get("actor") or "system:instruction_draft_v1"
+    return draft_instruction_payload(
+        workspace=workspace,
+        actor=str(actor),
+        target_id=payload.get("target_id") or payload.get("project_id") or "proj-health-north",
+        target_type=payload.get("target_type") or "project",
+        instruction_type=payload.get("instruction_type") or "dircab_instruction",
+        db=ctx.get("db"),
+    )
 
 
 async def _sharepoint_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -629,6 +709,11 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "eval_radar_v1":           (_eval_radar_v1,           "app.services.evaluation.judge",         "bound"),
     "claim_audit_v1":          (_claim_audit_v1,          "app.services.evaluation.judge",         "bound"),
     "intelligence_batch_v1":   (_intelligence_batch_v1,   "app.services.intelligence.batch",       "bound"),
+    "ministerial_briefing_v1": (_ministerial_briefing_v1, "app.services.mission_room",             "bound"),
+    "news_signal_synthesis_v1": (_news_signal_synthesis_v1, "app.services.mission_room",           "bound"),
+    "project_risk_explainer_v1": (_project_risk_explainer_v1, "app.services.mission_room",         "bound"),
+    "territorial_signal_map_v1": (_territorial_signal_map_v1, "app.services.mission_room",         "bound"),
+    "instruction_draft_v1":    (_instruction_draft_v1,    "app.services.mission_room",             "bound"),
     "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None,                                    "stub"),
     "voice_transcribe_v1":     (_voice_transcribe_v1,     "app.services.voice_runtime",            "bound"),
     "voice_tts_v1":            (_voice_tts_v1,            "app.services.voice_runtime",            "bound"),

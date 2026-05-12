@@ -29,6 +29,22 @@ This document is the human-readable companion to the runtime catalog exposed at
 | Execution traceability | `Run` | `/runs/:id` | `/api/v1/runs` | `canonical` |
 | Recreate the workspace pattern elsewhere | `Workspace` | `/governance/blueprints` | `/api/v1/blueprints` | `canonical` |
 
+## Canonical SENTINEL-CI Mapping
+
+| Government mission-room need | Agentium object | UI route | API prefix | Status |
+|---|---|---|---|---|
+| Ministerial cockpit and daily briefing | `Workbench` | `/hypervisor/mission-room` | `/api/v1/mission-room` | `canonical` |
+| Open intelligence and RSS weak signals | `Run` | `/hypervisor/mission-room`, `/intelligence` | `/api/v1/mission-room`, `/api/v1/intelligence` | `canonical` |
+| Strategic project pilotage | `System` / `Workbench` | `/hypervisor/mission-room`, `/systems` | `/api/v1/mission-room`, `/api/v1/systems` | `canonical` |
+| Territorial action map | `Workbench` | `/hypervisor/mission-room` | `/api/v1/mission-room/map` | `canonical` |
+| Draft cabinet instructions | `Review Queue` | `/hypervisor/mission-room` | `/api/v1/mission-room/actions/draft` | `canonical` |
+| Recreate the demo workspace elsewhere | `Workspace` | `/governance/blueprints` | `/api/v1/blueprints` | `canonical` |
+
+SENTINEL-CI is deliberately a workspace pattern, not a hardcoded client
+fork: the demo behavior is carried by workspace `mode=demo`, workspace
+settings, seeded Capabilities/Skills, System `flow_definition.variant`, and
+the Mission Room API surface.
+
 ## API Stability States
 
 | Status | Rule |

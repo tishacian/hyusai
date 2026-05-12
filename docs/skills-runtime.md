@@ -55,6 +55,11 @@ The live, enriched endpoint list is exposed by `GET /api/v1/catalog/endpoints`.
 | `eval_radar_v1`            | bound  | `app.services.evaluation.judge`                      | LLM-as-judge composite radar.                                          |
 | `claim_audit_v1`           | bound  | `app.services.evaluation.judge`                      | Claim-level faithfulness audit.                                        |
 | `intelligence_batch_v1`    | bound  | `app.services.intelligence.batch`                    | News / RSS harvest and reranking.                                      |
+| `ministerial_briefing_v1`  | bound  | `app.services.mission_room`                          | Daily executive briefing for government mission-room workspaces.       |
+| `news_signal_synthesis_v1` | bound  | `app.services.mission_room`                          | Open-intelligence weak-signal synthesis with sources.                  |
+| `project_risk_explainer_v1` | bound | `app.services.mission_room`                          | Strategic project delay/risk explanation and advisory options.         |
+| `territorial_signal_map_v1` | bound | `app.services.mission_room`                          | Illustrative territorial map zones, signals and non-military actions.  |
+| `instruction_draft_v1`     | bound  | `app.services.mission_room`                          | Advisory instruction draft; no external send and HITL required.        |
 | `sharepoint_ingestion_v1`  | stub   | —                                                    | Wire once SharePoint credentials are provisioned.                      |
 | `voice_transcribe_v1`      | bound  | `app.services.voice_runtime`                         | Phase 0 cascade STT provider used by chat and capture sessions.        |
 | `voice_tts_v1`             | bound  | `app.services.voice_runtime`                         | Segmented TTS provider used by chat and guided capture prompts.        |
