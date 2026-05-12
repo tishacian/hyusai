@@ -389,7 +389,14 @@ export class TitleBarComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   openChat(): void {
-    this.chatOverlay.toggle();
+    if (this.chatOverlay.isOpen()) {
+      this.chatOverlay.close();
+      return;
+    }
+    this.workspaceService.refreshCurrentWorkspace().subscribe({
+      next: () => this.chatOverlay.open({ mode: 'quick' }),
+      error: () => this.chatOverlay.open({ mode: 'quick' }),
+    });
   }
 
   userMenuOpen = signal(false);

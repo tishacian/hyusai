@@ -1160,9 +1160,19 @@ def _ensure_filter(db: DBSession, workspace: Workspace) -> None:
 
 def _ensure_rag_preset(db: DBSession, workspace: Workspace) -> None:
     name = "SENTINEL-CI C-HAH briefing preset"
-    existing = (
+    existing_by_name = (
         db.query(RagPreset)
         .filter(RagPreset.workspace_id == workspace.id, RagPreset.name == name)
+        .first()
+    )
+    existing_default = (
+        db.query(RagPreset)
+        .filter(
+            RagPreset.workspace_id == workspace.id,
+            RagPreset.scope == "workspace",
+            RagPreset.scope_id == workspace.id,
+            RagPreset.is_default.is_(True),
+        )
         .first()
     )
     config = {
@@ -1177,7 +1187,11 @@ def _ensure_rag_preset(db: DBSession, workspace: Workspace) -> None:
         "sourcePolicy": "sources_required",
         "experience": {"demoSafeProviderLabels": True, "advisoryOnly": True},
     }
+    existing = existing_default or existing_by_name
     if existing:
+        if existing_by_name and existing_by_name.id != existing.id:
+            existing_by_name.is_default = False
+        existing.name = name
         existing.config = config
         existing.scope = "workspace"
         existing.scope_id = workspace.id

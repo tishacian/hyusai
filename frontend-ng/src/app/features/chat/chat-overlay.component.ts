@@ -62,9 +62,9 @@ export class ChatOverlayComponent {
   private readonly workspace = inject(WorkspaceService);
 
   readonly activeProfile = computed<Record<string, unknown> | null>(() => {
-    const key = this.overlay.assistantProfile();
-    if (!key) return null;
     const settings = this.workspace.current()?.settings as Record<string, unknown> | undefined;
+    const key = this.overlay.assistantProfile() || (settings?.['assistant_profile_default'] as string | undefined);
+    if (!key) return null;
     const profiles = Array.isArray(settings?.['assistant_profiles'])
       ? settings?.['assistant_profiles'] as Record<string, unknown>[]
       : [];
@@ -99,7 +99,14 @@ export class ChatOverlayComponent {
     const isMod = ev.metaKey || ev.ctrlKey;
     if (isMod && (ev.key === 'j' || ev.key === 'J')) {
       ev.preventDefault();
-      this.overlay.toggle();
+      if (this.overlay.isOpen()) {
+        this.overlay.close();
+      } else {
+        this.workspace.refreshCurrentWorkspace().subscribe({
+          next: () => this.overlay.open({ mode: 'quick' }),
+          error: () => this.overlay.open({ mode: 'quick' }),
+        });
+      }
     }
   }
 }

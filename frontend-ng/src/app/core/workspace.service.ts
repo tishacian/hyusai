@@ -1,6 +1,6 @@
 import { Injectable, inject, signal, computed, effect } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, tap } from 'rxjs';
+import { Observable, catchError, of, tap } from 'rxjs';
 
 export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo';
 
@@ -150,6 +150,21 @@ export class WorkspaceService {
 
   getWorkspace(slug: string): Observable<WorkspaceDetail> {
     return this.http.get<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}`);
+  }
+
+  refreshCurrentWorkspace(): Observable<WorkspaceDetail | null> {
+    const slug = this.currentSlug();
+    if (!slug) return of(null);
+    return this.getWorkspace(slug).pipe(
+      tap((detail) => {
+        this.workspaces.update((list) => {
+          const next = { ...detail };
+          if (!list.find((w) => w.slug === detail.slug)) return [...list, next];
+          return list.map((w) => (w.slug === detail.slug ? { ...w, ...next } : w));
+        });
+      }),
+      catchError(() => of(null)),
+    );
   }
 
   createWorkspace(name: string, slug?: string): Observable<WorkspaceDetail> {

@@ -16,6 +16,7 @@ import {
   type System,
 } from '@app/core/canonical-api.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { I18nService } from '@app/core/i18n.service';
 import { GlyphComponent, KbdComponent, TagComponent } from '@app/shared/cockpit';
 
@@ -190,6 +191,7 @@ export class CommandPaletteComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
   private readonly chatOverlay = inject(ChatOverlayService);
+  private readonly workspace = inject(WorkspaceService);
   protected readonly i18n = inject(I18nService);
 
   readonly open = signal(false);
@@ -285,7 +287,7 @@ export class CommandPaletteComponent implements OnInit {
         kind: 'chat',
         route: '',
         keywords: 'ask quick question chat playground rag',
-        action: () => this.chatOverlay.open({ mode: 'quick' }),
+        action: () => this.openChat({ mode: 'quick' }),
       },
       {
         id: 'chat.system',
@@ -295,7 +297,7 @@ export class CommandPaletteComponent implements OnInit {
         kind: 'chat',
         route: '',
         keywords: 'chat system scoped test demo',
-        action: () => this.chatOverlay.open({ mode: 'system' }),
+        action: () => this.openChat({ mode: 'system' }),
       },
       {
         id: 'chat.drop',
@@ -305,9 +307,16 @@ export class CommandPaletteComponent implements OnInit {
         kind: 'chat',
         route: '',
         keywords: 'drop upload files documents ephemeral context session pdf rag',
-        action: () => this.chatOverlay.open({ mode: 'drop' }),
+        action: () => this.openChat({ mode: 'drop' }),
       },
     ];
+  }
+
+  private openChat(options: Parameters<ChatOverlayService['open']>[0]): void {
+    this.workspace.refreshCurrentWorkspace().subscribe({
+      next: () => this.chatOverlay.open(options),
+      error: () => this.chatOverlay.open(options),
+    });
   }
 
   ngOnInit(): void {
