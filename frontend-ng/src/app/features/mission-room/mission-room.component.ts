@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, Input, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink, RouterLinkActive } from '@angular/router';
@@ -76,10 +76,19 @@ interface Priority {
 }
 
 interface AgendaItem {
+  id?: string;
+  date?: string;
   time: string;
+  end_time?: string;
   title: string;
   location: string;
   tone: string;
+  description?: string;
+  participants?: string[];
+  priority?: string;
+  status?: string;
+  category?: string;
+  source_label?: string;
 }
 
 interface MessageItem {
@@ -244,6 +253,14 @@ interface MissionTimeline {
   agenda: AgendaItem[];
   messages: MessageItem[];
   summary: string;
+  calendar?: {
+    connector: { id: string; label: string; mode: string; status: string; write_policy: string };
+    count: number;
+    conflicts: { event_ids: string[]; label: string }[];
+    free_slots: { start: string; end: string }[];
+    next_event?: AgendaItem | null;
+    summary: string;
+  };
   sources: SourceRef[];
 }
 
@@ -962,31 +979,111 @@ export class MissionRailComponent {
     </ng-template>
 
     <ng-template #timelineView>
-      <section class="two-column">
-        <article class="content-panel">
-          <span class="eyebrow">Agenda ministeriel</span>
-          <h2>Deroule de la journee</h2>
-          <ol class="agenda-list large">
-            @for (item of timeline()?.agenda || []; track item.time) {
-              <li [class]="item.tone">
-                <time>{{ item.time }}</time>
-                <div>
-                  <strong>{{ item.title }}</strong>
-                  <span>{{ item.location }}</span>
-                </div>
+      <section class="agenda-workbench">
+        <article class="content-panel span-2 agenda-command">
+          <div>
+            <span class="eyebrow">Agenda ministeriel</span>
+            <h2>Canal agenda institutionnel habilite</h2>
+            <p>{{ timeline()?.summary }}</p>
+          </div>
+          <div class="agenda-status-grid">
+            <article>
+              <span>Connecteur</span>
+              <strong>{{ calendarConnectorLabel() }}</strong>
+              <small>{{ timeline()?.calendar?.connector?.mode || 'internal_shared' }}</small>
+            </article>
+            <article>
+              <span>Rendez-vous</span>
+              <strong>{{ timeline()?.calendar?.count || (timeline()?.agenda?.length || 0) }}</strong>
+              <small>{{ agendaDayLabel() }}</small>
+            </article>
+            <article>
+              <span>Conflits</span>
+              <strong>{{ timeline()?.calendar?.conflicts?.length || 0 }}</strong>
+              <small>arbitrage cabinet</small>
+            </article>
+            <article>
+              <span>Disponible</span>
+              <strong>{{ timeline()?.calendar?.free_slots?.[0]?.start || '—' }}</strong>
+              <small>{{ timeline()?.calendar?.free_slots?.[0]?.end || 'aucun creneau' }}</small>
+            </article>
+          </div>
+        </article>
+
+        <article class="content-panel agenda-timeline-panel">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Journee</span>
+              <h2>{{ agendaDayLabel() }}</h2>
+            </div>
+            <button type="button" class="action-button compact" (click)="openAssistant('Resume mon agenda et signale les arbitrages avant reunion.')">
+              <ck-glyph name="bolt" [size]="14" />
+              <span>Synthese {{ assistantName() }}</span>
+            </button>
+          </div>
+          <div class="week-strip">
+            @for (day of agendaWeekDays(); track day.label) {
+              <span [class.active]="day.active">
+                {{ day.label }}
+                <b>{{ day.count }}</b>
+              </span>
+            }
+          </div>
+          <ol class="agenda-list agenda-events">
+            @for (item of timeline()?.agenda || []; track item.id || item.time) {
+              <li [class]="item.tone" [class.active]="selectedAgendaEvent()?.id === item.id">
+                <button type="button" (click)="selectAgendaEvent(item)">
+                  <time>{{ item.time }}<small>{{ item.end_time }}</small></time>
+                  <div>
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.location }}</span>
+                    @if (item.description) { <p>{{ item.description }}</p> }
+                  </div>
+                  <i>{{ item.priority || 'medium' }}</i>
+                </button>
               </li>
             }
           </ol>
         </article>
-        <article class="content-panel">
-          <span class="eyebrow">Synthese</span>
-          <h2>Canaux institutionnels</h2>
-          <p>{{ timeline()?.summary }}</p>
-          <button type="button" class="action-button wide" (click)="openAssistant('Prepare une synthese agenda.')">
-            <ck-glyph name="bolt" [size]="14" />
-            <span>Demander une synthese {{ assistantName() }}</span>
-          </button>
-        </article>
+
+        <aside class="content-panel agenda-detail-panel">
+          @if (selectedAgendaEvent(); as event) {
+            <span class="eyebrow">Detail evenement</span>
+            <h2>{{ event.title }}</h2>
+            <p>{{ event.description || 'Evenement consolide depuis le canal agenda institutionnel habilite.' }}</p>
+            <dl>
+              <div><dt>Horaire</dt><dd>{{ event.time }} - {{ event.end_time || '—' }}</dd></div>
+              <div><dt>Lieu</dt><dd>{{ event.location || 'A confirmer' }}</dd></div>
+              <div><dt>Priorite</dt><dd>{{ event.priority || 'medium' }}</dd></div>
+              <div><dt>Participants</dt><dd>{{ (event.participants || ['Cabinet']).join(', ') }}</dd></div>
+            </dl>
+            <div class="agenda-actions">
+              <button type="button" (click)="moveSelectedAgendaEvent(-15)">
+                <ck-glyph name="arrow-down" [size]="13" />
+                <span>-15 min</span>
+              </button>
+              <button type="button" (click)="moveSelectedAgendaEvent(15)">
+                <ck-glyph name="arrow-right" [size]="13" />
+                <span>+15 min</span>
+              </button>
+              <button type="button" class="danger" (click)="cancelSelectedAgendaEvent()">
+                <ck-glyph name="x" [size]="13" />
+                <span>Annuler</span>
+              </button>
+            </div>
+          }
+
+          <div class="agenda-form">
+            <span class="eyebrow">Ajout rapide</span>
+            <input [(ngModel)]="newAgendaTitle" type="text" placeholder="Objet de la reunion" />
+            <input [(ngModel)]="newAgendaStart" type="datetime-local" />
+            <input [(ngModel)]="newAgendaLocation" type="text" placeholder="Lieu" />
+            <button type="button" class="action-button wide primary" (click)="createAgendaEvent()">
+              <ck-glyph name="crosshair" [size]="14" />
+              <span>Ajouter a l'agenda</span>
+            </button>
+          </div>
+        </aside>
       </section>
     </ng-template>
 
@@ -1795,6 +1892,182 @@ export class MissionRailComponent {
         color: var(--mission-text);
       }
       .agenda-list span { color: var(--mission-text-muted); font-size: 12px; }
+      .agenda-workbench {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 380px;
+        gap: 16px;
+        align-items: start;
+      }
+      .agenda-command {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(420px, 1fr);
+        gap: 18px;
+        align-items: center;
+      }
+      .agenda-status-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .agenda-status-grid article {
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-panel-hi);
+      }
+      .agenda-status-grid span,
+      .agenda-status-grid small {
+        display: block;
+        color: var(--mission-text-muted);
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+      .agenda-status-grid strong {
+        display: block;
+        margin: 5px 0;
+        color: var(--mission-text);
+        font-weight: 650;
+        overflow-wrap: anywhere;
+      }
+      .agenda-timeline-panel,
+      .agenda-detail-panel {
+        min-height: 560px;
+      }
+      .week-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 12px 0 16px;
+      }
+      .week-strip span {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 31px;
+        padding: 5px 9px;
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        background: var(--mission-inset);
+        color: var(--mission-text-muted);
+        font-size: 12px;
+        text-transform: capitalize;
+      }
+      .week-strip span.active {
+        border-color: var(--mission-border-strong);
+        color: var(--mission-accent);
+        background: var(--mission-accent-wash);
+      }
+      .week-strip b {
+        color: var(--mission-text-soft);
+        font-family: var(--ck-font-mono);
+        font-size: 11px;
+      }
+      .agenda-events {
+        gap: 8px;
+      }
+      .agenda-events li {
+        display: block;
+      }
+      .agenda-events button {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 72px minmax(0, 1fr) auto;
+        gap: 13px;
+        align-items: start;
+        padding: 13px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-panel-hi);
+        color: var(--mission-text);
+        text-align: left;
+        cursor: pointer;
+      }
+      .agenda-events li.active button {
+        border-color: var(--mission-border-strong);
+        background: var(--mission-accent-wash);
+      }
+      .agenda-events li.critical button { border-left: 3px solid var(--mission-danger); }
+      .agenda-events li.watch button { border-left: 3px solid var(--mission-warn); }
+      .agenda-events li.info button { border-left: 3px solid var(--mission-accent); }
+      .agenda-events li.stable button { border-left: 3px solid var(--mission-trust); }
+      .agenda-events time {
+        display: grid;
+        gap: 3px;
+        color: var(--mission-accent);
+        font-family: var(--ck-font-mono);
+        font-size: 13px;
+      }
+      .agenda-events time small {
+        color: var(--mission-text-faint);
+        font-size: 10px;
+      }
+      .agenda-events p {
+        margin: 5px 0 0;
+        color: var(--mission-text-muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .agenda-events i {
+        align-self: start;
+        padding: 4px 7px;
+        border-radius: 999px;
+        background: var(--mission-inset);
+        color: var(--mission-text-muted);
+        font-style: normal;
+        font-size: 11px;
+      }
+      .agenda-detail-panel dl {
+        display: grid;
+        gap: 8px;
+        margin: 14px 0;
+      }
+      .agenda-detail-panel dl div {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 12px;
+        padding: 9px 0;
+        border-top: 1px solid var(--mission-border);
+      }
+      .agenda-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin: 14px 0;
+      }
+      .agenda-actions button {
+        min-height: 34px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-panel-hi);
+        color: var(--mission-text-soft);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        cursor: pointer;
+      }
+      .agenda-actions button.danger {
+        border-color: rgba(240, 100, 118, 0.26);
+        color: var(--mission-danger);
+        background: var(--mission-danger-wash);
+      }
+      .agenda-form {
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--mission-border);
+        display: grid;
+        gap: 9px;
+      }
+      .agenda-form input {
+        min-height: 38px;
+        border: 1px solid var(--mission-border);
+        background: var(--mission-inset);
+        color: var(--mission-text);
+        border-radius: var(--mission-radius);
+        padding: 0 11px;
+        min-width: 0;
+      }
       .keyword-grid {
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -2059,7 +2332,8 @@ export class MissionRailComponent {
         .executive-strip,
         .executive-alert-grid { grid-template-columns: 1fr; }
         .cockpit-grid > * { grid-column: span 12 !important; }
-        .two-column, .ministerial-news, .map-layout { grid-template-columns: 1fr; }
+        .two-column, .ministerial-news, .map-layout, .agenda-workbench, .agenda-command { grid-template-columns: 1fr; }
+        .agenda-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
       @media (max-width: 840px) {
         :host { height: auto; overflow: auto; }
@@ -2077,7 +2351,7 @@ export class MissionRailComponent {
     `,
   ],
 })
-export class MissionRoomComponent implements OnInit {
+export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -2103,9 +2377,14 @@ export class MissionRoomComponent implements OnInit {
   readonly selectedProject = signal<Project | null>(null);
   readonly selectedZone = signal<MapZone | null>(null);
   readonly selectedSource = signal<SourceRef | null>(null);
+  readonly selectedAgendaEvent = signal<AgendaItem | null>(null);
   readonly draft = signal<DraftInstruction | null>(null);
 
   searchQueryValue = '';
+  newAgendaTitle = '';
+  newAgendaStart = '2026-04-15T09:45';
+  newAgendaLocation = 'Cabinet ministeriel';
+  private readonly calendarUpdateListener = () => this.loadAll();
 
   readonly fallbackNav: MissionNavigationItem[] = [
     { key: 'cockpit', label: 'Cockpit', glyph: 'ledger', route: '/hypervisor/mission-room/cockpit', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
@@ -2156,6 +2435,15 @@ export class MissionRoomComponent implements OnInit {
   ]);
 
   ngOnInit(): void {
+    window.addEventListener('agentium:calendar-updated', this.calendarUpdateListener);
+    this.loadAll();
+  }
+
+  ngOnDestroy(): void {
+    window.removeEventListener('agentium:calendar-updated', this.calendarUpdateListener);
+  }
+
+  private loadAll(): void {
     forkJoin({
       navigation: this.api.get<MissionNavigation>('/mission-room/navigation'),
       cockpit: this.api.get<MissionCockpit>('/mission-room/cockpit'),
@@ -2181,6 +2469,10 @@ export class MissionRoomComponent implements OnInit {
         this.search.set(search);
         this.selectedProject.set(projects.projects[0] || null);
         this.selectedZone.set(missionMap.zones[0] || null);
+        const currentAgenda = this.selectedAgendaEvent();
+        const agenda = timeline.agenda || [];
+        const stillVisible = currentAgenda?.id ? agenda.find((item) => item.id === currentAgenda.id) : null;
+        this.selectedAgendaEvent.set(stillVisible || agenda.find((item) => item.status !== 'cancelled') || agenda[0] || null);
         this.loading.set(false);
       },
       error: () => this.loading.set(false),
@@ -2311,6 +2603,95 @@ export class MissionRoomComponent implements OnInit {
 
   draftForZone(zone: MapZone): void {
     this.createDraft(zone.id, 'zone');
+  }
+
+  selectAgendaEvent(event: AgendaItem): void {
+    this.selectedAgendaEvent.set(event);
+  }
+
+  agendaDayLabel(): string {
+    const dateValue = this.selectedAgendaEvent()?.date || this.timeline()?.agenda?.[0]?.date;
+    if (!dateValue) return 'Journee consolidee';
+    const parsed = new Date(`${dateValue}T12:00:00`);
+    return parsed.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' });
+  }
+
+  agendaWeekDays(): { label: string; count: number; active: boolean }[] {
+    const events = this.timeline()?.agenda || [];
+    const grouped = new Map<string, number>();
+    events.forEach((event) => {
+      if (!event.date) return;
+      grouped.set(event.date, (grouped.get(event.date) || 0) + (event.status === 'cancelled' ? 0 : 1));
+    });
+    return Array.from(grouped.entries()).map(([date, count]) => {
+      const parsed = new Date(`${date}T12:00:00`);
+      return {
+        label: parsed.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit' }),
+        count,
+        active: date === (this.selectedAgendaEvent()?.date || events[0]?.date),
+      };
+    });
+  }
+
+  calendarConnectorLabel(): string {
+    return this.timeline()?.calendar?.connector?.label || 'Agenda institutionnel';
+  }
+
+  createAgendaEvent(): void {
+    const title = this.newAgendaTitle.trim();
+    if (!title) return;
+    const start = this.newAgendaStart || '2026-04-15T09:45';
+    const startDate = new Date(start);
+    const endDate = new Date(startDate.getTime() + 45 * 60 * 1000);
+    this.api
+      .post<AgendaItem>('/calendar/events', {
+        title,
+        start_at: start.length === 16 ? `${start}:00` : start,
+        end_at: this.localIso(endDate),
+        location: this.newAgendaLocation || 'Cabinet ministeriel',
+        priority: 'medium',
+        category: 'cabinet',
+      })
+      .subscribe((event) => {
+        this.newAgendaTitle = '';
+        this.selectedAgendaEvent.set(event);
+        this.loadAll();
+      });
+  }
+
+  moveSelectedAgendaEvent(minutes: number): void {
+    const event = this.selectedAgendaEvent();
+    if (!event?.id || !event.date) return;
+    const start = new Date(`${event.date}T${event.time}:00`);
+    const end = new Date(`${event.date}T${event.end_time || event.time}:00`);
+    const duration = Math.max(30 * 60 * 1000, end.getTime() - start.getTime());
+    const nextStart = new Date(start.getTime() + minutes * 60 * 1000);
+    const nextEnd = new Date(nextStart.getTime() + duration);
+    this.api
+      .patch<AgendaItem>(`/calendar/events/${event.id}`, {
+        start_at: this.localIso(nextStart),
+        end_at: this.localIso(nextEnd),
+      })
+      .subscribe((updated) => {
+        this.selectedAgendaEvent.set(updated);
+        this.loadAll();
+      });
+  }
+
+  private localIso(value: Date): string {
+    const pad = (input: number) => String(input).padStart(2, '0');
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}:00`;
+  }
+
+  cancelSelectedAgendaEvent(): void {
+    const event = this.selectedAgendaEvent();
+    if (!event?.id) return;
+    this.api
+      .post<AgendaItem>(`/calendar/events/${event.id}/cancel`, { reason: 'Arbitrage cabinet depuis Mission Room' })
+      .subscribe((cancelled) => {
+        this.selectedAgendaEvent.set(cancelled);
+        this.loadAll();
+      });
   }
 
   createDraft(targetId: string, targetType: string): void {

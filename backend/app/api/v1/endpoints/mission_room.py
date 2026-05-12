@@ -137,7 +137,7 @@ async def timeline(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = timeline_payload(workspace)
+    payload = timeline_payload(workspace, db=db)
     _audit(
         db=db,
         workspace=workspace,
@@ -146,7 +146,8 @@ async def timeline(
         details={
             "agenda": len(payload.get("agenda") or []),
             "messages": len(payload.get("messages") or []),
-            "synthetic": True,
+            "connector_id": "institutional_calendar",
+            "synthetic": not bool((payload.get("calendar") or {}).get("events")),
         },
     )
     return payload

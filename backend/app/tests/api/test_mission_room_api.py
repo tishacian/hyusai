@@ -9,6 +9,7 @@ from app.models.intelligence import FeedArticle, FeedSource
 from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.workspace_calendar import ensure_calendar_seed
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -134,6 +135,8 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()
+    ensure_calendar_seed(db_session, workspace)
+    db_session.commit()
     client = _client(db_session, workspace, user)
 
     timeline = client.get("/api/v1/mission-room/timeline")
@@ -142,6 +145,8 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
 
     assert timeline.status_code == 200
     assert timeline.json()["workspace"]["slug"] == workspace.slug
+    assert timeline.json()["calendar"]["connector"]["id"] == "institutional_calendar"
+    assert timeline.json()["agenda"][0]["title"] == "Conseil Defense restreint"
     assert len(timeline.json()["messages"]) >= 1
     assert decisions.status_code == 200
     assert decisions.json()["policy"]["human_validation_required"] is True

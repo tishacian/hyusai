@@ -24,6 +24,12 @@ from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
+from app.services.workspace_calendar import (
+    ensure_calendar_seed,
+    list_events as list_calendar_events,
+    serialize_event as serialize_calendar_event,
+    summary_payload as calendar_summary_payload,
+)
 
 
 SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
@@ -787,9 +793,25 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
     }
 
 
+def _agenda_items_from_calendar(workspace: Workspace, db: Optional[DBSession]) -> list[dict[str, Any]]:
+    if not db:
+        return _clone(AGENDA)
+    events = list_calendar_events(db, workspace)
+    if not events:
+        return _clone(AGENDA)
+    return [
+        {
+            **serialize_calendar_event(event),
+            "sources": ["src-agenda-jour-015"],
+        }
+        for event in events[:8]
+    ]
+
+
 def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
     overview = overview_payload(workspace)
     news = _executive_news_payload(workspace, db)
+    calendar_summary = calendar_summary_payload(db, workspace) if db else None
     alerts = news.get("executive_alerts") or news.get("signals") or _clone(NEWS_SIGNALS)
     source_health = news.get("source_health") or {}
     if alerts:
@@ -820,6 +842,14 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     overview["press_intelligence"] = source_health
     overview["what_changed"] = (news.get("briefing_note") or {}).get("bullets") or []
     overview["sources"] = news.get("sources") or overview["sources"]
+    overview["agenda"] = _agenda_items_from_calendar(workspace, db)
+    if calendar_summary:
+        overview["calendar"] = calendar_summary
+        overview["kpis"]["meetings"] = calendar_summary.get("count", overview["kpis"]["meetings"])
+        overview["kpis"]["calendar_conflicts"] = len(calendar_summary.get("conflicts") or [])
+        next_event = calendar_summary.get("next_event")
+        if next_event:
+            overview["kpis"]["next_meeting_in"] = f"{next_event.get('time')} · {next_event.get('title')}"
     return {
         **overview,
         "layout": {
@@ -906,12 +936,15 @@ def news_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[s
     return _executive_news_payload(workspace, db)
 
 
-def timeline_payload(workspace: Workspace) -> dict[str, Any]:
+def timeline_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
+    calendar_summary = calendar_summary_payload(db, workspace) if db else None
     return {
         "workspace": _workspace_meta(workspace),
-        "agenda": _clone(AGENDA),
+        "agenda": _agenda_items_from_calendar(workspace, db),
         "messages": _clone(MESSAGES),
-        "summary": "Agenda et messages institutionnels consolides depuis les canaux habilites.",
+        "summary": (calendar_summary or {}).get("summary")
+        or "Agenda et messages institutionnels consolides depuis les canaux habilites.",
+        "calendar": calendar_summary,
         "sources": source_index(),
     }
 
@@ -1333,6 +1366,21 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "workspace_app_shell": "immersive",
             "workspace_app_label": SENTINEL_WORKSPACE_NAME,
             "workspace_app_default_view": "cockpit",
+            "calendar": {
+                "mode": "internal_shared",
+                "connector_id": "institutional_calendar",
+                "connector_label": "Agenda institutionnel",
+                "write_policy": "direct",
+                "timezone": "Africa/Abidjan",
+            },
+            "connectors": {
+                "institutional_calendar": {
+                    "enabled": True,
+                    "status": "connected",
+                    "mode": "internal_shared",
+                    "label": "Agenda institutionnel",
+                }
+            },
             "assistant_profile_default": "vigie_executive",
             "knowledge_scopes": [
                 {
@@ -1367,7 +1415,21 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                     "default_knowledge_scope": "vigie",
                     "executive_mode": True,
                     "tone": "ministerial",
-                    "allowed_actions": ["cite_sources", "draft_instruction", "open_news_lab"],
+                    "allowed_actions": [
+                        "cite_sources",
+                        "draft_instruction",
+                        "open_news_lab",
+                        "read_calendar",
+                        "create_calendar_event",
+                        "update_calendar_event",
+                        "cancel_calendar_event",
+                    ],
+                    "allowed_calendar_actions": [
+                        "read_calendar",
+                        "create_calendar_event",
+                        "update_calendar_event",
+                        "cancel_calendar_event",
+                    ],
                     "hidden_controls": [
                         "provider",
                         "model",
@@ -1457,6 +1519,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
     _ensure_target(db, workspace)
     _ensure_filter(db, workspace)
     _ensure_rag_preset(db, workspace)
+    ensure_calendar_seed(db, workspace)
 
     system_specs = [
         {
@@ -1470,6 +1533,11 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "project_risk_explainer_v1",
                 "territorial_signal_map_v1",
                 "instruction_draft_v1",
+                "calendar_read_v1",
+                "calendar_create_event_v1",
+                "calendar_update_event_v1",
+                "calendar_cancel_event_v1",
+                "calendar_daily_summary_v1",
                 "voice_tandem_oracle_v1",
                 "audit_log_v1",
             ],
@@ -1479,7 +1547,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "name": "Briefing Quotidien Ministre",
             "objective": "Produire un briefing sourcé : priorites, risques, decisions attendues, actions et elements de langage.",
             "capability_slug": "ministerial_daily_briefing",
-            "skill_slugs": ["ministerial_briefing_v1", "llm_rag_answer_v1", "audit_log_v1"],
+            "skill_slugs": ["ministerial_briefing_v1", "calendar_daily_summary_v1", "llm_rag_answer_v1", "audit_log_v1"],
             "variant": "ministerial_daily_briefing",
         },
         {

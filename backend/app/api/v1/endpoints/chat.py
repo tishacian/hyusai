@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.validation import QueryValidator, ResponseValidator
@@ -25,7 +25,7 @@ from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
 from app.models.run import Run
 from app.models.system import System
-from app.models.user import Message
+from app.models.user import Message, User
 from app.models.workspace import Workspace
 from app.api.v1.endpoints.agents import get_orchestrator
 from app.services.evaluation.auto_eval import schedule_eval
@@ -33,6 +33,7 @@ from app.services.evaluation.canonical_answer_service import (
     find_canonical_answer,
     record_hit,
 )
+from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
 logger = get_logger(__name__)
 router = APIRouter()
 query_validator = QueryValidator()
@@ -238,6 +239,7 @@ def _collect_chat_chunk(
 async def chat_completion(
     request: ChatRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Non-streaming chat completion (scoped to current workspace)."""
@@ -311,6 +313,43 @@ async def chat_completion(
                 "canonical_answer_score": match_score,
             }
 
+        calendar_action = handle_calendar_chat_action(
+            db,
+            workspace,
+            user,
+            query=validated_query,
+            assistant_profile=request.assistant_profile,
+        )
+        if calendar_action:
+            content = calendar_action["content"]
+            run_completed_at = datetime.utcnow()
+            run_id = _persist_chat_run(
+                db,
+                workspace_id=workspace.id,
+                system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                query=validated_query,
+                response_text=content,
+                sources=[{"title": "Agenda institutionnel", "source_label": "Agenda institutionnel", "kind": "calendar"}],
+                reasoning_trace=None,
+                started_at=run_completed_at,
+                completed_at=run_completed_at,
+                duration_ms=0.0,
+                trigger="calendar_action",
+                extra_output={
+                    "calendar_action": calendar_action,
+                    "assistant_profile": request.assistant_profile,
+                    "knowledge_scope": request.knowledge_scope,
+                },
+            )
+            db.commit()
+            return {
+                "run_id": run_id,
+                "content": content,
+                "sources": [{"title": "Agenda institutionnel", "kind": "calendar"}],
+                "status": "completed",
+                "calendar_action": calendar_action,
+            }
+
         orchestrator = get_orchestrator()
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -322,6 +361,8 @@ async def chat_completion(
         request_dict["query"] = validated_query
         request_dict["workspace_slug"] = workspace.slug
         request_dict["workspace_id"] = workspace.id
+        if request.assistant_profile == "vigie_executive":
+            request_dict.setdefault("context", {})["workspace_calendar"] = calendar_context_for_chat(db, workspace)
 
         # If the cockpit sent a per-query override, promote it onto the
         # legacy pipeline-mode key so downstream code picks it up without
@@ -474,6 +515,7 @@ async def chat_completion(
 async def chat_stream(
     request: ChatRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Streaming chat completion (scoped to current workspace)."""
@@ -579,6 +621,77 @@ async def chat_stream(
                 )
                 yield _sse_done()
                 return
+
+            calendar_action = handle_calendar_chat_action(
+                db,
+                workspace,
+                user,
+                query=validated_query,
+                assistant_profile=request.assistant_profile,
+            )
+            if calendar_action:
+                content = calendar_action["content"]
+                if request.session_id:
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="user",
+                            content=request.query,
+                            meta_data={},
+                        )
+                    )
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="assistant",
+                            content=content,
+                            meta_data={"calendar_action": calendar_action},
+                        )
+                    )
+                now = datetime.utcnow()
+                run_id = _persist_chat_run(
+                    db,
+                    workspace_id=workspace.id,
+                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    query=validated_query,
+                    response_text=content,
+                    sources=[{"title": "Agenda institutionnel", "source_label": "Agenda institutionnel", "kind": "calendar"}],
+                    reasoning_trace=None,
+                    started_at=now,
+                    completed_at=now,
+                    duration_ms=0.0,
+                    trigger="calendar_action",
+                    schedule=False,
+                    extra_output={
+                        "calendar_action": calendar_action,
+                        "assistant_profile": request.assistant_profile,
+                        "knowledge_scope": request.knowledge_scope,
+                    },
+                )
+                db.commit()
+                yield _sse_data(
+                    {
+                        "chunk_type": "action_result",
+                        "action": calendar_action.get("action"),
+                        "applied": calendar_action.get("applied"),
+                        "calendar_action": calendar_action,
+                        "run_id": run_id,
+                        "is_final": False,
+                    }
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": content,
+                        "sources": [{"title": "Agenda institutionnel", "kind": "calendar"}],
+                        "run_id": run_id,
+                        "is_final": True,
+                    }
+                )
+                yield _sse_done()
+                return
             
             # Apply settings defaults if not provided
             if not request_dict.get("agent_preferences"):
@@ -649,6 +762,10 @@ async def chat_stream(
                     request_dict["context"] = {}
                 request_dict["context"]["conversation_history"] = conversation_history
                 request_dict["context"]["memory_type"] = "long_term"  # Default to long-term memory
+            if request.assistant_profile == "vigie_executive":
+                if not request_dict.get("context"):
+                    request_dict["context"] = {}
+                request_dict["context"]["workspace_calendar"] = calendar_context_for_chat(db, workspace)
             
             # Add RAG settings if provided
             if request.top_k is not None:

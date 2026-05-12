@@ -37,7 +37,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
               class="rounded px-2 py-1 text-[10px] uppercase tracking-wider ring-1"
               [ngClass]="statusClass(connector.status)"
             >
-              {{ connector.status }}
+              {{ connectorStatus(connector) }}
             </span>
           </div>
 
@@ -53,6 +53,14 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
               >
                 <app-icon name="arrow-right" [size]="14" />
                 Open workspace deposit
+              </a>
+            } @else if (connector.id === 'institutional_calendar') {
+              <a
+                routerLink="/hypervisor/mission-room/agenda"
+                class="inline-flex w-full items-center justify-center gap-2 rounded bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-400"
+              >
+                <app-icon name="arrow-right" [size]="14" />
+                Open agenda
               </a>
             } @else if (connector.id === 'sharepoint') {
               <a
@@ -81,9 +89,28 @@ export class ConnectorsPageComponent {
   private readonly workspace = inject(WorkspaceService);
 
   readonly workspaceName = computed(() => this.workspace.current()?.name || this.workspace.currentSlug() || 'current workspace');
-  readonly connectors = computed<ConnectorDef[]>(() =>
-    CONNECTORS.filter((connector) => connector.status !== 'coming-soon' || connector.id === 'sharepoint'),
-  );
+  readonly connectors = computed<ConnectorDef[]>(() => {
+    const workspace = this.workspace.current();
+    const settings = (workspace?.settings || {}) as Record<string, any>;
+    const connectorSettings = (settings['connectors'] || {}) as Record<string, any>;
+    const calendar = (settings['calendar'] || {}) as Record<string, any>;
+    const enabled = new Set<string>();
+    if (calendar['connector_id'] === 'institutional_calendar' || connectorSettings['institutional_calendar']?.enabled) {
+      enabled.add('institutional_calendar');
+    }
+    if (workspace?.slug === 'andritz' || connectorSettings['secure_deposit']?.enabled || connectorSettings['sftp']?.enabled) {
+      enabled.add('sftp');
+    }
+    if (connectorSettings['sharepoint']?.enabled) {
+      enabled.add('sharepoint');
+    }
+    return CONNECTORS.filter((connector) => enabled.has(connector.id));
+  });
+
+  connectorStatus(connector: ConnectorDef): string {
+    if (connector.id === 'institutional_calendar') return 'connected';
+    return connector.status;
+  }
 
   statusClass(status: ConnectorDef['status']): string {
     if (status === 'active') return 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20';

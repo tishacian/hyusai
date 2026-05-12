@@ -113,6 +113,17 @@ export const CONNECTORS: ConnectorDef[] = [
       { key: 'shared', label: 'Shared mailbox alias', type: 'email' },
     ],
   },
+  {
+    id: 'institutional_calendar',
+    category: 'microsoft',
+    icon: 'calendar',
+    name: 'Agenda institutionnel',
+    description: 'Canal agenda partage workspace, lisible et modifiable par les assistants autorises.',
+    version: 'Internal shared v1',
+    status: 'active',
+    backendPrefix: 'calendar',
+    fields: [],
+  },
 
   // Communication channels
   {

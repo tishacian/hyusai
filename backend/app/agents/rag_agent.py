@@ -73,6 +73,7 @@ class RAGAgent(BaseAgent):
         conversation_history = []
         if request.get("context", {}).get("conversation_history"):
             conversation_history = request["context"]["conversation_history"]
+        workspace_context = request.get("context", {}).get("workspace_calendar") or ""
         
         # Decision Step 1: Query Analysis
         analysis_start = time.time()
@@ -325,6 +326,8 @@ class RAGAgent(BaseAgent):
         # The selector can be "auto" (or None) — in which case we fall
         # back to the legacy markdown-first prompt used historically.
         prompt_type = request.get("prompt_type") or request.get("default_prompt_type")
+        if workspace_context:
+            context = (context + "\n\n" if context else "") + f"[Agenda institutionnel]\n{workspace_context}"
         template_text = self._render_reasoning_template(prompt_type, query, context, conversation_history)
         if template_text is not None:
             prompt = template_text
@@ -553,4 +556,3 @@ If the question is about a specific topic, include background information and co
         """Cleanup resources"""
         self.status = "inactive"
         self.initialized = False
-

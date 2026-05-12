@@ -15,6 +15,7 @@ def _client(db_session, workspace: Workspace, orchestrator, monkeypatch) -> Test
     app = FastAPI()
     app.include_router(chat.router, prefix="/chat")
     app.dependency_overrides[chat.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[chat.get_current_user] = lambda: None
     app.dependency_overrides[chat.get_db] = lambda: db_session
     monkeypatch.setattr(chat, "get_orchestrator", lambda: orchestrator)
     monkeypatch.setattr(chat, "schedule_eval", lambda _run_id: None)

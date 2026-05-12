@@ -299,6 +299,129 @@ async def _instruction_draft_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
     )
 
 
+def _calendar_db_and_workspace(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> tuple[Any, Any]:
+    from app.db.base import SessionLocal
+    from app.models.workspace import Workspace
+
+    ctx = ctx or {}
+    db = ctx.get("db")
+    owns_db = False
+    if db is None:
+        db = SessionLocal()
+        owns_db = True
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    workspace_slug = ctx.get("workspace_slug") or payload.get("workspace_slug")
+    query = db.query(Workspace)
+    workspace = None
+    if workspace_id:
+        workspace = query.filter(Workspace.id == workspace_id).first()
+    if workspace is None and workspace_slug:
+        workspace = query.filter(Workspace.slug == workspace_slug).first()
+    if workspace is None:
+        if owns_db:
+            db.close()
+        raise ValueError("calendar skill requires workspace_id or workspace_slug")
+    return db, workspace
+
+
+async def _calendar_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.workspace_calendar import list_events, serialize_event
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        events = list_events(db, workspace, status=payload.get("status"))
+        return {"events": [serialize_event(event) for event in events], "workspace_id": workspace.id}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _calendar_create_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.workspace_calendar import calendar_write_policy, create_event, serialize_event
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        start_at = datetime.fromisoformat(str(payload["start_at"]).replace("Z", "+00:00")).replace(tzinfo=None)
+        end_at = (
+            datetime.fromisoformat(str(payload["end_at"]).replace("Z", "+00:00")).replace(tzinfo=None)
+            if payload.get("end_at")
+            else None
+        )
+        if calendar_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        event = create_event(
+            db,
+            workspace,
+            None,
+            title=str(payload["title"]),
+            start_at=start_at,
+            end_at=end_at,
+            location=str(payload.get("location") or ""),
+            description=str(payload.get("description") or ""),
+            participants=list(payload.get("participants") or []),
+            priority=str(payload.get("priority") or "medium"),
+            metadata={"created_from": "skill", "skill_slug": "calendar_create_event_v1"},
+        )
+        db.commit()
+        return {"status": "applied", "applied": True, "event": serialize_event(event)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _calendar_update_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.workspace_calendar import calendar_write_policy, serialize_event, update_event
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if calendar_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        updates = dict(payload.get("updates") or {})
+        for key in ("title", "description", "location", "participants", "priority", "status", "start_at", "end_at"):
+            if key in payload and key not in updates:
+                updates[key] = payload[key]
+        event = update_event(db, workspace, None, str(payload["event_id"]), updates=updates)
+        db.commit()
+        return {"status": "applied", "applied": True, "event": serialize_event(event)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _calendar_cancel_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.workspace_calendar import calendar_write_policy, cancel_event, serialize_event
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if calendar_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        event = cancel_event(db, workspace, None, str(payload["event_id"]), reason=str(payload.get("reason") or "skill"))
+        db.commit()
+        return {"status": "applied", "applied": True, "event": serialize_event(event)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _calendar_daily_summary_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from datetime import date as dt_date
+
+    from app.services.workspace_calendar import summary_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        day = dt_date.fromisoformat(str(payload["day"])) if payload.get("day") else None
+        return summary_payload(db, workspace, day=day)
+    finally:
+        if owns_db:
+            db.close()
+
+
 async def _sharepoint_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     # Real ingestion goes through the OAuth/MSAL flow in
     # `app.services.connectors.sharepoint_otp.ingester`. Triggering that
@@ -740,6 +863,11 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "project_risk_explainer_v1": (_project_risk_explainer_v1, "app.services.mission_room",         "bound"),
     "territorial_signal_map_v1": (_territorial_signal_map_v1, "app.services.mission_room",         "bound"),
     "instruction_draft_v1":    (_instruction_draft_v1,    "app.services.mission_room",             "bound"),
+    "calendar_read_v1":        (_calendar_read_v1,        "app.services.workspace_calendar",       "bound"),
+    "calendar_create_event_v1": (_calendar_create_event_v1, "app.services.workspace_calendar",     "bound"),
+    "calendar_update_event_v1": (_calendar_update_event_v1, "app.services.workspace_calendar",     "bound"),
+    "calendar_cancel_event_v1": (_calendar_cancel_event_v1, "app.services.workspace_calendar",     "bound"),
+    "calendar_daily_summary_v1": (_calendar_daily_summary_v1, "app.services.workspace_calendar",   "bound"),
     "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None,                                    "stub"),
     "voice_transcribe_v1":     (_voice_transcribe_v1,     "app.services.voice_runtime",            "bound"),
     "voice_tts_v1":            (_voice_tts_v1,            "app.services.voice_runtime",            "bound"),

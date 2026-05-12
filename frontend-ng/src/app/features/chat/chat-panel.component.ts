@@ -1803,6 +1803,11 @@ export class ChatPanelComponent {
           } else if (chunk.chunk_type === 'error' && chunk.content) {
             buffer += `\n\n⚠ ${chunk.content}`;
             this.streamBuffer.set(buffer);
+          } else if (chunk.chunk_type === 'action_result') {
+            const action = String((chunk as Record<string, unknown>)['action'] || '');
+            if (action.startsWith('calendar_')) {
+              window.dispatchEvent(new CustomEvent('agentium:calendar-updated', { detail: chunk }));
+            }
           } else if (chunk.chunk_type === 'eval_pending' && chunk.run_id) {
             // Backend persisted a Run for this turn and kicked the
             // auto-eval loop; start polling so we can surface a

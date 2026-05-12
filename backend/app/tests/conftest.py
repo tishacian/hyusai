@@ -70,6 +70,7 @@ def db_session():
         "safety_filters",
         "worker_jobs",
         "knowledge_collections",
+        "workspace_calendar_events",
         "skill_invocations",
         "canonical_answers",
         "evaluation_feedback",
