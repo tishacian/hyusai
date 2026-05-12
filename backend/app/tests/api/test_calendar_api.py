@@ -90,6 +90,9 @@ def test_calendar_summary_uses_internal_connector(db_session):
     assert body["connector"]["mode"] == "internal_shared"
     assert body["count"] >= 5
     assert body["events"][0]["title"] == "Conseil Defense restreint"
+    assert "conflict_score" in body
+    assert "recommended_moves" in body
+    assert body["decision_deadlines"] == []
 
 
 def test_vigie_calendar_action_writes_when_policy_is_direct(db_session):

@@ -12,6 +12,7 @@ from app.models.calendar import WorkspaceCalendarEvent
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
+from app.services.calendar_intelligence import analyze_calendar
 
 
 DEFAULT_TIMEZONE = "Africa/Abidjan"
@@ -300,7 +301,14 @@ def summary_payload(db: DBSession, workspace: Workspace, *, day: Optional[date] 
     end = start + timedelta(days=1)
     events = list_events(db, workspace, start=start, end=end)
     active = [event for event in events if event.status != "cancelled"]
-    conflicts = _conflicts(active)
+    try:
+        from app.services.action_plans import list_action_items
+
+        action_items = list_action_items(db, workspace, include_cancelled=False)
+    except Exception:
+        action_items = []
+    analysis = analyze_calendar(active, action_items=action_items, day=day)
+    conflicts = analysis["conflicts"]
     next_event = next((event for event in active if event.start_at.time() >= time(8, 0)), active[0] if active else None)
     payload = {
         "date": day.isoformat(),
@@ -314,7 +322,12 @@ def summary_payload(db: DBSession, workspace: Workspace, *, day: Optional[date] 
         "events": [serialize_event(event) for event in events],
         "count": len(active),
         "conflicts": conflicts,
-        "free_slots": _free_slots(active, day),
+        "free_slots": _clean_slots(analysis["free_slots"]),
+        "available_windows": _clean_slots(analysis["available_windows"]),
+        "recommended_moves": analysis["recommended_moves"],
+        "decision_deadlines": analysis["decision_deadlines"],
+        "conflict_score": analysis["conflict_score"],
+        "status": analysis["status"],
         "next_event": serialize_event(next_event) if next_event else None,
         "summary": _summary_text(active, conflicts),
     }
@@ -332,6 +345,8 @@ def calendar_context_for_chat(db: DBSession, workspace: Workspace) -> str:
         )
     if payload["conflicts"]:
         lines.append(f"Conflits detectes: {len(payload['conflicts'])}")
+    if payload.get("recommended_moves"):
+        lines.append("Recommandations agenda: " + "; ".join(move["title"] + " -> " + move["to"] for move in payload["recommended_moves"][:3]))
     return "\n".join(lines)
 
 
@@ -470,6 +485,10 @@ def _audit_summary(db: DBSession, workspace: Workspace, user: Optional[User], pa
         actor=_actor(user),
         details={"date": payload["date"], "events": payload["count"], "conflicts": len(payload["conflicts"])},
     )
+
+
+def _clean_slots(slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{key: value for key, value in slot.items() if key not in {"start_dt", "end_dt"}} for slot in slots]
 
 
 def _conflicts(events: list[WorkspaceCalendarEvent]) -> list[dict[str, Any]]:

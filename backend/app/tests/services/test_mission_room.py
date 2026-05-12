@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.models.capability import Capability
+from app.models.action_plan import WorkspaceActionItem
 from app.models.calendar import WorkspaceCalendarEvent
 from app.models.intelligence import FeedSource
 from app.models.rag_preset import RagPreset
@@ -42,6 +43,8 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["assistant_profiles"][0]["default_knowledge_scope"] == "vigie"
     assert workspace.settings["calendar"]["connector_id"] == "institutional_calendar"
     assert workspace.settings["calendar"]["write_policy"] == "direct"
+    assert workspace.settings["action_planner"]["write_policy"] == "direct"
+    assert workspace.settings["demo_time_context"]["current_date"] == "2026-04-15"
     assert workspace.settings["connectors"]["institutional_calendar"]["enabled"] is True
     assert workspace.settings["knowledge_scopes"][0]["collection_slugs"] == [
         "sentinel-ci-open-intelligence",
@@ -52,6 +55,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).count() == 1
     assert db_session.query(System).filter_by(workspace_id=workspace.id).count() == 6
     assert db_session.query(WorkspaceCalendarEvent).filter_by(workspace_id=workspace.id).count() >= 7
+    assert db_session.query(WorkspaceActionItem).filter_by(workspace_id=workspace.id).count() >= 3
     assert db_session.query(FeedSource).filter_by(workspace_id=workspace.id).count() >= 3
     preset = db_session.query(RagPreset).filter_by(workspace_id=workspace.id, is_default=True).one()
     assert preset.scope_id == workspace.id
@@ -87,6 +91,12 @@ def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):
         "calendar_update_event_v1",
         "calendar_cancel_event_v1",
         "calendar_daily_summary_v1",
+        "action_plan_create_v1",
+        "action_plan_reschedule_v1",
+        "action_plan_status_v1",
+        "action_plan_cancel_v1",
+        "time_context_set_v1",
+        "territorial_action_window_v1",
     ]:
         assert statuses[slug] == "bound"
 

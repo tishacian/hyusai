@@ -112,11 +112,14 @@ interface Project {
   cause: string;
   risk: string;
   options: string[];
+  scenario_options?: ScenarioOption[];
+  active_action?: ActionItem;
   sources: string[];
 }
 
 interface MapZone {
   id: string;
+  zone_id?: string;
   name: string;
   level: number;
   tone: string;
@@ -124,7 +127,38 @@ interface MapZone {
   polygon: string;
   signals: string[];
   recommendations: string[];
+  drivers?: string[];
+  scenario_options?: ScenarioOption[];
+  score?: { score: number; level_label: string; drivers?: string[]; computed_at?: string };
+  recommended_windows?: RecommendedWindow[];
+  active_action?: ActionItem;
   sources: string[];
+}
+
+interface ScenarioOption {
+  id: string;
+  label: string;
+  summary: string;
+  impact: string;
+  confidence: number;
+  confidence_label?: string;
+  cost_score?: number;
+  impact_score?: number;
+  time_sensitivity?: number;
+  risk_reduction?: number;
+  decision_score?: number;
+  rank?: number;
+  rationale?: string;
+  recommended?: boolean;
+}
+
+interface RecommendedWindow {
+  label: string;
+  start: string;
+  end: string;
+  why: string;
+  zone?: string;
+  target_id?: string;
 }
 
 interface NewsSignal {
@@ -233,8 +267,11 @@ interface MissionProjects {
 
 interface MissionMap {
   question: string;
+  map_system?: { id: string; slug: string; name: string; layers?: { key: string; label: string; visible: boolean }[] };
   map: { country: string; view_box: string; projection: string; accuracy: string };
   zones: MapZone[];
+  recommended_windows?: RecommendedWindow[];
+  score_summary?: { critical: number; watch: number; stable: number; top_zone?: MapZone | null };
   sources: SourceRef[];
 }
 
@@ -251,23 +288,90 @@ interface MissionNews {
 
 interface MissionTimeline {
   agenda: AgendaItem[];
+  action_items?: ActionItem[];
   messages: MessageItem[];
   summary: string;
   calendar?: {
     connector: { id: string; label: string; mode: string; status: string; write_policy: string };
     count: number;
-    conflicts: { event_ids: string[]; label: string }[];
-    free_slots: { start: string; end: string }[];
+    conflicts: CalendarConflict[];
+    free_slots: { start: string; end: string; label?: string; duration_min?: number }[];
+    available_windows?: { start: string; end: string; label?: string; duration_min?: number }[];
+    recommended_moves?: CalendarMove[];
+    decision_deadlines?: CalendarDeadline[];
+    conflict_score?: number;
+    status?: string;
     next_event?: AgendaItem | null;
     summary: string;
   };
+  conflicts?: CalendarConflict[];
+  recommended_moves?: CalendarMove[];
+  decision_deadlines?: CalendarDeadline[];
   sources: SourceRef[];
+}
+
+interface CalendarConflict {
+  type?: string;
+  severity?: string;
+  event_ids: string[];
+  action_id?: string;
+  label: string;
+  reason?: string;
+  suggestion?: string;
+}
+
+interface CalendarMove {
+  event_id: string;
+  title: string;
+  from: string;
+  to: string;
+  duration_min?: number;
+  why?: string;
+  severity?: string;
+}
+
+interface CalendarDeadline {
+  action_id: string;
+  title: string;
+  priority: string;
+  due_label?: string;
+  suggested_window?: { start: string; end: string; label?: string; duration_min?: number } | null;
 }
 
 interface MissionDecisions {
   decisions: DecisionItem[];
+  action_items?: ActionItem[];
+  action_summary?: {
+    count: number;
+    active: number;
+    critical: number;
+    completed: number;
+    cancelled: number;
+    next_due?: ActionItem | null;
+    write_policy?: string;
+  };
+  scenario_options?: ScenarioOption[];
   policy: Record<string, unknown>;
   sources: SourceRef[];
+}
+
+interface ActionItem {
+  id: string;
+  title: string;
+  description: string;
+  target_kind: string;
+  target_id: string;
+  target_label: string;
+  priority: string;
+  status: string;
+  due_at?: string | null;
+  due_label?: string;
+  owner_label: string;
+  source_kind: string;
+  source_id: string;
+  confidence: string;
+  recommended_window?: RecommendedWindow;
+  scenario_options?: ScenarioOption[];
 }
 
 interface MissionLibrary {
@@ -969,9 +1073,38 @@ export class MissionRailComponent {
                 <span>{{ option }}</span>
               }
             </div>
+            @if (project.scenario_options?.length) {
+              <h3>Scenarios d'arbitrage</h3>
+              <div class="scenario-grid">
+                @for (option of project.scenario_options || []; track option.id) {
+                  <article [class.recommended]="option.recommended">
+                    <strong>{{ option.label }}</strong>
+                    <span>{{ option.decision_score || confidencePct(option.confidence) }}</span>
+                    <p>{{ option.summary }}</p>
+                    <small>{{ option.impact }}</small>
+                    <div class="scenario-metrics">
+                      <i>impact {{ option.impact_score ?? '—' }}</i>
+                      <i>effort {{ option.cost_score ?? '—' }}</i>
+                      <i>conf. {{ confidencePct(option.confidence) }}</i>
+                    </div>
+                  </article>
+                }
+              </div>
+            }
+            @if (project.active_action) {
+              <div class="action-linked">
+                <span>Action active</span>
+                <strong>{{ project.active_action.title }}</strong>
+                <small>{{ project.active_action.owner_label }} · {{ project.active_action.due_label }}</small>
+              </div>
+            }
             <button type="button" class="action-button wide" (click)="draftForProject(project)">
               <ck-glyph name="ledger" [size]="15" />
               <span>Creer instruction Directeur de cabinet</span>
+            </button>
+            <button type="button" class="action-button wide" (click)="createActionForProject(project)">
+              <ck-glyph name="check" [size]="15" />
+              <span>Ajouter action cabinet</span>
             </button>
           }
         </article>
@@ -1008,6 +1141,33 @@ export class MissionRailComponent {
               <small>{{ timeline()?.calendar?.free_slots?.[0]?.end || 'aucun creneau' }}</small>
             </article>
           </div>
+          <div class="linked-action-strip">
+            @for (item of timeline()?.action_items || []; track item.id) {
+              <button type="button" (click)="goToDecisions()">
+                <span [class]="item.priority">{{ item.priority }}</span>
+                <strong>{{ item.title }}</strong>
+                <small>{{ item.due_label }} · {{ item.owner_label }}</small>
+              </button>
+            }
+          </div>
+          @if ((timeline()?.calendar?.conflicts?.length || 0) > 0 || (timeline()?.calendar?.recommended_moves?.length || 0) > 0) {
+            <div class="calendar-intelligence">
+              @for (conflict of timeline()?.calendar?.conflicts || []; track conflict.label) {
+                <article>
+                  <span [class]="conflict.severity || 'medium'">{{ conflict.severity || 'watch' }}</span>
+                  <strong>{{ conflict.label }}</strong>
+                  <small>{{ conflict.reason || conflict.suggestion }}</small>
+                </article>
+              }
+              @for (move of timeline()?.calendar?.recommended_moves || []; track move.event_id + move.to) {
+                <article class="move">
+                  <span>move</span>
+                  <strong>{{ move.title }}</strong>
+                  <small>{{ move.from }} → {{ move.to }} · {{ move.why }}</small>
+                </article>
+              }
+            </div>
+          }
         </article>
 
         <article class="content-panel agenda-timeline-panel">
@@ -1309,6 +1469,20 @@ export class MissionRailComponent {
           <span class="eyebrow">Decisions</span>
           <h2>Validation humaine requise</h2>
           <p>Les recommandations preparent l'arbitrage ; chaque instruction reste soumise a validation.</p>
+          <div class="decision-kpis">
+            <article>
+              <strong>{{ decisions()?.action_summary?.active || 0 }}</strong>
+              <span>actions actives</span>
+            </article>
+            <article>
+              <strong>{{ decisions()?.action_summary?.critical || 0 }}</strong>
+              <span>prioritaires</span>
+            </article>
+            <article>
+              <strong>{{ decisions()?.action_summary?.completed || 0 }}</strong>
+              <span>terminees</span>
+            </article>
+          </div>
           <div class="decision-list">
             @for (decision of decisions()?.decisions || []; track decision.id) {
               <button type="button" (click)="createDraft(decision.target_id, decision.target_type)">
@@ -1320,6 +1494,26 @@ export class MissionRailComponent {
           </div>
         </article>
         <article class="content-panel selected-detail">
+          <span class="eyebrow">Actions cabinet</span>
+          <h2>Suivi operationnel</h2>
+          <div class="action-item-list">
+            @for (item of decisions()?.action_items || []; track item.id) {
+              <article [class]="item.priority" [class.done]="item.status === 'completed'" [class.cancelled]="item.status === 'cancelled'">
+                <div>
+                  <span class="status-pill" [class]="item.priority">{{ item.priority }}</span>
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.owner_label }} · {{ item.due_label || 'a planifier' }} · {{ item.status }}</small>
+                  @if (item.description) { <p>{{ item.description }}</p> }
+                </div>
+                <div class="action-row">
+                  <button type="button" (click)="completeAction(item)" [disabled]="item.status === 'completed' || item.status === 'cancelled'">Terminer</button>
+                  <button type="button" class="danger" (click)="cancelAction(item)" [disabled]="item.status === 'completed' || item.status === 'cancelled'">Annuler</button>
+                </div>
+              </article>
+            }
+          </div>
+        </article>
+        <article class="content-panel selected-detail span-2">
           @if (draft(); as draftValue) {
             <span class="eyebrow">Brouillon</span>
             <h2>{{ draftValue.title }}</h2>
@@ -1343,6 +1537,10 @@ export class MissionRailComponent {
         <article class="content-panel map-panel">
           <span class="eyebrow">Carte strategique</span>
           <h2>{{ missionMap()?.question }}</h2>
+          <div class="map-system-strip">
+            <span>{{ missionMap()?.map_system?.name || 'Systeme cartographique workspace' }}</span>
+            <small>{{ missionMap()?.score_summary?.critical || 0 }} critiques · {{ missionMap()?.score_summary?.watch || 0 }} en veille</small>
+          </div>
           <svg class="territory-map" [attr.viewBox]="missionMap()?.map?.view_box || '200 40 470 480'" role="img">
             @for (zone of missionMap()?.zones || []; track zone.id) {
               <polygon
@@ -1359,20 +1557,64 @@ export class MissionRailComponent {
           @if (selectedZone(); as zone) {
             <span class="eyebrow">Zone selectionnee</span>
             <h2>{{ zone.name }} · {{ zone.level }}%</h2>
+            @if (zone.drivers?.length) {
+              <div class="driver-list">
+                @for (driver of zone.drivers || []; track driver) {
+                  <span>{{ driver }}</span>
+                }
+              </div>
+            }
             <div class="library-list">
               @for (signal of zone.signals; track signal) {
                 <article><strong>{{ signal }}</strong></article>
               }
             </div>
+            @if (zone.scenario_options?.length) {
+              <h3>Options conseillees</h3>
+              <div class="scenario-grid compact">
+                @for (option of zone.scenario_options || []; track option.id) {
+                  <article [class.recommended]="option.recommended">
+                    <strong>{{ option.label }}</strong>
+                    <span>{{ option.decision_score || confidencePct(option.confidence) }}</span>
+                    <p>{{ option.summary }}</p>
+                  </article>
+                }
+              </div>
+            }
             <h3>Actions preventives non militaires</h3>
             <div class="option-list">
               @for (recommendation of zone.recommendations; track recommendation) {
                 <span>{{ recommendation }}</span>
               }
             </div>
+            @if (zone.recommended_windows?.length) {
+              <h3>Fenetres recommandees</h3>
+              <div class="window-list">
+                @for (window of zone.recommended_windows || []; track window.label) {
+                  <article>
+                    <time>{{ window.start }}-{{ window.end }}</time>
+                    <div>
+                      <strong>{{ window.label }}</strong>
+                      <small>{{ window.why }}</small>
+                    </div>
+                  </article>
+                }
+              </div>
+            }
+            @if (zone.active_action) {
+              <div class="action-linked">
+                <span>Action active</span>
+                <strong>{{ zone.active_action.title }}</strong>
+                <small>{{ zone.active_action.owner_label }} · {{ zone.active_action.due_label }}</small>
+              </div>
+            }
             <button type="button" class="action-button wide" (click)="draftForZone(zone)">
               <ck-glyph name="ledger" [size]="15" />
               <span>Creer instruction preventive</span>
+            </button>
+            <button type="button" class="action-button wide" (click)="createActionForZone(zone)">
+              <ck-glyph name="check" [size]="15" />
+              <span>Ajouter action territoriale</span>
             </button>
           }
         </article>
@@ -1909,6 +2151,74 @@ export class MissionRailComponent {
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 10px;
       }
+      .linked-action-strip {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .linked-action-strip button {
+        min-width: 0;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-inset);
+        color: var(--mission-text-soft);
+        padding: 10px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .linked-action-strip span,
+      .linked-action-strip small {
+        display: block;
+        color: var(--mission-text-muted);
+        font-size: 11px;
+      }
+      .linked-action-strip span.critical,
+      .linked-action-strip span.high { color: var(--mission-danger); }
+      .linked-action-strip span.medium { color: var(--mission-warn); }
+      .linked-action-strip strong {
+        display: block;
+        margin: 4px 0;
+        color: var(--mission-text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .calendar-intelligence {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .calendar-intelligence article {
+        min-width: 0;
+        padding: 11px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.035), rgba(126, 205, 255, 0.035));
+      }
+      .calendar-intelligence span {
+        color: var(--mission-warn);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .calendar-intelligence span.critical,
+      .calendar-intelligence span.high { color: var(--mission-danger); }
+      .calendar-intelligence article.move span { color: var(--mission-accent); }
+      .calendar-intelligence strong,
+      .calendar-intelligence small {
+        display: block;
+        overflow-wrap: anywhere;
+      }
+      .calendar-intelligence strong { margin: 5px 0 3px; }
+      .calendar-intelligence small {
+        color: var(--mission-text-muted);
+        line-height: 1.35;
+      }
       .agenda-status-grid article {
         min-width: 0;
         padding: 12px;
@@ -2241,6 +2551,167 @@ export class MissionRailComponent {
         border-color: var(--mission-border-strong);
         background: var(--mission-accent-wash);
       }
+      .decision-kpis {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin: 14px 0;
+      }
+      .decision-kpis article,
+      .action-linked {
+        padding: 11px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-inset);
+      }
+      .decision-kpis strong,
+      .decision-kpis span,
+      .action-linked strong,
+      .action-linked span,
+      .action-linked small {
+        display: block;
+      }
+      .decision-kpis strong {
+        color: var(--mission-accent);
+        font-family: var(--ck-font-mono);
+        font-size: 21px;
+      }
+      .decision-kpis span,
+      .action-linked span,
+      .action-linked small {
+        color: var(--mission-text-muted);
+        font-size: 11px;
+      }
+      .action-linked {
+        margin: 12px 0 0;
+      }
+      .action-linked strong {
+        margin: 4px 0;
+        color: var(--mission-text);
+      }
+      .scenario-grid,
+      .action-item-list,
+      .window-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .scenario-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .scenario-grid article,
+      .action-item-list article,
+      .window-list article {
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-panel-hi);
+      }
+      .scenario-grid article.recommended {
+        border-color: var(--mission-border-strong);
+        background: var(--mission-accent-wash);
+      }
+      .scenario-grid strong,
+      .scenario-grid span,
+      .scenario-grid small,
+      .window-list time,
+      .window-list strong,
+      .window-list small {
+        display: block;
+      }
+      .scenario-grid span,
+      .window-list time {
+        color: var(--mission-accent);
+        font-family: var(--ck-font-mono);
+        font-size: 11px;
+      }
+      .scenario-grid p {
+        margin: 6px 0;
+        font-size: 13px;
+      }
+      .scenario-grid.compact { grid-template-columns: 1fr; }
+      .scenario-metrics {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .scenario-metrics i {
+        padding: 4px 7px;
+        border-radius: 999px;
+        border: 1px solid var(--mission-border);
+        color: var(--mission-text-muted);
+        font-style: normal;
+        font-size: 10px;
+      }
+      .scenario-grid small,
+      .window-list small {
+        color: var(--mission-text-muted);
+        line-height: 1.4;
+      }
+      .action-item-list article {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+      }
+      .action-item-list article.done,
+      .action-item-list article.cancelled {
+        opacity: 0.62;
+      }
+      .action-item-list p {
+        margin: 5px 0 0;
+        font-size: 12px;
+      }
+      .action-row {
+        display: flex;
+        gap: 7px;
+        flex-wrap: wrap;
+      }
+      .action-row button {
+        min-height: 31px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-inset);
+        color: var(--mission-text-soft);
+        padding: 6px 9px;
+        cursor: pointer;
+      }
+      .action-row button.danger {
+        border-color: rgba(240, 100, 118, 0.26);
+        color: var(--mission-danger);
+        background: var(--mission-danger-wash);
+      }
+      .action-row button:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+      .window-list article {
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr);
+        gap: 10px;
+      }
+      .map-system-strip,
+      .driver-list {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 10px 0 12px;
+      }
+      .map-system-strip {
+        justify-content: space-between;
+        color: var(--mission-text-muted);
+        font-size: 12px;
+      }
+      .driver-list span {
+        padding: 5px 8px;
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        background: var(--mission-panel-hi);
+        color: var(--mission-text-soft);
+        font-size: 11px;
+      }
       .project-list small,
       .decision-list small,
       .library-list small {
@@ -2334,6 +2805,9 @@ export class MissionRailComponent {
         .cockpit-grid > * { grid-column: span 12 !important; }
         .two-column, .ministerial-news, .map-layout, .agenda-workbench, .agenda-command { grid-template-columns: 1fr; }
         .agenda-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .linked-action-strip,
+        .calendar-intelligence,
+        .scenario-grid { grid-template-columns: 1fr; }
       }
       @media (max-width: 840px) {
         :host { height: auto; overflow: auto; }
@@ -2576,6 +3050,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.router.navigateByUrl('/hypervisor/mission-room/agenda');
   }
 
+  goToDecisions(): void {
+    this.router.navigateByUrl('/hypervisor/mission-room/decisions');
+  }
+
   sourceLabel(sourceId: string): string {
     return this.sources().get(sourceId)?.label || sourceId;
   }
@@ -2603,6 +3081,64 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   draftForZone(zone: MapZone): void {
     this.createDraft(zone.id, 'zone');
+  }
+
+  createActionForProject(project: Project): void {
+    const scenario = project.scenario_options?.find((item) => item.recommended) || project.scenario_options?.[0];
+    this.createAction({
+      title: `Arbitrer ${project.name}`,
+      description: scenario?.summary || project.risk,
+      target_kind: 'project',
+      target_id: project.id,
+      target_label: project.name,
+      priority: project.weather === 'red' ? 'high' : 'medium',
+      owner_label: project.owner || 'Cabinet',
+      source_kind: 'mission_room_project',
+      source_id: project.id,
+      recommended_window: {
+        label: 'Fenetre cabinet',
+        start: '16:10',
+        end: '16:45',
+        why: 'Arbitrage possible avant la prochaine sequence institutionnelle.',
+      },
+    });
+  }
+
+  createActionForZone(zone: MapZone): void {
+    const window = zone.recommended_windows?.[0];
+    this.createAction({
+      title: `Action preventive ${zone.name}`,
+      description: zone.recommendations?.[0] || 'Qualifier le signal territorial et preparer une action non militaire.',
+      target_kind: 'zone',
+      target_id: zone.id,
+      target_label: zone.name,
+      priority: zone.level >= 80 ? 'critical' : zone.level >= 50 ? 'high' : 'medium',
+      owner_label: 'Cabinet territorial',
+      source_kind: 'mission_room_map',
+      source_id: zone.id,
+      recommended_window: window,
+    });
+  }
+
+  private createAction(payload: Partial<ActionItem> & { title: string }): void {
+    this.api
+      .post<ActionItem>('/action-plans/', {
+        ...payload,
+        due_at: payload.due_at || null,
+        confidence: payload.confidence || 'medium',
+      })
+      .subscribe((item) => {
+        this.loadAll();
+        this.openAssistant(`Action cabinet ajoutee : ${item.title}. Resume les prochaines etapes et les sources utiles.`);
+      });
+  }
+
+  completeAction(item: ActionItem): void {
+    this.api.post<ActionItem>(`/action-plans/${item.id}/complete`, {}).subscribe(() => this.loadAll());
+  }
+
+  cancelAction(item: ActionItem): void {
+    this.api.post<ActionItem>(`/action-plans/${item.id}/cancel`, { reason: 'Arbitrage depuis Mission Room' }).subscribe(() => this.loadAll());
   }
 
   selectAgendaEvent(event: AgendaItem): void {

@@ -35,4 +35,8 @@ __all__ = [
     "catalog",
     "blueprints",
     "mission_room",
+    "calendar",
+    "action_plans",
+    "workspace_jobs",
+    "maps",
 ]

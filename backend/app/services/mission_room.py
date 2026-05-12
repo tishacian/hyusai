@@ -30,6 +30,14 @@ from app.services.workspace_calendar import (
     serialize_event as serialize_calendar_event,
     summary_payload as calendar_summary_payload,
 )
+from app.services.action_plans import (
+    ensure_action_plan_seed,
+    list_action_items,
+    serialize_action_item,
+    summary_payload as action_plan_summary_payload,
+)
+from app.services.scenario_engine import generate_scenarios
+from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
 
 
 SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
@@ -903,21 +911,82 @@ def briefing_payload(workspace: Workspace) -> dict[str, Any]:
     }
 
 
-def projects_payload(workspace: Workspace) -> dict[str, Any]:
+def _scenario_options_for(target_id: str) -> list[dict[str, Any]]:
+    risk_level = "high" if any(token in target_id for token in ("health", "north", "nord", "red")) else "medium"
+    target_kind = "zone" if any(token in target_id for token in ("zone", "nord", "north")) else ("project" if "proj" in target_id else "decision")
+    return generate_scenarios(
+        target_kind=target_kind,
+        target_id=target_id,
+        risk_level=risk_level,
+        source_refs=["src-cabinet-brief-001", "src-press-rfi-017"],
+        signal_strength=78 if risk_level == "high" else 52,
+        agenda_pressure=60 if risk_level == "high" else 30,
+    )
+
+
+def _recommended_windows_for(target_id: str) -> list[dict[str, Any]]:
+    if "nord" in target_id or "north" in target_id:
+        return [
+            {
+                "label": "Avant point presse",
+                "start": "10:00",
+                "end": "10:45",
+                "why": "Dernier creneau avant expression publique et avant amplification potentielle.",
+            },
+            {
+                "label": "Apres revue operations",
+                "start": "16:10",
+                "end": "16:45",
+                "why": "Fenetre utile pour arbitrage cabinet avant sequence parlementaire.",
+            },
+        ]
+    return [
+        {
+            "label": "Creneau cabinet court",
+            "start": "12:00",
+            "end": "12:25",
+            "why": "Fenetre de coordination avant prochaine sequence institutionnelle.",
+        }
+    ]
+
+
+def projects_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
+    projects = _clone(PROJECTS)
+    action_rows = list_action_items(db, workspace, include_cancelled=False) if db else []
+    actions_by_target = {item.target_id: serialize_action_item(item) for item in action_rows}
+    for project in projects:
+        project["scenario_options"] = _scenario_options_for(project["id"])
+        if project["id"] in actions_by_target:
+            project["active_action"] = actions_by_target[project["id"]]
     return {
         "workspace": _workspace_meta(workspace),
         "summary": {
-            "total": len(PROJECTS),
-            "red": sum(1 for p in PROJECTS if p["weather"] == "red"),
-            "orange": sum(1 for p in PROJECTS if p["weather"] == "orange"),
-            "green": sum(1 for p in PROJECTS if p["weather"] == "green"),
+            "total": len(projects),
+            "red": sum(1 for p in projects if p["weather"] == "red"),
+            "orange": sum(1 for p in projects if p["weather"] == "orange"),
+            "green": sum(1 for p in projects if p["weather"] == "green"),
         },
-        "projects": _clone(PROJECTS),
+        "projects": projects,
         "sources": source_index(),
     }
 
 
-def map_payload(workspace: Workspace) -> dict[str, Any]:
+def map_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
+    if db:
+        mapped = mission_room_map_payload(db, workspace)
+        return {
+            "workspace": _workspace_meta(workspace),
+            "question": "Quelles zones necessitent une action preventive non militaire ce mois-ci ?",
+            **mapped,
+            "sources": source_index(),
+        }
+    zones = _clone(MAP_ZONES)
+    action_rows = list_action_items(db, workspace, include_cancelled=False, target_kind="zone") if db else []
+    actions_by_target = {item.target_id: serialize_action_item(item) for item in action_rows}
+    for zone in zones:
+        zone["recommended_windows"] = _recommended_windows_for(zone["id"])
+        if zone["id"] in actions_by_target:
+            zone["active_action"] = actions_by_target[zone["id"]]
     return {
         "workspace": _workspace_meta(workspace),
         "question": "Quelles zones necessitent une action preventive non militaire ce mois-ci ?",
@@ -927,7 +996,11 @@ def map_payload(workspace: Workspace) -> dict[str, Any]:
             "projection": "illustrative_exec_demo",
             "accuracy": "strategic_demo_not_geospatial_reference",
         },
-        "zones": _clone(MAP_ZONES),
+        "zones": zones,
+        "recommended_windows": [
+            {"zone": zone["name"], "target_id": zone["id"], **(zone["recommended_windows"][0] if zone.get("recommended_windows") else {})}
+            for zone in zones
+        ],
         "sources": source_index(),
     }
 
@@ -938,21 +1011,30 @@ def news_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[s
 
 def timeline_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
     calendar_summary = calendar_summary_payload(db, workspace) if db else None
+    action_items = [serialize_action_item(row) for row in list_action_items(db, workspace, include_cancelled=False)[:6]] if db else []
     return {
         "workspace": _workspace_meta(workspace),
         "agenda": _agenda_items_from_calendar(workspace, db),
+        "action_items": action_items,
         "messages": _clone(MESSAGES),
         "summary": (calendar_summary or {}).get("summary")
         or "Agenda et messages institutionnels consolides depuis les canaux habilites.",
         "calendar": calendar_summary,
+        "conflicts": (calendar_summary or {}).get("conflicts") or [],
+        "recommended_moves": (calendar_summary or {}).get("recommended_moves") or [],
+        "decision_deadlines": (calendar_summary or {}).get("decision_deadlines") or [],
         "sources": source_index(),
     }
 
 
-def decisions_payload(workspace: Workspace) -> dict[str, Any]:
+def decisions_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
+    action_items = [serialize_action_item(row) for row in list_action_items(db, workspace, include_cancelled=True)] if db else []
     return {
         "workspace": _workspace_meta(workspace),
         "decisions": _clone(DECISIONS),
+        "action_items": action_items,
+        "action_summary": action_plan_summary_payload(db, workspace) if db else {},
+        "scenario_options": _scenario_options_for("decision-press-lines"),
         "policy": {
             "advisory_only": True,
             "human_validation_required": True,
@@ -1373,6 +1455,17 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "write_policy": "direct",
                 "timezone": "Africa/Abidjan",
             },
+            "demo_time_context": {
+                "mode": "fixed",
+                "current_date": "2026-04-15",
+                "label": "Mercredi 15 Avril 2026",
+                "timezone": "Africa/Abidjan",
+            },
+            "action_planner": {
+                "write_policy": "direct",
+                "default_owner": "Cabinet",
+                "advisory_only": True,
+            },
             "connectors": {
                 "institutional_calendar": {
                     "enabled": True,
@@ -1423,6 +1516,11 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         "create_calendar_event",
                         "update_calendar_event",
                         "cancel_calendar_event",
+                        "create_action_plan",
+                        "reschedule_action_plan",
+                        "status_action_plan",
+                        "cancel_action_plan",
+                        "set_time_context",
                     ],
                     "allowed_calendar_actions": [
                         "read_calendar",
@@ -1520,6 +1618,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
     _ensure_filter(db, workspace)
     _ensure_rag_preset(db, workspace)
     ensure_calendar_seed(db, workspace)
+    ensure_action_plan_seed(db, workspace)
 
     system_specs = [
         {
@@ -1533,11 +1632,24 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "project_risk_explainer_v1",
                 "territorial_signal_map_v1",
                 "instruction_draft_v1",
+                "scenario_generate_v1",
+                "scenario_compare_v1",
+                "scenario_recommend_v1",
+                "map_layer_read_v1",
+                "map_zone_score_v1",
+                "map_signal_attach_v1",
+                "map_recommendation_generate_v1",
                 "calendar_read_v1",
                 "calendar_create_event_v1",
                 "calendar_update_event_v1",
                 "calendar_cancel_event_v1",
                 "calendar_daily_summary_v1",
+                "action_plan_create_v1",
+                "action_plan_reschedule_v1",
+                "action_plan_status_v1",
+                "action_plan_cancel_v1",
+                "time_context_set_v1",
+                "territorial_action_window_v1",
                 "voice_tandem_oracle_v1",
                 "audit_log_v1",
             ],
@@ -1547,7 +1659,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "name": "Briefing Quotidien Ministre",
             "objective": "Produire un briefing sourcé : priorites, risques, decisions attendues, actions et elements de langage.",
             "capability_slug": "ministerial_daily_briefing",
-            "skill_slugs": ["ministerial_briefing_v1", "calendar_daily_summary_v1", "llm_rag_answer_v1", "audit_log_v1"],
+            "skill_slugs": ["ministerial_briefing_v1", "calendar_daily_summary_v1", "action_plan_status_v1", "llm_rag_answer_v1", "audit_log_v1"],
             "variant": "ministerial_daily_briefing",
         },
         {
@@ -1562,14 +1674,14 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "name": "Pilotage Projets Strategiques",
             "objective": "Expliquer les projets rouges, causes probables, risques et options d'arbitrage.",
             "capability_slug": "strategic_project_pilotage",
-            "skill_slugs": ["project_risk_explainer_v1", "semantic_search_v1", "instruction_draft_v1", "audit_log_v1"],
+            "skill_slugs": ["project_risk_explainer_v1", "scenario_generate_v1", "scenario_compare_v1", "scenario_recommend_v1", "semantic_search_v1", "instruction_draft_v1", "action_plan_create_v1", "action_plan_status_v1", "audit_log_v1"],
             "variant": "strategic_project_pilotage",
         },
         {
             "name": "Carte Strategique Executive",
             "objective": "Afficher les zones d'action preventive non militaire avec signaux, sources et recommandations.",
             "capability_slug": "territorial_action_map",
-            "skill_slugs": ["territorial_signal_map_v1", "chain_mixed_hah_v1", "audit_log_v1"],
+            "skill_slugs": ["territorial_signal_map_v1", "territorial_action_window_v1", "map_layer_read_v1", "map_zone_score_v1", "map_signal_attach_v1", "map_recommendation_generate_v1", "chain_mixed_hah_v1", "audit_log_v1"],
             "variant": "territorial_action_map",
         },
         {
@@ -1586,6 +1698,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         _ensure_system(db, workspace, **spec)
         if before == 0:
             systems_created += 1
+    map_system = db.query(System).filter(System.workspace_id == workspace.id, System.name == "Carte Strategique Executive").first()
+    ensure_workspace_map_seed(db, workspace, system_id=map_system.id if map_system else None)
 
     db.commit()
     return {

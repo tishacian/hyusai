@@ -279,8 +279,49 @@ async def _project_risk_explainer_v1(payload: Dict[str, Any], ctx: Optional[Dict
 async def _territorial_signal_map_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.services.mission_room import map_payload
 
-    workspace = _workspace_from_context(payload, ctx)
-    return map_payload(workspace)
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        return map_payload(workspace, db=db)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _scenario_generate_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.scenario_engine import generate_scenarios
+
+    return {
+        "options": generate_scenarios(
+            target_kind=str(payload.get("target_kind") or "cabinet"),
+            target_id=str(payload.get("target_id") or ""),
+            risk_level=str(payload.get("risk_level") or "medium"),
+            source_refs=list(payload.get("source_refs") or []),
+            agenda_pressure=int(payload.get("agenda_pressure") or 0),
+            signal_strength=int(payload.get("signal_strength") or 50),
+            context=dict(payload.get("context") or {}),
+        )
+    }
+
+
+async def _scenario_compare_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.scenario_engine import compare_scenarios
+
+    return compare_scenarios(list(payload.get("options") or []))
+
+
+async def _scenario_recommend_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.scenario_engine import recommend_scenario
+
+    return recommend_scenario(
+        target_kind=str(payload.get("target_kind") or "cabinet"),
+        target_id=str(payload.get("target_id") or ""),
+        risk_level=str(payload.get("risk_level") or "medium"),
+        source_refs=list(payload.get("source_refs") or []),
+        agenda_pressure=int(payload.get("agenda_pressure") or 0),
+        signal_strength=int(payload.get("signal_strength") or 50),
+        context=dict(payload.get("context") or {}),
+    )
 
 
 async def _instruction_draft_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -417,6 +458,214 @@ async def _calendar_daily_summary_v1(payload: Dict[str, Any], ctx: Optional[Dict
     try:
         day = dt_date.fromisoformat(str(payload["day"])) if payload.get("day") else None
         return summary_payload(db, workspace, day=day)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _action_plan_create_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.action_plans import action_planner_write_policy, create_action_item, serialize_action_item
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if action_planner_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        item = create_action_item(
+            db,
+            workspace,
+            None,
+            title=str(payload["title"]),
+            description=str(payload.get("description") or ""),
+            target_kind=str(payload.get("target_kind") or "cabinet"),
+            target_id=str(payload.get("target_id") or ""),
+            target_label=str(payload.get("target_label") or ""),
+            priority=str(payload.get("priority") or "medium"),
+            due_at=payload.get("due_at"),
+            owner_label=str(payload.get("owner_label") or "Cabinet"),
+            source_kind=str(payload.get("source_kind") or "skill"),
+            source_id=str(payload.get("source_id") or ""),
+            metadata={"created_from": "skill", "skill_slug": "action_plan_create_v1"},
+        )
+        db.commit()
+        return {"status": "applied", "applied": True, "item": serialize_action_item(item)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _action_plan_reschedule_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.action_plans import action_planner_write_policy, serialize_action_item, update_action_item
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if action_planner_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        item = update_action_item(db, workspace, None, str(payload["item_id"]), {"due_at": payload.get("due_at"), "status": "planned"})
+        db.commit()
+        return {"status": "applied", "applied": True, "item": serialize_action_item(item)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _action_plan_status_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.action_plans import list_action_items, serialize_action_item, summary_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        rows = list_action_items(db, workspace, status=payload.get("status"), include_cancelled=bool(payload.get("include_cancelled", True)))
+        return {"items": [serialize_action_item(row) for row in rows], "summary": summary_payload(db, workspace)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _action_plan_cancel_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.action_plans import action_planner_write_policy, cancel_action_item, serialize_action_item
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if action_planner_write_policy(workspace) == "approval_required":
+            return {"status": "proposal", "applied": False, "proposal": payload}
+        item = cancel_action_item(db, workspace, None, str(payload["item_id"]), reason=str(payload.get("reason") or "skill"))
+        db.commit()
+        return {"status": "applied", "applied": True, "item": serialize_action_item(item)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _time_context_set_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        settings = dict(workspace.settings or {})
+        settings["demo_time_context"] = {
+            "mode": str(payload.get("mode") or "fixed"),
+            "current_date": str(payload.get("current_date") or payload.get("date") or "2026-04-15"),
+            "label": str(payload.get("label") or "Contexte temporel ministeriel"),
+            "timezone": str(payload.get("timezone") or "Africa/Abidjan"),
+        }
+        workspace.settings = settings
+        db.add(workspace)
+        db.commit()
+        return {"status": "applied", "applied": True, "demo_time_context": settings["demo_time_context"]}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _territorial_action_window_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import map_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        body = map_payload(workspace, db=db)
+        target_id = payload.get("target_id") or payload.get("zone_id")
+        windows = body.get("recommended_windows") or []
+        if target_id:
+            windows = [window for window in windows if window.get("target_id") == target_id] or windows
+        return {"status": "ready", "recommended_windows": windows, "map": body.get("map")}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _map_layer_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_workspace_map_seed(db, workspace)
+        return mission_room_map_payload(db, workspace)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _map_zone_score_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.workspace_jobs import create_workspace_job, serialize_job
+    from app.services.workspace_maps import ensure_workspace_map_seed, get_workspace_map, score_map_zones
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_workspace_map_seed(db, workspace)
+        map_row = get_workspace_map(db, workspace, str(payload.get("map_slug") or payload.get("map_id") or "sentinel-ci-strategic-map"))
+        job = create_workspace_job(
+            db,
+            workspace,
+            None,
+            kind="map_zone_scoring",
+            title=f"Scoring carte · {map_row.name}",
+            input_ref={"map_id": map_row.id, "slug": map_row.slug},
+            status="queued",
+        )
+        result = score_map_zones(db, workspace, map_row, job=job)
+        db.commit()
+        return {"job": serialize_job(job), "result": result}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _map_signal_attach_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from uuid import uuid4
+
+    from app.models.workspace_map import WorkspaceMapSignal, WorkspaceMapZone
+    from app.services.workspace_maps import ensure_workspace_map_seed, get_workspace_map
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_workspace_map_seed(db, workspace)
+        map_row = get_workspace_map(db, workspace, str(payload.get("map_slug") or payload.get("map_id") or "sentinel-ci-strategic-map"))
+        zone = (
+            db.query(WorkspaceMapZone)
+            .filter(WorkspaceMapZone.map_id == map_row.id, WorkspaceMapZone.zone_key == str(payload["zone_key"]))
+            .first()
+        )
+        if not zone:
+            return {"status": "not_found", "warning": "map_zone_not_found"}
+        signal = WorkspaceMapSignal(
+            id=str(uuid4()),
+            map_id=map_row.id,
+            zone_id=zone.id,
+            source_kind=str(payload.get("source_kind") or "skill"),
+            source_id=str(payload.get("source_id") or ""),
+            title=str(payload["title"]),
+            summary=str(payload.get("summary") or ""),
+            weight=int(payload.get("weight") or 10),
+            confidence=float(payload.get("confidence") or 0.65),
+            occurred_at=datetime.utcnow(),
+            meta_data=dict(payload.get("metadata") or {}),
+        )
+        db.add(signal)
+        db.commit()
+        return {"status": "attached", "signal": {"id": signal.id, "zone_key": zone.zone_key, "title": signal.title}}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _map_recommendation_generate_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_workspace_map_seed(db, workspace)
+        body = mission_room_map_payload(db, workspace)
+        recommendations = []
+        for zone in body.get("zones") or []:
+            recommendations.extend(zone.get("scenario_options") or [])
+        return {"recommendations": recommendations, "score_summary": body.get("score_summary") or {}}
     finally:
         if owns_db:
             db.close()
@@ -863,11 +1112,24 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "project_risk_explainer_v1": (_project_risk_explainer_v1, "app.services.mission_room",         "bound"),
     "territorial_signal_map_v1": (_territorial_signal_map_v1, "app.services.mission_room",         "bound"),
     "instruction_draft_v1":    (_instruction_draft_v1,    "app.services.mission_room",             "bound"),
+    "scenario_generate_v1":    (_scenario_generate_v1,    "app.services.scenario_engine",          "bound"),
+    "scenario_compare_v1":     (_scenario_compare_v1,     "app.services.scenario_engine",          "bound"),
+    "scenario_recommend_v1":   (_scenario_recommend_v1,   "app.services.scenario_engine",          "bound"),
     "calendar_read_v1":        (_calendar_read_v1,        "app.services.workspace_calendar",       "bound"),
     "calendar_create_event_v1": (_calendar_create_event_v1, "app.services.workspace_calendar",     "bound"),
     "calendar_update_event_v1": (_calendar_update_event_v1, "app.services.workspace_calendar",     "bound"),
     "calendar_cancel_event_v1": (_calendar_cancel_event_v1, "app.services.workspace_calendar",     "bound"),
     "calendar_daily_summary_v1": (_calendar_daily_summary_v1, "app.services.workspace_calendar",   "bound"),
+    "action_plan_create_v1":    (_action_plan_create_v1,    "app.services.action_plans",           "bound"),
+    "action_plan_reschedule_v1": (_action_plan_reschedule_v1, "app.services.action_plans",         "bound"),
+    "action_plan_status_v1":    (_action_plan_status_v1,    "app.services.action_plans",           "bound"),
+    "action_plan_cancel_v1":    (_action_plan_cancel_v1,    "app.services.action_plans",           "bound"),
+    "time_context_set_v1":      (_time_context_set_v1,      "app.services.mission_room",           "bound"),
+    "territorial_action_window_v1": (_territorial_action_window_v1, "app.services.mission_room",   "bound"),
+    "map_layer_read_v1":        (_map_layer_read_v1,        "app.services.workspace_maps",          "bound"),
+    "map_zone_score_v1":        (_map_zone_score_v1,        "app.services.workspace_maps",          "bound"),
+    "map_signal_attach_v1":     (_map_signal_attach_v1,     "app.services.workspace_maps",          "bound"),
+    "map_recommendation_generate_v1": (_map_recommendation_generate_v1, "app.services.workspace_maps", "bound"),
     "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None,                                    "stub"),
     "voice_transcribe_v1":     (_voice_transcribe_v1,     "app.services.voice_runtime",            "bound"),
     "voice_tts_v1":            (_voice_tts_v1,            "app.services.voice_runtime",            "bound"),

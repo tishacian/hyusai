@@ -33,6 +33,7 @@ from app.services.evaluation.canonical_answer_service import (
     find_canonical_answer,
     record_hit,
 )
+from app.services.action_plans import action_context_for_chat, handle_action_plan_chat_action
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
 logger = get_logger(__name__)
 router = APIRouter()
@@ -350,6 +351,43 @@ async def chat_completion(
                 "calendar_action": calendar_action,
             }
 
+        action_plan_action = handle_action_plan_chat_action(
+            db,
+            workspace,
+            user,
+            query=validated_query,
+            assistant_profile=request.assistant_profile,
+        )
+        if action_plan_action:
+            content = action_plan_action["content"]
+            run_completed_at = datetime.utcnow()
+            run_id = _persist_chat_run(
+                db,
+                workspace_id=workspace.id,
+                system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                query=validated_query,
+                response_text=content,
+                sources=[{"title": "Actions cabinet", "source_label": "Actions cabinet", "kind": "action_plan"}],
+                reasoning_trace=None,
+                started_at=run_completed_at,
+                completed_at=run_completed_at,
+                duration_ms=0.0,
+                trigger="action_plan",
+                extra_output={
+                    "action_plan_action": action_plan_action,
+                    "assistant_profile": request.assistant_profile,
+                    "knowledge_scope": request.knowledge_scope,
+                },
+            )
+            db.commit()
+            return {
+                "run_id": run_id,
+                "content": content,
+                "sources": [{"title": "Actions cabinet", "kind": "action_plan"}],
+                "status": "completed",
+                "action_plan_action": action_plan_action,
+            }
+
         orchestrator = get_orchestrator()
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -363,6 +401,7 @@ async def chat_completion(
         request_dict["workspace_id"] = workspace.id
         if request.assistant_profile == "vigie_executive":
             request_dict.setdefault("context", {})["workspace_calendar"] = calendar_context_for_chat(db, workspace)
+            request_dict.setdefault("context", {})["workspace_actions"] = action_context_for_chat(db, workspace)
 
         # If the cockpit sent a per-query override, promote it onto the
         # legacy pipeline-mode key so downstream code picks it up without
@@ -692,6 +731,77 @@ async def chat_stream(
                 )
                 yield _sse_done()
                 return
+
+            action_plan_action = handle_action_plan_chat_action(
+                db,
+                workspace,
+                user,
+                query=validated_query,
+                assistant_profile=request.assistant_profile,
+            )
+            if action_plan_action:
+                content = action_plan_action["content"]
+                if request.session_id:
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="user",
+                            content=request.query,
+                            meta_data={},
+                        )
+                    )
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="assistant",
+                            content=content,
+                            meta_data={"action_plan_action": action_plan_action},
+                        )
+                    )
+                now = datetime.utcnow()
+                run_id = _persist_chat_run(
+                    db,
+                    workspace_id=workspace.id,
+                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    query=validated_query,
+                    response_text=content,
+                    sources=[{"title": "Actions cabinet", "source_label": "Actions cabinet", "kind": "action_plan"}],
+                    reasoning_trace=None,
+                    started_at=now,
+                    completed_at=now,
+                    duration_ms=0.0,
+                    trigger="action_plan",
+                    schedule=False,
+                    extra_output={
+                        "action_plan_action": action_plan_action,
+                        "assistant_profile": request.assistant_profile,
+                        "knowledge_scope": request.knowledge_scope,
+                    },
+                )
+                db.commit()
+                yield _sse_data(
+                    {
+                        "chunk_type": "action_result",
+                        "action": action_plan_action.get("action"),
+                        "applied": action_plan_action.get("applied"),
+                        "action_plan_action": action_plan_action,
+                        "run_id": run_id,
+                        "is_final": False,
+                    }
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": content,
+                        "sources": [{"title": "Actions cabinet", "kind": "action_plan"}],
+                        "run_id": run_id,
+                        "is_final": True,
+                    }
+                )
+                yield _sse_done()
+                return
             
             # Apply settings defaults if not provided
             if not request_dict.get("agent_preferences"):
@@ -766,6 +876,7 @@ async def chat_stream(
                 if not request_dict.get("context"):
                     request_dict["context"] = {}
                 request_dict["context"]["workspace_calendar"] = calendar_context_for_chat(db, workspace)
+                request_dict["context"]["workspace_actions"] = action_context_for_chat(db, workspace)
             
             # Add RAG settings if provided
             if request.top_k is not None:

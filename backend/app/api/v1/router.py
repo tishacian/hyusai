@@ -38,6 +38,9 @@ from app.api.v1.endpoints import (
     blueprints,
     mission_room,
     calendar,
+    action_plans,
+    workspace_jobs,
+    maps,
 )
 
 api_router = APIRouter()
@@ -82,3 +85,6 @@ api_router.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
 api_router.include_router(blueprints.router, prefix="/blueprints", tags=["blueprints"])
 api_router.include_router(mission_room.router, prefix="/mission-room", tags=["mission-room"])
 api_router.include_router(calendar.router, prefix="/calendar", tags=["calendar"])
+api_router.include_router(action_plans.router, prefix="/action-plans", tags=["action-plans"])
+api_router.include_router(workspace_jobs.router, prefix="/workspace-jobs", tags=["workspace-jobs"])
+api_router.include_router(maps.router, prefix="/maps", tags=["maps"])

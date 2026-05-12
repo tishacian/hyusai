@@ -159,7 +159,7 @@ async def projects(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = projects_payload(workspace)
+    payload = projects_payload(workspace, db=db)
     _audit(
         db=db,
         workspace=workspace,
@@ -176,13 +176,17 @@ async def decisions(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = decisions_payload(workspace)
+    payload = decisions_payload(workspace, db=db)
     _audit(
         db=db,
         workspace=workspace,
         user=user,
         event_type="mission_room.decisions.viewed",
-        details={"decisions": len(payload.get("decisions") or []), "advisory_only": True},
+        details={
+            "decisions": len(payload.get("decisions") or []),
+            "action_items": len(payload.get("action_items") or []),
+            "advisory_only": True,
+        },
     )
     return payload
 
@@ -228,7 +232,7 @@ async def strategic_map(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = map_payload(workspace)
+    payload = map_payload(workspace, db=db)
     _audit(
         db=db,
         workspace=workspace,

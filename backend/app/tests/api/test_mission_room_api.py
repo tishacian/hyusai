@@ -9,6 +9,7 @@ from app.models.intelligence import FeedArticle, FeedSource
 from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.action_plans import ensure_action_plan_seed
 from app.services.workspace_calendar import ensure_calendar_seed
 
 
@@ -136,6 +137,7 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     db_session.add_all([workspace, user])
     db_session.commit()
     ensure_calendar_seed(db_session, workspace)
+    ensure_action_plan_seed(db_session, workspace)
     db_session.commit()
     client = _client(db_session, workspace, user)
 
@@ -147,9 +149,12 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     assert timeline.json()["workspace"]["slug"] == workspace.slug
     assert timeline.json()["calendar"]["connector"]["id"] == "institutional_calendar"
     assert timeline.json()["agenda"][0]["title"] == "Conseil Defense restreint"
+    assert len(timeline.json()["action_items"]) >= 1
     assert len(timeline.json()["messages"]) >= 1
     assert decisions.status_code == 200
     assert decisions.json()["policy"]["human_validation_required"] is True
+    assert decisions.json()["action_summary"]["active"] >= 1
+    assert len(decisions.json()["action_items"]) >= 1
     assert library.status_code == 200
     assert "sentinel-ci-projects" in library.json()["collections"]
 
