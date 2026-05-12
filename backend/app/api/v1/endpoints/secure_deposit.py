@@ -67,7 +67,7 @@ class DepositLinkPatchRequest(BaseModel):
 
 
 class DepositPromoteRequest(BaseModel):
-    collection_slug: str = Field(default="andritz-secure-deposit", max_length=120)
+    collection_slug: Optional[str] = Field(default=None, max_length=120)
 
 
 def _bearer_token(authorization: str | None) -> str:

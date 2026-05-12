@@ -320,7 +320,7 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         "canonical",
         "workspace-user",
         "Connectors",
-        ("/connectors/sftp", "/resources"),
+        ("/connectors", "/connectors/sftp", "/resources"),
         notes="Secure Deposit management and workspace staging queue.",
     ),
     SurfaceMetadata(

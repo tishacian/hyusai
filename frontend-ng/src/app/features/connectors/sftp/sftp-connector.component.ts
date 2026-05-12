@@ -6,6 +6,7 @@ import { RouterLink } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -66,6 +67,13 @@ interface DepositPreview {
   reason?: string;
 }
 
+interface SecureDepositHealth {
+  status: string;
+  workspace: string;
+  enabled: boolean;
+  default_allowed_extensions: string[];
+}
+
 const MAX_VISIBLE_QUEUE_ROWS = 300;
 
 @Component({
@@ -78,7 +86,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
       breadcrumb="Connectors"
       title="SFTP / Secure Deposit"
       icon="inbox"
-      subtitle="Create external drop links for Andritz. Files land in staging until manually promoted to Knowledge."
+      [subtitle]="'Create external drop links for ' + workspaceName() + '. Files land in this workspace staging queue until manually promoted to Knowledge.'"
     >
       <button
         type="button"
@@ -100,6 +108,12 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
     @if (error()) {
       <div class="mb-4 rounded-md bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-400/25">
         {{ error() }}
+      </div>
+    }
+
+    @if (health() && !secureDepositEnabled()) {
+      <div class="mb-4 rounded-md bg-amber-500/10 p-3 text-sm text-amber-100 ring-1 ring-amber-400/25">
+        Secure Deposit is not enabled for {{ workspaceName() }}. Existing queues and links remain workspace-scoped; enable the capability before creating external upload links here.
       </div>
     }
 
@@ -138,8 +152,9 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
               <input
                 name="label"
                 [(ngModel)]="draftLabel"
+                [disabled]="!secureDepositEnabled()"
                 class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
-                placeholder="Andritz supplier upload"
+                [placeholder]="workspaceName() + ' external upload'"
               />
             </label>
             <div class="grid grid-cols-2 gap-3">
@@ -151,6 +166,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
                   min="1"
                   max="30720"
                   [(ngModel)]="draftMaxMb"
+                  [disabled]="!secureDepositEnabled()"
                   class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
                 />
               </label>
@@ -160,6 +176,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
                   name="expires"
                   type="date"
                   [(ngModel)]="draftExpires"
+                  [disabled]="!secureDepositEnabled()"
                   class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
                 />
               </label>
@@ -169,6 +186,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
               <input
                 name="extensions"
                 [(ngModel)]="draftExtensions"
+                [disabled]="!secureDepositEnabled()"
                 class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
                 placeholder="Leave empty for all file types"
               />
@@ -177,7 +195,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
             <button
               type="submit"
               class="inline-flex w-full items-center justify-center gap-2 rounded bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-400 disabled:opacity-50"
-              [disabled]="saving()"
+              [disabled]="saving() || !secureDepositEnabled()"
             >
               <app-icon name="plus" [size]="15" />
               Create link
@@ -245,7 +263,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
           <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Workspace staging queue</p>
-              <h2 class="mt-1 text-sm font-semibold text-white">Andritz-wide received files</h2>
+              <h2 class="mt-1 text-sm font-semibold text-white">{{ workspaceName() }} received files</h2>
               <p class="mt-1 text-xs text-gray-500">Files from all visible deposit links stay here until manual promotion.</p>
             </div>
             <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -491,9 +509,14 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
 export class SftpConnectorComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly http = inject(HttpClient);
+  private readonly workspace = inject(WorkspaceService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly toast = inject(ToastrService);
 
+  readonly health = signal<SecureDepositHealth | null>(null);
+  readonly workspaceName = computed(() => this.workspace.current()?.name || this.workspace.currentSlug() || 'current workspace');
+  readonly workspaceSlug = computed(() => this.workspace.current()?.slug || this.workspace.currentSlug() || 'workspace');
+  readonly secureDepositEnabled = computed(() => this.health()?.enabled ?? false);
   readonly links = signal<DepositLink[]>([]);
   readonly files = signal<DepositFile[]>([]);
   readonly secretLink = signal<DepositLink | null>(null);
@@ -533,19 +556,24 @@ export class SftpConnectorComponent implements OnInit {
     return crumbs;
   });
 
-  draftLabel = 'Andritz external upload';
+  draftLabel = '';
   draftMaxMb = 30720;
   draftExpires = '';
   draftExtensions = '';
-  collectionSlug = 'andritz-secure-deposit';
+  collectionSlug = '';
 
   ngOnInit(): void {
+    this.resetWorkspaceDefaults();
     this.load();
   }
 
   load(): void {
     this.loading.set(true);
     this.error.set(null);
+    this.api.get<SecureDepositHealth>('/sftp/health').subscribe({
+      next: (res) => this.health.set(res),
+      error: () => this.health.set(null),
+    });
     this.api.get<{ links: DepositLink[] }>('/sftp/links').subscribe({
       next: (res) => {
         this.links.set(res.links || []);
@@ -563,6 +591,10 @@ export class SftpConnectorComponent implements OnInit {
   }
 
   createLink(): void {
+    if (!this.secureDepositEnabled()) {
+      this.toast.error('Secure Deposit is not enabled for this workspace.', 'Secure Deposit');
+      return;
+    }
     this.saving.set(true);
     this.api
       .post<{ link: DepositLink }>('/sftp/links', {
@@ -620,7 +652,7 @@ export class SftpConnectorComponent implements OnInit {
     this.saving.set(true);
     this.api
       .post<{ file: DepositFile }>(`/sftp/deposits/${file.id}/promote`, {
-        collection_slug: this.collectionSlug || 'andritz-secure-deposit',
+        collection_slug: this.collectionSlug || this.defaultCollectionSlug(),
       })
       .subscribe({
         next: () => {
@@ -832,8 +864,21 @@ export class SftpConnectorComponent implements OnInit {
   private archiveFilename(disposition: string | null): string {
     const fallback = this.selectedLinkId()
       ? `${this.slugify(this.linkLabel(this.selectedLinkId()))}-staging.zip`
-      : 'andritz-secure-deposit-staging.zip';
+      : `${this.defaultCollectionSlug()}-staging.zip`;
     return this.responseFilename(disposition, fallback);
+  }
+
+  private resetWorkspaceDefaults(): void {
+    if (!this.draftLabel.trim()) {
+      this.draftLabel = `${this.workspaceName()} external upload`;
+    }
+    if (!this.collectionSlug.trim()) {
+      this.collectionSlug = this.defaultCollectionSlug();
+    }
+  }
+
+  private defaultCollectionSlug(): string {
+    return `${this.slugify(this.workspaceSlug())}-secure-deposit`;
   }
 
   private responseFilename(disposition: string | null, fallback: string): string {

@@ -877,7 +877,8 @@ async def promote_file_to_collection(
     if deposit_file.status != "received":
         raise HTTPException(status_code=409, detail="Deposit file is not pending promotion")
 
-    collection_slug = (collection_slug or "andritz-secure-deposit").strip() or "andritz-secure-deposit"
+    default_collection_slug = f"{workspace.slug}-secure-deposit"
+    collection_slug = (collection_slug or default_collection_slug).strip() or default_collection_slug
     app_settings = get_resolved_settings(workspace_id=workspace.id)
     db_type = (
         app_settings.get("ragVectorDBType")

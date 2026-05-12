@@ -2,6 +2,12 @@ import { Routes } from '@angular/router';
 
 export const connectorsRoutes: Routes = [
   {
+    path: '',
+    pathMatch: 'full',
+    loadComponent: () =>
+      import('./connectors-page.component').then((m) => m.ConnectorsPageComponent),
+  },
+  {
     path: 'sharepoint',
     loadComponent: () =>
       import('./sharepoint/sharepoint-connector.component').then(
