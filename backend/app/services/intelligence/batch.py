@@ -248,7 +248,7 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
             relevance = await analyzer.compute_relevance(
                 f"{article.title} {(article.content or '')[:500]}", target_desc
             )
-            article.relevance_score = relevance
+            article.relevance_score = float(relevance or 0.0)
 
             if relevance >= relevance_threshold:
                 analysis = await analyzer.analyze_article(
