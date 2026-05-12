@@ -89,6 +89,11 @@ export class IntelligenceEntryComponent implements OnInit, OnDestroy {
 
   private pickIntelligenceSystem(systems: System[]): System | null {
     if (!systems || systems.length === 0) return null;
+    const byTemplate = systems.find((s) => {
+      const flow = (s.flow_definition ?? {}) as Record<string, unknown>;
+      return flow['template_id'] === 'sentinel-ci-intelligence';
+    });
+    if (byTemplate) return byTemplate;
     const byVariant = systems.find((s) => {
       const flow = (s.flow_definition ?? {}) as Record<string, unknown>;
       return flow['variant'] === 'intelligence';

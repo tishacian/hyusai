@@ -32,6 +32,66 @@ DEFAULT_FILTER = {
 }
 
 
+def _risk_rank(level: str | None) -> int:
+    return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(level or "low", 1)
+
+
+def _build_reference_synthesis(articles: list[dict], risk_counts: dict, top_entities: list[tuple[str, int]]) -> dict:
+    """Build a deterministic, source-backed brief from the dashboard rows.
+
+    This is intentionally not an LLM summary: it gives the system a reliable
+    baseline artifact that can later be promoted to Knowledge or consumed by
+    the Mission Room even when external model providers are disabled.
+    """
+    ranked = sorted(
+        articles,
+        key=lambda a: (
+            _risk_rank(a.get("risk_level")),
+            float(a.get("relevance_score") or 0),
+            a.get("published_at") or "",
+        ),
+        reverse=True,
+    )
+    focus = ranked[:5]
+    high_count = risk_counts.get("high", 0) + risk_counts.get("critical", 0)
+    entities = [name for name, _count in top_entities[:6]]
+    if focus:
+        titles = "; ".join(a.get("title") or "Untitled" for a in focus[:3])
+        summary = f"{len(articles)} articles analyses. {high_count} signal(s) haut risque. Priorite: {titles}."
+    else:
+        summary = "Aucun article analyse pour l'instant. Declencher une analyse RSS pour produire la synthese de reference."
+    return {
+        "title": "Synthese de veille RSS",
+        "summary": summary,
+        "key_findings": [
+            (a.get("summary") or a.get("title") or "").strip()
+            for a in focus
+            if (a.get("summary") or a.get("title"))
+        ][:5],
+        "recommended_actions": [
+            "Verifier les sources primaires avant diffusion cabinet.",
+            "Promouvoir les signaux confirmes vers la base Knowledge du workspace.",
+            "Relier les signaux haut risque aux vues Presse, Veille et Decisions de l'hyperviseur.",
+        ],
+        "entities": entities,
+        "source_articles": [
+            {
+                "id": a.get("id"),
+                "title": a.get("title"),
+                "url": a.get("url"),
+                "risk_level": a.get("risk_level"),
+                "relevance_score": a.get("relevance_score"),
+            }
+            for a in focus
+        ],
+        "knowledge_reference": {
+            "recommended_collection": "sentinel-ci-open-intelligence",
+            "status": "candidate",
+            "promotion_policy": "human_review_required",
+        },
+    }
+
+
 def ensure_intelligence_defaults(db, workspace_id: str = None) -> bool:
     """Insert default feed / target / filter if missing.
 
@@ -309,4 +369,5 @@ def get_dashboard_data(db, workspace_id: str = None) -> dict:
         "risk": risk_counts,
         "top_entities": [{"name": e, "count": c} for e, c in top_entities],
         "articles": articles_data,
+        "synthesis": _build_reference_synthesis(articles_data, risk_counts, top_entities),
     }

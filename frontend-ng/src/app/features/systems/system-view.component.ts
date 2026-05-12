@@ -161,7 +161,7 @@ interface PipelineStage {
     >
       @if (isIntelligence()) {
         <ck-tab id="intelligence" label="News Lab">
-          <app-news-lab />
+          <app-news-lab [systemId]="systemId" />
         </ck-tab>
       }
 

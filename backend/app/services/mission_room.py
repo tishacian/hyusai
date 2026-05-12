@@ -393,7 +393,49 @@ def _system_map(db: DBSession, workspace: Workspace) -> dict[str, System]:
     return result
 
 
+def _system_for_navigation_item(
+    systems_by_variant: dict[str, System],
+    all_systems: list[System],
+    item: dict[str, Any],
+) -> Optional[System]:
+    """Pick the concrete System behind a mission-room rail item.
+
+    A workspace can legitimately contain more than one ``variant=intelligence``
+    System: the generic News Lab seed plus a mission-room-specific open
+    intelligence System. For SENTINEL-CI's Presse/Veille/Reputation entries we
+    want the latter, otherwise users land on the right surface but with the
+    wrong product object. The selector stays generic by preferring the
+    ``template_id`` produced by the workspace-app seed and only falling back to
+    the first variant match.
+    """
+    variant = str(item.get("variant") or "")
+    if variant == "intelligence":
+        preferred = next(
+            (
+                system
+                for system in all_systems
+                if (system.flow_definition or {}).get("template_id") == "sentinel-ci-intelligence"
+            ),
+            None,
+        )
+        if preferred:
+            return preferred
+        named = next(
+            (
+                system
+                for system in all_systems
+                if str((system.flow_definition or {}).get("variant")) == "intelligence"
+                and "veille" in (system.name or "").lower()
+            ),
+            None,
+        )
+        if named:
+            return named
+    return systems_by_variant.get(variant)
+
+
 def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
+    all_systems = db.query(System).filter(System.workspace_id == workspace.id).all()
     systems_by_variant = _system_map(db, workspace)
     api_by_view = {
         "cockpit": "/api/v1/mission-room/cockpit",
@@ -413,7 +455,7 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     }
     items: list[dict[str, Any]] = []
     for item in NAVIGATION_ITEMS:
-        system = systems_by_variant.get(item["variant"])
+        system = _system_for_navigation_item(systems_by_variant, all_systems, item)
         items.append(
             {
                 **item,

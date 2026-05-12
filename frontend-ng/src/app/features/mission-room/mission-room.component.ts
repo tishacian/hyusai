@@ -979,7 +979,17 @@ export class MissionRailComponent {
       <section class="two-column">
         <article class="content-panel span-2">
           <span class="eyebrow">Presse et intelligence ouverte</span>
-          <h2>Synthese des signaux</h2>
+          <div class="panel-heading-row">
+            <h2>Synthese des signaux</h2>
+            <a
+              class="action-button compact"
+              [routerLink]="systemRouteFor('presse') || '/intelligence'"
+              [queryParams]="{ facet: 'intelligence' }"
+            >
+              <ck-glyph name="pulse" [size]="14" />
+              <span>Ouvrir News Lab</span>
+            </a>
+          </div>
           <p>{{ news()?.summary }}</p>
         </article>
         @for (signal of news()?.signals || []; track signal.id) {
@@ -1035,7 +1045,17 @@ export class MissionRailComponent {
         </app-mission-chart-panel>
         <article class="content-panel">
           <span class="eyebrow">Derniers signaux faibles</span>
-          <h2>Qualification</h2>
+          <div class="panel-heading-row">
+            <h2>Qualification</h2>
+            <a
+              class="action-button compact"
+              [routerLink]="systemRouteFor('veille') || '/intelligence'"
+              [queryParams]="{ facet: 'intelligence' }"
+            >
+              <ck-glyph name="pulse" [size]="14" />
+              <span>News Lab</span>
+            </a>
+          </div>
           <div class="library-list">
             @for (signal of news()?.signals || []; track signal.id) {
               <article>
@@ -1334,9 +1354,24 @@ export class MissionRailComponent {
         font-weight: 650;
         box-shadow: none;
       }
+      .action-button.compact {
+        min-height: 31px;
+        padding: 6px 9px;
+        font-size: 12px;
+      }
       .action-button.wide {
         width: 100%;
         margin-top: 14px;
+      }
+      .panel-heading-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      .panel-heading-row h2 {
+        margin: 0;
       }
       .priorities-grid {
         display: grid;
@@ -1969,6 +2004,11 @@ export class MissionRoomComponent implements OnInit {
 
   sourceLabel(sourceId: string): string {
     return this.sources().get(sourceId)?.label || sourceId;
+  }
+
+  systemRouteFor(view: MissionView): string | null {
+    const item = (this.navigation()?.items || []).find((nav) => nav.key === view);
+    return item?.system_id ? `/systems/${item.system_id}` : null;
   }
 
   showSource(sourceId: string): void {

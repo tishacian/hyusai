@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  Input,
   NgZone,
   OnInit,
   computed,
@@ -64,16 +65,39 @@ interface Dashboard {
   risk: { low: number; medium: number; high: number; critical: number };
   top_entities: { name: string; count: number }[];
   articles: Article[];
+  synthesis?: {
+    title: string;
+    summary: string;
+    key_findings: string[];
+    recommended_actions: string[];
+    entities: string[];
+    source_articles: Array<{
+      id?: string;
+      title?: string;
+      url?: string;
+      risk_level?: string;
+      relevance_score?: number;
+    }>;
+    knowledge_reference?: {
+      recommended_collection?: string;
+      status?: string;
+      promotion_policy?: string;
+    };
+  };
 }
 
 interface BatchProgress {
   type: string;
   batch_id?: string;
+  run_id?: string;
+  system_id?: string;
   progress?: number;
   message?: string;
   source?: string;
   stored?: number;
+  total_articles?: number;
   analyzed?: number;
+  status?: string;
 }
 
 @Component({
@@ -185,6 +209,53 @@ interface BatchProgress {
         [trend]="highRiskTrend()"
       />
     </div>
+
+    @if (dashboard()?.synthesis; as synthesis) {
+      <section class="t-card t-elevated rounded-md p-5 mb-6">
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <div class="text-[10px] uppercase tracking-wider font-semibold text-brand-300 mb-1">
+              Reference brief
+            </div>
+            <h3 class="text-base font-semibold text-white">{{ synthesis.title }}</h3>
+            <p class="text-sm text-gray-300 mt-1 leading-relaxed">{{ synthesis.summary }}</p>
+          </div>
+          @if (latestRunId()) {
+            <a
+              [href]="'/runs/' + latestRunId()"
+              class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+            >
+              <app-icon name="git-commit" [size]="12" />
+              Run {{ latestRunId()!.slice(0, 8) }}
+            </a>
+          }
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div class="lg:col-span-2">
+            <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Key findings</div>
+            <ul class="space-y-2">
+              @for (finding of synthesis.key_findings || []; track finding) {
+                <li class="text-sm text-gray-300 leading-relaxed flex gap-2">
+                  <span class="mt-2 w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0"></span>
+                  <span>{{ finding }}</span>
+                </li>
+              }
+            </ul>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Knowledge target</div>
+            <div class="text-sm text-white font-mono break-all">
+              {{ synthesis.knowledge_reference?.recommended_collection || 'workspace-open-intelligence' }}
+            </div>
+            <div class="flex flex-wrap gap-1.5 mt-3">
+              @for (entity of synthesis.entities || []; track entity) {
+                <span class="px-2 py-1 rounded bg-white/5 text-[11px] text-gray-300">{{ entity }}</span>
+              }
+            </div>
+          </div>
+        </div>
+      </section>
+    }
 
     <!-- Charts -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
@@ -558,6 +629,8 @@ interface BatchProgress {
   `,
 })
 export class NewsLabComponent implements OnInit {
+  @Input() systemId: string | null = null;
+
   private readonly api = inject(ApiService);
   private readonly sse = inject(SseService);
   private readonly zone = inject(NgZone);
@@ -578,6 +651,7 @@ export class NewsLabComponent implements OnInit {
   addingTarget = signal(false);
   batchProgress = signal(0);
   batchMessage = signal<string>('');
+  latestRunId = signal<string | null>(null);
 
   feedDraft = { name: '', url: '', category: 'general' };
   targetDraft = { name: '', description: '', keywords: '', threshold: 0.3 };
@@ -781,7 +855,7 @@ export class NewsLabComponent implements OnInit {
     this.running.set(true);
     this.batchProgress.set(0);
     this.batchMessage.set('Starting batch…');
-    this.sse.stream('/api/v1/intelligence/analyze', {}).subscribe({
+    this.sse.stream('/api/v1/intelligence/analyze', { system_id: this.systemId || undefined }).subscribe({
       next: (chunk: SseChunk) => {
         // The backend emits plain JSON events (not chunk_type-shaped), so they
         // come through either as `content` (bare string) or as `data` when
@@ -791,20 +865,21 @@ export class NewsLabComponent implements OnInit {
           if (chunk.type === 'done') this.finishBatch();
           return;
         }
+        if (evt.run_id) this.latestRunId.set(evt.run_id);
         if (typeof evt.progress === 'number') this.batchProgress.set(Math.min(100, evt.progress));
         const label = this.labelFor(evt);
         if (label) this.batchMessage.set(label);
-        if (evt.type === 'batch_done' || evt.type === 'batch_error') {
+        if (evt.type === 'batch_complete' || evt.type === 'batch_done' || evt.type === 'batch_error' || evt.type === 'run_completed') {
           this.batchProgress.set(100);
           if (evt.type === 'batch_error') {
             this.toast.error(evt.message ?? 'Batch failed', 'News Lab');
-          } else {
+          } else if (evt.type === 'batch_complete' || evt.type === 'batch_done') {
             this.toast.success(
-              `${evt.stored ?? 0} new · ${evt.analyzed ?? 0} analyzed`,
+              `${evt.total_articles ?? evt.stored ?? 0} new · ${evt.analyzed ?? 0} analyzed`,
               'Batch complete',
             );
           }
-          this.finishBatch();
+          if (evt.type !== 'batch_complete') this.finishBatch();
         }
       },
       error: () => {
@@ -848,9 +923,13 @@ export class NewsLabComponent implements OnInit {
     if (evt.type === 'batch_start') return `Batch ${evt.batch_id} · started`;
     if (evt.type === 'batch_fetch') return `Fetching feed · ${evt.source ?? ''}`;
     if (evt.type === 'batch_analyze') return `Analyzing articles…`;
+    if (evt.type === 'run_started') return `Run ${evt.run_id?.slice(0, 8) ?? ''} · recording`;
     if (evt.type === 'batch_store') return `Storing results…`;
+    if (evt.type === 'batch_complete')
+      return `Done · ${evt.total_articles ?? 0} fetched · ${evt.analyzed ?? 0} analyzed`;
     if (evt.type === 'batch_done')
       return `Done · ${evt.stored ?? 0} stored · ${evt.analyzed ?? 0} analyzed`;
+    if (evt.type === 'run_completed') return `Run ${evt.run_id?.slice(0, 8) ?? ''} · ${evt.status ?? 'completed'}`;
     if (evt.type === 'batch_error') return `Error: ${evt.message ?? 'unknown'}`;
     return evt.message ?? evt.type ?? '';
   }

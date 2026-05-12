@@ -1,15 +1,20 @@
 """Intelligence API — RSS feeds, analysis, dashboard (scoped by workspace)."""
 import json
+import time
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_workspace
-from app.db.base import get_db
+from app.core.auth import get_current_user, get_current_workspace
+from app.db.base import SessionLocal, get_db
 from app.models.intelligence import FeedSource, SemanticTarget, SafetyFilter
+from app.models.run import Run, SkillInvocation
+from app.models.system import System
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.intelligence.feed_manager import get_articles
 from app.services.intelligence.batch import run_batch, get_dashboard_data
@@ -35,6 +40,26 @@ class FilterCreate(BaseModel):
     name: str
     prompt_template: str
     severity: str = "warn"
+
+
+class AnalyzeRequest(BaseModel):
+    system_id: str | None = None
+    target_id: str | None = None
+
+
+def _preferred_intelligence_system(db: DBSession, workspace_id: str, requested_id: str | None = None) -> System | None:
+    q = db.query(System).filter(System.workspace_id == workspace_id)
+    if requested_id:
+        return q.filter(System.id == requested_id).first()
+    systems = q.all()
+    for system in systems:
+        flow = system.flow_definition or {}
+        if flow.get("template_id") == "sentinel-ci-intelligence":
+            return system
+    for system in systems:
+        if (system.flow_definition or {}).get("variant") == "intelligence":
+            return system
+    return None
 
 
 # ── Feeds ──
@@ -199,11 +224,112 @@ async def list_articles(
 @router.post("/analyze")
 async def trigger_batch(
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    body: AnalyzeRequest | None = Body(default=None),
 ):
+    body = body or AnalyzeRequest()
+
     async def stream():
-        async for event in run_batch(workspace_id=workspace.id):
-            yield f"data: {json.dumps(event)}\n\n"
-        yield "data: [DONE]\n\n"
+        db = SessionLocal()
+        run: Run | None = None
+        invocation: SkillInvocation | None = None
+        events: list[dict] = []
+        started = time.monotonic()
+        had_error = False
+        try:
+            system = _preferred_intelligence_system(db, workspace.id, body.system_id)
+            if body.system_id and not system:
+                event = {
+                    "type": "batch_error",
+                    "message": "System not found in current workspace",
+                    "system_id": body.system_id,
+                }
+                yield f"data: {json.dumps(event)}\n\n"
+                return
+            if system:
+                run = Run(
+                    id=str(uuid.uuid4()),
+                    workspace_id=workspace.id,
+                    initiated_by_user_id=user.id,
+                    system_id=system.id,
+                    capability_id=system.capability_id,
+                    input_ref={
+                        "source": "intelligence.analyze",
+                        "target_id": body.target_id,
+                        "workspace_slug": workspace.slug,
+                    },
+                    output_ref={},
+                    status="running",
+                    started_at=datetime.utcnow(),
+                    trigger="manual",
+                )
+                db.add(run)
+                db.commit()
+                invocation = SkillInvocation(
+                    id=str(uuid.uuid4()),
+                    run_id=run.id,
+                    skill_slug="intelligence_batch_v1",
+                    input_ref={"target_id": body.target_id, "workspace_id": workspace.id},
+                    status="running",
+                    started_at=datetime.utcnow(),
+                )
+                db.add(invocation)
+                db.commit()
+                yield f"data: {json.dumps({'type': 'run_started', 'run_id': run.id, 'system_id': system.id})}\n\n"
+
+            async for event in run_batch(target_id=body.target_id, workspace_id=workspace.id):
+                if run:
+                    event = {**event, "run_id": run.id, "system_id": run.system_id}
+                events.append(event)
+                if event.get("type") == "batch_error":
+                    had_error = True
+                yield f"data: {json.dumps(event)}\n\n"
+
+            if run and invocation:
+                dashboard_payload = get_dashboard_data(db, workspace_id=workspace.id)
+                duration_ms = (time.monotonic() - started) * 1000
+                invocation.status = "failed" if had_error else "completed"
+                invocation.output_ref = {
+                    "events": events[-25:],
+                    "dashboard": {
+                        "kpis": dashboard_payload.get("kpis"),
+                        "synthesis": dashboard_payload.get("synthesis"),
+                    },
+                }
+                invocation.completed_at = datetime.utcnow()
+                invocation.latency_ms = duration_ms
+                run.status = "failed" if had_error else "completed"
+                run.completed_at = datetime.utcnow()
+                run.duration_ms = duration_ms
+                run.decision = "needs_review" if had_error else "brief_ready"
+                run.confidence = 0.62 if had_error else 0.82
+                run.cost_internal = 0.0
+                run.efficiency = 1.0 if not had_error else 0.0
+                run.output_ref = {
+                    "rag_context": {
+                        "kind": "open_intelligence_rss",
+                        "workspace_id": workspace.id,
+                        "article_count": (dashboard_payload.get("kpis") or {}).get("total_articles", 0),
+                    },
+                    "intelligence_dashboard": dashboard_payload,
+                    "reference_synthesis": dashboard_payload.get("synthesis"),
+                    "events": events[-25:],
+                }
+                if had_error:
+                    run.error = "intelligence_batch_error"
+                db.commit()
+                yield f"data: {json.dumps({'type': 'run_completed', 'run_id': run.id, 'status': run.status, 'progress': 100})}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            if run:
+                run.status = "failed"
+                run.completed_at = datetime.utcnow()
+                run.duration_ms = (time.monotonic() - started) * 1000
+                run.error = str(exc)[:500]
+                db.commit()
+            yield f"data: {json.dumps({'type': 'batch_error', 'message': str(exc)})}\n\n"
+        finally:
+            db.close()
+            yield "data: [DONE]\n\n"
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 

@@ -7,7 +7,7 @@ from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.intelligence.batch import ensure_intelligence_defaults
-from app.services.mission_room import SENTINEL_WORKSPACE_SLUG, ensure_sentinel_ci_workspace
+from app.services.mission_room import SENTINEL_WORKSPACE_SLUG, ensure_sentinel_ci_workspace, navigation_payload
 from app.services.skills_registry import bound_slugs, seed_skills_and_capabilities
 
 
@@ -76,3 +76,30 @@ def test_intelligence_defaults_are_workspace_scoped(db_session):
     assert workspace_added is True
     assert db_session.query(FeedSource).filter(FeedSource.workspace_id.is_(None)).count() == 2
     assert db_session.query(FeedSource).filter(FeedSource.workspace_id == "workspace-demo").count() == 2
+
+
+def test_mission_room_navigation_prefers_workspace_intelligence_system(db_session):
+    seed_skills_and_capabilities(db_session)
+    ensure_sentinel_ci_workspace(db_session)
+    workspace = db_session.query(Workspace).filter(Workspace.slug == SENTINEL_WORKSPACE_SLUG).one()
+
+    # Simulate the generic boot seed adding a second variant=intelligence System.
+    capability = db_session.query(Capability).filter(Capability.slug == "open_intelligence_watch").one()
+    db_session.add(
+        System(
+            workspace_id=workspace.id,
+            name="News Lab",
+            objective="Generic intelligence system",
+            capability_id=capability.id,
+            flow_definition={"variant": "intelligence"},
+            status="active",
+        )
+    )
+    db_session.commit()
+
+    payload = navigation_payload(db_session, workspace)
+    presse = next(item for item in payload["items"] if item["key"] == "presse")
+    veille = next(item for item in payload["items"] if item["key"] == "veille")
+
+    assert presse["system_name"] == "Veille Presse & Signaux Faibles"
+    assert veille["system_id"] == presse["system_id"]
