@@ -516,22 +516,22 @@ def _map_basemap_options() -> list[dict[str, Any]]:
         {
             "key": "administrative",
             "label": "Administratif",
-            "description": "Fond territorial sombre haute lisibilite pour briefing executif.",
+            "description": "Fond territorial clair, labels et frontieres visibles pour briefing executif.",
             "style": _basemap_style(
-                "carto-dark-admin",
+                "carto-voyager-admin",
                 [
-                    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                    "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                    "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                    "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                    "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                    "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
                 ],
                 {
-                    "raster-opacity": 0.98,
-                    "raster-brightness-min": 0.02,
-                    "raster-brightness-max": 0.78,
+                    "raster-opacity": 1.0,
+                    "raster-brightness-min": 0.0,
+                    "raster-brightness-max": 1.0,
                     "raster-saturation": -0.18,
-                    "raster-contrast": 0.46,
+                    "raster-contrast": 0.12,
                 },
-                background="#020609",
+                background="#d9e4ea",
             ),
         },
         {
@@ -1130,7 +1130,7 @@ def _camera_presets(zones: list[dict[str, Any]], view_box: tuple[float, float, f
         "country": {
             "longitude": -5.45,
             "latitude": 7.52,
-            "zoom": 6.0,
+            "zoom": 6.45,
             "pitch": 0,
             "bearing": 0,
             "duration_ms": 900,

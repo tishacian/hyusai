@@ -79,13 +79,24 @@ const CIV_OUTLINE = {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="workspace-map" [class.compact]="compact" [class.is-fallback]="fallback">
+    <div
+      class="workspace-map"
+      [class.compact]="compact"
+      [class.is-fallback]="fallback"
+      [class.basemap-administrative]="selectedBasemapKey === 'administrative'"
+      [class.basemap-dark]="selectedBasemapKey === 'dark'"
+      [class.basemap-contours]="selectedBasemapKey === 'contours'"
+    >
       <div #mapCanvas class="maplibre-canvas" [class.hidden]="fallback"></div>
 
       <div class="map-frame-overlay">
         <div class="map-scanline"></div>
         <div class="map-compass">N</div>
         <div class="map-control-panel" (click)="$event.stopPropagation()">
+          <header class="map-control-heading">
+            <strong>Lecture carte</strong>
+            <small>{{ activeLayerCount }} couches</small>
+          </header>
           <section class="control-section">
             <span>Fond</span>
             <div class="basemap-switch">
@@ -121,7 +132,7 @@ const CIV_OUTLINE = {
             </div>
           </section>
         </div>
-        <button type="button" class="map-reset" (click)="resetCountry(); $event.stopPropagation()">Réinitialiser Côte d’Ivoire</button>
+        <button type="button" class="map-reset" (click)="resetCountry(); $event.stopPropagation()">Recentrer Côte d’Ivoire</button>
         <div class="map-legend">
           <span><i class="stable"></i>stable</span>
           <span><i class="monitoring"></i>surveillance</span>
@@ -169,13 +180,13 @@ const CIV_OUTLINE = {
 
       .workspace-map {
         position: relative;
-        min-height: 540px;
+        min-height: 620px;
         overflow: hidden;
-        border: 1px solid rgba(91, 173, 218, 0.24);
+        border: 1px solid rgba(91, 173, 218, 0.30);
         border-radius: 10px;
         background:
-          radial-gradient(circle at 48% 38%, rgba(91, 173, 218, 0.12), transparent 34%),
-          linear-gradient(135deg, rgba(7, 14, 21, 0.98), rgba(13, 22, 34, 0.96));
+          radial-gradient(circle at 50% 42%, rgba(91, 173, 218, 0.14), transparent 36%),
+          linear-gradient(135deg, rgba(4, 10, 16, 0.98), rgba(9, 17, 28, 0.96));
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 24px 70px rgba(0,0,0,0.22);
       }
 
@@ -233,7 +244,15 @@ const CIV_OUTLINE = {
 
       .maplibre-canvas {
         z-index: 1;
-        filter: saturate(1.12) contrast(1.42) brightness(0.76);
+        filter: saturate(1.06) contrast(1.08) brightness(0.98);
+      }
+
+      .workspace-map.basemap-dark .maplibre-canvas {
+        filter: saturate(1.18) contrast(1.24) brightness(1.10);
+      }
+
+      .workspace-map.basemap-contours .maplibre-canvas {
+        filter: saturate(0.85) contrast(1.32) brightness(1.18);
       }
 
       .map-frame-overlay {
@@ -250,7 +269,7 @@ const CIV_OUTLINE = {
         top: 24%;
         height: 1px;
         background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.26), transparent);
-        opacity: 0.55;
+        opacity: 0.24;
         animation: mapSweep 7s ease-in-out infinite;
       }
 
@@ -272,18 +291,39 @@ const CIV_OUTLINE = {
 
       .map-control-panel {
         position: absolute;
-        left: 16px;
-        top: 16px;
-        width: min(306px, calc(100% - 84px));
+        left: 14px;
+        top: 14px;
+        width: min(286px, calc(100% - 84px));
         display: grid;
-        gap: 10px;
-        padding: 12px;
+        gap: 9px;
+        padding: 11px;
         border: 1px solid rgba(132, 220, 255, 0.25);
         border-radius: 14px;
         background: rgba(2, 6, 10, 0.88);
         box-shadow: 0 22px 54px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255,255,255,0.03);
         backdrop-filter: blur(16px) saturate(1.2);
         pointer-events: auto;
+      }
+
+      .map-control-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding-bottom: 2px;
+      }
+
+      .map-control-heading strong {
+        color: rgba(245, 251, 255, 0.94);
+        font-size: 13px;
+        line-height: 1;
+      }
+
+      .map-control-heading small {
+        color: rgba(148, 197, 229, 0.78);
+        font: 750 10px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
       }
 
       .control-section {
@@ -299,15 +339,15 @@ const CIV_OUTLINE = {
       }
 
       .basemap-switch {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        display: flex;
+        flex-wrap: wrap;
         gap: 6px;
       }
 
       .basemap-switch button,
       .map-reset {
         min-height: 31px;
-        padding: 7px 9px;
+        padding: 7px 10px;
         border-radius: 999px;
         border: 1px solid rgba(125, 211, 252, 0.14);
         background: rgba(11, 20, 31, 0.74);
@@ -335,8 +375,11 @@ const CIV_OUTLINE = {
 
       .layer-list {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: 1fr;
         gap: 6px;
+        max-height: 286px;
+        overflow: auto;
+        padding-right: 2px;
       }
 
       .layer-toggle {
@@ -347,7 +390,7 @@ const CIV_OUTLINE = {
         column-gap: 8px;
         row-gap: 2px;
         align-items: center;
-        padding: 8px 9px;
+        padding: 9px 10px;
         border-radius: 10px;
         border: 1px solid rgba(125, 211, 252, 0.16);
         background: rgba(14, 24, 36, 0.82);
@@ -365,7 +408,7 @@ const CIV_OUTLINE = {
       .layer-toggle i {
         grid-area: tone;
         width: 8px;
-        height: 28px;
+        height: 30px;
         border-radius: 999px;
         background: #88d7ff;
         box-shadow: 0 0 12px rgba(136, 215, 255, 0.28);
@@ -397,7 +440,7 @@ const CIV_OUTLINE = {
 
       .map-reset {
         position: absolute;
-        top: 16px;
+        top: 14px;
         right: 58px;
         z-index: 5;
         pointer-events: auto;
@@ -419,6 +462,12 @@ const CIV_OUTLINE = {
         border-radius: 999px;
         background: rgba(2, 6, 10, 0.82);
         backdrop-filter: blur(12px);
+      }
+
+      .workspace-map.basemap-administrative .map-legend,
+      .workspace-map.basemap-administrative .map-hud,
+      .workspace-map.basemap-administrative .map-attribution {
+        background: rgba(8, 18, 28, 0.86);
       }
 
       .map-legend span {
@@ -589,6 +638,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     ];
   }
 
+  get activeLayerCount(): number {
+    return this.activeLayerKeys.size;
+  }
+
   get basemapOptions(): BasemapOption[] {
     const options = this.mapSystem?.['basemap_options'];
     if (Array.isArray(options) && options.length) {
@@ -686,15 +739,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   resetCountry(): void {
-    const preset = this.mapSystem?.['default_map_state']?.camera || this.mapSystem?.['camera_presets']?.country;
-    if (!this.mapInstance || !preset) return;
-    this.mapInstance.easeTo({
-      center: [preset.longitude ?? -5.45, preset.latitude ?? 7.52],
-      zoom: preset.zoom ?? (this.compact ? 4.9 : 6.0),
-      pitch: 0,
-      bearing: 0,
-      duration: preset.duration_ms || 800,
-    });
+    this.fitCountry(800);
   }
 
   private async bootstrapRenderer(): Promise<void> {
@@ -731,7 +776,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       });
       this.mapInstance.on('load', () => {
         this.mapInstance.addControl(this.deckOverlay);
-        this.focusSelectedZone();
+        this.fitCountry(0);
+        setTimeout(() => {
+          this.mapInstance?.resize?.();
+          this.fitCountry(350);
+        }, 80);
       });
       this.mapInstance.on('error', () => this.enableFallback());
     } catch {
@@ -815,6 +864,31 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     this.deckOverlay.setProps({ layers: this.buildDeckLayers() });
   }
 
+  private fitCountry(duration = 800): void {
+    if (!this.mapInstance) return;
+    const bounds = this.mapSystem?.['renderer_config']?.bounds || [[-8.65, 4.2], [-2.45, 10.75]];
+    try {
+      this.mapInstance.fitBounds(bounds, {
+        padding: this.compact
+          ? { top: 20, right: 20, bottom: 20, left: 20 }
+          : { top: 76, right: 78, bottom: 58, left: 326 },
+        maxZoom: this.compact ? 5.55 : 6.85,
+        pitch: 0,
+        bearing: 0,
+        duration,
+      });
+    } catch {
+      const preset = this.mapSystem?.['default_map_state']?.camera || this.mapSystem?.['camera_presets']?.country;
+      this.mapInstance.easeTo({
+        center: [preset?.longitude ?? -5.45, preset?.latitude ?? 7.52],
+        zoom: preset?.zoom ?? (this.compact ? 5.15 : 6.45),
+        pitch: 0,
+        bearing: 0,
+        duration,
+      });
+    }
+  }
+
   private buildDeckLayers(): any[] {
     if (!this.deckLayersModule) return [];
     const { GeoJsonLayer, ScatterplotLayer, ArcLayer, TextLayer } = this.deckLayersModule;
@@ -825,6 +899,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const adminBoundariesSource = this.mapSystem?.['admin_boundaries'];
     const citiesSource = this.mapSystem?.['cities'];
     const arcs = this.mapSystem?.['visual_effects']?.arc_links || [];
+    const cityFeatures = (citiesSource?.features || []).filter((feature: any) => Number(feature.properties?.weight || 0) >= 70);
+    const zoneMarkerFeatures = markersSource?.features || [];
+    const selectedOrTopZoneMarkers = zoneMarkerFeatures.filter((feature: any, index: number) => {
+      const zoneId = feature.properties?.zone_id;
+      return zoneId === this.selectedZoneId || index === 0 || Number(feature.properties?.level || 0) >= 70;
+    });
     const showTerritory = this.isLayerActive('territorial-risk');
     const showPresse = this.isLayerActive('open-intelligence');
     const showProjects = this.isLayerActive('strategic-projects');
@@ -957,16 +1037,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
     layers.push(new TextLayer({
       id: 'sentinel-city-labels',
-      data: citiesSource?.features || [],
+      data: cityFeatures,
       getPosition: (feature: any) => feature.geometry.coordinates,
       getText: (feature: any) => feature.properties?.name || '',
-      getSize: this.compact ? 9 : 11,
-      getColor: [226, 239, 250, 205],
-      getPixelOffset: [0, -11],
+      getSize: this.compact ? 9 : 10,
+      getColor: this.selectedBasemapKey === 'administrative' ? [18, 39, 54, 230] : [226, 239, 250, 218],
+      getPixelOffset: [0, -12],
       getTextAnchor: 'middle',
       getAlignmentBaseline: 'bottom',
       fontSettings: { sdf: true },
-      outlineColor: [2, 6, 10, 238],
+      outlineColor: this.selectedBasemapKey === 'administrative' ? [250, 254, 255, 240] : [2, 6, 10, 238],
       outlineWidth: 3,
       billboard: true,
       parameters: { depthTest: false },
@@ -994,16 +1074,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (showTerritory || showProjects || showActions) {
       layers.push(new TextLayer({
         id: 'sentinel-labels',
-        data: markersSource?.features || [],
+        data: selectedOrTopZoneMarkers,
         getPosition: (feature: any) => feature.geometry.coordinates,
         getText: (feature: any) => feature.properties?.name || '',
-        getSize: this.compact ? 12 : 15,
-        getColor: [246, 251, 255, 235],
+        getSize: this.compact ? 11 : 14,
+        getColor: this.selectedBasemapKey === 'administrative' ? [8, 28, 42, 245] : [246, 251, 255, 235],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'center',
         fontSettings: { sdf: true },
-        outlineColor: [4, 8, 13, 225],
-        outlineWidth: 2.5,
+        outlineColor: this.selectedBasemapKey === 'administrative' ? [255, 255, 255, 235] : [4, 8, 13, 225],
+        outlineWidth: 3,
         billboard: true,
         parameters: { depthTest: false },
       }));
