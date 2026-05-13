@@ -7,6 +7,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 import httpx
+from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
@@ -24,7 +25,10 @@ from app.services.workspace_jobs import create_workspace_job, serialize_job, tra
 
 
 VISUAL_COLLECTION_SLUG = "sentinel-ci-visual-intelligence"
-DEFAULT_SOURCE_NAME = "Abidjan Plateau - veille visuelle"
+DEFAULT_SOURCE_NAME = "Abidjan - couche webcam publique"
+LEGACY_DEFAULT_SOURCE_NAME = "Abidjan Plateau - veille visuelle"
+DEFAULT_SOURCE_URL = "https://images-webcams.windy.com/77/1619563677/current/full/1619563677.jpg"
+DEFAULT_SOURCE_PAGE = "https://omnicamapp.com/en/webcam/71250/"
 
 
 def ensure_visual_intelligence_seed(
@@ -37,37 +41,37 @@ def ensure_visual_intelligence_seed(
     collection = ensure_visual_collection(db, workspace)
     existing = (
         db.query(WorkspaceVisualSource)
-        .filter(WorkspaceVisualSource.workspace_id == workspace.id, WorkspaceVisualSource.name == DEFAULT_SOURCE_NAME)
+        .filter(
+            WorkspaceVisualSource.workspace_id == workspace.id,
+            or_(WorkspaceVisualSource.name == DEFAULT_SOURCE_NAME, WorkspaceVisualSource.name == LEGACY_DEFAULT_SOURCE_NAME),
+        )
         .first()
     )
     source_created = False
+    default_policy = {
+        "capture": "manual_or_scheduled_snapshot",
+        "allowed_use": "situational_briefing",
+        "pii_policy": "no_identification_no_biometrics",
+        "human_validation_required": True,
+        "recording": "no_continuous_recording",
+    }
+    default_metadata = _default_webcam_metadata()
     if not existing:
         existing = WorkspaceVisualSource(
             id=str(uuid4()),
             workspace_id=workspace.id,
             system_id=system_id,
             name=DEFAULT_SOURCE_NAME,
-            description="Source visuelle institutionnelle demo-safe pour posture urbaine et veille de situation.",
-            source_url="demo://sentinel-ci/abidjan-plateau",
+            description="Couche webcam publique pour snapshots horodates, analyse visuelle legere et posture de situation.",
+            source_url=DEFAULT_SOURCE_URL,
             source_type="webcam",
-            adapter="demo_static",
-            region="Abidjan / Plateau",
+            adapter="http_image",
+            region="Abidjan / Le Plateau",
             status="active",
             enabled=True,
             capture_cadence_minutes=60,
-            policy={
-                "capture": "manual_or_scheduled_snapshot",
-                "allowed_use": "situational_briefing",
-                "pii_policy": "no_identification_no_biometrics",
-                "human_validation_required": True,
-            },
-            meta_data={
-                "demo_fallback": True,
-                "provider_neutral": True,
-                "country": "Cote d'Ivoire",
-                "default_vigilance_score": 38,
-                "layer": "visual_streams",
-            },
+            policy=default_policy,
+            meta_data=default_metadata,
         )
         db.add(existing)
         db.flush()
@@ -79,6 +83,24 @@ def ensure_visual_intelligence_seed(
             actor="system",
             details={"source_id": existing.id, "adapter": existing.adapter, "collection": collection.slug},
         )
+    else:
+        metadata = dict(existing.meta_data or {})
+        metadata.update({key: value for key, value in default_metadata.items() if key not in metadata or key in {"layer_kind", "preview_url", "source_page", "analysis_mode"}})
+        existing.name = DEFAULT_SOURCE_NAME
+        existing.description = "Couche webcam publique pour snapshots horodates, analyse visuelle legere et posture de situation."
+        existing.source_url = DEFAULT_SOURCE_URL
+        existing.source_type = "webcam"
+        existing.adapter = "http_image"
+        existing.region = "Abidjan / Le Plateau"
+        existing.enabled = True
+        if existing.status not in {"active", "paused"}:
+            existing.status = "active"
+        existing.capture_cadence_minutes = existing.capture_cadence_minutes or 60
+        existing.policy = {**default_policy, **(existing.policy or {})}
+        existing.meta_data = metadata
+        existing.system_id = existing.system_id or system_id
+        existing.updated_at = datetime.utcnow()
+        db.flush()
     return {"collection": collection.slug, "source_id": existing.id, "source_created": source_created}
 
 
@@ -364,7 +386,7 @@ def dashboard_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
             "id": "visual_streams",
             "label": "Flux visuels institutionnels",
             "status": "connected" if active_sources else "configured",
-            "mode": "snapshot_only",
+            "mode": "webcam_snapshot_layer",
             "policy": "no_identification_no_biometrics",
         },
         "source_health": {
@@ -547,9 +569,34 @@ def serialize_observation(observation: WorkspaceVisualObservation) -> dict[str, 
     }
 
 
+def _default_webcam_metadata() -> dict[str, Any]:
+    return {
+        "demo_fallback": True,
+        "provider_neutral": True,
+        "provider": "omnicam",
+        "country": "Cote d'Ivoire",
+        "default_vigilance_score": 38,
+        "layer": "visual_streams",
+        "layer_kind": "webcam_snapshot",
+        "preview_url": DEFAULT_SOURCE_URL,
+        "source_page": DEFAULT_SOURCE_PAGE,
+        "refresh_seconds": 300,
+        "analysis_mode": "snapshot_to_vlm_ready",
+        "attribution": "OmniCam / Windy public webcam snapshot",
+        "timelapse_policy": "latest_image_from_webcam_layer",
+    }
+
+
 def _capture_bytes(source: WorkspaceVisualSource) -> tuple[bytes, str, dict[str, Any]]:
     if source.adapter == "demo_static" or source.source_url.startswith("demo://"):
         return _demo_snapshot(source), "image/svg+xml", {"adapter": source.adapter, "width": 960, "height": 540, "demo_safe": True}
+    if source.adapter == "http_image" and (source.meta_data or {}).get("provider") == "windy":
+        try:
+            return _capture_windy_webcam(source)
+        except Exception:
+            if (source.meta_data or {}).get("demo_fallback"):
+                return _demo_snapshot(source), "image/svg+xml", {"adapter": source.adapter, "width": 960, "height": 540, "demo_safe": True, "fallback": "windy_unavailable"}
+            raise
     if source.adapter == "browser_screenshot":
         if not settings.visual_capture_browser_enabled:
             raise RuntimeError("browser_screenshot_disabled")
@@ -573,13 +620,55 @@ def _capture_bytes(source: WorkspaceVisualSource) -> tuple[bytes, str, dict[str,
         raise RuntimeError(f"unsupported_visual_adapter:{source.adapter}")
     if not source.source_url.startswith(("http://", "https://")):
         raise RuntimeError("http_image_requires_http_url")
+    try:
+        content, mime_type = _fetch_http_image(source.source_url)
+    except Exception:
+        if (source.meta_data or {}).get("demo_fallback"):
+            return _demo_snapshot(source), "image/svg+xml", {"adapter": source.adapter, "width": 960, "height": 540, "demo_safe": True, "fallback": "http_image_unavailable"}
+        raise
+    return content, mime_type, {"adapter": source.adapter, "source_url": source.source_url, "provider": (source.meta_data or {}).get("provider")}
+
+
+def _fetch_http_image(url: str) -> tuple[bytes, str]:
     with httpx.Client(timeout=settings.visual_capture_http_timeout_seconds, follow_redirects=True) as client:
-        response = client.get(source.source_url)
+        response = client.get(url, headers={"User-Agent": "AgentiumVisualIntelligence/1.0"})
         response.raise_for_status()
     mime_type = response.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
     if not mime_type.startswith("image/"):
         raise RuntimeError(f"visual_source_not_image:{mime_type}")
-    return response.content, mime_type, {"adapter": source.adapter, "source_url": source.source_url}
+    return response.content, mime_type
+
+
+def _capture_windy_webcam(source: WorkspaceVisualSource) -> tuple[bytes, str, dict[str, Any]]:
+    metadata = source.meta_data or {}
+    webcam_id = metadata.get("webcam_id")
+    if not webcam_id:
+        raise RuntimeError("windy_webcam_id_required")
+    if not settings.visual_capture_windy_api_key:
+        raise RuntimeError("windy_api_key_missing")
+    url = f"https://api.windy.com/webcams/api/v3/webcams/{webcam_id}?include=images,urls"
+    with httpx.Client(timeout=settings.visual_capture_http_timeout_seconds, follow_redirects=True) as client:
+        response = client.get(url, headers={"x-windy-api-key": settings.visual_capture_windy_api_key})
+        response.raise_for_status()
+    payload = response.json()
+    webcam = (payload.get("webcams") or [payload])[0]
+    images = webcam.get("images") or webcam.get("image") or {}
+    image_url = (
+        ((images.get("current") or {}).get("preview"))
+        or ((images.get("current") or {}).get("thumbnail"))
+        or metadata.get("preview_url")
+    )
+    if not image_url:
+        raise RuntimeError("windy_preview_unavailable")
+    content, mime_type = _fetch_http_image(image_url)
+    return content, mime_type, {
+        "adapter": source.adapter,
+        "provider": "windy",
+        "webcam_id": webcam_id,
+        "source_url": image_url,
+        "player_url": (webcam.get("urls") or {}).get("player") or metadata.get("player_url"),
+        "last_updated": webcam.get("lastUpdatedOn"),
+    }
 
 
 def _analyze_capture(

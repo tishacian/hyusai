@@ -1857,9 +1857,29 @@ export class MissionRailComponent {
           </div>
           <div class="visual-grid visual-console">
             <figure class="snapshot-frame">
-              @if (latestVisualCapture(); as capture) {
-                @if (visualCaptureImage(capture.id); as imageUrl) {
-                  <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
+              @if (primaryVisualSource(); as source) {
+                @if (webcamPreviewUrl(source); as previewUrl) {
+                  <img
+                    [src]="previewUrl"
+                    [alt]="'Derniere image webcam - ' + source.name"
+                    (error)="markVisualPreviewFailed(source.id)"
+                  />
+                } @else if (latestVisualCapture(); as capture) {
+                  @if (visualCaptureImage(capture.id); as imageUrl) {
+                    <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
+                  } @else {
+                    <div class="synthetic-camera-feed">
+                      <div class="camera-horizon"></div>
+                      <div class="camera-cityline">
+                        <span></span><span></span><span></span><span></span><span></span>
+                      </div>
+                      <div class="camera-road"></div>
+                      <div class="camera-loader">
+                        <ck-glyph name="focus" [size]="18" />
+                        <span>Initialisation flux</span>
+                      </div>
+                    </div>
+                  }
                 } @else {
                   <div class="synthetic-camera-feed">
                     <div class="camera-horizon"></div>
@@ -1876,14 +1896,14 @@ export class MissionRailComponent {
                 <figcaption class="camera-overlay">
                   <div>
                     <span class="live-dot"></span>
-                    <strong>{{ visualSourceName(capture.source_id) }}</strong>
+                    <strong>{{ source.name }}</strong>
                   </div>
-                  <small>{{ visualCaptureTime(capture) }} · snapshot institutionnel</small>
+                  <small>{{ visualSourceDetail(source) }}</small>
                 </figcaption>
               } @else {
                 <div class="snapshot-empty">
                   <ck-glyph name="focus" [size]="22" />
-                  <span>Aucune capture recente</span>
+                  <span>Aucune source webcam active</span>
                 </div>
               }
             </figure>
@@ -1926,7 +1946,7 @@ export class MissionRailComponent {
                     <span class="source-status" [class.active]="source.status === 'active'"></span>
                     <div>
                       <strong>{{ source.name }}</strong>
-                      <small>{{ source.region }} · cadence {{ source.capture_cadence_minutes }} min</small>
+                      <small>{{ source.region }} · {{ visualSourceDetail(source) }}</small>
                     </div>
                   </article>
                 }
@@ -3628,6 +3648,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly selectedAgendaEvent = signal<AgendaItem | null>(null);
   readonly draft = signal<DraftInstruction | null>(null);
   readonly visualCaptureImages = signal<Record<string, string>>({});
+  readonly visualPreviewFailures = signal<Record<string, true>>({});
 
   searchQueryValue = '';
   newAgendaTitle = '';
@@ -3844,8 +3865,36 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return this.monitor()?.visual?.captures?.find((capture) => capture.status === 'analyzed' || capture.status === 'captured') || null;
   }
 
+  primaryVisualSource(): VisualSource | null {
+    const sources = this.monitor()?.visual?.sources || [];
+    return sources.find((source) => source.enabled && source.status === 'active') || sources[0] || null;
+  }
+
   latestVisualObservation(): VisualObservation | null {
     return this.monitor()?.visual?.latest_observation || this.monitor()?.visual_observations?.[0] || null;
+  }
+
+  webcamPreviewUrl(source: VisualSource | null): string | null {
+    if (!source || this.visualPreviewFailures()[source.id]) return null;
+    const metadata = source.metadata || {};
+    const preview = typeof metadata['preview_url'] === 'string' ? metadata['preview_url'] : '';
+    if (preview.startsWith('http://') || preview.startsWith('https://')) return preview;
+    if (source.adapter === 'http_image' && source.source_url?.startsWith('http')) return source.source_url;
+    return null;
+  }
+
+  markVisualPreviewFailed(sourceId: string): void {
+    if (!sourceId || this.visualPreviewFailures()[sourceId]) return;
+    this.visualPreviewFailures.update((failures) => ({ ...failures, [sourceId]: true }));
+  }
+
+  visualSourceDetail(source: VisualSource): string {
+    const metadata = source.metadata || {};
+    const provider = typeof metadata['provider'] === 'string' ? metadata['provider'] : source.adapter;
+    const mode = typeof metadata['layer_kind'] === 'string' ? metadata['layer_kind'].replace(/_/g, ' ') : source.source_type;
+    const refresh = Number(metadata['refresh_seconds'] || 0);
+    const refreshLabel = refresh ? `maj ~${refresh}s` : `cadence ${source.capture_cadence_minutes} min`;
+    return `${provider} · ${mode} · ${refreshLabel}`;
   }
 
   visualCaptureImage(captureId: string): string | null {

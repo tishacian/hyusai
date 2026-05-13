@@ -1629,6 +1629,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "allowed_adapters": ["demo_static", "http_image", "browser_screenshot"],
                 "storage_policy": "snapshot_only_no_continuous_recording",
                 "analysis_policy": "no_identification_no_biometrics",
+                "source_model": "webcam_snapshot_layer",
             },
             "connectors": {
                 "institutional_calendar": {
@@ -1640,7 +1641,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "visual_streams": {
                     "enabled": True,
                     "status": "connected",
-                    "mode": "snapshot_only",
+                    "mode": "webcam_snapshot_layer",
                     "label": "Flux visuels institutionnels",
                 },
             },

@@ -9,6 +9,7 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_visual import WorkspaceVisualCapture, WorkspaceVisualObservation, WorkspaceVisualSource
+from app.services import visual_intelligence as visual_service
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -20,7 +21,12 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
     return TestClient(app)
 
 
-def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db_session):
+def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db_session, monkeypatch):
+    monkeypatch.setattr(
+        visual_service,
+        "_fetch_http_image",
+        lambda _url: (b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml"),
+    )
     workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
@@ -31,8 +37,9 @@ def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db
 
     assert sources.status_code == 200
     source = sources.json()["sources"][0]
-    assert source["adapter"] == "demo_static"
-    assert source["region"] == "Abidjan / Plateau"
+    assert source["adapter"] == "http_image"
+    assert source["metadata"]["layer_kind"] == "webcam_snapshot"
+    assert source["region"] == "Abidjan / Le Plateau"
 
     capture = client.post(f"/api/v1/visual-intelligence/sources/{source['id']}/capture")
 
@@ -65,7 +72,12 @@ def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db
     assert "visual.observation.synced_to_knowledge" in event_types
 
 
-def test_visual_capture_image_cannot_cross_workspace(db_session):
+def test_visual_capture_image_cannot_cross_workspace(db_session, monkeypatch):
+    monkeypatch.setattr(
+        visual_service,
+        "_fetch_http_image",
+        lambda _url: (b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml"),
+    )
     sentinel = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
     other = Workspace(id="workspace-other", slug="andritz", name="Andritz", mode="standard")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
