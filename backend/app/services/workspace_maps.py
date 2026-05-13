@@ -1,7 +1,11 @@
 """Workspace map system and risk scoring service."""
 from __future__ import annotations
 
+import copy
+import json
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -18,6 +22,7 @@ from app.services.workspace_jobs import transition_job
 
 SENTINEL_MAP_SLUG = "sentinel-ci-strategic-map"
 TERRITORIAL_INTELLIGENCE_COLLECTION = "sentinel-ci-territorial-intelligence"
+GEO_DATA_DIR = Path(__file__).resolve().parents[1] / "resources" / "geo" / "civ"
 
 IVORY_COAST_BOUNDS = {
     "west": -8.65,
@@ -26,75 +31,26 @@ IVORY_COAST_BOUNDS = {
     "north": 10.75,
 }
 
-SENTINEL_GEO_ZONES = {
+SENTINEL_ZONE_GEOGRAPHY = {
     "zone-nord": {
-        "centroid": [-5.63, 9.32],
-        "coordinates": [[
-            [-7.989663, 10.161991],
-            [-8.173837, 9.941875],
-            [-7.958915, 8.781997],
-            [-7.691593, 8.606142],
-            [-7.871831, 8.25],
-            [-2.51215, 8.25],
-            [-2.689211, 9.488724],
-            [-3.661658, 9.948929],
-            [-4.270329, 9.743928],
-            [-4.966075, 9.901025],
-            [-5.522578, 10.425489],
-            [-6.95939, 10.185503],
-            [-7.708646, 10.402467],
-            [-7.989663, 10.161991],
-        ]],
+        "centroid": [-5.65, 9.15],
+        "admin1": ["Savanes", "Denguele", "Woroba"],
     },
     "zone-ouest": {
-        "centroid": [-7.43, 6.98],
-        "coordinates": [[
-            [-6.35, 8.25],
-            [-7.871831, 8.25],
-            [-8.228976, 7.544295],
-            [-8.485446, 7.557989],
-            [-8.284115, 7.017867],
-            [-8.566113, 6.550919],
-            [-7.446543, 5.845949],
-            [-7.458895, 5.65],
-            [-6.35, 5.65],
-            [-6.35, 8.25],
-        ]],
+        "centroid": [-7.25, 6.9],
+        "admin1": ["Montagnes", "Sassandra-Marahoue"],
     },
     "zone-centre": {
-        "centroid": [-5.3, 6.95],
-        "coordinates": [[
-            [-4.25, 8.25],
-            [-6.35, 8.25],
-            [-6.35, 5.65],
-            [-4.25, 5.65],
-            [-4.25, 8.25],
-        ]],
+        "centroid": [-5.1, 7.25],
+        "admin1": ["Valle Du Bandama", "Lacs", "District Autonome De Yamoussoukro"],
     },
     "zone-sud": {
-        "centroid": [-5.45, 5.15],
-        "coordinates": [[
-            [-7.458895, 5.65],
-            [-7.540666, 4.352845],
-            [-5.851308, 5.029975],
-            [-4.125478, 5.30744],
-            [-2.843699, 5.149115],
-            [-2.986595, 5.65],
-            [-7.458895, 5.65],
-        ]],
+        "centroid": [-5.25, 5.35],
+        "admin1": ["Bas-Sassandra", "Goh-Djiboua", "Lagunes", "District Autonome D'Abidjan"],
     },
     "zone-est": {
-        "centroid": [-3.37, 7.03],
-        "coordinates": [[
-            [-4.25, 8.25],
-            [-4.25, 5.65],
-            [-2.986595, 5.65],
-            [-3.262509, 6.617142],
-            [-2.840003, 7.820247],
-            [-2.506328, 8.209267],
-            [-2.51215, 8.25],
-            [-4.25, 8.25],
-        ]],
+        "centroid": [-3.25, 7.25],
+        "admin1": ["Zanzan", "Comoe"],
     },
 }
 
@@ -196,50 +152,6 @@ DEFAULT_RENDERER_LAYERS = [
         "sort_order": 60,
     },
 ]
-
-SENTINEL_ADMIN_REGIONS = [
-    {
-        "name": "Savanes",
-        "kind": "district",
-        "coordinates": [[[-6.80, 10.55], [-3.90, 9.95], [-3.68, 8.70], [-5.20, 8.30], [-7.20, 8.70], [-6.80, 10.55]]],
-    },
-    {
-        "name": "Denguele / Woroba",
-        "kind": "district",
-        "coordinates": [[[-8.45, 10.20], [-6.80, 10.55], [-7.20, 8.70], [-8.25, 7.95], [-8.55, 8.90], [-8.45, 10.20]]],
-    },
-    {
-        "name": "Montagnes",
-        "kind": "district",
-        "coordinates": [[[-8.55, 8.90], [-7.20, 8.70], [-6.85, 7.05], [-7.45, 5.35], [-8.25, 5.45], [-8.48, 7.25], [-8.55, 8.90]]],
-    },
-    {
-        "name": "Vallee du Bandama",
-        "kind": "district",
-        "coordinates": [[[-6.85, 7.95], [-5.20, 8.30], [-4.25, 7.85], [-4.35, 6.65], [-5.25, 6.20], [-6.45, 6.50], [-6.85, 7.95]]],
-    },
-    {
-        "name": "Lacs / Yamoussoukro",
-        "kind": "district",
-        "coordinates": [[[-5.25, 6.20], [-4.35, 6.65], [-3.72, 6.12], [-3.94, 5.45], [-5.12, 5.72], [-5.82, 5.52], [-5.25, 6.20]]],
-    },
-    {
-        "name": "Comoe / Zanzan",
-        "kind": "district",
-        "coordinates": [[[-4.25, 7.85], [-3.68, 8.70], [-2.70, 7.80], [-2.82, 6.10], [-3.72, 6.12], [-4.35, 6.65], [-4.25, 7.85]]],
-    },
-    {
-        "name": "Bas-Sassandra / Goh-Djiboua",
-        "kind": "district",
-        "coordinates": [[[-7.45, 5.35], [-5.82, 5.52], [-5.12, 5.72], [-4.38, 4.92], [-5.45, 4.55], [-7.28, 4.45], [-7.45, 5.35]]],
-    },
-    {
-        "name": "Abidjan / Lagunes",
-        "kind": "district",
-        "coordinates": [[[-4.38, 4.92], [-3.72, 6.12], [-2.82, 6.10], [-2.95, 5.03], [-3.62, 4.72], [-4.38, 4.92]]],
-    },
-]
-
 
 SENTINEL_ZONE_SEED = [
     {
@@ -589,19 +501,86 @@ def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def _admin_boundaries_geojson() -> dict[str, Any]:
-    return {
-        "type": "FeatureCollection",
-        "features": [
+@lru_cache(maxsize=8)
+def _load_geo_asset(filename: str) -> dict[str, Any]:
+    path = GEO_DATA_DIR / filename
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _normalize_geo_collection(filename: str, *, level: str, kind: str) -> dict[str, Any]:
+    source = _load_geo_asset(filename)
+    features = []
+    for feature in source.get("features") or []:
+        copied = copy.deepcopy(feature)
+        properties = copied.setdefault("properties", {})
+        shape_name = properties.get("shapeName") or properties.get("name") or ""
+        copied["id"] = properties.get("shapeID") or _slugify(shape_name)
+        properties.update(
             {
-                "type": "Feature",
-                "id": f"admin-{idx + 1}",
-                "geometry": {"type": "Polygon", "coordinates": region["coordinates"]},
-                "properties": {"name": region["name"], "kind": region["kind"]},
+                "name": shape_name,
+                "kind": kind,
+                "admin_level": level,
+                "source": "geoBoundaries",
+                "license": "CC BY 4.0",
             }
-            for idx, region in enumerate(SENTINEL_ADMIN_REGIONS)
-        ],
-    }
+        )
+        features.append(copied)
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _geo_metadata() -> dict[str, Any]:
+    try:
+        return _load_geo_asset("metadata.json")
+    except FileNotFoundError:
+        return {
+            "source": "geoBoundaries",
+            "license": "CC BY 4.0",
+            "notes": "Metadata file missing; geospatial assets remain versioned in the repository.",
+        }
+
+
+def _country_boundary_geojson() -> dict[str, Any]:
+    return _normalize_geo_collection("geoboundaries-civ-adm0.geojson", level="ADM0", kind="country")
+
+
+def _admin_boundaries_geojson() -> dict[str, Any]:
+    return _normalize_geo_collection("geoboundaries-civ-adm2.geojson", level="ADM2", kind="region")
+
+
+def _district_boundaries_geojson() -> dict[str, Any]:
+    return _normalize_geo_collection("geoboundaries-civ-adm1.geojson", level="ADM1", kind="district")
+
+
+def _zone_geojson_features(zone: dict[str, Any]) -> list[dict[str, Any]]:
+    definition = SENTINEL_ZONE_GEOGRAPHY.get(str(zone.get("id") or ""))
+    if not definition:
+        return []
+    requested = set(definition.get("admin1") or [])
+    districts = _district_boundaries_geojson()
+    features = []
+    for feature in districts.get("features") or []:
+        admin_name = feature.get("properties", {}).get("name")
+        if admin_name not in requested:
+            continue
+        copied = copy.deepcopy(feature)
+        copied["id"] = f"{zone.get('id')}-{_slugify(admin_name)}"
+        copied.setdefault("properties", {}).update(
+            {
+                "id": zone.get("id"),
+                "zone_id": zone.get("id"),
+                "zone_name": zone.get("name"),
+                "name": zone.get("name"),
+                "admin_name": admin_name,
+                "level": zone.get("level"),
+                "tone": zone.get("tone"),
+                "signals": zone.get("signals") or [],
+                "recommendations": zone.get("recommendations") or [],
+                "source": "geoBoundaries ADM1 + Agentium scoring",
+            }
+        )
+        features.append(copied)
+    return features
 
 
 def _cities_geojson() -> dict[str, Any]:
@@ -622,6 +601,11 @@ def _cities_geojson() -> dict[str, Any]:
             for marker in SENTINEL_CONTEXT_MARKERS
         ],
     }
+
+
+def _slugify(value: str) -> str:
+    normalized = (value or "").lower().replace("'", "").replace("/", " ")
+    return "-".join(part for part in normalized.replace("_", " ").split() if part)
 
 
 def serialize_zone(zone: WorkspaceMapZone, score: Optional[WorkspaceMapScore] = None) -> dict[str, Any]:
@@ -852,24 +836,8 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
     arc_links = []
     abidjan = [-4.0244, 5.3453]
     for zone in zones:
-        coords = _zone_lonlat_polygon(zone, view_box)
         centroid = _zone_lonlat_centroid(zone, view_box)
-        if coords:
-            zone_features.append(
-                {
-                    "type": "Feature",
-                    "id": zone.get("id"),
-                    "geometry": {"type": "Polygon", "coordinates": [coords]},
-                    "properties": {
-                        "id": zone.get("id"),
-                        "name": zone.get("name"),
-                        "level": zone.get("level"),
-                        "tone": zone.get("tone"),
-                        "signals": zone.get("signals") or [],
-                        "recommendations": zone.get("recommendations") or [],
-                    },
-                }
-            )
+        zone_features.extend(_zone_geojson_features(zone))
         if centroid:
             marker_features.append(
                 {
@@ -927,7 +895,7 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
             "style": basemap_options[0]["style"],
             "initial_view_state": camera_presets["country"],
             "bounds": [[IVORY_COAST_BOUNDS["west"], IVORY_COAST_BOUNDS["south"]], [IVORY_COAST_BOUNDS["east"], IVORY_COAST_BOUNDS["north"]]],
-            "attribution": "Fond cartographique OSM/CARTO · couches Agentium workspace",
+            "attribution": "Fond OSM/CARTO · frontières geoBoundaries CC BY 4.0 · couches Agentium workspace",
             "interaction_contract": {
                 "commands": sorted(MAP_COMMAND_INTENTS),
                 "selection": "zone",
@@ -942,6 +910,9 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
             "selected_zone": zones[0]["id"] if zones else None,
             "camera": camera_presets["country"],
         },
+        "geodata_metadata": _geo_metadata(),
+        "country_boundary": _country_boundary_geojson(),
+        "district_boundaries": _district_boundaries_geojson(),
         "admin_boundaries": _admin_boundaries_geojson(),
         "cities": _cities_geojson(),
         "source_counts": source_counts,
@@ -962,14 +933,11 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
 
 
 def _zone_lonlat_polygon(zone: dict[str, Any], view_box: tuple[float, float, float, float]) -> list[list[float]]:
-    seeded = SENTINEL_GEO_ZONES.get(str(zone.get("id") or ""))
-    if seeded:
-        return seeded["coordinates"][0]
     return _polygon_to_lonlat(zone.get("polygon") or "", view_box)
 
 
 def _zone_lonlat_centroid(zone: dict[str, Any], view_box: tuple[float, float, float, float]) -> Optional[list[float]]:
-    seeded = SENTINEL_GEO_ZONES.get(str(zone.get("id") or ""))
+    seeded = SENTINEL_ZONE_GEOGRAPHY.get(str(zone.get("id") or ""))
     if seeded:
         return seeded["centroid"]
     return _point_to_lonlat(zone.get("centroid") or {}, view_box)

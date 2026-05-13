@@ -22,6 +22,17 @@ Trois fonds sont exposes dans le selecteur `Fond` :
 Le bouton `Recentrer Cote d'Ivoire` utilise les bornes pays et force une vue 2D plate, sans pitch ni rotation.
 Les boutons `+`, `-` et `vue pays` restent disponibles pour une conduite de demo sans molette.
 
+## Donnees Geographiques
+
+Les limites geographiques ne sont plus dessinees a la main. Elles sont versionnees dans `backend/app/resources/geo/civ/` :
+
+- `geoboundaries-civ-adm0.geojson` : contour pays Cote d'Ivoire ;
+- `geoboundaries-civ-adm1.geojson` : districts ;
+- `geoboundaries-civ-adm2.geojson` : regions ;
+- `metadata.json` : source, licence et date d'import.
+
+Source : geoBoundaries Global Database, jeu `gbOpen/CIV`, licence CC BY 4.0. Les zones strategiques Agentium sont des regroupements de districts ADM1 ; les limites regionales ADM2 restent visibles comme contexte administratif.
+
 ## Couches
 
 Chaque couche du panneau `Couches` correspond a un type de source Agentium. Le compteur indique le nombre d'elements visibles et le pourcentage indique la confiance operationnelle estimee.
@@ -37,15 +48,16 @@ Desactiver une couche retire ses objets du rendu deck.gl correspondant. Les couc
 
 ## Formes Et Couleurs
 
-- Le contour pays suit le GeoJSON Cote d'Ivoire versionne dans Agentium. Les zones de vigilance sont clippees sur ce contour afin de ne jamais deborder de la frontiere.
-- Les contours cyan secondaires representent des limites administratives simplifiees et des partitions de lecture ministerielle.
+- Le contour pays suit le GeoJSON ADM0 versionne.
+- Les limites internes fines suivent ADM2, visibles comme contexte administratif.
+- Les zones de vigilance suivent des regroupements ADM1 : Nord, Ouest, Centre, Sud, Est.
 - Les polygones verts indiquent une zone stable ou nominale.
 - Les polygones ambre indiquent une zone en vigilance elevee.
 - Les polygones rouges sont reserves aux situations critiques.
 - Les halos indiquent des points de concentration de signaux.
 - Les arcs indiquent un lien d'action ou de coordination depuis Abidjan vers une zone.
 
-Les zones sont des partitions strategiques non chevauchantes superposees au territoire et au contour pays reel. Leurs bords externes respectent la frontiere ; leurs separations internes restent des lignes de lecture ministerielle simplifiees. Elles ne remplacent pas une reference administrative officielle ; elles servent a relier signaux, sources et decisions sans donner une precision trompeuse.
+Le score, la couleur et les recommandations sont analytiques. La geometrie de base reste administrative et sourcee ; Agentium n'invente plus les frontieres de zones.
 
 ## Commandes VIGIE
 

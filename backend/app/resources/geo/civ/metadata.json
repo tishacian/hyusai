@@ -1,0 +1,11 @@
+{
+  "country": "Cote d'Ivoire",
+  "source": "geoBoundaries Global Database of Political Administrative Boundaries",
+  "source_url": "https://www.geoboundaries.org/",
+  "download_base": "https://github.com/wmgeolab/geoBoundaries/raw/main/releaseData/gbOpen/CIV/",
+  "license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "release": "current gbOpen CIV ADM0/ADM1/ADM2 simplified",
+  "downloaded_at": "2026-05-13",
+  "notes": "Used as the authoritative workspace geospatial asset for SENTINEL-CI ministerial map rendering. Analytical risk zones are grouped from ADM1 features and do not replace the official administrative boundaries."
+}

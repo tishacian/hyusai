@@ -42,45 +42,6 @@ type BasemapOption = {
   style?: Record<string, any> | string;
 };
 
-const CIV_OUTLINE = {
-  type: 'FeatureCollection',
-  features: [
-    {
-      type: 'Feature',
-      properties: { name: "Côte d'Ivoire" },
-      geometry: {
-        type: 'Polygon',
-        coordinates: [[
-          [-7.989663, 10.161991],
-          [-8.173837, 9.941875],
-          [-7.958915, 8.781997],
-          [-7.691593, 8.606142],
-          [-8.228976, 7.544295],
-          [-8.485446, 7.557989],
-          [-8.284115, 7.017867],
-          [-8.566113, 6.550919],
-          [-7.446543, 5.845949],
-          [-7.540666, 4.352845],
-          [-5.851308, 5.029975],
-          [-4.125478, 5.30744],
-          [-2.843699, 5.149115],
-          [-3.262509, 6.617142],
-          [-2.840003, 7.820247],
-          [-2.506328, 8.209267],
-          [-2.689211, 9.488724],
-          [-3.661658, 9.948929],
-          [-4.270329, 9.743928],
-          [-4.966075, 9.901025],
-          [-5.522578, 10.425489],
-          [-6.95939, 10.185503],
-          [-7.708646, 10.402467],
-          [-7.989663, 10.161991],
-        ]],
-      },
-    },
-  ],
-};
-
 @Component({
   selector: 'app-workspace-map',
   standalone: true,
@@ -984,6 +945,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const markersSource = this.mapSystem?.['geojson_sources']?.markers;
     const contextMarkersSource = this.mapSystem?.['geojson_sources']?.context_markers;
     const contextLinesSource = this.mapSystem?.['geojson_sources']?.context_lines;
+    const countryBoundarySource = this.mapSystem?.['country_boundary'];
     const adminBoundariesSource = this.mapSystem?.['admin_boundaries'];
     const citiesSource = this.mapSystem?.['cities'];
     const arcs = this.mapSystem?.['visual_effects']?.arc_links || [];
@@ -1007,13 +969,13 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
     layers.push(new GeoJsonLayer({
         id: 'sentinel-country-outline',
-        data: CIV_OUTLINE,
+        data: countryBoundarySource,
         pickable: false,
         filled: false,
         stroked: true,
         getFillColor: [0, 0, 0, 0],
-        getLineColor: this.selectedBasemapKey === 'contours' ? [18, 96, 130, 210] : [136, 215, 255, 218],
-        lineWidthMinPixels: 2.5,
+        getLineColor: this.selectedBasemapKey === 'administrative' ? [15, 63, 86, 238] : [136, 215, 255, 218],
+        lineWidthMinPixels: 2.2,
         parameters: { depthTest: false },
       }));
 
@@ -1024,8 +986,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       filled: false,
       stroked: true,
       getFillColor: [0, 0, 0, 0],
-      getLineColor: this.selectedBasemapKey === 'contours' ? [35, 70, 92, 138] : [185, 224, 241, showTerritory ? 150 : 84],
-      lineWidthMinPixels: showTerritory ? 1.25 : 0.8,
+      getLineColor: this.selectedBasemapKey === 'administrative' ? [30, 78, 102, showTerritory ? 128 : 72] : [185, 224, 241, showTerritory ? 150 : 84],
+      lineWidthMinPixels: showTerritory ? 0.9 : 0.7,
       parameters: { depthTest: false },
     }));
 
@@ -1050,10 +1012,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: true,
         filled: true,
         stroked: true,
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 104 : 64),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 118 : 58),
         getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId),
-        lineWidthMinPixels: 2.8,
-        lineWidthMaxPixels: 5.2,
+        lineWidthMinPixels: 1.4,
+        lineWidthMaxPixels: 3.0,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
       }));

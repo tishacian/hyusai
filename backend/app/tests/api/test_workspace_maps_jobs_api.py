@@ -42,9 +42,19 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert {item["key"] for item in listed.json()["maps"][0]["basemap_options"]} >= {"administrative", "dark", "contours"}
     assert listed.json()["maps"][0]["default_map_state"]["camera"]["pitch"] == 0
     assert listed.json()["maps"][0]["layer_catalog"][0]["key"] == "territorial-risk"
+    assert listed.json()["maps"][0]["geodata_metadata"]["source"].startswith("geoBoundaries")
+    assert listed.json()["maps"][0]["country_boundary"]["features"][0]["properties"]["admin_level"] == "ADM0"
+    assert listed.json()["maps"][0]["district_boundaries"]["features"][0]["properties"]["admin_level"] == "ADM1"
     assert listed.json()["maps"][0]["admin_boundaries"]["features"]
+    assert listed.json()["maps"][0]["admin_boundaries"]["features"][0]["properties"]["admin_level"] == "ADM2"
     assert listed.json()["maps"][0]["cities"]["features"]
-    assert listed.json()["maps"][0]["geojson_sources"]["zones"]["features"]
+    zone_features = listed.json()["maps"][0]["geojson_sources"]["zones"]["features"]
+    assert len(zone_features) >= 14
+    assert {feature["properties"]["admin_name"] for feature in zone_features if feature["properties"]["id"] == "zone-nord"} >= {
+        "Savanes",
+        "Denguele",
+        "Woroba",
+    }
     assert listed.json()["maps"][0]["geojson_sources"]["context_markers"]["features"]
 
     scored = client.post("/api/v1/maps/sentinel-ci-strategic-map/score")
