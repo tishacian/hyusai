@@ -227,6 +227,10 @@ services:
     container_name: qdrant
     profiles: ["infra"]
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     networks:
       agentium-net:
         aliases:
