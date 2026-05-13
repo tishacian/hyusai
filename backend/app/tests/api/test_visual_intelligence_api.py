@@ -92,3 +92,43 @@ def test_visual_capture_image_cannot_cross_workspace(db_session, monkeypatch):
     response = other_client.get(f"/api/v1/visual-intelligence/captures/{capture['id']}/image")
 
     assert response.status_code == 404
+
+
+def test_visual_capture_uses_vlm_analysis_when_enabled(db_session, monkeypatch):
+    monkeypatch.setattr(
+        visual_service,
+        "_fetch_http_image",
+        lambda _url: (b"\xff\xd8\xff\xe0visual", "image/jpeg"),
+    )
+    monkeypatch.setattr(visual_service.settings, "visual_analysis_enabled", True)
+    monkeypatch.setattr(
+        visual_service,
+        "_run_visual_analysis",
+        lambda *_args, **_kwargs: {
+            "analysis": "vlm",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "summary": "Image exploitable: flux calme, aucune anomalie visible.",
+            "tags": ["flux-visuel", "abidjan", "calme"],
+            "confidence": 0.74,
+            "vigilance_score": 22,
+            "level_label": "stable",
+            "observations": ["couloir calme"],
+            "recommended_next_step": "Maintenir la veille periodique.",
+        },
+    )
+    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    source = client.get("/api/v1/visual-intelligence/sources").json()["sources"][0]
+    capture = client.post(f"/api/v1/visual-intelligence/sources/{source['id']}/capture")
+
+    assert capture.status_code == 200
+    observation = capture.json()["observation"]
+    assert observation["provider"] == "openai"
+    assert observation["model"] == "gpt-4o-mini"
+    assert observation["vigilance_score"] == 22
+    assert "Image exploitable" in observation["summary"]

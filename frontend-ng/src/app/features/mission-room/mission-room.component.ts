@@ -3912,7 +3912,13 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   captureVisualSource(source: VisualSource): void {
     if (!source?.id) return;
-    this.api.post(`/visual-intelligence/sources/${source.id}/capture`, {}).subscribe(() => this.loadAll());
+    this.api.post<{ capture?: { id?: string } }>(`/visual-intelligence/sources/${source.id}/capture`, {}).subscribe((result) => {
+      const captureId = result?.capture?.id;
+      this.router.navigate(['/hypervisor/mission-room/monitor'], {
+        queryParams: captureId ? { capture: captureId, panel: 'visual' } : { panel: 'visual' },
+      });
+      this.loadAll();
+    });
   }
 
   private hydrateVisualCaptureImages(monitor: MissionMonitor): void {

@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     visual_capture_http_timeout_seconds: float = 15.0
     visual_capture_browser_enabled: bool = False
     visual_capture_windy_api_key: Optional[str] = None
+    visual_analysis_enabled: bool = False
+    visual_analysis_provider: str = "openai"
+    visual_analysis_model: str = "gpt-4o-mini"
+    visual_analysis_timeout_seconds: float = 20.0
+    visual_analysis_endpoint_url: Optional[str] = None
 
     # Embeddings
     embedding_provider: str = "openai"

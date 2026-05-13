@@ -1,7 +1,9 @@
 """Workspace visual intelligence for provider-neutral situation monitoring."""
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
@@ -292,7 +294,7 @@ def capture_source(
         db.add(capture)
         db.flush()
         transition_job(db, workspace, job, "running", progress=70, stage="analyze_snapshot", user=user)
-        observation = _analyze_capture(db, workspace, source, capture, capture_meta)
+        observation = _analyze_capture(db, workspace, source, capture, capture_meta, content, mime_type)
         capture.status = "analyzed"
         source.last_captured_at = capture.captured_at
         source.status = "active"
@@ -691,21 +693,35 @@ def _analyze_capture(
     source: WorkspaceVisualSource,
     capture: WorkspaceVisualCapture,
     capture_meta: dict[str, Any],
+    content: bytes,
+    mime_type: str,
 ) -> WorkspaceVisualObservation:
     default_score = int((source.meta_data or {}).get("default_vigilance_score") or 35)
     source_name = source.name or "Source visuelle"
     region = source.region or "zone suivie"
-    summary = (
-        f"{source_name}: capture exploitable sur {region}. "
-        "Activite visuelle compatible avec une surveillance institutionnelle nominale ; "
-        "aucun signal critique automatise n'est retenu sans confirmation operateur."
+    analysis = _run_visual_analysis(source, capture, capture_meta, content, mime_type)
+    summary = str(
+        analysis.get("summary")
+        or (
+            f"{source_name}: capture exploitable sur {region}. "
+            "Activite visuelle compatible avec une surveillance institutionnelle nominale ; "
+            "aucun signal critique automatise n'est retenu sans confirmation operateur."
+        )
     )
-    tags = [
+    raw_tags = analysis.get("tags") if isinstance(analysis.get("tags"), list) else []
+    tags = [str(tag)[:48] for tag in raw_tags if str(tag).strip()][:8] or [
         "flux-visuel",
         "observation",
         "cote-ivoire",
         "validation-humaine",
     ]
+    confidence = _bounded_float(analysis.get("confidence"), default=0.68 if capture_meta.get("demo_safe") else 0.62)
+    score = _bounded_int(analysis.get("vigilance_score"), default=default_score, lower=0, upper=100)
+    level = str(analysis.get("level_label") or _level_label(score)).lower()
+    if level not in {"stable", "monitoring", "elevated", "critical"}:
+        level = _level_label(score)
+    provider = str(analysis.get("provider") or "rule_based")[:80]
+    model = analysis.get("model")
     observation = WorkspaceVisualObservation(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -713,17 +729,21 @@ def _analyze_capture(
         capture_id=capture.id,
         summary=summary,
         tags=tags,
-        confidence=0.68 if capture_meta.get("demo_safe") else 0.62,
-        vigilance_score=default_score,
-        level_label=_level_label(default_score),
+        confidence=confidence,
+        vigilance_score=score,
+        level_label=level,
         source_refs=[f"visual:{source.id}", f"capture:{capture.id}"],
-        provider="rule_based",
-        model=None,
+        provider=provider,
+        model=str(model)[:160] if model else None,
         meta_data={
             "adapter": source.adapter,
             "source_region": region,
             "no_biometrics": True,
             "advisory_only": True,
+            "analysis": analysis.get("analysis") or "rule_based",
+            "observations": analysis.get("observations") or [],
+            "recommended_next_step": analysis.get("recommended_next_step"),
+            "analysis_error": analysis.get("error"),
         },
         created_at=datetime.utcnow(),
     )
@@ -737,6 +757,127 @@ def _analyze_capture(
         details={"source_id": source.id, "capture_id": capture.id, "observation_id": observation.id},
     )
     return observation
+
+
+def _run_visual_analysis(
+    source: WorkspaceVisualSource,
+    capture: WorkspaceVisualCapture,
+    capture_meta: dict[str, Any],
+    content: bytes,
+    mime_type: str,
+) -> dict[str, Any]:
+    if not settings.visual_analysis_enabled or capture_meta.get("demo_safe") or not mime_type.startswith("image/"):
+        return {"analysis": "rule_based", "provider": "rule_based"}
+    provider = (settings.visual_analysis_provider or "openai").lower()
+    try:
+        if provider == "openai":
+            return _run_openai_visual_analysis(source, capture, content, mime_type)
+        if provider in {"local_http", "http"}:
+            return _run_http_visual_analysis(source, capture, content, mime_type)
+        return {"analysis": "rule_based", "provider": "rule_based", "error": f"unsupported_visual_analysis_provider:{provider}"}
+    except Exception as exc:  # noqa: BLE001
+        return {"analysis": "rule_based", "provider": "rule_based", "error": str(exc)[:240]}
+
+
+def _run_openai_visual_analysis(
+    source: WorkspaceVisualSource,
+    capture: WorkspaceVisualCapture,
+    content: bytes,
+    mime_type: str,
+) -> dict[str, Any]:
+    if not settings.openai_api_key:
+        return {"analysis": "rule_based", "provider": "rule_based", "error": "openai_api_key_missing"}
+    try:
+        from openai import OpenAI
+    except Exception as exc:  # noqa: BLE001
+        return {"analysis": "rule_based", "provider": "rule_based", "error": f"openai_sdk_unavailable:{exc}"}
+
+    client = OpenAI(api_key=settings.openai_api_key, timeout=settings.visual_analysis_timeout_seconds)
+    image_b64 = base64.b64encode(content).decode("ascii")
+    prompt = _visual_analysis_prompt(source, capture)
+    response = client.chat.completions.create(
+        model=settings.visual_analysis_model,
+        temperature=0,
+        max_tokens=360,
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Tu analyses des snapshots webcam institutionnels pour un briefing executif. "
+                    "Tu ne fais jamais d'identification de personnes, biometrie, plaques ou suivi individuel. "
+                    "Tu restes prudent, sourcé par l'image seulement, et advisory-only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_b64}", "detail": "low"}},
+                ],
+            },
+        ],
+    )
+    raw = response.choices[0].message.content or "{}"
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        payload = {}
+    payload["analysis"] = "vlm"
+    payload["provider"] = "openai"
+    payload["model"] = getattr(response, "model", settings.visual_analysis_model)
+    return payload
+
+
+def _run_http_visual_analysis(
+    source: WorkspaceVisualSource,
+    capture: WorkspaceVisualCapture,
+    content: bytes,
+    mime_type: str,
+) -> dict[str, Any]:
+    if not settings.visual_analysis_endpoint_url:
+        return {"analysis": "rule_based", "provider": "rule_based", "error": "visual_analysis_endpoint_missing"}
+    payload = {
+        "image_base64": base64.b64encode(content).decode("ascii"),
+        "mime_type": mime_type,
+        "prompt": _visual_analysis_prompt(source, capture),
+        "source": {"id": source.id, "name": source.name, "region": source.region},
+    }
+    with httpx.Client(timeout=settings.visual_analysis_timeout_seconds, follow_redirects=True) as client:
+        response = client.post(settings.visual_analysis_endpoint_url, json=payload)
+        response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise RuntimeError("visual_analysis_endpoint_invalid_response")
+    data.setdefault("analysis", "vlm")
+    data.setdefault("provider", "local_http")
+    return data
+
+
+def _visual_analysis_prompt(source: WorkspaceVisualSource, capture: WorkspaceVisualCapture) -> str:
+    return (
+        "Observe l'image et produis uniquement un JSON avec les clés: "
+        "summary (phrase courte en français), observations (liste courte), tags (liste), "
+        "confidence (0-1), vigilance_score (0-100), level_label (stable|monitoring|elevated|critical), "
+        "recommended_next_step (phrase). "
+        f"Contexte: source={source.name}, region={source.region}, capture_id={capture.id}. "
+        "Ne décris pas ou n'identifie pas les personnes. Mentionne explicitement si l'image est peu exploitable."
+    )
+
+
+def _bounded_float(value: Any, *, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(parsed, 1.0))
+
+
+def _bounded_int(value: Any, *, default: int, lower: int, upper: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(lower, min(parsed, upper))
 
 
 def _demo_snapshot(source: WorkspaceVisualSource) -> bytes:

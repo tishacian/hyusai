@@ -115,7 +115,7 @@ async def visual_source_patch(
 
 
 @router.post("/sources/{source_id}/capture")
-async def visual_source_capture(
+def visual_source_capture(
     source_id: str,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
