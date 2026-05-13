@@ -41,6 +41,68 @@ async def test_retrieve_rag_context_returns_serialisable_contract():
     assert result["metrics"]["duration_ms"] >= 0
     assert result["metrics"]["collection"] == "documents"
     assert result["metrics"]["vector_db"] == "faiss"
+    assert result["collections_touched"] == ["documents"]
+    assert result["collection_errors"] == []
+
+
+async def test_retrieve_rag_context_exposes_multi_collection_metadata(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "get_resolved_settings",
+        lambda **_kwargs: {
+            "ragCollectionName": "documents",
+            "ragVectorDBType": "qdrant",
+            "ragTopK": 2,
+            "ragPipelineMode": "chah",
+        },
+    )
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "vigie",
+            "label": "VIGIE",
+            "collection_slugs": ["news", "agenda"],
+            "default_mode": "chah",
+            "top_k": 2,
+        },
+    )
+    monkeypatch.setattr(
+        rag_context,
+        "_document_service_for_profile",
+        lambda _profile, collection: SimpleNamespace(collection_name=collection),
+    )
+    async def _fake_resolve_retrieval_mode(*_args, **_kwargs):
+        return True, "hybrid", "test"
+
+    monkeypatch.setattr(rag_context, "resolve_retrieval_mode", _fake_resolve_retrieval_mode)
+
+    async def _fake_retrieve(doc_svc, query, *_args, **_kwargs):
+        return SimpleNamespace(
+            chunks=[f"{doc_svc.collection_name}:{query}"],
+            scores=[0.9],
+            metadatas=[{"document_title": doc_svc.collection_name}],
+            pipeline="chah",
+            label="test",
+            reason="test",
+            detail="test",
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "signaux cabinet",
+            "workspace_id": "workspace-sentinel",
+            "workspace_slug": "sentinel-ci",
+            "knowledge_scope": "vigie",
+        }
+    )
+
+    assert result["collections_touched"] == ["news", "agenda"]
+    assert result["collection_errors"] == []
+    assert result["metrics"]["collections_touched"] == ["news", "agenda"]
+    assert len(result["collection_results"]) == 2
 
 
 def test_rag_retrieve_context_task_delegates_to_service(monkeypatch):

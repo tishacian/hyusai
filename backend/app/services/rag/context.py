@@ -191,6 +191,8 @@ async def retrieve_rag_context(
             "use_hybrid": True,
             "query": query,
             "metrics": _jsonable(metrics),
+            "collections_touched": [],
+            "collection_errors": [{"collection": profile["collection"], "error": str(exc)}],
         }
 
     use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
@@ -244,6 +246,8 @@ async def retrieve_rag_context(
             "vector_db": profile["vector_db"],
             "workspace_slug": profile["workspace_slug"],
             "metrics": metrics,
+            "collections_touched": [profile["collection"]],
+            "collection_errors": [],
         }
     )
 
@@ -389,6 +393,7 @@ async def _retrieve_multi_collection_context(
             "workspace_slug": profile["workspace_slug"],
             "collection_results": collection_results,
             "collection_errors": collection_errors,
+            "collections_touched": touched,
             "metrics": metrics,
         }
     )
