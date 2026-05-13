@@ -37,6 +37,7 @@ from app.services.action_plans import action_context_for_chat, handle_action_pla
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
+from app.services.mission_room import briefing_payload, cockpit_payload, news_payload
 logger = get_logger(__name__)
 router = APIRouter()
 query_validator = QueryValidator()
@@ -236,6 +237,101 @@ def _collect_chat_chunk(
             decision_steps[existing_index] = decision_step
         else:
             decision_steps.append(decision_step)
+
+
+def _vigie_executive_quick_reply(
+    db: Session,
+    workspace: Workspace,
+    query: str,
+    *,
+    assistant_profile: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """Return a bounded executive reply for VIGIE mission-room prompts.
+
+    The general RAG/LLM path remains available, but the ministerial cockpit
+    must never feel frozen for common briefing questions. This handler uses
+    already-consolidated Mission Room payloads and produces a source-backed
+    answer in one SSE turn.
+    """
+    if assistant_profile != "vigie_executive":
+        return None
+    normalized = query.lower()
+    if not any(
+        term in normalized
+        for term in (
+            "signal",
+            "signaux",
+            "attention cabinet",
+            "alerte",
+            "alertes",
+            "brief",
+            "briefing",
+            "presse",
+            "veille",
+            "priorit",
+            "synthese",
+            "synthèse",
+        )
+    ):
+        return None
+
+    news = news_payload(workspace, db)
+    cockpit = cockpit_payload(workspace, db)
+    briefing = briefing_payload(workspace)
+    alerts = (news.get("executive_alerts") or news.get("signals") or cockpit.get("latest_alerts") or [])[:3]
+    note = news.get("briefing_note") or {}
+    source_health = news.get("source_health") or {}
+    sources_catalog = news.get("sources") or cockpit.get("sources") or []
+
+    lines = ["Voici les signaux qui méritent une attention cabinet aujourd'hui :"]
+    if alerts:
+        for idx, alert in enumerate(alerts, start=1):
+            title = alert.get("title") or "Signal à qualifier"
+            impact = alert.get("impact_ci") or alert.get("summary") or alert.get("why_it_matters") or ""
+            action = alert.get("recommended_action") or "Qualifier le signal avant décision."
+            confidence = alert.get("confidence")
+            confidence_txt = f" Confiance {round(float(confidence) * 100)}%." if isinstance(confidence, (int, float)) else ""
+            lines.append(f"{idx}. {title} — {impact} Action proposée : {action}.{confidence_txt}")
+    else:
+        for idx, bullet in enumerate((note.get("bullets") or briefing.get("key_points") or [])[:3], start=1):
+            lines.append(f"{idx}. {bullet}")
+
+    decisions = note.get("decisions_expected") or briefing.get("decisions_expected") or []
+    if decisions:
+        lines.append("")
+        lines.append("Décisions attendues : " + " ; ".join(str(item) for item in decisions[:3]) + ".")
+
+    if source_health:
+        coverage = source_health.get("coverage_label") or "sources qualifiées disponibles"
+        run_id = source_health.get("last_run_id")
+        lines.append("")
+        lines.append(f"Couverture : {coverage}" + (f" · dernier run {run_id}" if run_id else "") + ".")
+
+    source_ids = []
+    for alert in alerts:
+        source_ids.extend([str(item) for item in (alert.get("sources") or [])])
+    source_lookup = {str(item.get("id")): item for item in sources_catalog if item.get("id")}
+    sources = [
+        {
+            "title": source_lookup.get(source_id, {}).get("label") or source_id,
+            "source_label": source_lookup.get(source_id, {}).get("label") or source_id,
+            "kind": source_lookup.get(source_id, {}).get("kind") or "mission_room",
+            "confidence": source_lookup.get(source_id, {}).get("confidence"),
+        }
+        for source_id in source_ids[:5]
+    ]
+    if not sources:
+        sources = [{"title": "Mission Room SENTINEL-CI", "source_label": "Briefing souverain", "kind": "mission_room"}]
+
+    return {
+        "content": "\n".join(lines),
+        "sources": sources,
+        "details": {
+            "live_news_used": bool(source_health.get("live_news_used")),
+            "last_run_id": source_health.get("last_run_id"),
+            "alert_count": len(alerts),
+        },
+    }
 
 
 @router.post("/completion")
@@ -1032,6 +1128,67 @@ async def chat_stream(
                     {
                         "chunk_type": "map_state_updated",
                         "map_state": (map_action.get("command") or {}).get("map_state"),
+                        "run_id": run_id,
+                        "is_final": True,
+                    }
+                )
+                yield _sse_done()
+                return
+
+            vigie_reply = _vigie_executive_quick_reply(
+                db,
+                workspace,
+                validated_query,
+                assistant_profile=request.assistant_profile,
+            )
+            if vigie_reply:
+                content = vigie_reply["content"]
+                sources = vigie_reply.get("sources") or []
+                if request.session_id:
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="user",
+                            content=request.query,
+                            meta_data={},
+                        )
+                    )
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="assistant",
+                            content=content,
+                            meta_data={"vigie_quick_reply": vigie_reply.get("details") or {}},
+                        )
+                    )
+                now = datetime.utcnow()
+                run_id = _persist_chat_run(
+                    db,
+                    workspace_id=workspace.id,
+                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    query=validated_query,
+                    response_text=content,
+                    sources=sources,
+                    reasoning_trace=None,
+                    started_at=now,
+                    completed_at=now,
+                    duration_ms=0.0,
+                    trigger="vigie_quick_brief",
+                    schedule=False,
+                    extra_output={
+                        "assistant_profile": request.assistant_profile,
+                        "knowledge_scope": request.knowledge_scope,
+                        "vigie_quick_reply": vigie_reply.get("details") or {},
+                    },
+                )
+                db.commit()
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": content,
+                        "sources": sources,
                         "run_id": run_id,
                         "is_final": True,
                     }

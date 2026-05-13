@@ -142,3 +142,28 @@ def test_chat_stream_vigie_map_query_emits_map_command(db_session, monkeypatch):
     run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
     assert run.trigger == "map_command"
     assert run.output_ref["map_command"]["target"] == "zone-nord"
+
+
+def test_chat_stream_vigie_signals_uses_fast_mission_room_reply(db_session, monkeypatch):
+    workspace = Workspace(id="ws-sentinel-vigie", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    db_session.add(workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Quels signaux nécessitent une attention cabinet aujourd'hui ?",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "attention cabinet" in response.text
+    assert '"chunk_type": "text"' in response.text
+    assert "data: [DONE]" in response.text
+    assert '"chunk_type": "retrieval"' not in response.text
+
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.trigger == "vigie_quick_brief"
+    assert run.output_ref["knowledge_scope"] == "vigie"
