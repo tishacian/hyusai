@@ -235,19 +235,19 @@ const STEP_ICONS: Record<string, string> = {
   template: `
     <div class="flex flex-col h-full">
       @if (executiveMode()) {
-        <div class="px-4 py-3 border-b border-white/5 bg-white/[0.025]">
+        <div class="vigie-context-bar">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-[10px] uppercase tracking-[0.18em] text-brand-300 font-semibold">
-                {{ assistantLabel() }} · Briefing souverain · Sources qualifiées
+              <div class="vigie-kicker">
+                Briefing souverain
               </div>
-              <div class="mt-1 text-xs text-gray-300 truncate">
-                {{ assistantScopeLabel() }}
+              <div class="vigie-scope-line">
+                Sources qualifiées · Presse, projets, agenda, carte et observations
               </div>
             </div>
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] ring-1 ring-white/10 bg-white/[0.04] text-gray-300 hover:text-white hover:bg-white/[0.07] transition"
+              class="vigie-trace-button"
               (click)="traceOpen.set(!traceOpen())"
               [title]="traceOpen() ? 'Masquer les paramètres avancés' : 'Afficher traçabilité et paramètres avancés'"
             >
@@ -419,13 +419,12 @@ const STEP_ICONS: Record<string, string> = {
       <!-- Messages -->
       <div
         class="flex-1 overflow-y-auto px-4 py-4 space-y-5"
+        [class.vigie-messages]="executiveMode()"
         style="max-height: calc(100vh - 320px); min-height: 360px;"
       >
         @if (messages().length === 0 && !streaming()) {
-          <div class="h-full flex flex-col items-center justify-center py-8">
-            <div
-              class="w-12 h-12 rounded-full bg-gradient-to-br from-brand-500/20 to-violet-500/20 flex items-center justify-center mb-3"
-            >
+          <div class="h-full flex flex-col items-center justify-center py-8" [class.vigie-empty-state]="executiveMode()">
+            <div class="w-12 h-12 rounded-full bg-gradient-to-br from-brand-500/20 to-violet-500/20 flex items-center justify-center mb-3">
               <app-icon name="sparkles" [size]="20" class="text-brand-300" />
             </div>
             <div class="text-sm font-semibold text-gray-900 dark:text-white">
@@ -466,6 +465,7 @@ const STEP_ICONS: Record<string, string> = {
             <div class="flex justify-end">
               <div
                 class="max-w-[80%] bg-brand-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap shadow-sm"
+                [class.vigie-user-bubble]="executiveMode()"
               >
                 {{ msg.content }}
               </div>
@@ -644,6 +644,7 @@ const STEP_ICONS: Record<string, string> = {
               <div class="flex justify-start">
                 <div
                   class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5"
+                  [class.vigie-assistant-bubble]="executiveMode()"
                 >
                   @for (tok of renderAnswer(msg.content); track $index) {
                     @if (tok.kind === 'text') {
@@ -672,6 +673,7 @@ const STEP_ICONS: Record<string, string> = {
               @if (msg.mapCommand) {
                 <div
                   class="ml-0 inline-flex max-w-[85%] items-center gap-2 rounded-xl px-3 py-2 text-xs bg-sky-500/10 text-sky-200 ring-1 ring-sky-400/25"
+                  [class.vigie-map-chip]="executiveMode()"
                 >
                   <app-icon name="map-pin" [size]="14" class="text-sky-300" />
                   <span>
@@ -788,6 +790,7 @@ const STEP_ICONS: Record<string, string> = {
               @if (msg.decisionSteps && msg.decisionSteps.length > 0) {
                 <div
                   class="ml-0 mt-1 rounded-md px-3 py-2 bg-gradient-to-r from-brand-500/5 to-violet-500/5 ring-1 ring-brand-500/15 flex items-center gap-3 text-[11px] text-gray-700 dark:text-gray-300"
+                  [class.hidden]="executiveMode() && !traceOpen()"
                 >
                   <app-icon name="circle-dot" [size]="11" class="text-brand-400 shrink-0" />
                   <span class="font-medium">
@@ -965,6 +968,7 @@ const STEP_ICONS: Record<string, string> = {
       <form
         (ngSubmit)="send()"
         class="flex items-end gap-2 p-3 border-t border-white/5 bg-white/[0.02]"
+        [class.vigie-input-bar]="executiveMode()"
       >
         <button
           type="button"
@@ -1010,6 +1014,110 @@ const STEP_ICONS: Record<string, string> = {
       </form>
     </div>
   `,
+  styles: [`
+    .vigie-context-bar {
+      padding: 12px 18px;
+      border-bottom: 1px solid rgba(125, 211, 252, 0.10);
+      background:
+        linear-gradient(90deg, rgba(125, 211, 252, 0.055), transparent 42%),
+        rgba(255, 255, 255, 0.018);
+    }
+    .vigie-kicker {
+      color: #8dd7ff;
+      font: 750 11px/1.2 var(--ck-font-mono, ui-monospace, monospace);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .vigie-scope-line {
+      margin-top: 4px;
+      color: rgba(226, 236, 248, 0.74);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .vigie-trace-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(125, 211, 252, 0.16);
+      background: rgba(11, 18, 28, 0.74);
+      color: rgba(226, 236, 248, 0.78);
+      font-size: 12px;
+      transition: 140ms ease;
+    }
+    .vigie-trace-button:hover {
+      border-color: rgba(125, 211, 252, 0.34);
+      color: #f4f8ff;
+      background: rgba(18, 31, 45, 0.82);
+    }
+    .vigie-messages {
+      background:
+        radial-gradient(circle at 82% 4%, rgba(125, 211, 252, 0.055), transparent 32%),
+        linear-gradient(180deg, rgba(5, 10, 16, 0.18), transparent 38%);
+    }
+    .vigie-empty-state {
+      align-items: stretch !important;
+      justify-content: flex-start !important;
+      padding-top: 28px !important;
+      max-width: 590px;
+      margin: 0 auto;
+    }
+    .vigie-empty-state > div:first-child {
+      align-self: center;
+      width: 56px !important;
+      height: 56px !important;
+      border: 1px solid rgba(125, 211, 252, 0.24);
+      box-shadow: 0 18px 55px rgba(0, 0, 0, 0.26);
+    }
+    .vigie-empty-state button {
+      border-radius: 14px !important;
+      border: 1px solid rgba(125, 211, 252, 0.12) !important;
+      background:
+        linear-gradient(135deg, rgba(125, 211, 252, 0.055), rgba(255, 255, 255, 0.018)) !important;
+      padding: 14px !important;
+    }
+    .vigie-user-bubble {
+      max-width: 78% !important;
+      border: 1px solid rgba(125, 211, 252, 0.34) !important;
+      background:
+        linear-gradient(135deg, rgba(9, 127, 155, 0.78), rgba(18, 89, 111, 0.72)) !important;
+      color: #f4fbff !important;
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22) !important;
+    }
+    .vigie-assistant-bubble {
+      max-width: 88% !important;
+      border: 1px solid rgba(148, 197, 229, 0.13) !important;
+      background:
+        linear-gradient(145deg, rgba(17, 25, 38, 0.94), rgba(10, 15, 23, 0.90)) !important;
+      color: rgba(245, 248, 252, 0.94) !important;
+      border-radius: 18px !important;
+      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.18) !important;
+    }
+    .vigie-map-chip {
+      border-radius: 14px !important;
+      border: 1px solid rgba(125, 211, 252, 0.22) !important;
+      background: rgba(22, 42, 61, 0.68) !important;
+      color: #caecff !important;
+    }
+    .vigie-input-bar {
+      padding: 14px !important;
+      background: rgba(6, 10, 15, 0.82) !important;
+      border-top-color: rgba(125, 211, 252, 0.12) !important;
+    }
+    .vigie-input-bar textarea {
+      border-radius: 16px !important;
+      border-color: rgba(148, 197, 229, 0.18) !important;
+      background: rgba(255, 255, 255, 0.045) !important;
+      min-height: 48px;
+    }
+    .vigie-input-bar button[type='submit'] {
+      border-radius: 16px !important;
+      min-height: 48px;
+    }
+  `],
 })
 export class ChatPanelComponent {
   /**

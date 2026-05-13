@@ -32,7 +32,7 @@ import { ChatWorkspaceComponent } from './chat-workspace.component';
       position="side"
       [eyebrow]="i18n.t('titlebar.chat.tooltip')"
       [title]="title()"
-      width="560px"
+      [width]="panelWidth()"
     >
       @if (overlay.isOpen()) {
         <app-chat-workspace
@@ -82,6 +82,10 @@ export class ChatOverlayComponent {
       case 'quick':
       default:       return this.i18n.t('palette.hint.ask');
     }
+  });
+
+  readonly panelWidth = computed<string>(() => {
+    return this.activeProfile()?.['executive_mode'] === true ? '680px' : '560px';
   });
 
   onOpenChange(open: boolean): void {

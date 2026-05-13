@@ -319,8 +319,9 @@ def handle_action_plan_chat_action(
     action_terms = ("action", "tache", "tâche", "suivi", "cabinet", "arbitrage", "instruction")
     if not any(term in lower for term in action_terms):
         return None
-    if any(term in lower for term in ("liste", "statut", "etat", "état", "suivi", "resume", "résume")) and not any(
-        term in lower for term in ("ajoute", "cree", "crée", "planifie", "annule", "termine")
+    if any(term in lower for term in ("liste", "statut", "etat", "état", "suivi", "resume", "résume")) and not _has_action_verb(
+        lower,
+        ("ajoute", "ajouter", "cree", "crée", "creer", "créer", "planifie", "annule", "termine"),
     ):
         rows = [serialize_action_item(row) for row in list_action_items(db, workspace, include_cancelled=False)[:6]]
         return {
@@ -329,7 +330,7 @@ def handle_action_plan_chat_action(
             "items": rows,
             "content": _format_action_status(rows),
         }
-    if any(term in lower for term in ("annule", "cancel")):
+    if _has_action_verb(lower, ("annule", "annuler", "cancel")):
         item = _match_action_item(db, workspace, lower)
         if not item:
             return _proposal_response("action_plan_cancel", text, "Je n'ai pas identifie l'action a annuler. Precisez son titre ou sa cible.")
@@ -337,13 +338,13 @@ def handle_action_plan_chat_action(
             return {"action": "action_plan_cancel", "applied": False, "proposal": serialize_action_item(item), "content": f"Proposition prete : annuler {item.title}."}
         item = cancel_action_item(db, workspace, user, item.id, reason="Demande VIGIE explicite")
         return {"action": "action_plan_cancel", "applied": True, "item": serialize_action_item(item), "content": f"Action annulee : {item.title}."}
-    if any(term in lower for term in ("termine", "complete", "complète", "fait")):
+    if _has_action_verb(lower, ("termine", "terminer", "complete", "complète", "fait")):
         item = _match_action_item(db, workspace, lower)
         if not item:
             return _proposal_response("action_plan_complete", text, "Je n'ai pas identifie l'action a cloturer. Precisez son titre ou sa cible.")
         item = complete_action_item(db, workspace, user, item.id)
         return {"action": "action_plan_complete", "applied": True, "item": serialize_action_item(item), "content": f"Action marquee comme terminee : {item.title}."}
-    if any(term in lower for term in ("ajoute", "cree", "crée", "planifie", "prepare", "prépare")):
+    if _has_action_verb(lower, ("ajoute", "ajouter", "cree", "crée", "creer", "créer", "planifie", "prepare", "prépare")):
         title = _title_from_query(text)
         priority = "critical" if any(term in lower for term in ("urgent", "critique", "prioritaire")) else "high" if "important" in lower else "medium"
         due_at = _due_from_query(lower)
@@ -371,6 +372,14 @@ def handle_action_plan_chat_action(
             "content": f"Action cabinet creee : {item.title}. Echeance : {serialize_action_item(item)['due_label']}.",
         }
     return None
+
+
+def _has_action_verb(text: str, terms: tuple[str, ...]) -> bool:
+    """Match explicit action verbs without treating "a planifier" as a create command."""
+    normalized = text.replace("à", "a")
+    if "a planifier" in normalized:
+        return False
+    return any(re.search(rf"(^|[^a-zA-ZÀ-ÿ]){re.escape(term)}([^a-zA-ZÀ-ÿ]|$)", text) for term in terms)
 
 
 def _get_action_item(db: DBSession, workspace: Workspace, item_id: str) -> WorkspaceActionItem:

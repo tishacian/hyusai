@@ -1714,8 +1714,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                     "prompt_pack": [
                         {
                             "icon": "newspaper",
-                            "label": "Synthese du jour",
-                            "prompt": "Quels signaux necessitent une attention cabinet aujourd'hui ?",
+                            "label": "Synthèse du jour",
+                            "prompt": "Quels signaux nécessitent une attention cabinet aujourd'hui ?",
                         },
                         {
                             "icon": "shield-check",
@@ -1724,13 +1724,13 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         },
                         {
                             "icon": "check-circle",
-                            "label": "Decision requise",
+                            "label": "Décision requise",
                             "prompt": "Quels arbitrages sont attendus cette semaine ?",
                         },
                         {
                             "icon": "message-square",
                             "label": "Langage public",
-                            "prompt": "Prepare des elements de langage prudents et sources.",
+                            "prompt": "Prépare des éléments de langage prudents et sourcés.",
                         },
                     ],
                 }

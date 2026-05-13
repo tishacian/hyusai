@@ -83,8 +83,11 @@ interface SessionDoc {
       <header class="t-header">
         @if (executiveAssistant()) {
           <div class="t-header-left">
-            <ck-tag tone="cool" variant="solid">Question directe</ck-tag>
-            <span class="t-header-hint">{{ assistantSubtitle() }}</span>
+            <span class="t-executive-mark">V</span>
+            <div class="t-executive-copy">
+              <span class="t-executive-title">VIGIE</span>
+              <span class="t-header-hint">{{ assistantSubtitle() }}</span>
+            </div>
           </div>
           <div class="t-header-right">
             <span class="t-source-pill">{{ assistantScopeLabel() }}</span>
@@ -113,6 +116,7 @@ interface SessionDoc {
       <!-- Body: two-column (side panel in inline mode, full split in full-screen) -->
       <div class="t-body">
         <!-- Drop-and-ask sidebar -->
+        @if (!executiveAssistant() || startMode() === 'drop' || sessionDocs().length > 0) {
         <aside class="t-sidebar" [class.t-sidebar-collapsed]="!dropOpen() && inline()">
           <div class="t-sidebar-head">
             <span class="ck-mono t-sidebar-eyebrow">Session docs</span>
@@ -244,6 +248,7 @@ interface SessionDoc {
             }
           }
         </aside>
+        }
 
         <!-- Chat panel -->
         <section class="t-chat">
@@ -279,6 +284,34 @@ interface SessionDoc {
       border-bottom: 1px solid var(--ck-stroke-2);
       flex-shrink: 0;
       min-height: 44px;
+    }
+    .t-executive-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      border: 1px solid rgba(125, 211, 252, 0.26);
+      background:
+        radial-gradient(circle at 35% 25%, rgba(125, 211, 252, 0.24), transparent 45%),
+        rgba(11, 18, 28, 0.92);
+      color: #cfefff;
+      font-weight: 800;
+      letter-spacing: 0;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+    }
+    .t-executive-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+    .t-executive-title {
+      color: var(--ck-fg-1);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: 0.08em;
     }
     .t-header-left {
       display: flex;
@@ -328,6 +361,11 @@ interface SessionDoc {
       font-size: 11px;
       font-weight: 600;
       white-space: nowrap;
+    }
+    .t-inline .t-source-pill {
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .t-body {
       flex: 1 1 auto;
