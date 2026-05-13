@@ -26,7 +26,7 @@ Les boutons `+`, `-` et `vue pays` restent disponibles pour une conduite de demo
 
 Chaque couche du panneau `Couches` correspond a un type de source Agentium. Le compteur indique le nombre d'elements visibles et le pourcentage indique la confiance operationnelle estimee.
 
-- `Zones` : polygones territoriaux de vigilance, calcules a partir des scores workspace. Visible par defaut.
+- `Zones` : partitions territoriales de vigilance, clippees dans le contour pays Cote d'Ivoire. Visible par defaut.
 - `Presse` : signaux RSS et syntheses News Lab rattaches a des zones ou villes. Visible par defaut.
 - `Projets` : projets sensibles, retards et risques de perception. Visible par defaut.
 - `Visuel` : observations issues des flux visuels habilites. Visible par defaut.
@@ -37,14 +37,15 @@ Desactiver une couche retire ses objets du rendu deck.gl correspondant. Les couc
 
 ## Formes Et Couleurs
 
-- Les contours cyan representent le perimetre territorial et les limites administratives simplifiees.
+- Le contour pays suit le GeoJSON Cote d'Ivoire versionne dans Agentium. Les zones de vigilance sont clippees sur ce contour afin de ne jamais deborder de la frontiere.
+- Les contours cyan secondaires representent des limites administratives simplifiees et des partitions de lecture ministerielle.
 - Les polygones verts indiquent une zone stable ou nominale.
 - Les polygones ambre indiquent une zone en vigilance elevee.
 - Les polygones rouges sont reserves aux situations critiques.
 - Les halos indiquent des points de concentration de signaux.
 - Les arcs indiquent un lien d'action ou de coordination depuis Abidjan vers une zone.
 
-Les zones sont des envelopes strategiques non chevauchantes superposees au territoire et au contour pays reel. Elles ne remplacent pas une reference administrative officielle ; elles servent a relier signaux, sources et decisions sans donner une precision trompeuse.
+Les zones sont des partitions strategiques non chevauchantes superposees au territoire et au contour pays reel. Leurs bords externes respectent la frontiere ; leurs separations internes restent des lignes de lecture ministerielle simplifiees. Elles ne remplacent pas une reference administrative officielle ; elles servent a relier signaux, sources et decisions sans donner une precision trompeuse.
 
 ## Commandes VIGIE
 
