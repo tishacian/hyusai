@@ -85,7 +85,21 @@ def ensure_visual_intelligence_seed(
         )
     else:
         metadata = dict(existing.meta_data or {})
-        metadata.update({key: value for key, value in default_metadata.items() if key not in metadata or key in {"layer_kind", "preview_url", "source_page", "analysis_mode"}})
+        metadata.update({
+            key: value
+            for key, value in default_metadata.items()
+            if key not in metadata
+            or key
+            in {
+                "provider",
+                "layer_kind",
+                "preview_url",
+                "source_page",
+                "analysis_mode",
+                "attribution",
+                "timelapse_policy",
+            }
+        })
         existing.name = DEFAULT_SOURCE_NAME
         existing.description = "Couche webcam publique pour snapshots horodates, analyse visuelle legere et posture de situation."
         existing.source_url = DEFAULT_SOURCE_URL
