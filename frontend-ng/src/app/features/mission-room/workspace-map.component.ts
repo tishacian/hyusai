@@ -39,7 +39,7 @@ type BasemapOption = {
   key: string;
   label: string;
   description?: string;
-  style?: Record<string, any>;
+  style?: Record<string, any> | string;
 };
 
 const CIV_OUTLINE = {
@@ -51,22 +51,30 @@ const CIV_OUTLINE = {
       geometry: {
         type: 'Polygon',
         coordinates: [[
-          [-8.58, 10.65],
-          [-7.52, 10.38],
-          [-6.22, 10.52],
-          [-4.82, 10.13],
-          [-3.36, 9.62],
-          [-2.78, 8.55],
-          [-2.86, 7.18],
-          [-3.55, 5.74],
-          [-4.42, 5.12],
-          [-5.22, 4.74],
-          [-6.22, 4.82],
-          [-7.43, 4.42],
-          [-8.15, 5.05],
-          [-8.35, 6.44],
-          [-8.48, 8.10],
-          [-8.58, 10.65],
+          [-7.989663, 10.161991],
+          [-8.173837, 9.941875],
+          [-7.958915, 8.781997],
+          [-7.691593, 8.606142],
+          [-8.228976, 7.544295],
+          [-8.485446, 7.557989],
+          [-8.284115, 7.017867],
+          [-8.566113, 6.550919],
+          [-7.446543, 5.845949],
+          [-7.540666, 4.352845],
+          [-5.851308, 5.029975],
+          [-4.125478, 5.30744],
+          [-2.843699, 5.149115],
+          [-3.262509, 6.617142],
+          [-2.840003, 7.820247],
+          [-2.506328, 8.209267],
+          [-2.689211, 9.488724],
+          [-3.661658, 9.948929],
+          [-4.270329, 9.743928],
+          [-4.966075, 9.901025],
+          [-5.522578, 10.425489],
+          [-6.95939, 10.185503],
+          [-7.708646, 10.402467],
+          [-7.989663, 10.161991],
         ]],
       },
     },
@@ -126,14 +134,20 @@ const CIV_OUTLINE = {
                 >
                   <i [class]="'tone-' + layer.tone"></i>
                   <strong>{{ layer.shortLabel }}</strong>
-                  <small>{{ layer.count }} · {{ layer.confidence }}%</small>
+                  <small>{{ isLayerActive(layer.key) ? 'visible' : 'masqué' }} · {{ layer.count }} · {{ layer.confidence }}%</small>
                 </button>
               }
             </div>
           </section>
         </div>
         <button type="button" class="map-reset" (click)="resetCountry(); $event.stopPropagation()">Recentrer Côte d’Ivoire</button>
+        <div class="map-zoom-controls" (click)="$event.stopPropagation()">
+          <button type="button" aria-label="Zoom avant" (click)="zoomIn()">+</button>
+          <button type="button" aria-label="Zoom arrière" (click)="zoomOut()">−</button>
+          <button type="button" aria-label="Vue pays" (click)="resetCountry()">⌂</button>
+        </div>
         <div class="map-legend">
+          <strong>Niveaux</strong>
           <span><i class="stable"></i>stable</span>
           <span><i class="monitoring"></i>surveillance</span>
           <span><i class="elevated"></i>élevé</span>
@@ -180,13 +194,13 @@ const CIV_OUTLINE = {
 
       .workspace-map {
         position: relative;
-        min-height: 620px;
+        min-height: 760px;
         overflow: hidden;
         border: 1px solid rgba(91, 173, 218, 0.30);
         border-radius: 10px;
         background:
-          radial-gradient(circle at 50% 42%, rgba(91, 173, 218, 0.14), transparent 36%),
-          linear-gradient(135deg, rgba(4, 10, 16, 0.98), rgba(9, 17, 28, 0.96));
+          radial-gradient(circle at 58% 44%, rgba(91, 173, 218, 0.06), transparent 34%),
+          linear-gradient(135deg, rgba(4, 8, 12, 0.98), rgba(9, 14, 20, 0.97));
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 24px 70px rgba(0,0,0,0.22);
       }
 
@@ -198,8 +212,8 @@ const CIV_OUTLINE = {
         border-radius: 12px;
         border: 1px solid rgba(125, 211, 252, 0.07);
         box-shadow:
-          inset 0 0 42px rgba(125, 211, 252, 0.04),
-          inset 0 -28px 58px rgba(0, 0, 0, 0.18);
+          inset 0 0 22px rgba(125, 211, 252, 0.025),
+          inset 0 -12px 24px rgba(0, 0, 0, 0.06);
         z-index: 3;
       }
 
@@ -209,11 +223,20 @@ const CIV_OUTLINE = {
         inset: 0;
         pointer-events: none;
         background-image:
-          linear-gradient(rgba(125, 213, 255, 0.028) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(125, 213, 255, 0.024) 1px, transparent 1px);
-        background-size: 42px 42px;
-        mask-image: linear-gradient(180deg, rgba(0,0,0,0.56), transparent 86%);
+          linear-gradient(rgba(125, 213, 255, 0.018) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(125, 213, 255, 0.016) 1px, transparent 1px);
+        background-size: 54px 54px;
+        mask-image: linear-gradient(180deg, rgba(0,0,0,0.22), transparent 84%);
         z-index: 2;
+      }
+
+      .workspace-map.basemap-administrative::before {
+        opacity: 0.10;
+      }
+
+      .workspace-map.basemap-administrative::after {
+        border-color: rgba(20, 80, 114, 0.20);
+        box-shadow: inset 0 0 28px rgba(8, 20, 32, 0.08);
       }
 
       .workspace-map.compact {
@@ -244,15 +267,19 @@ const CIV_OUTLINE = {
 
       .maplibre-canvas {
         z-index: 1;
-        filter: saturate(1.06) contrast(1.08) brightness(0.98);
+        filter: none;
+      }
+
+      .workspace-map.basemap-administrative .maplibre-canvas {
+        filter: contrast(1.08) saturate(0.82) brightness(0.98);
       }
 
       .workspace-map.basemap-dark .maplibre-canvas {
-        filter: saturate(1.18) contrast(1.24) brightness(1.10);
+        filter: contrast(1.05) saturate(1.02);
       }
 
       .workspace-map.basemap-contours .maplibre-canvas {
-        filter: saturate(0.85) contrast(1.32) brightness(1.18);
+        filter: contrast(1.03) saturate(0.92);
       }
 
       .map-frame-overlay {
@@ -263,14 +290,7 @@ const CIV_OUTLINE = {
       }
 
       .map-scanline {
-        position: absolute;
-        left: 0;
-        right: 0;
-        top: 24%;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.26), transparent);
-        opacity: 0.24;
-        animation: mapSweep 7s ease-in-out infinite;
+        display: none;
       }
 
       .map-compass {
@@ -293,15 +313,15 @@ const CIV_OUTLINE = {
         position: absolute;
         left: 14px;
         top: 14px;
-        width: min(286px, calc(100% - 84px));
+        width: min(286px, calc(100% - 92px));
         display: grid;
         gap: 9px;
         padding: 11px;
         border: 1px solid rgba(132, 220, 255, 0.25);
         border-radius: 14px;
-        background: rgba(2, 6, 10, 0.88);
-        box-shadow: 0 22px 54px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255,255,255,0.03);
-        backdrop-filter: blur(16px) saturate(1.2);
+        background: rgba(2, 5, 8, 0.92);
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.40), inset 0 0 0 1px rgba(255,255,255,0.035);
+        backdrop-filter: blur(10px) saturate(1.05);
         pointer-events: auto;
       }
 
@@ -350,7 +370,7 @@ const CIV_OUTLINE = {
         padding: 7px 10px;
         border-radius: 999px;
         border: 1px solid rgba(125, 211, 252, 0.14);
-        background: rgba(11, 20, 31, 0.74);
+        background: rgba(11, 20, 31, 0.88);
         color: rgba(207, 239, 255, 0.70);
         font: 750 9px/1 var(--mission-mono, monospace);
         letter-spacing: 0.10em;
@@ -393,7 +413,7 @@ const CIV_OUTLINE = {
         padding: 9px 10px;
         border-radius: 10px;
         border: 1px solid rgba(125, 211, 252, 0.16);
-        background: rgba(14, 24, 36, 0.82);
+        background: rgba(14, 24, 36, 0.92);
         color: rgba(232, 241, 255, 0.72);
         text-align: left;
         cursor: pointer;
@@ -403,6 +423,14 @@ const CIV_OUTLINE = {
         border-color: rgba(132, 220, 255, 0.50);
         background: linear-gradient(135deg, rgba(18, 39, 58, 0.98), rgba(12, 23, 36, 0.94));
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 18px rgba(77, 195, 255, 0.10);
+      }
+
+      .layer-toggle:not(.active) {
+        opacity: 0.58;
+      }
+
+      .layer-toggle:not(.active) i {
+        box-shadow: none;
       }
 
       .layer-toggle i {
@@ -441,9 +469,43 @@ const CIV_OUTLINE = {
       .map-reset {
         position: absolute;
         top: 14px;
-        right: 58px;
+        right: 62px;
         z-index: 5;
         pointer-events: auto;
+      }
+
+      .map-zoom-controls {
+        position: absolute;
+        right: 16px;
+        top: 58px;
+        z-index: 5;
+        display: grid;
+        border: 1px solid rgba(125, 211, 252, 0.14);
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(2, 6, 10, 0.82);
+        pointer-events: auto;
+        backdrop-filter: blur(10px);
+      }
+
+      .map-zoom-controls button {
+        width: 36px;
+        height: 34px;
+        border: 0;
+        border-bottom: 1px solid rgba(125, 211, 252, 0.12);
+        background: transparent;
+        color: rgba(238, 247, 255, 0.86);
+        font: 800 16px/1 var(--mission-mono, monospace);
+        cursor: pointer;
+      }
+
+      .map-zoom-controls button:last-child {
+        border-bottom: 0;
+        font-size: 12px;
+      }
+
+      .map-zoom-controls button:hover {
+        background: rgba(125, 211, 252, 0.12);
       }
 
       .map-legend {
@@ -460,14 +522,15 @@ const CIV_OUTLINE = {
         padding: 8px 11px;
         border: 1px solid rgba(125, 211, 252, 0.13);
         border-radius: 999px;
-        background: rgba(2, 6, 10, 0.82);
-        backdrop-filter: blur(12px);
+        background: rgba(2, 6, 10, 0.94);
+        backdrop-filter: blur(8px);
       }
 
-      .workspace-map.basemap-administrative .map-legend,
-      .workspace-map.basemap-administrative .map-hud,
-      .workspace-map.basemap-administrative .map-attribution {
-        background: rgba(8, 18, 28, 0.86);
+      .workspace-map.basemap-contours .map-control-panel,
+      .workspace-map.basemap-contours .map-legend,
+      .workspace-map.basemap-contours .map-hud,
+      .workspace-map.basemap-contours .map-attribution {
+        background: rgba(6, 14, 22, 0.92);
       }
 
       .map-legend span {
@@ -477,6 +540,13 @@ const CIV_OUTLINE = {
         color: rgba(213, 229, 242, 0.72);
         font-size: 11px;
         line-height: 1;
+      }
+
+      .map-legend strong {
+        color: rgba(148, 197, 229, 0.86);
+        font: 800 9px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
       }
 
       .map-legend i {
@@ -688,7 +758,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (changes['mapState'] && this.mapState) {
       this.applyExternalMapState(this.mapState);
     }
-    if (changes['selectedZoneId']) {
+    if (changes['selectedZoneId'] && !changes['selectedZoneId'].firstChange) {
       this.focusSelectedZone();
     }
   }
@@ -742,6 +812,14 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     this.fitCountry(800);
   }
 
+  zoomIn(): void {
+    this.mapInstance?.zoomIn?.({ duration: 260 });
+  }
+
+  zoomOut(): void {
+    this.mapInstance?.zoomOut?.({ duration: 260 });
+  }
+
   private async bootstrapRenderer(): Promise<void> {
     this.syncStateFromMapPayload();
     const renderer = this.mapSystem?.['renderer_config']?.renderer;
@@ -782,6 +860,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           this.fitCountry(350);
         }, 80);
       });
+      this.mapInstance.on('moveend', () => this.updateDeckLayers());
       this.mapInstance.on('error', () => this.enableFallback());
     } catch {
       this.enableFallback();
@@ -812,7 +891,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     this.layerStateInitialized = true;
   }
 
-  private currentBasemapStyle(): Record<string, any> | null {
+  private currentBasemapStyle(): Record<string, any> | string | null {
     return this.basemapOptions.find((option) => option.key === this.selectedBasemapKey)?.style || null;
   }
 
@@ -867,18 +946,27 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private fitCountry(duration = 800): void {
     if (!this.mapInstance) return;
     const bounds = this.mapSystem?.['renderer_config']?.bounds || [[-8.65, 4.2], [-2.45, 10.75]];
+    const preset = this.mapSystem?.['default_map_state']?.camera || this.mapSystem?.['camera_presets']?.country;
+    if (!this.compact) {
+      this.mapInstance.easeTo({
+        center: [preset?.longitude ?? -5.45, preset?.latitude ?? 7.45],
+        zoom: preset?.zoom ?? 6.72,
+        pitch: 0,
+        bearing: 0,
+        duration,
+      });
+      this.updateDeckLayers();
+      return;
+    }
     try {
       this.mapInstance.fitBounds(bounds, {
-        padding: this.compact
-          ? { top: 20, right: 20, bottom: 20, left: 20 }
-          : { top: 76, right: 78, bottom: 58, left: 326 },
-        maxZoom: this.compact ? 5.55 : 6.85,
+        padding: { top: 20, right: 20, bottom: 20, left: 20 },
+        maxZoom: 5.55,
         pitch: 0,
         bearing: 0,
         duration,
       });
     } catch {
-      const preset = this.mapSystem?.['default_map_state']?.camera || this.mapSystem?.['camera_presets']?.country;
       this.mapInstance.easeTo({
         center: [preset?.longitude ?? -5.45, preset?.latitude ?? 7.52],
         zoom: preset?.zoom ?? (this.compact ? 5.15 : 6.45),
@@ -899,12 +987,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const adminBoundariesSource = this.mapSystem?.['admin_boundaries'];
     const citiesSource = this.mapSystem?.['cities'];
     const arcs = this.mapSystem?.['visual_effects']?.arc_links || [];
-    const cityFeatures = (citiesSource?.features || []).filter((feature: any) => Number(feature.properties?.weight || 0) >= 70);
+    const currentZoom = Number(this.mapInstance?.getZoom?.() || 0);
+    const cityFeatures = (citiesSource?.features || [])
+      .filter((feature: any) => Number(feature.properties?.weight || 0) >= 92)
+      .slice(0, 4);
     const zoneMarkerFeatures = markersSource?.features || [];
     const selectedOrTopZoneMarkers = zoneMarkerFeatures.filter((feature: any, index: number) => {
       const zoneId = feature.properties?.zone_id;
-      return zoneId === this.selectedZoneId || index === 0 || Number(feature.properties?.level || 0) >= 70;
+      return zoneId === this.selectedZoneId || (!this.selectedZoneId && index === 0);
     });
+    const showCityLabels = this.selectedBasemapKey === 'contours' && currentZoom >= 7.2 && !this.compact;
     const showTerritory = this.isLayerActive('territorial-risk');
     const showPresse = this.isLayerActive('open-intelligence');
     const showProjects = this.isLayerActive('strategic-projects');
@@ -919,9 +1011,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: false,
         filled: true,
         stroked: true,
-        getFillColor: [2, 11, 18, 96],
-        getLineColor: [109, 214, 255, 232],
-        lineWidthMinPixels: 3,
+        getFillColor: this.selectedBasemapKey === 'contours' ? [250, 252, 254, 10] : [12, 30, 42, 16],
+        getLineColor: this.selectedBasemapKey === 'contours' ? [18, 96, 130, 210] : [136, 215, 255, 218],
+        lineWidthMinPixels: 2.5,
         parameters: { depthTest: false },
       }));
 
@@ -929,11 +1021,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       id: 'sentinel-admin-boundaries',
       data: adminBoundariesSource,
       pickable: false,
-      filled: true,
+      filled: false,
       stroked: true,
-      getFillColor: [4, 16, 25, showTerritory ? 34 : 18],
-      getLineColor: [116, 201, 240, showTerritory ? 148 : 82],
-      lineWidthMinPixels: showTerritory ? 1.5 : 0.8,
+      getFillColor: [0, 0, 0, 0],
+      getLineColor: this.selectedBasemapKey === 'contours' ? [35, 70, 92, 138] : [185, 224, 241, showTerritory ? 150 : 84],
+      lineWidthMinPixels: showTerritory ? 1.25 : 0.8,
       parameters: { depthTest: false },
     }));
 
@@ -945,8 +1037,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         filled: false,
         stroked: true,
         getLineColor: (feature: any) => feature.properties?.tone === 'watch' ? [255, 202, 68, 148] : [100, 220, 255, 132],
-        getLineWidth: 12500,
-        lineWidthMinPixels: 2.2,
+        getLineWidth: 5500,
+        lineWidthMinPixels: 1.6,
         parameters: { depthTest: false },
       }));
     }
@@ -958,16 +1050,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: true,
         filled: true,
         stroked: true,
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 156 : 94),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 104 : 64),
         getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId),
-        lineWidthMinPixels: 3.2,
-        lineWidthMaxPixels: 6,
+        lineWidthMinPixels: 2.8,
+        lineWidthMaxPixels: 5.2,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
       }));
     }
 
-    if (showAgenda || showProjects || showActions) {
+    if (showAgenda || showActions) {
       layers.push(new ArcLayer({
         id: 'sentinel-arcs',
         data: arcs,
@@ -975,7 +1067,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getTargetPosition: (item: any) => item.target,
         getSourceColor: [95, 235, 166, 178],
         getTargetColor: (item: any) => this.deckColor(item.tone, false, 210),
-        getWidth: (item: any) => Math.max(1.2, Math.round((item.level || 30) / 18)),
+        getWidth: (item: any) => Math.max(1, Math.round((item.level || 30) / 24)),
         parameters: { depthTest: false },
       }));
     }
@@ -988,9 +1080,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         stroked: true,
         filled: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getRadius: (feature: any) => Math.max(16000, (feature.properties?.weight || 40) * 320),
-        getFillColor: [77, 195, 255, 30],
-        getLineColor: [132, 220, 255, 150],
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => Math.max(9, Math.min(20, (feature.properties?.weight || 40) / 5)),
+        getFillColor: [112, 207, 255, 26],
+        getLineColor: [148, 222, 255, 138],
         lineWidthMinPixels: 1.4,
         parameters: { depthTest: false },
       }));
@@ -999,8 +1092,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         data: contextMarkersSource?.features || [],
         pickable: false,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getRadius: (feature: any) => Math.max(6500, (feature.properties?.weight || 40) * 150),
-        getFillColor: [102, 210, 255, 218],
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => Math.max(3.5, Math.min(8, (feature.properties?.weight || 40) / 13)),
+        getFillColor: [118, 214, 255, 220],
         getLineColor: [245, 252, 255, 230],
         lineWidthMinPixels: 1.4,
         parameters: { depthTest: false },
@@ -1015,8 +1109,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         stroked: true,
         filled: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getRadius: (feature: any) => Math.max(22000, (feature.properties?.level || 20) * 620),
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 36),
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => Math.max(14, Math.min(28, (feature.properties?.level || 20) / 3.2)),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 24),
         getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 170),
         lineWidthMinPixels: 1.2,
         parameters: { depthTest: false },
@@ -1026,7 +1121,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         data: markersSource?.features || [],
         pickable: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getRadius: (feature: any) => Math.max(10000, (feature.properties?.level || 20) * 340),
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => Math.max(5, Math.min(12, (feature.properties?.level || 20) / 8)),
         getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 226),
         getLineColor: [250, 254, 255, 238],
         lineWidthMinPixels: 1.8,
@@ -1035,54 +1131,37 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       }));
     }
 
-    layers.push(new TextLayer({
-      id: 'sentinel-city-labels',
-      data: cityFeatures,
-      getPosition: (feature: any) => feature.geometry.coordinates,
-      getText: (feature: any) => feature.properties?.name || '',
-      getSize: this.compact ? 9 : 10,
-      getColor: this.selectedBasemapKey === 'administrative' ? [18, 39, 54, 230] : [226, 239, 250, 218],
-      getPixelOffset: [0, -12],
-      getTextAnchor: 'middle',
-      getAlignmentBaseline: 'bottom',
-      fontSettings: { sdf: true },
-      outlineColor: this.selectedBasemapKey === 'administrative' ? [250, 254, 255, 240] : [2, 6, 10, 238],
-      outlineWidth: 3,
-      billboard: true,
-      parameters: { depthTest: false },
-    }));
-
-    if (showPresse) {
+    if (showCityLabels) {
       layers.push(new TextLayer({
-        id: 'sentinel-context-labels',
-        data: contextMarkersSource?.features || [],
+        id: 'sentinel-city-labels',
+        data: cityFeatures,
         getPosition: (feature: any) => feature.geometry.coordinates,
         getText: (feature: any) => feature.properties?.name || '',
-        getSize: this.compact ? 10 : 12,
-        getColor: [223, 240, 252, 215],
-        getPixelOffset: [0, -16],
+        getSize: 10,
+        getColor: [18, 39, 54, 230],
+        getPixelOffset: [0, -12],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'bottom',
         fontSettings: { sdf: true },
-        outlineColor: [4, 8, 13, 210],
-        outlineWidth: 2,
+        outlineColor: [250, 254, 255, 240],
+        outlineWidth: 3,
         billboard: true,
         parameters: { depthTest: false },
       }));
     }
 
-    if (showTerritory || showProjects || showActions) {
+    if ((showTerritory || showProjects || showActions) && selectedOrTopZoneMarkers.length) {
       layers.push(new TextLayer({
         id: 'sentinel-labels',
         data: selectedOrTopZoneMarkers,
         getPosition: (feature: any) => feature.geometry.coordinates,
         getText: (feature: any) => feature.properties?.name || '',
-        getSize: this.compact ? 11 : 14,
-        getColor: this.selectedBasemapKey === 'administrative' ? [8, 28, 42, 245] : [246, 251, 255, 235],
+        getSize: this.compact ? 10 : 12,
+        getColor: this.selectedBasemapKey === 'contours' ? [8, 28, 42, 245] : [246, 251, 255, 238],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'center',
         fontSettings: { sdf: true },
-        outlineColor: this.selectedBasemapKey === 'administrative' ? [255, 255, 255, 235] : [4, 8, 13, 225],
+        outlineColor: this.selectedBasemapKey === 'contours' ? [255, 255, 255, 235] : [4, 8, 13, 232],
         outlineWidth: 3,
         billboard: true,
         parameters: { depthTest: false },
@@ -1114,15 +1193,15 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   private deckColor(tone: string, selected = false, alpha = 120): number[] {
-    const base = tone === 'critical' ? [255, 72, 86] : tone === 'watch' ? [255, 178, 47] : [72, 226, 132];
-    return [...base, selected ? Math.max(alpha, 226) : alpha];
+    const base = tone === 'critical' ? [255, 68, 82] : tone === 'watch' ? [250, 176, 34] : [58, 218, 128];
+    return [...base, selected ? Math.max(alpha, 174) : alpha];
   }
 
   private deckLineColor(tone: string, selected = false, fallbackAlpha?: number): number[] {
-    const alpha = fallbackAlpha ?? (selected ? 255 : 218);
-    if (tone === 'critical') return [255, 132, 142, alpha];
-    if (tone === 'watch') return [255, 220, 102, alpha];
-    return [130, 255, 184, alpha];
+    const alpha = fallbackAlpha ?? (selected ? 255 : 186);
+    if (tone === 'critical') return [255, 104, 116, alpha];
+    if (tone === 'watch') return [255, 210, 82, alpha];
+    return [104, 238, 164, alpha];
   }
 
   private enableFallback(): void {

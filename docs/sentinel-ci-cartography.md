@@ -15,24 +15,25 @@ La carte reste une primitive Agentium : elle est servie par le workspace, contro
 
 Trois fonds sont exposes dans le selecteur `Fond` :
 
-- `Administratif` : fond clair lisible par defaut, base CARTO/OSM, utile pour briefing et projection.
-- `Sombre` : fond cockpit pour lecture basse lumiere, avec labels geographiques.
-- `Contours` : fond minimal, utile quand il faut privilegier les couches Agentium plutot que le detail cartographique.
+- `Administratif` : fond CARTO/OSM contraste par defaut, avec labels et frontieres visibles. C'est le mode de briefing recommande : la geographie doit rester lisible avant les overlays.
+- `Sombre` : fond cockpit type situation monitor, utile en salle basse lumiere quand les couches Agentium doivent dominer.
+- `Contours` : fond clair desature, utile pour projection ou capture d'ecran quand le contexte geographique doit rester lisible.
 
 Le bouton `Recentrer Cote d'Ivoire` utilise les bornes pays et force une vue 2D plate, sans pitch ni rotation.
+Les boutons `+`, `-` et `vue pays` restent disponibles pour une conduite de demo sans molette.
 
 ## Couches
 
 Chaque couche du panneau `Couches` correspond a un type de source Agentium. Le compteur indique le nombre d'elements visibles et le pourcentage indique la confiance operationnelle estimee.
 
-- `Zones` : polygones territoriaux de vigilance, calcules a partir des scores workspace.
-- `Presse` : signaux RSS et syntheses News Lab rattaches a des zones ou villes.
-- `Projets` : projets sensibles, retards et risques de perception.
-- `Agenda` : fenetres d'action et contraintes issues de l'agenda ministeriel.
-- `Visuel` : observations issues des flux visuels habilites.
-- `Actions` : recommandations et actions cabinet proposees.
+- `Zones` : polygones territoriaux de vigilance, calcules a partir des scores workspace. Visible par defaut.
+- `Presse` : signaux RSS et syntheses News Lab rattaches a des zones ou villes. Visible par defaut.
+- `Projets` : projets sensibles, retards et risques de perception. Visible par defaut.
+- `Visuel` : observations issues des flux visuels habilites. Visible par defaut.
+- `Agenda` : fenetres d'action et contraintes issues de l'agenda ministeriel. Optionnel pour eviter la surcharge initiale.
+- `Actions` : recommandations et actions cabinet proposees. Optionnel pour eviter de confondre observation et decision.
 
-Desactiver une couche retire ses objets du rendu deck.gl correspondant. Les couches ne sont pas seulement decoratives.
+Desactiver une couche retire ses objets du rendu deck.gl correspondant. Les couches ne sont pas seulement decoratives. Par defaut, `Agenda` et `Actions` restent masques afin d'eviter de confondre observation et decision.
 
 ## Formes Et Couleurs
 
@@ -43,7 +44,7 @@ Desactiver une couche retire ses objets du rendu deck.gl correspondant. Les couc
 - Les halos indiquent des points de concentration de signaux.
 - Les arcs indiquent un lien d'action ou de coordination depuis Abidjan vers une zone.
 
-Les formes sont volontairement strategiques et simplifiees : elles ne remplacent pas une reference geographique officielle. Elles servent a relier signaux, sources et decisions.
+Les zones sont des envelopes strategiques non chevauchantes superposees au territoire et au contour pays reel. Elles ne remplacent pas une reference administrative officielle ; elles servent a relier signaux, sources et decisions sans donner une precision trompeuse.
 
 ## Commandes VIGIE
 

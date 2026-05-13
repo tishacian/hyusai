@@ -3184,7 +3184,7 @@ export class MissionRailComponent {
       .status-pill.high,
       .status-pill.critical { color: var(--mission-danger); background: var(--mission-danger-wash); }
       .status-pill.medium { color: var(--mission-warn); background: var(--mission-warn-wash); }
-      .map-layout { grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr); }
+      .map-layout { grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.55fr); }
       .monitor-layout {
         display: grid;
         grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
