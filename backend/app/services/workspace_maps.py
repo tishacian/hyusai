@@ -701,12 +701,12 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
             "style": {
                 "version": 8,
                 "sources": {
-                    "carto-voyager": {
+                    "carto-dark-readable": {
                         "type": "raster",
                         "tiles": [
-                            "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-                            "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-                            "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                            "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                            "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                            "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
                         ],
                         "tileSize": 256,
                         "attribution": "OpenStreetMap contributors / CARTO",
@@ -719,15 +719,15 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
                         "paint": {"background-color": "#05080d"},
                     },
                     {
-                        "id": "carto-voyager-muted",
+                        "id": "carto-dark-readable",
                         "type": "raster",
-                        "source": "carto-voyager",
+                        "source": "carto-dark-readable",
                         "paint": {
-                            "raster-opacity": 0.54,
-                            "raster-brightness-min": 0.03,
-                            "raster-brightness-max": 0.70,
-                            "raster-saturation": -0.68,
-                            "raster-contrast": -0.08,
+                            "raster-opacity": 0.92,
+                            "raster-brightness-min": 0.10,
+                            "raster-brightness-max": 1.0,
+                            "raster-saturation": -0.18,
+                            "raster-contrast": 0.34,
                         },
                     }
                 ],
@@ -900,8 +900,8 @@ def _camera_presets(zones: list[dict[str, Any]], view_box: tuple[float, float, f
             "longitude": -5.45,
             "latitude": 7.52,
             "zoom": 6.0,
-            "pitch": 34,
-            "bearing": -7,
+            "pitch": 0,
+            "bearing": 0,
             "duration_ms": 900,
         }
     }
@@ -914,8 +914,8 @@ def _camera_presets(zones: list[dict[str, Any]], view_box: tuple[float, float, f
             "longitude": point[0],
             "latitude": point[1],
             "zoom": zoom,
-            "pitch": 44,
-            "bearing": -10,
+            "pitch": 0,
+            "bearing": 0,
             "duration_ms": 850,
         }
     return presets

@@ -68,11 +68,17 @@ const CIV_OUTLINE = {
       <div class="map-frame-overlay">
         <div class="map-scanline"></div>
         <div class="map-compass">N</div>
-        <div class="map-layer-stack">
-          <span>presse</span>
-          <span>projets</span>
-          <span>agenda</span>
-          <span>visuel</span>
+        <div class="map-layer-stack" (click)="$event.stopPropagation()">
+          @for (layer of layerControls; track layer.key) {
+            <button
+              type="button"
+              [class.active]="isLayerActive(layer.key)"
+              [attr.aria-pressed]="isLayerActive(layer.key)"
+              (click)="toggleLayer(layer.key)"
+            >
+              {{ layer.label }}
+            </button>
+          }
         </div>
       </div>
 
@@ -177,7 +183,7 @@ const CIV_OUTLINE = {
 
       .maplibre-canvas {
         z-index: 1;
-        filter: saturate(0.88) contrast(1.08) brightness(1.12);
+        filter: saturate(0.95) contrast(1.24) brightness(1.08);
       }
 
       .map-frame-overlay {
@@ -222,17 +228,32 @@ const CIV_OUTLINE = {
         gap: 6px;
         flex-wrap: wrap;
         max-width: min(70%, 520px);
+        pointer-events: auto;
       }
 
-      .map-layer-stack span {
+      .map-layer-stack button {
         padding: 5px 8px;
         border-radius: 999px;
         border: 1px solid rgba(125, 211, 252, 0.14);
-        background: rgba(7, 12, 19, 0.68);
-        color: rgba(207, 239, 255, 0.72);
+        background: rgba(7, 12, 19, 0.58);
+        color: rgba(207, 239, 255, 0.54);
         font: 750 9px/1 var(--mission-mono, monospace);
         letter-spacing: 0.10em;
         text-transform: uppercase;
+        cursor: pointer;
+        transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+      }
+
+      .map-layer-stack button.active {
+        border-color: rgba(125, 211, 252, 0.42);
+        background: rgba(10, 34, 49, 0.82);
+        color: rgba(232, 247, 255, 0.92);
+        box-shadow: 0 0 18px rgba(91, 173, 218, 0.12);
+      }
+
+      .map-layer-stack button:hover {
+        border-color: rgba(125, 211, 252, 0.56);
+        color: rgba(245, 251, 255, 0.95);
       }
 
       .maplibre-canvas.hidden {
@@ -349,8 +370,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @ViewChild('mapCanvas') private readonly mapCanvas?: ElementRef<HTMLDivElement>;
 
   fallback = false;
+  readonly layerControls = [
+    { key: 'territoire', label: 'zones' },
+    { key: 'presse', label: 'presse' },
+    { key: 'projets', label: 'projets' },
+    { key: 'agenda', label: 'agenda' },
+    { key: 'visuel', label: 'visuel' },
+  ];
 
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly activeLayerKeys = new Set(this.layerControls.map((layer) => layer.key));
   private mapInstance: any;
   private deckOverlay: any;
   private deckLayersModule: any;
@@ -403,6 +432,21 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     return zone.tone === 'critical' ? 38 : zone.tone === 'watch' ? 27 : 18;
   }
 
+  isLayerActive(key: string): boolean {
+    return this.activeLayerKeys.has(key);
+  }
+
+  toggleLayer(key: string): void {
+    if (this.activeLayerKeys.has(key)) {
+      if (this.activeLayerKeys.size <= 1) return;
+      this.activeLayerKeys.delete(key);
+    } else {
+      this.activeLayerKeys.add(key);
+    }
+    this.updateDeckLayers();
+    this.cdr.markForCheck();
+  }
+
   private async bootstrapRenderer(): Promise<void> {
     const renderer = this.mapSystem?.['renderer_config']?.renderer;
     if (renderer && renderer !== 'maplibre') {
@@ -425,8 +469,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         style: this.mapSystem?.['renderer_config']?.style || this.defaultStyle(),
         center: [view.longitude ?? -5.45, view.latitude ?? 7.58],
         zoom: view.zoom ?? (this.compact ? 4.9 : 5.7),
-        pitch: this.compact ? 18 : (view.pitch ?? 38),
-        bearing: view.bearing ?? -7,
+        pitch: this.compact ? 0 : (view.pitch ?? 0),
+        bearing: view.bearing ?? 0,
         interactive: !this.compact,
         attributionControl: false,
       });
@@ -457,6 +501,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const contextMarkersSource = this.mapSystem?.['geojson_sources']?.context_markers;
     const contextLinesSource = this.mapSystem?.['geojson_sources']?.context_lines;
     const arcs = this.mapSystem?.['visual_effects']?.arc_links || [];
+    const showTerritory = this.isLayerActive('territoire');
+    const showPresse = this.isLayerActive('presse');
+    const showProjects = this.isLayerActive('projets');
+    const showAgenda = this.isLayerActive('agenda');
+    const showVisual = this.isLayerActive('visuel');
     return [
       new GeoJsonLayer({
         id: 'sentinel-country-outline',
@@ -469,7 +518,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         lineWidthMinPixels: 2,
         parameters: { depthTest: false },
       }),
-      new GeoJsonLayer({
+      ...(showAgenda ? [new GeoJsonLayer({
         id: 'sentinel-context-lines',
         data: contextLinesSource,
         pickable: false,
@@ -479,8 +528,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getLineWidth: 12500,
         lineWidthMinPixels: 0.9,
         parameters: { depthTest: false },
-      }),
-      new GeoJsonLayer({
+      })] : []),
+      ...((showTerritory || showProjects) ? [new GeoJsonLayer({
         id: 'sentinel-zones',
         data: zonesSource,
         pickable: true,
@@ -491,8 +540,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         lineWidthMinPixels: 1.8,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
-      }),
-      new ArcLayer({
+      })] : []),
+      ...((showAgenda || showProjects) ? [new ArcLayer({
         id: 'sentinel-arcs',
         data: arcs,
         getSourcePosition: (item: any) => item.source,
@@ -501,8 +550,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getTargetColor: (item: any) => this.deckColor(item.tone, false, 118),
         getWidth: (item: any) => Math.max(1, Math.round((item.level || 30) / 22)),
         parameters: { depthTest: false },
-      }),
-      new ScatterplotLayer({
+      })] : []),
+      ...(showPresse ? [new ScatterplotLayer({
         id: 'sentinel-context-markers',
         data: contextMarkersSource?.features || [],
         pickable: false,
@@ -512,8 +561,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getLineColor: [218, 241, 255, 150],
         lineWidthMinPixels: 1,
         parameters: { depthTest: false },
-      }),
-      new ScatterplotLayer({
+      })] : []),
+      ...((showVisual || showTerritory) ? [new ScatterplotLayer({
         id: 'sentinel-markers',
         data: markersSource?.features || [],
         pickable: true,
@@ -524,8 +573,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         lineWidthMinPixels: 1.2,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.zone_id),
-      }),
-      new TextLayer({
+      })] : []),
+      ...(showPresse ? [new TextLayer({
         id: 'sentinel-context-labels',
         data: contextMarkersSource?.features || [],
         getPosition: (feature: any) => feature.geometry.coordinates,
@@ -540,8 +589,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         outlineWidth: 2,
         billboard: true,
         parameters: { depthTest: false },
-      }),
-      new TextLayer({
+      })] : []),
+      ...((showTerritory || showProjects) ? [new TextLayer({
         id: 'sentinel-labels',
         data: markersSource?.features || [],
         getPosition: (feature: any) => feature.geometry.coordinates,
@@ -555,7 +604,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         outlineWidth: 2.5,
         billboard: true,
         parameters: { depthTest: false },
-      }),
+      })] : []),
     ];
   }
 
@@ -568,8 +617,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     this.mapInstance.easeTo({
       center: [preset.longitude, preset.latitude],
       zoom: this.compact ? 5.15 : preset.zoom,
-      pitch: this.compact ? 18 : preset.pitch,
-      bearing: preset.bearing,
+      pitch: 0,
+      bearing: 0,
       duration: preset.duration_ms || 650,
     });
     this.updateDeckLayers();
