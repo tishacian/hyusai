@@ -224,6 +224,13 @@ class DocumentService:
         Ingest multiple documents in parallel.
         Each document is processed asynchronously: parse -> chunk -> embed -> index
         """
+        max_concurrency = kwargs.pop("max_concurrency", None)
+        try:
+            max_concurrency = int(max_concurrency) if max_concurrency is not None else len(file_paths)
+        except (TypeError, ValueError):
+            max_concurrency = len(file_paths)
+        max_concurrency = max(1, min(max_concurrency, max(1, len(file_paths))))
+
         # Resolve keyword language once for the whole batch — cheaper than
         # re-reading app_settings per document and keeps drop-and-ask consistent
         # with the single-document path above.
@@ -311,8 +318,16 @@ class DocumentService:
                     "error": str(e),
                 }
         
-        # Process all documents in parallel
-        tasks = [process_single_document(path) for path in file_paths]
+        # Process documents with an optional concurrency cap. Large workspace
+        # syncs can otherwise exhaust Qdrant/RocksDB file descriptors on
+        # modest VMs when hundreds of documents all create/upsert at once.
+        semaphore = asyncio.Semaphore(max_concurrency)
+
+        async def process_with_limit(path: str) -> Dict:
+            async with semaphore:
+                return await process_single_document(path)
+
+        tasks = [process_with_limit(path) for path in file_paths]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Handle exceptions

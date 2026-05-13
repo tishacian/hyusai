@@ -36,7 +36,7 @@ class _FakeDocumentService:
         self.ingested_paths: list[str] = []
         _FakeDocumentService.instances.append(self)
 
-    async def ingest_documents_batch(self, paths: list[str]) -> dict:
+    async def ingest_documents_batch(self, paths: list[str], **_kwargs) -> dict:
         self.ingested_paths.extend(paths)
         return {"total": len(paths), "successful": len(paths), "failed": 0}
 

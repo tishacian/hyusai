@@ -30,6 +30,7 @@ logger = get_logger(__name__)
 
 INTELLIGENCE_COLLECTION_SLUG = "sentinel-ci-open-intelligence"
 INTELLIGENCE_COLLECTION_NAME = "SENTINEL-CI Open Intelligence"
+SYNC_INGEST_MAX_CONCURRENCY = 4
 
 
 def _jsonable(value: Any) -> Any:
@@ -236,7 +237,10 @@ async def sync_intelligence_to_knowledge(
         workspace_slug=workspace.slug,
     )
     deleted_chunks = await _delete_existing_chunks(doc_service, local_paths)
-    ingest_result = await doc_service.ingest_documents_batch([str(path) for path in local_paths])
+    ingest_result = await doc_service.ingest_documents_batch(
+        [str(path) for path in local_paths],
+        max_concurrency=SYNC_INGEST_MAX_CONCURRENCY,
+    )
     document_count = len(await doc_service.list_documents())
     chunk_count = await doc_service.get_document_count()
     bm25 = await rebuild_bm25_artifact(collection=collection, vector_db=doc_service.vector_db, store=store)
