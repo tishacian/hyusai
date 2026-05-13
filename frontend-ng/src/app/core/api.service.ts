@@ -100,6 +100,10 @@ export class ApiService {
     return this.http.delete<T>(`${this.base}${path}`);
   }
 
+  getBlob(path: string): Observable<Blob> {
+    return this.http.get(`${this.base}${path}`, { responseType: 'blob' });
+  }
+
   /** Upload an audio blob and receive a transcription. */
   transcribeAudio(
     blob: Blob,

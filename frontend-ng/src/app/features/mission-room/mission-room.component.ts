@@ -1855,10 +1855,31 @@ export class MissionRailComponent {
               </button>
             }
           </div>
-          <div class="visual-grid">
+          <div class="visual-grid visual-console">
             <figure class="snapshot-frame">
               @if (latestVisualCapture(); as capture) {
-                <img [src]="visualCaptureUrl(capture.id)" alt="Derniere capture visuelle institutionnelle" />
+                @if (visualCaptureImage(capture.id); as imageUrl) {
+                  <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
+                } @else {
+                  <div class="synthetic-camera-feed">
+                    <div class="camera-horizon"></div>
+                    <div class="camera-cityline">
+                      <span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                    <div class="camera-road"></div>
+                    <div class="camera-loader">
+                      <ck-glyph name="focus" [size]="18" />
+                      <span>Initialisation flux</span>
+                    </div>
+                  </div>
+                }
+                <figcaption class="camera-overlay">
+                  <div>
+                    <span class="live-dot"></span>
+                    <strong>{{ visualSourceName(capture.source_id) }}</strong>
+                  </div>
+                  <small>{{ visualCaptureTime(capture) }} · snapshot institutionnel</small>
+                </figcaption>
               } @else {
                 <div class="snapshot-empty">
                   <ck-glyph name="focus" [size]="22" />
@@ -1866,28 +1887,50 @@ export class MissionRailComponent {
                 </div>
               }
             </figure>
-            <div class="visual-observations">
-              <div class="health-grid compact">
+            <div class="visual-command-deck">
+              <div class="visual-kpi-strip">
                 <article>
-                  <strong>{{ monitor()?.visual?.source_health?.active_sources || 0 }}</strong>
-                  <span>sources actives</span>
+                  <span>Sources</span>
+                  <strong>{{ monitor()?.visual?.source_health?.active_sources || 0 }}/{{ monitor()?.visual?.source_health?.total_sources || 0 }}</strong>
                 </article>
                 <article>
+                  <span>Captures</span>
                   <strong>{{ monitor()?.visual?.source_health?.captures || 0 }}</strong>
-                  <span>captures</span>
                 </article>
                 <article>
-                  <strong>{{ monitor()?.visual?.source_health?.observations || 0 }}</strong>
-                  <span>observations</span>
+                  <span>Vigilance</span>
+                  <strong>{{ latestVisualObservation()?.vigilance_score || 0 }}/100</strong>
                 </article>
               </div>
-              @for (observation of monitor()?.visual_observations || []; track observation.id) {
-                <article>
-                  <span class="status-pill" [class]="observation.level_label">{{ observation.level_label }}</span>
+
+              <article class="visual-primary-observation">
+                @if (latestVisualObservation(); as observation) {
+                  <div class="visual-observation-head">
+                    <span class="status-pill" [class]="observation.level_label">{{ observation.level_label }}</span>
+                    <small>confiance {{ confidencePct(observation.confidence) }}</small>
+                  </div>
                   <p>{{ observation.summary }}</p>
-                  <small>confiance {{ confidencePct(observation.confidence) }} · vigilance {{ observation.vigilance_score }}/100</small>
-                </article>
-              }
+                  <div class="visual-tags">
+                    @for (tag of observation.tags || []; track tag) {
+                      <span>{{ tag }}</span>
+                    }
+                  </div>
+                } @else {
+                  <p>Aucune observation visuelle disponible. Lancez une capture pour alimenter la veille.</p>
+                }
+              </article>
+
+              <div class="visual-source-strip">
+                @for (source of monitor()?.visual?.sources || []; track source.id) {
+                  <article>
+                    <span class="source-status" [class.active]="source.status === 'active'"></span>
+                    <div>
+                      <strong>{{ source.name }}</strong>
+                      <small>{{ source.region }} · cadence {{ source.capture_cadence_minutes }} min</small>
+                    </div>
+                  </article>
+                }
+              </div>
             </div>
           </div>
         </article>
@@ -3222,24 +3265,98 @@ export class MissionRailComponent {
       }
       .visual-grid {
         display: grid;
-        grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
-        gap: 14px;
+        grid-template-columns: minmax(520px, 1.15fr) minmax(360px, 0.85fr);
+        gap: 16px;
+        align-items: stretch;
+      }
+      .visual-console {
+        margin-top: 14px;
       }
       .snapshot-frame {
-        min-height: 240px;
+        position: relative;
+        min-height: 430px;
         margin: 0;
-        border: 1px solid var(--mission-border);
+        border: 1px solid rgba(125, 211, 252, 0.22);
         border-radius: var(--mission-radius);
-        background: var(--mission-inset);
+        background:
+          radial-gradient(circle at 64% 20%, rgba(125, 211, 252, 0.14), transparent 25%),
+          linear-gradient(180deg, rgba(8, 14, 22, 0.86), rgba(2, 6, 10, 0.96));
         overflow: hidden;
         display: grid;
         place-items: center;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 24px 70px rgba(0,0,0,0.18);
+      }
+      .snapshot-frame::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(125, 211, 252, 0.045) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(125, 211, 252, 0.035) 1px, transparent 1px);
+        background-size: 44px 44px;
+        mix-blend-mode: screen;
+        opacity: 0.7;
+        z-index: 2;
+      }
+      .snapshot-frame::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.06), transparent 5%, transparent 92%, rgba(0,0,0,0.42)),
+          repeating-linear-gradient(180deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 5px);
+        opacity: 0.55;
+        z-index: 3;
       }
       .snapshot-frame img {
         width: 100%;
         height: 100%;
         object-fit: cover;
         display: block;
+        min-height: 430px;
+        filter: saturate(0.92) contrast(1.05);
+      }
+      .camera-overlay {
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        bottom: 16px;
+        z-index: 5;
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: center;
+        padding: 10px 12px;
+        border: 1px solid rgba(125, 211, 252, 0.18);
+        border-radius: 14px;
+        background: rgba(5, 10, 16, 0.72);
+        backdrop-filter: blur(12px);
+      }
+      .camera-overlay div {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+      }
+      .camera-overlay strong {
+        color: var(--mission-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .camera-overlay small {
+        color: var(--mission-text-muted);
+        white-space: nowrap;
+      }
+      .live-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: #59e6a4;
+        box-shadow: 0 0 0 5px rgba(89, 230, 164, 0.12), 0 0 18px rgba(89, 230, 164, 0.55);
+        animation: livePulse 1.8s ease-in-out infinite;
       }
       .snapshot-empty {
         display: grid;
@@ -3248,29 +3365,158 @@ export class MissionRailComponent {
         color: var(--mission-text-muted);
         text-align: center;
       }
-      .visual-observations {
+      .synthetic-camera-feed {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        background:
+          linear-gradient(180deg, rgba(9, 21, 32, 0.96), rgba(2, 6, 10, 0.98)),
+          radial-gradient(circle at 74% 18%, rgba(125, 211, 252, 0.18), transparent 24%);
+      }
+      .camera-horizon {
+        position: absolute;
+        left: -5%;
+        right: -5%;
+        top: 52%;
+        height: 1px;
+        background: rgba(125, 211, 252, 0.20);
+      }
+      .camera-cityline {
+        position: absolute;
+        left: 9%;
+        right: 9%;
+        bottom: 28%;
+        display: flex;
+        align-items: end;
+        gap: 22px;
+        opacity: 0.68;
+      }
+      .camera-cityline span {
+        width: 54px;
+        height: 120px;
+        border: 1px solid rgba(125, 211, 252, 0.14);
+        background: rgba(25, 49, 65, 0.74);
+      }
+      .camera-loader {
+        z-index: 4;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 13px;
+        border: 1px solid rgba(125, 211, 252, 0.18);
+        border-radius: 999px;
+        background: rgba(5, 10, 16, 0.68);
+        color: var(--mission-accent);
+        font-size: 12px;
+      }
+      .visual-command-deck {
         display: grid;
         gap: 10px;
+        grid-template-rows: auto auto 1fr;
       }
-      .visual-observations article,
+      .visual-kpi-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .visual-kpi-strip article {
+        min-height: 96px;
+        padding: 14px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-panel-hi);
+      }
+      .visual-kpi-strip span {
+        display: block;
+        color: var(--mission-text-muted);
+        font-size: 12px;
+      }
+      .visual-kpi-strip strong {
+        display: block;
+        margin-top: 16px;
+        color: var(--mission-accent);
+        font-size: 28px;
+        font-variant-numeric: tabular-nums;
+      }
+      .visual-primary-observation,
+      .visual-source-strip article,
       .forecast-grid article {
         padding: 12px;
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius);
         background: var(--mission-panel-hi);
       }
-      .visual-observations p,
+      .visual-primary-observation {
+        border-color: rgba(125, 211, 252, 0.18);
+        background:
+          linear-gradient(135deg, rgba(125, 211, 252, 0.045), transparent 42%),
+          var(--mission-panel-hi);
+      }
+      .visual-observation-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .visual-primary-observation p,
       .forecast-grid p {
-        margin: 7px 0;
+        margin: 10px 0;
         font-size: 13px;
       }
-      .visual-observations small,
+      .visual-primary-observation small,
       .forecast-grid small {
         color: var(--mission-text-muted);
+      }
+      .visual-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .visual-tags span {
+        padding: 5px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 197, 229, 0.12);
+        color: var(--mission-text-soft);
+        font-size: 11px;
+      }
+      .visual-source-strip {
+        display: grid;
+        gap: 8px;
+      }
+      .visual-source-strip article {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .visual-source-strip strong,
+      .visual-source-strip small {
+        display: block;
+      }
+      .visual-source-strip small {
+        color: var(--mission-text-muted);
+        margin-top: 3px;
+      }
+      .source-status {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--mission-text-muted);
+        box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.08);
+        flex: 0 0 auto;
+      }
+      .source-status.active {
+        background: #59e6a4;
+        box-shadow: 0 0 0 4px rgba(89, 230, 164, 0.10), 0 0 14px rgba(89, 230, 164, 0.35);
       }
       .health-grid.compact {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         margin: 0;
+      }
+      @keyframes livePulse {
+        0%, 100% { opacity: 0.82; transform: scale(0.94); }
+        50% { opacity: 1; transform: scale(1.12); }
       }
       .forecast-grid {
         display: grid;
@@ -3381,11 +3627,13 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly selectedSource = signal<SourceRef | null>(null);
   readonly selectedAgendaEvent = signal<AgendaItem | null>(null);
   readonly draft = signal<DraftInstruction | null>(null);
+  readonly visualCaptureImages = signal<Record<string, string>>({});
 
   searchQueryValue = '';
   newAgendaTitle = '';
   newAgendaStart = '2026-04-15T09:45';
   newAgendaLocation = 'Cabinet ministeriel';
+  private readonly visualObjectUrls: string[] = [];
   private readonly calendarUpdateListener = () => this.loadAll();
   private readonly mapCommandListener = (event: Event) => {
     const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
@@ -3455,6 +3703,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     window.removeEventListener('agentium:calendar-updated', this.calendarUpdateListener);
     window.removeEventListener('agentium:map-command', this.mapCommandListener);
+    this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    this.visualObjectUrls.length = 0;
   }
 
   private loadAll(): void {
@@ -3489,6 +3739,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
         const agenda = timeline.agenda || [];
         const stillVisible = currentAgenda?.id ? agenda.find((item) => item.id === currentAgenda.id) : null;
         this.selectedAgendaEvent.set(stillVisible || agenda.find((item) => item.status !== 'cancelled') || agenda[0] || null);
+        this.hydrateVisualCaptureImages(monitor);
         this.loading.set(false);
       },
       error: () => this.loading.set(false),
@@ -3593,13 +3844,43 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return this.monitor()?.visual?.captures?.find((capture) => capture.status === 'analyzed' || capture.status === 'captured') || null;
   }
 
-  visualCaptureUrl(captureId: string): string {
-    return `${this.api.base}/visual-intelligence/captures/${captureId}/image`;
+  latestVisualObservation(): VisualObservation | null {
+    return this.monitor()?.visual?.latest_observation || this.monitor()?.visual_observations?.[0] || null;
+  }
+
+  visualCaptureImage(captureId: string): string | null {
+    return this.visualCaptureImages()[captureId] || null;
+  }
+
+  visualSourceName(sourceId: string): string {
+    return this.monitor()?.visual?.sources?.find((source) => source.id === sourceId)?.name || 'Flux habilite';
+  }
+
+  visualCaptureTime(capture: VisualCapture): string {
+    if (!capture.captured_at) return 'capture recente';
+    return new Date(capture.captured_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   }
 
   captureVisualSource(source: VisualSource): void {
     if (!source?.id) return;
     this.api.post(`/visual-intelligence/sources/${source.id}/capture`, {}).subscribe(() => this.loadAll());
+  }
+
+  private hydrateVisualCaptureImages(monitor: MissionMonitor): void {
+    const captures = (monitor.visual?.captures || [])
+      .filter((capture) => capture.status === 'analyzed' || capture.status === 'captured')
+      .slice(0, 4);
+    const existing = this.visualCaptureImages();
+    captures.forEach((capture) => {
+      if (!capture.id || existing[capture.id]) return;
+      this.api.getBlob(`/visual-intelligence/captures/${capture.id}/image`).subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          this.visualObjectUrls.push(url);
+          this.visualCaptureImages.update((images) => ({ ...images, [capture.id]: url }));
+        },
+      });
+    });
   }
 
   selectZone(zone: MapZone): void {
