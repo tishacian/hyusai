@@ -9,6 +9,7 @@ from app.api.v1.endpoints import chat
 from app.core.config import settings
 from app.models.run import Run
 from app.models.workspace import Workspace
+from app.services.workspace_maps import ensure_workspace_map_seed
 
 
 def _client(db_session, workspace: Workspace, orchestrator, monkeypatch) -> TestClient:
@@ -114,3 +115,30 @@ def test_chat_stream_timeout_returns_controlled_error(db_session, monkeypatch):
     assert '"code": "CHAT_STREAM_TIMEOUT"' in response.text
     assert "data: [DONE]" in response.text
     assert db_session.query(Run).filter(Run.workspace_id == workspace.id).count() == 0
+
+
+def test_chat_stream_vigie_map_query_emits_map_command(db_session, monkeypatch):
+    workspace = Workspace(id="ws-sentinel-map", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    db_session.add(workspace)
+    db_session.commit()
+    ensure_workspace_map_seed(db_session, workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Montre-moi la zone nord sur la carte",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+
+    assert response.status_code == 200
+    assert '"chunk_type": "map_command"' in response.text
+    assert '"target": "zone-nord"' in response.text
+    assert '"chunk_type": "map_state_updated"' in response.text
+    assert "data: [DONE]" in response.text
+
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.trigger == "map_command"
+    assert run.output_ref["map_command"]["target"] == "zone-nord"

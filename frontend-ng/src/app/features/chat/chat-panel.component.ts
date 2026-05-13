@@ -64,6 +64,7 @@ interface ChatMessage {
   content: string;
   decisionSteps?: DecisionStep[];
   sources?: Source[];
+  mapCommand?: Record<string, unknown>;
   feedback?: 'up' | 'down' | null;
   durationMs?: number;
   ragMode?: string | null;
@@ -667,6 +668,17 @@ const STEP_ICONS: Record<string, string> = {
                   }
                 </div>
               </div>
+
+              @if (msg.mapCommand) {
+                <div
+                  class="ml-0 inline-flex max-w-[85%] items-center gap-2 rounded-xl px-3 py-2 text-xs bg-sky-500/10 text-sky-200 ring-1 ring-sky-400/25"
+                >
+                  <app-icon name="map-pin" [size]="14" class="text-sky-300" />
+                  <span>
+                    Carte stratégique prête · {{ mapCommandLabel(msg.mapCommand) }}
+                  </span>
+                </div>
+              }
 
               <!-- Missing-citations banner: model cited [N] but the retrieval
                    returned fewer (or zero) chunks. Surface it so operators
@@ -1667,6 +1679,11 @@ export class ChatPanelComponent {
     );
   }
 
+  mapCommandLabel(command: Record<string, unknown>): string {
+    const label = command['target_label'] || command['target'] || 'vue territoriale mise a jour';
+    return String(label);
+  }
+
   sourceCollection(src: Source): string {
     return (
       (src.collection as string | undefined) ||
@@ -1753,6 +1770,7 @@ export class ChatPanelComponent {
     let buffer = '';
     let reasoning: DecisionStep[] = [];
     let sources: Source[] | undefined;
+    let mapCommand: Record<string, unknown> | undefined;
 
     const ragOverride = this.ragModeOverride();
     const promptTypeSel = this.promptType();
@@ -1808,6 +1826,11 @@ export class ChatPanelComponent {
             if (action.startsWith('calendar_')) {
               window.dispatchEvent(new CustomEvent('agentium:calendar-updated', { detail: chunk }));
             }
+          } else if (chunk.chunk_type === 'map_command') {
+            mapCommand = (chunk as Record<string, unknown>)['map_command'] as Record<string, unknown>;
+            window.dispatchEvent(new CustomEvent('agentium:map-command', { detail: mapCommand }));
+          } else if (chunk.chunk_type === 'map_state_updated') {
+            window.dispatchEvent(new CustomEvent('agentium:map-state-updated', { detail: chunk }));
           } else if (chunk.chunk_type === 'eval_pending' && chunk.run_id) {
             // Backend persisted a Run for this turn and kicked the
             // auto-eval loop; start polling so we can surface a
@@ -1824,6 +1847,7 @@ export class ChatPanelComponent {
               content: buffer,
               decisionSteps: reasoning.length ? reasoning : undefined,
               sources,
+              mapCommand,
               feedback: null,
               evaluation: null,
               durationMs,

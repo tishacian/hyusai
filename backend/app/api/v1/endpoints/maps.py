@@ -14,6 +14,7 @@ from app.models.workspace import Workspace
 from app.models.workspace_map import WorkspaceMapScore, WorkspaceMapZone
 from app.services.workspace_jobs import create_workspace_job, serialize_job
 from app.services.workspace_maps import (
+    build_map_command,
     ensure_workspace_map_seed,
     get_workspace_map,
     list_workspace_maps,
@@ -37,6 +38,14 @@ class MapSignalCreate(BaseModel):
     source_kind: str = "operator"
     source_id: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MapCommandRequest(BaseModel):
+    intent: str = Field(..., min_length=1, max_length=80)
+    target: Optional[str] = Field(default=None, max_length=160)
+    layers: Optional[list[str]] = None
+    camera: Optional[dict[str, Any]] = None
+    annotation: Optional[dict[str, Any]] = None
 
 
 @router.get("/")
@@ -105,6 +114,32 @@ async def maps_score(
     result = score_map_zones(db, workspace, row, job=job, user=user)
     db.commit()
     return {"job": serialize_job(job), "result": result, **mission_room_map_payload(db, workspace)}
+
+
+@router.post("/{map_id_or_slug}/command")
+async def maps_command(
+    map_id_or_slug: str,
+    request: MapCommandRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        command = build_map_command(
+            db,
+            workspace,
+            map_id_or_slug=map_id_or_slug,
+            intent=request.intent,
+            target=request.target,
+            layers=request.layers,
+            camera=request.camera,
+            annotation=request.annotation,
+            user=user,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Workspace map not found") from exc
+    db.commit()
+    return command
 
 
 @router.get("/{map_id_or_slug}/recommendations")

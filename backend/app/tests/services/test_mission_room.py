@@ -8,6 +8,7 @@ from app.models.rag_preset import RagPreset
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace_visual import WorkspaceVisualSource
 from app.services.intelligence.batch import ensure_intelligence_defaults
 from app.services.mission_room import SENTINEL_WORKSPACE_SLUG, ensure_sentinel_ci_workspace, navigation_payload
 from app.services.rag_preset_service import RagPresetService
@@ -46,16 +47,21 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["action_planner"]["write_policy"] == "direct"
     assert workspace.settings["demo_time_context"]["current_date"] == "2026-04-15"
     assert workspace.settings["connectors"]["institutional_calendar"]["enabled"] is True
+    assert workspace.settings["connectors"]["visual_streams"]["enabled"] is True
+    assert workspace.settings["visual_intelligence"]["enabled"] is True
     assert workspace.settings["knowledge_scopes"][0]["collection_slugs"] == [
         "sentinel-ci-open-intelligence",
         "sentinel-ci-projects",
         "sentinel-ci-ministerial-briefs",
         "sentinel-ci-territorial-map",
+        "sentinel-ci-territorial-intelligence",
+        "sentinel-ci-visual-intelligence",
     ]
     assert db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).count() == 1
-    assert db_session.query(System).filter_by(workspace_id=workspace.id).count() == 6
+    assert db_session.query(System).filter_by(workspace_id=workspace.id).count() == 7
     assert db_session.query(WorkspaceCalendarEvent).filter_by(workspace_id=workspace.id).count() >= 7
     assert db_session.query(WorkspaceActionItem).filter_by(workspace_id=workspace.id).count() >= 3
+    assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() == 1
     assert db_session.query(FeedSource).filter_by(workspace_id=workspace.id).count() >= 3
     preset = db_session.query(RagPreset).filter_by(workspace_id=workspace.id, is_default=True).one()
     assert preset.scope_id == workspace.id
@@ -75,6 +81,7 @@ def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):
         "open_intelligence_watch",
         "strategic_project_pilotage",
         "territorial_action_map",
+        "visual_situation_watch",
         "executive_instruction_drafting",
     ]:
         assert db_session.query(Capability).filter(Capability.slug == slug).one()
@@ -97,6 +104,11 @@ def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):
         "action_plan_cancel_v1",
         "time_context_set_v1",
         "territorial_action_window_v1",
+        "map_command_apply_v1",
+        "visual_source_read_v1",
+        "visual_snapshot_capture_v1",
+        "visual_snapshot_analyze_v1",
+        "visual_observation_sync_knowledge_v1",
     ]:
         assert statuses[slug] == "bound"
 

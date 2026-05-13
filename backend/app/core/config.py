@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     object_store_s3_endpoint_url: Optional[str] = None
     object_store_s3_access_key: Optional[str] = None
     object_store_s3_secret_key: Optional[str] = None
+    visual_capture_http_timeout_seconds: float = 15.0
+    visual_capture_browser_enabled: bool = False
 
     # Embeddings
     embedding_provider: str = "openai"

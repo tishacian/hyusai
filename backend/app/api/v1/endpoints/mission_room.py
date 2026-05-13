@@ -24,6 +24,7 @@ from app.services.mission_room import (
     draft_instruction_payload,
     library_payload,
     map_payload,
+    monitor_payload,
     navigation_payload,
     news_payload,
     overview_payload,
@@ -239,6 +240,27 @@ async def strategic_map(
         user=user,
         event_type="mission_room.map.generated",
         details={"zones": len(payload.get("zones") or []), "accuracy": (payload.get("map") or {}).get("accuracy")},
+    )
+    return payload
+
+
+@router.get("/monitor")
+async def situation_monitor(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = monitor_payload(workspace, db=db)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.monitor.viewed",
+        details={
+            "zones": len(payload.get("zones") or []),
+            "visual_observations": len(payload.get("visual_observations") or []),
+            "posture": (payload.get("posture") or {}).get("label"),
+        },
     )
     return payload
 

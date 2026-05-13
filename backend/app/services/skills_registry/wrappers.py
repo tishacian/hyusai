@@ -671,6 +671,105 @@ async def _map_recommendation_generate_v1(payload: Dict[str, Any], ctx: Optional
             db.close()
 
 
+async def _map_command_apply_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.workspace_maps import build_map_command, ensure_workspace_map_seed
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_workspace_map_seed(db, workspace)
+        command = build_map_command(
+            db,
+            workspace,
+            map_id_or_slug=str(payload.get("map_slug") or payload.get("map_id") or "sentinel-ci-strategic-map"),
+            intent=str(payload.get("intent") or "focus_zone"),
+            target=payload.get("target"),
+            layers=payload.get("layers"),
+            camera=payload.get("camera"),
+            annotation=payload.get("annotation"),
+        )
+        db.commit()
+        return {"status": "ready", **command}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _visual_source_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.visual_intelligence import dashboard_payload, ensure_visual_intelligence_seed
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_visual_intelligence_seed(db, workspace)
+        return dashboard_payload(db, workspace)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _visual_snapshot_capture_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.visual_intelligence import capture_source, ensure_visual_intelligence_seed, get_source, list_sources
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_visual_intelligence_seed(db, workspace)
+        source_id = payload.get("source_id")
+        source = get_source(db, workspace, str(source_id)) if source_id else (list_sources(db, workspace)[0])
+        result = capture_source(db, workspace, source)
+        db.commit()
+        return result
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _visual_snapshot_analyze_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.models.workspace_visual import WorkspaceVisualObservation
+    from app.services.visual_intelligence import serialize_observation
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        capture_id = str(payload.get("capture_id") or "")
+        observation = (
+            db.query(WorkspaceVisualObservation)
+            .filter(WorkspaceVisualObservation.workspace_id == workspace.id, WorkspaceVisualObservation.capture_id == capture_id)
+            .order_by(WorkspaceVisualObservation.created_at.desc())
+            .first()
+        )
+        if not observation:
+            return {"status": "not_found", "warning": "visual_observation_not_found"}
+        return {"status": "ready", "observation": serialize_observation(observation)}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _visual_observation_sync_knowledge_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.models.workspace_visual import WorkspaceVisualObservation
+    from app.services.visual_intelligence import VISUAL_COLLECTION_SLUG, sync_observation_to_knowledge
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        observation_id = str(payload.get("observation_id") or "")
+        observation = (
+            db.query(WorkspaceVisualObservation)
+            .filter(WorkspaceVisualObservation.workspace_id == workspace.id, WorkspaceVisualObservation.id == observation_id)
+            .first()
+        )
+        if not observation:
+            return {"status": "not_found", "warning": "visual_observation_not_found"}
+        object_key = sync_observation_to_knowledge(db, workspace, observation)
+        db.commit()
+        return {"status": "synced", "collection": VISUAL_COLLECTION_SLUG, "object_key": object_key}
+    finally:
+        if owns_db:
+            db.close()
+
+
 async def _sharepoint_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     # Real ingestion goes through the OAuth/MSAL flow in
     # `app.services.connectors.sharepoint_otp.ingester`. Triggering that
@@ -1130,6 +1229,11 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "map_zone_score_v1":        (_map_zone_score_v1,        "app.services.workspace_maps",          "bound"),
     "map_signal_attach_v1":     (_map_signal_attach_v1,     "app.services.workspace_maps",          "bound"),
     "map_recommendation_generate_v1": (_map_recommendation_generate_v1, "app.services.workspace_maps", "bound"),
+    "map_command_apply_v1":     (_map_command_apply_v1,     "app.services.workspace_maps",          "bound"),
+    "visual_source_read_v1":    (_visual_source_read_v1,    "app.services.visual_intelligence",     "bound"),
+    "visual_snapshot_capture_v1": (_visual_snapshot_capture_v1, "app.services.visual_intelligence",  "bound"),
+    "visual_snapshot_analyze_v1": (_visual_snapshot_analyze_v1, "app.services.visual_intelligence",  "bound"),
+    "visual_observation_sync_knowledge_v1": (_visual_observation_sync_knowledge_v1, "app.services.visual_intelligence", "bound"),
     "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None,                                    "stub"),
     "voice_transcribe_v1":     (_voice_transcribe_v1,     "app.services.voice_runtime",            "bound"),
     "voice_tts_v1":            (_voice_tts_v1,            "app.services.voice_runtime",            "bound"),

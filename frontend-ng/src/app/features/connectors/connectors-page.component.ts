@@ -62,6 +62,14 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                 <app-icon name="arrow-right" [size]="14" />
                 Open agenda
               </a>
+            } @else if (connector.id === 'visual_streams') {
+              <a
+                routerLink="/hypervisor/mission-room/monitor"
+                class="inline-flex w-full items-center justify-center gap-2 rounded bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-400"
+              >
+                <app-icon name="arrow-right" [size]="14" />
+                Open situation monitor
+              </a>
             } @else if (connector.id === 'sharepoint') {
               <a
                 routerLink="/connectors/sharepoint"
@@ -104,11 +112,16 @@ export class ConnectorsPageComponent {
     if (connectorSettings['sharepoint']?.enabled) {
       enabled.add('sharepoint');
     }
+    const visual = (settings['visual_intelligence'] || {}) as Record<string, any>;
+    if (visual['enabled'] || connectorSettings['visual_streams']?.enabled) {
+      enabled.add('visual_streams');
+    }
     return CONNECTORS.filter((connector) => enabled.has(connector.id));
   });
 
   connectorStatus(connector: ConnectorDef): string {
     if (connector.id === 'institutional_calendar') return 'connected';
+    if (connector.id === 'visual_streams') return 'connected';
     return connector.status;
   }
 

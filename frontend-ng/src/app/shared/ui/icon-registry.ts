@@ -196,6 +196,7 @@ import {
   Phone,
   MapPin,
   Inbox,
+  Camera,
 } from 'lucide-angular';
 
 const ICONS = {
@@ -387,6 +388,7 @@ const ICONS = {
   Phone,
   MapPin,
   Inbox,
+  Camera,
 };
 
 /**

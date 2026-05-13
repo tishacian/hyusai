@@ -17,6 +17,75 @@ from app.services.workspace_jobs import transition_job
 
 
 SENTINEL_MAP_SLUG = "sentinel-ci-strategic-map"
+TERRITORIAL_INTELLIGENCE_COLLECTION = "sentinel-ci-territorial-intelligence"
+
+IVORY_COAST_BOUNDS = {
+    "west": -8.65,
+    "south": 4.20,
+    "east": -2.45,
+    "north": 10.75,
+}
+
+MAP_COMMAND_INTENTS = {
+    "focus_zone",
+    "set_layers",
+    "highlight_marker",
+    "draw_area",
+    "show_action_window",
+    "open_source_panel",
+    "compare_before_after",
+}
+
+DEFAULT_RENDERER_LAYERS = [
+    {
+        "key": "territorial-risk",
+        "label": "Zones de vigilance",
+        "kind": "zone_score",
+        "visible": True,
+        "payload": {"scoring": "signals+projects+agenda+visual"},
+        "sort_order": 10,
+    },
+    {
+        "key": "open-intelligence",
+        "label": "Presse et signaux faibles",
+        "kind": "signal",
+        "visible": True,
+        "payload": {"sources": ["rss_press", "cabinet_note", "project_record"]},
+        "sort_order": 20,
+    },
+    {
+        "key": "strategic-projects",
+        "label": "Projets publics",
+        "kind": "project",
+        "visible": True,
+        "payload": {"sources": ["project_record", "action_plan"]},
+        "sort_order": 30,
+    },
+    {
+        "key": "agenda-windows",
+        "label": "Fenetres agenda",
+        "kind": "agenda_window",
+        "visible": True,
+        "payload": {"sources": ["workspace_calendar"]},
+        "sort_order": 40,
+    },
+    {
+        "key": "visual-streams",
+        "label": "Flux visuels habilites",
+        "kind": "visual_observation",
+        "visible": True,
+        "payload": {"sources": ["visual_streams"]},
+        "sort_order": 50,
+    },
+    {
+        "key": "preventive-actions",
+        "label": "Actions preventives",
+        "kind": "action",
+        "visible": True,
+        "payload": {"sources": ["action_plans", "scenario_engine"]},
+        "sort_order": 60,
+    },
+]
 
 
 SENTINEL_ZONE_SEED = [
@@ -85,6 +154,7 @@ def ensure_workspace_map_seed(db: DBSession, workspace: Workspace, *, system_id:
         .first()
     )
     if existing:
+        _ensure_map_layers(db, existing)
         return existing
     now = datetime.utcnow()
     map_row = WorkspaceMap(
@@ -104,30 +174,7 @@ def ensure_workspace_map_seed(db: DBSession, workspace: Workspace, *, system_id:
     )
     db.add(map_row)
     db.flush()
-    db.add_all(
-        [
-            WorkspaceMapLayer(
-                id=str(uuid4()),
-                map_id=map_row.id,
-                key="territorial-risk",
-                label="Risque territorial",
-                kind="zone_score",
-                visible=True,
-                payload={"scoring": "signals+projects+agenda"},
-                sort_order=10,
-            ),
-            WorkspaceMapLayer(
-                id=str(uuid4()),
-                map_id=map_row.id,
-                key="open-intelligence",
-                label="Signaux faibles",
-                kind="signal",
-                visible=True,
-                payload={"sources": ["rss_press", "cabinet_note", "project_record"]},
-                sort_order=20,
-            ),
-        ]
-    )
+    _ensure_map_layers(db, map_row)
     db.flush()
     zone_rows: list[WorkspaceMapZone] = []
     for item in SENTINEL_ZONE_SEED:
@@ -268,6 +315,17 @@ def serialize_map(map_row: WorkspaceMap, db: Optional[DBSession] = None) -> dict
     if db:
         layers = db.query(WorkspaceMapLayer).filter(WorkspaceMapLayer.map_id == map_row.id).order_by(WorkspaceMapLayer.sort_order.asc()).all()
         payload["layers"] = [serialize_layer(layer) for layer in layers]
+        zones = db.query(WorkspaceMapZone).filter(WorkspaceMapZone.map_id == map_row.id).order_by(WorkspaceMapZone.level.desc()).all()
+        scores = {
+            score.zone_id: score
+            for score in db.query(WorkspaceMapScore)
+            .filter(WorkspaceMapScore.map_id == map_row.id)
+            .order_by(WorkspaceMapScore.computed_at.desc())
+            .all()
+        }
+        zone_payloads = [serialize_zone(zone, scores.get(zone.id)) for zone in zones]
+        renderer_payload = workspace_map_renderer_payload(map_row, zone_payloads)
+        payload.update(renderer_payload)
     return payload
 
 
@@ -353,6 +411,237 @@ def mission_room_map_payload(db: DBSession, workspace: Workspace) -> dict[str, A
     }
 
 
+def build_map_command(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    map_id_or_slug: str = SENTINEL_MAP_SLUG,
+    intent: str,
+    target: Optional[str] = None,
+    layers: Optional[list[str]] = None,
+    camera: Optional[dict[str, Any]] = None,
+    annotation: Optional[dict[str, Any]] = None,
+    user: Optional[User] = None,
+) -> dict[str, Any]:
+    """Build a provider-neutral map command scoped to the current workspace."""
+    map_row = get_workspace_map(db, workspace, map_id_or_slug)
+    payload = mission_room_map_payload(db, workspace)
+    map_system = payload["map_system"]
+    normalized_intent = intent if intent in MAP_COMMAND_INTENTS else "focus_zone"
+    zones = payload.get("zones") or []
+    selected = _find_zone_payload(zones, target) or payload.get("score_summary", {}).get("top_zone")
+    selected_key = selected.get("id") if selected else None
+    presets = map_system.get("camera_presets") or {}
+    selected_camera = camera or presets.get(selected_key) or presets.get("country")
+    active_layers = layers or [
+        "territorial-risk",
+        "open-intelligence",
+        "strategic-projects",
+        "visual-streams",
+        "preventive-actions",
+    ]
+    explanation = _command_explanation(normalized_intent, selected)
+    sources = _zone_sources(selected)
+    command = {
+        "command_id": str(uuid4()),
+        "map_id": map_row.id,
+        "map_slug": map_row.slug,
+        "intent": normalized_intent,
+        "target": selected_key,
+        "target_label": selected.get("name") if selected else None,
+        "map_state": {
+            "renderer": map_system.get("renderer_config", {}).get("renderer", "maplibre"),
+            "selected_zone": selected_key,
+            "active_layers": active_layers,
+            "camera": selected_camera,
+            "annotation": annotation
+            or {
+                "label": selected.get("name") if selected else "Cote d'Ivoire",
+                "summary": explanation,
+                "tone": selected.get("tone") if selected else "monitoring",
+            },
+        },
+        "explanation": explanation,
+        "sources": sources,
+    }
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="map.command.created",
+        actor=_actor(user),
+        details={
+            "map_id": map_row.id,
+            "intent": normalized_intent,
+            "target": selected_key,
+            "layers": active_layers,
+            "source_count": len(sources),
+        },
+    )
+    return command
+
+
+def handle_map_chat_query(
+    db: DBSession,
+    workspace: Workspace,
+    user: Optional[User],
+    *,
+    query: str,
+    assistant_profile: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Small deterministic VIGIE action for map-centric questions.
+
+    The heavy RAG path remains available for open questions. This branch is
+    deliberately narrow: it emits a structured map command when the user asks
+    VIGIE to show/focus/highlight territorial zones.
+    """
+    if assistant_profile != "vigie_executive":
+        return None
+    normalized = (query or "").lower()
+    map_terms = ("carte", "zone", "zones", "nord", "ouest", "centre", "sud", "est", "zoom", "montre", "affiche")
+    if not any(term in normalized for term in map_terms):
+        return None
+    intent = "focus_zone"
+    if "source" in normalized:
+        intent = "open_source_panel"
+    if "fenetre" in normalized or "créneau" in normalized or "creneau" in normalized:
+        intent = "show_action_window"
+    if "compare" in normalized or "changé" in normalized or "change" in normalized:
+        intent = "compare_before_after"
+    target = _extract_zone_target(normalized)
+    command = build_map_command(
+        db,
+        workspace,
+        intent=intent,
+        target=target,
+        user=user,
+    )
+    label = command.get("target_label") or "les zones prioritaires"
+    content = (
+        f"J'affiche {label} sur la carte stratégique. La vue active les couches vigilance, "
+        "presse, projets, flux visuels et actions préventives pour garder une lecture sourcée "
+        "et exploitable par le cabinet."
+    )
+    return {
+        "action": "map_command",
+        "applied": True,
+        "content": content,
+        "command": command,
+        "sources": command.get("sources") or [],
+    }
+
+
+def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, Any]]) -> dict[str, Any]:
+    view_box = _parse_view_box(map_row.view_box)
+    zone_features = []
+    marker_features = []
+    arc_links = []
+    abidjan = [-4.0244, 5.3453]
+    for zone in zones:
+        coords = _polygon_to_lonlat(zone.get("polygon") or "", view_box)
+        centroid = _point_to_lonlat(zone.get("centroid") or {}, view_box)
+        if coords:
+            zone_features.append(
+                {
+                    "type": "Feature",
+                    "id": zone.get("id"),
+                    "geometry": {"type": "Polygon", "coordinates": [coords]},
+                    "properties": {
+                        "id": zone.get("id"),
+                        "name": zone.get("name"),
+                        "level": zone.get("level"),
+                        "tone": zone.get("tone"),
+                        "signals": zone.get("signals") or [],
+                        "recommendations": zone.get("recommendations") or [],
+                    },
+                }
+            )
+        if centroid:
+            marker_features.append(
+                {
+                    "type": "Feature",
+                    "id": f"{zone.get('id')}-marker",
+                    "geometry": {"type": "Point", "coordinates": centroid},
+                    "properties": {
+                        "zone_id": zone.get("id"),
+                        "name": zone.get("name"),
+                        "level": zone.get("level"),
+                        "tone": zone.get("tone"),
+                    },
+                }
+            )
+            if (zone.get("level") or 0) >= 45:
+                arc_links.append(
+                    {
+                        "source": abidjan,
+                        "target": centroid,
+                        "tone": zone.get("tone"),
+                        "level": zone.get("level"),
+                        "label": f"Coordination {zone.get('name')}",
+                    }
+                )
+    camera_presets = _camera_presets(zones, view_box)
+    return {
+        "renderer_config": {
+            "renderer": "maplibre",
+            "fallback_renderer": "svg",
+            "basemap_policy": "no_basemap",
+            "style": {
+                "version": 8,
+                "sources": {},
+                "layers": [
+                    {
+                        "id": "agentium-background",
+                        "type": "background",
+                        "paint": {"background-color": "#05080d"},
+                    }
+                ],
+            },
+            "initial_view_state": camera_presets["country"],
+            "bounds": [[IVORY_COAST_BOUNDS["west"], IVORY_COAST_BOUNDS["south"]], [IVORY_COAST_BOUNDS["east"], IVORY_COAST_BOUNDS["north"]]],
+            "attribution": "Geometrie workspace · sources qualifiees",
+            "interaction_contract": {
+                "commands": sorted(MAP_COMMAND_INTENTS),
+                "selection": "zone",
+                "events": ["zone_selected", "map_state_updated", "source_panel_requested"],
+            },
+        },
+        "geojson_sources": {
+            "zones": {"type": "FeatureCollection", "features": zone_features},
+            "markers": {"type": "FeatureCollection", "features": marker_features},
+        },
+        "camera_presets": camera_presets,
+        "visual_effects": {
+            "zone_halo": True,
+            "marker_pulse": True,
+            "arc_links": arc_links,
+            "performance_policy": "disable_effects_on_low_power_device",
+        },
+    }
+
+
+def _ensure_map_layers(db: DBSession, map_row: WorkspaceMap) -> None:
+    existing = {
+        layer.key
+        for layer in db.query(WorkspaceMapLayer.key).filter(WorkspaceMapLayer.map_id == map_row.id).all()
+    }
+    for layer in DEFAULT_RENDERER_LAYERS:
+        if layer["key"] in existing:
+            continue
+        db.add(
+            WorkspaceMapLayer(
+                id=str(uuid4()),
+                map_id=map_row.id,
+                key=layer["key"],
+                label=layer["label"],
+                kind=layer["kind"],
+                visible=layer["visible"],
+                payload=layer["payload"],
+                sort_order=layer["sort_order"],
+            )
+        )
+    db.flush()
+
+
 def _recommended_windows(zone_key: str, score: int) -> list[dict[str, Any]]:
     if "nord" in zone_key or score >= 75:
         return [
@@ -410,3 +699,123 @@ def _actor(user: Optional[User]) -> str:
     if not user:
         return "system"
     return user.email or user.username or user.id
+
+
+def _parse_view_box(view_box: Optional[str]) -> tuple[float, float, float, float]:
+    try:
+        parts = [float(part) for part in (view_box or "").split()]
+        if len(parts) == 4 and parts[2] > 0 and parts[3] > 0:
+            return parts[0], parts[1], parts[2], parts[3]
+    except ValueError:
+        pass
+    return 200.0, 40.0, 470.0, 480.0
+
+
+def _point_to_lonlat(point: dict[str, Any], view_box: tuple[float, float, float, float]) -> Optional[list[float]]:
+    try:
+        x = float(point.get("x"))
+        y = float(point.get("y"))
+    except (TypeError, ValueError):
+        return None
+    min_x, min_y, width, height = view_box
+    x_ratio = max(0.0, min(1.0, (x - min_x) / width))
+    y_ratio = max(0.0, min(1.0, (y - min_y) / height))
+    lon = IVORY_COAST_BOUNDS["west"] + x_ratio * (IVORY_COAST_BOUNDS["east"] - IVORY_COAST_BOUNDS["west"])
+    lat = IVORY_COAST_BOUNDS["north"] - y_ratio * (IVORY_COAST_BOUNDS["north"] - IVORY_COAST_BOUNDS["south"])
+    return [round(lon, 5), round(lat, 5)]
+
+
+def _polygon_to_lonlat(polygon: str, view_box: tuple[float, float, float, float]) -> list[list[float]]:
+    coords: list[list[float]] = []
+    for token in polygon.split():
+        if "," not in token:
+            continue
+        try:
+            x_raw, y_raw = token.split(",", 1)
+            point = _point_to_lonlat({"x": float(x_raw), "y": float(y_raw)}, view_box)
+        except ValueError:
+            point = None
+        if point:
+            coords.append(point)
+    if coords and coords[0] != coords[-1]:
+        coords.append(coords[0])
+    return coords
+
+
+def _camera_presets(zones: list[dict[str, Any]], view_box: tuple[float, float, float, float]) -> dict[str, dict[str, Any]]:
+    presets: dict[str, dict[str, Any]] = {
+        "country": {
+            "longitude": -5.45,
+            "latitude": 7.58,
+            "zoom": 5.7,
+            "pitch": 38,
+            "bearing": -7,
+            "duration_ms": 900,
+        }
+    }
+    for zone in zones:
+        point = _point_to_lonlat(zone.get("centroid") or {}, view_box)
+        if not point:
+            continue
+        zoom = 7.2 if (zone.get("level") or 0) >= 75 else 6.8
+        presets[zone.get("id") or zone.get("name")] = {
+            "longitude": point[0],
+            "latitude": point[1],
+            "zoom": zoom,
+            "pitch": 44,
+            "bearing": -10,
+            "duration_ms": 850,
+        }
+    return presets
+
+
+def _find_zone_payload(zones: list[dict[str, Any]], target: Optional[str]) -> Optional[dict[str, Any]]:
+    if not target:
+        return None
+    normalized = target.lower().strip()
+    for zone in zones:
+        if normalized in {str(zone.get("id", "")).lower(), str(zone.get("name", "")).lower()}:
+            return zone
+        if normalized and normalized in str(zone.get("name", "")).lower():
+            return zone
+    return None
+
+
+def _extract_zone_target(query: str) -> Optional[str]:
+    for key, labels in {
+        "zone-nord": ("nord", "korhogo", "frontaliere nord"),
+        "zone-ouest": ("ouest", "man", "liberia", "guinee"),
+        "zone-centre": ("centre", "yamoussoukro"),
+        "zone-sud": ("sud", "abidjan", "littoral"),
+        "zone-est": ("est", "ghana", "bondoukou"),
+    }.items():
+        if any(label in query for label in labels):
+            return key
+    return None
+
+
+def _command_explanation(intent: str, selected: Optional[dict[str, Any]]) -> str:
+    if not selected:
+        return "Vue consolidee de la posture territoriale et des signaux qualifiés."
+    name = selected.get("name")
+    if intent == "show_action_window":
+        return f"Fenêtres recommandées pour une action préventive sur la zone {name}."
+    if intent == "open_source_panel":
+        return f"Ouverture des sources qualifiées soutenant l'analyse de la zone {name}."
+    if intent == "compare_before_after":
+        return f"Comparaison de la posture de la zone {name} depuis le dernier briefing."
+    return f"Focus sur la zone {name}, niveau {selected.get('level')}%, avec couches de vigilance et actions."
+
+
+def _zone_sources(selected: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not selected:
+        return [{"title": "Carte stratégique", "kind": "workspace_map", "source_label": "Carte stratégique"}]
+    return [
+        {
+            "title": source,
+            "kind": "map_source",
+            "source_label": f"Source zone {selected.get('name')}",
+            "zone": selected.get("id"),
+        }
+        for source in (selected.get("sources") or ["Carte stratégique"])
+    ]

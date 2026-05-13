@@ -199,6 +199,17 @@ export const CONNECTORS: ConnectorDef[] = [
       { key: 'password', label: 'Password', type: 'password' },
     ],
   },
+  {
+    id: 'visual_streams',
+    category: 'channels',
+    icon: 'camera',
+    name: 'Flux visuels institutionnels',
+    description: 'Captures ponctuelles de flux publics ou habilites, observations et synchronisation Knowledge.',
+    version: 'Snapshot v1',
+    status: 'active',
+    backendPrefix: 'visual-intelligence',
+    fields: [],
+  },
 
   // Data & storage
   {

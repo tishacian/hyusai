@@ -36,6 +36,8 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     listed = client.get("/api/v1/maps/")
     assert listed.status_code == 200
     assert listed.json()["maps"][0]["slug"] == "sentinel-ci-strategic-map"
+    assert listed.json()["maps"][0]["renderer_config"]["renderer"] == "maplibre"
+    assert listed.json()["maps"][0]["geojson_sources"]["zones"]["features"]
 
     scored = client.post("/api/v1/maps/sentinel-ci-strategic-map/score")
     assert scored.status_code == 200
@@ -50,3 +52,14 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert len(jobs.json()["jobs"]) == 1
     assert jobs.json()["jobs"][0]["workspace_id"] == workspace.id
     assert other.id not in str(jobs.json())
+
+    command = client.post(
+        "/api/v1/maps/sentinel-ci-strategic-map/command",
+        json={"intent": "focus_zone", "target": "zone-nord", "layers": ["territorial-risk", "open-intelligence"]},
+    )
+    assert command.status_code == 200
+    command_body = command.json()
+    assert command_body["intent"] == "focus_zone"
+    assert command_body["target"] == "zone-nord"
+    assert command_body["map_state"]["renderer"] == "maplibre"
+    assert command_body["map_state"]["camera"]["longitude"]

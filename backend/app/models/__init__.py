@@ -19,6 +19,7 @@ from app.models.calendar import WorkspaceCalendarEvent
 from app.models.action_plan import WorkspaceActionItem
 from app.models.workspace_job import WorkspaceJob
 from app.models.workspace_map import WorkspaceMap, WorkspaceMapLayer, WorkspaceMapZone, WorkspaceMapSignal, WorkspaceMapScore
+from app.models.workspace_visual import WorkspaceVisualCapture, WorkspaceVisualObservation, WorkspaceVisualSource
 
 # Canonical (mental-model) layer.
 from app.models.capability import Capability
@@ -44,6 +45,7 @@ __all__ = [
     "KnowledgeCollection", "WorkerJob",
     "WorkspaceCalendarEvent", "WorkspaceActionItem", "WorkspaceJob",
     "WorkspaceMap", "WorkspaceMapLayer", "WorkspaceMapZone", "WorkspaceMapSignal", "WorkspaceMapScore",
+    "WorkspaceVisualSource", "WorkspaceVisualCapture", "WorkspaceVisualObservation",
     # Canonical
     "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
     "System", "SystemVersion", "Run", "SkillInvocation", "Impact", "Decision",

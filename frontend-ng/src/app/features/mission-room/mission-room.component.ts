@@ -9,9 +9,11 @@ import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
+import { WorkspaceMapComponent } from './workspace-map.component';
 
 type MissionView =
   | 'cockpit'
+  | 'monitor'
   | 'briefing'
   | 'pilotage'
   | 'agenda'
@@ -240,6 +242,15 @@ interface MissionCockpit {
   messages: MessageItem[];
   decision_focus: DecisionItem[];
   press_intelligence?: NewsSourceHealth;
+  situation_monitor?: {
+    route: string;
+    posture: StrategicPosture;
+    top_zones: MapZone[];
+    visual?: VisualObservation | null;
+    source_freshness?: Record<string, string>;
+  };
+  visual_summary?: VisualSourceHealth;
+  strategic_posture?: StrategicPosture;
   what_changed?: string[];
   sources: SourceRef[];
 }
@@ -267,11 +278,113 @@ interface MissionProjects {
 
 interface MissionMap {
   question: string;
-  map_system?: { id: string; slug: string; name: string; layers?: { key: string; label: string; visible: boolean }[] };
+  map_system?: {
+    id: string;
+    slug: string;
+    name: string;
+    layers?: { key: string; label: string; visible: boolean }[];
+    renderer_config?: Record<string, any>;
+    geojson_sources?: Record<string, any>;
+    camera_presets?: Record<string, any>;
+    visual_effects?: Record<string, any>;
+  };
   map: { country: string; view_box: string; projection: string; accuracy: string };
   zones: MapZone[];
   recommended_windows?: RecommendedWindow[];
   score_summary?: { critical: number; watch: number; stable: number; top_zone?: MapZone | null };
+  sources: SourceRef[];
+}
+
+interface StrategicPosture {
+  label: string;
+  score: number;
+  trend: string;
+  summary: string;
+  drivers?: { kind: string; label: string; score: number }[];
+}
+
+interface VisualSourceHealth {
+  active_sources: number;
+  total_sources: number;
+  captures: number;
+  observations: number;
+  last_capture_at?: string | null;
+  coverage_label: string;
+}
+
+interface VisualSource {
+  id: string;
+  name: string;
+  description: string;
+  source_url: string;
+  source_type: string;
+  adapter: string;
+  region: string;
+  status: string;
+  enabled: boolean;
+  capture_cadence_minutes: number;
+  policy: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  last_captured_at?: string | null;
+}
+
+interface VisualCapture {
+  id: string;
+  source_id: string;
+  job_id?: string | null;
+  status: string;
+  object_key: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  width?: number | null;
+  height?: number | null;
+  error?: string | null;
+  metadata: Record<string, unknown>;
+  captured_at?: string | null;
+}
+
+interface VisualObservation {
+  id: string;
+  source_id: string;
+  capture_id: string;
+  summary: string;
+  tags: string[];
+  confidence: number;
+  vigilance_score: number;
+  level_label: string;
+  source_refs: string[];
+  provider?: string | null;
+  model?: string | null;
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+}
+
+interface VisualDashboard {
+  connector: { id: string; label: string; status: string; mode: string; policy?: string };
+  source_health: VisualSourceHealth;
+  posture: StrategicPosture;
+  sources: VisualSource[];
+  captures: VisualCapture[];
+  observations: VisualObservation[];
+  latest_observation?: VisualObservation | null;
+}
+
+interface MissionMonitor {
+  workspace: WorkspaceMeta;
+  title: string;
+  summary: string;
+  posture: StrategicPosture;
+  layers: { key: string; label: string; enabled: boolean; count: number }[];
+  map: { country: string; view_box: string; projection: string; accuracy: string };
+  map_system?: MissionMap['map_system'];
+  zones: MapZone[];
+  top_zones: MapZone[];
+  visual: VisualDashboard;
+  visual_observations: VisualObservation[];
+  forecasts: { id: string; title: string; summary: string; level: string; horizon: string; confidence: number }[];
+  news_signals: NewsSignal[];
+  source_freshness: Record<string, string>;
   sources: SourceRef[];
 }
 
@@ -791,6 +904,7 @@ export class MissionRailComponent {
     MissionMetricCardComponent,
     MissionChartPanelComponent,
     MissionSourcePillComponent,
+    WorkspaceMapComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -836,6 +950,7 @@ export class MissionRailComponent {
 
           @switch (currentView()) {
             @case ('cockpit') { <ng-container *ngTemplateOutlet="cockpitView"></ng-container> }
+            @case ('monitor') { <ng-container *ngTemplateOutlet="monitorView"></ng-container> }
             @case ('briefing') { <ng-container *ngTemplateOutlet="briefingView"></ng-container> }
             @case ('pilotage') { <ng-container *ngTemplateOutlet="projectsView"></ng-container> }
             @case ('agenda') { <ng-container *ngTemplateOutlet="timelineView"></ng-container> }
@@ -903,6 +1018,63 @@ export class MissionRailComponent {
             <small>{{ alert.zone || alert.source }} · confiance {{ confidencePct(alert.confidence) }}</small>
           </article>
         }
+      </section>
+
+      <section class="situation-strip" aria-label="Situation monitor">
+        <article class="content-panel situation-brief">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Situation Monitor</span>
+              <h2>{{ postureLabel(cockpit()?.strategic_posture) }}</h2>
+            </div>
+            <a routerLink="/hypervisor/mission-room/monitor" class="action-button compact">
+              <ck-glyph name="crosshair" [size]="14" />
+              <span>Ouvrir Monitor</span>
+            </a>
+          </div>
+          <p>{{ cockpit()?.strategic_posture?.summary || cockpit()?.situation_monitor?.posture?.summary }}</p>
+          <div class="brief-meta">
+            <span>{{ cockpit()?.situation_monitor?.source_freshness?.['news'] || 'Veille qualifiee' }}</span>
+            <span>{{ cockpit()?.situation_monitor?.source_freshness?.['visual'] || 'Flux visuels habilites' }}</span>
+          </div>
+        </article>
+        <article class="content-panel situation-zones">
+          <span class="eyebrow">Top zones</span>
+          <div class="mini-zone-list">
+            @for (zone of cockpit()?.situation_monitor?.top_zones || []; track zone.id) {
+              <button type="button" (click)="selectZoneByName(zone.name)">
+                <strong>{{ zone.name }}</strong>
+                <i><b [style.width.%]="zone.level" [class]="zone.tone"></b></i>
+                <span>{{ zone.level }}%</span>
+              </button>
+            }
+          </div>
+        </article>
+        <article class="content-panel situation-map-preview">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Carte stratégique</span>
+              <h2>Lecture territoriale</h2>
+            </div>
+            <a routerLink="/hypervisor/mission-room/strategie" class="action-button compact">
+              <ck-glyph name="crosshair" [size]="14" />
+              <span>Ouvrir</span>
+            </a>
+          </div>
+          <app-workspace-map
+            [compact]="true"
+            [zones]="missionMap()?.zones || []"
+            [map]="missionMap()?.map || null"
+            [mapSystem]="missionMap()?.map_system || null"
+            [selectedZoneId]="selectedZone()?.id || null"
+            (zoneSelected)="selectZone($event)"
+          />
+        </article>
+        <article class="content-panel situation-visual">
+          <span class="eyebrow">Observation visuelle</span>
+          <strong>{{ cockpit()?.situation_monitor?.visual?.level_label || 'monitoring' }}</strong>
+          <p>{{ cockpit()?.situation_monitor?.visual?.summary || 'Aucune observation visuelle critique ne modifie la posture executive.' }}</p>
+        </article>
       </section>
 
       <section class="cockpit-grid">
@@ -1541,17 +1713,13 @@ export class MissionRailComponent {
             <span>{{ missionMap()?.map_system?.name || 'Systeme cartographique workspace' }}</span>
             <small>{{ missionMap()?.score_summary?.critical || 0 }} critiques · {{ missionMap()?.score_summary?.watch || 0 }} en veille</small>
           </div>
-          <svg class="territory-map" [attr.viewBox]="missionMap()?.map?.view_box || '200 40 470 480'" role="img">
-            @for (zone of missionMap()?.zones || []; track zone.id) {
-              <polygon
-                [attr.points]="zone.polygon"
-                [attr.fill]="zoneFill(zone)"
-                [attr.opacity]="selectedZone()?.id === zone.id ? 0.94 : 0.62"
-                (click)="selectedZone.set(zone)"
-              ></polygon>
-              <text [attr.x]="zone.centroid.x" [attr.y]="zone.centroid.y" text-anchor="middle">{{ zone.name }}</text>
-            }
-          </svg>
+          <app-workspace-map
+            [zones]="missionMap()?.zones || []"
+            [map]="missionMap()?.map || null"
+            [mapSystem]="missionMap()?.map_system || null"
+            [selectedZoneId]="selectedZone()?.id || null"
+            (zoneSelected)="selectZone($event)"
+          />
         </article>
         <article class="content-panel selected-detail">
           @if (selectedZone(); as zone) {
@@ -1617,6 +1785,137 @@ export class MissionRailComponent {
               <span>Ajouter action territoriale</span>
             </button>
           }
+        </article>
+      </section>
+    </ng-template>
+
+    <ng-template #monitorView>
+      <section class="monitor-layout">
+        <article class="content-panel monitor-map-panel">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Situation Monitor</span>
+              <h2>{{ monitor()?.title || 'Situation Monitor' }}</h2>
+            </div>
+            <span class="posture-badge" [class]="monitorTone(monitor()?.posture?.label)">
+              {{ postureLabel(monitor()?.posture) }}
+            </span>
+          </div>
+          <p>{{ monitor()?.summary }}</p>
+          <div class="layer-strip">
+            @for (layer of monitor()?.layers || []; track layer.key) {
+              <span [class.disabled]="!layer.enabled">
+                {{ layer.label }}
+                <b>{{ layer.count }}</b>
+              </span>
+            }
+          </div>
+          <app-workspace-map
+            [zones]="monitor()?.zones || []"
+            [map]="monitor()?.map || missionMap()?.map || null"
+            [mapSystem]="monitor()?.map_system || missionMap()?.map_system || null"
+            [selectedZoneId]="selectedZone()?.id || null"
+            (zoneSelected)="selectZone($event)"
+          />
+        </article>
+
+        <aside class="content-panel monitor-side-panel">
+          <span class="eyebrow">Posture strategique</span>
+          <div class="risk-orb" [class]="monitorTone(monitor()?.posture?.label)">
+            <strong>{{ monitor()?.posture?.score || 0 }}</strong>
+            <span>{{ monitor()?.posture?.label || 'monitoring' }}</span>
+          </div>
+          <div class="driver-list">
+            @for (driver of monitor()?.posture?.drivers || []; track driver.kind) {
+              <span>{{ driver.label }} · {{ driver.score }}</span>
+            }
+          </div>
+          <h3>Zones suivies</h3>
+          <div class="mini-zone-list side">
+            @for (zone of monitor()?.top_zones || []; track zone.id) {
+              <button type="button" [class.active]="selectedZone()?.id === zone.id" (click)="selectedZone.set(zone)">
+                <strong>{{ zone.name }}</strong>
+                <i><b [style.width.%]="zone.level" [class]="zone.tone"></b></i>
+                <span>{{ zone.level }}%</span>
+              </button>
+            }
+          </div>
+        </aside>
+
+        <article class="content-panel visual-panel">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Flux visuels institutionnels</span>
+              <h2>{{ monitor()?.visual?.connector?.label || 'Flux visuels' }}</h2>
+            </div>
+            @if (monitor()?.visual?.sources?.[0]; as source) {
+              <button type="button" class="action-button compact" (click)="captureVisualSource(source)">
+                <ck-glyph name="focus" [size]="14" />
+                <span>Capture</span>
+              </button>
+            }
+          </div>
+          <div class="visual-grid">
+            <figure class="snapshot-frame">
+              @if (latestVisualCapture(); as capture) {
+                <img [src]="visualCaptureUrl(capture.id)" alt="Derniere capture visuelle institutionnelle" />
+              } @else {
+                <div class="snapshot-empty">
+                  <ck-glyph name="focus" [size]="22" />
+                  <span>Aucune capture recente</span>
+                </div>
+              }
+            </figure>
+            <div class="visual-observations">
+              <div class="health-grid compact">
+                <article>
+                  <strong>{{ monitor()?.visual?.source_health?.active_sources || 0 }}</strong>
+                  <span>sources actives</span>
+                </article>
+                <article>
+                  <strong>{{ monitor()?.visual?.source_health?.captures || 0 }}</strong>
+                  <span>captures</span>
+                </article>
+                <article>
+                  <strong>{{ monitor()?.visual?.source_health?.observations || 0 }}</strong>
+                  <span>observations</span>
+                </article>
+              </div>
+              @for (observation of monitor()?.visual_observations || []; track observation.id) {
+                <article>
+                  <span class="status-pill" [class]="observation.level_label">{{ observation.level_label }}</span>
+                  <p>{{ observation.summary }}</p>
+                  <small>confiance {{ confidencePct(observation.confidence) }} · vigilance {{ observation.vigilance_score }}/100</small>
+                </article>
+              }
+            </div>
+          </div>
+        </article>
+
+        <article class="content-panel monitor-forecast-panel">
+          <span class="eyebrow">Previsions & correlations</span>
+          <div class="forecast-grid">
+            @for (forecast of monitor()?.forecasts || []; track forecast.id) {
+              <article [class]="monitorTone(forecast.level)">
+                <strong>{{ forecast.title }}</strong>
+                <p>{{ forecast.summary }}</p>
+                <small>{{ forecast.horizon }} · confiance {{ confidencePct(forecast.confidence) }}</small>
+              </article>
+            }
+          </div>
+        </article>
+
+        <article class="content-panel monitor-news-panel">
+          <span class="eyebrow">Signaux presse correles</span>
+          <div class="library-list">
+            @for (signal of monitor()?.news_signals || []; track signal.id) {
+              <article>
+                <strong>{{ signal.title }}</strong>
+                <small>{{ signal.zone || signal.source }} · {{ ministerialRisk(signal.risk_level) }}</small>
+                <p>{{ signal.impact_ci || signal.summary }}</p>
+              </article>
+            }
+          </div>
         </article>
       </section>
     </ng-template>
@@ -1945,6 +2244,68 @@ export class MissionRailComponent {
         color: var(--mission-text-soft);
         line-height: 1.45;
       }
+      .situation-strip {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(240px, 0.7fr) minmax(320px, 1fr) minmax(240px, 0.72fr);
+        gap: 14px;
+        margin: 0 0 14px;
+      }
+      .situation-brief p,
+      .situation-visual p {
+        margin: 8px 0 0;
+      }
+      .situation-visual strong {
+        display: inline-flex;
+        margin-top: 10px;
+        color: var(--mission-accent);
+        font-family: var(--ck-font-mono);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .situation-map-preview app-workspace-map {
+        display: block;
+        margin-top: 12px;
+      }
+      .mini-zone-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .mini-zone-list button {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 82px minmax(0, 1fr) 42px;
+        gap: 9px;
+        align-items: center;
+        padding: 9px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-inset);
+        color: var(--mission-text-soft);
+        text-align: left;
+        cursor: pointer;
+      }
+      .mini-zone-list.side button.active,
+      .mini-zone-list button:hover {
+        border-color: var(--mission-border-strong);
+        background: var(--mission-accent-wash);
+      }
+      .mini-zone-list i {
+        height: 6px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(156, 184, 212, 0.12);
+      }
+      .mini-zone-list b {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--mission-accent);
+      }
+      .mini-zone-list b.critical { background: var(--mission-danger); }
+      .mini-zone-list b.watch { background: var(--mission-warn); }
+      .mini-zone-list b.stable { background: var(--mission-trust); }
       .cockpit-grid > *:nth-child(1),
       .cockpit-grid > *:nth-child(2),
       .cockpit-grid > *:nth-child(5),
@@ -2758,6 +3119,167 @@ export class MissionRailComponent {
       .status-pill.critical { color: var(--mission-danger); background: var(--mission-danger-wash); }
       .status-pill.medium { color: var(--mission-warn); background: var(--mission-warn-wash); }
       .map-layout { grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr); }
+      .monitor-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+        gap: 16px;
+        align-items: start;
+      }
+      .monitor-map-panel,
+      .visual-panel,
+      .monitor-forecast-panel {
+        grid-column: span 1;
+      }
+      .monitor-news-panel {
+        grid-column: 2;
+      }
+      .posture-badge {
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--mission-border);
+        background: var(--mission-panel-hi);
+        color: var(--mission-accent);
+        font-family: var(--ck-font-mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .posture-badge.critical,
+      .risk-orb.critical { color: var(--mission-danger); border-color: rgba(240, 100, 118, 0.32); }
+      .posture-badge.elevated,
+      .risk-orb.elevated { color: var(--mission-warn); border-color: rgba(234, 184, 92, 0.32); }
+      .posture-badge.monitoring,
+      .risk-orb.monitoring { color: var(--mission-accent); border-color: var(--mission-border-strong); }
+      .posture-badge.stable,
+      .risk-orb.stable { color: var(--mission-trust); border-color: rgba(66, 217, 155, 0.32); }
+      .layer-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 12px 0;
+      }
+      .layer-strip span {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 29px;
+        padding: 5px 8px;
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        background: var(--mission-inset);
+        color: var(--mission-text-soft);
+        font-size: 12px;
+      }
+      .layer-strip span.disabled {
+        opacity: 0.45;
+      }
+      .layer-strip b {
+        color: var(--mission-accent);
+        font-family: var(--ck-font-mono);
+        font-size: 11px;
+      }
+      .monitor-map {
+        min-height: 500px;
+      }
+      .monitor-map circle {
+        stroke: rgba(244, 247, 251, 0.35);
+        stroke-width: 1.5;
+        pointer-events: none;
+      }
+      .monitor-side-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .risk-orb {
+        width: 150px;
+        aspect-ratio: 1;
+        margin: 6px auto 4px;
+        border-radius: 50%;
+        border: 1px solid var(--mission-border-strong);
+        background:
+          radial-gradient(circle at 50% 42%, rgba(139, 216, 255, 0.22), transparent 56%),
+          var(--mission-inset);
+        display: grid;
+        place-items: center;
+      }
+      .risk-orb strong,
+      .risk-orb span {
+        grid-area: 1 / 1;
+        font-family: var(--ck-font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+      .risk-orb strong {
+        font-size: 38px;
+        transform: translateY(-8px);
+      }
+      .risk-orb span {
+        color: var(--mission-text-muted);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        transform: translateY(24px);
+      }
+      .visual-grid {
+        display: grid;
+        grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
+        gap: 14px;
+      }
+      .snapshot-frame {
+        min-height: 240px;
+        margin: 0;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-inset);
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+      }
+      .snapshot-frame img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .snapshot-empty {
+        display: grid;
+        place-items: center;
+        gap: 10px;
+        color: var(--mission-text-muted);
+        text-align: center;
+      }
+      .visual-observations {
+        display: grid;
+        gap: 10px;
+      }
+      .visual-observations article,
+      .forecast-grid article {
+        padding: 12px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-panel-hi);
+      }
+      .visual-observations p,
+      .forecast-grid p {
+        margin: 7px 0;
+        font-size: 13px;
+      }
+      .visual-observations small,
+      .forecast-grid small {
+        color: var(--mission-text-muted);
+      }
+      .health-grid.compact {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin: 0;
+      }
+      .forecast-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .forecast-grid article.critical { border-color: rgba(240, 100, 118, 0.26); }
+      .forecast-grid article.elevated { border-color: rgba(234, 184, 92, 0.26); }
       .territory-map {
         width: 100%;
         min-height: 560px;
@@ -2801,9 +3323,14 @@ export class MissionRailComponent {
         .mission-main { padding: 24px; }
         .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .executive-strip,
+        .situation-strip,
         .executive-alert-grid { grid-template-columns: 1fr; }
         .cockpit-grid > * { grid-column: span 12 !important; }
-        .two-column, .ministerial-news, .map-layout, .agenda-workbench, .agenda-command { grid-template-columns: 1fr; }
+        .two-column, .ministerial-news, .map-layout, .monitor-layout, .visual-grid, .agenda-workbench, .agenda-command { grid-template-columns: 1fr; }
+        .monitor-map-panel,
+        .visual-panel,
+        .monitor-forecast-panel,
+        .monitor-news-panel { grid-column: 1; }
         .agenda-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .linked-action-strip,
         .calendar-intelligence,
@@ -2843,6 +3370,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly briefing = signal<MissionBriefing | null>(null);
   readonly projects = signal<MissionProjects | null>(null);
   readonly missionMap = signal<MissionMap | null>(null);
+  readonly monitor = signal<MissionMonitor | null>(null);
   readonly news = signal<MissionNews | null>(null);
   readonly timeline = signal<MissionTimeline | null>(null);
   readonly decisions = signal<MissionDecisions | null>(null);
@@ -2859,9 +3387,17 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   newAgendaStart = '2026-04-15T09:45';
   newAgendaLocation = 'Cabinet ministeriel';
   private readonly calendarUpdateListener = () => this.loadAll();
+  private readonly mapCommandListener = (event: Event) => {
+    const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
+    const target = String(detail['target'] || (detail['map_state'] as any)?.selected_zone || '');
+    const zone = [...(this.missionMap()?.zones || []), ...(this.monitor()?.zones || [])].find((item) => item.id === target);
+    if (zone) this.selectedZone.set(zone);
+    if (target) this.router.navigateByUrl('/hypervisor/mission-room/strategie');
+  };
 
   readonly fallbackNav: MissionNavigationItem[] = [
     { key: 'cockpit', label: 'Cockpit', glyph: 'ledger', route: '/hypervisor/mission-room/cockpit', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'monitor', label: 'Monitor', glyph: 'crosshair', route: '/hypervisor/mission-room/monitor', api: '/api/v1/mission-room/monitor', object: 'Workbench', workbench: 'Workbench' },
     { key: 'briefing', label: 'Briefing', glyph: 'ledger', route: '/hypervisor/mission-room/briefing', api: '/api/v1/mission-room/briefing', object: 'Workbench', workbench: 'Workbench' },
     { key: 'pilotage', label: 'Pilotage', glyph: 'telemetry', route: '/hypervisor/mission-room/pilotage', api: '/api/v1/mission-room/projects', object: 'System', workbench: 'System' },
     { key: 'strategie', label: 'Strategie', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
@@ -2882,6 +3418,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       ...(this.briefing()?.sources || []),
       ...(this.projects()?.sources || []),
       ...(this.missionMap()?.sources || []),
+      ...(this.monitor()?.sources || []),
       ...(this.news()?.sources || []),
       ...(this.timeline()?.sources || []),
       ...(this.decisions()?.sources || []),
@@ -2893,6 +3430,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   private readonly validViews = new Set<MissionView>([
     'cockpit',
+    'monitor',
     'briefing',
     'pilotage',
     'agenda',
@@ -2910,11 +3448,13 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     window.addEventListener('agentium:calendar-updated', this.calendarUpdateListener);
+    window.addEventListener('agentium:map-command', this.mapCommandListener);
     this.loadAll();
   }
 
   ngOnDestroy(): void {
     window.removeEventListener('agentium:calendar-updated', this.calendarUpdateListener);
+    window.removeEventListener('agentium:map-command', this.mapCommandListener);
   }
 
   private loadAll(): void {
@@ -2924,18 +3464,20 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       briefing: this.api.get<MissionBriefing>('/mission-room/briefing'),
       projects: this.api.get<MissionProjects>('/mission-room/projects'),
       missionMap: this.api.get<MissionMap>('/mission-room/map'),
+      monitor: this.api.get<MissionMonitor>('/mission-room/monitor'),
       news: this.api.get<MissionNews>('/mission-room/news'),
       timeline: this.api.get<MissionTimeline>('/mission-room/timeline'),
       decisions: this.api.get<MissionDecisions>('/mission-room/decisions'),
       library: this.api.get<MissionLibrary>('/mission-room/library'),
       search: this.api.get<MissionSearch>('/mission-room/search', { q: '' }),
     }).subscribe({
-      next: ({ navigation, cockpit, briefing, projects, missionMap, news, timeline, decisions, library, search }) => {
+      next: ({ navigation, cockpit, briefing, projects, missionMap, monitor, news, timeline, decisions, library, search }) => {
         this.navigation.set(navigation);
         this.cockpit.set(cockpit);
         this.briefing.set(briefing);
         this.projects.set(projects);
         this.missionMap.set(missionMap);
+        this.monitor.set(monitor);
         this.news.set(news);
         this.timeline.set(timeline);
         this.decisions.set(decisions);
@@ -2994,8 +3536,31 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return 'veille prete';
   }
 
+  postureLabel(posture?: StrategicPosture | null): string {
+    if (!posture) return 'monitoring · posture consolidee';
+    const labels: Record<string, string> = {
+      stable: 'stable',
+      monitoring: 'monitoring',
+      elevated: 'elevated',
+      critical: 'critical',
+    };
+    return `${labels[posture.label] || posture.label} · ${posture.score}/100`;
+  }
+
+  monitorTone(level?: string | null): string {
+    const normalized = (level || '').toLowerCase();
+    if (normalized === 'critical') return 'critical';
+    if (normalized === 'elevated' || normalized === 'high') return 'elevated';
+    if (normalized === 'stable') return 'stable';
+    return 'monitoring';
+  }
+
   barHeight(value: number): number {
     return Math.max(8, Math.min(100, (value / 50) * 100));
+  }
+
+  zonePulseRadius(zone: MapZone): number {
+    return Math.max(6, Math.min(18, zone.level / 7));
   }
 
   trendPath(values: number[], yMax = 170, yMin = 24): string {
@@ -3022,6 +3587,23 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     if (zone.tone === 'critical') return 'var(--mission-danger)';
     if (zone.tone === 'watch') return 'var(--mission-warn)';
     return 'var(--mission-trust)';
+  }
+
+  latestVisualCapture(): VisualCapture | null {
+    return this.monitor()?.visual?.captures?.find((capture) => capture.status === 'analyzed' || capture.status === 'captured') || null;
+  }
+
+  visualCaptureUrl(captureId: string): string {
+    return `${this.api.base}/visual-intelligence/captures/${captureId}/image`;
+  }
+
+  captureVisualSource(source: VisualSource): void {
+    if (!source?.id) return;
+    this.api.post(`/visual-intelligence/sources/${source.id}/capture`, {}).subscribe(() => this.loadAll());
+  }
+
+  selectZone(zone: MapZone): void {
+    this.selectedZone.set(zone);
   }
 
   selectZoneByName(name: string): void {

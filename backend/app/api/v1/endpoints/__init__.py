@@ -39,4 +39,5 @@ __all__ = [
     "action_plans",
     "workspace_jobs",
     "maps",
+    "visual_intelligence",
 ]

@@ -111,6 +111,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         notes="Workspace map system: layers, zones, scoring and advisory recommendations.",
     ),
     SurfaceMetadata(
+        "/api/v1/visual-intelligence",
+        "Governance",
+        "Connector",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/hypervisor/mission-room/monitor", "/connectors"),
+        notes="Workspace-scoped visual snapshot connector, observations, Knowledge sync and situation-monitor posture.",
+    ),
+    SurfaceMetadata(
         "/api/v1/auth",
         "Identity",
         "Workspace",

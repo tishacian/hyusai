@@ -37,6 +37,10 @@ from app.services.action_plans import (
     summary_payload as action_plan_summary_payload,
 )
 from app.services.scenario_engine import generate_scenarios
+from app.services.visual_intelligence import (
+    dashboard_payload as visual_dashboard_payload,
+    ensure_visual_intelligence_seed,
+)
 from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
 
 
@@ -49,6 +53,7 @@ MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
 
 NAVIGATION_ITEMS = [
     {"key": "cockpit", "label": "Cockpit", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
+    {"key": "monitor", "label": "Monitor", "glyph": "crosshair", "variant": "visual_situation_watch", "object": "Workbench"},
     {"key": "briefing", "label": "Briefing", "glyph": "ledger", "variant": "ministerial_daily_briefing", "object": "Workbench"},
     {"key": "pilotage", "label": "Pilotage", "glyph": "telemetry", "variant": "strategic_project_pilotage", "object": "System"},
     {"key": "agenda", "label": "Agenda", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
@@ -93,6 +98,13 @@ SOURCES = [
         "kind": "calendar",
         "confidence": 0.94,
         "age": "aujourd'hui",
+    },
+    {
+        "id": "src-visual-intelligence-001",
+        "label": "Flux visuels institutionnels",
+        "kind": "visual_stream",
+        "confidence": 0.68,
+        "age": "capture recente",
     },
 ]
 
@@ -276,6 +288,14 @@ LIBRARY_ITEMS = [
         "collection": "sentinel-ci-territorial-map",
         "summary": "Zones, niveaux d'alerte et recommandations preventives non militaires.",
         "sources": ["src-cabinet-brief-001", "src-press-rfi-017"],
+    },
+    {
+        "id": "lib-territorial-intelligence",
+        "title": "Intelligence territoriale consolidee",
+        "kind": "map_context",
+        "collection": "sentinel-ci-territorial-intelligence",
+        "summary": "Scores de zones, signaux presse, projets, agenda, flux visuels et fenetres d'action.",
+        "sources": ["src-cabinet-brief-001", "src-project-sante-042", "src-press-rfi-017"],
     },
 ]
 
@@ -695,6 +715,7 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     systems_by_variant = _system_map(db, workspace)
     api_by_view = {
         "cockpit": "/api/v1/mission-room/cockpit",
+        "monitor": "/api/v1/mission-room/monitor",
         "briefing": "/api/v1/mission-room/briefing",
         "pilotage": "/api/v1/mission-room/projects",
         "agenda": "/api/v1/mission-room/timeline",
@@ -819,6 +840,9 @@ def _agenda_items_from_calendar(workspace: Workspace, db: Optional[DBSession]) -
 def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
     overview = overview_payload(workspace)
     news = _executive_news_payload(workspace, db)
+    visual = _visual_payload(workspace, db)
+    mapped = map_payload(workspace, db=db)
+    posture = _strategic_posture(mapped, news, visual)
     calendar_summary = calendar_summary_payload(db, workspace) if db else None
     alerts = news.get("executive_alerts") or news.get("signals") or _clone(NEWS_SIGNALS)
     source_health = news.get("source_health") or {}
@@ -848,6 +872,18 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         }
     )
     overview["press_intelligence"] = source_health
+    overview["visual_summary"] = visual.get("source_health") or {}
+    overview["strategic_posture"] = posture
+    overview["situation_monitor"] = {
+        "route": f"{MISSION_ROOM_ROOT}/monitor",
+        "posture": posture,
+        "top_zones": (mapped.get("zones") or [])[:3],
+        "visual": visual.get("latest_observation"),
+        "source_freshness": {
+            "news": source_health.get("coverage_label", "Veille qualifiee"),
+            "visual": (visual.get("source_health") or {}).get("coverage_label", "Flux visuels habilites"),
+        },
+    }
     overview["what_changed"] = (news.get("briefing_note") or {}).get("bullets") or []
     overview["sources"] = news.get("sources") or overview["sources"]
     overview["agenda"] = _agenda_items_from_calendar(workspace, db)
@@ -1005,8 +1041,127 @@ def map_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[st
     }
 
 
+def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
+    mapped = map_payload(workspace, db=db)
+    news = news_payload(workspace, db=db)
+    visual = _visual_payload(workspace, db)
+    posture = _strategic_posture(mapped, news, visual)
+    zones = mapped.get("zones") or []
+    top_zones = sorted(zones, key=lambda item: int(item.get("level") or 0), reverse=True)[:3]
+    visual_observations = visual.get("observations") or []
+    forecasts = [
+        {
+            "id": "forecast-nord-briefing",
+            "title": "Narratif nord sous surveillance",
+            "summary": "La combinaison presse + projet territorial maintient une fenetre d'action preventive avant le prochain briefing.",
+            "level": "elevated" if posture.get("label") in {"elevated", "critical"} else "monitoring",
+            "horizon": "24-48h",
+            "confidence": 0.68,
+        },
+        {
+            "id": "forecast-visual-normal",
+            "title": "Flux visuels exploitables",
+            "summary": (visual.get("latest_observation") or {}).get("summary")
+            or "Aucune observation visuelle critique n'est disponible pour modifier la posture.",
+            "level": (visual.get("posture") or {}).get("label", "monitoring"),
+            "horizon": "prochain cycle",
+            "confidence": (visual.get("latest_observation") or {}).get("confidence", 0.62),
+        },
+    ]
+    layers = [
+        {"key": "territorial-risk", "label": "Zones territoriales", "enabled": True, "count": len(zones)},
+        {"key": "open-intelligence", "label": "Signaux presse", "enabled": True, "count": len(news.get("executive_alerts") or news.get("signals") or [])},
+        {"key": "projects", "label": "Projets sensibles", "enabled": True, "count": len(PROJECTS)},
+        {"key": "agenda", "label": "Contraintes agenda", "enabled": True, "count": len(_agenda_items_from_calendar(workspace, db))},
+        {"key": "visual-streams", "label": "Flux visuels", "enabled": True, "count": len(visual_observations)},
+    ]
+    return {
+        "workspace": _workspace_meta(workspace),
+        "title": "Situation Monitor",
+        "summary": posture["summary"],
+        "posture": posture,
+        "layers": layers,
+        "map": mapped.get("map"),
+        "map_system": mapped.get("map_system"),
+        "zones": zones,
+        "top_zones": top_zones,
+        "visual": visual,
+        "visual_observations": visual_observations,
+        "forecasts": forecasts,
+        "news_signals": (news.get("executive_alerts") or news.get("signals") or [])[:5],
+        "source_freshness": {
+            "news": (news.get("source_health") or {}).get("coverage_label") or "Veille qualifiee",
+            "visual": (visual.get("source_health") or {}).get("coverage_label") or "Flux visuels habilites",
+            "map": (mapped.get("score_summary") or {}).get("top_zone", {}).get("name") if mapped.get("score_summary") else None,
+        },
+        "sources": source_index(),
+    }
+
+
 def news_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
     return _executive_news_payload(workspace, db)
+
+
+def _visual_payload(workspace: Workspace, db: Optional[DBSession]) -> dict[str, Any]:
+    if not db:
+        return {
+            "connector": {
+                "id": "visual_streams",
+                "label": "Flux visuels institutionnels",
+                "status": "configured",
+                "mode": "snapshot_only",
+            },
+            "source_health": {
+                "active_sources": 1,
+                "total_sources": 1,
+                "captures": 0,
+                "observations": 0,
+                "coverage_label": "Flux visuels habilites",
+            },
+            "posture": {
+                "label": "monitoring",
+                "score": 38,
+                "trend": "stable",
+                "summary": "Posture en surveillance : source visuelle preparee pour capture ponctuelle.",
+            },
+            "sources": [],
+            "captures": [],
+            "observations": [],
+            "latest_observation": None,
+        }
+    ensure_visual_intelligence_seed(db, workspace)
+    return visual_dashboard_payload(db, workspace)
+
+
+def _strategic_posture(mapped: dict[str, Any], news: dict[str, Any], visual: dict[str, Any]) -> dict[str, Any]:
+    top_zone = ((mapped.get("score_summary") or {}).get("top_zone") or {})
+    zone_score = int(top_zone.get("level") or top_zone.get("score", {}).get("score") or 0)
+    high_risk = int((news.get("source_health") or {}).get("high_risk") or 0)
+    visual_score = int((visual.get("posture") or {}).get("score") or 0)
+    score = max(zone_score, min(100, high_risk * 18), visual_score)
+    if score >= 75:
+        label = "critical"
+    elif score >= 55:
+        label = "elevated"
+    elif score >= 35:
+        label = "monitoring"
+    else:
+        label = "stable"
+    return {
+        "label": label,
+        "score": score,
+        "trend": "stable" if label in {"stable", "monitoring"} else "a surveiller",
+        "summary": (
+            "Posture globale elevee : rapprocher zones territoriales, presse et observations visuelles avant arbitrage."
+            if label in {"critical", "elevated"}
+            else "Posture globale en surveillance : les signaux restent exploitables sans alerte visuelle critique automatisee."
+        ),
+        "drivers": [
+            {"kind": "territorial", "label": top_zone.get("name") or "Zones", "score": zone_score},
+            {"kind": "press", "label": "Signaux presse prioritaires", "score": high_risk},
+            {"kind": "visual", "label": "Flux visuels", "score": visual_score},
+        ],
+    }
 
 
 def timeline_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
@@ -1053,6 +1208,8 @@ def library_payload(workspace: Workspace) -> dict[str, Any]:
             "sentinel-ci-open-intelligence",
             "sentinel-ci-projects",
             "sentinel-ci-territorial-map",
+            "sentinel-ci-territorial-intelligence",
+            "sentinel-ci-visual-intelligence",
         ],
         "sources": source_index(),
     }
@@ -1466,13 +1623,26 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "default_owner": "Cabinet",
                 "advisory_only": True,
             },
+            "visual_intelligence": {
+                "enabled": True,
+                "capture_cadence_minutes": 60,
+                "allowed_adapters": ["demo_static", "http_image", "browser_screenshot"],
+                "storage_policy": "snapshot_only_no_continuous_recording",
+                "analysis_policy": "no_identification_no_biometrics",
+            },
             "connectors": {
                 "institutional_calendar": {
                     "enabled": True,
                     "status": "connected",
                     "mode": "internal_shared",
                     "label": "Agenda institutionnel",
-                }
+                },
+                "visual_streams": {
+                    "enabled": True,
+                    "status": "connected",
+                    "mode": "snapshot_only",
+                    "label": "Flux visuels institutionnels",
+                },
             },
             "assistant_profile_default": "vigie_executive",
             "knowledge_scopes": [
@@ -1485,6 +1655,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         "sentinel-ci-projects",
                         "sentinel-ci-ministerial-briefs",
                         "sentinel-ci-territorial-map",
+                        "sentinel-ci-territorial-intelligence",
+                        "sentinel-ci-visual-intelligence",
                     ],
                     "default_mode": "chah",
                     "top_k": 8,
@@ -1521,6 +1693,9 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         "status_action_plan",
                         "cancel_action_plan",
                         "set_time_context",
+                        "read_visual_observations",
+                        "capture_visual_snapshot",
+                        "control_strategic_map",
                     ],
                     "allowed_calendar_actions": [
                         "read_calendar",
@@ -1602,6 +1777,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         ("sentinel-ci-open-intelligence", "SENTINEL-CI Open Intelligence", "Public news and weak-signal summaries for ministerial watch."),
         ("sentinel-ci-projects", "SENTINEL-CI Strategic Projects", "Strategic project records and decision-support risk explanations."),
         ("sentinel-ci-territorial-map", "SENTINEL-CI Territorial Map", "Territorial zones, signals and non-military action recommendations."),
+        ("sentinel-ci-territorial-intelligence", "SENTINEL-CI Territorial Intelligence", "Fused territorial scores from news, projects, agenda, visual observations and recommended action windows."),
+        ("sentinel-ci-visual-intelligence", "SENTINEL-CI Visual Intelligence", "Visual snapshots and observations from authorized workspace streams."),
     ):
         _ensure_collection(db, workspace, slug, name, description)
 
@@ -1639,6 +1816,10 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "map_zone_score_v1",
                 "map_signal_attach_v1",
                 "map_recommendation_generate_v1",
+                "visual_source_read_v1",
+                "visual_snapshot_capture_v1",
+                "visual_snapshot_analyze_v1",
+                "visual_observation_sync_knowledge_v1",
                 "calendar_read_v1",
                 "calendar_create_event_v1",
                 "calendar_update_event_v1",
@@ -1685,6 +1866,14 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "variant": "territorial_action_map",
         },
         {
+            "name": "Situation Monitor Visuel",
+            "objective": "Lire des flux visuels habilites, produire des observations snapshot-only et les synchroniser dans la connaissance.",
+            "capability_slug": "visual_situation_watch",
+            "skill_slugs": ["visual_source_read_v1", "visual_snapshot_capture_v1", "visual_snapshot_analyze_v1", "visual_observation_sync_knowledge_v1", "territorial_signal_map_v1", "chain_mixed_hah_v1", "audit_log_v1"],
+            "variant": "visual_situation_watch",
+            "execution_mode": "continuous_monitoring",
+        },
+        {
             "name": "Instructions Cabinet",
             "objective": "Rediger des brouillons d'instruction sources et soumis a validation humaine.",
             "capability_slug": "executive_instruction_drafting",
@@ -1700,6 +1889,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             systems_created += 1
     map_system = db.query(System).filter(System.workspace_id == workspace.id, System.name == "Carte Strategique Executive").first()
     ensure_workspace_map_seed(db, workspace, system_id=map_system.id if map_system else None)
+    visual_system = db.query(System).filter(System.workspace_id == workspace.id, System.name == "Situation Monitor Visuel").first()
+    ensure_visual_intelligence_seed(db, workspace, system_id=visual_system.id if visual_system else None)
 
     db.commit()
     return {

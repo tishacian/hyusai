@@ -34,6 +34,8 @@ from app.services.evaluation.canonical_answer_service import (
     record_hit,
 )
 from app.services.action_plans import action_context_for_chat, handle_action_plan_chat_action
+from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
+from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
 logger = get_logger(__name__)
 router = APIRouter()
@@ -388,6 +390,81 @@ async def chat_completion(
                 "action_plan_action": action_plan_action,
             }
 
+        visual_action = handle_visual_chat_query(
+            db,
+            workspace,
+            user,
+            query=validated_query,
+            assistant_profile=request.assistant_profile,
+        )
+        if visual_action:
+            content = visual_action["content"]
+            run_completed_at = datetime.utcnow()
+            run_id = _persist_chat_run(
+                db,
+                workspace_id=workspace.id,
+                system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                query=validated_query,
+                response_text=content,
+                sources=[{"title": "Flux visuels institutionnels", "source_label": "Flux visuels institutionnels", "kind": "visual_stream"}],
+                reasoning_trace=None,
+                started_at=run_completed_at,
+                completed_at=run_completed_at,
+                duration_ms=0.0,
+                trigger="visual_observation",
+                extra_output={
+                    "visual_action": visual_action,
+                    "assistant_profile": request.assistant_profile,
+                    "knowledge_scope": request.knowledge_scope,
+                },
+            )
+            db.commit()
+            return {
+                "run_id": run_id,
+                "content": content,
+                "sources": [{"title": "Flux visuels institutionnels", "kind": "visual_stream"}],
+                "status": "completed",
+                "visual_action": visual_action,
+            }
+
+        map_action = handle_map_chat_query(
+            db,
+            workspace,
+            user,
+            query=validated_query,
+            assistant_profile=request.assistant_profile,
+        )
+        if map_action:
+            content = map_action["content"]
+            run_completed_at = datetime.utcnow()
+            run_id = _persist_chat_run(
+                db,
+                workspace_id=workspace.id,
+                system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                query=validated_query,
+                response_text=content,
+                sources=map_action.get("sources") or [{"title": "Carte strategique", "kind": "workspace_map"}],
+                reasoning_trace=None,
+                started_at=run_completed_at,
+                completed_at=run_completed_at,
+                duration_ms=0.0,
+                trigger="map_command",
+                extra_output={
+                    "map_action": map_action,
+                    "map_command": map_action.get("command"),
+                    "assistant_profile": request.assistant_profile,
+                    "knowledge_scope": request.knowledge_scope,
+                },
+            )
+            db.commit()
+            return {
+                "run_id": run_id,
+                "content": content,
+                "sources": map_action.get("sources") or [{"title": "Carte strategique", "kind": "workspace_map"}],
+                "status": "completed",
+                "map_action": map_action,
+            }
+
         orchestrator = get_orchestrator()
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
@@ -402,6 +479,7 @@ async def chat_completion(
         if request.assistant_profile == "vigie_executive":
             request_dict.setdefault("context", {})["workspace_calendar"] = calendar_context_for_chat(db, workspace)
             request_dict.setdefault("context", {})["workspace_actions"] = action_context_for_chat(db, workspace)
+            request_dict.setdefault("context", {})["workspace_visual_observations"] = visual_context_for_chat(db, workspace)
 
         # If the cockpit sent a per-query override, promote it onto the
         # legacy pipeline-mode key so downstream code picks it up without
@@ -802,6 +880,164 @@ async def chat_stream(
                 )
                 yield _sse_done()
                 return
+
+            visual_action = handle_visual_chat_query(
+                db,
+                workspace,
+                user,
+                query=validated_query,
+                assistant_profile=request.assistant_profile,
+            )
+            if visual_action:
+                content = visual_action["content"]
+                if request.session_id:
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="user",
+                            content=request.query,
+                            meta_data={},
+                        )
+                    )
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="assistant",
+                            content=content,
+                            meta_data={"visual_action": visual_action},
+                        )
+                    )
+                now = datetime.utcnow()
+                run_id = _persist_chat_run(
+                    db,
+                    workspace_id=workspace.id,
+                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    query=validated_query,
+                    response_text=content,
+                    sources=[{"title": "Flux visuels institutionnels", "source_label": "Flux visuels institutionnels", "kind": "visual_stream"}],
+                    reasoning_trace=None,
+                    started_at=now,
+                    completed_at=now,
+                    duration_ms=0.0,
+                    trigger="visual_observation",
+                    schedule=False,
+                    extra_output={
+                        "visual_action": visual_action,
+                        "assistant_profile": request.assistant_profile,
+                        "knowledge_scope": request.knowledge_scope,
+                    },
+                )
+                db.commit()
+                yield _sse_data(
+                    {
+                        "chunk_type": "action_result",
+                        "action": visual_action.get("action"),
+                        "applied": visual_action.get("applied"),
+                        "visual_action": visual_action,
+                        "run_id": run_id,
+                        "is_final": False,
+                    }
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": content,
+                        "sources": [{"title": "Flux visuels institutionnels", "kind": "visual_stream"}],
+                        "run_id": run_id,
+                        "is_final": True,
+                    }
+                )
+                yield _sse_done()
+                return
+
+            map_action = handle_map_chat_query(
+                db,
+                workspace,
+                user,
+                query=validated_query,
+                assistant_profile=request.assistant_profile,
+            )
+            if map_action:
+                content = map_action["content"]
+                sources = map_action.get("sources") or [{"title": "Carte strategique", "kind": "workspace_map"}]
+                if request.session_id:
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="user",
+                            content=request.query,
+                            meta_data={},
+                        )
+                    )
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="assistant",
+                            content=content,
+                            meta_data={"map_action": map_action},
+                        )
+                    )
+                now = datetime.utcnow()
+                run_id = _persist_chat_run(
+                    db,
+                    workspace_id=workspace.id,
+                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    query=validated_query,
+                    response_text=content,
+                    sources=sources,
+                    reasoning_trace=None,
+                    started_at=now,
+                    completed_at=now,
+                    duration_ms=0.0,
+                    trigger="map_command",
+                    schedule=False,
+                    extra_output={
+                        "map_action": map_action,
+                        "map_command": map_action.get("command"),
+                        "assistant_profile": request.assistant_profile,
+                        "knowledge_scope": request.knowledge_scope,
+                    },
+                )
+                db.commit()
+                yield _sse_data(
+                    {
+                        "chunk_type": "map_command",
+                        "map_command": map_action.get("command"),
+                        "run_id": run_id,
+                        "is_final": False,
+                    }
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "map_source",
+                        "sources": sources,
+                        "run_id": run_id,
+                        "is_final": False,
+                    }
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": content,
+                        "sources": sources,
+                        "run_id": run_id,
+                        "is_final": False,
+                    }
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "map_state_updated",
+                        "map_state": (map_action.get("command") or {}).get("map_state"),
+                        "run_id": run_id,
+                        "is_final": True,
+                    }
+                )
+                yield _sse_done()
+                return
             
             # Apply settings defaults if not provided
             if not request_dict.get("agent_preferences"):
@@ -877,6 +1113,7 @@ async def chat_stream(
                     request_dict["context"] = {}
                 request_dict["context"]["workspace_calendar"] = calendar_context_for_chat(db, workspace)
                 request_dict["context"]["workspace_actions"] = action_context_for_chat(db, workspace)
+                request_dict["context"]["workspace_visual_observations"] = visual_context_for_chat(db, workspace)
             
             # Add RAG settings if provided
             if request.top_k is not None:
