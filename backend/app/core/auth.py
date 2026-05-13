@@ -58,7 +58,7 @@ def _fetch_jwks() -> dict:
     if _jwks_cache and (now - _jwks_cache_ts) < _JWKS_TTL:
         return _jwks_cache
     try:
-        resp = httpx.get(_get_jwks_url(), timeout=10)
+        resp = httpx.get(_get_jwks_url(), timeout=3)
         resp.raise_for_status()
         _jwks_cache = resp.json()
         _jwks_cache_ts = now
@@ -169,7 +169,7 @@ def _ensure_personal_workspace(db: DBSession, user: User, display_name: Optional
     db.add(membership)
 
 
-async def get_current_user(
+def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: DBSession = Depends(get_db),
 ) -> User:
@@ -219,7 +219,7 @@ async def get_current_user(
     return user
 
 
-async def get_current_workspace(
+def get_current_workspace(
     user: User = Depends(get_current_user),
     x_workspace_slug: Optional[str] = Header(None, alias="X-Workspace-Slug"),
     db: DBSession = Depends(get_db),
@@ -280,7 +280,7 @@ async def get_current_workspace(
     return workspace  # type: ignore[return-value]
 
 
-async def get_optional_workspace(
+def get_optional_workspace(
     user: User = Depends(get_current_user),
     x_workspace_slug: Optional[str] = Header(None, alias="X-Workspace-Slug"),
     db: DBSession = Depends(get_db),
@@ -288,14 +288,14 @@ async def get_optional_workspace(
     """Same as get_current_workspace but returns None instead of raising when
     no workspace is available (useful for read-mostly/cross-workspace endpoints)."""
     try:
-        return await get_current_workspace(user=user, x_workspace_slug=x_workspace_slug, db=db)
+        return get_current_workspace(user=user, x_workspace_slug=x_workspace_slug, db=db)
     except HTTPException as e:
         if e.status_code == 409:
             return None
         raise
 
 
-async def get_optional_user(
+def get_optional_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: DBSession = Depends(get_db),
 ) -> Optional[User]:
@@ -303,6 +303,6 @@ async def get_optional_user(
     if not credentials:
         return None
     try:
-        return await get_current_user(credentials, db)
+        return get_current_user(credentials, db)
     except HTTPException:
         return None
