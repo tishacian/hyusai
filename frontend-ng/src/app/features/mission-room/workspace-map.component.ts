@@ -102,6 +102,8 @@ const CIV_OUTLINE = {
         <strong>{{ selectedZoneLabel }}</strong>
         <em>{{ selectedZoneLevel }}%</em>
       </div>
+
+      <div class="map-attribution">{{ mapAttribution }}</div>
     </div>
   `,
   styles: [
@@ -298,6 +300,28 @@ const CIV_OUTLINE = {
         color: #f1ce71;
       }
 
+      .map-attribution {
+        position: absolute;
+        right: 14px;
+        bottom: 13px;
+        z-index: 5;
+        max-width: min(58%, 420px);
+        padding: 5px 8px;
+        border-radius: 999px;
+        background: rgba(3, 7, 12, 0.62);
+        color: rgba(184, 203, 218, 0.58);
+        font-size: 10px;
+        line-height: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        backdrop-filter: blur(10px);
+      }
+
+      .workspace-map.compact .map-attribution {
+        display: none;
+      }
+
       @keyframes mapPulse {
         0%, 100% { transform: scale(0.96); opacity: 0.18; }
         50% { transform: scale(1.08); opacity: 0.34; }
@@ -332,6 +356,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   get selectedZoneLevel(): number {
     return Math.round(this.zones.find((zone) => zone.id === this.selectedZoneId)?.level || 58);
+  }
+
+  get mapAttribution(): string {
+    return this.mapSystem?.['renderer_config']?.attribution || 'Couches Agentium workspace';
   }
 
   ngAfterViewInit(): void {
@@ -421,6 +449,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const { GeoJsonLayer, ScatterplotLayer, ArcLayer, TextLayer } = this.deckLayersModule;
     const zonesSource = this.mapSystem?.['geojson_sources']?.zones;
     const markersSource = this.mapSystem?.['geojson_sources']?.markers;
+    const contextMarkersSource = this.mapSystem?.['geojson_sources']?.context_markers;
+    const contextLinesSource = this.mapSystem?.['geojson_sources']?.context_lines;
     const arcs = this.mapSystem?.['visual_effects']?.arc_links || [];
     return [
       new GeoJsonLayer({
@@ -432,6 +462,17 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getFillColor: [15, 45, 55, 82],
         getLineColor: [125, 211, 252, 105],
         lineWidthMinPixels: 1.4,
+      }),
+      new GeoJsonLayer({
+        id: 'sentinel-context-lines',
+        data: contextLinesSource,
+        pickable: false,
+        filled: false,
+        stroked: true,
+        getLineColor: (feature: any) => feature.properties?.tone === 'watch' ? [237, 199, 101, 90] : [125, 211, 252, 72],
+        getLineWidth: 22000,
+        lineWidthMinPixels: 1.2,
+        parameters: { depthTest: false },
       }),
       new GeoJsonLayer({
         id: 'sentinel-zones',
@@ -454,6 +495,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getWidth: (item: any) => Math.max(1, Math.round((item.level || 30) / 22)),
       }),
       new ScatterplotLayer({
+        id: 'sentinel-context-markers',
+        data: contextMarkersSource?.features || [],
+        pickable: false,
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        getRadius: (feature: any) => Math.max(12000, (feature.properties?.weight || 40) * 260),
+        getFillColor: [125, 211, 252, 70],
+        getLineColor: [202, 232, 255, 130],
+        lineWidthMinPixels: 1,
+      }),
+      new ScatterplotLayer({
         id: 'sentinel-markers',
         data: markersSource?.features || [],
         pickable: true,
@@ -463,6 +514,18 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getLineColor: [210, 240, 255, 150],
         lineWidthMinPixels: 1,
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.zone_id),
+      }),
+      new TextLayer({
+        id: 'sentinel-context-labels',
+        data: contextMarkersSource?.features || [],
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        getText: (feature: any) => feature.properties?.name || '',
+        getSize: this.compact ? 10 : 12,
+        getColor: [185, 221, 242, 190],
+        getPixelOffset: [0, -16],
+        getTextAnchor: 'middle',
+        getAlignmentBaseline: 'bottom',
+        billboard: true,
       }),
       new TextLayer({
         id: 'sentinel-labels',

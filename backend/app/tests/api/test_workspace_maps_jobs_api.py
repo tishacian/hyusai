@@ -37,7 +37,9 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert listed.status_code == 200
     assert listed.json()["maps"][0]["slug"] == "sentinel-ci-strategic-map"
     assert listed.json()["maps"][0]["renderer_config"]["renderer"] == "maplibre"
+    assert listed.json()["maps"][0]["renderer_config"]["basemap_policy"] == "public_osm_dark"
     assert listed.json()["maps"][0]["geojson_sources"]["zones"]["features"]
+    assert listed.json()["maps"][0]["geojson_sources"]["context_markers"]["features"]
 
     scored = client.post("/api/v1/maps/sentinel-ci-strategic-map/score")
     assert scored.status_code == 200
