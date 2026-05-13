@@ -27,8 +27,8 @@ from app.services.workspace_jobs import create_workspace_job, serialize_job, tra
 VISUAL_COLLECTION_SLUG = "sentinel-ci-visual-intelligence"
 DEFAULT_SOURCE_NAME = "Abidjan - couche webcam publique"
 LEGACY_DEFAULT_SOURCE_NAME = "Abidjan Plateau - veille visuelle"
-DEFAULT_SOURCE_URL = "https://images-webcams.windy.com/77/1619563677/current/full/1619563677.jpg"
-DEFAULT_SOURCE_PAGE = "https://omnicamapp.com/en/webcam/71250/"
+DEFAULT_SOURCE_URL = "https://images.pictimo.com/storage/live_thumbs/orig_45907.jpg"
+DEFAULT_SOURCE_PAGE = "https://www.pictimo.com/ivory-coast/abidjan/45907/webcam-live-webcam-in-abidjan"
 
 
 def ensure_visual_intelligence_seed(
@@ -573,7 +573,7 @@ def _default_webcam_metadata() -> dict[str, Any]:
     return {
         "demo_fallback": True,
         "provider_neutral": True,
-        "provider": "omnicam",
+        "provider": "pictimo",
         "country": "Cote d'Ivoire",
         "default_vigilance_score": 38,
         "layer": "visual_streams",
@@ -582,8 +582,8 @@ def _default_webcam_metadata() -> dict[str, Any]:
         "source_page": DEFAULT_SOURCE_PAGE,
         "refresh_seconds": 300,
         "analysis_mode": "snapshot_to_vlm_ready",
-        "attribution": "OmniCam / Windy public webcam snapshot",
-        "timelapse_policy": "latest_image_from_webcam_layer",
+        "attribution": "Pictimo public webcam snapshot",
+        "timelapse_policy": "latest_periodic_image_from_webcam_layer",
     }
 
 
