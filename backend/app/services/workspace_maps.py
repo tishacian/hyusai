@@ -117,6 +117,9 @@ SENTINEL_CONTEXT_LINES = [
 MAP_COMMAND_INTENTS = {
     "focus_zone",
     "set_layers",
+    "set_basemap",
+    "reset_view",
+    "show_sources",
     "highlight_marker",
     "draw_area",
     "show_action_window",
@@ -128,6 +131,9 @@ DEFAULT_RENDERER_LAYERS = [
     {
         "key": "territorial-risk",
         "label": "Zones de vigilance",
+        "short_label": "Zones",
+        "deck_group": "territory",
+        "tone": "cyan",
         "kind": "zone_score",
         "visible": True,
         "payload": {"scoring": "signals+projects+agenda+visual"},
@@ -136,6 +142,9 @@ DEFAULT_RENDERER_LAYERS = [
     {
         "key": "open-intelligence",
         "label": "Presse et signaux faibles",
+        "short_label": "Presse",
+        "deck_group": "press",
+        "tone": "blue",
         "kind": "signal",
         "visible": True,
         "payload": {"sources": ["rss_press", "cabinet_note", "project_record"]},
@@ -144,6 +153,9 @@ DEFAULT_RENDERER_LAYERS = [
     {
         "key": "strategic-projects",
         "label": "Projets publics",
+        "short_label": "Projets",
+        "deck_group": "projects",
+        "tone": "green",
         "kind": "project",
         "visible": True,
         "payload": {"sources": ["project_record", "action_plan"]},
@@ -152,6 +164,9 @@ DEFAULT_RENDERER_LAYERS = [
     {
         "key": "agenda-windows",
         "label": "Fenetres agenda",
+        "short_label": "Agenda",
+        "deck_group": "agenda",
+        "tone": "amber",
         "kind": "agenda_window",
         "visible": True,
         "payload": {"sources": ["workspace_calendar"]},
@@ -160,6 +175,9 @@ DEFAULT_RENDERER_LAYERS = [
     {
         "key": "visual-streams",
         "label": "Flux visuels habilites",
+        "short_label": "Visuel",
+        "deck_group": "visual",
+        "tone": "violet",
         "kind": "visual_observation",
         "visible": True,
         "payload": {"sources": ["visual_streams"]},
@@ -168,10 +186,56 @@ DEFAULT_RENDERER_LAYERS = [
     {
         "key": "preventive-actions",
         "label": "Actions preventives",
+        "short_label": "Actions",
+        "deck_group": "actions",
+        "tone": "red",
         "kind": "action",
         "visible": True,
         "payload": {"sources": ["action_plans", "scenario_engine"]},
         "sort_order": 60,
+    },
+]
+
+SENTINEL_ADMIN_REGIONS = [
+    {
+        "name": "Savanes",
+        "kind": "district",
+        "coordinates": [[[-6.80, 10.55], [-3.90, 9.95], [-3.68, 8.70], [-5.20, 8.30], [-7.20, 8.70], [-6.80, 10.55]]],
+    },
+    {
+        "name": "Denguele / Woroba",
+        "kind": "district",
+        "coordinates": [[[-8.45, 10.20], [-6.80, 10.55], [-7.20, 8.70], [-8.25, 7.95], [-8.55, 8.90], [-8.45, 10.20]]],
+    },
+    {
+        "name": "Montagnes",
+        "kind": "district",
+        "coordinates": [[[-8.55, 8.90], [-7.20, 8.70], [-6.85, 7.05], [-7.45, 5.35], [-8.25, 5.45], [-8.48, 7.25], [-8.55, 8.90]]],
+    },
+    {
+        "name": "Vallee du Bandama",
+        "kind": "district",
+        "coordinates": [[[-6.85, 7.95], [-5.20, 8.30], [-4.25, 7.85], [-4.35, 6.65], [-5.25, 6.20], [-6.45, 6.50], [-6.85, 7.95]]],
+    },
+    {
+        "name": "Lacs / Yamoussoukro",
+        "kind": "district",
+        "coordinates": [[[-5.25, 6.20], [-4.35, 6.65], [-3.72, 6.12], [-3.94, 5.45], [-5.12, 5.72], [-5.82, 5.52], [-5.25, 6.20]]],
+    },
+    {
+        "name": "Comoe / Zanzan",
+        "kind": "district",
+        "coordinates": [[[-4.25, 7.85], [-3.68, 8.70], [-2.70, 7.80], [-2.82, 6.10], [-3.72, 6.12], [-4.35, 6.65], [-4.25, 7.85]]],
+    },
+    {
+        "name": "Bas-Sassandra / Goh-Djiboua",
+        "kind": "district",
+        "coordinates": [[[-7.45, 5.35], [-5.82, 5.52], [-5.12, 5.72], [-4.38, 4.92], [-5.45, 4.55], [-7.28, 4.45], [-7.45, 5.35]]],
+    },
+    {
+        "name": "Abidjan / Lagunes",
+        "kind": "district",
+        "coordinates": [[[-4.38, 4.92], [-3.72, 6.12], [-2.82, 6.10], [-2.95, 5.03], [-3.62, 4.72], [-4.38, 4.92]]],
     },
 ]
 
@@ -429,6 +493,164 @@ def serialize_layer(layer: WorkspaceMapLayer) -> dict[str, Any]:
     }
 
 
+def _basemap_style(source_id: str, tiles: list[str], paint: dict[str, Any], background: str = "#05080d") -> dict[str, Any]:
+    return {
+        "version": 8,
+        "sources": {
+            source_id: {
+                "type": "raster",
+                "tiles": tiles,
+                "tileSize": 256,
+                "attribution": "OpenStreetMap contributors / CARTO",
+            }
+        },
+        "layers": [
+            {"id": "agentium-background", "type": "background", "paint": {"background-color": background}},
+            {"id": f"{source_id}-base", "type": "raster", "source": source_id, "paint": paint},
+        ],
+    }
+
+
+def _map_basemap_options() -> list[dict[str, Any]]:
+    return [
+        {
+            "key": "administrative",
+            "label": "Administratif",
+            "description": "Fond territorial lisible pour briefing executif.",
+            "style": _basemap_style(
+                "carto-voyager-admin",
+                [
+                    "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                    "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                    "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                ],
+                {
+                    "raster-opacity": 0.90,
+                    "raster-brightness-min": 0.20,
+                    "raster-brightness-max": 0.94,
+                    "raster-saturation": -0.58,
+                    "raster-contrast": 0.34,
+                },
+                background="#071018",
+            ),
+        },
+        {
+            "key": "dark",
+            "label": "Sombre",
+            "description": "Fond cockpit sombre avec labels geographiques.",
+            "style": _basemap_style(
+                "carto-dark-readable",
+                [
+                    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                    "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                    "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                ],
+                {
+                    "raster-opacity": 0.96,
+                    "raster-brightness-min": 0.12,
+                    "raster-brightness-max": 1.0,
+                    "raster-saturation": -0.16,
+                    "raster-contrast": 0.36,
+                },
+            ),
+        },
+        {
+            "key": "contours",
+            "label": "Contours",
+            "description": "Fond minimal pour briefing confidentiel.",
+            "style": _basemap_style(
+                "carto-contours",
+                [
+                    "https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+                    "https://b.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+                    "https://c.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png",
+                ],
+                {
+                    "raster-opacity": 0.64,
+                    "raster-brightness-min": 0.06,
+                    "raster-brightness-max": 0.82,
+                    "raster-saturation": -0.55,
+                    "raster-contrast": 0.26,
+                },
+            ),
+        },
+    ]
+
+
+def _layer_catalog(source_counts: dict[str, int]) -> list[dict[str, Any]]:
+    return [
+        {
+            "key": layer["key"],
+            "label": layer["label"],
+            "short_label": layer["short_label"],
+            "deck_group": layer["deck_group"],
+            "tone": layer["tone"],
+            "visible": layer["visible"],
+            "kind": layer["kind"],
+            "count": source_counts.get(layer["key"], 0),
+            "confidence": _layer_confidence(layer["key"]),
+        }
+        for layer in DEFAULT_RENDERER_LAYERS
+    ]
+
+
+def _layer_confidence(key: str) -> int:
+    return {
+        "territorial-risk": 78,
+        "open-intelligence": 72,
+        "strategic-projects": 69,
+        "agenda-windows": 81,
+        "visual-streams": 62,
+        "preventive-actions": 74,
+    }.get(key, 65)
+
+
+def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "territorial-risk": len(zones),
+        "open-intelligence": sum(len(zone.get("drivers") or zone.get("signals") or []) for zone in zones),
+        "strategic-projects": sum(1 for zone in zones if zone.get("scenario_options")),
+        "agenda-windows": sum(len(zone.get("recommended_windows") or []) for zone in zones),
+        "visual-streams": 1,
+        "preventive-actions": sum(len(zone.get("recommendations") or []) for zone in zones),
+    }
+
+
+def _admin_boundaries_geojson() -> dict[str, Any]:
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "id": f"admin-{idx + 1}",
+                "geometry": {"type": "Polygon", "coordinates": region["coordinates"]},
+                "properties": {"name": region["name"], "kind": region["kind"]},
+            }
+            for idx, region in enumerate(SENTINEL_ADMIN_REGIONS)
+        ],
+    }
+
+
+def _cities_geojson() -> dict[str, Any]:
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "id": f"city-{marker['name'].lower().replace(' ', '-')}",
+                "geometry": {"type": "Point", "coordinates": marker["coordinates"]},
+                "properties": {
+                    "name": marker["name"],
+                    "kind": marker["kind"],
+                    "weight": marker["weight"],
+                    "source": "sentinel-ci-territorial-reference",
+                },
+            }
+            for marker in SENTINEL_CONTEXT_MARKERS
+        ],
+    }
+
+
 def serialize_zone(zone: WorkspaceMapZone, score: Optional[WorkspaceMapScore] = None) -> dict[str, Any]:
     payload = {
         "id": zone.zone_key,
@@ -507,6 +729,7 @@ def build_map_command(
     intent: str,
     target: Optional[str] = None,
     layers: Optional[list[str]] = None,
+    basemap: Optional[str] = None,
     camera: Optional[dict[str, Any]] = None,
     annotation: Optional[dict[str, Any]] = None,
     user: Optional[User] = None,
@@ -515,20 +738,32 @@ def build_map_command(
     map_row = get_workspace_map(db, workspace, map_id_or_slug)
     payload = mission_room_map_payload(db, workspace)
     map_system = payload["map_system"]
-    normalized_intent = intent if intent in MAP_COMMAND_INTENTS else "focus_zone"
+    normalized_intent = "show_sources" if intent == "open_source_panel" else intent
+    normalized_intent = normalized_intent if normalized_intent in MAP_COMMAND_INTENTS else "focus_zone"
     zones = payload.get("zones") or []
-    selected = _find_zone_payload(zones, target) or payload.get("score_summary", {}).get("top_zone")
+    selected = None if normalized_intent == "reset_view" else _find_zone_payload(zones, target)
+    if normalized_intent != "reset_view":
+        selected = selected or payload.get("score_summary", {}).get("top_zone")
     selected_key = selected.get("id") if selected else None
     presets = map_system.get("camera_presets") or {}
-    selected_camera = camera or presets.get(selected_key) or presets.get("country")
-    active_layers = layers or [
-        "territorial-risk",
-        "open-intelligence",
-        "strategic-projects",
-        "visual-streams",
-        "preventive-actions",
-    ]
-    explanation = _command_explanation(normalized_intent, selected)
+    selected_camera = camera or (presets.get("country") if normalized_intent == "reset_view" else presets.get(selected_key)) or presets.get("country")
+    default_state = map_system.get("default_map_state") or {}
+    layer_catalog = map_system.get("layer_catalog") or []
+    allowed_layers = {layer.get("key") for layer in layer_catalog}
+    requested_layers = [layer for layer in (layers or []) if not allowed_layers or layer in allowed_layers]
+    default_active_layers = list(
+        default_state.get("active_layers")
+        or [layer["key"] for layer in DEFAULT_RENDERER_LAYERS if layer.get("visible")]
+    )
+    if requested_layers:
+        active_layers = requested_layers
+    elif normalized_intent in {"set_layers", "reset_view"}:
+        active_layers = default_active_layers
+    else:
+        active_layers = default_active_layers
+    basemap_options = {option.get("key") for option in map_system.get("basemap_options") or []}
+    selected_basemap = basemap if basemap in basemap_options else default_state.get("basemap") or "administrative"
+    explanation = _command_explanation(normalized_intent, selected, selected_basemap)
     sources = _zone_sources(selected)
     command = {
         "command_id": str(uuid4()),
@@ -541,6 +776,7 @@ def build_map_command(
             "renderer": map_system.get("renderer_config", {}).get("renderer", "maplibre"),
             "selected_zone": selected_key,
             "active_layers": active_layers,
+            "basemap": selected_basemap,
             "camera": selected_camera,
             "annotation": annotation
             or {
@@ -562,6 +798,7 @@ def build_map_command(
             "intent": normalized_intent,
             "target": selected_key,
             "layers": active_layers,
+            "basemap": selected_basemap,
             "source_count": len(sources),
         },
     )
@@ -589,18 +826,30 @@ def handle_map_chat_query(
     if not any(term in normalized for term in map_terms):
         return None
     intent = "focus_zone"
+    basemap = None
     if "source" in normalized:
-        intent = "open_source_panel"
+        intent = "show_sources"
     if "fenetre" in normalized or "créneau" in normalized or "creneau" in normalized:
         intent = "show_action_window"
     if "compare" in normalized or "changé" in normalized or "change" in normalized:
         intent = "compare_before_after"
+    if "réinitialise" in normalized or "reinitialise" in normalized or "côte d'ivoire" in normalized or "cote d'ivoire" in normalized:
+        intent = "reset_view"
+    if "fond" in normalized or "basemap" in normalized:
+        intent = "set_basemap"
+        if "contour" in normalized:
+            basemap = "contours"
+        elif "sombre" in normalized:
+            basemap = "dark"
+        else:
+            basemap = "administrative"
     target = _extract_zone_target(normalized)
     command = build_map_command(
         db,
         workspace,
         intent=intent,
         target=target,
+        basemap=basemap,
         user=user,
     )
     label = command.get("target_label") or "les zones prioritaires"
@@ -620,6 +869,9 @@ def handle_map_chat_query(
 
 def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, Any]]) -> dict[str, Any]:
     view_box = _parse_view_box(map_row.view_box)
+    source_counts = _source_counts(zones)
+    basemap_options = _map_basemap_options()
+    default_layers = [layer["key"] for layer in DEFAULT_RENDERER_LAYERS if layer["visible"]]
     zone_features = []
     marker_features = []
     context_features = []
@@ -698,40 +950,8 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
             "renderer": "maplibre",
             "fallback_renderer": "svg",
             "basemap_policy": "public_osm_muted",
-            "style": {
-                "version": 8,
-                "sources": {
-                    "carto-dark-readable": {
-                        "type": "raster",
-                        "tiles": [
-                            "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                            "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                            "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                        ],
-                        "tileSize": 256,
-                        "attribution": "OpenStreetMap contributors / CARTO",
-                    }
-                },
-                "layers": [
-                    {
-                        "id": "agentium-background",
-                        "type": "background",
-                        "paint": {"background-color": "#05080d"},
-                    },
-                    {
-                        "id": "carto-dark-readable",
-                        "type": "raster",
-                        "source": "carto-dark-readable",
-                        "paint": {
-                            "raster-opacity": 0.92,
-                            "raster-brightness-min": 0.10,
-                            "raster-brightness-max": 1.0,
-                            "raster-saturation": -0.18,
-                            "raster-contrast": 0.34,
-                        },
-                    }
-                ],
-            },
+            "default_basemap": "administrative",
+            "style": basemap_options[0]["style"],
             "initial_view_state": camera_presets["country"],
             "bounds": [[IVORY_COAST_BOUNDS["west"], IVORY_COAST_BOUNDS["south"]], [IVORY_COAST_BOUNDS["east"], IVORY_COAST_BOUNDS["north"]]],
             "attribution": "Fond cartographique OSM/CARTO · couches Agentium workspace",
@@ -741,6 +961,17 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
                 "events": ["zone_selected", "map_state_updated", "source_panel_requested"],
             },
         },
+        "basemap_options": basemap_options,
+        "layer_catalog": _layer_catalog(source_counts),
+        "default_map_state": {
+            "basemap": "administrative",
+            "active_layers": default_layers,
+            "selected_zone": zones[0]["id"] if zones else None,
+            "camera": camera_presets["country"],
+        },
+        "admin_boundaries": _admin_boundaries_geojson(),
+        "cities": _cities_geojson(),
+        "source_counts": source_counts,
         "geojson_sources": {
             "zones": {"type": "FeatureCollection", "features": zone_features},
             "markers": {"type": "FeatureCollection", "features": marker_features},
@@ -946,13 +1177,19 @@ def _extract_zone_target(query: str) -> Optional[str]:
     return None
 
 
-def _command_explanation(intent: str, selected: Optional[dict[str, Any]]) -> str:
+def _command_explanation(intent: str, selected: Optional[dict[str, Any]], basemap: Optional[str] = None) -> str:
+    if intent == "reset_view":
+        return "Vue Côte d'Ivoire réinitialisée avec les couches ministérielles par défaut."
+    if intent == "set_basemap":
+        return f"Fond cartographique basculé sur {basemap or 'le fond par défaut'}."
+    if intent == "set_layers":
+        return "Couches ministérielles ajustées pour la lecture territoriale demandée."
     if not selected:
         return "Vue consolidee de la posture territoriale et des signaux qualifiés."
     name = selected.get("name")
     if intent == "show_action_window":
         return f"Fenêtres recommandées pour une action préventive sur la zone {name}."
-    if intent == "open_source_panel":
+    if intent == "show_sources":
         return f"Ouverture des sources qualifiées soutenant l'analyse de la zone {name}."
     if intent == "compare_before_after":
         return f"Comparaison de la posture de la zone {name} depuis le dernier briefing."

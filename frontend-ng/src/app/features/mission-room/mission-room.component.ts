@@ -1066,6 +1066,7 @@ export class MissionRailComponent {
             [zones]="missionMap()?.zones || []"
             [map]="missionMap()?.map || null"
             [mapSystem]="missionMap()?.map_system || null"
+            [mapState]="mapCommandState()"
             [selectedZoneId]="selectedZone()?.id || null"
             (zoneSelected)="selectZone($event)"
           />
@@ -1717,6 +1718,7 @@ export class MissionRailComponent {
             [zones]="missionMap()?.zones || []"
             [map]="missionMap()?.map || null"
             [mapSystem]="missionMap()?.map_system || null"
+            [mapState]="mapCommandState()"
             [selectedZoneId]="selectedZone()?.id || null"
             (zoneSelected)="selectZone($event)"
           />
@@ -1814,6 +1816,7 @@ export class MissionRailComponent {
             [zones]="monitor()?.zones || []"
             [map]="monitor()?.map || missionMap()?.map || null"
             [mapSystem]="monitor()?.map_system || missionMap()?.map_system || null"
+            [mapState]="mapCommandState()"
             [selectedZoneId]="selectedZone()?.id || null"
             (zoneSelected)="selectZone($event)"
           />
@@ -3647,6 +3650,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly selectedSource = signal<SourceRef | null>(null);
   readonly selectedAgendaEvent = signal<AgendaItem | null>(null);
   readonly draft = signal<DraftInstruction | null>(null);
+  readonly mapCommandState = signal<Record<string, unknown> | null>(null);
   readonly visualCaptureImages = signal<Record<string, string>>({});
   readonly visualPreviewFailures = signal<Record<string, true>>({});
 
@@ -3661,7 +3665,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const target = String(detail['target'] || (detail['map_state'] as any)?.selected_zone || '');
     const zone = [...(this.missionMap()?.zones || []), ...(this.monitor()?.zones || [])].find((item) => item.id === target);
     if (zone) this.selectedZone.set(zone);
-    if (target) this.router.navigateByUrl('/hypervisor/mission-room/strategie');
+    this.mapCommandState.set((detail['map_state'] as Record<string, unknown>) || null);
+    if (target || detail['map_state']) this.router.navigateByUrl('/hypervisor/mission-room/strategie');
   };
 
   readonly fallbackNav: MissionNavigationItem[] = [

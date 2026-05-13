@@ -25,6 +25,23 @@ type MapZone = {
   [key: string]: any;
 };
 
+type MapLayerControl = {
+  key: string;
+  label: string;
+  shortLabel: string;
+  tone: string;
+  count: number;
+  confidence: number;
+  visible: boolean;
+};
+
+type BasemapOption = {
+  key: string;
+  label: string;
+  description?: string;
+  style?: Record<string, any>;
+};
+
 const CIV_OUTLINE = {
   type: 'FeatureCollection',
   features: [
@@ -68,17 +85,48 @@ const CIV_OUTLINE = {
       <div class="map-frame-overlay">
         <div class="map-scanline"></div>
         <div class="map-compass">N</div>
-        <div class="map-layer-stack" (click)="$event.stopPropagation()">
-          @for (layer of layerControls; track layer.key) {
-            <button
-              type="button"
-              [class.active]="isLayerActive(layer.key)"
-              [attr.aria-pressed]="isLayerActive(layer.key)"
-              (click)="toggleLayer(layer.key)"
-            >
-              {{ layer.label }}
-            </button>
-          }
+        <div class="map-control-panel" (click)="$event.stopPropagation()">
+          <section class="control-section">
+            <span>Fond</span>
+            <div class="basemap-switch">
+              @for (basemap of basemapOptions; track basemap.key) {
+                <button
+                  type="button"
+                  [class.active]="selectedBasemapKey === basemap.key"
+                  [attr.aria-pressed]="selectedBasemapKey === basemap.key"
+                  (click)="switchBasemap(basemap.key)"
+                >
+                  {{ basemap.label }}
+                </button>
+              }
+            </div>
+          </section>
+
+          <section class="control-section">
+            <span>Couches</span>
+            <div class="layer-list">
+              @for (layer of layerControls; track layer.key) {
+                <button
+                  type="button"
+                  class="layer-toggle"
+                  [class.active]="isLayerActive(layer.key)"
+                  [attr.aria-pressed]="isLayerActive(layer.key)"
+                  (click)="toggleLayer(layer.key)"
+                >
+                  <i [class]="'tone-' + layer.tone"></i>
+                  <strong>{{ layer.shortLabel }}</strong>
+                  <small>{{ layer.count }} · {{ layer.confidence }}%</small>
+                </button>
+              }
+            </div>
+          </section>
+        </div>
+        <button type="button" class="map-reset" (click)="resetCountry(); $event.stopPropagation()">Réinitialiser Côte d’Ivoire</button>
+        <div class="map-legend">
+          <span><i class="stable"></i>stable</span>
+          <span><i class="monitoring"></i>surveillance</span>
+          <span><i class="elevated"></i>élevé</span>
+          <span><i class="critical"></i>critique</span>
         </div>
       </div>
 
@@ -162,7 +210,9 @@ const CIV_OUTLINE = {
         border-radius: 8px;
       }
 
-      .workspace-map.compact .map-layer-stack,
+      .workspace-map.compact .map-control-panel,
+      .workspace-map.compact .map-reset,
+      .workspace-map.compact .map-legend,
       .workspace-map.compact .map-compass {
         display: none;
       }
@@ -220,23 +270,48 @@ const CIV_OUTLINE = {
         letter-spacing: 0.08em;
       }
 
-      .map-layer-stack {
+      .map-control-panel {
         position: absolute;
         left: 16px;
         top: 16px;
-        display: flex;
-        gap: 6px;
-        flex-wrap: wrap;
-        max-width: min(70%, 520px);
+        width: min(360px, calc(100% - 84px));
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid rgba(125, 211, 252, 0.18);
+        border-radius: 14px;
+        background: rgba(4, 10, 16, 0.76);
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(14px);
         pointer-events: auto;
       }
 
-      .map-layer-stack button {
-        padding: 5px 8px;
+      .control-section {
+        display: grid;
+        gap: 8px;
+      }
+
+      .control-section > span {
+        color: rgba(148, 197, 229, 0.82);
+        font: 800 10px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .basemap-switch {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .basemap-switch button,
+      .map-reset {
+        min-height: 31px;
+        padding: 7px 9px;
         border-radius: 999px;
         border: 1px solid rgba(125, 211, 252, 0.14);
-        background: rgba(7, 12, 19, 0.58);
-        color: rgba(207, 239, 255, 0.54);
+        background: rgba(11, 20, 31, 0.74);
+        color: rgba(207, 239, 255, 0.70);
         font: 750 9px/1 var(--mission-mono, monospace);
         letter-spacing: 0.10em;
         text-transform: uppercase;
@@ -244,17 +319,123 @@ const CIV_OUTLINE = {
         transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
       }
 
-      .map-layer-stack button.active {
+      .basemap-switch button.active,
+      .map-reset:hover {
         border-color: rgba(125, 211, 252, 0.42);
         background: rgba(10, 34, 49, 0.82);
         color: rgba(232, 247, 255, 0.92);
         box-shadow: 0 0 18px rgba(91, 173, 218, 0.12);
       }
 
-      .map-layer-stack button:hover {
+      .basemap-switch button:hover,
+      .layer-toggle:hover {
         border-color: rgba(125, 211, 252, 0.56);
         color: rgba(245, 251, 255, 0.95);
       }
+
+      .layer-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .layer-toggle {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 9px minmax(0, 1fr);
+        grid-template-areas: 'tone label' 'tone meta';
+        column-gap: 8px;
+        row-gap: 2px;
+        align-items: center;
+        padding: 8px 9px;
+        border-radius: 10px;
+        border: 1px solid rgba(125, 211, 252, 0.12);
+        background: rgba(10, 17, 27, 0.68);
+        color: rgba(232, 241, 255, 0.72);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .layer-toggle.active {
+        border-color: rgba(125, 211, 252, 0.34);
+        background: rgba(13, 29, 43, 0.86);
+      }
+
+      .layer-toggle i {
+        grid-area: tone;
+        width: 8px;
+        height: 28px;
+        border-radius: 999px;
+        background: #88d7ff;
+        box-shadow: 0 0 12px rgba(136, 215, 255, 0.28);
+      }
+
+      .layer-toggle i.tone-amber { background: #f1ce71; box-shadow: 0 0 12px rgba(241, 206, 113, 0.28); }
+      .layer-toggle i.tone-blue { background: #8fd2ff; box-shadow: 0 0 12px rgba(143, 210, 255, 0.28); }
+      .layer-toggle i.tone-cyan { background: #67e8f9; box-shadow: 0 0 12px rgba(103, 232, 249, 0.28); }
+      .layer-toggle i.tone-green { background: #76dfa6; box-shadow: 0 0 12px rgba(118, 223, 166, 0.28); }
+      .layer-toggle i.tone-red { background: #f27f8b; box-shadow: 0 0 12px rgba(242, 127, 139, 0.28); }
+      .layer-toggle i.tone-violet { background: #b9a5ff; box-shadow: 0 0 12px rgba(185, 165, 255, 0.28); }
+
+      .layer-toggle strong {
+        grid-area: label;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: rgba(245, 251, 255, 0.90);
+        font-size: 12px;
+        line-height: 1.1;
+        white-space: nowrap;
+      }
+
+      .layer-toggle small {
+        grid-area: meta;
+        color: rgba(172, 192, 212, 0.70);
+        font: 700 10px/1.2 var(--mission-mono, monospace);
+      }
+
+      .map-reset {
+        position: absolute;
+        top: 16px;
+        right: 58px;
+        z-index: 5;
+        pointer-events: auto;
+      }
+
+      .map-legend {
+        position: absolute;
+        right: 16px;
+        top: 60px;
+        z-index: 5;
+        display: grid;
+        gap: 6px;
+        padding: 9px 10px;
+        border: 1px solid rgba(125, 211, 252, 0.13);
+        border-radius: 12px;
+        background: rgba(4, 10, 16, 0.66);
+        backdrop-filter: blur(12px);
+      }
+
+      .map-legend span {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: rgba(213, 229, 242, 0.72);
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      .map-legend i {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        display: inline-block;
+      }
+
+      .map-legend .stable { background: #76dfa6; }
+      .map-legend .monitoring { background: #8fd2ff; }
+      .map-legend .elevated { background: #f1ce71; }
+      .map-legend .critical { background: #f27f8b; }
 
       .maplibre-canvas.hidden {
         display: none;
@@ -364,25 +545,61 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @Input() zones: MapZone[] = [];
   @Input() map: Record<string, any> | null = null;
   @Input() mapSystem: Record<string, any> | null = null;
+  @Input() mapState: Record<string, any> | null = null;
   @Input() selectedZoneId: string | null = null;
   @Input() compact = false;
   @Output() zoneSelected = new EventEmitter<any>();
   @ViewChild('mapCanvas') private readonly mapCanvas?: ElementRef<HTMLDivElement>;
 
   fallback = false;
-  readonly layerControls = [
-    { key: 'territoire', label: 'zones' },
-    { key: 'presse', label: 'presse' },
-    { key: 'projets', label: 'projets' },
-    { key: 'agenda', label: 'agenda' },
-    { key: 'visuel', label: 'visuel' },
-  ];
+  selectedBasemapKey = 'administrative';
 
   private readonly cdr = inject(ChangeDetectorRef);
-  private readonly activeLayerKeys = new Set(this.layerControls.map((layer) => layer.key));
+  private readonly activeLayerKeys = new Set<string>();
+  private layerStateInitialized = false;
   private mapInstance: any;
   private deckOverlay: any;
   private deckLayersModule: any;
+
+  get layerControls(): MapLayerControl[] {
+    const catalog = this.mapSystem?.['layer_catalog'];
+    if (Array.isArray(catalog) && catalog.length) {
+      return catalog.map((layer: any) => ({
+        key: String(layer.key || ''),
+        label: String(layer.label || layer.key || ''),
+        shortLabel: String(layer.short_label || layer.label || layer.key || ''),
+        tone: String(layer.tone || 'cyan'),
+        count: Number(layer.count || 0),
+        confidence: Math.round(Number(layer.confidence || 0)),
+        visible: layer.visible !== false,
+      })).filter((layer) => layer.key);
+    }
+    return [
+      { key: 'territorial-risk', label: 'Zones de vigilance', shortLabel: 'Zones', tone: 'cyan', count: this.zones.length, confidence: 78, visible: true },
+      { key: 'open-intelligence', label: 'Signaux presse', shortLabel: 'Presse', tone: 'blue', count: 3, confidence: 72, visible: true },
+      { key: 'strategic-projects', label: 'Projets sensibles', shortLabel: 'Projets', tone: 'green', count: 3, confidence: 69, visible: true },
+      { key: 'agenda-windows', label: 'Agenda / fenêtres d’action', shortLabel: 'Agenda', tone: 'amber', count: 5, confidence: 81, visible: true },
+      { key: 'visual-streams', label: 'Observations visuelles', shortLabel: 'Visuel', tone: 'violet', count: 1, confidence: 62, visible: true },
+      { key: 'preventive-actions', label: 'Actions recommandées', shortLabel: 'Actions', tone: 'red', count: 4, confidence: 74, visible: true },
+    ];
+  }
+
+  get basemapOptions(): BasemapOption[] {
+    const options = this.mapSystem?.['basemap_options'];
+    if (Array.isArray(options) && options.length) {
+      return options.map((item: any) => ({
+        key: String(item.key || ''),
+        label: String(item.label || item.key || ''),
+        description: item.description,
+        style: item.style,
+      })).filter((item) => item.key);
+    }
+    return [
+      { key: 'administrative', label: 'Administratif', style: this.defaultStyle('#12202b') },
+      { key: 'dark', label: 'Sombre', style: this.defaultStyle('#05080d') },
+      { key: 'contours', label: 'Contours', style: this.defaultStyle('#071018') },
+    ];
+  }
 
   get selectedZoneLabel(): string {
     return this.zones.find((zone) => zone.id === this.selectedZoneId)?.name || 'Cote d’Ivoire';
@@ -401,8 +618,17 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['mapSystem']) {
+      this.layerStateInitialized = false;
+      this.syncStateFromMapPayload();
+      this.applyCurrentBasemap();
+    }
     if (changes['zones'] || changes['mapSystem']) {
+      if (!this.layerStateInitialized) this.syncStateFromMapPayload();
       this.updateDeckLayers();
+    }
+    if (changes['mapState'] && this.mapState) {
+      this.applyExternalMapState(this.mapState);
     }
     if (changes['selectedZoneId']) {
       this.focusSelectedZone();
@@ -447,7 +673,27 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     this.cdr.markForCheck();
   }
 
+  switchBasemap(key: string): void {
+    if (this.selectedBasemapKey === key) return;
+    this.selectedBasemapKey = key;
+    this.applyCurrentBasemap();
+    this.cdr.markForCheck();
+  }
+
+  resetCountry(): void {
+    const preset = this.mapSystem?.['default_map_state']?.camera || this.mapSystem?.['camera_presets']?.country;
+    if (!this.mapInstance || !preset) return;
+    this.mapInstance.easeTo({
+      center: [preset.longitude ?? -5.45, preset.latitude ?? 7.52],
+      zoom: preset.zoom ?? (this.compact ? 4.9 : 6.0),
+      pitch: 0,
+      bearing: 0,
+      duration: preset.duration_ms || 800,
+    });
+  }
+
   private async bootstrapRenderer(): Promise<void> {
+    this.syncStateFromMapPayload();
     const renderer = this.mapSystem?.['renderer_config']?.renderer;
     if (renderer && renderer !== 'maplibre') {
       this.enableFallback();
@@ -466,7 +712,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       const view = this.mapSystem?.['renderer_config']?.initial_view_state || {};
       this.mapInstance = new mapCtor({
         container: this.mapCanvas.nativeElement,
-        style: this.mapSystem?.['renderer_config']?.style || this.defaultStyle(),
+        style: this.currentBasemapStyle() || this.mapSystem?.['renderer_config']?.style || this.defaultStyle(),
         center: [view.longitude ?? -5.45, view.latitude ?? 7.58],
         zoom: view.zoom ?? (this.compact ? 4.9 : 5.7),
         pitch: this.compact ? 0 : (view.pitch ?? 0),
@@ -488,6 +734,77 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     }
   }
 
+  private syncStateFromMapPayload(): void {
+    const defaultState = this.mapSystem?.['default_map_state'] || {};
+    const basemap = String(defaultState.basemap || this.mapSystem?.['renderer_config']?.default_basemap || 'administrative');
+    if (!this.basemapOptions.some((option) => option.key === this.selectedBasemapKey)) {
+      this.selectedBasemapKey = basemap;
+    } else if (!this.selectedBasemapKey) {
+      this.selectedBasemapKey = basemap;
+    }
+    if (this.layerStateInitialized) return;
+    const activeLayers = Array.isArray(defaultState.active_layers)
+      ? defaultState.active_layers
+      : this.layerControls.filter((layer) => layer.visible).map((layer) => layer.key);
+    this.activeLayerKeys.clear();
+    for (const key of activeLayers) {
+      if (this.layerControls.some((layer) => layer.key === key)) {
+        this.activeLayerKeys.add(key);
+      }
+    }
+    if (!this.activeLayerKeys.size) {
+      for (const layer of this.layerControls.filter((item) => item.visible)) this.activeLayerKeys.add(layer.key);
+    }
+    this.layerStateInitialized = true;
+  }
+
+  private currentBasemapStyle(): Record<string, any> | null {
+    return this.basemapOptions.find((option) => option.key === this.selectedBasemapKey)?.style || null;
+  }
+
+  private applyCurrentBasemap(): void {
+    if (!this.mapInstance) return;
+    const style = this.currentBasemapStyle();
+    if (!style) return;
+    try {
+      this.mapInstance.setStyle(style);
+      this.mapInstance.once?.('styledata', () => {
+        this.updateDeckLayers();
+        this.focusSelectedZone();
+      });
+    } catch {
+      this.enableFallback();
+    }
+  }
+
+  private applyExternalMapState(state: Record<string, any>): void {
+    const activeLayers = Array.isArray(state['active_layers']) ? state['active_layers'].map(String) : [];
+    if (activeLayers.length) {
+      this.activeLayerKeys.clear();
+      for (const key of activeLayers) {
+        if (this.layerControls.some((layer) => layer.key === key)) this.activeLayerKeys.add(key);
+      }
+      this.layerStateInitialized = true;
+    }
+    const basemap = String(state['basemap'] || '');
+    if (basemap && this.basemapOptions.some((option) => option.key === basemap)) {
+      this.selectedBasemapKey = basemap;
+      this.applyCurrentBasemap();
+    }
+    const camera = state['camera'] as Record<string, any> | undefined;
+    if (this.mapInstance && camera?.['longitude'] && camera?.['latitude']) {
+      this.mapInstance.easeTo({
+        center: [camera['longitude'], camera['latitude']],
+        zoom: camera['zoom'] ?? (this.compact ? 5.15 : 6.0),
+        pitch: 0,
+        bearing: 0,
+        duration: camera['duration_ms'] || 700,
+      });
+    }
+    this.updateDeckLayers();
+    this.cdr.markForCheck();
+  }
+
   private updateDeckLayers(): void {
     if (!this.deckOverlay || !this.deckLayersModule) return;
     this.deckOverlay.setProps({ layers: this.buildDeckLayers() });
@@ -500,81 +817,131 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const markersSource = this.mapSystem?.['geojson_sources']?.markers;
     const contextMarkersSource = this.mapSystem?.['geojson_sources']?.context_markers;
     const contextLinesSource = this.mapSystem?.['geojson_sources']?.context_lines;
+    const adminBoundariesSource = this.mapSystem?.['admin_boundaries'];
+    const citiesSource = this.mapSystem?.['cities'];
     const arcs = this.mapSystem?.['visual_effects']?.arc_links || [];
-    const showTerritory = this.isLayerActive('territoire');
-    const showPresse = this.isLayerActive('presse');
-    const showProjects = this.isLayerActive('projets');
-    const showAgenda = this.isLayerActive('agenda');
-    const showVisual = this.isLayerActive('visuel');
-    return [
-      new GeoJsonLayer({
+    const showTerritory = this.isLayerActive('territorial-risk');
+    const showPresse = this.isLayerActive('open-intelligence');
+    const showProjects = this.isLayerActive('strategic-projects');
+    const showAgenda = this.isLayerActive('agenda-windows');
+    const showVisual = this.isLayerActive('visual-streams');
+    const showActions = this.isLayerActive('preventive-actions');
+    const layers: any[] = [];
+
+    layers.push(new GeoJsonLayer({
         id: 'sentinel-country-outline',
         data: CIV_OUTLINE,
         pickable: false,
         filled: true,
         stroked: true,
-        getFillColor: [8, 32, 44, 46],
-        getLineColor: [148, 215, 255, 165],
-        lineWidthMinPixels: 2,
+        getFillColor: [8, 32, 44, 30],
+        getLineColor: [166, 222, 255, 210],
+        lineWidthMinPixels: 2.5,
         parameters: { depthTest: false },
-      }),
-      ...(showAgenda ? [new GeoJsonLayer({
+      }));
+
+    layers.push(new GeoJsonLayer({
+      id: 'sentinel-admin-boundaries',
+      data: adminBoundariesSource,
+      pickable: false,
+      filled: true,
+      stroked: true,
+      getFillColor: [11, 31, 43, showTerritory ? 44 : 22],
+      getLineColor: [172, 219, 245, showTerritory ? 116 : 62],
+      lineWidthMinPixels: showTerritory ? 1.2 : 0.7,
+      parameters: { depthTest: false },
+    }));
+
+    if (showAgenda || showActions) {
+      layers.push(new GeoJsonLayer({
         id: 'sentinel-context-lines',
         data: contextLinesSource,
         pickable: false,
         filled: false,
         stroked: true,
-        getLineColor: (feature: any) => feature.properties?.tone === 'watch' ? [237, 199, 101, 58] : [125, 211, 252, 54],
+        getLineColor: (feature: any) => feature.properties?.tone === 'watch' ? [237, 199, 101, 88] : [125, 211, 252, 76],
         getLineWidth: 12500,
-        lineWidthMinPixels: 0.9,
+        lineWidthMinPixels: 1.2,
         parameters: { depthTest: false },
-      })] : []),
-      ...((showTerritory || showProjects) ? [new GeoJsonLayer({
+      }));
+    }
+
+    if (showTerritory || showProjects || showActions) {
+      layers.push(new GeoJsonLayer({
         id: 'sentinel-zones',
         data: zonesSource,
         pickable: true,
         filled: true,
         stroked: true,
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, 82),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 112 : 64),
         getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId),
-        lineWidthMinPixels: 1.8,
+        lineWidthMinPixels: 2.2,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
-      })] : []),
-      ...((showAgenda || showProjects) ? [new ArcLayer({
+      }));
+    }
+
+    if (showAgenda || showProjects || showActions) {
+      layers.push(new ArcLayer({
         id: 'sentinel-arcs',
         data: arcs,
         getSourcePosition: (item: any) => item.source,
         getTargetPosition: (item: any) => item.target,
-        getSourceColor: [111, 216, 155, 82],
-        getTargetColor: (item: any) => this.deckColor(item.tone, false, 118),
-        getWidth: (item: any) => Math.max(1, Math.round((item.level || 30) / 22)),
+        getSourceColor: [111, 216, 155, 118],
+        getTargetColor: (item: any) => this.deckColor(item.tone, false, 150),
+        getWidth: (item: any) => Math.max(1.2, Math.round((item.level || 30) / 18)),
         parameters: { depthTest: false },
-      })] : []),
-      ...(showPresse ? [new ScatterplotLayer({
+      }));
+    }
+
+    if (showPresse) {
+      layers.push(new ScatterplotLayer({
         id: 'sentinel-context-markers',
         data: contextMarkersSource?.features || [],
         pickable: false,
         getPosition: (feature: any) => feature.geometry.coordinates,
         getRadius: (feature: any) => Math.max(9000, (feature.properties?.weight || 40) * 220),
-        getFillColor: [125, 211, 252, 88],
-        getLineColor: [218, 241, 255, 150],
+        getFillColor: [125, 211, 252, 114],
+        getLineColor: [218, 241, 255, 180],
         lineWidthMinPixels: 1,
         parameters: { depthTest: false },
-      })] : []),
-      ...((showVisual || showTerritory) ? [new ScatterplotLayer({
+      }));
+    }
+
+    if (showVisual || showTerritory || showActions) {
+      layers.push(new ScatterplotLayer({
         id: 'sentinel-markers',
         data: markersSource?.features || [],
         pickable: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
         getRadius: (feature: any) => Math.max(17000, (feature.properties?.level || 20) * 650),
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 92),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 118),
         getLineColor: [232, 246, 255, 178],
         lineWidthMinPixels: 1.2,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.zone_id),
-      })] : []),
-      ...(showPresse ? [new TextLayer({
+      }));
+    }
+
+    layers.push(new TextLayer({
+      id: 'sentinel-city-labels',
+      data: citiesSource?.features || [],
+      getPosition: (feature: any) => feature.geometry.coordinates,
+      getText: (feature: any) => feature.properties?.name || '',
+      getSize: this.compact ? 9 : 11,
+      getColor: [226, 239, 250, 205],
+      getPixelOffset: [0, -11],
+      getTextAnchor: 'middle',
+      getAlignmentBaseline: 'bottom',
+      fontSettings: { sdf: true },
+      outlineColor: [2, 6, 10, 238],
+      outlineWidth: 3,
+      billboard: true,
+      parameters: { depthTest: false },
+    }));
+
+    if (showPresse) {
+      layers.push(new TextLayer({
         id: 'sentinel-context-labels',
         data: contextMarkersSource?.features || [],
         getPosition: (feature: any) => feature.geometry.coordinates,
@@ -589,8 +956,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         outlineWidth: 2,
         billboard: true,
         parameters: { depthTest: false },
-      })] : []),
-      ...((showTerritory || showProjects) ? [new TextLayer({
+      }));
+    }
+
+    if (showTerritory || showProjects || showActions) {
+      layers.push(new TextLayer({
         id: 'sentinel-labels',
         data: markersSource?.features || [],
         getPosition: (feature: any) => feature.geometry.coordinates,
@@ -604,8 +974,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         outlineWidth: 2.5,
         billboard: true,
         parameters: { depthTest: false },
-      })] : []),
-    ];
+      }));
+    }
+    return layers;
   }
 
   private focusSelectedZone(): void {
@@ -646,11 +1017,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     this.cdr.markForCheck();
   }
 
-  private defaultStyle(): Record<string, any> {
+  private defaultStyle(background = '#05080d'): Record<string, any> {
     return {
       version: 8,
       sources: {},
-      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#05080d' } }],
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': background } }],
     };
   }
 }

@@ -38,6 +38,12 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert listed.json()["maps"][0]["slug"] == "sentinel-ci-strategic-map"
     assert listed.json()["maps"][0]["renderer_config"]["renderer"] == "maplibre"
     assert listed.json()["maps"][0]["renderer_config"]["basemap_policy"] == "public_osm_muted"
+    assert listed.json()["maps"][0]["renderer_config"]["default_basemap"] == "administrative"
+    assert {item["key"] for item in listed.json()["maps"][0]["basemap_options"]} >= {"administrative", "dark", "contours"}
+    assert listed.json()["maps"][0]["default_map_state"]["camera"]["pitch"] == 0
+    assert listed.json()["maps"][0]["layer_catalog"][0]["key"] == "territorial-risk"
+    assert listed.json()["maps"][0]["admin_boundaries"]["features"]
+    assert listed.json()["maps"][0]["cities"]["features"]
     assert listed.json()["maps"][0]["geojson_sources"]["zones"]["features"]
     assert listed.json()["maps"][0]["geojson_sources"]["context_markers"]["features"]
 
@@ -64,4 +70,23 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert command_body["intent"] == "focus_zone"
     assert command_body["target"] == "zone-nord"
     assert command_body["map_state"]["renderer"] == "maplibre"
+    assert command_body["map_state"]["basemap"] == "administrative"
+    assert command_body["map_state"]["active_layers"] == ["territorial-risk", "open-intelligence"]
     assert command_body["map_state"]["camera"]["longitude"]
+
+    basemap_command = client.post(
+        "/api/v1/maps/sentinel-ci-strategic-map/command",
+        json={"intent": "set_basemap", "basemap": "contours"},
+    )
+    assert basemap_command.status_code == 200
+    assert basemap_command.json()["intent"] == "set_basemap"
+    assert basemap_command.json()["map_state"]["basemap"] == "contours"
+
+    reset_command = client.post(
+        "/api/v1/maps/sentinel-ci-strategic-map/command",
+        json={"intent": "reset_view"},
+    )
+    assert reset_command.status_code == 200
+    assert reset_command.json()["intent"] == "reset_view"
+    assert reset_command.json()["map_state"]["selected_zone"] is None
+    assert reset_command.json()["map_state"]["camera"]["bearing"] == 0

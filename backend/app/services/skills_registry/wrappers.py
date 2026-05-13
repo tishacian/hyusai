@@ -685,6 +685,7 @@ async def _map_command_apply_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
             intent=str(payload.get("intent") or "focus_zone"),
             target=payload.get("target"),
             layers=payload.get("layers"),
+            basemap=payload.get("basemap"),
             camera=payload.get("camera"),
             annotation=payload.get("annotation"),
         )
