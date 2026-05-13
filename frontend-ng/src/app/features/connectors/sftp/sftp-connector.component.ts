@@ -74,7 +74,9 @@ interface SecureDepositHealth {
   default_allowed_extensions: string[];
 }
 
-const MAX_VISIBLE_QUEUE_ROWS = 300;
+type QueueStatusFilter = 'received' | 'rejected' | 'promoted' | 'all';
+
+const DEFAULT_QUEUE_PAGE_SIZE = 100;
 
 @Component({
   selector: 'app-sftp-connector',
@@ -141,8 +143,8 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
       </section>
     }
 
-    <section class="grid grid-cols-1 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-      <div class="space-y-5">
+    <section class="grid min-w-0 grid-cols-1 gap-5 2xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div class="min-w-0 space-y-5 2xl:max-w-[360px]">
         <section class="t-card t-elevated rounded-md p-5">
           <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">New external access</p>
           <h2 class="mt-1 text-base font-semibold text-white">Create deposit link</h2>
@@ -158,7 +160,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
               />
             </label>
             <div class="grid grid-cols-2 gap-3">
-              <label class="block">
+              <label class="block min-w-0">
                 <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Max MB</span>
                 <input
                   name="max"
@@ -170,7 +172,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
                   class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
                 />
               </label>
-              <label class="block">
+              <label class="block min-w-0">
                 <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Expires</span>
                 <input
                   name="expires"
@@ -216,7 +218,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
         </section>
       </div>
 
-      <div class="space-y-5">
+      <div class="min-w-0 space-y-5">
         <section class="t-card t-elevated rounded-md overflow-hidden">
           <div class="flex items-center justify-between border-b border-white/5 px-5 py-4">
             <h2 class="text-sm font-semibold text-white">Deposit links</h2>
@@ -266,29 +268,43 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
               <h2 class="mt-1 text-sm font-semibold text-white">{{ workspaceName() }} received files</h2>
               <p class="mt-1 text-xs text-gray-500">Files from all visible deposit links stay here until manual promotion.</p>
             </div>
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               <button
                 type="button"
-                class="inline-flex items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
-                [disabled]="filteredFiles().length === 0 || downloading()"
+                class="inline-flex w-full items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 sm:w-auto"
+                [disabled]="filteredFiles().length === 0 || statusFilter() === 'rejected' || downloading()"
                 (click)="downloadArchive()"
               >
                 <app-icon name="download" [size]="13" />
                 {{ downloading() ? 'Preparing ZIP' : 'Download ZIP' }}
               </button>
-              <label class="relative min-w-[240px]">
+              <label class="relative min-w-0 sm:w-64">
                 <span class="sr-only">Search staged files</span>
                 <app-icon name="search" [size]="13" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                 <input
                   type="search"
                   name="queueSearch"
                   [ngModel]="queueSearch()"
-                  (ngModelChange)="queueSearch.set($event)"
+                  (ngModelChange)="setQueueSearch($event)"
                   class="w-full rounded bg-black/30 border border-white/10 py-2 pl-8 pr-3 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
                   placeholder="Search path or checksum"
                 />
               </label>
-              <label class="min-w-[220px]">
+              <label class="min-w-0 sm:w-40">
+                <span class="sr-only">Filter staging queue by status</span>
+                <select
+                  name="queueStatusFilter"
+                  [ngModel]="statusFilter()"
+                  (ngModelChange)="setStatusFilter($event)"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                >
+                  <option value="received">Received</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="promoted">Promoted</option>
+                  <option value="all">All statuses</option>
+                </select>
+              </label>
+              <label class="min-w-0 sm:w-56">
                 <span class="sr-only">Filter staging queue by deposit link</span>
                 <select
                   name="queueFilter"
@@ -337,11 +353,40 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
                 } @else {
                   <span>Browse folders before promoting individual files.</span>
                 }
-                @if (hiddenQueueItemCount() > 0) {
-                  <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-200 ring-1 ring-amber-500/20">
-                    Showing {{ maxVisibleQueueRows }} of {{ queueItems().length }} rows
-                  </span>
-                }
+                <span class="rounded bg-white/5 px-2 py-1 text-gray-300 ring-1 ring-white/10">
+                  {{ queueRangeLabel() }}
+                </span>
+                <label class="sr-only" for="queuePageSize">Rows per page</label>
+                <select
+                  id="queuePageSize"
+                  name="queuePageSize"
+                  [ngModel]="queuePageSize()"
+                  (ngModelChange)="setQueuePageSize($event)"
+                  class="rounded bg-black/30 border border-white/10 px-2 py-1 text-[11px] text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                >
+                  @for (size of pageSizeOptions; track size) {
+                    <option [value]="size">{{ size }} / page</option>
+                  }
+                </select>
+                <button
+                  type="button"
+                  class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5 disabled:opacity-40"
+                  [disabled]="currentQueuePage() <= 1"
+                  (click)="previousQueuePage()"
+                >
+                  <app-icon name="chevron-left" [size]="12" /> Prev
+                </button>
+                <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
+                  Page {{ currentQueuePage() }} / {{ totalQueuePages() }}
+                </span>
+                <button
+                  type="button"
+                  class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5 disabled:opacity-40"
+                  [disabled]="currentQueuePage() >= totalQueuePages()"
+                  (click)="nextQueuePage()"
+                >
+                  Next <app-icon name="chevron-right" [size]="12" />
+                </button>
               </div>
             </div>
             <ul class="divide-y divide-white/5">
@@ -392,8 +437,9 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
                       <div class="flex flex-wrap items-center gap-2 xl:justify-end">
                         <button
                           type="button"
-                          class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
                           title="Preview file"
+                          [disabled]="file.status === 'rejected'"
                           (click)="previewFile(file)"
                         >
                           <app-icon name="eye" [size]="13" />
@@ -402,7 +448,7 @@ const MAX_VISIBLE_QUEUE_ROWS = 300;
                           type="button"
                           class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
                           title="Download file"
-                          [disabled]="downloadingFileId() === file.id"
+                          [disabled]="file.status === 'rejected' || downloadingFileId() === file.id"
                           (click)="downloadFile(file)"
                         >
                           <app-icon name="download" [size]="13" />
@@ -535,16 +581,34 @@ export class SftpConnectorComponent implements OnInit {
   readonly selectedLinkId = signal('');
   readonly currentFolder = signal('');
   readonly queueSearch = signal('');
-  readonly maxVisibleQueueRows = MAX_VISIBLE_QUEUE_ROWS;
+  readonly statusFilter = signal<QueueStatusFilter>('received');
+  readonly queuePage = signal(1);
+  readonly queuePageSize = signal(DEFAULT_QUEUE_PAGE_SIZE);
+  readonly pageSizeOptions = [50, 100, 300];
   readonly linkLookup = computed(() => new Map(this.links().map((link) => [link.id, link])));
   readonly filteredFiles = computed(() => {
     const selected = this.selectedLinkId();
-    if (!selected) return this.files();
-    return this.files().filter((file) => file.access_link_id === selected);
+    const status = this.statusFilter();
+    return this.files().filter((file) => {
+      const linkMatches = !selected || file.access_link_id === selected;
+      const statusMatches = status === 'all' || file.status === status;
+      return linkMatches && statusMatches;
+    });
   });
   readonly queueItems = computed(() => this.buildQueueItems(this.filteredFiles(), this.currentFolder(), this.queueSearch()));
-  readonly visibleQueueItems = computed(() => this.queueItems().slice(0, MAX_VISIBLE_QUEUE_ROWS));
-  readonly hiddenQueueItemCount = computed(() => Math.max(0, this.queueItems().length - this.visibleQueueItems().length));
+  readonly totalQueuePages = computed(() => Math.max(1, Math.ceil(this.queueItems().length / this.queuePageSize())));
+  readonly currentQueuePage = computed(() => Math.min(Math.max(1, this.queuePage()), this.totalQueuePages()));
+  readonly visibleQueueItems = computed(() => {
+    const start = (this.currentQueuePage() - 1) * this.queuePageSize();
+    return this.queueItems().slice(start, start + this.queuePageSize());
+  });
+  readonly queueRangeLabel = computed(() => {
+    const total = this.queueItems().length;
+    if (total === 0) return '0 rows';
+    const start = (this.currentQueuePage() - 1) * this.queuePageSize() + 1;
+    const end = Math.min(total, start + this.visibleQueueItems().length - 1);
+    return `${start}-${end} of ${total} rows`;
+  });
   readonly folderCrumbs = computed<FolderCrumb[]>(() => {
     const parts = this.currentFolder().split('/').filter(Boolean);
     const crumbs: FolderCrumb[] = [{ label: 'Root', path: '' }];
@@ -674,6 +738,9 @@ export class SftpConnectorComponent implements OnInit {
     if (this.selectedLinkId()) {
       params = params.set('link_id', this.selectedLinkId());
     }
+    if (this.statusFilter() !== 'all') {
+      params = params.set('status', this.statusFilter());
+    }
     this.http
       .get(`${this.api.base}/sftp/deposits/archive`, {
         params,
@@ -769,8 +836,34 @@ export class SftpConnectorComponent implements OnInit {
 
   setSelectedLink(linkId: string): void {
     this.selectedLinkId.set(linkId);
-    this.currentFolder.set('');
-    this.queueSearch.set('');
+    this.resetQueueViewport();
+  }
+
+  setStatusFilter(status: string): void {
+    const next = ['received', 'rejected', 'promoted', 'all'].includes(status)
+      ? (status as QueueStatusFilter)
+      : 'received';
+    this.statusFilter.set(next);
+    this.resetQueueViewport();
+  }
+
+  setQueueSearch(value: string): void {
+    this.queueSearch.set(value);
+    this.queuePage.set(1);
+  }
+
+  setQueuePageSize(size: number | string): void {
+    const parsed = Number(size) || DEFAULT_QUEUE_PAGE_SIZE;
+    this.queuePageSize.set(parsed);
+    this.queuePage.set(1);
+  }
+
+  previousQueuePage(): void {
+    this.queuePage.set(Math.max(1, this.currentQueuePage() - 1));
+  }
+
+  nextQueuePage(): void {
+    this.queuePage.set(Math.min(this.totalQueuePages(), this.currentQueuePage() + 1));
   }
 
   focusLinkQueue(linkId: string): void {
@@ -780,21 +873,25 @@ export class SftpConnectorComponent implements OnInit {
   openFolder(path: string): void {
     this.currentFolder.set(path);
     this.queueSearch.set('');
+    this.queuePage.set(1);
   }
 
   goToFolder(path: string): void {
     this.currentFolder.set(path);
     this.queueSearch.set('');
+    this.queuePage.set(1);
   }
 
   goToParentFolder(): void {
     const current = this.currentFolder();
     const index = current.lastIndexOf('/');
     this.currentFolder.set(index > -1 ? current.slice(0, index) : '');
+    this.queuePage.set(1);
   }
 
   clearQueueSearch(): void {
     this.queueSearch.set('');
+    this.queuePage.set(1);
   }
 
   formatBytes(size: number): string {
@@ -875,6 +972,12 @@ export class SftpConnectorComponent implements OnInit {
     if (!this.collectionSlug.trim()) {
       this.collectionSlug = this.defaultCollectionSlug();
     }
+  }
+
+  private resetQueueViewport(): void {
+    this.currentFolder.set('');
+    this.queueSearch.set('');
+    this.queuePage.set(1);
   }
 
   private defaultCollectionSlug(): string {

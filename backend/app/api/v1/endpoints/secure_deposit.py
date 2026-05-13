@@ -384,6 +384,7 @@ def list_deposit_files(
 @internal_router.get("/deposits/archive")
 def download_deposit_files_archive(
     link_id: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None, pattern="^(received|rejected|promoted)$"),
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
@@ -394,6 +395,10 @@ def download_deposit_files_archive(
     if link_id:
         selected_link = _workspace_link(db, workspace, link_id)
         query = query.filter(DepositFile.access_link_id == selected_link.id)
+    if status:
+        query = query.filter(DepositFile.status == status)
+    else:
+        query = query.filter(DepositFile.status != "rejected")
     files = query.order_by(DepositFile.uploaded_at.desc()).all()
     link_ids = [file.access_link_id for file in files]
     links_by_id = {
@@ -419,6 +424,7 @@ def download_deposit_files_archive(
             "file_count": len(files),
             "link_id": selected_link.id if selected_link else None,
             "access_id": selected_link.access_id if selected_link else None,
+            "status": status,
             "archive_filename": archive_filename,
         },
     )
