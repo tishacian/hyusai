@@ -53,6 +53,7 @@ class DocumentService:
         self.use_reranker = use_reranker
         self.use_cache = use_cache
         self.cache = get_cache() if use_cache else None
+        self.cache_namespace = f"{self.workspace_slug or 'global'}:{self.vector_db_type}:{self.collection_name}"
         
         # Initialize BM25 retriever
         self.bm25_retriever = BM25Retriever()
@@ -379,7 +380,13 @@ class DocumentService:
         
         # Check cache first
         if use_cache and self.cache:
-            cached_results = self.cache.get(query, top_k, filters, use_hybrid)
+            cached_results = self.cache.get(
+                query,
+                top_k,
+                filters,
+                use_hybrid,
+                namespace=self.cache_namespace,
+            )
             if cached_results is not None:
                 logger.debug("Returning cached search results")
                 return cached_results
@@ -602,7 +609,14 @@ class DocumentService:
             
             # Cache results
             if use_cache and self.cache:
-                self.cache.set(query, top_k, formatted_results, filters, use_hybrid)
+                self.cache.set(
+                    query,
+                    top_k,
+                    formatted_results,
+                    filters,
+                    use_hybrid,
+                    namespace=self.cache_namespace,
+                )
             
             trace.complete({"status": "success", "results_count": len(formatted_results)})
             

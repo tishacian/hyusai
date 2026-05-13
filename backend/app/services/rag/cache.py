@@ -24,9 +24,17 @@ class RAGCache:
         self.max_size = max_size
         self.access_times: Dict[str, datetime] = {}
     
-    def _generate_key(self, query: str, top_k: int, filters: Optional[Dict] = None, use_hybrid: bool = False) -> str:
+    def _generate_key(
+        self,
+        query: str,
+        top_k: int,
+        filters: Optional[Dict] = None,
+        use_hybrid: bool = False,
+        namespace: Optional[str] = None,
+    ) -> str:
         """Generate cache key from query parameters"""
         key_data = {
+            "namespace": namespace or "default",
             "query": query,
             "top_k": top_k,
             "filters": filters or {},
@@ -35,9 +43,16 @@ class RAGCache:
         key_string = json.dumps(key_data, sort_keys=True)
         return hashlib.sha256(key_string.encode()).hexdigest()
     
-    def get(self, query: str, top_k: int, filters: Optional[Dict] = None, use_hybrid: bool = False) -> Optional[List[Dict]]:
+    def get(
+        self,
+        query: str,
+        top_k: int,
+        filters: Optional[Dict] = None,
+        use_hybrid: bool = False,
+        namespace: Optional[str] = None,
+    ) -> Optional[List[Dict]]:
         """Get cached search results"""
-        key = self._generate_key(query, top_k, filters, use_hybrid)
+        key = self._generate_key(query, top_k, filters, use_hybrid, namespace)
         
         if key not in self.cache:
             return None
@@ -54,12 +69,20 @@ class RAGCache:
         # Update access time
         self.access_times[key] = datetime.now()
         
-        logger.debug(f"Cache hit for query: {query[:50]}")
+        logger.debug(f"Cache hit for query: {query[:50]} ({namespace or 'default'})")
         return entry["results"]
     
-    def set(self, query: str, top_k: int, results: List[Dict], filters: Optional[Dict] = None, use_hybrid: bool = False):
+    def set(
+        self,
+        query: str,
+        top_k: int,
+        results: List[Dict],
+        filters: Optional[Dict] = None,
+        use_hybrid: bool = False,
+        namespace: Optional[str] = None,
+    ):
         """Cache search results"""
-        key = self._generate_key(query, top_k, filters, use_hybrid)
+        key = self._generate_key(query, top_k, filters, use_hybrid, namespace)
         
         # Evict oldest if cache is full
         if len(self.cache) >= self.max_size and key not in self.cache:
@@ -74,7 +97,7 @@ class RAGCache:
         }
         
         self.access_times[key] = datetime.now()
-        logger.debug(f"Cached results for query: {query[:50]}")
+        logger.debug(f"Cached results for query: {query[:50]} ({namespace or 'default'})")
     
     def _evict_oldest(self):
         """Evict least recently used entry"""
@@ -122,4 +145,3 @@ def get_cache() -> RAGCache:
     if _global_cache is None:
         _global_cache = RAGCache()
     return _global_cache
-
