@@ -1,6 +1,6 @@
 """Workspace visual intelligence.
 
-Revision ID: 029_workspace_visual_intelligence
+Revision ID: 029_visual_intel
 Revises: 028_workspace_jobs_maps
 Create Date: 2026-05-13
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision = "029_workspace_visual_intelligence"
+revision = "029_visual_intel"
 down_revision = "028_workspace_jobs_maps"
 branch_labels = None
 depends_on = None
