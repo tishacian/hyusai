@@ -120,8 +120,8 @@ const CIV_OUTLINE = {
         border: 1px solid rgba(91, 173, 218, 0.24);
         border-radius: 10px;
         background:
-          radial-gradient(circle at 52% 42%, rgba(91, 173, 218, 0.18), transparent 28%),
-          linear-gradient(135deg, rgba(4, 8, 13, 0.96), rgba(12, 17, 26, 0.94));
+          radial-gradient(circle at 48% 38%, rgba(91, 173, 218, 0.12), transparent 34%),
+          linear-gradient(135deg, rgba(7, 14, 21, 0.98), rgba(13, 22, 34, 0.96));
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 24px 70px rgba(0,0,0,0.22);
       }
 
@@ -133,8 +133,8 @@ const CIV_OUTLINE = {
         border-radius: 12px;
         border: 1px solid rgba(125, 211, 252, 0.07);
         box-shadow:
-          inset 0 0 55px rgba(125, 211, 252, 0.055),
-          inset 0 -45px 80px rgba(0, 0, 0, 0.22);
+          inset 0 0 42px rgba(125, 211, 252, 0.04),
+          inset 0 -28px 58px rgba(0, 0, 0, 0.18);
         z-index: 3;
       }
 
@@ -144,10 +144,10 @@ const CIV_OUTLINE = {
         inset: 0;
         pointer-events: none;
         background-image:
-          linear-gradient(rgba(125, 213, 255, 0.055) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(125, 213, 255, 0.045) 1px, transparent 1px);
+          linear-gradient(rgba(125, 213, 255, 0.028) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(125, 213, 255, 0.024) 1px, transparent 1px);
         background-size: 42px 42px;
-        mask-image: linear-gradient(180deg, rgba(0,0,0,0.75), transparent 82%);
+        mask-image: linear-gradient(180deg, rgba(0,0,0,0.56), transparent 86%);
         z-index: 2;
       }
 
@@ -173,6 +173,11 @@ const CIV_OUTLINE = {
         inset: 0;
         width: 100%;
         height: 100%;
+      }
+
+      .maplibre-canvas {
+        z-index: 1;
+        filter: saturate(0.88) contrast(1.08) brightness(1.12);
       }
 
       .map-frame-overlay {
@@ -459,9 +464,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: false,
         filled: true,
         stroked: true,
-        getFillColor: [15, 45, 55, 82],
-        getLineColor: [125, 211, 252, 105],
-        lineWidthMinPixels: 1.4,
+        getFillColor: [8, 32, 44, 46],
+        getLineColor: [148, 215, 255, 165],
+        lineWidthMinPixels: 2,
+        parameters: { depthTest: false },
       }),
       new GeoJsonLayer({
         id: 'sentinel-context-lines',
@@ -469,9 +475,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: false,
         filled: false,
         stroked: true,
-        getLineColor: (feature: any) => feature.properties?.tone === 'watch' ? [237, 199, 101, 90] : [125, 211, 252, 72],
-        getLineWidth: 22000,
-        lineWidthMinPixels: 1.2,
+        getLineColor: (feature: any) => feature.properties?.tone === 'watch' ? [237, 199, 101, 58] : [125, 211, 252, 54],
+        getLineWidth: 12500,
+        lineWidthMinPixels: 0.9,
         parameters: { depthTest: false },
       }),
       new GeoJsonLayer({
@@ -480,9 +486,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: true,
         filled: true,
         stroked: true,
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId),
-        getLineColor: [170, 220, 255, 130],
-        lineWidthMinPixels: 1,
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, 82),
+        getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId),
+        lineWidthMinPixels: 1.8,
+        parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
       }),
       new ArcLayer({
@@ -490,29 +497,32 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         data: arcs,
         getSourcePosition: (item: any) => item.source,
         getTargetPosition: (item: any) => item.target,
-        getSourceColor: [111, 216, 155, 130],
-        getTargetColor: (item: any) => this.deckColor(item.tone, false, 170),
+        getSourceColor: [111, 216, 155, 82],
+        getTargetColor: (item: any) => this.deckColor(item.tone, false, 118),
         getWidth: (item: any) => Math.max(1, Math.round((item.level || 30) / 22)),
+        parameters: { depthTest: false },
       }),
       new ScatterplotLayer({
         id: 'sentinel-context-markers',
         data: contextMarkersSource?.features || [],
         pickable: false,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getRadius: (feature: any) => Math.max(12000, (feature.properties?.weight || 40) * 260),
-        getFillColor: [125, 211, 252, 70],
-        getLineColor: [202, 232, 255, 130],
+        getRadius: (feature: any) => Math.max(9000, (feature.properties?.weight || 40) * 220),
+        getFillColor: [125, 211, 252, 88],
+        getLineColor: [218, 241, 255, 150],
         lineWidthMinPixels: 1,
+        parameters: { depthTest: false },
       }),
       new ScatterplotLayer({
         id: 'sentinel-markers',
         data: markersSource?.features || [],
         pickable: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getRadius: (feature: any) => Math.max(22000, (feature.properties?.level || 20) * 900),
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 115),
-        getLineColor: [210, 240, 255, 150],
-        lineWidthMinPixels: 1,
+        getRadius: (feature: any) => Math.max(17000, (feature.properties?.level || 20) * 650),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 92),
+        getLineColor: [232, 246, 255, 178],
+        lineWidthMinPixels: 1.2,
+        parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.zone_id),
       }),
       new TextLayer({
@@ -521,11 +531,15 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getPosition: (feature: any) => feature.geometry.coordinates,
         getText: (feature: any) => feature.properties?.name || '',
         getSize: this.compact ? 10 : 12,
-        getColor: [185, 221, 242, 190],
+        getColor: [223, 240, 252, 215],
         getPixelOffset: [0, -16],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'bottom',
+        fontSettings: { sdf: true },
+        outlineColor: [4, 8, 13, 210],
+        outlineWidth: 2,
         billboard: true,
+        parameters: { depthTest: false },
       }),
       new TextLayer({
         id: 'sentinel-labels',
@@ -533,10 +547,14 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getPosition: (feature: any) => feature.geometry.coordinates,
         getText: (feature: any) => feature.properties?.name || '',
         getSize: this.compact ? 12 : 15,
-        getColor: [232, 241, 255, 220],
+        getColor: [246, 251, 255, 235],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'center',
+        fontSettings: { sdf: true },
+        outlineColor: [4, 8, 13, 225],
+        outlineWidth: 2.5,
         billboard: true,
+        parameters: { depthTest: false },
       }),
     ];
   }
@@ -565,7 +583,13 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private deckColor(tone: string, selected = false, alpha = 120): number[] {
     const base = tone === 'critical' ? [239, 111, 125] : tone === 'watch' ? [237, 199, 101] : [105, 216, 155];
-    return [...base, selected ? 210 : alpha];
+    return [...base, selected ? 162 : alpha];
+  }
+
+  private deckLineColor(tone: string, selected = false): number[] {
+    if (tone === 'critical') return [255, 156, 166, selected ? 235 : 178];
+    if (tone === 'watch') return [255, 224, 137, selected ? 235 : 188];
+    return [160, 240, 198, selected ? 224 : 168];
   }
 
   private enableFallback(): void {

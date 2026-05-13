@@ -697,16 +697,16 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
         "renderer_config": {
             "renderer": "maplibre",
             "fallback_renderer": "svg",
-            "basemap_policy": "public_osm_dark",
+            "basemap_policy": "public_osm_muted",
             "style": {
                 "version": 8,
                 "sources": {
-                    "carto-dark": {
+                    "carto-voyager": {
                         "type": "raster",
                         "tiles": [
-                            "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                            "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                            "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                            "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                            "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                            "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
                         ],
                         "tileSize": 256,
                         "attribution": "OpenStreetMap contributors / CARTO",
@@ -719,13 +719,15 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
                         "paint": {"background-color": "#05080d"},
                     },
                     {
-                        "id": "carto-dark-base",
+                        "id": "carto-voyager-muted",
                         "type": "raster",
-                        "source": "carto-dark",
+                        "source": "carto-voyager",
                         "paint": {
-                            "raster-opacity": 0.76,
-                            "raster-saturation": -0.35,
-                            "raster-contrast": 0.18,
+                            "raster-opacity": 0.54,
+                            "raster-brightness-min": 0.03,
+                            "raster-brightness-max": 0.70,
+                            "raster-saturation": -0.68,
+                            "raster-contrast": -0.08,
                         },
                     }
                 ],
