@@ -3660,6 +3660,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   newAgendaLocation = 'Cabinet ministeriel';
   private readonly visualObjectUrls: string[] = [];
   private readonly calendarUpdateListener = () => this.loadAll();
+  private readonly workspaceActionUpdateListener = () => this.loadAll();
   private readonly mapCommandListener = (event: Event) => {
     const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
     const target = String(detail['target'] || (detail['map_state'] as any)?.selected_zone || '');
@@ -3722,12 +3723,16 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     window.addEventListener('agentium:calendar-updated', this.calendarUpdateListener);
+    window.addEventListener('agentium:action-plan-updated', this.workspaceActionUpdateListener);
+    window.addEventListener('agentium:visual-intelligence-updated', this.workspaceActionUpdateListener);
     window.addEventListener('agentium:map-command', this.mapCommandListener);
     this.loadAll();
   }
 
   ngOnDestroy(): void {
     window.removeEventListener('agentium:calendar-updated', this.calendarUpdateListener);
+    window.removeEventListener('agentium:action-plan-updated', this.workspaceActionUpdateListener);
+    window.removeEventListener('agentium:visual-intelligence-updated', this.workspaceActionUpdateListener);
     window.removeEventListener('agentium:map-command', this.mapCommandListener);
     this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     this.visualObjectUrls.length = 0;

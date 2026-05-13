@@ -1933,6 +1933,10 @@ export class ChatPanelComponent {
             const action = String((chunk as Record<string, unknown>)['action'] || '');
             if (action.startsWith('calendar_')) {
               window.dispatchEvent(new CustomEvent('agentium:calendar-updated', { detail: chunk }));
+            } else if (action.startsWith('action_plan_')) {
+              window.dispatchEvent(new CustomEvent('agentium:action-plan-updated', { detail: chunk }));
+            } else if (action.startsWith('visual_')) {
+              window.dispatchEvent(new CustomEvent('agentium:visual-intelligence-updated', { detail: chunk }));
             }
           } else if (chunk.chunk_type === 'map_command') {
             mapCommand = (chunk as Record<string, unknown>)['map_command'] as Record<string, unknown>;
