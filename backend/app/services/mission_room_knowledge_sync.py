@@ -26,6 +26,7 @@ from app.services.knowledge_collections import (
 from app.services.object_store import get_object_store
 from app.services.rag.bm25_store import rebuild_bm25_artifact
 from app.services.rag.document_service import DocumentService
+from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.visual_intelligence import VISUAL_COLLECTION_SLUG, _observation_markdown
 
 logger = get_logger(__name__)
@@ -53,6 +54,20 @@ COLLECTION_DEFS: dict[str, dict[str, str]] = {
         "description": "Visual snapshots and observations from authorized workspace streams.",
     },
 }
+
+HEAVY_PAYLOAD_KEYS = {
+    "admin_boundaries",
+    "basemap_options",
+    "camera_presets",
+    "cities",
+    "default_map_state",
+    "geojson_sources",
+    "layer_catalog",
+    "layers",
+    "renderer_config",
+    "visual_effects",
+}
+MAX_INLINE_VALUE_CHARS = 1600
 
 
 def _jsonable(value: Any) -> Any:
@@ -112,15 +127,61 @@ def _line(label: str, value: Any) -> str:
     if value in (None, "", [], {}):
         return f"- {label}: n/a"
     if isinstance(value, (list, tuple, set)):
-        return f"- {label}: {', '.join(str(v) for v in value)}"
+        return f"- {label}: {_truncate_inline(', '.join(_display_value(v) for v in value))}"
     if isinstance(value, dict):
-        return f"- {label}: {_jsonable(value)}"
+        return f"- {label}: {_display_value(value)}"
     return f"- {label}: {value}"
+
+
+def _truncate_inline(value: str, *, limit: int = MAX_INLINE_VALUE_CHARS) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit].rstrip()}... [truncated]"
+
+
+def _compact_payload(value: Any, *, depth: int = 0) -> Any:
+    """Keep indexed fixture docs useful without embedding full map GeoJSON blobs."""
+    if depth > 3:
+        return "[nested payload omitted]"
+    if isinstance(value, dict):
+        compact: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in HEAVY_PAYLOAD_KEYS:
+                if isinstance(item, dict):
+                    compact[key] = {
+                        "omitted": True,
+                        "keys": list(item.keys())[:12],
+                        "reason": "large cartographic payload; use map API for raw GeoJSON",
+                    }
+                elif isinstance(item, list):
+                    compact[key] = {
+                        "omitted": True,
+                        "items": len(item),
+                        "reason": "large cartographic payload; use map API for raw GeoJSON",
+                    }
+                else:
+                    compact[key] = "[large cartographic payload omitted]"
+                continue
+            compact[str(key)] = _compact_payload(item, depth=depth + 1)
+        return compact
+    if isinstance(value, list):
+        max_items = 20 if depth <= 1 else 8
+        compact_items = [_compact_payload(item, depth=depth + 1) for item in value[:max_items]]
+        if len(value) > max_items:
+            compact_items.append(f"[{len(value) - max_items} additional items omitted]")
+        return compact_items
+    if isinstance(value, str):
+        return _truncate_inline(value, limit=2400 if depth <= 1 else 900)
+    return _jsonable(value)
+
+
+def _display_value(value: Any) -> str:
+    return _truncate_inline(str(_compact_payload(value)))
 
 
 def _payload_markdown(title: str, payload: dict[str, Any]) -> str:
     lines = [f"# {title}", ""]
-    for key, value in payload.items():
+    for key, value in _compact_payload(payload).items():
         if key == "workspace":
             continue
         lines.append(f"## {key.replace('_', ' ').title()}")
@@ -237,11 +298,7 @@ async def sync_markdown_documents_to_collection(
         local_paths.append(path)
 
     app_settings = get_resolved_settings(workspace_id=workspace.id)
-    vector_db_type = (
-        app_settings.get("ragVectorDBType")
-        or getattr(settings, "default_vector_db_type", None)
-        or "faiss"
-    )
+    vector_db_type = resolve_vector_db_type(app_settings)
     doc_service = DocumentService(
         collection_name=collection.slug,
         vector_db_type=vector_db_type,

@@ -19,6 +19,7 @@ from app.core.settings_manager import get_resolved_settings
 from app.services.rag.knowledge_scopes import resolve_knowledge_scope
 from app.services.rag.mode_selector import resolve_retrieval_mode
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
+from app.services.rag.vector_store_config import resolve_vector_db_type
 
 logger = get_logger(__name__)
 
@@ -73,6 +74,7 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         5,
     )
     collections = scope.get("collection_slugs") or [fallback_collection]
+    vector_db_type = resolve_vector_db_type(app_settings)
     return {
         "query": request.get("rewritten_query") or request.get("query") or "",
         "rag_mode": rag_mode,
@@ -81,7 +83,7 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         "collections": collections,
         "knowledge_scope": scope.get("key"),
         "scope_label": scope.get("label"),
-        "vector_db": app_settings.get("ragVectorDBType", "faiss"),
+        "vector_db": vector_db_type,
         "workspace_slug": request.get("workspace_slug"),
     }
 

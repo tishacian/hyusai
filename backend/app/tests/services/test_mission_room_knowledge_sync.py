@@ -10,6 +10,8 @@ from app.services.mission_room_knowledge_sync import (
     sync_mission_room_fixtures_to_knowledge,
     sync_visual_observations_to_knowledge,
 )
+from app.services.rag import vector_store_config
+from app.services.rag.vector_store_config import resolve_vector_db_type
 
 
 class _FakeVectorDB:
@@ -40,6 +42,13 @@ class _FakeDocumentService:
 
     async def get_document_count(self) -> int:
         return len(self.ingested_paths)
+
+
+def test_vector_store_resolution_prefers_infra_default_over_legacy_faiss(monkeypatch):
+    monkeypatch.setattr(vector_store_config.settings, "default_vector_db_type", "qdrant")
+
+    assert resolve_vector_db_type({"ragVectorDBType": "faiss"}) == "qdrant"
+    assert resolve_vector_db_type({"ragVectorDBType": "chroma"}) == "chroma"
 
 
 @pytest.mark.asyncio

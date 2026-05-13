@@ -24,6 +24,7 @@ from app.services.knowledge_collections import (
 from app.services.object_store import get_object_store
 from app.services.rag.bm25_store import rebuild_bm25_artifact
 from app.services.rag.document_service import DocumentService
+from app.services.rag.vector_store_config import resolve_vector_db_type
 
 logger = get_logger(__name__)
 
@@ -228,11 +229,7 @@ async def sync_intelligence_to_knowledge(
         local_paths.append(path)
 
     app_settings = get_resolved_settings(workspace_id=workspace.id)
-    vector_db_type = (
-        app_settings.get("ragVectorDBType")
-        or getattr(settings, "default_vector_db_type", None)
-        or "faiss"
-    )
+    vector_db_type = resolve_vector_db_type(app_settings)
     doc_service = DocumentService(
         collection_name=collection.slug,
         vector_db_type=vector_db_type,
