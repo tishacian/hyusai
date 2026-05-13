@@ -233,7 +233,7 @@ const CIV_OUTLINE = {
 
       .maplibre-canvas {
         z-index: 1;
-        filter: saturate(0.95) contrast(1.24) brightness(1.08);
+        filter: saturate(1.12) contrast(1.42) brightness(0.76);
       }
 
       .map-frame-overlay {
@@ -274,15 +274,15 @@ const CIV_OUTLINE = {
         position: absolute;
         left: 16px;
         top: 16px;
-        width: min(360px, calc(100% - 84px));
+        width: min(306px, calc(100% - 84px));
         display: grid;
         gap: 10px;
         padding: 12px;
-        border: 1px solid rgba(125, 211, 252, 0.18);
+        border: 1px solid rgba(132, 220, 255, 0.25);
         border-radius: 14px;
-        background: rgba(4, 10, 16, 0.76);
-        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
-        backdrop-filter: blur(14px);
+        background: rgba(2, 6, 10, 0.88);
+        box-shadow: 0 22px 54px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgba(255,255,255,0.03);
+        backdrop-filter: blur(16px) saturate(1.2);
         pointer-events: auto;
       }
 
@@ -349,16 +349,17 @@ const CIV_OUTLINE = {
         align-items: center;
         padding: 8px 9px;
         border-radius: 10px;
-        border: 1px solid rgba(125, 211, 252, 0.12);
-        background: rgba(10, 17, 27, 0.68);
+        border: 1px solid rgba(125, 211, 252, 0.16);
+        background: rgba(14, 24, 36, 0.82);
         color: rgba(232, 241, 255, 0.72);
         text-align: left;
         cursor: pointer;
       }
 
       .layer-toggle.active {
-        border-color: rgba(125, 211, 252, 0.34);
-        background: rgba(13, 29, 43, 0.86);
+        border-color: rgba(132, 220, 255, 0.50);
+        background: linear-gradient(135deg, rgba(18, 39, 58, 0.98), rgba(12, 23, 36, 0.94));
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 18px rgba(77, 195, 255, 0.10);
       }
 
       .layer-toggle i {
@@ -404,15 +405,19 @@ const CIV_OUTLINE = {
 
       .map-legend {
         position: absolute;
-        right: 16px;
-        top: 60px;
+        left: 50%;
+        right: auto;
+        bottom: 16px;
+        top: auto;
+        transform: translateX(-50%);
         z-index: 5;
-        display: grid;
-        gap: 6px;
-        padding: 9px 10px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 11px;
         border: 1px solid rgba(125, 211, 252, 0.13);
-        border-radius: 12px;
-        background: rgba(4, 10, 16, 0.66);
+        border-radius: 999px;
+        background: rgba(2, 6, 10, 0.82);
         backdrop-filter: blur(12px);
       }
 
@@ -485,7 +490,7 @@ const CIV_OUTLINE = {
         padding: 8px 10px;
         border: 1px solid rgba(91, 173, 218, 0.26);
         border-radius: 999px;
-        background: rgba(7, 12, 19, 0.78);
+        background: rgba(2, 6, 10, 0.88);
         color: rgba(232, 241, 255, 0.88);
         backdrop-filter: blur(12px);
       }
@@ -515,7 +520,7 @@ const CIV_OUTLINE = {
         max-width: min(58%, 420px);
         padding: 5px 8px;
         border-radius: 999px;
-        background: rgba(3, 7, 12, 0.62);
+        background: rgba(2, 6, 10, 0.82);
         color: rgba(184, 203, 218, 0.58);
         font-size: 10px;
         line-height: 1;
@@ -834,9 +839,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: false,
         filled: true,
         stroked: true,
-        getFillColor: [8, 32, 44, 30],
-        getLineColor: [166, 222, 255, 210],
-        lineWidthMinPixels: 2.5,
+        getFillColor: [2, 11, 18, 96],
+        getLineColor: [109, 214, 255, 232],
+        lineWidthMinPixels: 3,
         parameters: { depthTest: false },
       }));
 
@@ -846,9 +851,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       pickable: false,
       filled: true,
       stroked: true,
-      getFillColor: [11, 31, 43, showTerritory ? 44 : 22],
-      getLineColor: [172, 219, 245, showTerritory ? 116 : 62],
-      lineWidthMinPixels: showTerritory ? 1.2 : 0.7,
+      getFillColor: [4, 16, 25, showTerritory ? 34 : 18],
+      getLineColor: [116, 201, 240, showTerritory ? 148 : 82],
+      lineWidthMinPixels: showTerritory ? 1.5 : 0.8,
       parameters: { depthTest: false },
     }));
 
@@ -859,9 +864,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: false,
         filled: false,
         stroked: true,
-        getLineColor: (feature: any) => feature.properties?.tone === 'watch' ? [237, 199, 101, 88] : [125, 211, 252, 76],
+        getLineColor: (feature: any) => feature.properties?.tone === 'watch' ? [255, 202, 68, 148] : [100, 220, 255, 132],
         getLineWidth: 12500,
-        lineWidthMinPixels: 1.2,
+        lineWidthMinPixels: 2.2,
         parameters: { depthTest: false },
       }));
     }
@@ -873,9 +878,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: true,
         filled: true,
         stroked: true,
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 112 : 64),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 156 : 94),
         getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId),
-        lineWidthMinPixels: 2.2,
+        lineWidthMinPixels: 3.2,
+        lineWidthMaxPixels: 6,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
       }));
@@ -887,8 +893,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         data: arcs,
         getSourcePosition: (item: any) => item.source,
         getTargetPosition: (item: any) => item.target,
-        getSourceColor: [111, 216, 155, 118],
-        getTargetColor: (item: any) => this.deckColor(item.tone, false, 150),
+        getSourceColor: [95, 235, 166, 178],
+        getTargetColor: (item: any) => this.deckColor(item.tone, false, 210),
         getWidth: (item: any) => Math.max(1.2, Math.round((item.level || 30) / 18)),
         parameters: { depthTest: false },
       }));
@@ -896,28 +902,54 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
     if (showPresse) {
       layers.push(new ScatterplotLayer({
+        id: 'sentinel-context-marker-rings',
+        data: contextMarkersSource?.features || [],
+        pickable: false,
+        stroked: true,
+        filled: true,
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        getRadius: (feature: any) => Math.max(16000, (feature.properties?.weight || 40) * 320),
+        getFillColor: [77, 195, 255, 30],
+        getLineColor: [132, 220, 255, 150],
+        lineWidthMinPixels: 1.4,
+        parameters: { depthTest: false },
+      }));
+      layers.push(new ScatterplotLayer({
         id: 'sentinel-context-markers',
         data: contextMarkersSource?.features || [],
         pickable: false,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getRadius: (feature: any) => Math.max(9000, (feature.properties?.weight || 40) * 220),
-        getFillColor: [125, 211, 252, 114],
-        getLineColor: [218, 241, 255, 180],
-        lineWidthMinPixels: 1,
+        getRadius: (feature: any) => Math.max(6500, (feature.properties?.weight || 40) * 150),
+        getFillColor: [102, 210, 255, 218],
+        getLineColor: [245, 252, 255, 230],
+        lineWidthMinPixels: 1.4,
         parameters: { depthTest: false },
       }));
     }
 
     if (showVisual || showTerritory || showActions) {
       layers.push(new ScatterplotLayer({
+        id: 'sentinel-marker-rings',
+        data: markersSource?.features || [],
+        pickable: false,
+        stroked: true,
+        filled: true,
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        getRadius: (feature: any) => Math.max(22000, (feature.properties?.level || 20) * 620),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 36),
+        getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 170),
+        lineWidthMinPixels: 1.2,
+        parameters: { depthTest: false },
+      }));
+      layers.push(new ScatterplotLayer({
         id: 'sentinel-markers',
         data: markersSource?.features || [],
         pickable: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getRadius: (feature: any) => Math.max(17000, (feature.properties?.level || 20) * 650),
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 118),
-        getLineColor: [232, 246, 255, 178],
-        lineWidthMinPixels: 1.2,
+        getRadius: (feature: any) => Math.max(10000, (feature.properties?.level || 20) * 340),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 226),
+        getLineColor: [250, 254, 255, 238],
+        lineWidthMinPixels: 1.8,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.zone_id),
       }));
@@ -1002,14 +1034,15 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   private deckColor(tone: string, selected = false, alpha = 120): number[] {
-    const base = tone === 'critical' ? [239, 111, 125] : tone === 'watch' ? [237, 199, 101] : [105, 216, 155];
-    return [...base, selected ? 162 : alpha];
+    const base = tone === 'critical' ? [255, 72, 86] : tone === 'watch' ? [255, 178, 47] : [72, 226, 132];
+    return [...base, selected ? Math.max(alpha, 226) : alpha];
   }
 
-  private deckLineColor(tone: string, selected = false): number[] {
-    if (tone === 'critical') return [255, 156, 166, selected ? 235 : 178];
-    if (tone === 'watch') return [255, 224, 137, selected ? 235 : 188];
-    return [160, 240, 198, selected ? 224 : 168];
+  private deckLineColor(tone: string, selected = false, fallbackAlpha?: number): number[] {
+    const alpha = fallbackAlpha ?? (selected ? 255 : 218);
+    if (tone === 'critical') return [255, 132, 142, alpha];
+    if (tone === 'watch') return [255, 220, 102, alpha];
+    return [130, 255, 184, alpha];
   }
 
   private enableFallback(): void {
