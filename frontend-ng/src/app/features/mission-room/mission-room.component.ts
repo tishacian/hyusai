@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, Input, OnDestroy, OnInit, computed,
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { forkJoin } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -1914,7 +1915,7 @@ export class MissionRailComponent {
               <span class="eyebrow">Flux visuels institutionnels</span>
               <h2>{{ monitor()?.visual?.connector?.label || 'Flux visuels' }}</h2>
             </div>
-            @if (monitor()?.visual?.sources?.[0]; as source) {
+            @if (primaryVisualSource(); as source) {
               <button type="button" class="action-button compact" (click)="captureVisualSource(source)">
                 <ck-glyph name="focus" [size]="14" />
                 <span>Capture</span>
@@ -1924,7 +1925,15 @@ export class MissionRailComponent {
           <div class="visual-grid visual-console">
             <figure class="snapshot-frame">
               @if (primaryVisualSource(); as source) {
-                @if (webcamPreviewUrl(source); as previewUrl) {
+                @if (visualEmbedUrl(source); as embedUrl) {
+                  <iframe
+                    [src]="embedUrl"
+                    [title]="'Flux live - ' + source.name"
+                    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                    referrerpolicy="no-referrer-when-downgrade"
+                    allowfullscreen
+                  ></iframe>
+                } @else if (webcamPreviewUrl(source); as previewUrl) {
                   <img
                     [src]="previewUrl"
                     [alt]="'Derniere image webcam - ' + source.name"
@@ -2007,8 +2016,15 @@ export class MissionRailComponent {
               </article>
 
               <div class="visual-source-strip">
-                @for (source of monitor()?.visual?.sources || []; track source.id) {
-                  <article>
+                @for (source of visualSources(); track source.id) {
+                  <article
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-pressed]="isVisualSourceSelected(source)"
+                    (click)="selectVisualSource(source)"
+                    (keydown.enter)="selectVisualSource(source)"
+                    (keydown.space)="$event.preventDefault(); selectVisualSource(source)"
+                  >
                     <span class="source-status" [class.active]="source.status === 'active'"></span>
                     <div>
                       <strong>{{ source.name }}</strong>
@@ -3399,12 +3415,16 @@ export class MissionRailComponent {
         opacity: 0.55;
         z-index: 3;
       }
-      .snapshot-frame img {
+      .snapshot-frame img,
+      .snapshot-frame iframe {
         width: 100%;
         height: 100%;
-        object-fit: cover;
         display: block;
         min-height: 430px;
+        border: 0;
+      }
+      .snapshot-frame img {
+        object-fit: cover;
         filter: saturate(0.92) contrast(1.05);
       }
       .camera-overlay {
@@ -3599,10 +3619,6 @@ export class MissionRailComponent {
         background: #59e6a4;
         box-shadow: 0 0 0 4px rgba(89, 230, 164, 0.10), 0 0 14px rgba(89, 230, 164, 0.35);
       }
-      .health-grid.compact {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        margin: 0;
-      }
       @keyframes livePulse {
         0%, 100% { opacity: 0.82; transform: scale(0.94); }
         50% { opacity: 1; transform: scale(1.12); }
@@ -3692,6 +3708,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly chat = inject(ChatOverlayService);
+  private readonly sanitizer = inject(DomSanitizer);
   protected readonly workspace = inject(WorkspaceService);
 
   private readonly routeView = toSignal(
@@ -3719,12 +3736,14 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly mapCommandState = signal<Record<string, unknown> | null>(null);
   readonly visualCaptureImages = signal<Record<string, string>>({});
   readonly visualPreviewFailures = signal<Record<string, true>>({});
+  readonly selectedVisualSourceId = signal<string | null>(null);
 
   searchQueryValue = '';
   newAgendaTitle = '';
   newAgendaStart = '2026-04-15T09:45';
   newAgendaLocation = 'Cabinet vice-presidence';
   private readonly visualObjectUrls: string[] = [];
+  private readonly trustedVisualEmbeds = new Map<string, SafeResourceUrl>();
   private readonly calendarUpdateListener = () => this.loadAll();
   private readonly workspaceActionUpdateListener = () => this.loadAll();
   private readonly mapCommandListener = (event: Event) => {
@@ -3942,12 +3961,39 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   primaryVisualSource(): VisualSource | null {
-    const sources = this.monitor()?.visual?.sources || [];
-    return sources.find((source) => source.enabled && source.status === 'active') || sources[0] || null;
+    const sources = this.visualSources();
+    const selectedId = this.selectedVisualSourceId();
+    const selected = selectedId ? sources.find((source) => source.id === selectedId) : null;
+    return selected || sources.find((source) => source.enabled && source.status === 'active') || sources[0] || null;
   }
 
   latestVisualObservation(): VisualObservation | null {
     return this.monitor()?.visual?.latest_observation || this.monitor()?.visual_observations?.[0] || null;
+  }
+
+  visualSources(): VisualSource[] {
+    return [...(this.monitor()?.visual?.sources || [])].sort((a, b) => this.visualPriority(a) - this.visualPriority(b));
+  }
+
+  selectVisualSource(source: VisualSource): void {
+    if (source?.id) this.selectedVisualSourceId.set(source.id);
+  }
+
+  isVisualSourceSelected(source: VisualSource): boolean {
+    return this.primaryVisualSource()?.id === source.id;
+  }
+
+  visualEmbedUrl(source: VisualSource | null): SafeResourceUrl | null {
+    if (!source) return null;
+    const rawUrl = this.visualMetadataUrl(source, 'embed_url') || this.visualMetadataUrl(source, 'player_url');
+    const url = this.trustedVisualEmbedUrl(rawUrl);
+    if (!url) return null;
+    const cacheKey = `${source.id}:${url}`;
+    const cached = this.trustedVisualEmbeds.get(cacheKey);
+    if (cached) return cached;
+    const trusted = this.sanitizer.bypassSecurityTrustResourceUrl(url);
+    this.trustedVisualEmbeds.set(cacheKey, trusted);
+    return trusted;
   }
 
   webcamPreviewUrl(source: VisualSource | null): string | null {
@@ -3967,7 +4013,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   visualSourceDetail(source: VisualSource): string {
     const metadata = source.metadata || {};
     const provider = typeof metadata['provider'] === 'string' ? metadata['provider'] : source.adapter;
-    const mode = typeof metadata['layer_kind'] === 'string' ? metadata['layer_kind'].replace(/_/g, ' ') : source.source_type;
+    const mode = typeof metadata['stream_kind'] === 'string'
+      ? metadata['stream_kind'].replace(/_/g, ' ')
+      : typeof metadata['layer_kind'] === 'string'
+        ? metadata['layer_kind'].replace(/_/g, ' ')
+        : source.source_type;
     const refresh = Number(metadata['refresh_seconds'] || 0);
     const refreshLabel = refresh ? `maj ~${refresh}s` : `cadence ${source.capture_cadence_minutes} min`;
     return `${provider} · ${mode} · ${refreshLabel}`;
@@ -3984,6 +4034,27 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   visualCaptureTime(capture: VisualCapture): string {
     if (!capture.captured_at) return 'capture recente';
     return new Date(capture.captured_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  private visualPriority(source: VisualSource): number {
+    const value = Number((source.metadata || {})['priority']);
+    return Number.isFinite(value) ? value : 999;
+  }
+
+  private visualMetadataUrl(source: VisualSource, key: string): string {
+    const value = (source.metadata || {})[key];
+    return typeof value === 'string' ? value : '';
+  }
+
+  private trustedVisualEmbedUrl(rawUrl: string): string | null {
+    const normalized = rawUrl.startsWith('//') ? `https:${rawUrl}` : rawUrl;
+    try {
+      const url = new URL(normalized);
+      if (url.protocol !== 'https:' || url.hostname !== 'video.nest.com') return null;
+      return url.toString();
+    } catch {
+      return null;
+    }
   }
 
   captureVisualSource(source: VisualSource): void {

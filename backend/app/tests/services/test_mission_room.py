@@ -61,7 +61,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert db_session.query(System).filter_by(workspace_id=workspace.id).count() == 7
     assert db_session.query(WorkspaceCalendarEvent).filter_by(workspace_id=workspace.id).count() >= 7
     assert db_session.query(WorkspaceActionItem).filter_by(workspace_id=workspace.id).count() >= 3
-    assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() == 1
+    assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() >= 8
     assert db_session.query(FeedSource).filter_by(workspace_id=workspace.id).count() >= 3
     preset = db_session.query(RagPreset).filter_by(workspace_id=workspace.id, is_default=True).one()
     assert preset.scope_id == workspace.id

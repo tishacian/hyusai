@@ -9,7 +9,6 @@ from typing import Any, Optional
 from uuid import uuid4
 
 import httpx
-from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
@@ -27,10 +26,100 @@ from app.services.workspace_jobs import create_workspace_job, serialize_job, tra
 
 
 VISUAL_COLLECTION_SLUG = "sentinel-ci-visual-intelligence"
-DEFAULT_SOURCE_NAME = "Abidjan - couche webcam publique"
-LEGACY_DEFAULT_SOURCE_NAME = "Abidjan Plateau - veille visuelle"
-DEFAULT_SOURCE_URL = "https://images.pictimo.com/storage/live_thumbs/orig_45907.jpg"
-DEFAULT_SOURCE_PAGE = "https://www.pictimo.com/ivory-coast/abidjan/45907/webcam-live-webcam-in-abidjan"
+LEGACY_DEFAULT_SOURCE_NAMES = ("Abidjan - couche webcam publique", "Abidjan Plateau - veille visuelle")
+ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
+    {
+        "name": "Abidjan.net - Pont General-de-Gaulle",
+        "description": "Flux live public Abidjan.net/Nest pour veille trafic et meteo urbaine.",
+        "source_url": "https://media-files.abidjan.net/camera/__medium/PontGeneral-de-Gaulle.jpg",
+        "source_page": "https://www.abidjan.net/trafic-routier/23-pont-general-de-gaulle",
+        "embed_url": "https://video.nest.com/embedded/live/F9fa32yXTo?autoplay=1",
+        "nest_token": "F9fa32yXTo",
+        "region": "Abidjan / Pont General-de-Gaulle",
+        "priority": 1,
+        "default_vigilance_score": 42,
+    },
+    {
+        "name": "Abidjan.net - Boulevard Lagunaire Plateau",
+        "description": "Flux live public Abidjan.net/Nest sur le Plateau et la lagune.",
+        "source_url": "https://media-files.abidjan.net/camera/__medium/Boulevard_Lagunaire.png",
+        "source_page": "https://www.abidjan.net/trafic-routier/1-boulevard-lagunaire-plateau",
+        "embed_url": "https://video.nest.com/embedded/live/v4xT9u9Elg?autoplay=1",
+        "nest_token": "v4xT9u9Elg",
+        "region": "Abidjan / Plateau",
+        "priority": 2,
+        "default_vigilance_score": 40,
+    },
+    {
+        "name": "Abidjan.net - Echangeur de Marcory",
+        "description": "Flux live public Abidjan.net/Nest pour veille de mobilite a Marcory.",
+        "source_url": "https://media-files.abidjan.net/camera/__medium/CamEchangeurMarcoryTOA.jpg",
+        "source_page": "https://www.abidjan.net/trafic-routier/27-echangeur-de-marcory-esprit-lounge-bar-le-toa",
+        "embed_url": "https://video.nest.com/embedded/live/9KPnrmunvf?autoplay=1",
+        "nest_token": "9KPnrmunvf",
+        "region": "Abidjan / Marcory",
+        "priority": 3,
+        "default_vigilance_score": 44,
+    },
+    {
+        "name": "Abidjan.net - Grand carrefour de Treichville",
+        "description": "Flux live public Abidjan.net/Nest pour veille du carrefour Treichville.",
+        "source_url": "https://media-files.abidjan.net/camera/__medium/Gd_carrefour_tech_cacomif.jpg",
+        "source_page": "https://www.abidjan.net/trafic-routier/25-grand-carrefour-de-treichville-cacomiaf",
+        "embed_url": "https://video.nest.com/embedded/live/7kMbTt?autoplay=1",
+        "nest_token": "7kMbTt",
+        "region": "Abidjan / Treichville",
+        "priority": 4,
+        "default_vigilance_score": 45,
+    },
+    {
+        "name": "Abidjan.net - Grand carrefour de Koumassi",
+        "description": "Flux live public Abidjan.net/Nest pour veille du carrefour Koumassi.",
+        "source_url": "https://media-files.abidjan.net/camera/__medium/Gd_carrefour_Koumassi.jpg",
+        "source_page": "https://www.abidjan.net/trafic-routier/22-grand-carrefour-de-koumassi",
+        "embed_url": "https://video.nest.com/embedded/live/kRwGtt?autoplay=1",
+        "nest_token": "kRwGtt",
+        "region": "Abidjan / Koumassi",
+        "priority": 5,
+        "default_vigilance_score": 43,
+    },
+    {
+        "name": "Abidjan.net - Carrefour Sococe 2 Plateaux",
+        "description": "Flux live public Abidjan.net/Nest pour veille du carrefour Sococe Latrille.",
+        "source_url": "https://media-files.abidjan.net/camera/__medium/Carrefour_Sococe_2Plx.jpg",
+        "source_page": "https://www.abidjan.net/trafic-routier/21-carrefour-sococe-2-plateaux-latrille",
+        "embed_url": "https://video.nest.com/embedded/live/aI5d42?autoplay=1",
+        "nest_token": "aI5d42",
+        "region": "Abidjan / Cocody",
+        "priority": 6,
+        "default_vigilance_score": 39,
+    },
+    {
+        "name": "Abidjan.net - Yopougon Sable",
+        "description": "Flux live public Abidjan.net/Nest pour veille du carrefour Yopougon Sable.",
+        "source_url": "https://media-files.abidjan.net/camera/__medium/yopougon-sable.jpg",
+        "source_page": "https://www.abidjan.net/trafic-routier/28-yopougon-sable-lartisan",
+        "embed_url": "https://video.nest.com/embedded/live/qESphtavfu?autoplay=1",
+        "nest_token": "qESphtavfu",
+        "region": "Abidjan / Yopougon",
+        "priority": 7,
+        "default_vigilance_score": 46,
+    },
+    {
+        "name": "Abidjan.net - Plage d'Assinie",
+        "description": "Flux live public Abidjan.net/Nest pour veille meteo cotiere a Assinie.",
+        "source_url": "https://media-files.abidjan.net/camera/__medium/PlageAssinieKame.jpg",
+        "source_page": "https://www.abidjan.net/trafic-routier/26-plage-dassinie-kame-surf-camp-school",
+        "embed_url": "https://video.nest.com/embedded/live/3SWh5rcBTO?autoplay=1",
+        "nest_token": "3SWh5rcBTO",
+        "region": "Cote d'Ivoire / Assinie",
+        "priority": 8,
+        "default_vigilance_score": 34,
+    },
+)
+DEFAULT_SOURCE_NAME = ABIDJAN_NET_VISUAL_SOURCES[0]["name"]
+DEFAULT_SOURCE_URL = ABIDJAN_NET_VISUAL_SOURCES[0]["source_url"]
+DEFAULT_SOURCE_PAGE = ABIDJAN_NET_VISUAL_SOURCES[0]["source_page"]
 
 
 def ensure_visual_intelligence_seed(
@@ -41,83 +130,114 @@ def ensure_visual_intelligence_seed(
 ) -> dict[str, Any]:
     """Seed the visual connector and Knowledge target for demo workspaces."""
     collection = ensure_visual_collection(db, workspace)
-    existing = (
+    source_created = 0
+    seeded_source_ids: list[str] = []
+    default_policy = _default_visual_policy()
+    legacy_source = (
         db.query(WorkspaceVisualSource)
         .filter(
             WorkspaceVisualSource.workspace_id == workspace.id,
-            or_(WorkspaceVisualSource.name == DEFAULT_SOURCE_NAME, WorkspaceVisualSource.name == LEGACY_DEFAULT_SOURCE_NAME),
+            WorkspaceVisualSource.name.in_(LEGACY_DEFAULT_SOURCE_NAMES),
         )
         .first()
     )
-    source_created = False
-    default_policy = {
+    for index, spec in enumerate(ABIDJAN_NET_VISUAL_SOURCES):
+        existing = (
+            db.query(WorkspaceVisualSource)
+            .filter(WorkspaceVisualSource.workspace_id == workspace.id, WorkspaceVisualSource.name == spec["name"])
+            .first()
+        )
+        if not existing and index == 0 and legacy_source:
+            existing = legacy_source
+        if not existing:
+            existing = WorkspaceVisualSource(
+                id=str(uuid4()),
+                workspace_id=workspace.id,
+                system_id=system_id,
+                name=spec["name"],
+                description=spec["description"],
+                source_url=spec["source_url"],
+                source_type="stream_embed",
+                adapter="http_image",
+                region=spec["region"],
+                status="active",
+                enabled=True,
+                capture_cadence_minutes=60,
+                policy=default_policy,
+                meta_data=_webcam_metadata(spec),
+            )
+            db.add(existing)
+            db.flush()
+            source_created += 1
+            emit_audit_event(
+                db=db,
+                workspace_id=workspace.id,
+                event_type="visual.source.seeded",
+                actor="system",
+                details={"source_id": existing.id, "adapter": existing.adapter, "collection": collection.slug},
+            )
+        else:
+            _apply_seed_source(existing, spec, default_policy, system_id=system_id)
+            db.flush()
+        seeded_source_ids.append(existing.id)
+    return {"collection": collection.slug, "source_id": seeded_source_ids[0], "source_created": source_created}
+
+
+def _default_visual_policy() -> dict[str, Any]:
+    return {
         "capture": "manual_or_scheduled_snapshot",
         "allowed_use": "situational_briefing",
         "pii_policy": "no_identification_no_biometrics",
         "human_validation_required": True,
         "recording": "no_continuous_recording",
     }
-    default_metadata = _default_webcam_metadata()
-    if not existing:
-        existing = WorkspaceVisualSource(
-            id=str(uuid4()),
-            workspace_id=workspace.id,
-            system_id=system_id,
-            name=DEFAULT_SOURCE_NAME,
-            description="Couche webcam publique pour snapshots horodates, analyse visuelle legere et posture de situation.",
-            source_url=DEFAULT_SOURCE_URL,
-            source_type="webcam",
-            adapter="http_image",
-            region="Abidjan / Le Plateau",
-            status="active",
-            enabled=True,
-            capture_cadence_minutes=60,
-            policy=default_policy,
-            meta_data=default_metadata,
-        )
-        db.add(existing)
-        db.flush()
-        source_created = True
-        emit_audit_event(
-            db=db,
-            workspace_id=workspace.id,
-            event_type="visual.source.seeded",
-            actor="system",
-            details={"source_id": existing.id, "adapter": existing.adapter, "collection": collection.slug},
-        )
-    else:
-        metadata = dict(existing.meta_data or {})
-        metadata.update({
-            key: value
-            for key, value in default_metadata.items()
-            if key not in metadata
-            or key
-            in {
-                "provider",
-                "layer_kind",
-                "preview_url",
-                "source_page",
-                "analysis_mode",
-                "attribution",
-                "timelapse_policy",
-            }
-        })
-        existing.name = DEFAULT_SOURCE_NAME
-        existing.description = "Couche webcam publique pour snapshots horodates, analyse visuelle legere et posture de situation."
-        existing.source_url = DEFAULT_SOURCE_URL
-        existing.source_type = "webcam"
-        existing.adapter = "http_image"
-        existing.region = "Abidjan / Le Plateau"
-        existing.enabled = True
-        if existing.status not in {"active", "paused"}:
-            existing.status = "active"
-        existing.capture_cadence_minutes = existing.capture_cadence_minutes or 60
-        existing.policy = {**default_policy, **(existing.policy or {})}
-        existing.meta_data = metadata
-        existing.system_id = existing.system_id or system_id
-        existing.updated_at = datetime.utcnow()
-        db.flush()
-    return {"collection": collection.slug, "source_id": existing.id, "source_created": source_created}
+
+
+def _apply_seed_source(
+    source: WorkspaceVisualSource,
+    spec: dict[str, Any],
+    default_policy: dict[str, Any],
+    *,
+    system_id: Optional[str],
+) -> None:
+    metadata = dict(source.meta_data or {})
+    seeded_metadata = _webcam_metadata(spec)
+    metadata.update({
+        key: value
+        for key, value in seeded_metadata.items()
+        if key not in metadata
+        or key
+        in {
+            "provider",
+            "video_provider",
+            "layer_kind",
+            "stream_kind",
+            "embed_url",
+            "player_url",
+            "preview_url",
+            "source_page",
+            "analysis_mode",
+            "attribution",
+            "timelapse_policy",
+            "priority",
+            "nest_public_token",
+            "refresh_seconds",
+        }
+    })
+    source.name = spec["name"]
+    source.description = spec["description"]
+    source.source_url = spec["source_url"]
+    source.source_type = "stream_embed"
+    source.adapter = "http_image"
+    source.region = spec["region"]
+    source.enabled = True
+    if source.status not in {"active", "paused"}:
+        source.status = "active"
+    source.capture_cadence_minutes = source.capture_cadence_minutes or 60
+    source.policy = {**default_policy, **(source.policy or {})}
+    source.meta_data = metadata
+    source.system_id = source.system_id or system_id
+    source.updated_at = datetime.utcnow()
 
 
 def ensure_visual_collection(db: DBSession, workspace: Workspace) -> KnowledgeCollection:
@@ -150,12 +270,18 @@ def ensure_visual_collection(db: DBSession, workspace: Workspace) -> KnowledgeCo
 
 
 def list_sources(db: DBSession, workspace: Workspace) -> list[WorkspaceVisualSource]:
-    return (
+    rows = (
         db.query(WorkspaceVisualSource)
         .filter(WorkspaceVisualSource.workspace_id == workspace.id)
         .order_by(WorkspaceVisualSource.created_at.asc())
         .all()
     )
+    return sorted(rows, key=_source_priority)
+
+
+def _source_priority(source: WorkspaceVisualSource) -> int:
+    value = (source.meta_data or {}).get("priority")
+    return value if isinstance(value, int) else 999
 
 
 def get_source(db: DBSession, workspace: Workspace, source_id: str) -> WorkspaceVisualSource:
@@ -402,7 +528,7 @@ def dashboard_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
             "id": "visual_streams",
             "label": "Flux visuels institutionnels",
             "status": "connected" if active_sources else "configured",
-            "mode": "webcam_snapshot_layer",
+            "mode": "live_webcam_embed_layer",
             "policy": "no_identification_no_biometrics",
         },
         "source_health": {
@@ -586,20 +712,30 @@ def serialize_observation(observation: WorkspaceVisualObservation) -> dict[str, 
 
 
 def _default_webcam_metadata() -> dict[str, Any]:
+    return _webcam_metadata(ABIDJAN_NET_VISUAL_SOURCES[0])
+
+
+def _webcam_metadata(spec: dict[str, Any]) -> dict[str, Any]:
     return {
         "demo_fallback": True,
         "provider_neutral": True,
-        "provider": "pictimo",
+        "provider": "abidjan.net",
+        "video_provider": "google_nest_public_embed",
         "country": "Cote d'Ivoire",
-        "default_vigilance_score": 38,
+        "default_vigilance_score": spec["default_vigilance_score"],
         "layer": "visual_streams",
-        "layer_kind": "webcam_snapshot",
-        "preview_url": DEFAULT_SOURCE_URL,
-        "source_page": DEFAULT_SOURCE_PAGE,
-        "refresh_seconds": 300,
-        "analysis_mode": "snapshot_to_vlm_ready",
-        "attribution": "Pictimo public webcam snapshot",
-        "timelapse_policy": "latest_periodic_image_from_webcam_layer",
+        "layer_kind": "live_webcam_embed",
+        "stream_kind": "nest_public_embed",
+        "embed_url": spec["embed_url"],
+        "player_url": spec["embed_url"],
+        "preview_url": spec["source_url"],
+        "source_page": spec["source_page"],
+        "refresh_seconds": 60,
+        "analysis_mode": "live_embed_plus_snapshot_to_vlm_ready",
+        "attribution": "Abidjan.net Trafic routier & Meteo, lecteur public Google Nest",
+        "timelapse_policy": "live_public_embed_with_latest_preview_for_snapshot",
+        "priority": spec["priority"],
+        "nest_public_token": spec["nest_token"],
     }
 
 

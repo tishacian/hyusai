@@ -38,8 +38,11 @@ def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db
     assert sources.status_code == 200
     source = sources.json()["sources"][0]
     assert source["adapter"] == "http_image"
-    assert source["metadata"]["layer_kind"] == "webcam_snapshot"
-    assert source["region"] == "Abidjan / Le Plateau"
+    assert source["source_type"] == "stream_embed"
+    assert source["metadata"]["provider"] == "abidjan.net"
+    assert source["metadata"]["layer_kind"] == "live_webcam_embed"
+    assert source["metadata"]["embed_url"].startswith("https://video.nest.com/embedded/live/")
+    assert source["region"] == "Abidjan / Pont General-de-Gaulle"
 
     capture = client.post(f"/api/v1/visual-intelligence/sources/{source['id']}/capture")
 
@@ -63,7 +66,9 @@ def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db
     collection = db_session.query(KnowledgeCollection).filter_by(slug="sentinel-ci-visual-intelligence").one()
     assert collection.workspace_id == workspace.id
     assert collection.document_count == 1
-    assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() == 1
+    assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() == len(
+        visual_service.ABIDJAN_NET_VISUAL_SOURCES
+    )
     assert db_session.query(WorkspaceVisualCapture).filter_by(workspace_id=workspace.id).count() == 1
     assert db_session.query(WorkspaceVisualObservation).filter_by(workspace_id=workspace.id).count() == 1
 
