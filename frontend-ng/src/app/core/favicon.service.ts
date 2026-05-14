@@ -3,7 +3,9 @@ import { NavigationEnd, Router } from '@angular/router';
 import { filter, startWith } from 'rxjs';
 
 const DEFAULT_FAVICON = '/assets/brand/favicon.svg';
-const SENTINEL_CI_FAVICON = '/assets/brand/sentinel-ci-favicon.svg';
+const DEFAULT_TITLE = 'Agentium';
+const SENTINEL_CI_FAVICON = '/assets/brand/sentinel-ci-favicon.svg?v=20260514-2';
+const SENTINEL_CI_TITLE = 'SENTINEL-CI';
 
 @Injectable({ providedIn: 'root' })
 export class FaviconService {
@@ -27,11 +29,14 @@ export class FaviconService {
 
   private apply(url: string): void {
     const path = url.split('?')[0].split('#')[0];
-    const href = path.startsWith('/hypervisor/mission-room') ? SENTINEL_CI_FAVICON : DEFAULT_FAVICON;
+    const isSentinel = path.startsWith('/hypervisor/mission-room');
+    const href = isSentinel ? SENTINEL_CI_FAVICON : DEFAULT_FAVICON;
     const link = this.ensureIconLink();
-    if (link.getAttribute('href') === href) return;
-    link.setAttribute('href', href);
-    link.setAttribute('type', 'image/svg+xml');
+    if (link.getAttribute('href') !== href) {
+      link.setAttribute('href', href);
+      link.setAttribute('type', 'image/svg+xml');
+    }
+    document.title = isSentinel ? SENTINEL_CI_TITLE : DEFAULT_TITLE;
   }
 
   private ensureIconLink(): HTMLLinkElement {

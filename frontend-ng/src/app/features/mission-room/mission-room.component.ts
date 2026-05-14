@@ -706,13 +706,13 @@ export class MissionSourcePillComponent {
   template: `
     <aside class="mission-rail" aria-label="Navigation SENTINEL-CI">
       <div class="rail-brand">
-        <span class="brand-seal" aria-hidden="true">
-          <img src="/assets/brand/sentinel-ci-mark.svg" alt="" width="46" height="46" />
-        </span>
-        <div>
-          <strong>SENTINEL-CI</strong>
-          <small>Republique de Cote d'Ivoire</small>
-        </div>
+        <img
+          class="brand-lockup"
+          src="/assets/brand/sentinel-ci-logo.svg?v=20260514-2"
+          alt="SENTINEL-CI - Republique de Cote d'Ivoire"
+          width="184"
+          height="49"
+        />
       </div>
 
       <div class="assistant-badge">
@@ -784,36 +784,14 @@ export class MissionSourcePillComponent {
       .rail-brand {
         display: flex;
         align-items: center;
-        gap: 10px;
-        color: var(--mission-text, var(--ck-fg-1));
+        min-height: 50px;
         min-width: 0;
       }
-      .brand-seal {
-        width: 46px;
-        height: 46px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        flex: 0 0 auto;
+      .brand-lockup {
+        display: block;
+        width: min(184px, 100%);
+        height: auto;
         filter: drop-shadow(0 16px 22px rgba(0, 0, 0, 0.42));
-      }
-      .brand-seal img {
-        display: block;
-        width: 46px;
-        height: 46px;
-      }
-      .rail-brand strong {
-        display: block;
-        font-family: var(--ck-font-mono);
-        font-size: 12px;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-      }
-      .rail-brand small {
-        color: var(--mission-text-muted, var(--ck-fg-3));
-        font-family: var(--ck-font-mono);
-        font-size: 10px;
-        letter-spacing: 0.18em;
       }
       .assistant-badge {
         display: flex;
