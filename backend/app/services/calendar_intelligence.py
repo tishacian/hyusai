@@ -21,7 +21,7 @@ def analyze_calendar(
     """Return conflict, free-slot and decision-pressure heuristics.
 
     The goal is not to pretend to be a calendar AI. It is to produce stable,
-    explainable signals VIGIE can cite: overlaps, tight transitions, missing
+    explainable signals the executive assistant can cite: overlaps, tight transitions, missing
     decision slots and clear move recommendations.
     """
 

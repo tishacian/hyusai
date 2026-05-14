@@ -706,10 +706,21 @@ export class MissionSourcePillComponent {
   template: `
     <aside class="mission-rail" aria-label="Navigation SENTINEL-CI">
       <div class="rail-brand">
-        <span class="brand-mark">S</span>
+        <span class="brand-seal" aria-hidden="true">
+          <i></i>
+          <b>CI</b>
+        </span>
         <div>
           <strong>SENTINEL-CI</strong>
-          <small>{{ assistantName }}</small>
+          <small>Republique de Cote d'Ivoire</small>
+        </div>
+      </div>
+
+      <div class="assistant-badge">
+        <span class="assistant-avatar">{{ assistantName }}</span>
+        <div>
+          <strong>{{ assistantName }}</strong>
+          <small>Assistante strategique</small>
         </div>
       </div>
 
@@ -778,18 +789,51 @@ export class MissionSourcePillComponent {
         color: var(--mission-text, var(--ck-fg-1));
         min-width: 0;
       }
-      .brand-mark {
-        width: 34px;
-        height: 34px;
-        border-radius: 9px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--mission-accent, var(--ck-signal-cool));
-        font-weight: 800;
-        background: var(--mission-accent-wash, rgba(125, 211, 252, 0.08));
-        border: 1px solid var(--mission-border-strong, var(--ck-stroke-hot));
-        box-shadow: var(--mission-shadow-card, none);
+      .brand-seal {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        display: inline-grid;
+        place-items: center;
+        position: relative;
+        flex: 0 0 auto;
+        color: var(--mission-gold, #e3c681);
+        font-family: var(--ck-font-mono);
+        font-size: 12px;
+        font-weight: 850;
+        letter-spacing: 0;
+        background:
+          radial-gradient(circle at 50% 50%, rgba(8, 13, 17, 0.98) 0 48%, transparent 49%),
+          conic-gradient(from 215deg, var(--mission-orange, #f28c38) 0 28%, rgba(226, 198, 129, 0.84) 28% 66%, var(--mission-accent, #65d66e) 66% 100%);
+        border: 1px solid rgba(226, 198, 129, 0.36);
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), inset 0 0 0 1px rgba(255,255,255,0.08);
+      }
+      .brand-seal::before,
+      .brand-seal::after,
+      .brand-seal i {
+        content: '';
+        position: absolute;
+        border-radius: 999px;
+        pointer-events: none;
+      }
+      .brand-seal::before {
+        inset: 6px;
+        border: 1px solid rgba(226, 198, 129, 0.44);
+      }
+      .brand-seal::after {
+        width: 20px;
+        height: 1px;
+        bottom: 10px;
+        background: linear-gradient(90deg, transparent, rgba(226, 198, 129, 0.8), transparent);
+      }
+      .brand-seal i {
+        inset: 10px;
+        border-left: 1px solid rgba(101, 214, 110, 0.58);
+        border-right: 1px solid rgba(242, 140, 56, 0.58);
+      }
+      .brand-seal b {
+        position: relative;
+        z-index: 1;
       }
       .rail-brand strong {
         display: block;
@@ -803,6 +847,46 @@ export class MissionSourcePillComponent {
         font-family: var(--ck-font-mono);
         font-size: 10px;
         letter-spacing: 0.18em;
+      }
+      .assistant-badge {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px;
+        border: 1px solid rgba(242, 140, 56, 0.20);
+        border-radius: var(--mission-radius, 8px);
+        background:
+          linear-gradient(135deg, rgba(242, 140, 56, 0.095), rgba(101, 214, 110, 0.045)),
+          var(--mission-panel-hi, var(--ck-bg-panel-hi));
+      }
+      .assistant-avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--mission-orange, #f28c38);
+        font-family: var(--ck-font-mono);
+        font-size: 12px;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        background: rgba(8, 13, 17, 0.72);
+        border: 1px solid rgba(242, 140, 56, 0.32);
+        box-shadow: inset 0 0 18px rgba(242, 140, 56, 0.08);
+      }
+      .assistant-badge strong {
+        display: block;
+        color: var(--mission-text, var(--ck-fg-1));
+        font-family: var(--ck-font-mono);
+        font-size: 13px;
+        letter-spacing: 0.12em;
+      }
+      .assistant-badge small {
+        display: block;
+        margin-top: 2px;
+        color: var(--mission-text-muted, var(--ck-fg-3));
+        font-size: 11px;
       }
       .rail-search,
       .mission-nav-item,
@@ -889,7 +973,7 @@ export class MissionRailComponent {
   @Input() items: MissionNavigationItem[] = [];
   @Input() activeView: MissionView = 'cockpit';
   @Input() adminRoute = '/workspace';
-  @Input() assistantName = 'VIGIE';
+  @Input() assistantName = 'AYA';
 }
 
 @Component({
@@ -924,17 +1008,23 @@ export class MissionRailComponent {
           </div>
         } @else {
           <header class="mission-hero">
-            <div class="hero-copy">
-              <div class="hero-meta">
-                <span class="eyebrow">AI Government Mission Room</span>
-                <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
+            <div class="hero-identity">
+              <span class="hero-seal" aria-hidden="true">
+                <i></i>
+                <b>CI</b>
+              </span>
+              <div class="hero-copy">
+                <div class="hero-meta">
+                  <span class="eyebrow">Mission Room Gouvernementale</span>
+                  <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
+                </div>
+                <h1>{{ cockpit()?.title || 'Bonjour, M. le Vice-Président.' }}</h1>
+                <p>
+                  <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
+                  <span class="hero-dot"></span>
+                  <span>Vision executive consolidee</span>
+                </p>
               </div>
-              <h1>{{ cockpit()?.title || 'Bonjour, Ministre.' }}</h1>
-              <p>
-                <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
-                <span class="hero-dot"></span>
-                <span>Vision executive consolidee</span>
-              </p>
             </div>
             <div class="hero-actions">
               <a routerLink="/hypervisor/mission-room/briefing" class="action-button primary">
@@ -2042,25 +2132,28 @@ export class MissionRailComponent {
     `
       :host {
         --mission-bg: #05080c;
-        --mission-bg-grid: rgba(125, 211, 252, 0.035);
-        --mission-rail-bg: linear-gradient(180deg, #05080c 0%, #060a10 100%);
-        --mission-panel: linear-gradient(180deg, rgba(15, 22, 32, 0.96) 0%, rgba(10, 15, 23, 0.98) 100%);
-        --mission-panel-hi: rgba(18, 27, 39, 0.92);
+        --mission-bg-grid: rgba(101, 214, 110, 0.035);
+        --mission-rail-bg: linear-gradient(180deg, #05080c 0%, #06100a 100%);
+        --mission-panel: linear-gradient(180deg, rgba(15, 24, 28, 0.96) 0%, rgba(10, 16, 19, 0.98) 100%);
+        --mission-panel-hi: rgba(18, 31, 28, 0.92);
         --mission-inset: rgba(4, 8, 13, 0.84);
         --mission-border: rgba(156, 184, 212, 0.14);
-        --mission-border-strong: rgba(125, 211, 252, 0.28);
+        --mission-border-strong: rgba(101, 214, 110, 0.30);
         --mission-text: #f4f7fb;
         --mission-text-soft: #c4ceda;
         --mission-text-muted: #8996a8;
         --mission-text-faint: #596678;
-        --mission-accent: #8bd8ff;
-        --mission-accent-strong: #54c7f3;
-        --mission-accent-muted: rgba(139, 216, 255, 0.38);
-        --mission-accent-wash: rgba(139, 216, 255, 0.09);
-        --mission-trust: #42d99b;
-        --mission-trust-wash: rgba(66, 217, 155, 0.10);
-        --mission-warn: #eab85c;
-        --mission-warn-wash: rgba(234, 184, 92, 0.12);
+        --mission-accent: #65d66e;
+        --mission-accent-strong: #93ef74;
+        --mission-accent-muted: rgba(101, 214, 110, 0.38);
+        --mission-accent-wash: rgba(101, 214, 110, 0.095);
+        --mission-trust: #3fd18d;
+        --mission-trust-wash: rgba(63, 209, 141, 0.10);
+        --mission-warn: #f1b45a;
+        --mission-warn-wash: rgba(241, 180, 90, 0.12);
+        --mission-orange: #f28c38;
+        --mission-orange-wash: rgba(242, 140, 56, 0.12);
+        --mission-gold: #e3c681;
         --mission-danger: #f06476;
         --mission-danger-wash: rgba(240, 100, 118, 0.12);
         --mission-radius-sm: 6px;
@@ -2080,7 +2173,7 @@ export class MissionRailComponent {
         background:
           linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
           linear-gradient(180deg, rgba(255, 255, 255, 0.016) 1px, transparent 1px),
-          linear-gradient(180deg, rgba(125, 211, 252, 0.045) 0%, rgba(5, 8, 12, 0) 32%),
+          linear-gradient(180deg, rgba(101, 214, 110, 0.05) 0%, rgba(242, 140, 56, 0.025) 18%, rgba(5, 8, 12, 0) 36%),
           var(--mission-bg);
         background-size: 48px 48px, 48px 48px, auto, auto;
         color: var(--mission-text);
@@ -2115,6 +2208,59 @@ export class MissionRailComponent {
       }
       .hero-copy {
         min-width: 0;
+      }
+      .hero-identity {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        min-width: 0;
+      }
+      .hero-seal {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        display: inline-grid;
+        place-items: center;
+        position: relative;
+        flex: 0 0 auto;
+        color: var(--mission-gold);
+        font-family: var(--ck-font-mono);
+        font-size: 14px;
+        font-weight: 850;
+        background:
+          radial-gradient(circle at 50% 50%, rgba(6, 12, 12, 0.98) 0 50%, transparent 51%),
+          conic-gradient(from 215deg, var(--mission-orange) 0 28%, rgba(226, 198, 129, 0.86) 28% 66%, var(--mission-accent) 66% 100%);
+        border: 1px solid rgba(226, 198, 129, 0.34);
+        box-shadow: 0 16px 44px rgba(0, 0, 0, 0.32), inset 0 0 0 1px rgba(255,255,255,0.08);
+      }
+      .hero-seal::before,
+      .hero-seal::after,
+      .hero-seal i {
+        content: '';
+        position: absolute;
+        pointer-events: none;
+      }
+      .hero-seal::before {
+        inset: 8px;
+        border: 1px solid rgba(226, 198, 129, 0.45);
+        border-radius: 50%;
+      }
+      .hero-seal::after {
+        width: 28px;
+        height: 1px;
+        bottom: 14px;
+        background: linear-gradient(90deg, transparent, rgba(226, 198, 129, 0.86), transparent);
+      }
+      .hero-seal i {
+        inset: 14px;
+        border-left: 1px solid rgba(101, 214, 110, 0.62);
+        border-right: 1px solid rgba(242, 140, 56, 0.62);
+        border-radius: 999px;
+      }
+      .hero-seal b {
+        position: relative;
+        z-index: 1;
+        letter-spacing: 0;
       }
       .hero-meta {
         display: flex;
@@ -3657,7 +3803,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   searchQueryValue = '';
   newAgendaTitle = '';
   newAgendaStart = '2026-04-15T09:45';
-  newAgendaLocation = 'Cabinet ministeriel';
+  newAgendaLocation = 'Cabinet vice-presidence';
   private readonly visualObjectUrls: string[] = [];
   private readonly calendarUpdateListener = () => this.loadAll();
   private readonly workspaceActionUpdateListener = () => this.loadAll();
@@ -3685,7 +3831,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   });
 
   readonly adminRoute = computed(() => `/workspace/${this.workspace.currentSlug() || 'sentinel-ci'}`);
-  readonly assistantName = computed(() => this.navigation()?.app?.assistant_label || 'VIGIE');
+  readonly assistantName = computed(() => this.navigation()?.app?.assistant_label || 'AYA');
 
   readonly sources = computed(() => {
     const rows = [

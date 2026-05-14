@@ -46,7 +46,7 @@ from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_
 
 SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
 SENTINEL_WORKSPACE_NAME = "SENTINEL-CI"
-SENTINEL_ASSISTANT_NAME = "VIGIE"
+SENTINEL_ASSISTANT_NAME = "AYA"
 MISSION_ROOM_ROOT = "/hypervisor/mission-room"
 MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
 
@@ -267,7 +267,7 @@ DECISIONS = [
 LIBRARY_ITEMS = [
     {
         "id": "lib-briefing-template",
-        "title": "Modele briefing ministre",
+        "title": "Modele briefing vice-presidence",
         "kind": "template",
         "collection": "sentinel-ci-ministerial-briefs",
         "summary": "Structure priorites, risques, decisions attendues, actions et sources.",
@@ -763,7 +763,7 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
 def overview_payload(workspace: Workspace) -> dict[str, Any]:
     return {
         "workspace": _workspace_meta(workspace),
-        "title": "Bonjour, Ministre.",
+        "title": "Bonjour, M. le Vice-Président.",
         "date_label": "Mercredi 15 Avril 2026",
         "mode": "demo",
         "briefing_status": "ready",
@@ -807,10 +807,10 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
         ],
         "latest_alerts": _clone(NEWS_SIGNALS),
         "keywords": [
-            {"label": "Ministere Defense", "count": 340, "delta": 12},
-            {"label": "FACI", "count": 280, "delta": 8},
+            {"label": "Vice-presidence CI", "count": 340, "delta": 12},
+            {"label": "Coordination nationale", "count": 280, "delta": 8},
             {"label": "Sahel CI", "count": 195, "delta": 24},
-            {"label": "Budget militaire", "count": 120, "delta": -5},
+            {"label": "Continuite gouvernementale", "count": 120, "delta": -5},
             {"label": "Cooperation France", "count": 95, "delta": 3},
         ],
         "assistant_prompts": [
@@ -910,7 +910,7 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
 def briefing_payload(workspace: Workspace) -> dict[str, Any]:
     return {
         "workspace": _workspace_meta(workspace),
-        "title": "Briefing quotidien ministre",
+        "title": "Briefing quotidien vice-présidence",
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "sections": [
             {
@@ -1363,7 +1363,7 @@ def _ensure_target(db: DBSession, workspace: Workspace) -> None:
     name = "SENTINEL-CI ministerial signals"
     description = (
         "Cote d'Ivoire ministerial watch with West African and Sahel context: "
-        "public action, government continuity, defense-adjacent risks, weak signals, "
+        "public action, government continuity, territorial security, weak signals, "
         "territorial projects, logistics, cooperation narratives and crisis communication."
     )
     keywords = [
@@ -1375,8 +1375,8 @@ def _ensure_target(db: DBSession, workspace: Workspace) -> None:
         "West Africa",
         "Sahel",
         "Golfe de Guinee",
-        "ministere",
-        "defense",
+        "presidence",
+        "vice-presidence",
         "securite",
         "rumeur",
         "projet public",
@@ -1676,8 +1676,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "assistant_profiles": [
                 {
                     "key": "vigie_executive",
-                    "label": "VIGIE",
-                    "subtitle": "Briefing souverain · Sources qualifiees",
+                    "label": SENTINEL_ASSISTANT_NAME,
+                    "subtitle": "Assistante stratégique · Sources qualifiees",
                     "default_knowledge_scope": "vigie",
                     "executive_mode": True,
                     "tone": "ministerial",
@@ -1838,7 +1838,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "variant": "government_mission_room",
         },
         {
-            "name": "Briefing Quotidien Ministre",
+            "name": "Briefing Quotidien Vice-Presidence",
             "objective": "Produire un briefing sourcé : priorites, risques, decisions attendues, actions et elements de langage.",
             "capability_slug": "ministerial_daily_briefing",
             "skill_slugs": ["ministerial_briefing_v1", "calendar_daily_summary_v1", "action_plan_status_v1", "llm_rag_answer_v1", "audit_log_v1"],

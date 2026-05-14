@@ -508,7 +508,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "slug": "visual_observation_sync_knowledge_v1",
         "version": "1",
         "name": "Visual Observation Sync Knowledge",
-        "description": "Synchronizes visual observations into a workspace Knowledge collection for RAG and VIGIE.",
+        "description": "Synchronizes visual observations into a workspace Knowledge collection for RAG and AYA.",
         "type": "ingestion",
         "provider": "internal",
         "certification_level": "beta",

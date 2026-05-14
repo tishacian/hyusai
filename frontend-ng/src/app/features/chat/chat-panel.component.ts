@@ -1017,13 +1017,13 @@ const STEP_ICONS: Record<string, string> = {
   styles: [`
     .vigie-context-bar {
       padding: 12px 18px;
-      border-bottom: 1px solid rgba(125, 211, 252, 0.10);
+      border-bottom: 1px solid rgba(101, 214, 110, 0.12);
       background:
-        linear-gradient(90deg, rgba(125, 211, 252, 0.055), transparent 42%),
+        linear-gradient(90deg, rgba(101, 214, 110, 0.070), rgba(242, 140, 56, 0.035) 42%, transparent 68%),
         rgba(255, 255, 255, 0.018);
     }
     .vigie-kicker {
-      color: #8dd7ff;
+      color: #f5a85a;
       font: 750 11px/1.2 var(--ck-font-mono, ui-monospace, monospace);
       letter-spacing: 0.14em;
       text-transform: uppercase;
@@ -1042,20 +1042,20 @@ const STEP_ICONS: Record<string, string> = {
       gap: 7px;
       padding: 8px 10px;
       border-radius: 10px;
-      border: 1px solid rgba(125, 211, 252, 0.16);
+      border: 1px solid rgba(101, 214, 110, 0.18);
       background: rgba(11, 18, 28, 0.74);
       color: rgba(226, 236, 248, 0.78);
       font-size: 12px;
       transition: 140ms ease;
     }
     .vigie-trace-button:hover {
-      border-color: rgba(125, 211, 252, 0.34);
+      border-color: rgba(101, 214, 110, 0.38);
       color: #f4f8ff;
       background: rgba(18, 31, 45, 0.82);
     }
     .vigie-messages {
       background:
-        radial-gradient(circle at 82% 4%, rgba(125, 211, 252, 0.055), transparent 32%),
+        radial-gradient(circle at 82% 4%, rgba(101, 214, 110, 0.055), transparent 32%),
         linear-gradient(180deg, rgba(5, 10, 16, 0.18), transparent 38%);
     }
     .vigie-empty-state {
@@ -1069,21 +1069,21 @@ const STEP_ICONS: Record<string, string> = {
       align-self: center;
       width: 56px !important;
       height: 56px !important;
-      border: 1px solid rgba(125, 211, 252, 0.24);
+      border: 1px solid rgba(242, 140, 56, 0.26);
       box-shadow: 0 18px 55px rgba(0, 0, 0, 0.26);
     }
     .vigie-empty-state button {
       border-radius: 14px !important;
-      border: 1px solid rgba(125, 211, 252, 0.12) !important;
+      border: 1px solid rgba(101, 214, 110, 0.13) !important;
       background:
-        linear-gradient(135deg, rgba(125, 211, 252, 0.055), rgba(255, 255, 255, 0.018)) !important;
+        linear-gradient(135deg, rgba(101, 214, 110, 0.055), rgba(255, 255, 255, 0.018)) !important;
       padding: 14px !important;
     }
     .vigie-user-bubble {
       max-width: 78% !important;
-      border: 1px solid rgba(125, 211, 252, 0.34) !important;
+      border: 1px solid rgba(101, 214, 110, 0.34) !important;
       background:
-        linear-gradient(135deg, rgba(9, 127, 155, 0.78), rgba(18, 89, 111, 0.72)) !important;
+        linear-gradient(135deg, rgba(21, 122, 61, 0.78), rgba(27, 87, 55, 0.72)) !important;
       color: #f4fbff !important;
       box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22) !important;
     }
@@ -1098,14 +1098,14 @@ const STEP_ICONS: Record<string, string> = {
     }
     .vigie-map-chip {
       border-radius: 14px !important;
-      border: 1px solid rgba(125, 211, 252, 0.22) !important;
-      background: rgba(22, 42, 61, 0.68) !important;
-      color: #caecff !important;
+      border: 1px solid rgba(101, 214, 110, 0.22) !important;
+      background: rgba(21, 47, 36, 0.68) !important;
+      color: #d8ffd5 !important;
     }
     .vigie-input-bar {
       padding: 14px !important;
       background: rgba(6, 10, 15, 0.82) !important;
-      border-top-color: rgba(125, 211, 252, 0.12) !important;
+      border-top-color: rgba(101, 214, 110, 0.12) !important;
     }
     .vigie-input-bar textarea {
       border-radius: 16px !important;
@@ -1213,7 +1213,7 @@ export class ChatPanelComponent {
   );
   readonly inputPlaceholder = computed(() =>
     this.executiveMode()
-      ? 'Interroger VIGIE sur les sources du workspace...'
+      ? `Interroger ${this.assistantLabel()} sur les sources du workspace...`
       : 'Ask anything… (Shift+Enter for newline)',
   );
   readonly sendLabel = computed(() => this.executiveMode() ? 'Interroger' : 'Send');

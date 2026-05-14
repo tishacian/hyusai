@@ -83,9 +83,9 @@ interface SessionDoc {
       <header class="t-header">
         @if (executiveAssistant()) {
           <div class="t-header-left">
-            <span class="t-executive-mark">V</span>
+            <span class="t-executive-mark">{{ assistantInitials() }}</span>
             <div class="t-executive-copy">
-              <span class="t-executive-title">VIGIE</span>
+              <span class="t-executive-title">{{ assistantLabel() }}</span>
               <span class="t-header-hint">{{ assistantSubtitle() }}</span>
             </div>
           </div>
@@ -292,13 +292,14 @@ interface SessionDoc {
       width: 30px;
       height: 30px;
       border-radius: 10px;
-      border: 1px solid rgba(125, 211, 252, 0.26);
+      border: 1px solid rgba(242, 140, 56, 0.32);
       background:
-        radial-gradient(circle at 35% 25%, rgba(125, 211, 252, 0.24), transparent 45%),
+        radial-gradient(circle at 35% 25%, rgba(242, 140, 56, 0.25), transparent 45%),
         rgba(11, 18, 28, 0.92);
-      color: #cfefff;
+      color: #f5a85a;
+      font: 800 10px/1 var(--ck-font-mono, ui-monospace, monospace);
       font-weight: 800;
-      letter-spacing: 0;
+      letter-spacing: 0.05em;
       box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
     }
     .t-executive-copy {
@@ -640,7 +641,7 @@ export class ChatWorkspaceComponent implements OnInit {
   readonly initialSystemId = input<string | null>(null);
   /** Optional ephemeral Context id to reuse (e.g. URL-shared session). */
   readonly initialContextId = input<string | null>(null);
-  /** Optional workspace assistant profile (VIGIE, support copilot, etc.). */
+  /** Optional workspace assistant profile (AYA, support copilot, etc.). */
   readonly assistantProfileKey = input<string | null>(null);
   /** Optional prompt prefilled when the assistant opens from a workspace app. */
   readonly initialPrompt = input<string | null>(null);
@@ -673,6 +674,8 @@ export class ChatWorkspaceComponent implements OnInit {
   });
 
   readonly executiveAssistant = computed(() => this.activeAssistantProfile()?.['executive_mode'] === true);
+  readonly assistantLabel = computed(() => String(this.activeAssistantProfile()?.['label'] || 'AYA'));
+  readonly assistantInitials = computed(() => this.assistantLabel().slice(0, 3).toUpperCase());
 
   readonly assistantSubtitle = computed(() => {
     const profile = this.activeAssistantProfile();

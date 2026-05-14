@@ -1,4 +1,4 @@
-"""Workspace calendar service used by Mission Room and VIGIE."""
+"""Workspace calendar service used by Mission Room and the executive assistant profile."""
 from __future__ import annotations
 
 import re
@@ -86,7 +86,7 @@ SENTINEL_CALENDAR_SEED = [
         "start_at": "2026-04-16T14:00:00",
         "end_at": "2026-04-16T14:45:00",
         "location": "Bureau Ministre",
-        "participants": ["Ministre", "VIGIE", "Cellule veille"],
+        "participants": ["M. le Vice-President", "AYA", "Cellule veille"],
         "category": "intelligence",
         "priority": "high",
     },
@@ -367,7 +367,7 @@ def handle_calendar_chat_action(
     write_policy = calendar_write_policy(workspace)
     if any(word in lower for word in ("ajoute", "ajouter", "planifie", "planifier", "crée", "creer", "organise")):
         start_at = _infer_datetime(lower)
-        title = _infer_title(text, fallback="Reunion ajoutee par VIGIE")
+        title = _infer_title(text, fallback="Reunion ajoutee par AYA")
         if write_policy == "approval_required":
             return {
                 "action": "calendar_create_event",
@@ -383,8 +383,8 @@ def handle_calendar_chat_action(
             title=title,
             start_at=start_at,
             location=_infer_location(text),
-            description=f"Ajoute via VIGIE depuis la demande : {text}",
-            participants=["Ministre", "Cabinet"],
+            description=f"Ajoute via AYA depuis la demande : {text}",
+            participants=["M. le Vice-President", "Cabinet"],
             category="cabinet",
             priority="medium",
             metadata={"created_from": "vigie_chat", "raw_query": text},
@@ -440,7 +440,7 @@ def handle_calendar_chat_action(
                 "proposal": {"event_id": event.id},
                 "content": f"Je prepare l'annulation de **{event.title}**. Validation requise avant ecriture agenda.",
             }
-        cancelled = cancel_event(db, workspace, user, event.id, reason=f"Demande VIGIE: {text}")
+        cancelled = cancel_event(db, workspace, user, event.id, reason=f"Demande AYA: {text}")
         db.commit()
         return {
             "action": "calendar_cancel_event",

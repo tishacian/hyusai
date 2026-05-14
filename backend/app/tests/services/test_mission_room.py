@@ -38,7 +38,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["workspace_app_shell"] == "immersive"
     assert workspace.settings["workspace_app_default_view"] == "cockpit"
     assert workspace.settings["hide_provider_details"] is True
-    assert workspace.settings["mission_room"]["label"] == "VIGIE"
+    assert workspace.settings["mission_room"]["label"] == "AYA"
     assert len(workspace.settings["mission_room"]["navigation"]) >= 10
     assert workspace.settings["assistant_profile_default"] == "vigie_executive"
     assert workspace.settings["assistant_profiles"][0]["default_knowledge_scope"] == "vigie"

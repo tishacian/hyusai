@@ -336,7 +336,7 @@ def handle_action_plan_chat_action(
             return _proposal_response("action_plan_cancel", text, "Je n'ai pas identifie l'action a annuler. Precisez son titre ou sa cible.")
         if action_planner_write_policy(workspace) == "approval_required":
             return {"action": "action_plan_cancel", "applied": False, "proposal": serialize_action_item(item), "content": f"Proposition prete : annuler {item.title}."}
-        item = cancel_action_item(db, workspace, user, item.id, reason="Demande VIGIE explicite")
+        item = cancel_action_item(db, workspace, user, item.id, reason="Demande AYA explicite")
         return {"action": "action_plan_cancel", "applied": True, "item": serialize_action_item(item), "content": f"Action annulee : {item.title}."}
     if _has_action_verb(lower, ("termine", "terminer", "complete", "complète", "fait")):
         item = _match_action_item(db, workspace, lower)
@@ -355,7 +355,7 @@ def handle_action_plan_chat_action(
             workspace,
             user,
             title=title,
-            description=f"Action creee par VIGIE depuis la demande : {text}",
+            description=f"Action creee par AYA depuis la demande : {text}",
             target_kind="cabinet",
             target_label="Cabinet",
             priority=priority,

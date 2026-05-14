@@ -770,11 +770,11 @@ def handle_map_chat_query(
     query: str,
     assistant_profile: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
-    """Small deterministic VIGIE action for map-centric questions.
+    """Small deterministic executive assistant action for map-centric questions.
 
     The heavy RAG path remains available for open questions. This branch is
     deliberately narrow: it emits a structured map command when the user asks
-    VIGIE to show/focus/highlight territorial zones.
+    the assistant to show/focus/highlight territorial zones.
     """
     if assistant_profile != "vigie_executive":
         return None

@@ -157,10 +157,10 @@ type BasemapOption = {
         position: relative;
         min-height: 760px;
         overflow: hidden;
-        border: 1px solid rgba(91, 173, 218, 0.30);
+        border: 1px solid rgba(101, 214, 110, 0.28);
         border-radius: 10px;
         background:
-          radial-gradient(circle at 58% 44%, rgba(91, 173, 218, 0.06), transparent 34%),
+          radial-gradient(circle at 58% 44%, rgba(101, 214, 110, 0.055), transparent 34%),
           linear-gradient(135deg, rgba(4, 8, 12, 0.98), rgba(9, 14, 20, 0.97));
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 24px 70px rgba(0,0,0,0.22);
       }
@@ -173,7 +173,7 @@ type BasemapOption = {
         border-radius: 12px;
         border: 1px solid rgba(125, 211, 252, 0.07);
         box-shadow:
-          inset 0 0 22px rgba(125, 211, 252, 0.025),
+          inset 0 0 22px rgba(101, 214, 110, 0.025),
           inset 0 -12px 24px rgba(0, 0, 0, 0.06);
         z-index: 3;
       }
@@ -278,7 +278,7 @@ type BasemapOption = {
         display: grid;
         gap: 9px;
         padding: 11px;
-        border: 1px solid rgba(132, 220, 255, 0.25);
+        border: 1px solid rgba(101, 214, 110, 0.24);
         border-radius: 14px;
         background: rgba(2, 5, 8, 0.92);
         box-shadow: 0 18px 42px rgba(0, 0, 0, 0.40), inset 0 0 0 1px rgba(255,255,255,0.035);
@@ -330,7 +330,7 @@ type BasemapOption = {
         min-height: 31px;
         padding: 7px 10px;
         border-radius: 999px;
-        border: 1px solid rgba(125, 211, 252, 0.14);
+        border: 1px solid rgba(101, 214, 110, 0.15);
         background: rgba(11, 20, 31, 0.88);
         color: rgba(207, 239, 255, 0.70);
         font: 750 9px/1 var(--mission-mono, monospace);
@@ -342,15 +342,15 @@ type BasemapOption = {
 
       .basemap-switch button.active,
       .map-reset:hover {
-        border-color: rgba(125, 211, 252, 0.42);
+        border-color: rgba(101, 214, 110, 0.42);
         background: rgba(10, 34, 49, 0.82);
         color: rgba(232, 247, 255, 0.92);
-        box-shadow: 0 0 18px rgba(91, 173, 218, 0.12);
+        box-shadow: 0 0 18px rgba(101, 214, 110, 0.12);
       }
 
       .basemap-switch button:hover,
       .layer-toggle:hover {
-        border-color: rgba(125, 211, 252, 0.56);
+        border-color: rgba(101, 214, 110, 0.52);
         color: rgba(245, 251, 255, 0.95);
       }
 
@@ -373,7 +373,7 @@ type BasemapOption = {
         align-items: center;
         padding: 9px 10px;
         border-radius: 10px;
-        border: 1px solid rgba(125, 211, 252, 0.16);
+        border: 1px solid rgba(101, 214, 110, 0.16);
         background: rgba(14, 24, 36, 0.92);
         color: rgba(232, 241, 255, 0.72);
         text-align: left;
@@ -381,9 +381,9 @@ type BasemapOption = {
       }
 
       .layer-toggle.active {
-        border-color: rgba(132, 220, 255, 0.50);
+        border-color: rgba(101, 214, 110, 0.48);
         background: linear-gradient(135deg, rgba(18, 39, 58, 0.98), rgba(12, 23, 36, 0.94));
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 18px rgba(77, 195, 255, 0.10);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 18px rgba(101, 214, 110, 0.10);
       }
 
       .layer-toggle:not(.active) {
@@ -405,7 +405,7 @@ type BasemapOption = {
 
       .layer-toggle i.tone-amber { background: #f1ce71; box-shadow: 0 0 12px rgba(241, 206, 113, 0.28); }
       .layer-toggle i.tone-blue { background: #8fd2ff; box-shadow: 0 0 12px rgba(143, 210, 255, 0.28); }
-      .layer-toggle i.tone-cyan { background: #67e8f9; box-shadow: 0 0 12px rgba(103, 232, 249, 0.28); }
+      .layer-toggle i.tone-cyan { background: #65d66e; box-shadow: 0 0 12px rgba(101, 214, 110, 0.28); }
       .layer-toggle i.tone-green { background: #76dfa6; box-shadow: 0 0 12px rgba(118, 223, 166, 0.28); }
       .layer-toggle i.tone-red { background: #f27f8b; box-shadow: 0 0 12px rgba(242, 127, 139, 0.28); }
       .layer-toggle i.tone-violet { background: #b9a5ff; box-shadow: 0 0 12px rgba(185, 165, 255, 0.28); }
@@ -441,7 +441,7 @@ type BasemapOption = {
         top: 58px;
         z-index: 5;
         display: grid;
-        border: 1px solid rgba(125, 211, 252, 0.14);
+        border: 1px solid rgba(101, 214, 110, 0.15);
         border-radius: 8px;
         overflow: hidden;
         background: rgba(2, 6, 10, 0.82);
@@ -453,7 +453,7 @@ type BasemapOption = {
         width: 36px;
         height: 34px;
         border: 0;
-        border-bottom: 1px solid rgba(125, 211, 252, 0.12);
+        border-bottom: 1px solid rgba(101, 214, 110, 0.12);
         background: transparent;
         color: rgba(238, 247, 255, 0.86);
         font: 800 16px/1 var(--mission-mono, monospace);
@@ -466,7 +466,7 @@ type BasemapOption = {
       }
 
       .map-zoom-controls button:hover {
-        background: rgba(125, 211, 252, 0.12);
+        background: rgba(101, 214, 110, 0.12);
       }
 
       .map-legend {
@@ -481,7 +481,7 @@ type BasemapOption = {
         align-items: center;
         gap: 12px;
         padding: 8px 11px;
-        border: 1px solid rgba(125, 211, 252, 0.13);
+        border: 1px solid rgba(101, 214, 110, 0.13);
         border-radius: 999px;
         background: rgba(2, 6, 10, 0.94);
         backdrop-filter: blur(8px);
@@ -568,7 +568,7 @@ type BasemapOption = {
         align-items: center;
         gap: 10px;
         padding: 8px 10px;
-        border: 1px solid rgba(91, 173, 218, 0.26);
+        border: 1px solid rgba(101, 214, 110, 0.24);
         border-radius: 999px;
         background: rgba(2, 6, 10, 0.88);
         color: rgba(232, 241, 255, 0.88);

@@ -246,7 +246,7 @@ def _vigie_executive_quick_reply(
     *,
     assistant_profile: Optional[str],
 ) -> Optional[Dict[str, Any]]:
-    """Return a bounded executive reply for VIGIE mission-room prompts.
+    """Return a bounded executive reply for mission-room prompts.
 
     The general RAG/LLM path remains available, but the ministerial cockpit
     must never feel frozen for common briefing questions. This handler uses

@@ -35,7 +35,7 @@ logger = get_logger(__name__)
 COLLECTION_DEFS: dict[str, dict[str, str]] = {
     "sentinel-ci-ministerial-briefs": {
         "name": "SENTINEL-CI Ministerial Briefs",
-        "description": "Briefings, agenda syntheses and validated talking points for VIGIE.",
+        "description": "Briefings, agenda syntheses and validated talking points for AYA.",
     },
     "sentinel-ci-projects": {
         "name": "SENTINEL-CI Strategic Projects",
@@ -243,7 +243,7 @@ def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[st
 
     return {
         "sentinel-ci-ministerial-briefs": {
-            "briefing-quotidien.md": _payload_markdown("Briefing quotidien ministre", briefing),
+            "briefing-quotidien.md": _payload_markdown("Briefing quotidien vice-presidence", briefing),
             "agenda-et-echeances.md": _payload_markdown("Agenda ministeriel et echeances", timeline),
             "decisions-cabinet.md": _payload_markdown("Decisions et actions cabinet", decisions),
             "sources-qualifiees.md": _source_markdown(),
@@ -348,7 +348,7 @@ async def sync_markdown_documents_to_collection(
 
 
 async def sync_mission_room_fixtures_to_knowledge(db: DBSession, workspace: Workspace) -> dict[str, Any]:
-    """Index the structured SENTINEL-CI demo corpus used by VIGIE."""
+    """Index the structured SENTINEL-CI demo corpus used by AYA."""
     docs_by_collection = _fixture_documents(db, workspace)
     results: dict[str, Any] = {}
     for collection_slug, documents in docs_by_collection.items():

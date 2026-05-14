@@ -198,7 +198,7 @@ async def sync_intelligence_to_knowledge(
         name=INTELLIGENCE_COLLECTION_NAME,
         description=(
             "Open intelligence RSS sources, raw scraped article content, and consolidated "
-            "News Lab analysis for VIGIE interactions."
+            "News Lab analysis for AYA interactions."
         ),
     )
     db.flush()
@@ -248,7 +248,7 @@ async def sync_intelligence_to_knowledge(
     collection.name = INTELLIGENCE_COLLECTION_NAME
     collection.description = (
         "Open intelligence RSS sources, raw scraped article content, and consolidated "
-        "News Lab analysis for VIGIE interactions."
+        "News Lab analysis for AYA interactions."
     )
     collection.embedding_model = settings.embedding_model
     collection.chunking_method = app_settings.get("ragChunkingMethod", "recursive_character")
