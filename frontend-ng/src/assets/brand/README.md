@@ -21,6 +21,27 @@ precision routed `A`:
 - `agentium-mark.svg` — square app mark for product chrome.
 - `agentium-logo.svg` — horizontal lockup for docs / splash contexts.
 - `favicon.svg` — simplified 64×64 browser icon.
+- `sentinel-ci-mark.svg` — workspace mark for the SENTINEL-CI mission-room.
+- `sentinel-ci-logo.svg` — SENTINEL-CI horizontal lockup for docs / splash contexts.
+
+## SENTINEL-CI Workspace Mark
+
+SENTINEL-CI keeps Agentium as the platform brand while giving the
+government mission-room a dedicated identity. The active mark is a
+hand-authored SVG inspired by the same generation workflow:
+
+- abstract elephant head = institutional strength without copying an
+  official ministry seal;
+- tricolor signal ring = Côte d'Ivoire palette and mission-room
+  surveillance posture;
+- dark circular base = compatibility with the cockpit rail and
+  executive screens.
+
+The reusable prompt for future OpenRouter variants lives at:
+
+```bash
+scripts/brand/sentinel_ci_logo_prompt.md
+```
 
 ## OpenRouter Note
 

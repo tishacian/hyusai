@@ -707,8 +707,7 @@ export class MissionSourcePillComponent {
     <aside class="mission-rail" aria-label="Navigation SENTINEL-CI">
       <div class="rail-brand">
         <span class="brand-seal" aria-hidden="true">
-          <i></i>
-          <b>CI</b>
+          <img src="/assets/brand/sentinel-ci-mark.svg" alt="" width="46" height="46" />
         </span>
         <div>
           <strong>SENTINEL-CI</strong>
@@ -790,50 +789,18 @@ export class MissionSourcePillComponent {
         min-width: 0;
       }
       .brand-seal {
-        width: 42px;
-        height: 42px;
-        border-radius: 50%;
-        display: inline-grid;
-        place-items: center;
-        position: relative;
+        width: 46px;
+        height: 46px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         flex: 0 0 auto;
-        color: var(--mission-gold, #e3c681);
-        font-family: var(--ck-font-mono);
-        font-size: 12px;
-        font-weight: 850;
-        letter-spacing: 0;
-        background:
-          radial-gradient(circle at 50% 50%, rgba(8, 13, 17, 0.98) 0 48%, transparent 49%),
-          conic-gradient(from 215deg, var(--mission-orange, #f28c38) 0 28%, rgba(226, 198, 129, 0.84) 28% 66%, var(--mission-accent, #65d66e) 66% 100%);
-        border: 1px solid rgba(226, 198, 129, 0.36);
-        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), inset 0 0 0 1px rgba(255,255,255,0.08);
+        filter: drop-shadow(0 16px 22px rgba(0, 0, 0, 0.42));
       }
-      .brand-seal::before,
-      .brand-seal::after,
-      .brand-seal i {
-        content: '';
-        position: absolute;
-        border-radius: 999px;
-        pointer-events: none;
-      }
-      .brand-seal::before {
-        inset: 6px;
-        border: 1px solid rgba(226, 198, 129, 0.44);
-      }
-      .brand-seal::after {
-        width: 20px;
-        height: 1px;
-        bottom: 10px;
-        background: linear-gradient(90deg, transparent, rgba(226, 198, 129, 0.8), transparent);
-      }
-      .brand-seal i {
-        inset: 10px;
-        border-left: 1px solid rgba(101, 214, 110, 0.58);
-        border-right: 1px solid rgba(242, 140, 56, 0.58);
-      }
-      .brand-seal b {
-        position: relative;
-        z-index: 1;
+      .brand-seal img {
+        display: block;
+        width: 46px;
+        height: 46px;
       }
       .rail-brand strong {
         display: block;
