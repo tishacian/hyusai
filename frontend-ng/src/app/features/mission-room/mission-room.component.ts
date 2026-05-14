@@ -1009,10 +1009,6 @@ export class MissionRailComponent {
         } @else {
           <header class="mission-hero">
             <div class="hero-identity">
-              <span class="hero-seal" aria-hidden="true">
-                <i></i>
-                <b>CI</b>
-              </span>
               <div class="hero-copy">
                 <div class="hero-meta">
                   <span class="eyebrow">Mission Room Gouvernementale</span>
@@ -2214,53 +2210,6 @@ export class MissionRailComponent {
         align-items: center;
         gap: 16px;
         min-width: 0;
-      }
-      .hero-seal {
-        width: 56px;
-        height: 56px;
-        border-radius: 50%;
-        display: inline-grid;
-        place-items: center;
-        position: relative;
-        flex: 0 0 auto;
-        color: var(--mission-gold);
-        font-family: var(--ck-font-mono);
-        font-size: 14px;
-        font-weight: 850;
-        background:
-          radial-gradient(circle at 50% 50%, rgba(6, 12, 12, 0.98) 0 50%, transparent 51%),
-          conic-gradient(from 215deg, var(--mission-orange) 0 28%, rgba(226, 198, 129, 0.86) 28% 66%, var(--mission-accent) 66% 100%);
-        border: 1px solid rgba(226, 198, 129, 0.34);
-        box-shadow: 0 16px 44px rgba(0, 0, 0, 0.32), inset 0 0 0 1px rgba(255,255,255,0.08);
-      }
-      .hero-seal::before,
-      .hero-seal::after,
-      .hero-seal i {
-        content: '';
-        position: absolute;
-        pointer-events: none;
-      }
-      .hero-seal::before {
-        inset: 8px;
-        border: 1px solid rgba(226, 198, 129, 0.45);
-        border-radius: 50%;
-      }
-      .hero-seal::after {
-        width: 28px;
-        height: 1px;
-        bottom: 14px;
-        background: linear-gradient(90deg, transparent, rgba(226, 198, 129, 0.86), transparent);
-      }
-      .hero-seal i {
-        inset: 14px;
-        border-left: 1px solid rgba(101, 214, 110, 0.62);
-        border-right: 1px solid rgba(242, 140, 56, 0.62);
-        border-radius: 999px;
-      }
-      .hero-seal b {
-        position: relative;
-        z-index: 1;
-        letter-spacing: 0;
       }
       .hero-meta {
         display: flex;
