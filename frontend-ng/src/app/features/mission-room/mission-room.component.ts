@@ -761,8 +761,8 @@ export class MissionSourcePillComponent {
         <span>Agentium OS</span>
       </a>
       <div class="rail-clock">
-        <strong>11:15</strong>
-        <span>Mercredi 15 Avril</span>
+        <strong>{{ abidjanClockTime() }}</strong>
+        <span>{{ abidjanClockDate() }} · Abidjan UTC+0</span>
       </div>
     </aside>
   `,
@@ -941,6 +941,40 @@ export class MissionRailComponent {
   @Input() activeView: MissionView = 'cockpit';
   @Input() adminRoute = '/workspace';
   @Input() assistantName = 'AYA';
+
+  private readonly clockTimeZone = 'Africa/Abidjan';
+  private readonly clockNow = signal(new Date());
+  private clockTimer: number | null = null;
+  private readonly timeFormatter = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: this.clockTimeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  private readonly dateFormatter = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: this.clockTimeZone,
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+  });
+
+  readonly abidjanClockTime = computed(() => this.timeFormatter.format(this.clockNow()));
+  readonly abidjanClockDate = computed(() => this.capitalizeClockLabel(this.dateFormatter.format(this.clockNow())));
+
+  ngOnInit(): void {
+    this.clockTimer = window.setInterval(() => this.clockNow.set(new Date()), 30_000);
+  }
+
+  ngOnDestroy(): void {
+    if (this.clockTimer !== null) {
+      window.clearInterval(this.clockTimer);
+      this.clockTimer = null;
+    }
+  }
+
+  private capitalizeClockLabel(label: string): string {
+    return label ? label.charAt(0).toUpperCase() + label.slice(1) : label;
+  }
 }
 
 @Component({
