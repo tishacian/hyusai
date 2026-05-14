@@ -23,6 +23,7 @@ precision routed `A`:
 - `favicon.svg` — simplified 64×64 browser icon.
 - `sentinel-ci-mark.svg` — workspace mark for the SENTINEL-CI mission-room.
 - `sentinel-ci-logo.svg` — SENTINEL-CI horizontal lockup for docs / splash contexts.
+- `sentinel-ci-favicon.svg` — favicon used while `/hypervisor/mission-room/*` is open.
 
 ## SENTINEL-CI Workspace Mark
 
