@@ -1008,19 +1008,17 @@ export class MissionRailComponent {
           </div>
         } @else {
           <header class="mission-hero">
-            <div class="hero-identity">
-              <div class="hero-copy">
-                <div class="hero-meta">
-                  <span class="eyebrow">Mission Room Gouvernementale</span>
-                  <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
-                </div>
-                <h1>{{ cockpit()?.title || 'Bonjour, M. le Vice-Président.' }}</h1>
-                <p>
-                  <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
-                  <span class="hero-dot"></span>
-                  <span>Vision executive consolidee</span>
-                </p>
+            <div class="hero-copy">
+              <div class="hero-meta">
+                <span class="eyebrow">Mission Room Gouvernementale</span>
+                <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
               </div>
+              <h1>{{ cockpit()?.title || 'Bonjour, M. le Vice-Président.' }}</h1>
+              <p>
+                <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
+                <span class="hero-dot"></span>
+                <span>Vision executive consolidee</span>
+              </p>
             </div>
             <div class="hero-actions">
               <a routerLink="/hypervisor/mission-room/briefing" class="action-button primary">
@@ -2203,12 +2201,6 @@ export class MissionRailComponent {
         border-bottom: 1px solid var(--mission-border);
       }
       .hero-copy {
-        min-width: 0;
-      }
-      .hero-identity {
-        display: flex;
-        align-items: center;
-        gap: 16px;
         min-width: 0;
       }
       .hero-meta {
