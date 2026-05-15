@@ -1,0 +1,225 @@
+<section class="mission-control">
+  <header class="mc-topbar">
+    <div class="mc-brand">
+      <span class="live-dot"></span>
+      <strong>SENTINEL-CI</strong>
+      <small>Mission Control</small>
+    </div>
+    <div class="mc-status">
+      <span>LIVE</span>
+      <b>{{ scenario().title || 'Crise nationale' }}</b>
+      <i [class]="postureTone(scenario().level)">{{ scenario().score || posture().score || 0 }}%</i>
+    </div>
+    <div class="mc-clock">
+      <span>Africa/Abidjan</span>
+      <strong>{{ abidjanClock() }}</strong>
+    </div>
+    <button type="button" class="aya-voice" [class.listening]="voiceState() === 'listening'" (click)="toggleVoice()">
+      <ck-glyph name="bolt" [size]="14" />
+      <span>{{ voiceState() === 'listening' ? 'AYA ecoute' : 'Parler a ' + assistantName }}</span>
+    </button>
+  </header>
+
+  <aside class="mc-layers">
+    <div class="panel-title">
+      <span>Couches</span>
+      <b>{{ panelCount('left') }}</b>
+    </div>
+    <label class="layer-search">
+      <ck-glyph name="zoom-in" [size]="12" />
+      <input value="Crise nationale" aria-label="Recherche couches" readonly />
+    </label>
+    @for (layer of layers(); track layer.key) {
+      <button type="button" class="layer-row" [class.disabled]="!layer.enabled">
+        <i></i>
+        <span>{{ layer.label }}</span>
+        <b>{{ layer.count }}</b>
+      </button>
+    }
+    <div class="source-stack">
+      <span>Sources</span>
+      <strong>{{ monitor?.source_freshness?.news || 'Veille qualifiee' }}</strong>
+      <strong>{{ monitor?.source_freshness?.visual || 'Flux webcams habilites' }}</strong>
+    </div>
+  </aside>
+
+  <main class="mc-stage">
+    <div class="stage-head">
+      <div>
+        <span class="eyebrow">Global situation · Cote d'Ivoire</span>
+        <h2>{{ monitor?.title || 'Mission Control Room' }}</h2>
+      </div>
+      <button type="button" class="compact-command" (click)="focusAbidjan()">
+        <ck-glyph name="crosshair" [size]="13" />
+        <span>Focus Abidjan</span>
+      </button>
+    </div>
+    <app-workspace-map
+      class="mission-map"
+      [zones]="monitor?.zones || []"
+      [map]="monitor?.map || missionMap?.map || null"
+      [mapSystem]="monitor?.map_system || missionMap?.map_system || null"
+      [mapState]="mapCommandState"
+      [selectedZoneId]="selectedZone?.id || null"
+      (zoneSelected)="zoneSelected.emit($event)"
+    />
+    <div class="scenario-card">
+      <span>Scenario actif</span>
+      <strong>{{ scenario().title || 'Crise nationale' }}</strong>
+      <p>{{ scenario().summary || monitor?.summary }}</p>
+      <div>
+        @for (signalId of scenario().contributing_signals || []; track signalId) {
+          <small>{{ signalId }}</small>
+        }
+      </div>
+    </div>
+  </main>
+
+  <aside class="mc-insights">
+    <section class="insight-panel">
+      <div class="panel-title">
+        <span>AI Insights</span>
+        <b>{{ crossSignals().length }}</b>
+      </div>
+      @for (signal of crossSignals() | slice: 0:4; track signal.id) {
+        <button type="button" class="signal-row" [class]="postureTone(signal.severity)" (click)="focusSignal(signal)">
+          <i></i>
+          <span>
+            <strong>{{ signal.label }}</strong>
+            <small>{{ signal.summary }}</small>
+          </span>
+          <b>{{ signal.score }}</b>
+        </button>
+      }
+    </section>
+
+    <section class="insight-panel posture-panel">
+      <div class="panel-title">
+        <span>Strategic Posture</span>
+        <b>{{ postureLabel() }}</b>
+      </div>
+      <div class="posture-orb" [class]="postureTone(posture().label)">
+        <strong>{{ posture().score || 0 }}</strong>
+        <span>{{ posture().label || 'monitoring' }}</span>
+      </div>
+      <div class="driver-list">
+        @for (driver of posture().drivers || []; track driver.kind) {
+          <span>{{ driver.label }} · {{ driver.score }}</span>
+        }
+      </div>
+    </section>
+
+    <section class="insight-panel aya-panel">
+      <div class="panel-title">
+        <span>{{ assistantName }}</span>
+        <b>voice-first</b>
+      </div>
+      <p>{{ voiceNotice() }}</p>
+      @if (voiceTranscript()) {
+        <blockquote>{{ voiceTranscript() }}</blockquote>
+      }
+      <div class="prompt-stack">
+        @for (prompt of voicePrompts(); track prompt) {
+          <button type="button" (click)="activatePrompt(prompt)">{{ prompt }}</button>
+        }
+      </div>
+    </section>
+  </aside>
+
+  <section class="mc-bottom">
+    <article class="dock-panel news-dock">
+      <div class="panel-title">
+        <span>Live News</span>
+        <b>{{ newsSignals().length }}</b>
+      </div>
+      <div class="news-list">
+        @for (signal of newsSignals() | slice: 0:4; track signal.id) {
+          <article>
+            <strong>{{ signal.title }}</strong>
+            <small>{{ signal.zone || signal.source }} · {{ signal.risk_level || 'monitoring' }}</small>
+            <p>{{ signal.impact_ci || signal.summary }}</p>
+          </article>
+        }
+      </div>
+    </article>
+
+    <article class="dock-panel webcam-dock">
+      <div class="panel-title">
+        <span>Live Webcams</span>
+        <b>{{ sourceHealth().active_sources || 0 }}/{{ sourceHealth().total_sources || 0 }}</b>
+      </div>
+      <div class="webcam-grid">
+        <figure class="camera-frame">
+          @if (primaryVisualSource(); as source) {
+            @if (visualEmbedUrl(source); as embedUrl) {
+              <iframe
+                [src]="embedUrl"
+                [title]="'Flux live - ' + source.name"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                referrerpolicy="no-referrer-when-downgrade"
+                allowfullscreen
+              ></iframe>
+            } @else if (webcamPreviewUrl(source); as previewUrl) {
+              <img [src]="previewUrl" [alt]="'Derniere image webcam - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
+            } @else if (latestVisualCapture(); as capture) {
+              @if (visualCaptureImage(capture.id); as imageUrl) {
+                <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
+              } @else {
+                <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+              }
+            } @else {
+              <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+            }
+            <figcaption>
+              <strong>{{ source.name }}</strong>
+              <small>{{ visualSourceDetail(source) }}</small>
+            </figcaption>
+          } @else {
+            <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Aucune webcam active</span></div>
+          }
+        </figure>
+        <div class="webcam-sources">
+          @for (source of visualSources() | slice: 0:6; track source.id) {
+            <button type="button" [class.active]="isVisualSourceSelected(source)" (click)="selectVisualSource(source)">
+              <span></span>
+              <b>{{ source.name }}</b>
+              <small>{{ source.region }}</small>
+            </button>
+          }
+          @if (primaryVisualSource(); as source) {
+            <button type="button" class="capture-command" (click)="visualCapture.emit(source)">
+              <ck-glyph name="focus" [size]="13" />
+              <span>Capture snapshot</span>
+            </button>
+          }
+        </div>
+      </div>
+    </article>
+
+    <article class="dock-panel agenda-dock">
+      <div class="panel-title">
+        <span>Agenda / Actions</span>
+        <b>{{ actionItems().length }}</b>
+      </div>
+      <div class="agenda-list">
+        @for (item of agendaItems() | slice: 0:3; track item.id || item.title) {
+          <article>
+            <time>{{ item.time }}</time>
+            <span>
+              <strong>{{ item.title }}</strong>
+              <small>{{ item.location }}</small>
+            </span>
+          </article>
+        }
+      </div>
+      <div class="action-list">
+        @for (item of actionItems() | slice: 0:3; track item.id) {
+          <article>
+            <strong>{{ item.title }}</strong>
+            <small>{{ item.owner_label }} · {{ item.due_label }}</small>
+          </article>
+        }
+      </div>
+    </article>
+  </section>
+</section>

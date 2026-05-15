@@ -58,7 +58,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
         "sentinel-ci-visual-intelligence",
     ]
     assert db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).count() == 1
-    assert db_session.query(System).filter_by(workspace_id=workspace.id).count() == 7
+    assert db_session.query(System).filter_by(workspace_id=workspace.id).count() == 10
     assert db_session.query(WorkspaceCalendarEvent).filter_by(workspace_id=workspace.id).count() >= 7
     assert db_session.query(WorkspaceActionItem).filter_by(workspace_id=workspace.id).count() >= 3
     assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() >= 8
@@ -79,9 +79,12 @@ def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):
         "government_mission_room",
         "ministerial_daily_briefing",
         "open_intelligence_watch",
+        "scenario_fusion_monitor",
         "strategic_project_pilotage",
         "territorial_action_map",
         "visual_situation_watch",
+        "government_calendar_assist",
+        "aya_voice_command",
         "executive_instruction_drafting",
     ]:
         assert db_session.query(Capability).filter(Capability.slug == slug).one()

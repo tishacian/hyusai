@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, Input, OnDestroy, OnInit, computed,
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink, RouterLinkActive } from '@angular/router';
-import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { forkJoin } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -10,6 +9,7 @@ import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
+import { MissionControlMonitorComponent } from './mission-control-monitor.component';
 import { WorkspaceMapComponent } from './workspace-map.component';
 
 type MissionView =
@@ -968,6 +968,7 @@ export class MissionRailComponent {
     MissionMetricCardComponent,
     MissionChartPanelComponent,
     MissionSourcePillComponent,
+    MissionControlMonitorComponent,
     WorkspaceMapComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1856,213 +1857,17 @@ export class MissionRailComponent {
     </ng-template>
 
     <ng-template #monitorView>
-      <section class="monitor-layout">
-        <article class="content-panel monitor-map-panel">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">Situation Monitor</span>
-              <h2>{{ monitor()?.title || 'Situation Monitor' }}</h2>
-            </div>
-            <span class="posture-badge" [class]="monitorTone(monitor()?.posture?.label)">
-              {{ postureLabel(monitor()?.posture) }}
-            </span>
-          </div>
-          <p>{{ monitor()?.summary }}</p>
-          <div class="layer-strip">
-            @for (layer of monitor()?.layers || []; track layer.key) {
-              <span [class.disabled]="!layer.enabled">
-                {{ layer.label }}
-                <b>{{ layer.count }}</b>
-              </span>
-            }
-          </div>
-          <app-workspace-map
-            [zones]="monitor()?.zones || []"
-            [map]="monitor()?.map || missionMap()?.map || null"
-            [mapSystem]="monitor()?.map_system || missionMap()?.map_system || null"
-            [mapState]="mapCommandState()"
-            [selectedZoneId]="selectedZone()?.id || null"
-            (zoneSelected)="selectZone($event)"
-          />
-        </article>
-
-        <aside class="content-panel monitor-side-panel">
-          <span class="eyebrow">Posture strategique</span>
-          <div class="risk-orb" [class]="monitorTone(monitor()?.posture?.label)">
-            <strong>{{ monitor()?.posture?.score || 0 }}</strong>
-            <span>{{ monitor()?.posture?.label || 'monitoring' }}</span>
-          </div>
-          <div class="driver-list">
-            @for (driver of monitor()?.posture?.drivers || []; track driver.kind) {
-              <span>{{ driver.label }} · {{ driver.score }}</span>
-            }
-          </div>
-          <h3>Zones suivies</h3>
-          <div class="mini-zone-list side">
-            @for (zone of monitor()?.top_zones || []; track zone.id) {
-              <button type="button" [class.active]="selectedZone()?.id === zone.id" (click)="selectedZone.set(zone)">
-                <strong>{{ zone.name }}</strong>
-                <i><b [style.width.%]="zone.level" [class]="zone.tone"></b></i>
-                <span>{{ zone.level }}%</span>
-              </button>
-            }
-          </div>
-        </aside>
-
-        <article class="content-panel visual-panel">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">Flux visuels institutionnels</span>
-              <h2>{{ monitor()?.visual?.connector?.label || 'Flux visuels' }}</h2>
-            </div>
-            @if (primaryVisualSource(); as source) {
-              <button type="button" class="action-button compact" (click)="captureVisualSource(source)">
-                <ck-glyph name="focus" [size]="14" />
-                <span>Capture</span>
-              </button>
-            }
-          </div>
-          <div class="visual-grid visual-console">
-            <figure class="snapshot-frame">
-              @if (primaryVisualSource(); as source) {
-                @if (visualEmbedUrl(source); as embedUrl) {
-                  <iframe
-                    [src]="embedUrl"
-                    [title]="'Flux live - ' + source.name"
-                    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                    referrerpolicy="no-referrer-when-downgrade"
-                    allowfullscreen
-                  ></iframe>
-                } @else if (webcamPreviewUrl(source); as previewUrl) {
-                  <img
-                    [src]="previewUrl"
-                    [alt]="'Derniere image webcam - ' + source.name"
-                    (error)="markVisualPreviewFailed(source.id)"
-                  />
-                } @else if (latestVisualCapture(); as capture) {
-                  @if (visualCaptureImage(capture.id); as imageUrl) {
-                    <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
-                  } @else {
-                    <div class="synthetic-camera-feed">
-                      <div class="camera-horizon"></div>
-                      <div class="camera-cityline">
-                        <span></span><span></span><span></span><span></span><span></span>
-                      </div>
-                      <div class="camera-road"></div>
-                      <div class="camera-loader">
-                        <ck-glyph name="focus" [size]="18" />
-                        <span>Initialisation flux</span>
-                      </div>
-                    </div>
-                  }
-                } @else {
-                  <div class="synthetic-camera-feed">
-                    <div class="camera-horizon"></div>
-                    <div class="camera-cityline">
-                      <span></span><span></span><span></span><span></span><span></span>
-                    </div>
-                    <div class="camera-road"></div>
-                    <div class="camera-loader">
-                      <ck-glyph name="focus" [size]="18" />
-                      <span>Initialisation flux</span>
-                    </div>
-                  </div>
-                }
-                <figcaption class="camera-overlay">
-                  <div>
-                    <span class="live-dot"></span>
-                    <strong>{{ source.name }}</strong>
-                  </div>
-                  <small>{{ visualSourceDetail(source) }}</small>
-                </figcaption>
-              } @else {
-                <div class="snapshot-empty">
-                  <ck-glyph name="focus" [size]="22" />
-                  <span>Aucune source webcam active</span>
-                </div>
-              }
-            </figure>
-            <div class="visual-command-deck">
-              <div class="visual-kpi-strip">
-                <article>
-                  <span>Sources</span>
-                  <strong>{{ monitor()?.visual?.source_health?.active_sources || 0 }}/{{ monitor()?.visual?.source_health?.total_sources || 0 }}</strong>
-                </article>
-                <article>
-                  <span>Captures</span>
-                  <strong>{{ monitor()?.visual?.source_health?.captures || 0 }}</strong>
-                </article>
-                <article>
-                  <span>Vigilance</span>
-                  <strong>{{ latestVisualObservation()?.vigilance_score || 0 }}/100</strong>
-                </article>
-              </div>
-
-              <article class="visual-primary-observation">
-                @if (latestVisualObservation(); as observation) {
-                  <div class="visual-observation-head">
-                    <span class="status-pill" [class]="observation.level_label">{{ observation.level_label }}</span>
-                    <small>confiance {{ confidencePct(observation.confidence) }}</small>
-                  </div>
-                  <p>{{ observation.summary }}</p>
-                  <div class="visual-tags">
-                    @for (tag of observation.tags || []; track tag) {
-                      <span>{{ tag }}</span>
-                    }
-                  </div>
-                } @else {
-                  <p>Aucune observation visuelle disponible. Lancez une capture pour alimenter la veille.</p>
-                }
-              </article>
-
-              <div class="visual-source-strip">
-                @for (source of visualSources(); track source.id) {
-                  <article
-                    role="button"
-                    tabindex="0"
-                    [attr.aria-pressed]="isVisualSourceSelected(source)"
-                    (click)="selectVisualSource(source)"
-                    (keydown.enter)="selectVisualSource(source)"
-                    (keydown.space)="$event.preventDefault(); selectVisualSource(source)"
-                  >
-                    <span class="source-status" [class.active]="source.status === 'active'"></span>
-                    <div>
-                      <strong>{{ source.name }}</strong>
-                      <small>{{ source.region }} · {{ visualSourceDetail(source) }}</small>
-                    </div>
-                  </article>
-                }
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <article class="content-panel monitor-forecast-panel">
-          <span class="eyebrow">Previsions & correlations</span>
-          <div class="forecast-grid">
-            @for (forecast of monitor()?.forecasts || []; track forecast.id) {
-              <article [class]="monitorTone(forecast.level)">
-                <strong>{{ forecast.title }}</strong>
-                <p>{{ forecast.summary }}</p>
-                <small>{{ forecast.horizon }} · confiance {{ confidencePct(forecast.confidence) }}</small>
-              </article>
-            }
-          </div>
-        </article>
-
-        <article class="content-panel monitor-news-panel">
-          <span class="eyebrow">Signaux presse correles</span>
-          <div class="library-list">
-            @for (signal of monitor()?.news_signals || []; track signal.id) {
-              <article>
-                <strong>{{ signal.title }}</strong>
-                <small>{{ signal.zone || signal.source }} · {{ ministerialRisk(signal.risk_level) }}</small>
-                <p>{{ signal.impact_ci || signal.summary }}</p>
-              </article>
-            }
-          </div>
-        </article>
-      </section>
+      <app-mission-control-monitor
+        [monitor]="monitor()"
+        [missionMap]="missionMap()"
+        [selectedZone]="selectedZone()"
+        [mapCommandState]="mapCommandState()"
+        [assistantName]="assistantName()"
+        [captureImages]="visualCaptureImages()"
+        (zoneSelected)="selectZone($event)"
+        (visualCapture)="captureVisualSource($event)"
+        (assistantPrompt)="openAssistant($event)"
+      />
     </ng-template>
 
     <ng-template #searchView>
@@ -3267,370 +3072,6 @@ export class MissionRailComponent {
       .status-pill.critical { color: var(--mission-danger); background: var(--mission-danger-wash); }
       .status-pill.medium { color: var(--mission-warn); background: var(--mission-warn-wash); }
       .map-layout { grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.55fr); }
-      .monitor-layout {
-        display: grid;
-        grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
-        gap: 16px;
-        align-items: start;
-      }
-      .monitor-map-panel,
-      .visual-panel,
-      .monitor-forecast-panel {
-        grid-column: span 1;
-      }
-      .monitor-news-panel {
-        grid-column: 2;
-      }
-      .posture-badge {
-        padding: 7px 10px;
-        border-radius: 999px;
-        border: 1px solid var(--mission-border);
-        background: var(--mission-panel-hi);
-        color: var(--mission-accent);
-        font-family: var(--ck-font-mono);
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-      .posture-badge.critical,
-      .risk-orb.critical { color: var(--mission-danger); border-color: rgba(240, 100, 118, 0.32); }
-      .posture-badge.elevated,
-      .risk-orb.elevated { color: var(--mission-warn); border-color: rgba(234, 184, 92, 0.32); }
-      .posture-badge.monitoring,
-      .risk-orb.monitoring { color: var(--mission-accent); border-color: var(--mission-border-strong); }
-      .posture-badge.stable,
-      .risk-orb.stable { color: var(--mission-trust); border-color: rgba(66, 217, 155, 0.32); }
-      .layer-strip {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 12px 0;
-      }
-      .layer-strip span {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        min-height: 29px;
-        padding: 5px 8px;
-        border: 1px solid var(--mission-border);
-        border-radius: 999px;
-        background: var(--mission-inset);
-        color: var(--mission-text-soft);
-        font-size: 12px;
-      }
-      .layer-strip span.disabled {
-        opacity: 0.45;
-      }
-      .layer-strip b {
-        color: var(--mission-accent);
-        font-family: var(--ck-font-mono);
-        font-size: 11px;
-      }
-      .monitor-map {
-        min-height: 500px;
-      }
-      .monitor-map circle {
-        stroke: rgba(244, 247, 251, 0.35);
-        stroke-width: 1.5;
-        pointer-events: none;
-      }
-      .monitor-side-panel {
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-      }
-      .risk-orb {
-        width: 150px;
-        aspect-ratio: 1;
-        margin: 6px auto 4px;
-        border-radius: 50%;
-        border: 1px solid var(--mission-border-strong);
-        background:
-          radial-gradient(circle at 50% 42%, rgba(139, 216, 255, 0.22), transparent 56%),
-          var(--mission-inset);
-        display: grid;
-        place-items: center;
-      }
-      .risk-orb strong,
-      .risk-orb span {
-        grid-area: 1 / 1;
-        font-family: var(--ck-font-mono);
-        font-variant-numeric: tabular-nums;
-      }
-      .risk-orb strong {
-        font-size: 38px;
-        transform: translateY(-8px);
-      }
-      .risk-orb span {
-        color: var(--mission-text-muted);
-        font-size: 11px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        transform: translateY(24px);
-      }
-      .visual-grid {
-        display: grid;
-        grid-template-columns: minmax(520px, 1.15fr) minmax(360px, 0.85fr);
-        gap: 16px;
-        align-items: stretch;
-      }
-      .visual-console {
-        margin-top: 14px;
-      }
-      .snapshot-frame {
-        position: relative;
-        min-height: 430px;
-        margin: 0;
-        border: 1px solid rgba(125, 211, 252, 0.22);
-        border-radius: var(--mission-radius);
-        background:
-          radial-gradient(circle at 64% 20%, rgba(125, 211, 252, 0.14), transparent 25%),
-          linear-gradient(180deg, rgba(8, 14, 22, 0.86), rgba(2, 6, 10, 0.96));
-        overflow: hidden;
-        display: grid;
-        place-items: center;
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 24px 70px rgba(0,0,0,0.18);
-      }
-      .snapshot-frame::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        background-image:
-          linear-gradient(rgba(125, 211, 252, 0.045) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(125, 211, 252, 0.035) 1px, transparent 1px);
-        background-size: 44px 44px;
-        mix-blend-mode: screen;
-        opacity: 0.7;
-        z-index: 2;
-      }
-      .snapshot-frame::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        background:
-          linear-gradient(180deg, rgba(255,255,255,0.06), transparent 5%, transparent 92%, rgba(0,0,0,0.42)),
-          repeating-linear-gradient(180deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 5px);
-        opacity: 0.55;
-        z-index: 3;
-      }
-      .snapshot-frame img,
-      .snapshot-frame iframe {
-        width: 100%;
-        height: 100%;
-        display: block;
-        min-height: 430px;
-        border: 0;
-      }
-      .snapshot-frame img {
-        object-fit: cover;
-        filter: saturate(0.92) contrast(1.05);
-      }
-      .camera-overlay {
-        position: absolute;
-        left: 16px;
-        right: 16px;
-        bottom: 16px;
-        z-index: 5;
-        display: flex;
-        justify-content: space-between;
-        gap: 14px;
-        align-items: center;
-        padding: 10px 12px;
-        border: 1px solid rgba(125, 211, 252, 0.18);
-        border-radius: 14px;
-        background: rgba(5, 10, 16, 0.72);
-        backdrop-filter: blur(12px);
-      }
-      .camera-overlay div {
-        display: flex;
-        align-items: center;
-        gap: 9px;
-        min-width: 0;
-      }
-      .camera-overlay strong {
-        color: var(--mission-text);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .camera-overlay small {
-        color: var(--mission-text-muted);
-        white-space: nowrap;
-      }
-      .live-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: #59e6a4;
-        box-shadow: 0 0 0 5px rgba(89, 230, 164, 0.12), 0 0 18px rgba(89, 230, 164, 0.55);
-        animation: livePulse 1.8s ease-in-out infinite;
-      }
-      .snapshot-empty {
-        display: grid;
-        place-items: center;
-        gap: 10px;
-        color: var(--mission-text-muted);
-        text-align: center;
-      }
-      .synthetic-camera-feed {
-        position: absolute;
-        inset: 0;
-        overflow: hidden;
-        display: grid;
-        place-items: center;
-        background:
-          linear-gradient(180deg, rgba(9, 21, 32, 0.96), rgba(2, 6, 10, 0.98)),
-          radial-gradient(circle at 74% 18%, rgba(125, 211, 252, 0.18), transparent 24%);
-      }
-      .camera-horizon {
-        position: absolute;
-        left: -5%;
-        right: -5%;
-        top: 52%;
-        height: 1px;
-        background: rgba(125, 211, 252, 0.20);
-      }
-      .camera-cityline {
-        position: absolute;
-        left: 9%;
-        right: 9%;
-        bottom: 28%;
-        display: flex;
-        align-items: end;
-        gap: 22px;
-        opacity: 0.68;
-      }
-      .camera-cityline span {
-        width: 54px;
-        height: 120px;
-        border: 1px solid rgba(125, 211, 252, 0.14);
-        background: rgba(25, 49, 65, 0.74);
-      }
-      .camera-loader {
-        z-index: 4;
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 13px;
-        border: 1px solid rgba(125, 211, 252, 0.18);
-        border-radius: 999px;
-        background: rgba(5, 10, 16, 0.68);
-        color: var(--mission-accent);
-        font-size: 12px;
-      }
-      .visual-command-deck {
-        display: grid;
-        gap: 10px;
-        grid-template-rows: auto auto 1fr;
-      }
-      .visual-kpi-strip {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
-      }
-      .visual-kpi-strip article {
-        min-height: 96px;
-        padding: 14px;
-        border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius);
-        background: var(--mission-panel-hi);
-      }
-      .visual-kpi-strip span {
-        display: block;
-        color: var(--mission-text-muted);
-        font-size: 12px;
-      }
-      .visual-kpi-strip strong {
-        display: block;
-        margin-top: 16px;
-        color: var(--mission-accent);
-        font-size: 28px;
-        font-variant-numeric: tabular-nums;
-      }
-      .visual-primary-observation,
-      .visual-source-strip article,
-      .forecast-grid article {
-        padding: 12px;
-        border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius);
-        background: var(--mission-panel-hi);
-      }
-      .visual-primary-observation {
-        border-color: rgba(125, 211, 252, 0.18);
-        background:
-          linear-gradient(135deg, rgba(125, 211, 252, 0.045), transparent 42%),
-          var(--mission-panel-hi);
-      }
-      .visual-observation-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-      }
-      .visual-primary-observation p,
-      .forecast-grid p {
-        margin: 10px 0;
-        font-size: 13px;
-      }
-      .visual-primary-observation small,
-      .forecast-grid small {
-        color: var(--mission-text-muted);
-      }
-      .visual-tags {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-      .visual-tags span {
-        padding: 5px 8px;
-        border-radius: 999px;
-        border: 1px solid rgba(148, 197, 229, 0.12);
-        color: var(--mission-text-soft);
-        font-size: 11px;
-      }
-      .visual-source-strip {
-        display: grid;
-        gap: 8px;
-      }
-      .visual-source-strip article {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-      }
-      .visual-source-strip strong,
-      .visual-source-strip small {
-        display: block;
-      }
-      .visual-source-strip small {
-        color: var(--mission-text-muted);
-        margin-top: 3px;
-      }
-      .source-status {
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: var(--mission-text-muted);
-        box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.08);
-        flex: 0 0 auto;
-      }
-      .source-status.active {
-        background: #59e6a4;
-        box-shadow: 0 0 0 4px rgba(89, 230, 164, 0.10), 0 0 14px rgba(89, 230, 164, 0.35);
-      }
-      @keyframes livePulse {
-        0%, 100% { opacity: 0.82; transform: scale(0.94); }
-        50% { opacity: 1; transform: scale(1.12); }
-      }
-      .forecast-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-        margin-top: 12px;
-      }
-      .forecast-grid article.critical { border-color: rgba(240, 100, 118, 0.26); }
-      .forecast-grid article.elevated { border-color: rgba(234, 184, 92, 0.26); }
       .territory-map {
         width: 100%;
         min-height: 560px;
@@ -3677,11 +3118,7 @@ export class MissionRailComponent {
         .situation-strip,
         .executive-alert-grid { grid-template-columns: 1fr; }
         .cockpit-grid > * { grid-column: span 12 !important; }
-        .two-column, .ministerial-news, .map-layout, .monitor-layout, .visual-grid, .agenda-workbench, .agenda-command { grid-template-columns: 1fr; }
-        .monitor-map-panel,
-        .visual-panel,
-        .monitor-forecast-panel,
-        .monitor-news-panel { grid-column: 1; }
+        .two-column, .ministerial-news, .map-layout, .agenda-workbench, .agenda-command { grid-template-columns: 1fr; }
         .agenda-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .linked-action-strip,
         .calendar-intelligence,
@@ -3708,7 +3145,6 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly chat = inject(ChatOverlayService);
-  private readonly sanitizer = inject(DomSanitizer);
   protected readonly workspace = inject(WorkspaceService);
 
   private readonly routeView = toSignal(
@@ -3735,15 +3171,12 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly draft = signal<DraftInstruction | null>(null);
   readonly mapCommandState = signal<Record<string, unknown> | null>(null);
   readonly visualCaptureImages = signal<Record<string, string>>({});
-  readonly visualPreviewFailures = signal<Record<string, true>>({});
-  readonly selectedVisualSourceId = signal<string | null>(null);
 
   searchQueryValue = '';
   newAgendaTitle = '';
   newAgendaStart = '2026-04-15T09:45';
   newAgendaLocation = 'Cabinet vice-presidence';
   private readonly visualObjectUrls: string[] = [];
-  private readonly trustedVisualEmbeds = new Map<string, SafeResourceUrl>();
   private readonly calendarUpdateListener = () => this.loadAll();
   private readonly workspaceActionUpdateListener = () => this.loadAll();
   private readonly mapCommandListener = (event: Event) => {
@@ -3954,107 +3387,6 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     if (zone.tone === 'critical') return 'var(--mission-danger)';
     if (zone.tone === 'watch') return 'var(--mission-warn)';
     return 'var(--mission-trust)';
-  }
-
-  latestVisualCapture(): VisualCapture | null {
-    return this.monitor()?.visual?.captures?.find((capture) => capture.status === 'analyzed' || capture.status === 'captured') || null;
-  }
-
-  primaryVisualSource(): VisualSource | null {
-    const sources = this.visualSources();
-    const selectedId = this.selectedVisualSourceId();
-    const selected = selectedId ? sources.find((source) => source.id === selectedId) : null;
-    return selected || sources.find((source) => source.enabled && source.status === 'active') || sources[0] || null;
-  }
-
-  latestVisualObservation(): VisualObservation | null {
-    return this.monitor()?.visual?.latest_observation || this.monitor()?.visual_observations?.[0] || null;
-  }
-
-  visualSources(): VisualSource[] {
-    return [...(this.monitor()?.visual?.sources || [])].sort((a, b) => this.visualPriority(a) - this.visualPriority(b));
-  }
-
-  selectVisualSource(source: VisualSource): void {
-    if (source?.id) this.selectedVisualSourceId.set(source.id);
-  }
-
-  isVisualSourceSelected(source: VisualSource): boolean {
-    return this.primaryVisualSource()?.id === source.id;
-  }
-
-  visualEmbedUrl(source: VisualSource | null): SafeResourceUrl | null {
-    if (!source) return null;
-    const rawUrl = this.visualMetadataUrl(source, 'embed_url') || this.visualMetadataUrl(source, 'player_url');
-    const url = this.trustedVisualEmbedUrl(rawUrl);
-    if (!url) return null;
-    const cacheKey = `${source.id}:${url}`;
-    const cached = this.trustedVisualEmbeds.get(cacheKey);
-    if (cached) return cached;
-    const trusted = this.sanitizer.bypassSecurityTrustResourceUrl(url);
-    this.trustedVisualEmbeds.set(cacheKey, trusted);
-    return trusted;
-  }
-
-  webcamPreviewUrl(source: VisualSource | null): string | null {
-    if (!source || this.visualPreviewFailures()[source.id]) return null;
-    const metadata = source.metadata || {};
-    const preview = typeof metadata['preview_url'] === 'string' ? metadata['preview_url'] : '';
-    if (preview.startsWith('http://') || preview.startsWith('https://')) return preview;
-    if (source.adapter === 'http_image' && source.source_url?.startsWith('http')) return source.source_url;
-    return null;
-  }
-
-  markVisualPreviewFailed(sourceId: string): void {
-    if (!sourceId || this.visualPreviewFailures()[sourceId]) return;
-    this.visualPreviewFailures.update((failures) => ({ ...failures, [sourceId]: true }));
-  }
-
-  visualSourceDetail(source: VisualSource): string {
-    const metadata = source.metadata || {};
-    const provider = typeof metadata['provider'] === 'string' ? metadata['provider'] : source.adapter;
-    const mode = typeof metadata['stream_kind'] === 'string'
-      ? metadata['stream_kind'].replace(/_/g, ' ')
-      : typeof metadata['layer_kind'] === 'string'
-        ? metadata['layer_kind'].replace(/_/g, ' ')
-        : source.source_type;
-    const refresh = Number(metadata['refresh_seconds'] || 0);
-    const refreshLabel = refresh ? `maj ~${refresh}s` : `cadence ${source.capture_cadence_minutes} min`;
-    return `${provider} · ${mode} · ${refreshLabel}`;
-  }
-
-  visualCaptureImage(captureId: string): string | null {
-    return this.visualCaptureImages()[captureId] || null;
-  }
-
-  visualSourceName(sourceId: string): string {
-    return this.monitor()?.visual?.sources?.find((source) => source.id === sourceId)?.name || 'Flux habilite';
-  }
-
-  visualCaptureTime(capture: VisualCapture): string {
-    if (!capture.captured_at) return 'capture recente';
-    return new Date(capture.captured_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  }
-
-  private visualPriority(source: VisualSource): number {
-    const value = Number((source.metadata || {})['priority']);
-    return Number.isFinite(value) ? value : 999;
-  }
-
-  private visualMetadataUrl(source: VisualSource, key: string): string {
-    const value = (source.metadata || {})[key];
-    return typeof value === 'string' ? value : '';
-  }
-
-  private trustedVisualEmbedUrl(rawUrl: string): string | null {
-    const normalized = rawUrl.startsWith('//') ? `https:${rawUrl}` : rawUrl;
-    try {
-      const url = new URL(normalized);
-      if (url.protocol !== 'https:' || url.hostname !== 'video.nest.com') return null;
-      return url.toString();
-    } catch {
-      return null;
-    }
   }
 
   captureVisualSource(source: VisualSource): void {

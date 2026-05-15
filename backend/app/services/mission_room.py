@@ -53,7 +53,7 @@ MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
 
 NAVIGATION_ITEMS = [
     {"key": "cockpit", "label": "Cockpit", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
-    {"key": "monitor", "label": "Monitor", "glyph": "crosshair", "variant": "visual_situation_watch", "object": "Workbench"},
+    {"key": "monitor", "label": "Monitor", "glyph": "crosshair", "variant": "scenario_fusion_monitor", "object": "Workbench"},
     {"key": "briefing", "label": "Briefing", "glyph": "ledger", "variant": "ministerial_daily_briefing", "object": "Workbench"},
     {"key": "pilotage", "label": "Pilotage", "glyph": "telemetry", "variant": "strategic_project_pilotage", "object": "System"},
     {"key": "agenda", "label": "Agenda", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
@@ -1045,10 +1045,30 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     mapped = map_payload(workspace, db=db)
     news = news_payload(workspace, db=db)
     visual = _visual_payload(workspace, db)
-    posture = _strategic_posture(mapped, news, visual)
+    calendar_summary = calendar_summary_payload(db, workspace) if db else None
+    action_rows = list_action_items(db, workspace, include_cancelled=False) if db else []
+    action_items = [serialize_action_item(row) for row in action_rows[:6]]
+    action_summary = action_plan_summary_payload(db, workspace) if db else {}
+    posture = _strategic_posture(mapped, news, visual, calendar_summary=calendar_summary, action_summary=action_summary)
     zones = mapped.get("zones") or []
     top_zones = sorted(zones, key=lambda item: int(item.get("level") or 0), reverse=True)[:3]
     visual_observations = visual.get("observations") or []
+    cross_source_signals = _cross_source_signals(
+        mapped,
+        news,
+        visual,
+        calendar_summary=calendar_summary,
+        action_summary=action_summary,
+        action_items=action_items,
+    )
+    scenario = _scenario_fusion_payload(
+        workspace,
+        mapped,
+        posture,
+        cross_source_signals,
+        calendar_summary=calendar_summary,
+        action_summary=action_summary,
+    )
     forecasts = [
         {
             "id": "forecast-nord-briefing",
@@ -1077,16 +1097,24 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     ]
     return {
         "workspace": _workspace_meta(workspace),
-        "title": "Situation Monitor",
+        "title": "Mission Control Room",
         "summary": posture["summary"],
+        "scenario": scenario,
         "posture": posture,
         "layers": layers,
+        "panel_layout": _mission_control_panel_layout(layers, news, visual, calendar_summary, cross_source_signals),
+        "cross_source_signals": cross_source_signals,
+        "voice_context": _aya_voice_context(scenario, cross_source_signals),
         "map": mapped.get("map"),
         "map_system": mapped.get("map_system"),
         "zones": zones,
         "top_zones": top_zones,
         "visual": visual,
         "visual_observations": visual_observations,
+        "agenda": _agenda_items_from_calendar(workspace, db)[:6],
+        "calendar": calendar_summary,
+        "action_items": action_items,
+        "action_summary": action_summary,
         "forecasts": forecasts,
         "news_signals": (news.get("executive_alerts") or news.get("signals") or [])[:5],
         "source_freshness": {
@@ -1133,12 +1161,23 @@ def _visual_payload(workspace: Workspace, db: Optional[DBSession]) -> dict[str, 
     return visual_dashboard_payload(db, workspace)
 
 
-def _strategic_posture(mapped: dict[str, Any], news: dict[str, Any], visual: dict[str, Any]) -> dict[str, Any]:
+def _strategic_posture(
+    mapped: dict[str, Any],
+    news: dict[str, Any],
+    visual: dict[str, Any],
+    *,
+    calendar_summary: Optional[dict[str, Any]] = None,
+    action_summary: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     top_zone = ((mapped.get("score_summary") or {}).get("top_zone") or {})
     zone_score = int(top_zone.get("level") or top_zone.get("score", {}).get("score") or 0)
     high_risk = int((news.get("source_health") or {}).get("high_risk") or 0)
     visual_score = int((visual.get("posture") or {}).get("score") or 0)
-    score = max(zone_score, min(100, high_risk * 18), visual_score)
+    agenda_score = int((calendar_summary or {}).get("conflict_score") or 0)
+    if not agenda_score:
+        agenda_score = min(100, len((calendar_summary or {}).get("conflicts") or []) * 22 + len((calendar_summary or {}).get("decision_deadlines") or []) * 9)
+    action_score = min(100, int((action_summary or {}).get("critical") or 0) * 28 + int((action_summary or {}).get("active") or 0) * 8)
+    score = max(zone_score, min(100, high_risk * 18), visual_score, agenda_score, action_score)
     if score >= 75:
         label = "critical"
     elif score >= 55:
@@ -1160,7 +1199,222 @@ def _strategic_posture(mapped: dict[str, Any], news: dict[str, Any], visual: dic
             {"kind": "territorial", "label": top_zone.get("name") or "Zones", "score": zone_score},
             {"kind": "press", "label": "Signaux presse prioritaires", "score": high_risk},
             {"kind": "visual", "label": "Flux visuels", "score": visual_score},
+            {"kind": "agenda", "label": "Contraintes agenda", "score": agenda_score},
+            {"kind": "actions", "label": "Actions ouvertes", "score": action_score},
         ],
+    }
+
+
+def _signal_level(score: int) -> str:
+    if score >= 75:
+        return "critical"
+    if score >= 55:
+        return "elevated"
+    if score >= 35:
+        return "monitoring"
+    return "stable"
+
+
+def _cross_source_signals(
+    mapped: dict[str, Any],
+    news: dict[str, Any],
+    visual: dict[str, Any],
+    *,
+    calendar_summary: Optional[dict[str, Any]],
+    action_summary: Optional[dict[str, Any]],
+    action_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    top_zone = ((mapped.get("score_summary") or {}).get("top_zone") or {})
+    zone_score = int(top_zone.get("level") or top_zone.get("score", {}).get("score") or 0)
+    alerts = news.get("executive_alerts") or news.get("signals") or []
+    high_risk = int((news.get("source_health") or {}).get("high_risk") or 0)
+    press_score = min(100, high_risk * 24 + len(alerts[:3]) * 7)
+    visual_score = int((visual.get("posture") or {}).get("score") or 0)
+    latest_observation = visual.get("latest_observation") or {}
+    agenda_score = int((calendar_summary or {}).get("conflict_score") or 0)
+    agenda_score = agenda_score or min(
+        100,
+        len((calendar_summary or {}).get("conflicts") or []) * 24
+        + len((calendar_summary or {}).get("decision_deadlines") or []) * 10,
+    )
+    action_score = min(
+        100,
+        int((action_summary or {}).get("critical") or 0) * 30
+        + int((action_summary or {}).get("active") or 0) * 9,
+    )
+    rows = [
+        {
+            "id": "territorial-risk",
+            "type": "territorial",
+            "label": "Carte territoriale",
+            "summary": f"{top_zone.get('name') or 'Zone prioritaire'} concentre le niveau de vigilance territorial le plus eleve.",
+            "severity": _signal_level(zone_score),
+            "score": zone_score,
+            "source_keys": ["territorial_action_map", "workspace_map_scores"],
+            "related_zone": top_zone.get("id"),
+            "action_prompt": "Filtrer la carte sur la zone prioritaire et preparer les options non militaires.",
+        },
+        {
+            "id": "press-escalation",
+            "type": "press",
+            "label": "Presse et signaux faibles",
+            "summary": f"{high_risk} signal(aux) prioritaire(s) detectes dans la veille ouverte.",
+            "severity": _signal_level(press_score),
+            "score": press_score,
+            "source_keys": ["open_intelligence_watch", "rss_feeds"],
+            "related_zone": (alerts[0] or {}).get("zone") if alerts else None,
+            "action_prompt": "Demander a AYA une synthese sourcee des alertes presse.",
+        },
+        {
+            "id": "visual-activity",
+            "type": "visual",
+            "label": "Flux webcams",
+            "summary": latest_observation.get("summary") or "Flux Abidjan/Cote d'Ivoire disponibles pour controle visuel live.",
+            "severity": _signal_level(visual_score),
+            "score": visual_score,
+            "source_keys": ["visual_situation_watch", "visual_streams"],
+            "related_zone": latest_observation.get("zone_id"),
+            "action_prompt": "Ouvrir le flux webcam le plus parlant avant arbitrage.",
+        },
+        {
+            "id": "agenda-pressure",
+            "type": "agenda",
+            "label": "Agenda institutionnel",
+            "summary": (calendar_summary or {}).get("summary") or "Agenda consolide sans conflit critique declare.",
+            "severity": _signal_level(agenda_score),
+            "score": agenda_score,
+            "source_keys": ["government_calendar_assist", "institutional_calendar"],
+            "related_zone": None,
+            "action_prompt": "Verifier les fenetres d'arbitrage disponibles aujourd'hui.",
+        },
+        {
+            "id": "action-readiness",
+            "type": "actions",
+            "label": "Actions cabinet",
+            "summary": f"{(action_summary or {}).get('active', len(action_items))} action(s) active(s), prochaine echeance a cadrer.",
+            "severity": _signal_level(action_score),
+            "score": action_score,
+            "source_keys": ["action_planner", "scenario_recommendations"],
+            "related_zone": (action_items[0] or {}).get("target_id") if action_items else None,
+            "action_prompt": "Transformer le signal en action cabinet avec responsable et echeance.",
+        },
+    ]
+    active_categories = [row for row in rows if int(row["score"]) >= 35]
+    if len(active_categories) >= 3:
+        composite_score = min(100, max(int(row["score"]) for row in active_categories) + len(active_categories) * 4)
+        rows.insert(
+            0,
+            {
+                "id": "scenario-composite",
+                "type": "composite",
+                "label": "Correlation crise nationale",
+                "summary": "Plusieurs familles de signaux convergent : terrain visuel, presse, carte, agenda ou actions.",
+                "severity": _signal_level(composite_score),
+                "score": composite_score,
+                "source_keys": [row["id"] for row in active_categories],
+                "related_zone": top_zone.get("id"),
+                "action_prompt": "Demander a AYA une posture croisee et les trois decisions possibles.",
+            },
+        )
+    return sorted(rows, key=lambda item: int(item["score"]), reverse=True)
+
+
+def _scenario_fusion_payload(
+    workspace: Workspace,
+    mapped: dict[str, Any],
+    posture: dict[str, Any],
+    cross_source_signals: list[dict[str, Any]],
+    *,
+    calendar_summary: Optional[dict[str, Any]],
+    action_summary: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    top_zone = ((mapped.get("score_summary") or {}).get("top_zone") or {})
+    level = posture.get("label") or _signal_level(int(posture.get("score") or 0))
+    score = int(posture.get("score") or 0)
+    top_signals = cross_source_signals[:3]
+    return {
+        "id": "scenario-crise-nationale",
+        "title": "Crise nationale",
+        "status": "active",
+        "mode": "cross_source_monitoring",
+        "workspace_slug": workspace.slug,
+        "level": level,
+        "score": score,
+        "timezone": "Africa/Abidjan",
+        "time_window": "0-48h",
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "summary": (
+            "Scenario Crise nationale actif : AYA croise webcams, presse, carte, agenda et actions pour soutenir le suivi gouvernemental."
+        ),
+        "focus_zone": top_zone.get("name") or "Cote d'Ivoire",
+        "map_focus": {
+            "zone_id": top_zone.get("id"),
+            "label": top_zone.get("name") or "Cote d'Ivoire",
+            "score": int(top_zone.get("level") or top_zone.get("score", {}).get("score") or score),
+        },
+        "contributing_signals": [signal["id"] for signal in top_signals],
+        "agenda_impacts": {
+            "conflicts": len((calendar_summary or {}).get("conflicts") or []),
+            "decision_deadlines": len((calendar_summary or {}).get("decision_deadlines") or []),
+            "next_event": (calendar_summary or {}).get("next_event"),
+        },
+        "action_readiness": {
+            "active": int((action_summary or {}).get("active") or 0),
+            "critical": int((action_summary or {}).get("critical") or 0),
+            "next_due": (action_summary or {}).get("next_due"),
+        },
+        "recommended_actions": [
+            "Verifier le flux webcam prioritaire et noter l'observation utile au briefing.",
+            "Demander a AYA une synthese sourcee presse + cartographie avant decision.",
+            "Bloquer une fenetre agenda pour arbitrage et convertir le signal en action cabinet.",
+        ],
+    }
+
+
+def _mission_control_panel_layout(
+    layers: list[dict[str, Any]],
+    news: dict[str, Any],
+    visual: dict[str, Any],
+    calendar_summary: Optional[dict[str, Any]],
+    cross_source_signals: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        {"key": "map", "region": "stage", "order": 1, "label": "Carte centrale", "visible": True, "live": True, "count": next((layer["count"] for layer in layers if layer["key"] == "territorial-risk"), 0)},
+        {"key": "layers", "region": "left", "order": 1, "label": "Couches", "visible": True, "live": True, "count": len(layers)},
+        {"key": "live-news", "region": "bottom", "order": 1, "label": "Live News", "visible": True, "live": True, "count": len(news.get("executive_alerts") or news.get("signals") or [])},
+        {"key": "live-webcams", "region": "bottom", "order": 2, "label": "Live Webcams", "visible": True, "live": True, "count": int((visual.get("source_health") or {}).get("active_sources") or 0)},
+        {"key": "agenda-actions", "region": "bottom", "order": 3, "label": "Agenda / Actions", "visible": True, "live": False, "count": (calendar_summary or {}).get("count", 0)},
+        {"key": "ai-insights", "region": "right", "order": 1, "label": "AI Insights", "visible": True, "live": True, "count": len(cross_source_signals)},
+        {"key": "strategic-posture", "region": "right", "order": 2, "label": "Strategic Posture", "visible": True, "live": True, "count": 1},
+        {"key": "aya", "region": "right", "order": 3, "label": SENTINEL_ASSISTANT_NAME, "visible": True, "live": True, "count": 5},
+    ]
+
+
+def _aya_voice_context(scenario: dict[str, Any], cross_source_signals: list[dict[str, Any]]) -> dict[str, Any]:
+    prompts = [
+        "AYA, donne-moi la synthese du scenario croise.",
+        "AYA, ouvre la camera Pont General-de-Gaulle.",
+        "AYA, filtre la carte sur Abidjan.",
+        "AYA, quels impacts agenda aujourd'hui ?",
+        "AYA, prepare une instruction executive.",
+    ]
+    return {
+        "assistant": SENTINEL_ASSISTANT_NAME,
+        "mode": "voice_first",
+        "capability": "voice2voice_interaction",
+        "transport": "backend_ws",
+        "language": "fr-CI",
+        "scenario_id": scenario.get("id"),
+        "session_hint": "sentinel-ci-mission-control",
+        "prompts": prompts,
+        "commands": [
+            {"utterance": prompts[0], "intent": "scenario_brief", "target": scenario.get("id")},
+            {"utterance": prompts[1], "intent": "visual_focus", "target": "pont-general-de-gaulle"},
+            {"utterance": prompts[2], "intent": "map_focus", "target": "abidjan"},
+            {"utterance": prompts[3], "intent": "agenda_impacts", "target": "today"},
+            {"utterance": prompts[4], "intent": "instruction_draft", "target": (cross_source_signals[0] or {}).get("id") if cross_source_signals else None},
+        ],
+        "fallback": "text_chat_overlay",
     }
 
 
@@ -1853,6 +2107,29 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "execution_mode": "continuous_monitoring",
         },
         {
+            "name": "Scenario Fusion Monitor",
+            "objective": "Fusionner webcams, presse, carte, agenda et actions pour maintenir le scenario Crise nationale et la posture strategique.",
+            "capability_slug": "scenario_fusion_monitor",
+            "skill_slugs": [
+                "news_signal_synthesis_v1",
+                "territorial_signal_map_v1",
+                "map_layer_read_v1",
+                "map_zone_score_v1",
+                "visual_source_read_v1",
+                "visual_snapshot_analyze_v1",
+                "calendar_daily_summary_v1",
+                "action_plan_status_v1",
+                "scenario_generate_v1",
+                "scenario_compare_v1",
+                "scenario_recommend_v1",
+                "chain_mixed_hah_v1",
+                "voice_tandem_oracle_v1",
+                "audit_log_v1",
+            ],
+            "variant": "scenario_fusion_monitor",
+            "execution_mode": "continuous_monitoring",
+        },
+        {
             "name": "Pilotage Projets Strategiques",
             "objective": "Expliquer les projets rouges, causes probables, risques et options d'arbitrage.",
             "capability_slug": "strategic_project_pilotage",
@@ -1867,12 +2144,27 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "variant": "territorial_action_map",
         },
         {
-            "name": "Situation Monitor Visuel",
+            "name": "Live Visual Monitor",
+            "legacy_names": ["Situation Monitor Visuel"],
             "objective": "Lire des flux visuels habilites, produire des observations snapshot-only et les synchroniser dans la connaissance.",
             "capability_slug": "visual_situation_watch",
             "skill_slugs": ["visual_source_read_v1", "visual_snapshot_capture_v1", "visual_snapshot_analyze_v1", "visual_observation_sync_knowledge_v1", "territorial_signal_map_v1", "chain_mixed_hah_v1", "audit_log_v1"],
             "variant": "visual_situation_watch",
             "execution_mode": "continuous_monitoring",
+        },
+        {
+            "name": "Government Calendar Assist",
+            "objective": "Lire l'agenda institutionnel, qualifier les conflits et proposer les fenetres d'arbitrage.",
+            "capability_slug": "government_calendar_assist",
+            "skill_slugs": ["calendar_read_v1", "calendar_daily_summary_v1", "calendar_create_event_v1", "calendar_update_event_v1", "calendar_cancel_event_v1", "action_plan_status_v1", "audit_log_v1"],
+            "variant": "government_calendar_assist",
+        },
+        {
+            "name": "AYA Voice Command",
+            "objective": "Piloter la Mission Control Room en voice-first : briefing, camera, carte, agenda et instructions.",
+            "capability_slug": "aya_voice_command",
+            "skill_slugs": ["voice_tandem_oracle_v1", "voice_realtime_session_v1", "llm_rag_answer_v1", "audit_log_v1"],
+            "variant": "aya_voice_command",
         },
         {
             "name": "Instructions Cabinet",
@@ -1890,7 +2182,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             systems_created += 1
     map_system = db.query(System).filter(System.workspace_id == workspace.id, System.name == "Carte Strategique Executive").first()
     ensure_workspace_map_seed(db, workspace, system_id=map_system.id if map_system else None)
-    visual_system = db.query(System).filter(System.workspace_id == workspace.id, System.name == "Situation Monitor Visuel").first()
+    visual_system = db.query(System).filter(System.workspace_id == workspace.id, System.name == "Live Visual Monitor").first()
     ensure_visual_intelligence_seed(db, workspace, system_id=visual_system.id if visual_system else None)
 
     db.commit()

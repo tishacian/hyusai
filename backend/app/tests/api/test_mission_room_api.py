@@ -176,6 +176,12 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     body = response.json()
     assert body["workspace"]["slug"] == "sentinel-ci"
     assert body["posture"]["label"] in {"stable", "monitoring", "elevated", "critical"}
+    assert body["scenario"]["id"] == "scenario-crise-nationale"
+    assert body["scenario"]["title"] == "Crise nationale"
+    assert body["voice_context"]["assistant"] == "AYA"
+    assert body["voice_context"]["mode"] == "voice_first"
+    assert body["panel_layout"][0]["key"] == "map"
+    assert any(signal["id"] == "visual-activity" for signal in body["cross_source_signals"])
     assert body["visual"]["connector"]["id"] == "visual_streams"
     assert body["visual"]["source_health"]["total_sources"] >= 1
     assert any(layer["key"] == "visual-streams" for layer in body["layers"])
