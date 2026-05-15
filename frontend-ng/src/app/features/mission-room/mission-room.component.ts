@@ -172,8 +172,13 @@ interface NewsSignal {
   sentiment: string;
   summary: string;
   source: string;
+  source_name?: string | null;
+  source_category?: string | null;
   sources: string[];
   zone?: string;
+  geography_tier?: string;
+  viewpoint?: string;
+  origin?: string;
   impact_ci?: string;
   why_it_matters?: string;
   recommended_action?: string;
@@ -195,6 +200,50 @@ interface NewsSourceHealth {
   coverage_label?: string;
   live_news_used?: boolean;
   source_entities?: string[];
+  geography_order?: string[];
+}
+
+interface NewsGeographicPriority {
+  key: string;
+  label: string;
+  priority: number;
+  description: string;
+  feed_count: number;
+  signal_count: number;
+  sources?: string[];
+  focus?: string[];
+}
+
+interface NewsViewpoint {
+  key: string;
+  label: string;
+  feed_count: number;
+  signal_count: number;
+  sources?: string[];
+  brief?: string;
+}
+
+interface SocialListeningChannel {
+  key: string;
+  label: string;
+  coverage: number;
+  status: string;
+}
+
+interface RumorOrigin {
+  label?: string;
+  origin?: string;
+  zone?: string;
+  confidence?: number;
+  recommended_action?: string;
+}
+
+interface SocialListeningPayload {
+  status: string;
+  policy: string;
+  channels: SocialListeningChannel[];
+  signals: NewsSignal[];
+  rumor_origins: RumorOrigin[];
 }
 
 interface NewsBriefingNote {
@@ -396,6 +445,9 @@ interface MissionNews {
   briefing_note?: NewsBriefingNote;
   source_health?: NewsSourceHealth;
   media_sources?: { label: string; coverage: number; count: number }[];
+  geographic_priority?: NewsGeographicPriority[];
+  viewpoints?: NewsViewpoint[];
+  social_listening?: SocialListeningPayload;
   analysis_link?: { system_id?: string | null; run_id?: string | null; label?: string };
   sources: SourceRef[];
 }
@@ -1582,16 +1634,77 @@ export class MissionRailComponent {
           <p>La Mission Room restitue les signaux utiles au pilotage. L'atelier conserve le diagnostic detaille et les sources brutes.</p>
         </article>
 
+        <article class="content-panel">
+          <span class="eyebrow">Priorite geographique</span>
+          <h2>CI → CEDEAO → Afrique → Monde</h2>
+          <div class="library-list">
+            @for (item of news()?.geographic_priority || []; track item.key) {
+              <article>
+                <strong>{{ item.priority }}. {{ item.label }}</strong>
+                <small>{{ item.feed_count }} sources · {{ item.signal_count }} signaux</small>
+                <p>{{ item.description }}</p>
+              </article>
+            }
+          </div>
+        </article>
+
+        <article class="content-panel">
+          <span class="eyebrow">Double lecture politique</span>
+          <h2>Interieur ivoirien / international</h2>
+          <div class="library-list">
+            @for (viewpoint of news()?.viewpoints || []; track viewpoint.key) {
+              <article>
+                <strong>{{ viewpoint.label }}</strong>
+                <small>{{ viewpoint.feed_count }} sources · {{ viewpoint.signal_count }} signaux</small>
+                <p>{{ viewpoint.brief }}</p>
+              </article>
+            }
+          </div>
+        </article>
+
+        <article class="content-panel span-2">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Rumeurs + origines</span>
+              <h2>Canaux sociaux publics et signalements terrain</h2>
+            </div>
+            <button type="button" class="action-button compact" (click)="openAssistant('AYA, donne origine rumeur prioritaire et action recommandee.')">
+              <ck-glyph name="bolt" [size]="14" />
+              <span>Demander a {{ assistantName() }}</span>
+            </button>
+          </div>
+          <p>{{ news()?.social_listening?.policy }}</p>
+          <div class="brief-meta">
+            @for (channel of news()?.social_listening?.channels || []; track channel.key) {
+              <span>{{ channel.label }} · {{ channel.coverage }}%</span>
+            }
+          </div>
+          <div class="library-list">
+            @for (rumor of news()?.social_listening?.rumor_origins || []; track rumor.label) {
+              <article>
+                <strong>{{ rumor.label }}</strong>
+                <small>{{ rumor.zone }} · confiance {{ confidencePct(rumor.confidence) }}</small>
+                <p>{{ rumor.origin }}</p>
+                <small>{{ rumor.recommended_action }}</small>
+              </article>
+            }
+          </div>
+        </article>
+
         <div class="executive-alert-grid span-2">
           @for (signal of newsAlerts(); track signal.id) {
             <article class="content-panel executive-alert-card">
               <div class="panel-heading-row">
                 <span class="status-pill" [class]="signal.risk_level">{{ ministerialRisk(signal.risk_level) }}</span>
-                <small>{{ signal.zone || signal.source }} · confiance {{ confidencePct(signal.confidence) }}</small>
+                <small>{{ signal.viewpoint || signal.zone || signal.source }} · confiance {{ confidencePct(signal.confidence) }}</small>
               </div>
               <h3>{{ signal.title }}</h3>
               <p>{{ signal.impact_ci || signal.summary }}</p>
               <dl>
+                <div>
+                  <dt>Origine</dt>
+                  <dd>{{ signal.origin || signal.source_name || signal.source }}</dd>
+                </div>
                 <div>
                   <dt>Pourquoi c'est sensible</dt>
                   <dd>{{ signal.why_it_matters || signal.summary }}</dd>

@@ -31,6 +31,13 @@ IVORY_COAST_BOUNDS = {
     "north": 10.75,
 }
 
+REGIONAL_CONTEXT_BOUNDS = {
+    "west": -13.80,
+    "south": 3.80,
+    "east": 1.75,
+    "north": 13.20,
+}
+
 SENTINEL_ZONE_GEOGRAPHY = {
     "zone-nord": {
         "centroid": [-5.65, 9.15],
@@ -63,12 +70,21 @@ SENTINEL_CONTEXT_MARKERS = [
     {"name": "San Pedro", "kind": "port", "coordinates": [-6.6363, 4.7485], "weight": 58},
     {"name": "Daloa", "kind": "centre-ouest", "coordinates": [-6.4500, 6.8833], "weight": 55},
     {"name": "Bondoukou", "kind": "frontiere est", "coordinates": [-2.8000, 8.0500], "weight": 60},
+    {"name": "Accra", "kind": "voisin CEDEAO · Ghana", "coordinates": [-0.1869, 5.6037], "weight": 70, "scope": "regional"},
+    {"name": "Monrovia", "kind": "voisin CEDEAO · Liberia", "coordinates": [-10.7969, 6.3156], "weight": 58, "scope": "regional"},
+    {"name": "Conakry", "kind": "voisin CEDEAO · Guinee", "coordinates": [-13.5784, 9.6412], "weight": 60, "scope": "regional"},
+    {"name": "Bamako", "kind": "Sahel · Mali", "coordinates": [-8.0029, 12.6392], "weight": 72, "scope": "regional"},
+    {"name": "Ouagadougou", "kind": "Sahel · Burkina Faso", "coordinates": [-1.5197, 12.3714], "weight": 74, "scope": "regional"},
+    {"name": "Lome", "kind": "Golfe de Guinee · Togo", "coordinates": [1.2314, 6.1319], "weight": 54, "scope": "regional"},
 ]
 
 SENTINEL_CONTEXT_LINES = [
     {"name": "Axe cabinet nord", "path": [[-4.0244, 5.3453], [-5.2767, 6.8276], [-5.0303, 7.6906], [-5.6294, 9.4580]], "tone": "watch"},
     {"name": "Axe ouest coordination", "path": [[-4.0244, 5.3453], [-6.4500, 6.8833], [-7.5538, 7.4125]], "tone": "stable"},
     {"name": "Axe est diplomatie locale", "path": [[-4.0244, 5.3453], [-3.8850, 6.7300], [-2.8000, 8.0500]], "tone": "watch"},
+    {"name": "Arc CEDEAO ouest", "path": [[-4.0244, 5.3453], [-10.7969, 6.3156], [-13.5784, 9.6412]], "tone": "regional"},
+    {"name": "Arc Sahel", "path": [[-4.0244, 5.3453], [-5.6294, 9.4580], [-8.0029, 12.6392], [-1.5197, 12.3714]], "tone": "watch"},
+    {"name": "Arc Golfe de Guinee", "path": [[-4.0244, 5.3453], [-0.1869, 5.6037], [1.2314, 6.1319]], "tone": "stable"},
 ]
 
 MAP_COMMAND_INTENTS = {
@@ -98,7 +114,7 @@ DEFAULT_RENDERER_LAYERS = [
     },
     {
         "key": "open-intelligence",
-        "label": "Presse et signaux faibles",
+        "label": "Presse CI / international",
         "short_label": "Presse",
         "deck_group": "press",
         "tone": "blue",
@@ -106,6 +122,17 @@ DEFAULT_RENDERER_LAYERS = [
         "visible": True,
         "payload": {"sources": ["rss_press", "cabinet_note", "project_record"]},
         "sort_order": 20,
+    },
+    {
+        "key": "regional-context",
+        "label": "Contexte CEDEAO / Golfe de Guinee",
+        "short_label": "Region",
+        "deck_group": "region",
+        "tone": "orange",
+        "kind": "regional_context",
+        "visible": True,
+        "payload": {"sources": ["rss_press_regional", "diplomatic_context", "social_listening"]},
+        "sort_order": 25,
     },
     {
         "key": "strategic-projects",
@@ -483,6 +510,7 @@ def _layer_confidence(key: str) -> int:
     return {
         "territorial-risk": 78,
         "open-intelligence": 72,
+        "regional-context": 74,
         "strategic-projects": 69,
         "agenda-windows": 81,
         "visual-streams": 62,
@@ -494,6 +522,7 @@ def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
     return {
         "territorial-risk": len(zones),
         "open-intelligence": sum(len(zone.get("drivers") or zone.get("signals") or []) for zone in zones),
+        "regional-context": sum(1 for marker in SENTINEL_CONTEXT_MARKERS if marker.get("scope") == "regional"),
         "strategic-projects": sum(1 for zone in zones if zone.get("scenario_options")),
         "agenda-windows": sum(len(zone.get("recommended_windows") or []) for zone in zones),
         "visual-streams": 1,
@@ -595,6 +624,7 @@ def _cities_geojson() -> dict[str, Any]:
                     "name": marker["name"],
                     "kind": marker["kind"],
                     "weight": marker["weight"],
+                    "scope": marker.get("scope", "ci"),
                     "source": "sentinel-ci-territorial-reference",
                 },
             }
@@ -872,6 +902,7 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
                     "name": marker["name"],
                     "kind": marker["kind"],
                     "weight": marker["weight"],
+                    "scope": marker.get("scope", "ci"),
                     "source": "sentinel-ci-territorial-context",
                 },
             }
@@ -894,8 +925,8 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
             "default_basemap": "administrative",
             "style": basemap_options[0]["style"],
             "initial_view_state": camera_presets["country"],
-            "bounds": [[IVORY_COAST_BOUNDS["west"], IVORY_COAST_BOUNDS["south"]], [IVORY_COAST_BOUNDS["east"], IVORY_COAST_BOUNDS["north"]]],
-            "attribution": "Fond OSM/CARTO · frontières geoBoundaries CC BY 4.0 · couches Agentium workspace",
+            "bounds": [[REGIONAL_CONTEXT_BOUNDS["west"], REGIONAL_CONTEXT_BOUNDS["south"]], [REGIONAL_CONTEXT_BOUNDS["east"], REGIONAL_CONTEXT_BOUNDS["north"]]],
+            "attribution": "Fond OSM/CARTO · frontières geoBoundaries CC BY 4.0 · contexte CEDEAO Agentium workspace",
             "interaction_contract": {
                 "commands": sorted(MAP_COMMAND_INTENTS),
                 "selection": "zone",
@@ -1069,9 +1100,17 @@ def _polygon_to_lonlat(polygon: str, view_box: tuple[float, float, float, float]
 def _camera_presets(zones: list[dict[str, Any]], view_box: tuple[float, float, float, float]) -> dict[str, dict[str, Any]]:
     presets: dict[str, dict[str, Any]] = {
         "country": {
-            "longitude": -5.38,
-            "latitude": 7.55,
-            "zoom": 6.78,
+            "longitude": -5.75,
+            "latitude": 7.95,
+            "zoom": 5.85,
+            "pitch": 0,
+            "bearing": 0,
+            "duration_ms": 900,
+        },
+        "regional": {
+            "longitude": -5.95,
+            "latitude": 8.20,
+            "zoom": 4.85,
             "pitch": 0,
             "bearing": 0,
             "duration_ms": 900,

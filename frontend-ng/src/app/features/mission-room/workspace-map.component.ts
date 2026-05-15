@@ -407,6 +407,7 @@ type BasemapOption = {
       .layer-toggle i.tone-blue { background: #8fd2ff; box-shadow: 0 0 12px rgba(143, 210, 255, 0.28); }
       .layer-toggle i.tone-cyan { background: #65d66e; box-shadow: 0 0 12px rgba(101, 214, 110, 0.28); }
       .layer-toggle i.tone-green { background: #76dfa6; box-shadow: 0 0 12px rgba(118, 223, 166, 0.28); }
+      .layer-toggle i.tone-orange { background: #f28c38; box-shadow: 0 0 12px rgba(242, 140, 56, 0.28); }
       .layer-toggle i.tone-red { background: #f27f8b; box-shadow: 0 0 12px rgba(242, 127, 139, 0.28); }
       .layer-toggle i.tone-violet { background: #b9a5ff; box-shadow: 0 0 12px rgba(185, 165, 255, 0.28); }
 
@@ -662,6 +663,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     return [
       { key: 'territorial-risk', label: 'Zones de vigilance', shortLabel: 'Zones', tone: 'cyan', count: this.zones.length, confidence: 78, visible: true },
       { key: 'open-intelligence', label: 'Signaux presse', shortLabel: 'Presse', tone: 'blue', count: 3, confidence: 72, visible: true },
+      { key: 'regional-context', label: 'Contexte CEDEAO', shortLabel: 'Region', tone: 'orange', count: 6, confidence: 74, visible: true },
       { key: 'strategic-projects', label: 'Projets sensibles', shortLabel: 'Projets', tone: 'green', count: 3, confidence: 69, visible: true },
       { key: 'agenda-windows', label: 'Agenda / fenêtres d’action', shortLabel: 'Agenda', tone: 'amber', count: 5, confidence: 81, visible: true },
       { key: 'visual-streams', label: 'Observations visuelles', shortLabel: 'Visuel', tone: 'violet', count: 1, confidence: 62, visible: true },
@@ -961,6 +963,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const showCityLabels = this.selectedBasemapKey === 'contours' && currentZoom >= 7.2 && !this.compact;
     const showTerritory = this.isLayerActive('territorial-risk');
     const showPresse = this.isLayerActive('open-intelligence');
+    const showRegional = this.isLayerActive('regional-context');
     const showProjects = this.isLayerActive('strategic-projects');
     const showAgenda = this.isLayerActive('agenda-windows');
     const showVisual = this.isLayerActive('visual-streams');
@@ -991,15 +994,15 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       parameters: { depthTest: false },
     }));
 
-    if (showAgenda || showActions) {
+    if (showAgenda || showActions || showRegional) {
       layers.push(new GeoJsonLayer({
         id: 'sentinel-context-lines',
         data: contextLinesSource,
         pickable: false,
         filled: false,
         stroked: true,
-        getLineColor: (feature: any) => feature.properties?.tone === 'watch' ? [255, 202, 68, 148] : [100, 220, 255, 132],
-        getLineWidth: 5500,
+        getLineColor: (feature: any) => this.contextLineColor(feature.properties?.tone),
+        getLineWidth: (feature: any) => feature.properties?.tone === 'regional' ? 7800 : 5500,
         lineWidthMinPixels: 1.6,
         parameters: { depthTest: false },
       }));
@@ -1034,29 +1037,29 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       }));
     }
 
-    if (showPresse) {
+    if (showPresse || showRegional) {
       layers.push(new ScatterplotLayer({
         id: 'sentinel-context-marker-rings',
-        data: contextMarkersSource?.features || [],
+        data: this.contextMarkerFeatures(contextMarkersSource?.features || [], showPresse, showRegional),
         pickable: false,
         stroked: true,
         filled: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
         radiusUnits: 'pixels',
         getRadius: (feature: any) => Math.max(9, Math.min(20, (feature.properties?.weight || 40) / 5)),
-        getFillColor: [112, 207, 255, 26],
-        getLineColor: [148, 222, 255, 138],
+        getFillColor: (feature: any) => this.contextMarkerFill(feature),
+        getLineColor: (feature: any) => this.contextMarkerLine(feature),
         lineWidthMinPixels: 1.4,
         parameters: { depthTest: false },
       }));
       layers.push(new ScatterplotLayer({
         id: 'sentinel-context-markers',
-        data: contextMarkersSource?.features || [],
+        data: this.contextMarkerFeatures(contextMarkersSource?.features || [], showPresse, showRegional),
         pickable: false,
         getPosition: (feature: any) => feature.geometry.coordinates,
         radiusUnits: 'pixels',
         getRadius: (feature: any) => Math.max(3.5, Math.min(8, (feature.properties?.weight || 40) / 13)),
-        getFillColor: [118, 214, 255, 220],
+        getFillColor: (feature: any) => feature.properties?.scope === 'regional' ? [242, 140, 56, 224] : [118, 214, 255, 220],
         getLineColor: [245, 252, 255, 230],
         lineWidthMinPixels: 1.4,
         parameters: { depthTest: false },
@@ -1164,6 +1167,27 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (tone === 'critical') return [255, 104, 116, alpha];
     if (tone === 'watch') return [255, 210, 82, alpha];
     return [104, 238, 164, alpha];
+  }
+
+  private contextLineColor(tone: string): number[] {
+    if (tone === 'regional') return [242, 140, 56, 158];
+    if (tone === 'watch') return [255, 202, 68, 148];
+    return [100, 220, 255, 132];
+  }
+
+  private contextMarkerFeatures(features: any[], showPresse: boolean, showRegional: boolean): any[] {
+    return features.filter((feature) => {
+      const regional = feature.properties?.scope === 'regional';
+      return regional ? showRegional : showPresse;
+    });
+  }
+
+  private contextMarkerFill(feature: any): number[] {
+    return feature.properties?.scope === 'regional' ? [242, 140, 56, 30] : [112, 207, 255, 26];
+  }
+
+  private contextMarkerLine(feature: any): number[] {
+    return feature.properties?.scope === 'regional' ? [255, 176, 94, 146] : [148, 222, 255, 138];
   }
 
   private enableFallback(): void {

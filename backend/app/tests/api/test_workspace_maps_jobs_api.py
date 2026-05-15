@@ -39,9 +39,13 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert listed.json()["maps"][0]["renderer_config"]["renderer"] == "maplibre"
     assert listed.json()["maps"][0]["renderer_config"]["basemap_policy"] == "public_osm_muted"
     assert listed.json()["maps"][0]["renderer_config"]["default_basemap"] == "administrative"
+    assert listed.json()["maps"][0]["renderer_config"]["bounds"][0][0] <= -13.0
     assert {item["key"] for item in listed.json()["maps"][0]["basemap_options"]} >= {"administrative", "dark", "contours"}
     assert listed.json()["maps"][0]["default_map_state"]["camera"]["pitch"] == 0
+    assert listed.json()["maps"][0]["default_map_state"]["camera"]["zoom"] <= 5.9
+    layer_keys = {item["key"] for item in listed.json()["maps"][0]["layer_catalog"]}
     assert listed.json()["maps"][0]["layer_catalog"][0]["key"] == "territorial-risk"
+    assert "regional-context" in layer_keys
     assert listed.json()["maps"][0]["geodata_metadata"]["source"].startswith("geoBoundaries")
     assert listed.json()["maps"][0]["country_boundary"]["features"][0]["properties"]["admin_level"] == "ADM0"
     assert listed.json()["maps"][0]["district_boundaries"]["features"][0]["properties"]["admin_level"] == "ADM1"
@@ -55,7 +59,10 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
         "Denguele",
         "Woroba",
     }
-    assert listed.json()["maps"][0]["geojson_sources"]["context_markers"]["features"]
+    context_markers = listed.json()["maps"][0]["geojson_sources"]["context_markers"]["features"]
+    assert context_markers
+    assert {"Accra", "Bamako", "Ouagadougou"} <= {feature["properties"]["name"] for feature in context_markers}
+    assert any(feature["properties"].get("scope") == "regional" for feature in context_markers)
 
     scored = client.post("/api/v1/maps/sentinel-ci-strategic-map/score")
     assert scored.status_code == 200

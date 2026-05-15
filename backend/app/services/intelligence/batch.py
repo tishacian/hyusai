@@ -329,6 +329,11 @@ def get_dashboard_data(db, workspace_id: str = None) -> dict:
             FeedSource.workspace_id == workspace_id
         )
     recent = recent_q.order_by(FeedArticle.fetched_at.desc()).limit(30).all()
+    source_ids = [article.source_id for article in recent if article.source_id]
+    source_by_id = {
+        source.id: source
+        for source in db.query(FeedSource).filter(FeedSource.id.in_(source_ids)).all()
+    } if source_ids else {}
 
     sentiment_counts = {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0}
     risk_counts = {"low": 0, "medium": 0, "high": 0, "critical": 0}
@@ -345,6 +350,9 @@ def get_dashboard_data(db, workspace_id: str = None) -> dict:
             entity_freq[ent] = entity_freq.get(ent, 0) + 1
         articles_data.append({
             "id": art.id,
+            "source_id": art.source_id,
+            "source_name": source_by_id.get(art.source_id).name if source_by_id.get(art.source_id) else None,
+            "source_category": source_by_id.get(art.source_id).category if source_by_id.get(art.source_id) else None,
             "title": art.title,
             "url": art.url,
             "summary": art.summary,

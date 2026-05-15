@@ -76,6 +76,7 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
         workspace_id=workspace.id,
         name="Africanews",
         url="https://example.test/rss",
+        category="ci-local",
         active=True,
     )
     other_source = FeedSource(
@@ -124,7 +125,13 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     assert news_body["source_health"]["live_news_used"] is True
     assert news_body["source_health"]["last_run_id"] == run.id
     assert news_body["source_health"]["high_risk"] == 1
+    assert news_body["source_health"]["geography_order"] == ["ci", "cedeao", "africa", "world"]
+    assert news_body["geographic_priority"][0]["key"] == "ci"
+    assert news_body["viewpoints"][0]["key"] == "interior"
+    assert news_body["social_listening"]["rumor_origins"]
     assert news_body["executive_alerts"][0]["article_id"] == article.id
+    assert news_body["executive_alerts"][0]["geography_tier"] == "ci"
+    assert news_body["executive_alerts"][0]["viewpoint"] == "politique interieure ivoirienne"
     assert "Andritz" not in str(news_body)
     assert cockpit.status_code == 200
     assert cockpit.json()["press_intelligence"]["last_run_id"] == run.id
@@ -180,10 +187,14 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert body["scenario"]["title"] == "Crise nationale"
     assert body["voice_context"]["assistant"] == "AYA"
     assert body["voice_context"]["mode"] == "voice_first"
+    assert any(command["intent"] == "rumor_origin" for command in body["voice_context"]["commands"])
     assert body["panel_layout"][0]["key"] == "map"
     assert any(signal["id"] == "visual-activity" for signal in body["cross_source_signals"])
+    assert any(signal["id"] == "social-rumor-origin" for signal in body["cross_source_signals"])
     assert body["visual"]["connector"]["id"] == "visual_streams"
     assert body["visual"]["source_health"]["total_sources"] >= 1
+    assert any(layer["key"] == "regional-context" for layer in body["layers"])
+    assert any(layer["key"] == "social-rumors" for layer in body["layers"])
     assert any(layer["key"] == "visual-streams" for layer in body["layers"])
 
     audit = db_session.query(AuditLog).filter_by(event_type="mission_room.monitor.viewed").one()

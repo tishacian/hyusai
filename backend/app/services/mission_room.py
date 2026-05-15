@@ -86,6 +86,27 @@ SOURCES = [
         "age": "08:12",
     },
     {
+        "id": "src-press-ci-local-001",
+        "label": "Presse ivoirienne - politique interieure",
+        "kind": "rss_press_local",
+        "confidence": 0.77,
+        "age": "flux continu",
+    },
+    {
+        "id": "src-press-cedeao-001",
+        "label": "Veille CEDEAO / Golfe de Guinee",
+        "kind": "rss_press_regional",
+        "confidence": 0.73,
+        "age": "flux continu",
+    },
+    {
+        "id": "src-social-watch-001",
+        "label": "Social listening public - rumeurs et origines",
+        "kind": "social_signal_demo",
+        "confidence": 0.61,
+        "age": "12 min",
+    },
+    {
         "id": "src-project-sante-042",
         "label": "Dossier projet - centres de sante frontaliers",
         "kind": "project_record",
@@ -178,8 +199,13 @@ NEWS_SIGNALS = [
         "risk_level": "high",
         "sentiment": "negative",
         "summary": "Plusieurs reprises presse et canaux locaux convergent vers un risque de perception d'abandon.",
-        "source": "Presse nationale + flux RSS Afrique",
-        "sources": ["src-press-rfi-017"],
+        "source": "Presse ivoirienne + flux RSS Afrique",
+        "sources": ["src-press-ci-local-001", "src-press-rfi-017"],
+        "zone": "Cote d'Ivoire",
+        "geography_tier": "ci",
+        "viewpoint": "politique interieure ivoirienne",
+        "origin": "Boucles locales + presse nationale",
+        "recommended_action": "Demander a AYA une note de clarification et proposer une visite terrain non militaire.",
     },
     {
         "id": "news-002",
@@ -189,6 +215,10 @@ NEWS_SIGNALS = [
         "summary": "Le narratif institutionnel s'ameliore, mais reste fragile si les livrables terrain glissent.",
         "source": "Presse internationale",
         "sources": ["src-press-rfi-017", "src-project-sante-042"],
+        "zone": "International / Cote d'Ivoire",
+        "geography_tier": "world",
+        "viewpoint": "politique internationale",
+        "origin": "Presse internationale Afrique / Europe",
     },
     {
         "id": "news-003",
@@ -197,9 +227,66 @@ NEWS_SIGNALS = [
         "sentiment": "mixed",
         "summary": "Signal faible recurrent ; action proposee : communication locale + rencontre autorites.",
         "source": "Veille ouverte",
-        "sources": ["src-cabinet-brief-001"],
+        "sources": ["src-cabinet-brief-001", "src-press-cedeao-001"],
+        "zone": "Nord CI / CEDEAO",
+        "geography_tier": "cedeao",
+        "viewpoint": "politique regionale",
+        "origin": "Signaux territoriaux + contexte transfrontalier",
+    },
+    {
+        "id": "social-001",
+        "title": "Emoi public apres un deces tragique relayé sur canaux sociaux",
+        "risk_level": "high",
+        "sentiment": "negative",
+        "summary": "Une rumeur fortement partagee evoque un deces tragique et cristallise une attente de presence institutionnelle.",
+        "source": "Social listening public demo",
+        "sources": ["src-social-watch-001", "src-press-ci-local-001"],
+        "zone": "Abidjan / Cote d'Ivoire",
+        "geography_tier": "ci",
+        "viewpoint": "politique interieure ivoirienne",
+        "origin": "X public + pages Facebook publiques + relais WhatsApp signales par cellule terrain",
+        "impact_ci": "Signal emotionnel interieur : recommander une action mediatique et physique forte, sous validation humaine.",
+        "why_it_matters": "Le risque n'est pas seulement informationnel : il touche l'empathie publique, la presence terrain et la credibilite institutionnelle.",
+        "recommended_action": "Qualifier la source primaire, preparer un message de compassion, puis proposer une presence terrain coordonnee.",
+        "confidence": 0.61,
+        "source_count": 3,
     },
 ]
+
+SENTINEL_NEWS_FEEDS = [
+    ("7info CI", "https://www.7info.ci/feed/", "ci-local"),
+    ("Agence Ivoirienne de Presse", "https://www.aip.ci/feed/", "ci-agency"),
+    ("RTI Info", "https://rti.info/feed/", "ci-public"),
+    ("Connection Ivoirienne", "https://connectionivoirienne.net/feed/", "ci-local"),
+    ("Fraternite Matin", "https://beta.fratmat.info/rssFeed/0", "ci-national"),
+    ("BBC Africa", "https://feeds.bbci.co.uk/news/world/africa/rss.xml", "africa"),
+    ("Jeune Afrique", "https://www.jeuneafrique.com/feed/", "africa-fr"),
+    ("AllAfrica West Africa", "https://allafrica.com/tools/headlines/rdf/westafrica/headlines.rdf", "cedeao"),
+    ("Africanews", "https://www.africanews.com/feed/rss", "africa"),
+    ("France 24 Afrique", "https://www.france24.com/fr/afrique/rss", "afrique"),
+    ("RFI Afrique", "https://www.rfi.fr/fr/afrique/rss", "afrique"),
+    ("BBC World News", "https://feeds.bbci.co.uk/news/world/rss.xml", "world"),
+]
+
+GEOGRAPHIC_PRIORITY_ORDER = [
+    ("ci", "Cote d'Ivoire", "Priorite absolue pour le vice-president et le pilotage interieur."),
+    ("cedeao", "CEDEAO / voisins immediats", "Effets transfrontaliers, perception regionale et coordination diplomatique."),
+    ("africa", "Afrique", "Contexte continental utile aux arbitrages et aux messages publics."),
+    ("world", "Monde", "Europe, Asie, USA et partenaires internationaux a garder en contrepoint."),
+]
+
+FEED_CATEGORY_SCOPE = {
+    "ci-local": "ci",
+    "ci-agency": "ci",
+    "ci-public": "ci",
+    "ci-national": "ci",
+    "cedeao": "cedeao",
+    "west-africa": "cedeao",
+    "africa": "africa",
+    "africa-fr": "africa",
+    "afrique": "africa",
+    "world": "world",
+}
 
 MESSAGES = [
     {
@@ -461,6 +548,123 @@ def _action_for_risk(level: str | None) -> str:
     return "Conserver en suivi, sans action ministérielle immédiate."
 
 
+def _feed_scope(category: str | None) -> str:
+    return FEED_CATEGORY_SCOPE.get(str(category or "").lower(), "world")
+
+
+def _feed_viewpoint(category: str | None) -> str:
+    scope = _feed_scope(category)
+    if scope == "ci":
+        return "politique interieure ivoirienne"
+    if scope == "cedeao":
+        return "politique regionale CEDEAO"
+    if scope == "africa":
+        return "politique africaine"
+    return "politique internationale"
+
+
+def _feed_rows(db: Optional[DBSession], workspace: Workspace) -> list[dict[str, Any]]:
+    if not db:
+        return [
+            {"name": name, "url": url, "category": category, "active": True}
+            for name, url, category in SENTINEL_NEWS_FEEDS
+        ]
+    rows = db.query(FeedSource).filter(FeedSource.workspace_id == workspace.id).all()
+    return [
+        {
+            "name": row.name,
+            "url": row.url,
+            "category": row.category,
+            "active": bool(row.active),
+            "article_count": row.article_count or 0,
+        }
+        for row in rows
+    ]
+
+
+def _geographic_priority_payload(feed_rows: list[dict[str, Any]], signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    payload = []
+    for scope, label, description in GEOGRAPHIC_PRIORITY_ORDER:
+        feeds = [row for row in feed_rows if row.get("active") and _feed_scope(row.get("category")) == scope]
+        scope_signals = [
+            signal for signal in signals
+            if str(signal.get("geography_tier") or _feed_scope(signal.get("source_category"))).lower() == scope
+            or (scope == "ci" and "cote d'ivoire" in str(signal.get("zone") or signal.get("source") or "").lower())
+        ]
+        payload.append(
+            {
+                "key": scope,
+                "label": label,
+                "priority": len(payload) + 1,
+                "description": description,
+                "feed_count": len(feeds),
+                "signal_count": len(scope_signals),
+                "sources": [row.get("name") for row in feeds[:6]],
+                "focus": [signal.get("title") for signal in scope_signals[:3]],
+            }
+        )
+    return payload
+
+
+def _news_viewpoints_payload(feed_rows: list[dict[str, Any]], signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups = [
+        ("interior", "Politique interieure ivoirienne", {"ci"}),
+        ("regional", "Politique regionale CEDEAO", {"cedeao", "africa"}),
+        ("international", "Politique internationale", {"world", "africa"}),
+    ]
+    payload = []
+    for key, label, scopes in groups:
+        feeds = [row for row in feed_rows if row.get("active") and _feed_scope(row.get("category")) in scopes]
+        group_signals = [
+            signal for signal in signals
+            if any(scope in str(signal.get("geography_tier") or "").lower() for scope in scopes)
+            or (key == "interior" and "ivoirienne" in str(signal.get("viewpoint") or "").lower())
+            or (key == "international" and "internationale" in str(signal.get("viewpoint") or "").lower())
+        ]
+        payload.append(
+            {
+                "key": key,
+                "label": label,
+                "feed_count": len(feeds),
+                "signal_count": len(group_signals),
+                "sources": [row.get("name") for row in feeds[:6]],
+                "brief": (
+                    "Lecture prioritaire des impacts interieur, emotions publiques, rumeurs et attentes de presence."
+                    if key == "interior"
+                    else "Lecture des effets de voisinage, partenaires, diplomatie et perception internationale."
+                ),
+            }
+        )
+    return payload
+
+
+def _social_listening_payload(signals: list[dict[str, Any]]) -> dict[str, Any]:
+    social_signals = [
+        signal for signal in signals
+        if str(signal.get("id") or "").startswith("social-") or "social" in str(signal.get("source") or "").lower()
+    ]
+    return {
+        "status": "demo_public_sources",
+        "policy": "Pas de scraping prive WhatsApp/Facebook ; uniquement signaux publics, signalements terrain et connecteurs autorises.",
+        "channels": [
+            {"key": "x", "label": "X public", "coverage": 38, "status": "connector_ready"},
+            {"key": "facebook_public", "label": "Pages Facebook publiques", "coverage": 34, "status": "connector_ready"},
+            {"key": "whatsapp_reports", "label": "Signalements WhatsApp terrain", "coverage": 22, "status": "human_reported"},
+        ],
+        "signals": social_signals,
+        "rumor_origins": [
+            {
+                "label": signal.get("title"),
+                "origin": signal.get("origin") or "Origine a qualifier",
+                "zone": signal.get("zone") or signal.get("source"),
+                "confidence": signal.get("confidence", 0.58),
+                "recommended_action": signal.get("recommended_action"),
+            }
+            for signal in social_signals[:4]
+        ],
+    }
+
+
 def _latest_intelligence_run(db: DBSession, workspace: Workspace) -> Optional[Run]:
     systems = db.query(System).filter(System.workspace_id == workspace.id).all()
     preferred = _system_for_navigation_item(
@@ -479,45 +683,52 @@ def _latest_intelligence_run(db: DBSession, workspace: Workspace) -> Optional[Ru
 
 def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> dict[str, Any]:
     """Bridge News Lab diagnostics into a ministerial, advisory payload."""
+    feed_rows = _feed_rows(db, workspace)
     fallback = {
         "workspace": _workspace_meta(workspace),
         "signals": _clone(NEWS_SIGNALS),
         "executive_alerts": _clone(NEWS_SIGNALS),
-        "summary": "Trois signaux dominent : retards sociaux au nord, perception de cooperation FR-CI, et besoin d'une communication preventive non militaire.",
+        "summary": "Lecture double : politique interieure ivoirienne prioritaire, avec contrepoint CEDEAO/Afrique/monde pour anticiper perception et diplomatie.",
         "briefing_note": {
-            "headline": "Veille ouverte qualifiee",
+            "headline": "Veille ouverte qualifiee CI + international",
             "bullets": [
-                "Retards sociaux au nord : risque de perception d'abandon.",
-                "Cooperation FR-CI : dynamique positive mais fragile.",
-                "Communication preventive recommandee avant amplification mediatique.",
+                "Cote d'Ivoire : rumeurs, emotion publique et projets sensibles demandent une lecture cabinet rapide.",
+                "CEDEAO / Golfe de Guinee : surveiller les effets transfrontaliers et narratifs regionaux.",
+                "International : garder le contrepoint partenaires Europe/USA/Asie pour anticiper pression et opportunites.",
             ],
             "talking_points": [
                 "Coordination preventive avec les autorites locales.",
                 "Continuité des services publics et suivi transparent des projets.",
+                "AYA peut expliquer l'origine d'une rumeur, la zone touchee et l'action recommandee.",
             ],
             "decisions_expected": [
                 "Valider les elements de langage presse.",
                 "Mandater une note cabinet sur les zones nord.",
+                "Qualifier le signal social prioritaire avant toute action publique.",
             ],
         },
         "source_health": {
-            "active_feeds": 0,
+            "active_feeds": len([row for row in feed_rows if row.get("active")]),
             "total_articles": 0,
             "analyzed": 0,
             "high_risk": len([s for s in NEWS_SIGNALS if s.get("risk_level") == "high"]),
             "last_run_id": None,
             "last_run_status": "fixture",
-            "coverage_label": "scenario de demonstration",
+            "coverage_label": "CI -> CEDEAO -> Afrique -> Monde",
             "live_news_used": False,
+            "geography_order": [item[0] for item in GEOGRAPHIC_PRIORITY_ORDER],
         },
         "media_sources": _clone(
             [
-                {"label": "Presse nationale", "coverage": 72, "count": 45},
-                {"label": "Presse internationale", "coverage": 58, "count": 28},
-                {"label": "Reseaux sociaux", "coverage": 41, "count": 156},
-                {"label": "Agences de presse", "coverage": 65, "count": 18},
+                {"label": "Presse ivoirienne", "coverage": 84, "count": 5},
+                {"label": "CEDEAO / voisins", "coverage": 68, "count": 1},
+                {"label": "Afrique + international", "coverage": 72, "count": 6},
+                {"label": "Rumeurs / social", "coverage": 41, "count": 3},
             ]
         ),
+        "geographic_priority": _geographic_priority_payload(feed_rows, _clone(NEWS_SIGNALS)),
+        "viewpoints": _news_viewpoints_payload(feed_rows, _clone(NEWS_SIGNALS)),
+        "social_listening": _social_listening_payload(_clone(NEWS_SIGNALS)),
         "sources": source_index(),
     }
     if not db:
@@ -562,13 +773,14 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
         title = _short_text(article.get("title") or "Signal de veille", 110)
         summary = _short_text(article.get("summary") or title)
         risk_level = str(article.get("risk_level") or "medium").lower()
+        source_category = article.get("source_category")
         zone = _infer_zone(f"{title} {summary} {' '.join(article.get('entities') or [])}")
         confidence = _confidence(article.get("relevance_score"))
         dynamic_sources.append(
             {
                 "id": source_id,
                 "label": _short_text(title, 76),
-                "kind": "rss_press",
+                "kind": "rss_press_local" if _feed_scope(source_category) == "ci" else "rss_press",
                 "confidence": confidence,
                 "age": "flux public",
             }
@@ -582,8 +794,13 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
                 "sentiment": article.get("sentiment") or "neutral",
                 "summary": summary,
                 "source": zone,
+                "source_name": article.get("source_name"),
+                "source_category": source_category,
                 "sources": [source_id],
                 "zone": zone,
+                "geography_tier": _feed_scope(source_category),
+                "viewpoint": _feed_viewpoint(source_category),
+                "origin": article.get("source_name") or "Flux RSS public",
                 "impact_ci": (
                     "Impact direct a qualifier pour la Cote d'Ivoire."
                     if zone == "Cote d'Ivoire"
@@ -639,9 +856,10 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
             "last_run_id": latest_run.id if latest_run else None,
             "last_run_status": latest_run.status if latest_run else "standby",
             "last_updated": latest_run.completed_at.isoformat() + "Z" if latest_run and latest_run.completed_at else None,
-            "coverage_label": f"{active} sources publiques · {analyzed} articles qualifies",
+            "coverage_label": f"{active} sources · priorite CI puis CEDEAO/Afrique/Monde",
             "live_news_used": True,
             "source_entities": entity_names[:8],
+            "geography_order": [item[0] for item in GEOGRAPHIC_PRIORITY_ORDER],
         },
         "media_sources": [
             {"label": "Sources actives", "coverage": 100 if active else 0, "count": active},
@@ -649,6 +867,9 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
             {"label": "Signaux prioritaires", "coverage": high_pct, "count": high_risk},
             {"label": "Confiance sources", "coverage": round(sum(a["confidence"] for a in alerts) / max(len(alerts), 1) * 100), "count": len(alerts)},
         ],
+        "geographic_priority": _geographic_priority_payload(feed_rows, [*alerts, *_clone(NEWS_SIGNALS)]),
+        "viewpoints": _news_viewpoints_payload(feed_rows, [*alerts, *_clone(NEWS_SIGNALS)]),
+        "social_listening": _social_listening_payload(_clone(NEWS_SIGNALS)),
         "analysis_link": {
             "system_id": latest_run.system_id if latest_run else None,
             "run_id": latest_run.id if latest_run else None,
@@ -1091,6 +1312,8 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     layers = [
         {"key": "territorial-risk", "label": "Zones territoriales", "enabled": True, "count": len(zones)},
         {"key": "open-intelligence", "label": "Signaux presse", "enabled": True, "count": len(news.get("executive_alerts") or news.get("signals") or [])},
+        {"key": "regional-context", "label": "Contexte CEDEAO / Golfe de Guinee", "enabled": True, "count": len([item for item in (news.get("geographic_priority") or []) if item.get("key") in {"cedeao", "africa"}])},
+        {"key": "social-rumors", "label": "Rumeurs et origines", "enabled": True, "count": len((news.get("social_listening") or {}).get("rumor_origins") or [])},
         {"key": "projects", "label": "Projets sensibles", "enabled": True, "count": len(PROJECTS)},
         {"key": "agenda", "label": "Contraintes agenda", "enabled": True, "count": len(_agenda_items_from_calendar(workspace, db))},
         {"key": "visual-streams", "label": "Flux visuels", "enabled": True, "count": len(visual_observations)},
@@ -1231,6 +1454,9 @@ def _cross_source_signals(
     press_score = min(100, high_risk * 24 + len(alerts[:3]) * 7)
     visual_score = int((visual.get("posture") or {}).get("score") or 0)
     latest_observation = visual.get("latest_observation") or {}
+    social = news.get("social_listening") or {}
+    rumor_origins = social.get("rumor_origins") or []
+    rumor_score = min(100, len(rumor_origins) * 18 + round(max([float(item.get("confidence") or 0.0) for item in rumor_origins] or [0.0]) * 52))
     agenda_score = int((calendar_summary or {}).get("conflict_score") or 0)
     agenda_score = agenda_score or min(
         100,
@@ -1275,6 +1501,21 @@ def _cross_source_signals(
             "source_keys": ["visual_situation_watch", "visual_streams"],
             "related_zone": latest_observation.get("zone_id"),
             "action_prompt": "Ouvrir le flux webcam le plus parlant avant arbitrage.",
+        },
+        {
+            "id": "social-rumor-origin",
+            "type": "social",
+            "label": "Rumeurs et origines",
+            "summary": (
+                f"{len(rumor_origins)} origine(s) de rumeur ou d'emoi public a qualifier avant action."
+                if rumor_origins
+                else "Connecteurs sociaux publics prepares : aucune origine prioritaire ne depasse le seuil demo."
+            ),
+            "severity": _signal_level(rumor_score),
+            "score": rumor_score,
+            "source_keys": ["social_listening_public", "field_reports", "open_intelligence_watch"],
+            "related_zone": (rumor_origins[0] or {}).get("zone") if rumor_origins else None,
+            "action_prompt": "Demander a AYA l'origine de la rumeur prioritaire et l'action de presence recommandee.",
         },
         {
             "id": "agenda-pressure",
@@ -1396,6 +1637,9 @@ def _aya_voice_context(scenario: dict[str, Any], cross_source_signals: list[dict
         "AYA, ouvre la camera Pont General-de-Gaulle.",
         "AYA, filtre la carte sur Abidjan.",
         "AYA, quels impacts agenda aujourd'hui ?",
+        "AYA, d'ou vient la rumeur prioritaire ?",
+        "AYA, separe politique interieure ivoirienne et perception internationale.",
+        "AYA, montre la lecture CEDEAO autour de la Cote d'Ivoire.",
         "AYA, prepare une instruction executive.",
     ]
     return {
@@ -1412,7 +1656,10 @@ def _aya_voice_context(scenario: dict[str, Any], cross_source_signals: list[dict
             {"utterance": prompts[1], "intent": "visual_focus", "target": "pont-general-de-gaulle"},
             {"utterance": prompts[2], "intent": "map_focus", "target": "abidjan"},
             {"utterance": prompts[3], "intent": "agenda_impacts", "target": "today"},
-            {"utterance": prompts[4], "intent": "instruction_draft", "target": (cross_source_signals[0] or {}).get("id") if cross_source_signals else None},
+            {"utterance": prompts[4], "intent": "rumor_origin", "target": "social-rumor-origin"},
+            {"utterance": prompts[5], "intent": "political_viewpoint_split", "target": "news_viewpoints"},
+            {"utterance": prompts[6], "intent": "regional_map_focus", "target": "regional-context"},
+            {"utterance": prompts[7], "intent": "instruction_draft", "target": (cross_source_signals[0] or {}).get("id") if cross_source_signals else None},
         ],
         "fallback": "text_chat_overlay",
     }
@@ -1616,16 +1863,19 @@ def _ensure_feed(db: DBSession, workspace: Workspace, name: str, url: str, categ
 def _ensure_target(db: DBSession, workspace: Workspace) -> None:
     name = "SENTINEL-CI ministerial signals"
     description = (
-        "Cote d'Ivoire ministerial watch with West African and Sahel context: "
-        "public action, government continuity, territorial security, weak signals, "
-        "territorial projects, logistics, cooperation narratives and crisis communication."
+        "Cote d'Ivoire ministerial watch with geographic priority CI -> CEDEAO -> Africa -> World: "
+        "domestic politics, public emotion, social rumors, government continuity, territorial security, "
+        "industrial/government project steering, regional diplomacy, cooperation narratives and crisis communication."
     )
     keywords = [
         "Cote d'Ivoire",
         "Ivory Coast",
         "Abidjan",
         "Yamoussoukro",
+        "politique ivoirienne",
+        "politique interieure",
         "Afrique de l'Ouest",
+        "CEDEAO",
         "West Africa",
         "Sahel",
         "Golfe de Guinee",
@@ -1633,7 +1883,11 @@ def _ensure_target(db: DBSession, workspace: Workspace) -> None:
         "vice-presidence",
         "securite",
         "rumeur",
+        "reseaux sociaux",
+        "social listening",
+        "emoi public",
         "projet public",
+        "pilotage industriel",
         "cooperation",
     ]
     existing = (
@@ -1903,8 +2157,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "knowledge_scopes": [
                 {
                     "key": "vigie",
-                    "label": "Presse + Projets + Briefings + Carte",
-                    "description": "Sources qualifiees pour briefing gouvernemental.",
+                    "label": "Presse + Rumeurs + Projets + Carte",
+                    "description": "Sources qualifiees CI, CEDEAO, internationales et signaux sociaux publics pour briefing gouvernemental.",
                     "collection_slugs": [
                         "sentinel-ci-open-intelligence",
                         "sentinel-ci-projects",
@@ -1919,8 +2173,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 },
                 {
                     "key": "open_intelligence",
-                    "label": "Presse et signaux faibles",
-                    "description": "Articles RSS et syntheses News Lab consolides.",
+                    "label": "Presse, rumeurs et signaux faibles",
+                    "description": "Articles RSS, syntheses News Lab et origines de rumeurs publiques consolides.",
                     "collection_slugs": ["sentinel-ci-open-intelligence"],
                     "default_mode": "chah",
                     "top_k": 8,
@@ -1951,6 +2205,9 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         "read_visual_observations",
                         "capture_visual_snapshot",
                         "control_strategic_map",
+                        "read_social_signals",
+                        "trace_rumor_origin",
+                        "explain_geographic_priority",
                     ],
                     "allowed_calendar_actions": [
                         "read_calendar",
@@ -1986,6 +2243,21 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                             "icon": "message-square",
                             "label": "Langage public",
                             "prompt": "Prépare des éléments de langage prudents et sourcés.",
+                        },
+                        {
+                            "icon": "pulse",
+                            "label": "Origine rumeur",
+                            "prompt": "D'ou vient la rumeur prioritaire et quelle action recommandes-tu ?",
+                        },
+                        {
+                            "icon": "layers",
+                            "label": "Double lecture",
+                            "prompt": "Separe politique interieure ivoirienne et perception internationale.",
+                        },
+                        {
+                            "icon": "crosshair",
+                            "label": "Carte region",
+                            "prompt": "Montre la lecture CEDEAO autour de la Cote d'Ivoire.",
                         },
                     ],
                 }
@@ -2037,14 +2309,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
     ):
         _ensure_collection(db, workspace, slug, name, description)
 
-    for name, url, category in (
-        ("BBC Africa", "https://feeds.bbci.co.uk/news/world/africa/rss.xml", "africa"),
-        ("Jeune Afrique", "https://www.jeuneafrique.com/feed/", "africa-fr"),
-        ("AllAfrica West Africa", "https://allafrica.com/tools/headlines/rdf/westafrica/headlines.rdf", "west-africa"),
-        ("Africanews", "https://www.africanews.com/feed/rss", "africa"),
-        ("France 24 Afrique", "https://www.france24.com/fr/afrique/rss", "afrique"),
-        ("RFI Afrique", "https://www.rfi.fr/fr/afrique/rss", "afrique"),
-    ):
+    for name, url, category in SENTINEL_NEWS_FEEDS:
         _ensure_feed(db, workspace, name, url, category)
     _ensure_target(db, workspace)
     _ensure_filter(db, workspace)
@@ -2100,7 +2365,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         },
         {
             "name": "Veille Presse & Signaux Faibles",
-            "objective": "Agreger RSS, presse et signaux faibles pour detecter les sujets sensibles avant escalation.",
+            "objective": "Agreger presse ivoirienne, CEDEAO, internationale et signaux publics de rumeurs pour detecter les sujets sensibles avant escalation.",
             "capability_slug": "open_intelligence_watch",
             "skill_slugs": ["intelligence_batch_v1", "news_signal_synthesis_v1", "audit_log_v1"],
             "variant": "intelligence",
@@ -2161,7 +2426,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         },
         {
             "name": "AYA Voice Command",
-            "objective": "Piloter la Mission Control Room en voice-first : briefing, camera, carte, agenda et instructions.",
+            "objective": "Piloter la Mission Control Room en voice-first : briefing, camera, carte regionale, rumeurs, agenda et instructions.",
             "capability_slug": "aya_voice_command",
             "skill_slugs": ["voice_tandem_oracle_v1", "voice_realtime_session_v1", "llm_rag_answer_v1", "audit_log_v1"],
             "variant": "aya_voice_command",

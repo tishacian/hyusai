@@ -62,7 +62,11 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert db_session.query(WorkspaceCalendarEvent).filter_by(workspace_id=workspace.id).count() >= 7
     assert db_session.query(WorkspaceActionItem).filter_by(workspace_id=workspace.id).count() >= 3
     assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() >= 8
-    assert db_session.query(FeedSource).filter_by(workspace_id=workspace.id).count() >= 3
+    feeds = db_session.query(FeedSource).filter_by(workspace_id=workspace.id).all()
+    assert len(feeds) >= 12
+    assert {feed.category for feed in feeds} >= {"ci-local", "ci-agency", "ci-public", "ci-national", "cedeao", "world"}
+    assert workspace.settings["mission_room"]["region_scope"] == ["Cote d'Ivoire", "West Africa", "Sahel", "Gulf of Guinea"]
+    assert "trace_rumor_origin" in workspace.settings["assistant_profiles"][0]["allowed_actions"]
     preset = db_session.query(RagPreset).filter_by(workspace_id=workspace.id, is_default=True).one()
     assert preset.scope_id == workspace.id
     assert preset.config["mode"] == "chah"
