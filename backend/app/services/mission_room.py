@@ -351,6 +351,69 @@ DECISIONS = [
     },
 ]
 
+DECISION_SENTENCE = {
+    "label": "Sentence du jour",
+    "text": "M. le Vice-Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.",
+    "generated_by": SENTINEL_ASSISTANT_NAME,
+    "refresh_policy": "mise a jour horaire ou nouvelle alerte critique",
+    "deadline": "avant Conseil 15h00",
+    "source_refs": ["src-cabinet-brief-001", "src-press-ci-local-001", "src-agenda-jour-015"],
+}
+
+ATTENTION_REQUIRED = [
+    {
+        "id": "attention-inter-budget",
+        "rank": 1,
+        "title": "Article L'Inter - critique personnelle sur budget defense",
+        "sentence": "Reponse recommandee avant 14h00.",
+        "action_label": "Voir le projet de reponse",
+        "deadline": "14:00",
+        "status": "draft_ready",
+        "tone": "critical",
+        "source_refs": ["src-press-ci-local-001"],
+    },
+    {
+        "id": "attention-zone-nord",
+        "rank": 2,
+        "title": "Zone Nord - tension frontiere Burkina Faso",
+        "sentence": "Renforcement preventif ou coordination CEDEAO a arbitrer avant Conseil 15h00.",
+        "action_label": "Arbitrer les options",
+        "deadline": "15:00",
+        "status": "decision_required",
+        "tone": "critical",
+        "source_refs": ["src-cabinet-brief-001", "src-press-cedeao-001"],
+    },
+    {
+        "id": "attention-ambassadeur-france",
+        "rank": 3,
+        "title": "Ambassadeur France - dejeuner dans 1h44",
+        "sentence": "Fiche de preparation deja prete pour cadrer cooperation, presse et projets frontaliers.",
+        "action_label": "Ouvrir la fiche",
+        "deadline": "13:00",
+        "status": "brief_ready",
+        "tone": "watch",
+        "source_refs": ["src-agenda-jour-015", "src-project-sante-042"],
+    },
+]
+
+TERRITORIAL_LIVE_STATUS = [
+    {"zone": "Nord", "level": "CRITIQUE", "bars": 4, "summary": "Incident frontiere · 06h14", "tone": "critical"},
+    {"zone": "Ouest", "level": "SURVEILLANCE", "bars": 3, "summary": "Mouvements inhabituels", "tone": "watch"},
+    {"zone": "Centre", "level": "STABLE", "bars": 2, "summary": "Institutions nominales", "tone": "stable"},
+    {"zone": "Sud", "level": "OPERATIONNEL", "bars": 1, "summary": "Abidjan nominal", "tone": "stable"},
+    {"zone": "Est", "level": "SURVEILLANCE", "bars": 3, "summary": "Frontiere Ghana", "tone": "watch"},
+]
+
+VOICE_DEMO_SCRIPT = {
+    "prompt": "AYA, quelle est la situation au nord en ce moment ?",
+    "answer": (
+        "Zone nord — niveau critique depuis ce matin 06h14. Le General Konate signale des mouvements "
+        "a 40 kilometres de la frontiere Burkina. Deux options sont sur la table : renforcement preventif "
+        "ou coordination CEDEAO. Le General attend votre arbitrage avant 15 heures."
+    ),
+    "target_latency_s": 6,
+}
+
 LIBRARY_ITEMS = [
     {
         "id": "lib-briefing-template",
@@ -988,6 +1051,16 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
         "date_label": "Mercredi 15 Avril 2026",
         "mode": "demo",
         "briefing_status": "ready",
+        "decision_sentence": _clone(DECISION_SENTENCE),
+        "attention_required": _clone(ATTENTION_REQUIRED),
+        "sixty_second_cockpit": {
+            "urgences": _clone(ATTENTION_REQUIRED),
+            "agenda_focus": _clone(AGENDA[:1]),
+            "menace": {"label": "Zone Nord", "score": 85, "tone": "critical", "deadline": "15:00"},
+            "reputation": {"score": 63, "delta": 5, "sentence": "Un article necessite votre attention ; les autres signaux sont gerables."},
+        },
+        "territorial_live_status": _clone(TERRITORIAL_LIVE_STATUS),
+        "voice_demo_script": _clone(VOICE_DEMO_SCRIPT),
         "priorities": _clone(PRIORITIES),
         "kpis": {
             "press_alerts": 16,
@@ -1322,6 +1395,16 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         "workspace": _workspace_meta(workspace),
         "title": "Mission Control Room",
         "summary": posture["summary"],
+        "decision_sentence": _clone(DECISION_SENTENCE),
+        "attention_required": _clone(ATTENTION_REQUIRED),
+        "sixty_second_cockpit": {
+            "urgences": _clone(ATTENTION_REQUIRED),
+            "agenda_focus": _agenda_items_from_calendar(workspace, db)[:1],
+            "menace": {"label": "Zone Nord", "score": 85, "tone": "critical", "deadline": "15:00"},
+            "reputation": {"score": 63, "delta": 5, "sentence": "Un article necessite votre attention ; les autres signaux sont gerables."},
+        },
+        "territorial_live_status": _clone(TERRITORIAL_LIVE_STATUS),
+        "voice_demo_script": _clone(VOICE_DEMO_SCRIPT),
         "scenario": scenario,
         "posture": posture,
         "layers": layers,
@@ -1651,6 +1734,7 @@ def _aya_voice_context(scenario: dict[str, Any], cross_source_signals: list[dict
         "scenario_id": scenario.get("id"),
         "session_hint": "sentinel-ci-mission-control",
         "prompts": prompts,
+        "demo_script": _clone(VOICE_DEMO_SCRIPT),
         "commands": [
             {"utterance": prompts[0], "intent": "scenario_brief", "target": scenario.get("id")},
             {"utterance": prompts[1], "intent": "visual_focus", "target": "pont-general-de-gaulle"},

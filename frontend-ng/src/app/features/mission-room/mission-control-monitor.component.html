@@ -16,7 +16,17 @@
     </div>
     <button type="button" class="aya-voice" [class.listening]="voiceState() === 'listening'" (click)="toggleVoice()">
       <ck-glyph name="bolt" [size]="14" />
-      <span>{{ voiceState() === 'listening' ? 'AYA ecoute' : 'Parler a ' + assistantName }}</span>
+      <span>
+        @if (voiceState() === 'listening') {
+          Envoyer la question
+        } @else if (voiceState() === 'thinking') {
+          {{ assistantName }} analyse
+        } @else if (voiceState() === 'speaking') {
+          {{ assistantName }} repond
+        } @else {
+          Parler a {{ assistantName }}
+        }
+      </span>
     </button>
   </header>
 
@@ -53,6 +63,11 @@
         <ck-glyph name="crosshair" [size]="13" />
         <span>Focus Abidjan</span>
       </button>
+    </div>
+    <div class="decision-banner">
+      <span>{{ decisionSentence().label || 'Sentence du jour' }}</span>
+      <strong>{{ decisionSentence().text }}</strong>
+      <small>{{ decisionSentence().deadline }} · {{ decisionSentence().generated_by || assistantName }}</small>
     </div>
     <app-workspace-map
       class="mission-map"
@@ -118,6 +133,9 @@
       @if (voiceTranscript()) {
         <blockquote>{{ voiceTranscript() }}</blockquote>
       }
+      @if (voiceAnswer()) {
+        <blockquote class="answer">{{ voiceAnswer() }}</blockquote>
+      }
       <div class="prompt-stack">
         @for (prompt of voicePrompts(); track prompt) {
           <button type="button" (click)="activatePrompt(prompt)">{{ prompt }}</button>
@@ -129,15 +147,15 @@
   <section class="mc-bottom">
     <article class="dock-panel news-dock">
       <div class="panel-title">
-        <span>Live News</span>
-        <b>{{ newsSignals().length }}</b>
+        <span>Attention requise</span>
+        <b>{{ attentionItems().length }}</b>
       </div>
       <div class="news-list">
-        @for (signal of newsSignals() | slice: 0:4; track signal.id) {
+        @for (item of attentionItems() | slice: 0:3; track item.id) {
           <article>
-            <strong>{{ signal.title }}</strong>
-            <small>{{ signal.zone || signal.source }} · {{ signal.risk_level || 'monitoring' }}</small>
-            <p>{{ signal.impact_ci || signal.summary }}</p>
+            <strong>{{ item.rank }}. {{ item.title }}</strong>
+            <small>{{ item.deadline }} · {{ item.status }}</small>
+            <p>{{ item.sentence }}</p>
           </article>
         }
       </div>
@@ -217,6 +235,15 @@
           <article>
             <strong>{{ item.title }}</strong>
             <small>{{ item.owner_label }} · {{ item.due_label }}</small>
+          </article>
+        }
+      </div>
+      <div class="territory-mini">
+        @for (zone of territorialLiveStatus(); track zone.zone) {
+          <article [class]="zone.tone">
+            <strong>{{ zone.zone }}</strong>
+            <span>{{ zone.level }}</span>
+            <small>{{ zone.summary }}</small>
           </article>
         }
       </div>

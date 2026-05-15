@@ -289,6 +289,39 @@
   min-height: 520px;
 }
 
+.decision-banner {
+  position: absolute;
+  top: 102px;
+  left: 14px;
+  right: 14px;
+  z-index: 2;
+  max-width: min(980px, calc(100% - 28px));
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 155, 74, 0.26);
+  border-left: 4px solid var(--mc-orange);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(255, 155, 74, 0.13), rgba(0, 0, 0, 0.70));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.36);
+}
+
+.decision-banner span,
+.decision-banner small {
+  display: block;
+  color: var(--mc-muted);
+  font-family: var(--ck-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.decision-banner strong {
+  display: block;
+  margin: 6px 0;
+  color: var(--mc-text);
+  font-size: clamp(22px, 2.4vw, 36px);
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
 .scenario-card {
   position: absolute;
   left: 14px;
@@ -453,6 +486,11 @@
 .aya-panel blockquote {
   border-left: 2px solid var(--mc-orange);
   padding-left: 9px;
+}
+
+.aya-panel blockquote.answer {
+  border-color: var(--mc-green);
+  color: var(--mc-text);
 }
 
 .prompt-stack {
@@ -641,6 +679,40 @@
 .action-list {
   margin-top: 8px;
 }
+
+.territory-mini {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.territory-mini article {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 0.8fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding-top: 7px;
+  border-top: 1px solid rgba(151, 185, 164, 0.10);
+}
+
+.territory-mini strong {
+  color: var(--mc-text);
+  font-size: 12px;
+}
+
+.territory-mini span {
+  color: var(--mc-green);
+  font-family: var(--ck-font-mono);
+  font-size: 11px;
+}
+
+.territory-mini small {
+  color: var(--mc-muted);
+  font-size: 11px;
+}
+
+.territory-mini article.critical span { color: var(--mc-red); }
+.territory-mini article.watch span { color: var(--mc-amber); }
 
 @media (max-width: 1180px) {
   .mission-control {
