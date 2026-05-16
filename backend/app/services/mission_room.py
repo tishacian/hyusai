@@ -414,6 +414,82 @@ VOICE_DEMO_SCRIPT = {
     "target_latency_s": 6,
 }
 
+EXECUTIVE_DECISION_PACKAGES = [
+    {
+        "id": "package-zone-nord",
+        "label": "Dossier de decision",
+        "title": "Zone Nord - arbitrage avant Conseil",
+        "decision": "Choisir renforcement preventif ou coordination CEDEAO avant 15h00.",
+        "recommended_option": "Coordination CEDEAO + presence institutionnelle sobre",
+        "why_now": "La sequence presse de 14h00 peut amplifier la tension si aucune posture n'est annoncee.",
+        "deadline": "15:00",
+        "owner": "Directeur de cabinet",
+        "confidence": 0.78,
+        "status": "decision_required",
+        "tone": "critical",
+        "sources": ["Carte Nord", "Presse CI", "Agenda Conseil", "Flux visuels Abidjan"],
+        "cta": "Faire lire par AYA",
+    },
+    {
+        "id": "package-rumeur-emoi",
+        "label": "Reponse publique",
+        "title": "Emoi public - rumeur a contenir",
+        "decision": "Valider un message de compassion et une verification terrain avant 12h30.",
+        "recommended_option": "Message court + contact prefectoral + point source confirme",
+        "why_now": "Le signal part de WhatsApp local, rebondit sur X puis commence a toucher la presse nationale.",
+        "deadline": "12:30",
+        "owner": "Communication Presidence",
+        "confidence": 0.71,
+        "status": "draft_ready",
+        "tone": "elevated",
+        "sources": ["WhatsApp public", "X", "Facebook local", "Presse nationale"],
+        "cta": "Ouvrir les elements de langage",
+    },
+    {
+        "id": "package-france-brief",
+        "label": "Preparation agenda",
+        "title": "Ambassadeur France - dejeuner",
+        "decision": "Cadrer la position sur cooperation frontaliere et perception presse avant l'entretien.",
+        "recommended_option": "Brief 3 points + ligne rouge + opportunite projets",
+        "why_now": "La rencontre intervient apres une critique budgetaire et avant la sequence presse.",
+        "deadline": "13:00",
+        "owner": "Conseiller diplomatique",
+        "confidence": 0.83,
+        "status": "brief_ready",
+        "tone": "watch",
+        "sources": ["Agenda", "Presse internationale", "Brief ministeriel"],
+        "cta": "Ouvrir la fiche de preparation",
+    },
+]
+
+RUMOR_TRACE = {
+    "headline": "Rumeur prioritaire sous verification",
+    "summary": "Un signal d'emoi public part d'un groupe WhatsApp local, rebondit sur X, puis apparait dans deux pages Facebook regionales.",
+    "origin": "WhatsApp public · secteur Korhogo",
+    "spread": [
+        {"channel": "WhatsApp", "time": "06:22", "signal": "message vocal non confirme", "confidence": 0.44},
+        {"channel": "X", "time": "07:08", "signal": "captures reprises par comptes locaux", "confidence": 0.58},
+        {"channel": "Facebook", "time": "07:41", "signal": "commentaires publics en hausse", "confidence": 0.63},
+        {"channel": "Presse locale", "time": "08:15", "signal": "mention indirecte sans source primaire", "confidence": 0.52},
+    ],
+    "recommended_action": "Verifier source primaire, preparer message de compassion et coordonner presence prefectorale.",
+    "aya_sentence": "Je ne recommande pas d'amplifier publiquement la rumeur avant verification, mais de preparer les mots et le geste institutionnel maintenant.",
+}
+
+DEMO_VALUE_METRICS = [
+    {"label": "Sources filtrees", "value": "80 -> 3", "caption": "articles, flux et signaux faibles transformes en attentions actionnables"},
+    {"label": "Reponse voix", "value": "6 s", "caption": "latence cible pour une reponse AYA exploitable en reunion"},
+    {"label": "Zones suivies", "value": "5", "caption": "lecture Cote d'Ivoire + CEDEAO + Golfe de Guinee"},
+    {"label": "Dossiers prets", "value": "3", "caption": "presse, Zone Nord, Ambassadeur France"},
+]
+
+PRESENTATION_BEATS = [
+    {"step": "01", "label": "Ouvrir", "sentence": "AYA presente une seule priorite, pas un tableau de donnees."},
+    {"step": "02", "label": "Croiser", "sentence": "Carte, presse, webcams, agenda et rumeurs convergent vers trois decisions."},
+    {"step": "03", "label": "Parler", "sentence": "Le Vice-PM interroge AYA a voix haute sur la Zone Nord."},
+    {"step": "04", "label": "Arbitrer", "sentence": "AYA propose les options et la fenetre de decision avant 15h00."},
+]
+
 LIBRARY_ITEMS = [
     {
         "id": "lib-briefing-template",
@@ -1061,6 +1137,10 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
         },
         "territorial_live_status": _clone(TERRITORIAL_LIVE_STATUS),
         "voice_demo_script": _clone(VOICE_DEMO_SCRIPT),
+        "executive_decision_packages": _clone(EXECUTIVE_DECISION_PACKAGES),
+        "rumor_trace": _clone(RUMOR_TRACE),
+        "demo_value_metrics": _clone(DEMO_VALUE_METRICS),
+        "presentation_beats": _clone(PRESENTATION_BEATS),
         "priorities": _clone(PRIORITIES),
         "kpis": {
             "press_alerts": 16,
@@ -1405,6 +1485,10 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         },
         "territorial_live_status": _clone(TERRITORIAL_LIVE_STATUS),
         "voice_demo_script": _clone(VOICE_DEMO_SCRIPT),
+        "executive_decision_packages": _clone(EXECUTIVE_DECISION_PACKAGES),
+        "rumor_trace": _clone(RUMOR_TRACE),
+        "demo_value_metrics": _clone(DEMO_VALUE_METRICS),
+        "presentation_beats": _clone(PRESENTATION_BEATS),
         "scenario": scenario,
         "posture": posture,
         "layers": layers,
@@ -1735,6 +1819,9 @@ def _aya_voice_context(scenario: dict[str, Any], cross_source_signals: list[dict
         "session_hint": "sentinel-ci-mission-control",
         "prompts": prompts,
         "demo_script": _clone(VOICE_DEMO_SCRIPT),
+        "presentation_beats": _clone(PRESENTATION_BEATS),
+        "decision_packages": _clone(EXECUTIVE_DECISION_PACKAGES),
+        "rumor_trace": _clone(RUMOR_TRACE),
         "commands": [
             {"utterance": prompts[0], "intent": "scenario_brief", "target": scenario.get("id")},
             {"utterance": prompts[1], "intent": "visual_focus", "target": "pont-general-de-gaulle"},

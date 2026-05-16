@@ -51,6 +51,15 @@
       <strong>{{ monitor?.source_freshness?.news || 'Veille qualifiee' }}</strong>
       <strong>{{ monitor?.source_freshness?.visual || 'Flux webcams habilites' }}</strong>
     </div>
+    <div class="value-stack">
+      <span>Valeur demo</span>
+      @for (metric of demoValueMetrics(); track metric.label) {
+        <article>
+          <strong>{{ metric.value }}</strong>
+          <small>{{ metric.label }}</small>
+        </article>
+      }
+    </div>
   </aside>
 
   <main class="mc-stage">
@@ -68,6 +77,15 @@
       <span>{{ decisionSentence().label || 'Sentence du jour' }}</span>
       <strong>{{ decisionSentence().text }}</strong>
       <small>{{ decisionSentence().deadline }} · {{ decisionSentence().generated_by || assistantName }}</small>
+    </div>
+    <div class="presentation-strip">
+      @for (beat of presentationBeats(); track beat.step) {
+        <article>
+          <b>{{ beat.step }}</b>
+          <span>{{ beat.label }}</span>
+          <small>{{ beat.sentence }}</small>
+        </article>
+      }
     </div>
     <app-workspace-map
       class="mission-map"
@@ -91,6 +109,32 @@
   </main>
 
   <aside class="mc-insights">
+    <section class="insight-panel decision-package-panel">
+      <div class="panel-title">
+        <span>Dossier decision</span>
+        <b>{{ decisionPackages().length }}</b>
+      </div>
+      @if (primaryDecisionPackage(); as pack) {
+        <article [class]="postureTone(pack.tone)">
+          <small>{{ pack.label }} · {{ pack.deadline }}</small>
+          <strong>{{ pack.title }}</strong>
+          <p>{{ pack.decision }}</p>
+          <div class="recommendation">
+            <span>Option recommandee</span>
+            <b>{{ pack.recommended_option }}</b>
+          </div>
+          <div class="package-meta">
+            <span>{{ pack.owner }}</span>
+            <span>{{ confidencePct(pack.confidence) }}</span>
+          </div>
+          <button type="button" (click)="activateDecisionPackage(pack)">
+            <ck-glyph name="bolt" [size]="13" />
+            <span>{{ pack.cta }}</span>
+          </button>
+        </article>
+      }
+    </section>
+
     <section class="insight-panel">
       <div class="panel-title">
         <span>AI Insights</span>
@@ -136,6 +180,19 @@
       @if (voiceAnswer()) {
         <blockquote class="answer">{{ voiceAnswer() }}</blockquote>
       }
+      @if (rumorTrace(); as rumor) {
+        <div class="rumor-trace">
+          <span>{{ rumor.headline }}</span>
+          <p>{{ rumor.summary }}</p>
+          @for (step of rumor.spread || []; track step.channel) {
+            <article>
+              <b>{{ step.time }}</b>
+              <strong>{{ step.channel }}</strong>
+              <small>{{ step.signal }}</small>
+            </article>
+          }
+        </div>
+      }
       <div class="prompt-stack">
         @for (prompt of voicePrompts(); track prompt) {
           <button type="button" (click)="activatePrompt(prompt)">{{ prompt }}</button>
@@ -156,6 +213,9 @@
             <strong>{{ item.rank }}. {{ item.title }}</strong>
             <small>{{ item.deadline }} · {{ item.status }}</small>
             <p>{{ item.sentence }}</p>
+            <button type="button" (click)="activatePrompt('AYA, ' + item.action_label + ' : ' + item.title)">
+              {{ item.action_label }}
+            </button>
           </article>
         }
       </div>

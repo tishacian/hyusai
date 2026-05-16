@@ -96,6 +96,26 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     return this.monitor?.territorial_live_status || [];
   }
 
+  decisionPackages(): any[] {
+    return this.monitor?.executive_decision_packages || [];
+  }
+
+  primaryDecisionPackage(): any {
+    return this.decisionPackages()[0] || null;
+  }
+
+  rumorTrace(): any {
+    return this.monitor?.rumor_trace || this.monitor?.voice_context?.rumor_trace || null;
+  }
+
+  demoValueMetrics(): any[] {
+    return this.monitor?.demo_value_metrics || [];
+  }
+
+  presentationBeats(): any[] {
+    return this.monitor?.presentation_beats || this.monitor?.voice_context?.presentation_beats || [];
+  }
+
   newsSignals(): any[] {
     return this.monitor?.news_signals || [];
   }
@@ -215,6 +235,12 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
 
   activatePrompt(prompt: string): void {
     this.assistantPrompt.emit(prompt);
+  }
+
+  activateDecisionPackage(pack: any): void {
+    if (!pack) return;
+    this.voiceAnswer.set(`${pack.decision} Option recommandee : ${pack.recommended_option}. Echeance : ${pack.deadline}.`);
+    this.assistantPrompt.emit(`AYA, prepare le dossier de decision suivant : ${pack.title}. ${pack.decision}`);
   }
 
   focusSignal(signal: any): void {
@@ -440,8 +466,12 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
       return "Le dejeuner avec l'Ambassadeur de France est dans 1 heure 44. La fiche est prete : cooperation France Cote d'Ivoire, perception presse et suivi des projets frontaliers. Je recommande de valider la position publique avant le dejeuner.";
     }
     if (lower.includes('rumeur') || lower.includes('origine')) {
-      const rumor = this.monitor?.news_signals?.find((item: any) => String(item.id || '').startsWith('social-')) || this.monitor?.news_signals?.[0];
-      return `Origine a qualifier : ${rumor?.origin || 'canaux publics et signalements terrain'}. Action recommandee : ${rumor?.recommended_action || 'verifier la source primaire, preparer un message de compassion et coordonner une presence institutionnelle.'}`;
+      const rumor = this.rumorTrace();
+      return `${rumor?.headline || 'Rumeur prioritaire sous verification'}. Origine : ${rumor?.origin || 'canaux publics et signalements terrain'}. ${rumor?.aya_sentence || rumor?.recommended_action || 'Verifier la source primaire, preparer un message de compassion et coordonner une presence institutionnelle.'}`;
+    }
+    if (lower.includes('dossier') || lower.includes('decision') || lower.includes('décision') || lower.includes('arbitrage')) {
+      const pack = this.primaryDecisionPackage();
+      if (pack) return `${pack.title}. ${pack.decision} Je recommande : ${pack.recommended_option}. Echeance : ${pack.deadline}, responsable : ${pack.owner}.`;
     }
     if (lower.includes('que dois-je faire') || lower.includes('priorite') || lower.includes('priorité')) {
       return `${this.decisionSentence().text} Trois actions sont prêtes : réponse presse avant 14 heures, arbitrage Zone Nord avant 15 heures, fiche Ambassadeur France ouverte pour le déjeuner.`;

@@ -138,6 +138,8 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     assert cockpit_body["press_intelligence"]["last_run_id"] == run.id
     assert cockpit_body["decision_sentence"]["deadline"] == "avant Conseil 15h00"
     assert len(cockpit_body["sixty_second_cockpit"]["urgences"]) == 3
+    assert cockpit_body["executive_decision_packages"][0]["deadline"] == "15:00"
+    assert cockpit_body["rumor_trace"]["origin"].startswith("WhatsApp")
 
     audit = db_session.query(AuditLog).filter_by(event_type="mission_room.news.synthesized").one()
     assert audit.details["last_run_id"] == run.id
@@ -192,9 +194,16 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert len(body["attention_required"]) == 3
     assert body["attention_required"][0]["deadline"] == "14:00"
     assert body["voice_demo_script"]["target_latency_s"] == 6
+    assert len(body["executive_decision_packages"]) == 3
+    assert body["executive_decision_packages"][0]["recommended_option"].startswith("Coordination CEDEAO")
+    assert body["rumor_trace"]["recommended_action"].startswith("Verifier source primaire")
+    assert body["demo_value_metrics"][0]["value"] == "80 -> 3"
+    assert len(body["presentation_beats"]) == 4
     assert body["voice_context"]["assistant"] == "AYA"
     assert body["voice_context"]["mode"] == "voice_first"
     assert body["voice_context"]["demo_script"]["prompt"].startswith("AYA")
+    assert body["voice_context"]["decision_packages"][0]["id"] == "package-zone-nord"
+    assert body["voice_context"]["rumor_trace"]["headline"] == "Rumeur prioritaire sous verification"
     assert any(command["intent"] == "rumor_origin" for command in body["voice_context"]["commands"])
     assert body["panel_layout"][0]["key"] == "map"
     assert any(signal["id"] == "visual-activity" for signal in body["cross_source_signals"])
