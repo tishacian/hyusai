@@ -36,6 +36,8 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   readonly abidjanClock = signal('');
   readonly visualSnapshotTick = signal(Date.now());
   readonly selectedVisualSourceId = signal<string | null>(null);
+  readonly expandedVisualSourceId = signal<string | null>(null);
+  readonly mapVisualFocus = signal<Record<string, unknown> | null>(null);
   readonly visualPreviewFailures = signal<Record<string, true>>({});
   readonly voiceState = signal<VoiceState>('idle');
   readonly voiceTranscript = signal('');
@@ -75,6 +77,49 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
 
   layers(): any[] {
     return this.monitor?.layers || [];
+  }
+
+  compactMissionFilters(): any[] {
+    const layerCount = (key: string, fallback = 0) => Number(this.layers().find((layer) => layer.key === key)?.count ?? fallback);
+    return [
+      {
+        label: 'Territoire CI',
+        value: this.monitor?.zones?.length || 5,
+        detail: 'Nord, Sud, Est, Ouest, Centre',
+        kind: 'zone',
+        zoneId: this.scenario()?.map_focus?.zone_id || 'zone-nord',
+      },
+      {
+        label: 'Presse & rumeurs',
+        value: layerCount('open-intelligence', this.newsSignals().length || this.crossSignals().length),
+        detail: 'Locale puis CEDEAO/Afrique/Monde',
+        kind: 'signals',
+      },
+      {
+        label: 'Flux visuels',
+        value: this.sourceHealth().active_sources || this.visualSources().length,
+        detail: this.selectedVisualLocationLabel(),
+        kind: 'visual',
+      },
+    ];
+  }
+
+  applyMissionFilter(filter: any): void {
+    if (filter?.kind === 'visual') {
+      const source = this.primaryVisualSource();
+      if (source) this.selectVisualSource(source);
+      return;
+    }
+    const zoneId = filter?.zoneId;
+    if (zoneId) {
+      this.mapVisualFocus.set(null);
+      const zone = (this.monitor?.zones || []).find((item: any) => item.id === zoneId);
+      if (zone) this.zoneSelected.emit(zone);
+    }
+  }
+
+  monitorMapState(): Record<string, unknown> | null {
+    return this.mapVisualFocus() || this.mapCommandState;
   }
 
   crossSignals(): any[] {
@@ -175,7 +220,29 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   }
 
   selectVisualSource(source: any): void {
-    if (source?.id) this.selectedVisualSourceId.set(source.id);
+    if (!source) return;
+    if (source.id) this.selectedVisualSourceId.set(source.id);
+    this.focusVisualSourceOnMap(source);
+  }
+
+  focusPrimaryVisualSource(): void {
+    const source = this.primaryVisualSource();
+    if (source) this.selectVisualSource(source);
+  }
+
+  openExpandedVisualSource(source: any): void {
+    if (!source?.id) return;
+    this.selectVisualSource(source);
+    this.expandedVisualSourceId.set(source.id);
+  }
+
+  closeExpandedVisualSource(): void {
+    this.expandedVisualSourceId.set(null);
+  }
+
+  expandedVisualSource(): any | null {
+    const sourceId = this.expandedVisualSourceId();
+    return sourceId ? this.visualSources().find((source) => source.id === sourceId) || null : null;
   }
 
   isVisualSourceSelected(source: any): boolean {
@@ -252,6 +319,30 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     return `${provider || 'source'} · ${mode || 'live'} · ${refreshLabel}`;
   }
 
+  selectedVisualLocationLabel(): string {
+    return this.visualLocationLabel(this.primaryVisualSource());
+  }
+
+  visualLocationLabel(source: any | null): string {
+    const location = this.visualLocation(source);
+    return location?.label || source?.region || 'Cote d’Ivoire';
+  }
+
+  visualSituationBrief(source: any | null): any[] {
+    const observation = this.visualObservationFor(source);
+    const score = Number(observation?.vigilance_score || source?.metadata?.default_vigilance_score || 42);
+    const summary = observation?.summary
+      || `Vue publique ${this.visualLocationLabel(source)} disponible pour controle visuel sans dependance a l'embed Nest.`;
+    const action = score >= 62
+      ? 'Rapprocher cette vue des signaux presse et demander validation terrain.'
+      : "Maintenir en surveillance live et capturer un snapshot si l'actualite converge.";
+    return [
+      { label: 'Lecture', value: summary },
+      { label: 'Position', value: this.visualLocationLabel(source) },
+      { label: 'Action', value: action },
+    ];
+  }
+
   activatePrompt(prompt: string): void {
     this.assistantPrompt.emit(prompt);
   }
@@ -265,11 +356,15 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   focusSignal(signal: any): void {
     const zoneId = signal?.related_zone || this.scenario()?.map_focus?.zone_id;
     const zone = (this.monitor?.zones || []).find((item: any) => item.id === zoneId);
+    this.mapVisualFocus.set(null);
     if (zone) this.zoneSelected.emit(zone);
-    this.assistantPrompt.emit(signal?.action_prompt || 'AYA, donne-moi une lecture operationnelle de ce signal.');
+    if (signal?.summary) {
+      this.voiceAnswer.set(`${signal.label || 'Signal prioritaire'} : ${signal.summary}`);
+    }
   }
 
   focusAbidjan(): void {
+    this.mapVisualFocus.set(null);
     const zone = (this.monitor?.zones || []).find((item: any) => String(item.name || '').toLowerCase().includes('abidjan'))
       || (this.monitor?.zones || []).find((item: any) => String(item.name || '').toLowerCase() === 'sud');
     if (zone) this.zoneSelected.emit(zone);
@@ -318,6 +413,51 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   private visualMetadataUrl(source: any, key: string): string {
     const value = (source?.metadata || {})[key];
     return typeof value === 'string' ? value : '';
+  }
+
+  private visualObservationFor(source: any | null): any | null {
+    const observations = [
+      ...(this.monitor?.visual?.observations || []),
+      ...(this.monitor?.visual_observations || []),
+    ];
+    const sourceId = source?.id;
+    return (sourceId ? observations.find((observation: any) => observation.source_id === sourceId) : null)
+      || this.latestVisualObservation();
+  }
+
+  private visualLocation(source: any | null): { longitude: number; latitude: number; label: string; zone_id?: string; zoom?: number } | null {
+    const metadata = source?.metadata || {};
+    const location = metadata.map_location || metadata.location || {};
+    const longitude = Number(location.longitude ?? metadata.longitude);
+    const latitude = Number(location.latitude ?? metadata.latitude);
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
+    return {
+      longitude,
+      latitude,
+      label: String(location.label || metadata.camera_label || source?.region || source?.name || 'Flux visuel'),
+      zone_id: typeof location.zone_id === 'string' ? location.zone_id : metadata.zone_id,
+      zoom: Number(location.zoom || metadata.map_zoom || 10.9),
+    };
+  }
+
+  private focusVisualSourceOnMap(source: any): void {
+    const location = this.visualLocation(source);
+    if (!location) return;
+    this.mapVisualFocus.set({
+      camera: {
+        longitude: location.longitude,
+        latitude: location.latitude,
+        zoom: location.zoom || 10.9,
+        duration_ms: 220,
+      },
+      focus_marker: {
+        longitude: location.longitude,
+        latitude: location.latitude,
+        label: location.label,
+        zone_id: location.zone_id,
+        tone: 'visual',
+      },
+    });
   }
 
   private trustedVisualEmbedUrl(rawUrl: string): string | null {

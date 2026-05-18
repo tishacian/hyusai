@@ -61,45 +61,49 @@ type BasemapOption = {
       <div class="map-frame-overlay">
         <div class="map-scanline"></div>
         <div class="map-compass">N</div>
-        <div class="map-control-panel" (click)="$event.stopPropagation()">
+        <div class="map-control-panel" [class.collapsed]="!controlsOpen" (click)="$event.stopPropagation()">
           <header class="map-control-heading">
-            <strong>Lecture carte</strong>
-            <small>{{ activeLayerCount }} couches</small>
+            <button type="button" class="map-control-toggle" (click)="toggleControls()">
+              <strong>Lecture carte</strong>
+              <small>{{ activeLayerCount }} couches</small>
+            </button>
           </header>
-          <section class="control-section">
-            <span>Fond</span>
-            <div class="basemap-switch">
-              @for (basemap of basemapOptions; track basemap.key) {
-                <button
-                  type="button"
-                  [class.active]="selectedBasemapKey === basemap.key"
-                  [attr.aria-pressed]="selectedBasemapKey === basemap.key"
-                  (click)="switchBasemap(basemap.key)"
-                >
-                  {{ basemap.label }}
-                </button>
-              }
-            </div>
-          </section>
+          @if (controlsOpen) {
+            <section class="control-section">
+              <span>Fond</span>
+              <div class="basemap-switch">
+                @for (basemap of basemapOptions; track basemap.key) {
+                  <button
+                    type="button"
+                    [class.active]="selectedBasemapKey === basemap.key"
+                    [attr.aria-pressed]="selectedBasemapKey === basemap.key"
+                    (click)="switchBasemap(basemap.key)"
+                  >
+                    {{ basemap.label }}
+                  </button>
+                }
+              </div>
+            </section>
 
-          <section class="control-section">
-            <span>Couches</span>
-            <div class="layer-list">
-              @for (layer of layerControls; track layer.key) {
-                <button
-                  type="button"
-                  class="layer-toggle"
-                  [class.active]="isLayerActive(layer.key)"
-                  [attr.aria-pressed]="isLayerActive(layer.key)"
-                  (click)="toggleLayer(layer.key)"
-                >
-                  <i [class]="'tone-' + layer.tone"></i>
-                  <strong>{{ layer.shortLabel }}</strong>
-                  <small>{{ isLayerActive(layer.key) ? 'visible' : 'masqué' }} · {{ layer.count }} · {{ layer.confidence }}%</small>
-                </button>
-              }
-            </div>
-          </section>
+            <section class="control-section">
+              <span>Couches</span>
+              <div class="layer-list">
+                @for (layer of layerControls; track layer.key) {
+                  <button
+                    type="button"
+                    class="layer-toggle"
+                    [class.active]="isLayerActive(layer.key)"
+                    [attr.aria-pressed]="isLayerActive(layer.key)"
+                    (click)="toggleLayer(layer.key)"
+                  >
+                    <i [class]="'tone-' + layer.tone"></i>
+                    <strong>{{ layer.shortLabel }}</strong>
+                    <small>{{ isLayerActive(layer.key) ? 'visible' : 'masqué' }} · {{ layer.count }} · {{ layer.confidence }}%</small>
+                  </button>
+                }
+              </div>
+            </section>
+          }
         </div>
         <button type="button" class="map-reset" (click)="resetCountry(); $event.stopPropagation()">Recentrer Côte d’Ivoire</button>
         <div class="map-zoom-controls" (click)="$event.stopPropagation()">
@@ -107,13 +111,16 @@ type BasemapOption = {
           <button type="button" aria-label="Zoom arrière" (click)="zoomOut()">−</button>
           <button type="button" aria-label="Vue pays" (click)="resetCountry()">⌂</button>
         </div>
-        <div class="map-legend">
-          <strong>Niveaux</strong>
-          <span><i class="stable"></i>stable</span>
-          <span><i class="monitoring"></i>surveillance</span>
-          <span><i class="elevated"></i>élevé</span>
-          <span><i class="critical"></i>critique</span>
-        </div>
+        <button type="button" class="map-legend-toggle" [class.active]="legendOpen" (click)="toggleLegend(); $event.stopPropagation()">Niveaux</button>
+        @if (legendOpen) {
+          <div class="map-legend">
+            <strong>Niveaux</strong>
+            <span><i class="stable"></i>stable</span>
+            <span><i class="monitoring"></i>surveillance</span>
+            <span><i class="elevated"></i>élevé</span>
+            <span><i class="critical"></i>critique</span>
+          </div>
+        }
       </div>
 
       @if (fallback) {
@@ -155,7 +162,8 @@ type BasemapOption = {
 
       .workspace-map {
         position: relative;
-        min-height: 760px;
+        min-height: 360px;
+        height: 100%;
         overflow: hidden;
         border: 1px solid rgba(101, 214, 110, 0.28);
         border-radius: 10px;
@@ -286,12 +294,43 @@ type BasemapOption = {
         pointer-events: auto;
       }
 
+      .map-control-panel.collapsed {
+        width: min(210px, calc(100% - 92px));
+        gap: 0;
+        padding: 0;
+        border-radius: 10px;
+        background: rgba(2, 5, 8, 0.82);
+      }
+
       .map-control-heading {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
         padding-bottom: 2px;
+      }
+
+      .map-control-panel.collapsed .map-control-heading {
+        padding-bottom: 0;
+      }
+
+      .map-control-toggle {
+        width: 100%;
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 9px 11px;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .map-control-toggle:hover {
+        background: rgba(101, 214, 110, 0.08);
       }
 
       .map-control-heading strong {
@@ -474,7 +513,7 @@ type BasemapOption = {
         position: absolute;
         left: 50%;
         right: auto;
-        bottom: 16px;
+        bottom: 56px;
         top: auto;
         transform: translateX(-50%);
         z-index: 5;
@@ -486,6 +525,32 @@ type BasemapOption = {
         border-radius: 999px;
         background: rgba(2, 6, 10, 0.94);
         backdrop-filter: blur(8px);
+      }
+
+      .map-legend-toggle {
+        position: absolute;
+        left: 50%;
+        bottom: 16px;
+        z-index: 5;
+        transform: translateX(-50%);
+        min-height: 28px;
+        padding: 7px 11px;
+        border: 1px solid rgba(101, 214, 110, 0.13);
+        border-radius: 999px;
+        background: rgba(2, 6, 10, 0.88);
+        color: rgba(148, 197, 229, 0.86);
+        font: 800 9px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        cursor: pointer;
+        pointer-events: auto;
+        backdrop-filter: blur(8px);
+      }
+
+      .map-legend-toggle.active,
+      .map-legend-toggle:hover {
+        border-color: rgba(101, 214, 110, 0.34);
+        color: rgba(245, 251, 255, 0.92);
       }
 
       .workspace-map.basemap-contours .map-control-panel,
@@ -639,6 +704,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   fallback = false;
   selectedBasemapKey = 'administrative';
+  controlsOpen = false;
+  legendOpen = false;
 
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly activeLayerKeys = new Set<string>();
@@ -646,6 +713,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private mapInstance: any;
   private deckOverlay: any;
   private deckLayersModule: any;
+  private focusMarker: any | null = null;
 
   get layerControls(): MapLayerControl[] {
     const catalog = this.mapSystem?.['layer_catalog'];
@@ -753,6 +821,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     return this.activeLayerKeys.has(key);
   }
 
+  toggleControls(): void {
+    this.controlsOpen = !this.controlsOpen;
+    this.cdr.markForCheck();
+  }
+
+  toggleLegend(): void {
+    this.legendOpen = !this.legendOpen;
+    this.cdr.markForCheck();
+  }
+
   toggleLayer(key: string): void {
     if (this.activeLayerKeys.has(key)) {
       if (this.activeLayerKeys.size <= 1) return;
@@ -772,7 +850,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   resetCountry(): void {
-    this.fitCountry(800);
+    this.focusMarker = null;
+    this.fitCountry(260);
   }
 
   zoomIn(): void {
@@ -820,7 +899,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         this.fitCountry(0);
         setTimeout(() => {
           this.mapInstance?.resize?.();
-          this.fitCountry(350);
+          this.fitCountry(220);
         }, 80);
       });
       this.mapInstance.on('moveend', () => this.updateDeckLayers());
@@ -887,14 +966,20 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.selectedBasemapKey = basemap;
       this.applyCurrentBasemap();
     }
+    this.focusMarker = this.normalizeFocusMarker(state['focus_marker']);
     const camera = state['camera'] as Record<string, any> | undefined;
-    if (this.mapInstance && camera?.['longitude'] && camera?.['latitude']) {
+    if (
+      this.mapInstance
+      && Number.isFinite(Number(camera?.['longitude']))
+      && Number.isFinite(Number(camera?.['latitude']))
+    ) {
+      const requestedDuration = Number(camera?.['duration_ms'] ?? 260);
       this.mapInstance.easeTo({
-        center: [camera['longitude'], camera['latitude']],
-        zoom: camera['zoom'] ?? (this.compact ? 5.15 : 6.0),
+        center: [Number(camera?.['longitude']), Number(camera?.['latitude'])],
+        zoom: camera?.['zoom'] ?? (this.compact ? 5.15 : 6.0),
         pitch: 0,
         bearing: 0,
-        duration: camera['duration_ms'] || 700,
+        duration: Math.max(0, Math.min(requestedDuration, 320)),
       });
     }
     this.updateDeckLayers();
@@ -906,7 +991,21 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     this.deckOverlay.setProps({ layers: this.buildDeckLayers() });
   }
 
-  private fitCountry(duration = 800): void {
+  private normalizeFocusMarker(rawMarker: any): any | null {
+    if (!rawMarker) return null;
+    const longitude = Number(rawMarker.longitude);
+    const latitude = Number(rawMarker.latitude);
+    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
+    return {
+      longitude,
+      latitude,
+      label: String(rawMarker.label || 'Vue active'),
+      zone_id: rawMarker.zone_id,
+      tone: rawMarker.tone || 'visual',
+    };
+  }
+
+  private fitCountry(duration = 320): void {
     if (!this.mapInstance) return;
     const bounds = this.mapSystem?.['renderer_config']?.bounds || [[-8.65, 4.2], [-2.45, 10.75]];
     const preset = this.mapSystem?.['default_map_state']?.camera || this.mapSystem?.['camera_presets']?.country;
@@ -1132,6 +1231,51 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         parameters: { depthTest: false },
       }));
     }
+    if (this.focusMarker) {
+      const markerData = [this.focusMarker];
+      layers.push(new ScatterplotLayer({
+        id: 'sentinel-focus-marker-ring',
+        data: markerData,
+        pickable: false,
+        stroked: true,
+        filled: true,
+        getPosition: (item: any) => [item.longitude, item.latitude],
+        radiusUnits: 'pixels',
+        getRadius: 24,
+        getFillColor: [255, 155, 74, 42],
+        getLineColor: [255, 155, 74, 235],
+        lineWidthMinPixels: 2,
+        parameters: { depthTest: false },
+      }));
+      layers.push(new ScatterplotLayer({
+        id: 'sentinel-focus-marker-core',
+        data: markerData,
+        pickable: false,
+        getPosition: (item: any) => [item.longitude, item.latitude],
+        radiusUnits: 'pixels',
+        getRadius: 7,
+        getFillColor: [66, 217, 155, 238],
+        getLineColor: [245, 252, 255, 238],
+        lineWidthMinPixels: 1.5,
+        parameters: { depthTest: false },
+      }));
+      layers.push(new TextLayer({
+        id: 'sentinel-focus-marker-label',
+        data: markerData,
+        getPosition: (item: any) => [item.longitude, item.latitude],
+        getText: (item: any) => item.label || 'Vue active',
+        getSize: 11,
+        getColor: [255, 255, 255, 245],
+        getPixelOffset: [0, -28],
+        getTextAnchor: 'middle',
+        getAlignmentBaseline: 'bottom',
+        fontSettings: { sdf: true },
+        outlineColor: [4, 8, 13, 240],
+        outlineWidth: 3,
+        billboard: true,
+        parameters: { depthTest: false },
+      }));
+    }
     return layers;
   }
 
@@ -1146,7 +1290,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       zoom: this.compact ? 5.15 : preset.zoom,
       pitch: 0,
       bearing: 0,
-      duration: preset.duration_ms || 650,
+      duration: Math.max(0, Math.min(Number(preset.duration_ms || 260), 320)),
     });
     this.updateDeckLayers();
   }

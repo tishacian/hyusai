@@ -32,33 +32,40 @@
 
   <aside class="mc-layers">
     <div class="panel-title">
-      <span>Couches</span>
-      <b>{{ panelCount('left') }}</b>
+      <span>Lecture VP</span>
+      <b>{{ compactMissionFilters().length }}</b>
     </div>
-    <label class="layer-search">
-      <ck-glyph name="zoom-in" [size]="12" />
-      <input value="Crise nationale" aria-label="Recherche couches" readonly />
-    </label>
-    @for (layer of layers(); track layer.key) {
-      <button type="button" class="layer-row" [class.disabled]="!layer.enabled">
-        <i></i>
-        <span>{{ layer.label }}</span>
-        <b>{{ layer.count }}</b>
-      </button>
+    <article class="left-scenario">
+      <span>Scenario actif</span>
+      <strong>{{ scenario().title || 'Crise nationale' }}</strong>
+      <p>{{ decisionSentence().text }}</p>
+    </article>
+    <div class="filter-stack">
+      @for (filter of compactMissionFilters(); track filter.label) {
+        <button type="button" class="filter-chip" (click)="applyMissionFilter(filter)">
+          <span>
+            <strong>{{ filter.label }}</strong>
+            <small>{{ filter.detail }}</small>
+          </span>
+          <b>{{ filter.value }}</b>
+        </button>
+      }
+    </div>
+    @if (primaryVisualSource(); as source) {
+      <article class="visual-location-card">
+        <span>Vue active</span>
+        <strong>{{ visualLocationLabel(source) }}</strong>
+        <p>{{ visualStreamBadge(source) }}</p>
+        <button type="button" (click)="selectVisualSource(source)">
+          <ck-glyph name="crosshair" [size]="12" />
+          <span>Positionner sur carte</span>
+        </button>
+      </article>
     }
     <div class="source-stack">
-      <span>Sources</span>
-      <strong>{{ monitor?.source_freshness?.news || 'Veille qualifiee' }}</strong>
-      <strong>{{ monitor?.source_freshness?.visual || 'Flux webcams habilites' }}</strong>
-    </div>
-    <div class="value-stack">
-      <span>Valeur demo</span>
-      @for (metric of demoValueMetrics(); track metric.label) {
-        <article>
-          <strong>{{ metric.value }}</strong>
-          <small>{{ metric.label }}</small>
-        </article>
-      }
+      <span>Sources qualifiees</span>
+      <strong>{{ monitor?.source_freshness?.news || 'Presse locale, CEDEAO, Afrique, Monde' }}</strong>
+      <strong>{{ monitor?.source_freshness?.visual || 'Flux visuels publics habilites' }}</strong>
     </div>
   </aside>
 
@@ -78,34 +85,15 @@
       <strong>{{ decisionSentence().text }}</strong>
       <small>{{ decisionSentence().deadline }} · {{ decisionSentence().generated_by || assistantName }}</small>
     </div>
-    <div class="presentation-strip">
-      @for (beat of presentationBeats(); track beat.step) {
-        <article>
-          <b>{{ beat.step }}</b>
-          <span>{{ beat.label }}</span>
-          <small>{{ beat.sentence }}</small>
-        </article>
-      }
-    </div>
     <app-workspace-map
       class="mission-map"
       [zones]="monitor?.zones || []"
       [map]="monitor?.map || missionMap?.map || null"
       [mapSystem]="monitor?.map_system || missionMap?.map_system || null"
-      [mapState]="mapCommandState"
+      [mapState]="monitorMapState()"
       [selectedZoneId]="selectedZone?.id || null"
       (zoneSelected)="zoneSelected.emit($event)"
     />
-    <div class="scenario-card">
-      <span>Scenario actif</span>
-      <strong>{{ scenario().title || 'Crise nationale' }}</strong>
-      <p>{{ scenario().summary || monitor?.summary }}</p>
-      <div>
-        @for (signalId of scenario().contributing_signals || []; track signalId) {
-          <small>{{ signalId }}</small>
-        }
-      </div>
-    </div>
   </main>
 
   <aside class="mc-insights">
@@ -222,50 +210,65 @@
     </article>
 
     <article class="dock-panel webcam-dock">
-      <div class="panel-title">
+      <div class="panel-title webcam-title">
         <span>Live Webcams</span>
-        <b>{{ sourceHealth().active_sources || 0 }}/{{ sourceHealth().total_sources || 0 }}</b>
+        <div>
+          <button type="button" (click)="focusPrimaryVisualSource()">Localiser</button>
+          @if (primaryVisualSource(); as source) {
+            <button type="button" (click)="openExpandedVisualSource(source)">Agrandir</button>
+          }
+          <b>{{ sourceHealth().active_sources || 0 }}/{{ sourceHealth().total_sources || 0 }}</b>
+        </div>
       </div>
       <div class="webcam-grid">
-        <figure class="camera-frame">
-          @if (primaryVisualSource(); as source) {
-            @if (webcamPreviewUrl(source); as previewUrl) {
-              <img [src]="previewUrl" [alt]="'Image webcam publique - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
-            } @else if (visualEmbedUrl(source); as embedUrl) {
-              <iframe
-                [src]="embedUrl"
-                [title]="'Flux live - ' + source.name"
-                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                referrerpolicy="no-referrer-when-downgrade"
-                allowfullscreen
-              ></iframe>
-            } @else if (latestVisualCapture(); as capture) {
-              @if (visualCaptureImage(capture.id); as imageUrl) {
-                <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
+        <div class="camera-live-stack">
+          <figure class="camera-frame">
+            @if (primaryVisualSource(); as source) {
+              @if (webcamPreviewUrl(source); as previewUrl) {
+                <img [src]="previewUrl" [alt]="'Image webcam publique - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
+              } @else if (visualEmbedUrl(source); as embedUrl) {
+                <iframe
+                  [src]="embedUrl"
+                  [title]="'Flux live - ' + source.name"
+                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                  referrerpolicy="no-referrer-when-downgrade"
+                  allowfullscreen
+                ></iframe>
+              } @else if (latestVisualCapture(); as capture) {
+                @if (visualCaptureImage(capture.id); as imageUrl) {
+                  <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
+                } @else {
+                  <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+                }
               } @else {
                 <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
               }
+              <figcaption>
+                <strong>{{ source.name }}</strong>
+                <span>{{ visualLocationLabel(source) }}</span>
+                <small>{{ visualSourceDetail(source) }}</small>
+              </figcaption>
             } @else {
-              <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+              <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Aucune webcam active</span></div>
             }
-            <figcaption>
-              <strong>{{ source.name }}</strong>
-              <span>{{ visualStreamBadge(source) }}</span>
-              <small>{{ visualSourceDetail(source) }}</small>
-              @if (visualSourcePageUrl(source); as sourcePageUrl) {
-                <a [href]="sourcePageUrl" target="_blank" rel="noopener noreferrer">Source Abidjan.net</a>
+          </figure>
+          @if (primaryVisualSource(); as source) {
+            <div class="visual-brief">
+              @for (line of visualSituationBrief(source); track line.label) {
+                <article>
+                  <span>{{ line.label }}</span>
+                  <strong>{{ line.value }}</strong>
+                </article>
               }
-            </figcaption>
-          } @else {
-            <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Aucune webcam active</span></div>
+            </div>
           }
-        </figure>
+        </div>
         <div class="webcam-sources">
           @for (source of visualSources() | slice: 0:6; track source.id) {
             <button type="button" [class.active]="isVisualSourceSelected(source)" (click)="selectVisualSource(source)">
               <span></span>
               <b>{{ source.name }}</b>
-              <small>{{ source.region }}</small>
+              <small>{{ visualLocationLabel(source) }}</small>
             </button>
           }
           @if (primaryVisualSource(); as source) {
@@ -313,4 +316,39 @@
       </div>
     </article>
   </section>
+
+  @if (expandedVisualSource(); as source) {
+    <div class="camera-expand-backdrop" (click)="closeExpandedVisualSource()">
+      <article class="camera-expand-panel" (click)="$event.stopPropagation()">
+        <header>
+          <span>Live webcam</span>
+          <strong>{{ source.name }}</strong>
+          <button type="button" (click)="closeExpandedVisualSource()">Fermer</button>
+        </header>
+        <figure class="camera-expanded-frame">
+          @if (webcamPreviewUrl(source); as previewUrl) {
+            <img [src]="previewUrl" [alt]="'Image webcam publique agrandie - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
+          } @else if (visualEmbedUrl(source); as embedUrl) {
+            <iframe
+              [src]="embedUrl"
+              [title]="'Flux live agrandi - ' + source.name"
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+              referrerpolicy="no-referrer-when-downgrade"
+              allowfullscreen
+            ></iframe>
+          } @else {
+            <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+          }
+        </figure>
+        <div class="visual-brief expanded">
+          @for (line of visualSituationBrief(source); track line.label) {
+            <article>
+              <span>{{ line.label }}</span>
+              <strong>{{ line.value }}</strong>
+            </article>
+          }
+        </div>
+      </article>
+    </div>
+  }
 </section>
