@@ -34,6 +34,7 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   @Output() assistantPrompt = new EventEmitter<string>();
 
   readonly abidjanClock = signal('');
+  readonly visualSnapshotTick = signal(Date.now());
   readonly selectedVisualSourceId = signal<string | null>(null);
   readonly visualPreviewFailures = signal<Record<string, true>>({});
   readonly voiceState = signal<VoiceState>('idle');
@@ -183,6 +184,8 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
 
   visualEmbedUrl(source: any | null): SafeResourceUrl | null {
     if (!source) return null;
+    const metadata = source.metadata || {};
+    if (metadata.preferred_render === 'snapshot' || metadata.embed_status === 'unstable') return null;
     const rawUrl = this.visualMetadataUrl(source, 'embed_url') || this.visualMetadataUrl(source, 'player_url');
     const url = this.trustedVisualEmbedUrl(rawUrl);
     if (!url) return null;
@@ -198,9 +201,25 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     if (!source || this.visualPreviewFailures()[source.id]) return null;
     const metadata = source.metadata || {};
     const preview = typeof metadata.preview_url === 'string' ? metadata.preview_url : '';
-    if (preview.startsWith('http://') || preview.startsWith('https://')) return preview;
-    if (source.adapter === 'http_image' && source.source_url?.startsWith('http')) return source.source_url;
+    const url = preview.startsWith('http://') || preview.startsWith('https://')
+      ? preview
+      : source.adapter === 'http_image' && source.source_url?.startsWith('http')
+        ? source.source_url
+        : '';
+    if (url) return this.withSnapshotCacheBust(url);
     return null;
+  }
+
+  visualSourcePageUrl(source: any | null): string | null {
+    const url = this.visualMetadataUrl(source, 'source_page');
+    return url.startsWith('https://') ? url : null;
+  }
+
+  visualStreamBadge(source: any | null): string {
+    const metadata = source?.metadata || {};
+    if (metadata.preferred_render === 'snapshot') return 'Image publique rafraichie · fallback stable';
+    if (metadata.embed_status === 'unstable') return 'Embed video instable · aperçu prioritaire';
+    return 'Flux public';
   }
 
   markVisualPreviewFailed(sourceId: string): void {
@@ -278,6 +297,17 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
       minute: '2-digit',
     }).format(new Date());
     this.abidjanClock.set(value.replace(',', ' ·'));
+    this.visualSnapshotTick.set(Date.now());
+  }
+
+  private withSnapshotCacheBust(rawUrl: string): string {
+    try {
+      const url = new URL(rawUrl);
+      url.searchParams.set('_mc', String(Math.floor(this.visualSnapshotTick() / 60_000)));
+      return url.toString();
+    } catch {
+      return rawUrl;
+    }
   }
 
   private visualPriority(source: any): number {

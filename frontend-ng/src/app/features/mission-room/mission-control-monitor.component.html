@@ -229,7 +229,9 @@
       <div class="webcam-grid">
         <figure class="camera-frame">
           @if (primaryVisualSource(); as source) {
-            @if (visualEmbedUrl(source); as embedUrl) {
+            @if (webcamPreviewUrl(source); as previewUrl) {
+              <img [src]="previewUrl" [alt]="'Image webcam publique - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
+            } @else if (visualEmbedUrl(source); as embedUrl) {
               <iframe
                 [src]="embedUrl"
                 [title]="'Flux live - ' + source.name"
@@ -237,8 +239,6 @@
                 referrerpolicy="no-referrer-when-downgrade"
                 allowfullscreen
               ></iframe>
-            } @else if (webcamPreviewUrl(source); as previewUrl) {
-              <img [src]="previewUrl" [alt]="'Derniere image webcam - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
             } @else if (latestVisualCapture(); as capture) {
               @if (visualCaptureImage(capture.id); as imageUrl) {
                 <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
@@ -250,7 +250,11 @@
             }
             <figcaption>
               <strong>{{ source.name }}</strong>
+              <span>{{ visualStreamBadge(source) }}</span>
               <small>{{ visualSourceDetail(source) }}</small>
+              @if (visualSourcePageUrl(source); as sourcePageUrl) {
+                <a [href]="sourcePageUrl" target="_blank" rel="noopener noreferrer">Source Abidjan.net</a>
+              }
             </figcaption>
           } @else {
             <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Aucune webcam active</span></div>

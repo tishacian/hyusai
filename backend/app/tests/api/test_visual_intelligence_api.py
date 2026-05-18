@@ -40,8 +40,11 @@ def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db
     assert source["adapter"] == "http_image"
     assert source["source_type"] == "stream_embed"
     assert source["metadata"]["provider"] == "abidjan.net"
-    assert source["metadata"]["layer_kind"] == "live_webcam_embed"
+    assert source["metadata"]["layer_kind"] == "live_webcam_snapshot"
+    assert source["metadata"]["preferred_render"] == "snapshot"
+    assert source["metadata"]["embed_status"] == "unstable"
     assert source["metadata"]["embed_url"].startswith("https://video.nest.com/embedded/live/")
+    assert source["metadata"]["preview_url"].startswith("https://media-files.abidjan.net/camera/")
     assert source["region"] == "Abidjan / Pont General-de-Gaulle"
 
     capture = client.post(f"/api/v1/visual-intelligence/sources/{source['id']}/capture")

@@ -808,9 +808,27 @@
   font-size: 13px;
 }
 
+.camera-frame figcaption span {
+  color: var(--mc-green);
+  font-family: var(--ck-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
 .camera-frame figcaption small {
   color: var(--mc-soft);
   font-size: 11px;
+}
+
+.camera-frame figcaption a {
+  width: max-content;
+  color: var(--mc-orange);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.camera-frame figcaption a:hover {
+  text-decoration: underline;
 }
 
 .camera-empty {
