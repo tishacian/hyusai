@@ -4,7 +4,7 @@ import { filter, startWith } from 'rxjs';
 
 const DEFAULT_FAVICON = '/assets/brand/favicon.svg';
 const DEFAULT_TITLE = 'Agentium';
-const SENTINEL_CI_FAVICON = '/assets/brand/sentinel-ci-favicon.svg?v=20260514-2';
+const SENTINEL_CI_FAVICON = '/assets/brand/sentinel-ci-favicon.png?v=20260518-1';
 const SENTINEL_CI_TITLE = 'SENTINEL-CI';
 
 @Injectable({ providedIn: 'root' })
@@ -31,11 +31,12 @@ export class FaviconService {
     const path = url.split('?')[0].split('#')[0];
     const isSentinel = path.startsWith('/hypervisor/mission-room');
     const href = isSentinel ? SENTINEL_CI_FAVICON : DEFAULT_FAVICON;
+    const type = isSentinel ? 'image/png' : 'image/svg+xml';
     const link = this.ensureIconLink();
     if (link.getAttribute('href') !== href) {
       link.setAttribute('href', href);
-      link.setAttribute('type', 'image/svg+xml');
     }
+    link.setAttribute('type', type);
     document.title = isSentinel ? SENTINEL_CI_TITLE : DEFAULT_TITLE;
   }
 

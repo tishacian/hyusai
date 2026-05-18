@@ -795,14 +795,20 @@ export class MissionSourcePillComponent {
   imports: [RouterLink, RouterLinkActive, GlyphComponent],
   template: `
     <aside class="mission-rail" aria-label="Navigation SENTINEL-CI">
-      <div class="rail-brand">
+      <div class="rail-brand" aria-label="SENTINEL-CI - Republique de Cote d'Ivoire">
         <img
-          class="brand-lockup"
-          src="/assets/brand/sentinel-ci-logo.svg?v=20260514-2"
-          alt="SENTINEL-CI - Republique de Cote d'Ivoire"
-          width="184"
-          height="49"
+          class="brand-emblem"
+          src="/assets/brand/sentinel-ci-emblem.png?v=20260518-1"
+          alt=""
+          width="54"
+          height="54"
+          aria-hidden="true"
         />
+        <div class="brand-wordmark">
+          <strong>SENTINEL-CI</strong>
+          <span>REPUBLIQUE DE</span>
+          <span>COTE D'IVOIRE</span>
+        </div>
       </div>
 
       <button
@@ -872,16 +878,45 @@ export class MissionSourcePillComponent {
         overflow: hidden;
       }
       .rail-brand {
-        display: flex;
+        display: grid;
+        grid-template-columns: 54px minmax(0, 1fr);
         align-items: center;
-        min-height: 46px;
+        gap: 10px;
+        min-height: 58px;
         min-width: 0;
       }
-      .brand-lockup {
+      .brand-emblem {
         display: block;
-        width: min(184px, 100%);
-        height: auto;
-        filter: drop-shadow(0 16px 22px rgba(0, 0, 0, 0.42));
+        width: 54px;
+        height: 54px;
+        object-fit: contain;
+        filter:
+          drop-shadow(0 14px 22px rgba(0, 0, 0, 0.52))
+          drop-shadow(0 0 12px rgba(64, 220, 152, 0.16));
+      }
+      .brand-wordmark {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+      .brand-wordmark strong {
+        display: block;
+        color: var(--mission-text, var(--ck-fg-1));
+        font-family: var(--ck-font-mono);
+        font-size: 14px;
+        font-weight: 800;
+        line-height: 1.05;
+        letter-spacing: 0;
+        white-space: nowrap;
+      }
+      .brand-wordmark span {
+        display: block;
+        color: var(--mission-muted, var(--ck-fg-3));
+        font-family: var(--ck-font-mono);
+        font-size: 8px;
+        font-weight: 700;
+        line-height: 1.15;
+        letter-spacing: 0;
       }
       .assistant-badge {
         display: flex;
@@ -1038,7 +1073,10 @@ export class MissionSourcePillComponent {
       }
       @media (max-height: 820px) {
         .mission-rail { padding-top: 10px; gap: 8px; }
-        .brand-lockup { width: min(166px, 100%); }
+        .rail-brand { grid-template-columns: 44px minmax(0, 1fr); min-height: 46px; gap: 8px; }
+        .brand-emblem { width: 44px; height: 44px; }
+        .brand-wordmark strong { font-size: 12px; }
+        .brand-wordmark span { font-size: 7px; }
         .assistant-badge { padding: 7px; }
         .assistant-avatar { width: 32px; height: 32px; border-radius: 10px; }
         .assistant-badge small { display: none; }

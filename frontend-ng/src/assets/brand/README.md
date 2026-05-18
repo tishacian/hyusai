@@ -24,12 +24,16 @@ precision routed `A`:
 - `sentinel-ci-mark.svg` — workspace mark for the SENTINEL-CI mission-room.
 - `sentinel-ci-logo.svg` — SENTINEL-CI horizontal lockup for docs / splash contexts.
 - `sentinel-ci-favicon.svg` — favicon used while `/hypervisor/mission-room/*` is open.
+- `sentinel-ci-emblem.png` — faceted elephant cockpit emblem for the SENTINEL-CI rail.
+- `sentinel-ci-favicon.png` — PNG favicon derived from the active SENTINEL-CI emblem.
 
 ## SENTINEL-CI Workspace Mark
 
 SENTINEL-CI keeps Agentium as the platform brand while giving the
-government mission-room a dedicated identity. The active mark is a
-hand-authored SVG inspired by the same generation workflow:
+government mission-room a dedicated identity. The active cockpit emblem
+is the supplied faceted elephant PNG, cropped and cleaned for rail and
+favicon readability. The SVG mark remains available as a lightweight
+vector fallback inspired by the same generation workflow:
 
 - abstract elephant head = institutional strength without copying an
   official ministry seal;
