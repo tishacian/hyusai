@@ -23,6 +23,7 @@ from app.models.system import System
 from app.services.audit_logger import emit_audit_event
 
 CAPABILITY_SLUG = "expert_knowledge_capture"
+TOPIC_PLAN_SCHEMA_VERSION = "topic_plan_v1"
 RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
 POSITIVE_CONFIRMATION_TERMS = (
     "oui",
@@ -134,6 +135,33 @@ _BASE_GAPS = [
     },
 ]
 
+_TOPIC_GROUPS = [
+    {
+        "id": "topic-01",
+        "title": "Décisions et arbitrages métier",
+        "objective": "Capturer les décisions expertes difficiles à retrouver dans les documents.",
+        "slugs": ["decision_rationale", "exception_handling"],
+    },
+    {
+        "id": "topic-02",
+        "title": "Signaux terrain et diagnostic",
+        "objective": "Relier symptômes, signaux faibles et raisonnement de diagnostic.",
+        "slugs": ["signals_and_symptoms"],
+    },
+    {
+        "id": "topic-03",
+        "title": "Preuves documentaires et sources",
+        "objective": "Identifier les documents, traces et preuves qui valident la connaissance.",
+        "slugs": ["source_provenance"],
+    },
+    {
+        "id": "topic-04",
+        "title": "Validation et intégration Knowledge",
+        "objective": "Préparer la revue humaine, les zones d'incertitude et l'intégration en base.",
+        "slugs": ["validation_and_ownership", "open_questions"],
+    },
+]
+
 
 def _words(text: str) -> List[str]:
     return re.findall(r"[\wÀ-ÿ'-]+", text or "")
@@ -220,12 +248,24 @@ def build_interview_plan(
     selected = gaps[:question_count]
     per_question = max(2, available_question_minutes // max(1, len(selected)))
 
-    questions: List[Dict[str, Any]] = []
-    for index, gap in enumerate(selected, start=1):
-        questions.append(
-            {
-                "id": f"q-{index:02d}",
+    selected_by_slug = {gap.get("slug"): gap for gap in selected}
+    topics: List[Dict[str, Any]] = []
+    question_index = 1
+    for topic_index, group in enumerate(_TOPIC_GROUPS, start=1):
+        grouped_gaps = [selected_by_slug[slug] for slug in group["slugs"] if slug in selected_by_slug]
+        if not grouped_gaps:
+            continue
+        subtopics: List[Dict[str, Any]] = []
+        for subtopic_index, gap in enumerate(grouped_gaps, start=1):
+            topic_id = group["id"]
+            subtopic_id = f"{topic_id}-sub-{subtopic_index:02d}"
+            path_label = f"{group['title']} / {gap['title']}"
+            question = {
+                "id": f"q-{question_index:02d}",
                 "target_gap_id": gap["id"],
+                "topic_id": topic_id,
+                "subtopic_id": subtopic_id,
+                "path_label": path_label,
                 "title": gap["title"],
                 "question": _question_for_gap(gap, objective, context_snapshot),
                 "follow_ups": _followups_for_gap(gap),
@@ -236,9 +276,34 @@ def build_interview_plan(
                     "answer identifies evidence, owner, or validation path when possible",
                 ],
             }
+            subtopics.append(
+                {
+                    "id": subtopic_id,
+                    "title": gap["title"],
+                    "objective": gap.get("description"),
+                    "target_gap_ids": [gap["id"]],
+                    "knowledge_refs": _knowledge_refs_for_topic(context_snapshot, [gap]),
+                    "questions": [question],
+                }
+            )
+            question_index += 1
+        topics.append(
+            {
+                "id": group["id"],
+                "title": group["title"],
+                "objective": group["objective"],
+                "estimated_minutes": sum(
+                    int(q.get("estimated_minutes") or per_question)
+                    for subtopic in subtopics
+                    for q in subtopic.get("questions", [])
+                ),
+                "knowledge_refs": _knowledge_refs_for_topic(context_snapshot, grouped_gaps),
+                "subtopics": subtopics,
+            }
         )
 
-    return {
+    plan = {
+        "schema_version": TOPIC_PLAN_SCHEMA_VERSION,
         "objective": objective,
         "expert_profile": expert_profile,
         "duration_minutes": duration,
@@ -248,8 +313,16 @@ def build_interview_plan(
             {"label": "Resolve prioritized knowledge gaps", "estimated_minutes": available_question_minutes},
             {"label": "Confirm open questions and validation owner", "estimated_minutes": 2},
         ],
-        "questions": questions,
+        "topics": topics,
+        "questions": [],
         "context": context_snapshot or {},
+        "review": {
+            "status": "draft",
+            "revision": 1,
+            "created_at": datetime.utcnow().isoformat(),
+            "approved_at": None,
+            "approved_by_user_id": None,
+        },
         "success_metrics": [
             "coverage of prioritized gaps",
             "number of usable captured facts",
@@ -257,6 +330,35 @@ def build_interview_plan(
             "estimated vs actual duration",
         ],
     }
+    plan["questions"] = _flatten_plan_questions(plan)
+    return plan
+
+
+def _knowledge_refs_for_topic(
+    context_snapshot: Optional[Dict[str, Any]],
+    gaps: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    context_snapshot = context_snapshot or {}
+    environment_state = context_snapshot.get("environment_state") or {}
+    refs: List[Dict[str, Any]] = []
+    collection = environment_state.get("collection") or environment_state.get("collection_name")
+    if collection:
+        refs.append({"kind": "collection", "label": str(collection), "ref": str(collection)})
+    for ref in context_snapshot.get("data_refs") or []:
+        refs.append({"kind": "data_ref", "label": str(ref), "ref": str(ref)})
+    for gap in gaps:
+        for ref in gap.get("evidence_refs") or []:
+            refs.append({"kind": "evidence_ref", "label": str(ref), "ref": str(ref)})
+
+    seen: set[str] = set()
+    unique: List[Dict[str, Any]] = []
+    for ref in refs:
+        key = f"{ref.get('kind')}:{ref.get('ref')}"
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(ref)
+    return unique[:5]
 
 
 def _knowledge_target_for_prompt(context_snapshot: Optional[Dict[str, Any]]) -> str:
@@ -734,6 +836,9 @@ def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]])
         "retrieval_refs": turn.get("retrieval_refs") or [],
         "interruption_of_event_id": turn.get("interruption_of_event_id"),
         "turn_kind": turn_kind,
+        "topic_id": turn.get("topic_id") or (related or {}).get("topic_id"),
+        "subtopic_id": turn.get("subtopic_id") or (related or {}).get("subtopic_id"),
+        "topic_path": turn.get("topic_path") or (related or {}).get("topic_path"),
         "raw_text": turn.get("text_raw") or turn.get("text"),
         "amended_text": turn.get("text_amended"),
         "amended": bool(turn.get("text_amended")),
@@ -1026,7 +1131,94 @@ def create_capture_plan(
         source="capture_engine",
         status="accepted",
         created_by=created_by_user_id,
-        meta_data={"run_id": run_id, "question_count": len(plan.get("questions") or [])},
+        meta_data={
+            "run_id": run_id,
+            "schema_version": plan.get("schema_version"),
+            "topic_count": len(plan.get("topics") or []),
+            "question_count": len(plan.get("questions") or []),
+        },
+    )
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def amend_capture_plan(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    plan: Dict[str, Any],
+    actor_user_id: Optional[str] = None,
+) -> ExpertCaptureSession:
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    if session.status != "planned":
+        raise ValueError("Capture plan can only be edited before the session starts")
+    normalized = _normalize_topic_plan(
+        plan,
+        fallback=session.plan or {},
+        review_status="edited",
+        actor_user_id=actor_user_id,
+    )
+    session.plan = normalized
+    session.duration_minutes = int(normalized.get("duration_minutes") or session.duration_minutes or 20)
+    session.metrics = {
+        **(session.metrics or {}),
+        "estimated_minutes": session.duration_minutes,
+        "coverage": 0.0,
+    }
+    _record_capture_event(
+        db,
+        session=session,
+        event_type="capture_plan_amended",
+        source="capture_engine",
+        status="accepted",
+        created_by=actor_user_id,
+        meta_data={
+            "question_count": len(normalized.get("questions") or []),
+            "topic_count": len(normalized.get("topics") or []),
+            "revision": (normalized.get("review") or {}).get("revision"),
+        },
+    )
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def approve_capture_plan(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    actor_user_id: Optional[str] = None,
+) -> ExpertCaptureSession:
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    if session.status != "planned":
+        raise ValueError("Capture plan can only be approved before the session starts")
+    plan = session.plan or {}
+    if plan.get("schema_version") == TOPIC_PLAN_SCHEMA_VERSION:
+        plan = _normalize_topic_plan(plan, fallback=plan)
+        review = {
+            **(plan.get("review") or {}),
+            "status": "approved",
+            "approved_by_user_id": actor_user_id,
+            "approved_at": datetime.utcnow().isoformat(),
+        }
+        plan["review"] = review
+        plan["questions"] = _flatten_plan_questions(plan)
+        session.plan = plan
+    _record_capture_event(
+        db,
+        session=session,
+        event_type="capture_plan_approved",
+        source="capture_engine",
+        status="accepted",
+        created_by=actor_user_id,
+        meta_data={
+            "question_count": len((session.plan or {}).get("questions") or []),
+            "topic_count": len((session.plan or {}).get("topics") or []),
+            "revision": ((session.plan or {}).get("review") or {}).get("revision"),
+        },
     )
     db.commit()
     db.refresh(session)
@@ -1035,6 +1227,8 @@ def create_capture_plan(
 
 def start_session(db: DBSession, *, workspace_id: str, session_id: str) -> ExpertCaptureSession:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    if _topic_plan_requires_approval(session.plan or {}):
+        raise ValueError("Capture plan must be approved before the session starts")
     if session.status == "planned":
         session.status = "active"
         session.started_at = datetime.utcnow()
@@ -1068,10 +1262,13 @@ def append_turn(
     latency_ms: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    if session.status == "planned" and _topic_plan_requires_approval(session.plan or {}):
+        raise ValueError("Capture plan must be approved before the session starts")
     if session.status == "planned":
         session.status = "active"
         session.started_at = session.started_at or datetime.utcnow()
 
+    question_meta = _question_trace_metadata(session.plan or {}, question_id)
     retrieval_refs = _retrieval_refs_for_event(
         db,
         workspace_id=workspace_id,
@@ -1089,7 +1286,7 @@ def append_turn(
             status="accepted",
             parent_event_id=interruption_of_event_id,
             created_by=actor_user_id,
-            meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind},
+            meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind, **question_meta},
         )
     if speaker == "expert":
         _record_capture_event(
@@ -1104,7 +1301,7 @@ def append_turn(
             status="accepted",
             parent_event_id=retrieval_event_id,
             created_by=actor_user_id,
-            meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind},
+            meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind, **question_meta},
         )
 
     turn = {
@@ -1112,6 +1309,9 @@ def append_turn(
         "speaker": speaker,
         "text": text,
         "question_id": question_id,
+        "topic_id": question_meta.get("topic_id"),
+        "subtopic_id": question_meta.get("subtopic_id"),
+        "topic_path": question_meta.get("topic_path"),
         "audio_ref": audio_ref,
         "client_turn_id": client_turn_id,
         "retrieval_event_id": retrieval_event_id,
@@ -1143,6 +1343,7 @@ def append_turn(
             "turn_kind": turn_kind,
             "text_partials": text_partials or [],
             "latency_ms": latency_ms or {},
+            **question_meta,
         },
     )
     turn["source_event_id"] = event.id
@@ -1163,6 +1364,7 @@ def append_turn(
         evaluation["turn_id"] = turn["id"]
         evaluation["retrieval_event_id"] = retrieval_event_id
         evaluation["turn_kind"] = turn_kind
+        evaluation.update(question_meta)
 
         evaluations = list(session.evaluations or [])
         evaluations.append(evaluation)
@@ -1206,6 +1408,7 @@ def append_turn(
                     "client_turn_id": client_turn_id,
                     "retrieval_event_id": retrieval_event_id,
                     "turn_kind": turn_kind,
+                    **_question_trace_metadata(session.plan or {}, (next_question or {}).get("id") or question_id),
                 },
             )
             system_prompt_event_id = prompt_event.id
@@ -1364,6 +1567,7 @@ async def prefetch_capture_retrieval(
     if not text:
         raise ValueError("partial_text cannot be empty")
 
+    question_meta = _question_trace_metadata(session.plan or {}, question_id)
     partial_event = _record_capture_event(
         db,
         session=session,
@@ -1373,7 +1577,7 @@ async def prefetch_capture_retrieval(
         text_raw=text,
         source="browser_voice",
         status="accepted",
-        meta_data={"client_turn_id": client_turn_id, "words": len(_words(text))},
+        meta_data={"client_turn_id": client_turn_id, "words": len(_words(text)), **question_meta},
     )
     started_event = _record_capture_event(
         db,
@@ -1385,7 +1589,7 @@ async def prefetch_capture_retrieval(
         source="capture_engine",
         status="running",
         parent_event_id=partial_event.id,
-        meta_data={"client_turn_id": client_turn_id, "mode": mode, "top_k": top_k},
+        meta_data={"client_turn_id": client_turn_id, "mode": mode, "top_k": top_k, **question_meta},
     )
     db.commit()
 
@@ -1401,10 +1605,22 @@ async def prefetch_capture_retrieval(
     try:
         ctx = _load_context(db, workspace_id, session.context_id)
         collection_name = _resolve_collection_name(ctx)
+        from app.core.settings_manager import get_resolved_settings
         from app.services.rag.document_service import DocumentService
         from app.services.rag.pipeline_retrieval import retrieve_for_mode
+        from app.services.rag.vector_store_config import resolve_vector_db_type
 
-        doc_svc = DocumentService(collection_name=collection_name, workspace_slug=workspace_slug)
+        app_settings = get_resolved_settings(
+            workspace_id=workspace_id,
+            capability_id=session.capability_id,
+            system_id=session.system_id,
+        )
+        vector_db_type = resolve_vector_db_type(app_settings)
+        doc_svc = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=vector_db_type,
+            workspace_slug=workspace_slug,
+        )
         result = await asyncio.wait_for(
             retrieve_for_mode(
                 doc_svc,
@@ -1419,7 +1635,13 @@ async def prefetch_capture_retrieval(
         chunks = result.chunks
         scores = result.scores
         metadatas = result.metadatas
-        detail = {"pipeline": result.pipeline, "label": result.label, "reason": result.reason, "detail": result.detail}
+        detail = {
+            "pipeline": result.pipeline,
+            "label": result.label,
+            "reason": result.reason,
+            "detail": result.detail,
+            "vector_db_type": vector_db_type,
+        }
     except TimeoutError:
         status = "timeout"
         event_type = "retrieval_prefetch_timeout"
@@ -1450,6 +1672,7 @@ async def prefetch_capture_retrieval(
             "scores": scores,
             "metadatas": metadatas,
             "stale": False,
+            **question_meta,
             **detail,
         },
     )
@@ -1464,6 +1687,7 @@ async def prefetch_capture_retrieval(
         "metadatas": metadatas,
         "stale": False,
         "collection_name": collection_name,
+        **question_meta,
     }
 
 
@@ -1882,8 +2106,186 @@ def _retrieval_refs_for_event(
     return refs
 
 
+def _flatten_plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+    topics = plan.get("topics") or []
+    if not topics:
+        return list(plan.get("questions") or [])
+
+    questions: List[Dict[str, Any]] = []
+    for topic in topics:
+        topic_id = topic.get("id")
+        topic_title = topic.get("title") or "Topic"
+        for subtopic in topic.get("subtopics") or []:
+            subtopic_id = subtopic.get("id")
+            subtopic_title = subtopic.get("title") or topic_title
+            path_label = f"{topic_title} / {subtopic_title}"
+            for question in subtopic.get("questions") or []:
+                q = dict(question)
+                q["topic_id"] = q.get("topic_id") or topic_id
+                q["subtopic_id"] = q.get("subtopic_id") or subtopic_id
+                q["path_label"] = q.get("path_label") or path_label
+                questions.append(q)
+    return questions
+
+
+def _normalize_topic_plan(
+    incoming: Dict[str, Any],
+    *,
+    fallback: Optional[Dict[str, Any]] = None,
+    review_status: Optional[str] = None,
+    actor_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    fallback = fallback or {}
+    if not isinstance(incoming, dict):
+        raise ValueError("Plan payload must be an object")
+    raw_topics = incoming.get("topics") or []
+    if not isinstance(raw_topics, list) or not raw_topics:
+        raise ValueError("Plan must contain at least one topic")
+
+    topic_ids: set[str] = set()
+    subtopic_ids: set[str] = set()
+    question_ids: set[str] = set()
+    normalized_topics: List[Dict[str, Any]] = []
+    question_counter = 1
+
+    for topic_index, raw_topic in enumerate(raw_topics, start=1):
+        if not isinstance(raw_topic, dict):
+            raise ValueError("Each topic must be an object")
+        topic_id = str(raw_topic.get("id") or f"topic-{topic_index:02d}").strip()
+        topic_title = str(raw_topic.get("title") or f"Topic {topic_index}").strip()
+        if not topic_id or topic_id in topic_ids:
+            raise ValueError("Topic ids must be unique")
+        topic_ids.add(topic_id)
+
+        raw_subtopics = raw_topic.get("subtopics") or []
+        if not isinstance(raw_subtopics, list) or not raw_subtopics:
+            raise ValueError(f"Topic '{topic_title}' must contain at least one subtopic")
+
+        normalized_subtopics: List[Dict[str, Any]] = []
+        topic_minutes = 0
+        for subtopic_index, raw_subtopic in enumerate(raw_subtopics, start=1):
+            if not isinstance(raw_subtopic, dict):
+                raise ValueError("Each subtopic must be an object")
+            subtopic_id = str(raw_subtopic.get("id") or f"{topic_id}-sub-{subtopic_index:02d}").strip()
+            subtopic_title = str(raw_subtopic.get("title") or f"Subtopic {subtopic_index}").strip()
+            if not subtopic_id or subtopic_id in subtopic_ids:
+                raise ValueError("Subtopic ids must be unique")
+            subtopic_ids.add(subtopic_id)
+
+            raw_questions = raw_subtopic.get("questions") or []
+            if not isinstance(raw_questions, list) or not raw_questions:
+                raise ValueError(f"Subtopic '{subtopic_title}' must contain at least one question")
+
+            normalized_questions: List[Dict[str, Any]] = []
+            for raw_question in raw_questions:
+                if not isinstance(raw_question, dict):
+                    raise ValueError("Each question must be an object")
+                question_text = str(raw_question.get("question") or "").strip()
+                if not question_text:
+                    raise ValueError("Each question must contain text")
+                question_id = str(raw_question.get("id") or f"q-{question_counter:02d}").strip()
+                if not question_id or question_id in question_ids:
+                    raise ValueError("Question ids must be unique")
+                question_ids.add(question_id)
+
+                minutes = int(raw_question.get("estimated_minutes") or 3)
+                minutes = max(1, min(minutes, 30))
+                topic_minutes += minutes
+                normalized_questions.append(
+                    {
+                        **raw_question,
+                        "id": question_id,
+                        "topic_id": topic_id,
+                        "subtopic_id": subtopic_id,
+                        "path_label": f"{topic_title} / {subtopic_title}",
+                        "title": str(raw_question.get("title") or subtopic_title).strip(),
+                        "question": question_text,
+                        "follow_ups": list(raw_question.get("follow_ups") or []),
+                        "estimated_minutes": minutes,
+                        "completion_criteria": list(raw_question.get("completion_criteria") or []),
+                    }
+                )
+                question_counter += 1
+
+            normalized_subtopics.append(
+                {
+                    **raw_subtopic,
+                    "id": subtopic_id,
+                    "title": subtopic_title,
+                    "objective": raw_subtopic.get("objective") or "",
+                    "target_gap_ids": list(raw_subtopic.get("target_gap_ids") or []),
+                    "knowledge_refs": list(raw_subtopic.get("knowledge_refs") or []),
+                    "questions": normalized_questions,
+                }
+            )
+
+        normalized_topics.append(
+            {
+                **raw_topic,
+                "id": topic_id,
+                "title": topic_title,
+                "objective": raw_topic.get("objective") or "",
+                "estimated_minutes": int(raw_topic.get("estimated_minutes") or topic_minutes or 1),
+                "knowledge_refs": list(raw_topic.get("knowledge_refs") or []),
+                "subtopics": normalized_subtopics,
+            }
+        )
+
+    previous_review = fallback.get("review") or {}
+    revision = int(previous_review.get("revision") or 0) + (1 if review_status == "edited" else 0)
+    review = {
+        **previous_review,
+        "status": review_status or previous_review.get("status") or "draft",
+        "revision": max(1, revision),
+    }
+    if review_status == "edited":
+        review.update(
+            {
+                "edited_by_user_id": actor_user_id,
+                "edited_at": datetime.utcnow().isoformat(),
+                "approved_at": None,
+                "approved_by_user_id": None,
+            }
+        )
+
+    plan = {
+        **fallback,
+        **incoming,
+        "schema_version": TOPIC_PLAN_SCHEMA_VERSION,
+        "topics": normalized_topics,
+        "review": review,
+    }
+    plan["questions"] = _flatten_plan_questions(plan)
+    if not plan["questions"]:
+        raise ValueError("Plan must contain at least one question")
+    return plan
+
+
+def _plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+    if plan.get("topics"):
+        return _flatten_plan_questions(plan)
+    return list(plan.get("questions") or [])
+
+
+def _topic_plan_requires_approval(plan: Dict[str, Any]) -> bool:
+    if (plan or {}).get("schema_version") != TOPIC_PLAN_SCHEMA_VERSION:
+        return False
+    return ((plan or {}).get("review") or {}).get("status") != "approved"
+
+
+def _question_trace_metadata(plan: Dict[str, Any], question_id: Optional[str]) -> Dict[str, Any]:
+    question = _find_question(plan, question_id)
+    if not question:
+        return {}
+    return {
+        "topic_id": question.get("topic_id"),
+        "subtopic_id": question.get("subtopic_id"),
+        "topic_path": question.get("path_label"),
+    }
+
+
 def _find_question(plan: Dict[str, Any], question_id: Optional[str]) -> Optional[Dict[str, Any]]:
-    questions = plan.get("questions") or []
+    questions = _plan_questions(plan)
     if question_id:
         return next((q for q in questions if q.get("id") == question_id), None)
     return questions[0] if questions else None
@@ -1899,7 +2301,7 @@ def _next_plan_question(plan: Dict[str, Any], evaluations: List[Dict[str, Any]])
     sufficiently_answered = {
         ev.get("question_id") for ev in evaluations if ev.get("verdict") == "sufficient"
     }
-    for question in plan.get("questions") or []:
+    for question in _plan_questions(plan):
         if question.get("id") not in sufficiently_answered:
             return question
     return {
@@ -1911,7 +2313,7 @@ def _next_plan_question(plan: Dict[str, Any], evaluations: List[Dict[str, Any]])
 def _metrics_for_session(session: ExpertCaptureSession) -> Dict[str, Any]:
     evaluations = session.evaluations or []
     sufficient = [ev for ev in evaluations if ev.get("verdict") == "sufficient"]
-    questions = (session.plan or {}).get("questions") or []
+    questions = _plan_questions(session.plan or {})
     coverage = len({ev.get("question_id") for ev in sufficient}) / max(1, len(questions))
     return {
         **(session.metrics or {}),

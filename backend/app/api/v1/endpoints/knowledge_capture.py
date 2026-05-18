@@ -23,7 +23,9 @@ from app.models.workspace import Workspace
 from app.services.iam.config_service import effective_role_flags, load_iam_config
 from app.services.knowledge_capture import (
     amend_capture_event,
+    amend_capture_plan,
     append_turn,
+    approve_capture_plan,
     create_capture_plan,
     create_update_proposal,
     get_session,
@@ -98,6 +100,12 @@ def _contributors_see_only_own(db: DBSession, *, user: User, workspace: Workspac
     return role_template == WORKSPACE_CONTRIBUTOR and bool(flags.get("contributors_see_only_own_sessions", True))
 
 
+def _http_error_from_value_error(exc: ValueError) -> HTTPException:
+    message = str(exc)
+    status_code = 404 if "not found" in message.lower() else 400
+    return HTTPException(status_code=status_code, detail=message)
+
+
 class CapturePlanRequest(BaseModel):
     objective: str = Field(..., min_length=8)
     title: Optional[str] = None
@@ -118,6 +126,10 @@ class CaptureTurnRequest(BaseModel):
     retrieval_event_id: Optional[str] = None
     interruption_of_event_id: Optional[str] = None
     turn_kind: Literal["answer", "correction", "complement"] = "answer"
+
+
+class CapturePlanUpdateRequest(BaseModel):
+    plan: Dict[str, Any]
 
 
 class RetrievalPrefetchRequest(BaseModel):
@@ -238,7 +250,7 @@ async def get_capture_session(
     try:
         session = get_session(db, workspace_id=workspace.id, session_id=session_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _http_error_from_value_error(exc) from exc
     enforce_permission(
         db,
         user=user,
@@ -248,6 +260,66 @@ async def get_capture_session(
         resource_attrs=_session_attrs(session),
         audit_prefix="kc",
     )
+    return serialize_session(session)
+
+
+@router.patch("/sessions/{session_id}/plan")
+async def update_capture_plan(
+    session_id: str,
+    body: CapturePlanUpdateRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        existing = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(existing),
+            audit_prefix="kc",
+        )
+        session = amend_capture_plan(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            plan=body.plan,
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return serialize_session(session)
+
+
+@router.post("/sessions/{session_id}/plan/approve")
+async def approve_capture_session_plan(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        existing = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(existing),
+            audit_prefix="kc",
+        )
+        session = approve_capture_plan(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
     return serialize_session(session)
 
 
@@ -271,7 +343,7 @@ async def start_capture_session(
         )
         session = start_session(db, workspace_id=workspace.id, session_id=session_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _http_error_from_value_error(exc) from exc
     return serialize_session(session)
 
 
@@ -309,7 +381,7 @@ async def add_capture_turn(
             actor_user_id=user.id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _http_error_from_value_error(exc) from exc
 
 
 @router.post("/sessions/{session_id}/retrieval-prefetch")
@@ -343,7 +415,7 @@ async def prefetch_session_retrieval(
             top_k=body.top_k,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _http_error_from_value_error(exc) from exc
 
 
 @router.post("/sessions/{session_id}/conversation-step")
@@ -379,7 +451,7 @@ async def conversation_session_step(
             actor_label=_actor_label(user),
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _http_error_from_value_error(exc) from exc
 
 
 @router.get("/sessions/{session_id}/events")

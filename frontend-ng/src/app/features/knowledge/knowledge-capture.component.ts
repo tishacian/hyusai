@@ -13,7 +13,46 @@ interface CaptureQuestion {
   id: string;
   question: string;
   title?: string;
+  topic_id?: string;
+  subtopic_id?: string;
+  path_label?: string;
+  target_gap_id?: string;
+  follow_ups?: string[];
+  completion_criteria?: string[];
   estimated_minutes?: number;
+}
+
+interface CaptureSubtopic {
+  id: string;
+  title: string;
+  objective?: string;
+  target_gap_ids?: string[];
+  knowledge_refs?: Array<Record<string, unknown>>;
+  questions?: CaptureQuestion[];
+}
+
+interface CaptureTopic {
+  id: string;
+  title: string;
+  objective?: string;
+  estimated_minutes?: number;
+  knowledge_refs?: Array<Record<string, unknown>>;
+  subtopics?: CaptureSubtopic[];
+}
+
+interface CapturePlan {
+  schema_version?: string;
+  topics?: CaptureTopic[];
+  questions?: CaptureQuestion[];
+  review?: {
+    status?: string;
+    revision?: number;
+    approved_at?: string | null;
+    approved_by_user_id?: string | null;
+    edited_at?: string | null;
+    edited_by_user_id?: string | null;
+  };
+  [key: string]: unknown;
 }
 
 interface CaptureSession {
@@ -26,7 +65,7 @@ interface CaptureSession {
   title: string;
   objective: string;
   status: string;
-  plan: { questions?: CaptureQuestion[] };
+  plan: CapturePlan;
   transcript?: Array<{ id: string; speaker: string; text: string }>;
   evaluations?: Array<{ verdict: string; score: number; follow_up?: string }>;
   metrics?: Record<string, number>;
@@ -37,6 +76,11 @@ interface ContextOption {
   name: string;
   data_refs?: string[];
   environment_state?: { collection?: string; document_count?: number };
+}
+
+interface ContextCreationNotice {
+  tone: 'success' | 'error' | 'info';
+  text: string;
 }
 
 interface SystemOption {
@@ -288,6 +332,87 @@ interface ProposalFact {
                   </option>
                 }
               </select>
+
+              @if (selectedContext(); as ctx) {
+                <div class="mt-3 rounded border border-white/10 bg-white/[0.03] px-4 py-3">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="min-w-0">
+                      <div class="text-xs font-semibold text-gray-200 truncate">{{ ctx.name }}</div>
+                      <div class="mt-1 text-[11px] text-gray-500 font-mono truncate">
+                        {{ ctx.environment_state?.collection || ctx.data_refs?.[0] || 'Workspace defaults' }}
+                      </div>
+                    </div>
+                    @if (newContextId() === ctx.id) {
+                      <span class="shrink-0 text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/20">
+                        New context
+                      </span>
+                    }
+                  </div>
+                </div>
+              }
+
+              <div class="mt-4 rounded border border-brand-400/20 bg-brand-500/5 p-4 space-y-3">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Create from collection</p>
+                    <p class="mt-1 text-xs text-gray-400">
+                      Attach a Knowledge collection to this capture without leaving the session prep.
+                    </p>
+                  </div>
+                  @if (loadingKnowledgeCollections()) {
+                    <span class="text-[11px] text-gray-500">Loading collections...</span>
+                  }
+                </div>
+
+                <div class="grid md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)] gap-3">
+                  <div>
+                    <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Collection</label>
+                    <select
+                      class="w-full rounded bg-black/30 border border-white/10 px-3 py-2.5 text-sm text-white disabled:opacity-50"
+                      [disabled]="loadingKnowledgeCollections() || knowledgeCollections().length === 0"
+                      [(ngModel)]="selectedKnowledgeCollection"
+                      (ngModelChange)="onKnowledgeCollectionChange($event)"
+                    >
+                      <option value="">Select collection</option>
+                      @for (collection of knowledgeCollections(); track collection) {
+                        <option [value]="collection">{{ collection }}</option>
+                      }
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Context name</label>
+                    <input
+                      class="w-full rounded bg-black/30 border border-white/10 px-3 py-2.5 text-sm text-white"
+                      [(ngModel)]="newContextName"
+                      placeholder="BBA120 manuals pilot"
+                    />
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <p class="text-[11px] text-gray-500">
+                    The Context will store <span class="font-mono text-gray-300">environment_state.collection</span> for live retrieval.
+                  </p>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black disabled:opacity-50"
+                    [disabled]="!selectedKnowledgeCollection || creatingContext()"
+                    (click)="createContextFromCollection()"
+                  >
+                    <app-icon name="plus" [size]="14" />
+                    {{ creatingContext() ? 'Creating...' : 'Create context' }}
+                  </button>
+                </div>
+
+                @if (contextCreationNotice(); as notice) {
+                  <p [class]="contextCreationNoticeClass(notice.tone)">{{ notice.text }}</p>
+                }
+                @if (!loadingKnowledgeCollections() && knowledgeCollections().length === 0) {
+                  <p class="text-xs rounded border border-white/10 bg-white/5 px-3 py-2 text-gray-400">
+                    No Knowledge collection is available in this workspace yet.
+                  </p>
+                }
+              </div>
             </div>
 
             <div class="grid md:grid-cols-[1fr_220px] gap-4">
@@ -387,7 +512,7 @@ interface ProposalFact {
                     <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ row.status }}</span>
                   </div>
                   <div class="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-400">
-                    <span>{{ row.plan.questions?.length || 0 }} questions</span>
+                    <span>{{ planQuestions(row).length }} questions</span>
                     <span>{{ row.metrics?.['captured_facts'] || 0 }} facts</span>
                     <span>{{ ((row.metrics?.['coverage'] || 0) * 100).toFixed(0) }}% coverage</span>
                   </div>
@@ -444,7 +569,7 @@ interface ProposalFact {
                 <div class="flex flex-wrap items-center gap-2 text-xs">
                   <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ s.status }}</span>
                   <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
-                    {{ currentQuestionPosition(s) }} / {{ s.plan.questions?.length || 0 }} questions
+                    {{ currentQuestionPosition(s) }} / {{ planQuestions(s).length }} questions
                   </span>
                   <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
                     {{ s.metrics?.['captured_facts'] || 0 }} facts
@@ -479,7 +604,7 @@ interface ProposalFact {
                   </div>
                 </div>
                 <div class="mt-4 space-y-2">
-                  @for (q of s.plan.questions || []; track q.id) {
+                  @for (q of planQuestions(s); track q.id) {
                     <button
                       type="button"
                       class="w-full text-left rounded border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-3"
@@ -875,7 +1000,7 @@ interface ProposalFact {
               <div class="grid md:grid-cols-3 gap-3 text-sm">
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <div class="text-[10px] uppercase tracking-wider text-gray-500">Questions</div>
-                  <div class="text-2xl text-white font-semibold">{{ s.plan.questions?.length || 0 }}</div>
+                  <div class="text-2xl text-white font-semibold">{{ planQuestions(s).length }}</div>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <div class="text-[10px] uppercase tracking-wider text-gray-500">Estimated duration</div>
@@ -887,30 +1012,124 @@ interface ProposalFact {
                 </div>
               </div>
 
-              <div class="space-y-3">
-                @for (q of s.plan.questions || []; track q.id) {
-                  <button
-                    type="button"
-                    class="w-full text-left rounded border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-5"
-                    [class.ring-1]="selectedQuestionId() === q.id"
-                    [class.ring-brand-400]="selectedQuestionId() === q.id"
-                    (click)="selectedQuestionId.set(q.id)"
-                  >
-                    <div class="flex flex-wrap items-center justify-between gap-3">
-                      <div class="flex items-center gap-3">
-                        <span class="ck-mono text-xs text-brand-300">{{ questionDisplayId(q) }}</span>
-                        <span
-                          [class]="questionStateLabel(s, q) === 'current'
-                            ? 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-brand-500/20 text-brand-100'
-                            : 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-white/5 text-gray-400'"
-                        >
-                          {{ questionStateLabel(s, q) }}
-                        </span>
+              @if (planNotice(); as notice) {
+                <div [class]="planNoticeClass(notice.tone)">
+                  {{ notice.text }}
+                </div>
+              }
+
+              <div class="space-y-4">
+                @for (topic of planTopics(s); track topic.id) {
+                  <section class="rounded border border-white/10 bg-white/[0.025] p-4 space-y-4">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                      <div class="min-w-0 flex-1">
+                        <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Topic</p>
+                        <input
+                          class="mt-1 w-full rounded bg-black/20 border border-white/10 px-3 py-2 text-base font-semibold text-white disabled:opacity-70"
+                          [(ngModel)]="topic.title"
+                          [disabled]="!canEditPlan(s)"
+                          (ngModelChange)="touchPlanDraft()"
+                        />
+                        <p class="mt-2 text-xs text-gray-500">{{ topic.objective || 'Topic objective' }}</p>
                       </div>
-                      <span class="text-xs text-gray-500">{{ q.estimated_minutes || 3 }} min</span>
+                      <span class="rounded bg-brand-500/10 text-brand-100 border border-brand-300/20 px-2 py-1 text-xs">
+                        {{ topicQuestionCount(topic) }} questions
+                      </span>
                     </div>
-                    <p class="mt-4 text-base text-gray-100 leading-relaxed">{{ questionText(q) }}</p>
-                  </button>
+
+                    @for (subtopic of topic.subtopics || []; track subtopic.id) {
+                      <div class="rounded border border-white/10 bg-black/15 p-3 space-y-3">
+                        <div>
+                          <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Subtopic</p>
+                          <input
+                            class="mt-1 w-full rounded bg-black/20 border border-white/10 px-3 py-2 text-sm font-semibold text-gray-100 disabled:opacity-70"
+                            [(ngModel)]="subtopic.title"
+                            [disabled]="!canEditPlan(s)"
+                            (ngModelChange)="touchPlanDraft()"
+                          />
+                        </div>
+
+                        @for (q of subtopic.questions || []; track q.id; let i = $index) {
+                          <div
+                            class="rounded border border-white/10 bg-white/[0.03] p-4"
+                            [class.ring-1]="selectedQuestionId() === q.id"
+                            [class.ring-brand-400]="selectedQuestionId() === q.id"
+                          >
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                              <button
+                                type="button"
+                                class="inline-flex items-center gap-2 text-xs text-brand-200 hover:text-brand-100"
+                                (click)="selectedQuestionId.set(q.id)"
+                              >
+                                <span class="ck-mono">{{ questionDisplayId(q) }}</span>
+                                <span
+                                  [class]="questionStateLabel(s, q) === 'current'
+                                    ? 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-brand-500/20 text-brand-100'
+                                    : 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-white/5 text-gray-400'"
+                                >
+                                  {{ questionStateLabel(s, q) }}
+                                </span>
+                              </button>
+                              <div class="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="30"
+                                  class="w-16 rounded bg-black/20 border border-white/10 px-2 py-1 text-xs text-gray-200 disabled:opacity-70"
+                                  [(ngModel)]="q.estimated_minutes"
+                                  [disabled]="!canEditPlan(s)"
+                                  (ngModelChange)="touchPlanDraft()"
+                                />
+                                <span class="text-xs text-gray-500">min</span>
+                                <button
+                                  type="button"
+                                  class="rounded bg-white/5 hover:bg-white/10 p-1.5 text-gray-300 disabled:opacity-30"
+                                  [disabled]="!canEditPlan(s) || i === 0"
+                                  (click)="moveQuestion(s, subtopic, i, -1)"
+                                  title="Move question up"
+                                >
+                                  <app-icon name="arrow-up" [size]="13" />
+                                </button>
+                                <button
+                                  type="button"
+                                  class="rounded bg-white/5 hover:bg-white/10 p-1.5 text-gray-300 disabled:opacity-30"
+                                  [disabled]="!canEditPlan(s) || i >= ((subtopic.questions || []).length - 1)"
+                                  (click)="moveQuestion(s, subtopic, i, 1)"
+                                  title="Move question down"
+                                >
+                                  <app-icon name="arrow-down" [size]="13" />
+                                </button>
+                                <button
+                                  type="button"
+                                  class="rounded bg-red-500/10 hover:bg-red-500/20 p-1.5 text-red-200 disabled:opacity-30"
+                                  [disabled]="!canEditPlan(s) || planQuestions(s).length <= 1"
+                                  (click)="removeQuestion(s, subtopic, i)"
+                                  title="Remove question"
+                                >
+                                  <app-icon name="trash-2" [size]="13" />
+                                </button>
+                              </div>
+                            </div>
+                            <textarea
+                              class="mt-3 w-full min-h-24 rounded bg-black/20 border border-white/10 px-3 py-2 text-sm text-gray-100 leading-relaxed disabled:opacity-70"
+                              [(ngModel)]="q.question"
+                              [disabled]="!canEditPlan(s)"
+                              (ngModelChange)="touchPlanDraft()"
+                            ></textarea>
+                          </div>
+                        }
+
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded bg-white/5 hover:bg-white/10 px-3 py-2 text-xs text-gray-200 disabled:opacity-40"
+                          [disabled]="!canEditPlan(s)"
+                          (click)="addQuestion(s, topic, subtopic)"
+                        >
+                          <app-icon name="plus" [size]="13" /> Add question
+                        </button>
+                      </div>
+                    }
+                  </section>
                 }
               </div>
             </div>
@@ -935,8 +1154,26 @@ interface ProposalFact {
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <span class="block text-[9px] uppercase tracking-wider text-gray-500">Status</span>
-                  <span class="text-gray-200">{{ sessionStartStateLabel(s) }}</span>
+                  <span class="text-gray-200">{{ sessionStartStateLabel(s) }} · {{ planReviewLabel(s) }}</span>
                 </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-xs font-semibold text-gray-200 disabled:opacity-40"
+                  [disabled]="savingPlan() || !canEditPlan(s)"
+                  (click)="savePlan(s)"
+                >
+                  <app-icon name="save" [size]="13" /> Save plan
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-xs font-semibold text-emerald-100 disabled:opacity-40"
+                  [disabled]="savingPlan() || !canApprovePlan(s)"
+                  (click)="approvePlan(s)"
+                >
+                  <app-icon name="check" [size]="13" /> Approve
+                </button>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
                 <span class="block text-[9px] uppercase tracking-wider text-gray-500 mb-2">Session mode</span>
@@ -970,7 +1207,7 @@ interface ProposalFact {
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
-                [disabled]="loading() || !canCaptureExecute(s)"
+                [disabled]="loading() || !canCaptureExecute(s) || !canStartSessionPlan(s)"
                 (click)="startGuidedSession(s)"
               >
                 <app-icon [name]="planStartIcon(s)" [size]="14" /> {{ planStartLabel(s) }}
@@ -1254,6 +1491,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   contextId = '';
   systemId = '';
   answer = '';
+  selectedKnowledgeCollection = '';
+  newContextName = '';
   selectedDomain = 'technical';
   selectedPlanMode = 'ai_plan';
   readonly captureDomains = [
@@ -1308,7 +1547,14 @@ export class KnowledgeCaptureComponent implements OnInit {
   ];
 
   readonly loading = signal(false);
+  readonly savingPlan = signal(false);
+  readonly planNotice = signal<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
   readonly contexts = signal<ContextOption[]>([]);
+  readonly knowledgeCollections = signal<string[]>([]);
+  readonly loadingKnowledgeCollections = signal(false);
+  readonly creatingContext = signal(false);
+  readonly newContextId = signal<string | null>(null);
+  readonly contextCreationNotice = signal<ContextCreationNotice | null>(null);
   readonly systems = signal<SystemOption[]>([]);
   readonly systemScoped = signal(false);
   readonly activeSurface = signal<CaptureSurfaceView>('dashboard');
@@ -1372,6 +1618,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   private revokedAudioUrls: string[] = [];
   private speechGeneration = 0;
   private autoResumeTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastSuggestedContextName = '';
 
   ngOnInit(): void {
     this.destroyRef.onDestroy(() => this.closeVoiceConnection());
@@ -1397,8 +1644,10 @@ export class KnowledgeCaptureComponent implements OnInit {
         const selected = contexts.find((ctx) => ctx.id === this.contextId);
         if (selected) {
           this.zoom.setCurrentContext(selected.id, selected.name);
+          this.syncKnowledgeComposerFromContext(selected);
         }
       });
+    this.loadKnowledgeCollections();
     this.api
       .get<{ systems: SystemOption[] }>('/systems')
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -1443,7 +1692,8 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.zoom.setCurrentCapability(typed.capability_id || null, 'Expert Knowledge Capture');
           this.zoom.setCurrentSystem(typed.system_id || null, this.systemLabel(typed.system_id));
           this.zoom.setCurrentContext(typed.context_id || null, this.contextLabel(typed.context_id));
-          this.selectedQuestionId.set(typed.plan.questions?.[0]?.id || null);
+          this.selectedQuestionId.set(this.planQuestions(typed)[0]?.id || null);
+          this.planNotice.set({ tone: 'info', text: 'Review and approve the topic plan before starting capture.' });
           this.refreshEvents(typed.id);
           this.refreshDashboard();
           this.activeSurface.set('plan');
@@ -1469,6 +1719,11 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.setVoiceNotice('You do not have permission to start this Capture session.', 'error');
       return;
     }
+    if (!this.canStartSessionPlan(session)) {
+      this.planNotice.set({ tone: 'error', text: 'Approve the topic plan before starting the guided session.' });
+      this.activeSurface.set('plan');
+      return;
+    }
     this.loading.set(true);
     const conversationOnly = this.conversationMode() === 'conversation_only';
     let armed = true;
@@ -1490,7 +1745,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         next: (payload) => {
           const typed = payload as CaptureSession;
           this.session.set(typed);
-          const questions = typed.plan.questions || [];
+          const questions = this.planQuestions(typed);
           const selected = this.selectedQuestionId();
           this.selectedQuestionId.set(
             selected && questions.some((question) => question.id === selected)
@@ -1559,7 +1814,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   openDashboardSession(row: CaptureSession): void {
     this.session.set(row);
     this.setProposal(null);
-    this.selectedQuestionId.set(row.plan.questions?.[0]?.id || null);
+    this.selectedQuestionId.set(this.planQuestions(row)[0]?.id || null);
     this.refreshEvents(row.id);
     this.activeSurface.set(row.status === 'completed' ? 'review' : 'session');
   }
@@ -1645,6 +1900,115 @@ export class KnowledgeCaptureComponent implements OnInit {
   onContextChange(contextId: string): void {
     const ctx = this.contexts().find((item) => item.id === contextId);
     this.zoom.setCurrentContext(ctx?.id || null, ctx?.name || null);
+    const collection = ctx?.environment_state?.collection || ctx?.data_refs?.[0] || '';
+    if (collection) {
+      this.selectedKnowledgeCollection = collection;
+      this.newContextName = this.contextNameForCollection(collection);
+    }
+  }
+
+  onKnowledgeCollectionChange(collection: string): void {
+    this.contextCreationNotice.set(null);
+    if (!collection) {
+      this.newContextName = '';
+      this.lastSuggestedContextName = '';
+      return;
+    }
+    const suggestion = this.contextNameForCollection(collection);
+    if (!this.newContextName.trim() || this.newContextName === this.lastSuggestedContextName) {
+      this.newContextName = suggestion;
+    }
+    this.lastSuggestedContextName = suggestion;
+  }
+
+  createContextFromCollection(): void {
+    const collection = this.selectedKnowledgeCollection.trim();
+    if (!collection || this.creatingContext()) return;
+    const name = this.newContextName.trim() || this.contextNameForCollection(collection);
+    this.creatingContext.set(true);
+    this.contextCreationNotice.set(null);
+    this.api
+      .post<ContextOption>('/contexts', {
+        name,
+        data_refs: [collection],
+        environment_state: { collection },
+        business_constraints: { source: 'knowledge_capture_prep' },
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (ctx) => {
+          this.contexts.set([ctx, ...this.contexts().filter((item) => item.id !== ctx.id)]);
+          this.contextId = ctx.id;
+          this.newContextId.set(ctx.id);
+          this.zoom.setCurrentContext(ctx.id, ctx.name);
+          this.contextCreationNotice.set({
+            tone: 'success',
+            text: `Context "${ctx.name}" is now attached to ${collection}.`,
+          });
+          this.lastSuggestedContextName = ctx.name;
+          this.creatingContext.set(false);
+        },
+        error: () => {
+          this.contextCreationNotice.set({
+            tone: 'error',
+            text: 'Context creation failed. Check workspace access, then retry.',
+          });
+          this.creatingContext.set(false);
+        },
+      });
+  }
+
+  contextCreationNoticeClass(tone: ContextCreationNotice['tone']): string {
+    const base = 'text-xs rounded border px-3 py-2';
+    if (tone === 'success') return `${base} bg-emerald-500/10 border-emerald-400/20 text-emerald-200`;
+    if (tone === 'error') return `${base} bg-red-500/10 border-red-400/20 text-red-200`;
+    return `${base} bg-white/5 border-white/10 text-gray-300`;
+  }
+
+  private loadKnowledgeCollections(): void {
+    this.loadingKnowledgeCollections.set(true);
+    this.api
+      .get<{ collections: string[] }>('/documents/collections')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          const collections = [...(payload?.collections || [])].sort((a, b) => a.localeCompare(b));
+          this.knowledgeCollections.set(collections);
+          const currentCollection = this.selectedContext()?.environment_state?.collection || this.selectedContext()?.data_refs?.[0] || '';
+          if (currentCollection) {
+            this.selectedKnowledgeCollection = currentCollection;
+            this.newContextName = this.contextNameForCollection(currentCollection);
+            this.lastSuggestedContextName = this.newContextName;
+          }
+          this.loadingKnowledgeCollections.set(false);
+        },
+        error: () => {
+          this.knowledgeCollections.set([]);
+          this.contextCreationNotice.set({
+            tone: 'error',
+            text: 'Knowledge collections could not be loaded.',
+          });
+          this.loadingKnowledgeCollections.set(false);
+        },
+      });
+  }
+
+  private syncKnowledgeComposerFromContext(ctx: ContextOption): void {
+    const collection = ctx.environment_state?.collection || ctx.data_refs?.[0] || '';
+    if (!collection) return;
+    this.selectedKnowledgeCollection = collection;
+    this.newContextName = this.contextNameForCollection(collection);
+    this.lastSuggestedContextName = this.newContextName;
+  }
+
+  private contextNameForCollection(collection: string): string {
+    const clean = collection.trim();
+    if (!clean) return '';
+    return clean
+      .replace(/[-_]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
   contextLabel(contextId?: string | null): string {
@@ -1872,6 +2236,179 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.maybePrefetchRetrieval(session, this.answer);
   }
 
+  planQuestions(session?: CaptureSession | null): CaptureQuestion[] {
+    const plan = session?.plan;
+    if (!plan) return [];
+    if (plan.topics?.length) {
+      return plan.topics.flatMap((topic) =>
+        (topic.subtopics || []).flatMap((subtopic) =>
+          (subtopic.questions || []).map((question) => ({
+            ...question,
+            topic_id: question.topic_id || topic.id,
+            subtopic_id: question.subtopic_id || subtopic.id,
+            path_label: question.path_label || `${topic.title} / ${subtopic.title}`,
+          })),
+        ),
+      );
+    }
+    return plan.questions || [];
+  }
+
+  planTopics(session: CaptureSession): CaptureTopic[] {
+    if (session.plan.topics?.length) return session.plan.topics;
+    return [
+      {
+        id: 'topic-legacy',
+        title: 'Interview questions',
+        objective: 'Legacy flat plan',
+        subtopics: [
+          {
+            id: 'topic-legacy-sub-01',
+            title: 'Questions',
+            questions: session.plan.questions || [],
+          },
+        ],
+      },
+    ];
+  }
+
+  topicQuestionCount(topic: CaptureTopic): number {
+    return (topic.subtopics || []).reduce((total, subtopic) => total + (subtopic.questions || []).length, 0);
+  }
+
+  canEditPlan(session: CaptureSession): boolean {
+    return this.isTopicPlan(session) && session.status === 'planned' && this.planReviewStatus(session) !== 'approved';
+  }
+
+  canApprovePlan(session: CaptureSession): boolean {
+    return this.isTopicPlan(session) && session.status === 'planned' && this.planQuestions(session).length > 0 && this.planReviewStatus(session) !== 'approved';
+  }
+
+  canStartSessionPlan(session: CaptureSession): boolean {
+    return this.sessionHasStarted(session) || !this.isTopicPlan(session) || this.planReviewStatus(session) === 'approved';
+  }
+
+  isTopicPlan(session: CaptureSession): boolean {
+    return session.plan.schema_version === 'topic_plan_v1';
+  }
+
+  planReviewStatus(session: CaptureSession): string {
+    return session.plan.review?.status || (this.isTopicPlan(session) ? 'draft' : 'legacy');
+  }
+
+  planReviewLabel(session: CaptureSession): string {
+    const status = this.planReviewStatus(session);
+    if (status === 'approved') return 'plan approved';
+    if (status === 'edited') return 'plan edited, approval needed';
+    if (status === 'draft') return 'draft plan';
+    return 'legacy plan';
+  }
+
+  planNoticeClass(tone: 'success' | 'error' | 'info'): string {
+    const base = 'rounded border px-3 py-2 text-sm';
+    if (tone === 'success') return `${base} border-emerald-400/30 bg-emerald-500/10 text-emerald-100`;
+    if (tone === 'error') return `${base} border-red-400/30 bg-red-500/10 text-red-100`;
+    return `${base} border-brand-400/30 bg-brand-500/10 text-brand-100`;
+  }
+
+  touchPlanDraft(): void {
+    const session = this.session();
+    if (!session || !this.canEditPlan(session)) return;
+    this.planNotice.set({ tone: 'info', text: 'Unsaved plan changes. Save, then approve before starting.' });
+    this.session.set({ ...session, plan: { ...session.plan, topics: [...(session.plan.topics || [])] } });
+  }
+
+  addQuestion(session: CaptureSession, topic: CaptureTopic, subtopic: CaptureSubtopic): void {
+    if (!this.canEditPlan(session)) return;
+    const nextId = this.nextQuestionId(session);
+    const question: CaptureQuestion = {
+      id: nextId,
+      topic_id: topic.id,
+      subtopic_id: subtopic.id,
+      path_label: `${topic.title} / ${subtopic.title}`,
+      title: subtopic.title,
+      question: 'Nouvelle question à valider avec l’expert.',
+      estimated_minutes: 3,
+      follow_ups: [],
+      completion_criteria: [],
+    };
+    subtopic.questions = [...(subtopic.questions || []), question];
+    this.selectedQuestionId.set(question.id);
+    this.touchPlanDraft();
+  }
+
+  removeQuestion(session: CaptureSession, subtopic: CaptureSubtopic, index: number): void {
+    if (!this.canEditPlan(session) || this.planQuestions(session).length <= 1) return;
+    const questions = [...(subtopic.questions || [])];
+    questions.splice(index, 1);
+    subtopic.questions = questions;
+    const selected = this.selectedQuestionId();
+    if (selected && !this.planQuestions(session).some((question) => question.id === selected)) {
+      this.selectedQuestionId.set(this.planQuestions(session)[0]?.id || null);
+    }
+    this.touchPlanDraft();
+  }
+
+  moveQuestion(session: CaptureSession, subtopic: CaptureSubtopic, index: number, direction: -1 | 1): void {
+    if (!this.canEditPlan(session)) return;
+    const questions = [...(subtopic.questions || [])];
+    const target = index + direction;
+    if (target < 0 || target >= questions.length) return;
+    [questions[index], questions[target]] = [questions[target], questions[index]];
+    subtopic.questions = questions;
+    this.touchPlanDraft();
+  }
+
+  savePlan(session: CaptureSession): void {
+    if (!this.canEditPlan(session) || this.savingPlan()) return;
+    this.savingPlan.set(true);
+    this.api
+      .updateCapturePlan(session.id, session.plan as Record<string, unknown>)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          const updated = payload as CaptureSession;
+          this.session.set(updated);
+          this.selectedQuestionId.set(this.planQuestions(updated)[0]?.id || this.selectedQuestionId());
+          this.planNotice.set({ tone: 'success', text: 'Plan saved. Approval is now required before launch.' });
+          this.savingPlan.set(false);
+        },
+        error: () => {
+          this.planNotice.set({ tone: 'error', text: 'Plan save failed. Check that every topic has at least one question.' });
+          this.savingPlan.set(false);
+        },
+      });
+  }
+
+  approvePlan(session: CaptureSession): void {
+    if (!this.canApprovePlan(session) || this.savingPlan()) return;
+    this.savingPlan.set(true);
+    this.api
+      .approveCapturePlan(session.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          const updated = payload as CaptureSession;
+          this.session.set(updated);
+          this.selectedQuestionId.set(this.planQuestions(updated)[0]?.id || this.selectedQuestionId());
+          this.planNotice.set({ tone: 'success', text: 'Plan approved. The guided session can start.' });
+          this.savingPlan.set(false);
+        },
+        error: () => {
+          this.planNotice.set({ tone: 'error', text: 'Plan approval failed. Save the plan and retry.' });
+          this.savingPlan.set(false);
+        },
+      });
+  }
+
+  private nextQuestionId(session: CaptureSession): string {
+    const next = this.planQuestions(session).reduce((max, question) => {
+      const match = question.id.match(/(\d+)$/);
+      return match ? Math.max(max, Number(match[1])) : max;
+    }, 0) + 1;
+    return `q-${String(next).padStart(2, '0')}`;
+  }
+
   selectCaptureQuestion(question: CaptureQuestion): void {
     this.selectedQuestionId.set(question.id);
   }
@@ -1887,7 +2424,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (typeof raw === 'number' && Number.isFinite(raw)) {
       return Math.max(0, Math.min(100, Math.round(raw * 100)));
     }
-    const total = session.plan.questions?.length || 0;
+    const total = this.planQuestions(session).length;
     if (!total) return 0;
     return Math.round(((session.metrics?.['captured_facts'] || 0) / total) * 100);
   }
@@ -2591,9 +3128,9 @@ export class KnowledgeCaptureComponent implements OnInit {
     const session = this.session();
     const questionId = this.selectedQuestionId();
     if (!session || !questionId) {
-      return session?.plan.questions?.[0] || null;
+      return this.planQuestions(session)[0] || null;
     }
-    return session.plan.questions?.find((question) => question.id === questionId) || null;
+    return this.planQuestions(session).find((question) => question.id === questionId) || null;
   }
 
   readCurrentQuestion(): void {
@@ -2605,24 +3142,24 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   currentQuestionPosition(session: CaptureSession): number {
     const questionId = this.selectedQuestionId();
-    const questions = session.plan.questions || [];
+    const questions = this.planQuestions(session);
     const index = questions.findIndex((question) => question.id === questionId);
     return index >= 0 ? index + 1 : Math.min(questions.length, 1);
   }
 
   captureProgressLabel(session: CaptureSession): string {
-    const total = session.plan.questions?.length || 0;
+    const total = this.planQuestions(session).length;
     if (!total) return 'No plan';
     return `${this.currentQuestionPosition(session)} of ${total}`;
   }
 
   planDurationMinutes(session: CaptureSession): number {
-    const questions = session.plan.questions || [];
+    const questions = this.planQuestions(session);
     return questions.reduce((total, question) => total + (question.estimated_minutes || 3), 0);
   }
 
   questionStateLabel(session: CaptureSession, question: CaptureQuestion): string {
-    const questions = session.plan.questions || [];
+    const questions = this.planQuestions(session);
     const selected = this.selectedQuestionId();
     const selectedIndex = questions.findIndex((item) => item.id === selected);
     const questionIndex = questions.findIndex((item) => item.id === question.id);

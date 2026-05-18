@@ -6,7 +6,9 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_capture import (
     amend_capture_event,
+    amend_capture_plan,
     create_capture_plan,
+    approve_capture_plan,
     append_turn,
     create_update_proposal,
     list_capture_events,
@@ -18,6 +20,15 @@ from app.services.chains.dag_validator import validate_flow
 from app.services.skills_registry.seed import seed_skills_and_capabilities
 from app.services.skills_registry.wrappers import runtime_status
 from app.services.systems.bootstrap import ensure_expert_capture_system_default
+
+
+def _approve(db_session, workspace: Workspace, session):
+    return approve_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        actor_user_id="test-user",
+    )
 
 
 def test_seeded_expert_capture_capability_and_bound_skills(db_session):
@@ -102,6 +113,116 @@ def test_capture_plan_asks_business_question_for_runtime_objective(db_session):
     assert "andritz-mvp-knowledge" in first_question
 
 
+def test_capture_plan_builds_topic_tree_with_flat_projection(db_session):
+    workspace = Workspace(id="ws-capture-topic-plan", name="Capture Topic Plan", slug="capture-topic-plan")
+    context = Context(
+        id="ctx-topic-plan",
+        workspace_id=workspace.id,
+        name="BBA120 manuals pilot",
+        data_refs=["Manual_BBA120.zip"],
+        environment_state={"collection": "andritz-manuals-bba120-pilot"},
+    )
+    db_session.add_all([workspace, context])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Topic capture",
+        objective="Capture expert troubleshooting decisions for BBA120 manuals.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=context.id,
+        system_id=None,
+        knowledge_refs=[],
+    )
+
+    assert session.plan["schema_version"] == "topic_plan_v1"
+    assert session.plan["review"]["status"] == "draft"
+    assert session.plan["topics"]
+    assert session.plan["questions"]
+    first_topic = session.plan["topics"][0]
+    first_question = session.plan["questions"][0]
+    assert first_topic["knowledge_refs"][0]["ref"] == "andritz-manuals-bba120-pilot"
+    assert first_question["topic_id"] == first_topic["id"]
+    assert " / " in first_question["path_label"]
+
+
+def test_topic_plan_edit_approval_and_start_guard(db_session):
+    workspace = Workspace(id="ws-capture-topic-edit", name="Capture Topic Edit", slug="capture-topic-edit")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Editable topic capture",
+        objective="Capture expert troubleshooting decisions.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+    )
+    with pytest.raises(ValueError, match="approved"):
+        append_turn(
+            db_session,
+            workspace_id=workspace.id,
+            session_id=session.id,
+            speaker="expert",
+            question_id=session.plan["questions"][0]["id"],
+            text="Cette réponse ne doit pas démarrer une session non validée.",
+        )
+
+    edited_plan = dict(session.plan)
+    edited_plan["topics"] = [dict(topic) for topic in session.plan["topics"]]
+    edited_plan["topics"][0] = {
+        **edited_plan["topics"][0],
+        "title": "Décisions terrain validées",
+        "subtopics": [dict(subtopic) for subtopic in edited_plan["topics"][0]["subtopics"]],
+    }
+    edited_plan["topics"][0]["subtopics"][0] = {
+        **edited_plan["topics"][0]["subtopics"][0],
+        "questions": [dict(question) for question in edited_plan["topics"][0]["subtopics"][0]["questions"]],
+    }
+    edited_plan["topics"][0]["subtopics"][0]["questions"][0]["question"] = (
+        "Quelle décision terrain BBA120 doit être explicitée avant validation Knowledge ?"
+    )
+
+    amended = amend_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        plan=edited_plan,
+        actor_user_id="operator-1",
+    )
+    assert amended.plan["review"]["status"] == "edited"
+    assert amended.plan["topics"][0]["title"] == "Décisions terrain validées"
+    assert amended.plan["questions"][0]["question"].startswith("Quelle décision terrain")
+
+    approved = approve_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        actor_user_id="operator-1",
+    )
+    assert approved.plan["review"]["status"] == "approved"
+
+    turn_result = append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=approved.plan["questions"][0]["id"],
+        text=(
+            "Quand la ligne dérive après redémarrage, je vérifie le rapport et "
+            "les réglages parce que ce contexte explique la décision terrain."
+        ),
+    )
+    assert turn_result["turn"]["topic_path"]
+    assert turn_result["evaluation"]["topic_path"] == turn_result["turn"]["topic_path"]
+
+
 def test_capture_plan_turn_and_review_proposal(db_session):
     workspace = Workspace(id="ws-capture", name="Capture", slug="capture")
     db_session.add(workspace)
@@ -123,6 +244,7 @@ def test_capture_plan_turn_and_review_proposal(db_session):
     assert session.plan["duration_minutes"] == 20
     assert len(session.plan["questions"]) >= 2
     assert session.knowledge_gaps[0]["status"] == "open"
+    session = _approve(db_session, workspace, session)
 
     question_id = session.plan["questions"][0]["id"]
     turn_result = append_turn(
@@ -211,6 +333,7 @@ def test_capture_attribution_persists_user_ids(db_session):
     )
     assert session.created_by_user_id == user.id
     assert db_session.query(Run).filter(Run.id == session.run_id).first().initiated_by_user_id == user.id
+    session = _approve(db_session, workspace, session)
 
     append_turn(
         db_session,
@@ -261,6 +384,7 @@ def test_conversation_only_step_flow_requires_voice_confirmation(db_session):
         knowledge_refs=[],
     )
     question_id = session.plan["questions"][0]["id"]
+    session = _approve(db_session, workspace, session)
 
     answer_step = process_conversation_step(
         db_session,
@@ -382,6 +506,7 @@ def test_conversation_only_defers_empty_proposal_request(db_session):
         system_id=None,
         knowledge_refs=[],
     )
+    session = _approve(db_session, workspace, session)
 
     step = process_conversation_step(
         db_session,
@@ -419,6 +544,7 @@ def test_conversation_only_proposal_strips_voice_control_noise(db_session):
         knowledge_refs=[],
     )
     question_id = session.plan["questions"][0]["id"]
+    session = _approve(db_session, workspace, session)
 
     step = process_conversation_step(
         db_session,
@@ -535,6 +661,7 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     )
     assert "basses fréquences" in event_only_proposal.proposal["recommended_ingestion"]["content"]
     assert event_only_proposal.proposal["captured_facts"][0]["amended"] is True
+    session = _approve(db_session, workspace, session)
 
     turn = append_turn(
         db_session,

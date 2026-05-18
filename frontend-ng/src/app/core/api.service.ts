@@ -141,6 +141,14 @@ export class ApiService {
     return this.get('/knowledge-capture/sessions', status ? { status } : undefined);
   }
 
+  updateCapturePlan(sessionId: string, plan: Record<string, unknown>): Observable<unknown> {
+    return this.patch(`/knowledge-capture/sessions/${sessionId}/plan`, { plan });
+  }
+
+  approveCapturePlan(sessionId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/plan/approve`);
+  }
+
   startCaptureSession(sessionId: string): Observable<unknown> {
     return this.post(`/knowledge-capture/sessions/${sessionId}/start`);
   }
