@@ -17,9 +17,9 @@ const PASSWORD_REGEX = /^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9])(?=\
           <app-icon name="mail" [size]="22" />
         </div>
         <span class="ck-auth-eyebrow">REQUEST RECEIVED</span>
-        <h2 class="ck-auth-title">Check your email</h2>
+        <h2 class="ck-auth-title">{{ verificationEmailSent() ? 'Check your email' : 'Account created' }}</h2>
         <p class="ck-auth-sub">
-          We sent a confirmation link. Verify your email to finish provisioning your workspace.
+          {{ successMessage() }}
         </p>
         <a routerLink="/auth/signin" class="ck-btn-ghost ck-btn-ghost-wide">← Back to sign in</a>
       </div>
@@ -335,6 +335,8 @@ export class SignupComponent {
   loading = signal(false);
   error = signal<string | null>(null);
   success = signal(false);
+  successMessage = signal('We sent a confirmation link. Verify your email to finish provisioning your workspace.');
+  verificationEmailSent = signal(true);
 
   onSubmit(): void {
     if (this.password !== this.confirmPassword) {
@@ -358,8 +360,13 @@ export class SignupComponent {
         company: this.company || undefined,
       })
       .subscribe({
-        next: () => {
+        next: (res) => {
           this.loading.set(false);
+          this.verificationEmailSent.set(res.verification_email_sent !== false);
+          this.successMessage.set(
+            res.message ||
+              'We sent a confirmation link. Verify your email to finish provisioning your workspace.',
+          );
           this.success.set(true);
         },
         error: (err) => {

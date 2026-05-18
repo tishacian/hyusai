@@ -426,7 +426,20 @@ async def signup(body: SignupRequest, db: DBSession = Depends(get_db)):
     db.add(user)
     db.commit()
 
-    return {"status": "ok", "message": "User created. Check email for confirmation."}
+    verification_email_sent = False
+    if keycloak_sub:
+        verification_email_sent = await _send_signup_verification_email(keycloak_sub, admin_token)
+
+    message = (
+        "User created. Check email for confirmation."
+        if verification_email_sent
+        else "User created, but the confirmation email could not be sent. Contact an administrator."
+    )
+    return {
+        "status": "ok",
+        "message": message,
+        "verification_email_sent": verification_email_sent,
+    }
 
 
 def _select_password_reset_user(users: list[dict], email: str) -> Optional[dict]:
@@ -1163,6 +1176,32 @@ async def _send_invitation_email(kc_sub: str, admin_token: str) -> None:
             )
     except Exception:
         logger.warning("Keycloak invitation email delivery failed", exc_info=True)
+
+
+async def _send_signup_verification_email(kc_sub: str, admin_token: str) -> bool:
+    """Trigger the verification email for a self-service signup user."""
+    headers = {
+        "Authorization": f"Bearer {admin_token}",
+        "Content-Type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(
+                f"{_get_admin_url()}/users/{kc_sub}/execute-actions-email",
+                json=["VERIFY_EMAIL"],
+                headers=headers,
+                timeout=10,
+            )
+        if resp.status_code in (200, 204):
+            return True
+        logger.warning(
+            "Keycloak signup verification email not sent (status=%s, body=%s)",
+            resp.status_code,
+            resp.text,
+        )
+    except Exception:
+        logger.warning("Keycloak signup verification email delivery failed", exc_info=True)
+    return False
 
 
 @router.post("/workspaces/{slug}/members")

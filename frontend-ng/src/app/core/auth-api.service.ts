@@ -138,8 +138,8 @@ export class AuthApiService {
     );
   }
 
-  signup(body: SignupBody): Observable<{ status: string; message: string }> {
-    return this.http.post<{ status: string; message: string }>(
+  signup(body: SignupBody): Observable<{ status: string; message: string; verification_email_sent?: boolean }> {
+    return this.http.post<{ status: string; message: string; verification_email_sent?: boolean }>(
       '/api/v1/auth/signup',
       body
     );
