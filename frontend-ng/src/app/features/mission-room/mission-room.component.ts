@@ -1,4 +1,15 @@
-import { ChangeDetectionStrategy, Component, Input, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  Input,
+  OnDestroy,
+  OnInit,
+  Output,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink, RouterLinkActive } from '@angular/router';
@@ -768,21 +779,27 @@ export class MissionSourcePillComponent {
         />
       </div>
 
-      <div class="assistant-badge">
+      <button
+        type="button"
+        class="assistant-badge"
+        (click)="assistantRequest.emit()"
+        aria-label="Ouvrir AYA"
+      >
         <span class="assistant-avatar">{{ assistantName }}</span>
         <div>
           <strong>{{ assistantName }}</strong>
-          <small>Assistante strategique</small>
+          <small>Assistante vocale</small>
         </div>
-      </div>
+      </button>
 
-      <a class="rail-search" routerLink="/hypervisor/mission-room/recherche">
+      <a class="rail-search" routerLink="/hypervisor/mission-room/recherche" aria-label="Rechercher un dossier Sentinel-CI">
         <ck-glyph name="zoom-in" [size]="12" />
-        <span>Rechercher</span>
+        <span>Recherche dossier</span>
       </a>
 
       <nav class="mission-nav">
-        @for (item of items; track item.key) {
+        <span class="rail-section-label">Parcours VP</span>
+        @for (item of visibleItems(); track item.key) {
           <a
             [routerLink]="item.route"
             routerLinkActive="active"
@@ -790,33 +807,26 @@ export class MissionSourcePillComponent {
             [attr.aria-current]="activeView === item.key ? 'page' : null"
           >
             <ck-glyph [name]="item.glyph" [size]="14" />
-            <span>{{ item.label }}</span>
+            <span>{{ railLabel(item) }}</span>
           </a>
         }
       </nav>
 
       <div class="rail-spacer"></div>
 
-      <div class="demo-card">
-        <span>Sources qualifiees</span>
-        <strong>Institutionnel · presse · signaux faibles</strong>
+      <div class="rail-summary">
+        <span>Ce matin</span>
+        <strong>3 arbitrages</strong>
+        <small>16 alertes presse qualifiees</small>
       </div>
-      <div class="rail-alerts">
-        <ck-glyph name="warn" [size]="13" />
-        <span>16 alertes</span>
-      </div>
-      <a class="rail-admin" [routerLink]="adminRoute">
-        <ck-glyph name="sliders" [size]="13" />
-        <span>Workspace Admin</span>
-      </a>
-      <a class="rail-admin" routerLink="/systems">
-        <ck-glyph name="cube" [size]="13" />
-        <span>Agentium OS</span>
-      </a>
       <div class="rail-clock">
         <strong>{{ abidjanClockTime() }}</strong>
         <span>{{ abidjanClockDate() }} · Abidjan UTC+0</span>
       </div>
+      <nav class="rail-tools" aria-label="Outils operateur">
+        <a [routerLink]="adminRoute">Admin</a>
+        <a routerLink="/systems">OS</a>
+      </nav>
     </aside>
   `,
   styles: [
@@ -826,18 +836,19 @@ export class MissionSourcePillComponent {
         font-family: var(--ck-font-sans);
         width: 220px;
         height: 100%;
-        padding: 18px 16px;
+        padding: 14px 14px 12px;
         background: var(--mission-rail-bg, var(--ck-bg-base));
         border-right: 1px solid var(--mission-border, var(--ck-stroke-2));
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 10px;
         min-height: 0;
+        overflow: hidden;
       }
       .rail-brand {
         display: flex;
         align-items: center;
-        min-height: 50px;
+        min-height: 46px;
         min-width: 0;
       }
       .brand-lockup {
@@ -850,16 +861,26 @@ export class MissionSourcePillComponent {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 10px;
+        width: 100%;
+        padding: 9px;
         border: 1px solid rgba(242, 140, 56, 0.20);
         border-radius: var(--mission-radius, 8px);
         background:
           linear-gradient(135deg, rgba(242, 140, 56, 0.095), rgba(101, 214, 110, 0.045)),
           var(--mission-panel-hi, var(--ck-bg-panel-hi));
+        appearance: none;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .assistant-badge:hover {
+        border-color: rgba(242, 140, 56, 0.38);
+        box-shadow: inset 3px 0 0 var(--mission-orange, #f28c38);
       }
       .assistant-avatar {
-        width: 38px;
-        height: 38px;
+        width: 36px;
+        height: 36px;
         border-radius: 12px;
         display: inline-flex;
         align-items: center;
@@ -887,17 +908,16 @@ export class MissionSourcePillComponent {
         font-size: 11px;
       }
       .rail-search,
-      .mission-nav-item,
-      .rail-admin {
+      .mission-nav-item {
         display: flex;
         align-items: center;
-        gap: 9px;
-        min-height: 34px;
-        padding: 8px 10px;
+        gap: 8px;
+        min-height: 31px;
+        padding: 7px 9px;
         border-radius: var(--mission-radius-sm, 7px);
         color: var(--mission-text-soft, var(--ck-fg-2));
         text-decoration: none;
-        font-size: 13px;
+        font-size: 12.5px;
         min-width: 0;
       }
       .rail-search {
@@ -905,15 +925,34 @@ export class MissionSourcePillComponent {
         background: var(--mission-inset, var(--ck-bg-inset));
         color: var(--mission-text-faint, var(--ck-fg-4));
       }
+      .rail-search span,
+      .mission-nav-item span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .mission-nav {
         display: flex;
         flex-direction: column;
         gap: 2px;
         min-height: 0;
+        overflow: auto;
+        padding-right: 2px;
+      }
+      .mission-nav::-webkit-scrollbar { width: 0; height: 0; }
+      .rail-section-label {
+        display: block;
+        padding: 2px 9px 4px;
+        color: var(--mission-text-faint, var(--ck-fg-4));
+        font-family: var(--ck-font-mono);
+        font-size: 9px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
       }
       .mission-nav-item.active,
       .mission-nav-item:hover,
-      .rail-admin:hover {
+      .rail-tools a:hover {
         background: var(--mission-panel-hi, var(--ck-bg-panel-hi));
         color: var(--mission-text, var(--ck-fg-1));
       }
@@ -921,48 +960,67 @@ export class MissionSourcePillComponent {
         color: var(--mission-accent, var(--ck-signal-cool));
         box-shadow: inset 3px 0 0 var(--mission-accent, var(--ck-signal-cool));
       }
-      .rail-spacer { flex: 1 1 auto; min-height: 8px; }
-      .demo-card {
-        padding: 10px;
+      .rail-spacer { flex: 1 1 auto; min-height: 4px; }
+      .rail-summary {
+        padding: 9px 10px;
         border: 1px solid var(--mission-border, var(--ck-stroke-2));
         border-radius: var(--mission-radius, 8px);
         color: var(--mission-accent, var(--ck-signal-cool));
         background: var(--mission-panel-hi, var(--ck-bg-panel-hi));
       }
-      .demo-card span,
+      .rail-summary span,
       .rail-clock span {
         display: block;
         color: var(--mission-text-faint, var(--ck-fg-4));
-        font-size: 11px;
+        font-size: 10.5px;
       }
-      .demo-card strong {
+      .rail-summary strong {
         display: block;
-        margin-top: 3px;
+        margin-top: 2px;
+        color: var(--mission-text, var(--ck-fg-1));
         font-size: 12px;
       }
-      .rail-alerts {
+      .rail-summary small {
+        display: block;
+        margin-top: 2px;
+        color: var(--mission-orange, #f28c38);
+        font-size: 10.5px;
+      }
+      .rail-tools {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 9px 10px;
-        color: var(--mission-danger, var(--ck-signal-neg));
-        border-radius: var(--mission-radius, 8px);
-        background: var(--mission-danger-wash, rgba(239, 90, 111, 0.11));
-        border: 1px solid rgba(239, 90, 111, 0.20);
       }
-      .rail-admin {
+      .rail-tools a {
+        min-width: 0;
+        flex: 1 1 0;
         padding: 6px 8px;
-        min-height: 30px;
-        font-size: 12px;
+        border-radius: var(--mission-radius-sm, 7px);
+        color: var(--mission-text-faint, var(--ck-fg-4));
+        text-align: center;
+        text-decoration: none;
+        font-size: 10.5px;
       }
       .rail-clock strong {
         display: block;
         font-family: var(--ck-font-mono);
         font-variant-numeric: tabular-nums;
         color: var(--mission-text, var(--ck-fg-1));
-        font-size: 24px;
+        font-size: 21px;
         font-weight: 500;
         letter-spacing: -0.01em;
+      }
+      @media (max-height: 820px) {
+        .mission-rail { padding-top: 10px; gap: 8px; }
+        .brand-lockup { width: min(166px, 100%); }
+        .assistant-badge { padding: 7px; }
+        .assistant-avatar { width: 32px; height: 32px; border-radius: 10px; }
+        .assistant-badge small { display: none; }
+        .rail-search,
+        .mission-nav-item { min-height: 29px; padding-block: 6px; }
+        .rail-summary { display: none; }
+        .rail-clock strong { font-size: 18px; }
+        .rail-clock span { font-size: 9.5px; }
       }
     `,
   ],
@@ -972,10 +1030,28 @@ export class MissionRailComponent {
   @Input() activeView: MissionView = 'cockpit';
   @Input() adminRoute = '/workspace';
   @Input() assistantName = 'AYA';
+  @Output() assistantRequest = new EventEmitter<void>();
 
   private readonly clockTimeZone = 'Africa/Abidjan';
   private readonly clockNow = signal(new Date());
   private clockTimer: number | null = null;
+  private readonly primaryRailKeys: MissionView[] = [
+    'cockpit',
+    'monitor',
+    'briefing',
+    'agenda',
+    'presse',
+    'decisions',
+    'strategie',
+    'pilotage',
+  ];
+  private readonly railLabelOverrides: Partial<Record<MissionView, string>> = {
+    cockpit: 'Priorites',
+    monitor: 'Situation live',
+    decisions: 'Arbitrages',
+    strategie: 'Carte',
+    pilotage: 'Projets',
+  };
   private readonly timeFormatter = new Intl.DateTimeFormat('fr-FR', {
     timeZone: this.clockTimeZone,
     hour: '2-digit',
@@ -1006,6 +1082,15 @@ export class MissionRailComponent {
   private capitalizeClockLabel(label: string): string {
     return label ? label.charAt(0).toUpperCase() + label.slice(1) : label;
   }
+
+  visibleItems(): MissionNavigationItem[] {
+    const byKey = new Map(this.items.map((item) => [item.key, item]));
+    return this.primaryRailKeys.map((key) => byKey.get(key)).filter((item): item is MissionNavigationItem => !!item);
+  }
+
+  railLabel(item: MissionNavigationItem): string {
+    return this.railLabelOverrides[item.key] || item.label;
+  }
 }
 
 @Component({
@@ -1031,6 +1116,7 @@ export class MissionRailComponent {
         [activeView]="currentView()"
         [adminRoute]="adminRoute()"
         [assistantName]="assistantName()"
+        (assistantRequest)="openAssistant('AYA, prepare le cockpit 60 secondes pour le Vice-President.')"
       />
 
       <main class="mission-main ck-scroll">
@@ -3302,12 +3388,14 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   };
 
   readonly fallbackNav: MissionNavigationItem[] = [
-    { key: 'cockpit', label: 'Cockpit', glyph: 'ledger', route: '/hypervisor/mission-room/cockpit', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'monitor', label: 'Monitor', glyph: 'crosshair', route: '/hypervisor/mission-room/monitor', api: '/api/v1/mission-room/monitor', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'cockpit', label: 'Priorites', glyph: 'ledger', route: '/hypervisor/mission-room/cockpit', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'monitor', label: 'Situation live', glyph: 'crosshair', route: '/hypervisor/mission-room/monitor', api: '/api/v1/mission-room/monitor', object: 'Workbench', workbench: 'Workbench' },
     { key: 'briefing', label: 'Briefing', glyph: 'ledger', route: '/hypervisor/mission-room/briefing', api: '/api/v1/mission-room/briefing', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'pilotage', label: 'Pilotage', glyph: 'telemetry', route: '/hypervisor/mission-room/pilotage', api: '/api/v1/mission-room/projects', object: 'System', workbench: 'System' },
-    { key: 'strategie', label: 'Strategie', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'assistant', label: 'Assistant', glyph: 'bolt', route: '/hypervisor/mission-room/assistant', api: '/api/v1/chat/stream', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'agenda', label: 'Agenda', glyph: 'ledger', route: '/hypervisor/mission-room/agenda', api: '/api/v1/mission-room/timeline', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'presse', label: 'Presse', glyph: 'pulse', route: '/hypervisor/mission-room/presse', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
+    { key: 'decisions', label: 'Arbitrages', glyph: 'check', route: '/hypervisor/mission-room/decisions', api: '/api/v1/mission-room/decisions', object: 'Review Queue', workbench: 'Review Queue' },
+    { key: 'strategie', label: 'Carte', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'pilotage', label: 'Projets', glyph: 'telemetry', route: '/hypervisor/mission-room/pilotage', api: '/api/v1/mission-room/projects', object: 'System', workbench: 'System' },
   ];
 
   readonly currentView = computed<MissionView>(() => {
