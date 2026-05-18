@@ -200,12 +200,18 @@ interface NewsSignal {
   source_category?: string | null;
   sources: string[];
   zone?: string;
+  geo_tier?: string;
   geography_tier?: string;
   viewpoint?: string;
   origin?: string;
+  rumor_origin?: string;
+  velocity?: string;
+  badges?: string[];
   impact_ci?: string;
+  impact_international?: string;
   why_it_matters?: string;
   recommended_action?: string;
+  briefing_value?: string;
   confidence?: number;
   source_count?: number;
   url?: string | null;
@@ -483,6 +489,7 @@ interface MissionNews {
   source_health?: NewsSourceHealth;
   media_sources?: { label: string; coverage: number; count: number }[];
   geographic_priority?: NewsGeographicPriority[];
+  geo_sections?: { key: string; label: string; description: string; count: number; signals: NewsSignal[] }[];
   viewpoints?: NewsViewpoint[];
   social_listening?: SocialListeningPayload;
   analysis_link?: { system_id?: string | null; run_id?: string | null; label?: string };
@@ -1746,19 +1753,41 @@ export class MissionRailComponent {
           </div>
         </article>
 
+        <div class="news-geo-tabs span-2">
+          @for (tab of newsGeoTabs(); track tab.key) {
+            <button type="button" [class.active]="activeNewsGeoTier() === tab.key" (click)="setNewsGeoTier(tab.key)">
+              <strong>{{ tab.label }}</strong>
+              <span>{{ tab.count }}</span>
+            </button>
+          }
+        </div>
+
         <div class="executive-alert-grid span-2">
-          @for (signal of newsAlerts(); track signal.id) {
+          @for (signal of filteredNewsAlerts(); track signal.id) {
             <article class="content-panel executive-alert-card">
               <div class="panel-heading-row">
                 <span class="status-pill" [class]="signal.risk_level">{{ ministerialRisk(signal.risk_level) }}</span>
-                <small>{{ signal.viewpoint || signal.zone || signal.source }} · confiance {{ confidencePct(signal.confidence) }}</small>
+                <small>{{ signal.viewpoint || signal.zone || signal.source }} · {{ signal.velocity || 'veille' }} · confiance {{ confidencePct(signal.confidence) }}</small>
+              </div>
+              <div class="badge-row">
+                @for (badge of newsBadges(signal); track badge) {
+                  <span>{{ badge }}</span>
+                }
               </div>
               <h3>{{ signal.title }}</h3>
-              <p>{{ signal.impact_ci || signal.summary }}</p>
+              <p>{{ signal.briefing_value || signal.impact_ci || signal.summary }}</p>
               <dl>
                 <div>
                   <dt>Origine</dt>
-                  <dd>{{ signal.origin || signal.source_name || signal.source }}</dd>
+                  <dd>{{ signal.rumor_origin || signal.origin || signal.source_name || signal.source }}</dd>
+                </div>
+                <div>
+                  <dt>Impact interieur</dt>
+                  <dd>{{ signal.impact_ci || signal.summary }}</dd>
+                </div>
+                <div>
+                  <dt>Impact international</dt>
+                  <dd>{{ signal.impact_international || 'A surveiller si amplification regionale ou partenaire.' }}</dd>
                 </div>
                 <div>
                   <dt>Pourquoi c'est sensible</dt>
@@ -2949,6 +2978,46 @@ export class MissionRailComponent {
         color: var(--mission-text-muted);
         font-size: 12px;
       }
+      .news-geo-tabs,
+      .badge-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .news-geo-tabs button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 7px 10px;
+        border: 1px solid var(--mission-border);
+        border-radius: 7px;
+        background: rgba(5, 12, 10, 0.66);
+        color: var(--mission-text-soft);
+        font: inherit;
+        cursor: pointer;
+      }
+      .news-geo-tabs button.active,
+      .news-geo-tabs button:hover {
+        border-color: rgba(66, 217, 155, 0.45);
+        background: rgba(22, 58, 42, 0.76);
+        color: var(--mission-text);
+      }
+      .news-geo-tabs strong {
+        font-size: 12px;
+      }
+      .news-geo-tabs span,
+      .badge-row span {
+        color: var(--mission-accent);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+      }
+      .badge-row span {
+        padding: 4px 6px;
+        border: 1px solid rgba(151, 185, 164, 0.14);
+        border-radius: 999px;
+        color: var(--mission-text-muted);
+      }
       .executive-alert-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3389,6 +3458,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly draft = signal<DraftInstruction | null>(null);
   readonly mapCommandState = signal<Record<string, unknown> | null>(null);
   readonly visualCaptureImages = signal<Record<string, string>>({});
+  readonly activeNewsGeoTier = signal<'ci' | 'cedeao' | 'africa' | 'world'>('ci');
 
   searchQueryValue = '';
   newAgendaTitle = '';
@@ -3532,6 +3602,47 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   newsAlerts(): NewsSignal[] {
     const payload = this.news();
     return payload?.executive_alerts?.length ? payload.executive_alerts : payload?.signals || [];
+  }
+
+  newsGeoTabs(): { key: 'ci' | 'cedeao' | 'africa' | 'world'; label: string; count: number }[] {
+    const sections = this.news()?.geo_sections || [];
+    const labels: Record<string, string> = {
+      ci: "Cote d'Ivoire",
+      cedeao: 'CEDEAO',
+      africa: 'Afrique',
+      world: 'International',
+    };
+    return (['ci', 'cedeao', 'africa', 'world'] as const).map((key) => ({
+      key,
+      label: sections.find((section) => section.key === key)?.label || labels[key],
+      count: sections.find((section) => section.key === key)?.count
+        ?? this.newsAlerts().filter((signal) => this.newsGeoTier(signal) === key).length,
+    }));
+  }
+
+  setNewsGeoTier(key: 'ci' | 'cedeao' | 'africa' | 'world'): void {
+    this.activeNewsGeoTier.set(key);
+  }
+
+  filteredNewsAlerts(): NewsSignal[] {
+    const tier = this.activeNewsGeoTier();
+    const direct = this.newsAlerts().filter((signal) => this.newsGeoTier(signal) === tier);
+    const section = (this.news()?.geo_sections || []).find((item) => item.key === tier);
+    const sectionSignals = section?.signals || [];
+    return (direct.length ? direct : sectionSignals).slice(0, 4);
+  }
+
+  newsGeoTier(signal: NewsSignal): 'ci' | 'cedeao' | 'africa' | 'world' {
+    const raw = (signal.geo_tier || signal.geography_tier || 'world').toLowerCase();
+    return raw === 'ci' || raw === 'cedeao' || raw === 'africa' || raw === 'world' ? raw : 'world';
+  }
+
+  newsBadges(signal: NewsSignal): string[] {
+    const badges = signal.badges?.length ? signal.badges : [
+      signal.source_count && signal.source_count > 1 ? 'multi-source' : 'source unique',
+      signal.velocity ? `vitesse ${signal.velocity}` : 'veille',
+    ];
+    return badges.slice(0, 4);
   }
 
   decisionSentence60(): NonNullable<MissionCockpit['decision_sentence']> {

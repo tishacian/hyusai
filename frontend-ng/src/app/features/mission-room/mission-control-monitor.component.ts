@@ -38,6 +38,7 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   readonly selectedVisualSourceId = signal<string | null>(null);
   readonly expandedVisualSourceId = signal<string | null>(null);
   readonly mapVisualFocus = signal<Record<string, unknown> | null>(null);
+  readonly activeEvidenceOverride = signal<any | null>(null);
   readonly visualPreviewFailures = signal<Record<string, true>>({});
   readonly voiceState = signal<VoiceState>('idle');
   readonly voiceTranscript = signal('');
@@ -79,18 +80,39 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     return this.monitor?.layers || [];
   }
 
+  activeEvidence(): any {
+    return this.activeEvidenceOverride()
+      || this.monitor?.active_evidence
+      || this.buildVisualEvidence(this.primaryVisualSource())
+      || {};
+  }
+
+  activeEvidenceRefs(): any[] {
+    return this.activeEvidence()?.evidence_refs || [];
+  }
+
+  activeEvidenceRows(): any[] {
+    const evidence = this.activeEvidence();
+    return [
+      { label: 'Situation', value: evidence.observation || 'Preuve active en attente de selection.' },
+      { label: 'Preuve', value: evidence.source_quality || 'Sources qualifiees' },
+      { label: 'Decision', value: evidence.recommended_action || 'Qualifier puis arbitrer.' },
+      { label: 'Deadline', value: evidence.decision_deadline || 'aujourd’hui' },
+    ];
+  }
+
   compactMissionFilters(): any[] {
     const layerCount = (key: string, fallback = 0) => Number(this.layers().find((layer) => layer.key === key)?.count ?? fallback);
     return [
       {
-        label: 'Territoire CI',
+        label: 'Territoire',
         value: this.monitor?.zones?.length || 5,
         detail: 'Nord, Sud, Est, Ouest, Centre',
         kind: 'zone',
         zoneId: this.scenario()?.map_focus?.zone_id || 'zone-nord',
       },
       {
-        label: 'Presse & rumeurs',
+        label: 'Presse/Rumeurs',
         value: layerCount('open-intelligence', this.newsSignals().length || this.crossSignals().length),
         detail: 'Locale puis CEDEAO/Afrique/Monde',
         kind: 'signals',
@@ -110,16 +132,25 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
       if (source) this.selectVisualSource(source);
       return;
     }
+    if (filter?.kind === 'signals') {
+      const signal = this.crossSignals().find((item) => item.type === 'press' || item.type === 'social') || this.crossSignals()[0];
+      if (signal) this.focusSignal(signal);
+      return;
+    }
     const zoneId = filter?.zoneId;
     if (zoneId) {
       this.mapVisualFocus.set(null);
       const zone = (this.monitor?.zones || []).find((item: any) => item.id === zoneId);
-      if (zone) this.zoneSelected.emit(zone);
+      if (zone) this.activateZoneEvidence(zone);
     }
   }
 
   monitorMapState(): Record<string, unknown> | null {
-    return this.mapVisualFocus() || this.mapCommandState;
+    return this.mapVisualFocus()
+      || this.activeEvidenceOverride()?.map_focus
+      || this.mapCommandState
+      || this.monitor?.active_evidence?.map_focus
+      || null;
   }
 
   crossSignals(): any[] {
@@ -223,6 +254,8 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     if (!source) return;
     if (source.id) this.selectedVisualSourceId.set(source.id);
     this.focusVisualSourceOnMap(source);
+    const evidence = this.buildVisualEvidence(source);
+    if (evidence) this.activeEvidenceOverride.set(evidence);
   }
 
   focusPrimaryVisualSource(): void {
@@ -376,6 +409,21 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     this.assistantPrompt.emit(prompt);
   }
 
+  sendActiveEvidenceToAya(): void {
+    const evidence = this.activeEvidence();
+    const prompt = evidence?.aya_context?.prompt
+      || `AYA, explique cette preuve active : ${evidence?.title || 'signal prioritaire'}.`;
+    this.voiceAnswer.set(`${evidence?.title || 'Preuve active'} : ${evidence?.observation || ''} Action : ${evidence?.recommended_action || 'Qualifier puis arbitrer.'}`);
+    this.assistantPrompt.emit(prompt);
+  }
+
+  prepareActiveEvidenceArbitrage(): void {
+    const evidence = this.activeEvidence();
+    const prompt = `AYA, prepare un arbitrage VP pour ${evidence?.title || 'la preuve active'} avec option recommandee et deadline.`;
+    this.voiceAnswer.set(`Arbitrage prepare : ${evidence?.recommended_action || 'Qualifier la preuve, proposer deux options et fixer un responsable.'}`);
+    this.assistantPrompt.emit(prompt);
+  }
+
   activateDecisionPackage(pack: any): void {
     if (!pack) return;
     this.voiceAnswer.set(`${pack.decision} Option recommandee : ${pack.recommended_option}. Echeance : ${pack.deadline}.`);
@@ -387,16 +435,32 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     const zone = (this.monitor?.zones || []).find((item: any) => item.id === zoneId);
     this.mapVisualFocus.set(null);
     if (zone) this.zoneSelected.emit(zone);
+    this.activeEvidenceOverride.set(this.buildSignalEvidence(signal));
     if (signal?.summary) {
       this.voiceAnswer.set(`${signal.label || 'Signal prioritaire'} : ${signal.summary}`);
     }
+  }
+
+  handleZoneSelected(zone: any): void {
+    this.activateZoneEvidence(zone);
+  }
+
+  handleMapEvidenceAction(event: any): void {
+    const zone = event?.zone;
+    if (zone) this.activateZoneEvidence(zone);
+    if (event?.action === 'aya') {
+      const prompt = zone?.popup_brief?.aya_context?.prompt || `AYA, donne-moi le brief operationnel pour ${zone?.name || 'la zone selectionnee'}.`;
+      this.assistantPrompt.emit(prompt);
+      return;
+    }
+    if (event?.action === 'arbitrage') this.prepareActiveEvidenceArbitrage();
   }
 
   focusAbidjan(): void {
     this.mapVisualFocus.set(null);
     const zone = (this.monitor?.zones || []).find((item: any) => String(item.name || '').toLowerCase().includes('abidjan'))
       || (this.monitor?.zones || []).find((item: any) => String(item.name || '').toLowerCase() === 'sud');
-    if (zone) this.zoneSelected.emit(zone);
+    if (zone) this.activateZoneEvidence(zone);
   }
 
   async toggleVoice(): Promise<void> {
@@ -452,6 +516,91 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     const sourceId = source?.id;
     return (sourceId ? observations.find((observation: any) => observation.source_id === sourceId) : null)
       || this.latestVisualObservation();
+  }
+
+  private activateZoneEvidence(zone: any): void {
+    if (!zone) return;
+    this.zoneSelected.emit(zone);
+    const brief = zone.popup_brief || {};
+    this.activeEvidenceOverride.set({
+      id: `zone-${zone.id}`,
+      type: 'zone',
+      title: brief.title || `${zone.name} · brief operationnel`,
+      location: zone.name,
+      score: brief.score ?? zone.level,
+      severity: brief.severity || zone.tone || 'monitoring',
+      source_quality: (brief.sources || zone.sources || []).slice(0, 2).join(' · ') || 'Sources territoriales',
+      observation: (brief.drivers || zone.signals || []).slice(0, 3).join(' · '),
+      recommended_action: brief.recommendation || zone.recommendations?.[0] || 'Preparer arbitrage.',
+      decision_deadline: brief.decision_deadline || 'aujourd’hui',
+      evidence_refs: (brief.sources || zone.sources || []).map((source: string) => ({ type: 'source', id: source, label: source })),
+      aya_context: brief.aya_context,
+      map_focus: brief.map_focus,
+    });
+  }
+
+  private buildSignalEvidence(signal: any): any {
+    if (!signal) return {};
+    return {
+      id: `signal-${signal.id || 'active'}`,
+      type: signal.type || 'signal',
+      title: signal.label || 'Signal prioritaire',
+      location: signal.related_zone || this.scenario()?.focus_zone || 'Cote d’Ivoire',
+      score: signal.score || 0,
+      severity: signal.severity || 'monitoring',
+      source_quality: (signal.evidence_refs || []).map((item: any) => item.label).filter(Boolean).slice(0, 2).join(' · ') || 'Preuves corrélées',
+      observation: signal.summary,
+      recommended_action: signal.action_prompt,
+      decision_deadline: signal.decision_deadline,
+      evidence_refs: signal.evidence_refs || [],
+      aya_context: signal.aya_context,
+      map_focus: signal.map_focus,
+    };
+  }
+
+  private buildVisualEvidence(source: any | null): any | null {
+    if (!source) return null;
+    const observation = this.visualObservationFor(source);
+    const location = this.visualLocation(source);
+    const brief = this.visualIntelligenceBrief();
+    return {
+      id: `visual-${source.id}`,
+      type: 'webcam',
+      title: source.name || 'Live webcam',
+      location: this.visualLocationLabel(source),
+      score: Number(observation?.vigilance_score || source?.metadata?.default_vigilance_score || 42),
+      severity: 'monitoring',
+      source_quality: this.visualSourceQualityLabel(source),
+      observation: observation?.summary || `Vue publique ${this.visualLocationLabel(source)} disponible pour contexte terrain macro.`,
+      recommended_action: brief?.recommended_next_step || "Capturer un snapshot et croiser avec presse, carte et agenda.",
+      decision_deadline: 'avant prochain point cabinet',
+      evidence_refs: [
+        { type: 'webcam', id: source.id, label: source.name },
+        { type: 'location', id: location?.zone_id, label: this.visualLocationLabel(source) },
+      ],
+      aya_context: {
+        prompt: `AYA, analyse la webcam ${source.name} et croise-la avec presse, carte et agenda.`,
+        answer_frame: 'Observation visuelle, limites source, correlation, action recommandee.',
+        confidence: observation?.confidence || 0.62,
+      },
+      map_focus: location ? {
+        camera: {
+          longitude: location.longitude,
+          latitude: location.latitude,
+          zoom: location.zoom || 10.9,
+          duration_ms: 220,
+        },
+        focus_marker: {
+          longitude: location.longitude,
+          latitude: location.latitude,
+          label: location.label,
+          zone_id: location.zone_id,
+          tone: 'visual',
+        },
+        active_layers: ['territorial-risk', 'open-intelligence', 'visual-streams'],
+        basemap: 'administrative',
+      } : null,
+    };
   }
 
   private visualLocation(source: any | null): { longitude: number; latitude: number; label: string; zone_id?: string; zoom?: number } | null {
@@ -661,6 +810,10 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     const lower = text.toLowerCase();
     const demoAnswer = String(this.monitor?.voice_demo_script?.answer || this.monitor?.voice_context?.demo_script?.answer || '');
     if (lower.includes('nord') && demoAnswer) return demoAnswer;
+    if (lower.includes('preuve') || lower.includes('webcam') || lower.includes('camera') || lower.includes('visuel')) {
+      const evidence = this.activeEvidence();
+      return `${evidence?.title || 'Preuve active'}. Situation : ${evidence?.observation || 'lecture en cours'}. Preuve : ${evidence?.source_quality || 'sources qualifiees'}. Option recommandee : ${evidence?.recommended_action || 'qualifier puis arbitrer'}. Deadline : ${evidence?.decision_deadline || "aujourd'hui"}.`;
+    }
     if (lower.includes('ambassadeur') || lower.includes('france')) {
       return "Le dejeuner avec l'Ambassadeur de France est dans 1 heure 44. La fiche est prete : cooperation France Cote d'Ivoire, perception presse et suivi des projets frontaliers. Je recommande de valider la position publique avant le dejeuner.";
     }

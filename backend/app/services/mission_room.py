@@ -694,6 +694,75 @@ def _feed_viewpoint(category: str | None) -> str:
     return "politique internationale"
 
 
+def _news_geo_tier(signal: dict[str, Any]) -> str:
+    tier = str(signal.get("geo_tier") or signal.get("geography_tier") or _feed_scope(signal.get("source_category")) or "world").lower()
+    return tier if tier in {"ci", "cedeao", "africa", "world"} else "world"
+
+
+def _news_velocity(signal: dict[str, Any], index: int = 0) -> str:
+    explicit = signal.get("velocity")
+    if explicit:
+        return str(explicit)
+    risk = str(signal.get("risk_level") or "").lower()
+    source_count = int(signal.get("source_count") or len(signal.get("sources") or []) or 0)
+    if str(signal.get("id") or "").startswith("social-") or source_count >= 3:
+        return "rapide"
+    if risk in {"critical", "high"}:
+        return "elevee"
+    if index <= 1 or risk == "medium":
+        return "moderee"
+    return "veille"
+
+
+def _normalize_news_signal(signal: dict[str, Any], index: int = 0) -> dict[str, Any]:
+    row = _clone(signal)
+    tier = _news_geo_tier(row)
+    source_count = int(row.get("source_count") or len(row.get("sources") or []) or 1)
+    row["geo_tier"] = tier
+    row["geography_tier"] = tier
+    row["velocity"] = _news_velocity(row, index)
+    row["source_count"] = source_count
+    row["rumor_origin"] = row.get("rumor_origin") or row.get("origin")
+    row["briefing_value"] = row.get("briefing_value") or (
+        "Impact politique interieur a traiter en priorite, puis verifier la perception internationale."
+        if tier == "ci"
+        else "Contrepoint utile pour diplomatie, CEDEAO ou partenaires internationaux."
+    )
+    badges = []
+    if source_count >= 2:
+        badges.append("multi-source")
+    if str(row.get("id") or "").startswith("social-") or "rumeur" in str(row.get("title") or "").lower():
+        badges.append("rumeur")
+    if row.get("url") or tier == "ci":
+        badges.append("source primaire")
+    if row["velocity"] in {"rapide", "elevee"}:
+        badges.append(f"vitesse {row['velocity']}")
+    row["badges"] = badges
+    row["impact_international"] = row.get("impact_international") or (
+        "Perception a surveiller chez partenaires et presse internationale."
+        if tier in {"world", "africa", "cedeao"}
+        else "Impact international faible sauf amplification regionale ou partenaire."
+    )
+    row["recommended_action"] = row.get("recommended_action") or _action_for_risk(row.get("risk_level"))
+    return row
+
+
+def _news_geo_sections(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sections = []
+    for key, label, description in GEOGRAPHIC_PRIORITY_ORDER:
+        scoped = [signal for signal in signals if _news_geo_tier(signal) == key]
+        sections.append(
+            {
+                "key": key,
+                "label": label,
+                "description": description,
+                "count": len(scoped),
+                "signals": scoped[:4],
+            }
+        )
+    return sections
+
+
 def _feed_rows(db: Optional[DBSession], workspace: Workspace) -> list[dict[str, Any]]:
     if not db:
         return [
@@ -815,10 +884,11 @@ def _latest_intelligence_run(db: DBSession, workspace: Workspace) -> Optional[Ru
 def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> dict[str, Any]:
     """Bridge News Lab diagnostics into a ministerial, advisory payload."""
     feed_rows = _feed_rows(db, workspace)
+    fallback_signals = [_normalize_news_signal(signal, index) for index, signal in enumerate(_clone(NEWS_SIGNALS))]
     fallback = {
         "workspace": _workspace_meta(workspace),
-        "signals": _clone(NEWS_SIGNALS),
-        "executive_alerts": _clone(NEWS_SIGNALS),
+        "signals": fallback_signals,
+        "executive_alerts": fallback_signals,
         "summary": "Lecture double : politique interieure ivoirienne prioritaire, avec contrepoint CEDEAO/Afrique/monde pour anticiper perception et diplomatie.",
         "briefing_note": {
             "headline": "Veille ouverte qualifiee CI + international",
@@ -857,9 +927,10 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
                 {"label": "Rumeurs / social", "coverage": 41, "count": 3},
             ]
         ),
-        "geographic_priority": _geographic_priority_payload(feed_rows, _clone(NEWS_SIGNALS)),
-        "viewpoints": _news_viewpoints_payload(feed_rows, _clone(NEWS_SIGNALS)),
-        "social_listening": _social_listening_payload(_clone(NEWS_SIGNALS)),
+        "geographic_priority": _geographic_priority_payload(feed_rows, fallback_signals),
+        "geo_sections": _news_geo_sections(fallback_signals),
+        "viewpoints": _news_viewpoints_payload(feed_rows, fallback_signals),
+        "social_listening": _social_listening_payload(fallback_signals),
         "sources": source_index(),
     }
     if not db:
@@ -946,6 +1017,7 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
                 "entities": article.get("entities") or [],
             }
         )
+    alerts = [_normalize_news_signal(alert, index) for index, alert in enumerate(alerts)]
 
     total = int(kpis.get("total_articles") or 0)
     analyzed = int(kpis.get("analyzed") or 0)
@@ -999,8 +1071,9 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
             {"label": "Confiance sources", "coverage": round(sum(a["confidence"] for a in alerts) / max(len(alerts), 1) * 100), "count": len(alerts)},
         ],
         "geographic_priority": _geographic_priority_payload(feed_rows, [*alerts, *_clone(NEWS_SIGNALS)]),
+        "geo_sections": _news_geo_sections([*alerts, *fallback_signals]),
         "viewpoints": _news_viewpoints_payload(feed_rows, [*alerts, *_clone(NEWS_SIGNALS)]),
-        "social_listening": _social_listening_payload(_clone(NEWS_SIGNALS)),
+        "social_listening": _social_listening_payload(fallback_signals),
         "analysis_link": {
             "system_id": latest_run.system_id if latest_run else None,
             "run_id": latest_run.id if latest_run else None,
@@ -1435,7 +1508,7 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     action_items = [serialize_action_item(row) for row in action_rows[:6]]
     action_summary = action_plan_summary_payload(db, workspace) if db else {}
     posture = _strategic_posture(mapped, news, visual, calendar_summary=calendar_summary, action_summary=action_summary)
-    zones = mapped.get("zones") or []
+    zones = _enriched_monitor_zones(mapped)
     top_zones = sorted(zones, key=lambda item: int(item.get("level") or 0), reverse=True)[:3]
     visual_observations = visual.get("observations") or []
     cross_source_signals = _cross_source_signals(
@@ -1461,6 +1534,9 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         calendar_summary=calendar_summary,
         action_summary=action_summary,
     )
+    layers = _monitor_layers(zones, news, visual)
+    monitor_map_system = _monitor_map_system(mapped, layers)
+    active_evidence = _active_evidence_payload(scenario, cross_source_signals, visual_intelligence_brief)
     forecasts = [
         {
             "id": "forecast-nord-briefing",
@@ -1480,19 +1556,11 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
             "confidence": (visual.get("latest_observation") or {}).get("confidence", 0.62),
         },
     ]
-    layers = [
-        {"key": "territorial-risk", "label": "Zones territoriales", "enabled": True, "count": len(zones)},
-        {"key": "open-intelligence", "label": "Signaux presse", "enabled": True, "count": len(news.get("executive_alerts") or news.get("signals") or [])},
-        {"key": "regional-context", "label": "Contexte CEDEAO / Golfe de Guinee", "enabled": True, "count": len([item for item in (news.get("geographic_priority") or []) if item.get("key") in {"cedeao", "africa"}])},
-        {"key": "social-rumors", "label": "Rumeurs et origines", "enabled": True, "count": len((news.get("social_listening") or {}).get("rumor_origins") or [])},
-        {"key": "projects", "label": "Projets sensibles", "enabled": True, "count": len(PROJECTS)},
-        {"key": "agenda", "label": "Contraintes agenda", "enabled": True, "count": len(_agenda_items_from_calendar(workspace, db))},
-        {"key": "visual-streams", "label": "Flux visuels", "enabled": True, "count": len(visual_observations)},
-    ]
     return {
         "workspace": _workspace_meta(workspace),
         "title": "Mission Control Room",
         "summary": posture["summary"],
+        "worldmonitor_principles": _worldmonitor_principles_payload(),
         "decision_sentence": _clone(DECISION_SENTENCE),
         "attention_required": _clone(ATTENTION_REQUIRED),
         "sixty_second_cockpit": {
@@ -1511,11 +1579,12 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         "posture": posture,
         "layers": layers,
         "panel_layout": _mission_control_panel_layout(layers, news, visual, calendar_summary, cross_source_signals),
+        "active_evidence": active_evidence,
         "cross_source_signals": cross_source_signals,
         "visual_intelligence_brief": visual_intelligence_brief,
-        "voice_context": _aya_voice_context(scenario, cross_source_signals, visual_intelligence_brief),
+        "voice_context": _aya_voice_context(scenario, cross_source_signals, visual_intelligence_brief, active_evidence),
         "map": mapped.get("map"),
-        "map_system": mapped.get("map_system"),
+        "map_system": monitor_map_system,
         "zones": zones,
         "top_zones": top_zones,
         "visual": visual,
@@ -1622,6 +1691,213 @@ def _signal_level(score: int) -> str:
     if score >= 35:
         return "monitoring"
     return "stable"
+
+
+def _monitor_layers(zones: list[dict[str, Any]], news: dict[str, Any], visual: dict[str, Any]) -> list[dict[str, Any]]:
+    alerts = news.get("executive_alerts") or news.get("signals") or []
+    return [
+        {"key": "territorial-risk", "label": "Territoire", "enabled": True, "count": len(zones)},
+        {"key": "open-intelligence", "label": "Presse / rumeurs", "enabled": True, "count": len(alerts)},
+        {"key": "visual-streams", "label": "Flux visuels", "enabled": True, "count": int((visual.get("source_health") or {}).get("active_sources") or 0)},
+    ]
+
+
+def _monitor_map_system(mapped: dict[str, Any], layers: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    map_system = _clone(mapped.get("map_system"))
+    if not map_system:
+        return None
+    layer_keys = [layer["key"] for layer in layers]
+    catalog_by_key = {
+        str(layer.get("key")): layer
+        for layer in (map_system.get("layer_catalog") or [])
+        if layer.get("key")
+    }
+    compact_catalog = []
+    for layer in layers:
+        existing = _clone(catalog_by_key.get(layer["key"], {}))
+        existing.update(
+            {
+                "key": layer["key"],
+                "label": layer["label"],
+                "short_label": layer["label"],
+                "visible": True,
+                "count": layer["count"],
+            }
+        )
+        compact_catalog.append(existing)
+    map_system["layer_catalog"] = compact_catalog
+    default_state = _clone(map_system.get("default_map_state") or {})
+    default_state["active_layers"] = layer_keys
+    default_state["basemap"] = default_state.get("basemap") or "administrative"
+    map_system["default_map_state"] = default_state
+    return map_system
+
+
+def _zone_map_focus(mapped: dict[str, Any], zone_id: Optional[str]) -> dict[str, Any]:
+    map_system = mapped.get("map_system") or {}
+    presets = map_system.get("camera_presets") or {}
+    camera = _clone(presets.get(zone_id or "") or presets.get("country") or {})
+    if camera:
+        camera["duration_ms"] = min(220, int(camera.get("duration_ms") or 220))
+    return {
+        "selected_zone": zone_id,
+        "basemap": "administrative",
+        "active_layers": ["territorial-risk", "open-intelligence", "visual-streams"],
+        "camera": camera,
+    }
+
+
+def _zone_popup_brief(zone: dict[str, Any], mapped: dict[str, Any]) -> dict[str, Any]:
+    score = int(zone.get("level") or (zone.get("score") or {}).get("score") or 0)
+    drivers = list(zone.get("drivers") or zone.get("signals") or [])[:3]
+    recommendations = list(zone.get("recommendations") or [])
+    deadline = "15:00" if zone.get("id") == "zone-nord" else "aujourd'hui"
+    return {
+        "title": f"{zone.get('name') or 'Zone'} · brief operationnel",
+        "score": score,
+        "severity": _signal_level(score),
+        "drivers": drivers or ["Signal territorial a qualifier", "Lecture presse a rapprocher", "Validation humaine requise"],
+        "sources": list(zone.get("sources") or [])[:4],
+        "recommendation": recommendations[0] if recommendations else "Qualifier la zone puis preparer une option d'arbitrage.",
+        "decision_deadline": deadline,
+        "cta": "Preparer arbitrage",
+        "aya_context": {
+            "prompt": f"AYA, donne-moi le brief operationnel pour la zone {zone.get('name') or 'prioritaire'}.",
+            "answer_frame": "Situation, preuve disponible, option recommandee, deadline et niveau de confiance.",
+            "confidence": 0.72 if score >= 55 else 0.62,
+        },
+        "map_focus": _zone_map_focus(mapped, zone.get("id")),
+    }
+
+
+def _enriched_monitor_zones(mapped: dict[str, Any]) -> list[dict[str, Any]]:
+    zones = _clone(mapped.get("zones") or [])
+    for zone in zones:
+        zone["popup_brief"] = _zone_popup_brief(zone, mapped)
+    return zones
+
+
+def _signal_deadline(row: dict[str, Any]) -> str:
+    signal_id = str(row.get("id") or row.get("type") or "")
+    if signal_id in {"scenario-composite", "territorial-risk"}:
+        return "15:00"
+    if signal_id in {"press-escalation", "social-rumor-origin"}:
+        return "14:00"
+    if signal_id == "visual-activity":
+        return "avant prochain point cabinet"
+    if signal_id == "agenda-pressure":
+        return "avant prochain rendez-vous"
+    return "aujourd'hui"
+
+
+def _signal_evidence_refs(row: dict[str, Any], mapped: dict[str, Any], news: dict[str, Any], visual: dict[str, Any]) -> list[dict[str, Any]]:
+    signal_id = str(row.get("id") or "")
+    top_zone = ((mapped.get("score_summary") or {}).get("top_zone") or {})
+    alerts = news.get("executive_alerts") or news.get("signals") or []
+    sources = visual.get("sources") or []
+    primary_source = sources[0] if sources else {}
+    if signal_id == "visual-activity":
+        return [
+            {"type": "webcam", "id": primary_source.get("id"), "label": primary_source.get("name") or "Flux visuel actif"},
+            {"type": "observation", "id": (visual.get("latest_observation") or {}).get("id"), "label": "Lecture snapshot"},
+        ]
+    if signal_id in {"press-escalation", "social-rumor-origin"}:
+        return [
+            {"type": "article", "id": alert.get("id"), "label": alert.get("title"), "geo_tier": alert.get("geo_tier") or alert.get("geography_tier")}
+            for alert in alerts[:3]
+        ]
+    if signal_id == "agenda-pressure":
+        return [{"type": "calendar", "id": "government-calendar", "label": "Agenda institutionnel"}]
+    return [
+        {"type": "zone", "id": top_zone.get("id") or row.get("related_zone"), "label": top_zone.get("name") or "Zone prioritaire"},
+        {"type": "signal", "id": signal_id, "label": row.get("label")},
+    ]
+
+
+def _signal_aya_context(row: dict[str, Any], deadline: str) -> dict[str, Any]:
+    label = row.get("label") or "signal prioritaire"
+    return {
+        "prompt": f"AYA, explique {label} avec preuve, option recommandee et deadline.",
+        "answer_frame": "Situation, preuve, option recommandee, deadline, confiance.",
+        "decision_deadline": deadline,
+        "confidence": round(min(0.9, max(0.52, int(row.get("score") or 0) / 100)), 2),
+    }
+
+
+def _visual_map_focus(visual: dict[str, Any], mapped: dict[str, Any]) -> dict[str, Any]:
+    sources = visual.get("sources") or []
+    source = next((item for item in sources if item.get("enabled") and item.get("status") == "active"), None) or (sources[0] if sources else {})
+    metadata = source.get("metadata") or {}
+    location = metadata.get("map_location") or metadata.get("location") or {}
+    longitude = location.get("longitude") or metadata.get("longitude")
+    latitude = location.get("latitude") or metadata.get("latitude")
+    if longitude is None or latitude is None:
+        return _zone_map_focus(mapped, metadata.get("zone_id"))
+    return {
+        "selected_zone": location.get("zone_id") or metadata.get("zone_id"),
+        "basemap": "administrative",
+        "active_layers": ["territorial-risk", "open-intelligence", "visual-streams"],
+        "camera": {
+            "longitude": longitude,
+            "latitude": latitude,
+            "zoom": location.get("zoom") or metadata.get("map_zoom") or 10.9,
+            "duration_ms": 220,
+        },
+        "focus_marker": {
+            "longitude": longitude,
+            "latitude": latitude,
+            "label": location.get("label") or metadata.get("camera_label") or source.get("name") or "Flux visuel",
+            "zone_id": location.get("zone_id") or metadata.get("zone_id"),
+            "tone": "visual",
+        },
+    }
+
+
+def _enrich_cross_source_signal(row: dict[str, Any], mapped: dict[str, Any], news: dict[str, Any], visual: dict[str, Any]) -> dict[str, Any]:
+    enriched = _clone(row)
+    deadline = _signal_deadline(enriched)
+    enriched["decision_deadline"] = deadline
+    enriched["evidence_refs"] = _signal_evidence_refs(enriched, mapped, news, visual)
+    enriched["aya_context"] = _signal_aya_context(enriched, deadline)
+    if enriched.get("id") == "visual-activity":
+        enriched["map_focus"] = _visual_map_focus(visual, mapped)
+    else:
+        enriched["map_focus"] = _zone_map_focus(mapped, enriched.get("related_zone"))
+    return enriched
+
+
+def _active_evidence_payload(
+    scenario: dict[str, Any],
+    cross_source_signals: list[dict[str, Any]],
+    visual_intelligence_brief: dict[str, Any],
+) -> dict[str, Any]:
+    signal = cross_source_signals[0] if cross_source_signals else {}
+    return {
+        "id": f"active-{signal.get('id') or scenario.get('id') or 'evidence'}",
+        "type": signal.get("type") or "scenario",
+        "title": signal.get("label") or scenario.get("title") or "Preuve active",
+        "location": scenario.get("focus_zone") or "Cote d'Ivoire",
+        "score": int(signal.get("score") or scenario.get("score") or 0),
+        "severity": signal.get("severity") or scenario.get("level") or "monitoring",
+        "source_quality": (visual_intelligence_brief.get("source_quality") or {}).get("label") or "Sources qualifiees",
+        "observation": signal.get("summary") or scenario.get("summary"),
+        "recommended_action": signal.get("action_prompt") or (scenario.get("recommended_actions") or ["Qualifier la preuve puis arbitrer."])[0],
+        "decision_deadline": signal.get("decision_deadline") or "aujourd'hui",
+        "evidence_refs": signal.get("evidence_refs") or [],
+        "aya_context": signal.get("aya_context") or {},
+        "map_focus": signal.get("map_focus") or scenario.get("map_focus"),
+    }
+
+
+def _worldmonitor_principles_payload() -> dict[str, Any]:
+    return {
+        "map_dominant": True,
+        "compact_layers": ["territorial-risk", "open-intelligence", "visual-streams"],
+        "evidence_popup": True,
+        "live_docks": "reduced",
+        "decision_contract": "que faire, quand, avec quelle preuve",
+        "sentinel_difference": "moins de couches, plus d'arbitrage vice-presidentiel",
+    }
 
 
 def _cross_source_signals(
@@ -1743,7 +2019,8 @@ def _cross_source_signals(
                 "action_prompt": "Demander a AYA une posture croisee et les trois decisions possibles.",
             },
         )
-    return sorted(rows, key=lambda item: int(item["score"]), reverse=True)
+    ranked = sorted(rows, key=lambda item: int(item["score"]), reverse=True)
+    return [_enrich_cross_source_signal(row, mapped, news, visual) for row in ranked]
 
 
 def _visual_intelligence_brief(
@@ -1888,13 +2165,12 @@ def _mission_control_panel_layout(
 ) -> list[dict[str, Any]]:
     return [
         {"key": "map", "region": "stage", "order": 1, "label": "Carte centrale", "visible": True, "live": True, "count": next((layer["count"] for layer in layers if layer["key"] == "territorial-risk"), 0)},
-        {"key": "layers", "region": "left", "order": 1, "label": "Couches", "visible": True, "live": True, "count": len(layers)},
-        {"key": "live-news", "region": "bottom", "order": 1, "label": "Live News", "visible": True, "live": True, "count": len(news.get("executive_alerts") or news.get("signals") or [])},
-        {"key": "live-webcams", "region": "bottom", "order": 2, "label": "Live Webcams", "visible": True, "live": True, "count": int((visual.get("source_health") or {}).get("active_sources") or 0)},
-        {"key": "agenda-actions", "region": "bottom", "order": 3, "label": "Agenda / Actions", "visible": True, "live": False, "count": (calendar_summary or {}).get("count", 0)},
-        {"key": "ai-insights", "region": "right", "order": 1, "label": "AI Insights", "visible": True, "live": True, "count": len(cross_source_signals)},
-        {"key": "strategic-posture", "region": "right", "order": 2, "label": "Strategic Posture", "visible": True, "live": True, "count": 1},
-        {"key": "aya", "region": "right", "order": 3, "label": SENTINEL_ASSISTANT_NAME, "visible": True, "live": True, "count": 5},
+        {"key": "executive-filters", "region": "left", "order": 1, "label": "Filtres executifs", "visible": True, "live": True, "count": len(layers)},
+        {"key": "active-evidence", "region": "right", "order": 1, "label": "Preuve active", "visible": True, "live": True, "count": 1},
+        {"key": "correlated-signals", "region": "right", "order": 2, "label": "Signaux correles", "visible": True, "live": True, "count": len(cross_source_signals)},
+        {"key": "strategic-posture", "region": "right", "order": 3, "label": "Posture", "visible": True, "live": True, "count": 1},
+        {"key": "aya", "region": "right", "order": 4, "label": SENTINEL_ASSISTANT_NAME, "visible": True, "live": True, "count": 5},
+        {"key": "live-webcams", "region": "bottom", "order": 1, "label": "Preuve terrain webcam", "visible": True, "live": True, "count": int((visual.get("source_health") or {}).get("active_sources") or 0)},
     ]
 
 
@@ -1902,6 +2178,7 @@ def _aya_voice_context(
     scenario: dict[str, Any],
     cross_source_signals: list[dict[str, Any]],
     visual_intelligence_brief: Optional[dict[str, Any]] = None,
+    active_evidence: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     prompts = [
         "AYA, donne-moi la synthese du scenario croise.",
@@ -1927,6 +2204,7 @@ def _aya_voice_context(
         "decision_packages": _clone(EXECUTIVE_DECISION_PACKAGES),
         "rumor_trace": _clone(RUMOR_TRACE),
         "visual_intelligence_brief": visual_intelligence_brief or {},
+        "active_evidence": active_evidence or {},
         "commands": [
             {"utterance": prompts[0], "intent": "scenario_brief", "target": scenario.get("id")},
             {"utterance": prompts[1], "intent": "visual_focus", "target": "pont-general-de-gaulle"},
@@ -1937,6 +2215,10 @@ def _aya_voice_context(
             {"utterance": prompts[6], "intent": "regional_map_focus", "target": "regional-context"},
             {"utterance": prompts[7], "intent": "instruction_draft", "target": (cross_source_signals[0] or {}).get("id") if cross_source_signals else None},
         ],
+        "answer_contract": {
+            "required_parts": ["situation", "preuve", "option recommandee", "deadline", "confiance"],
+            "default_deadline": (active_evidence or {}).get("decision_deadline") or "aujourd'hui",
+        },
         "fallback": "text_chat_overlay",
     }
 

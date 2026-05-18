@@ -32,7 +32,7 @@
 
   <aside class="mc-layers">
     <div class="panel-title">
-      <span>Lecture VP</span>
+      <span>Filtres executifs</span>
       <b>{{ compactMissionFilters().length }}</b>
     </div>
     <article class="left-scenario">
@@ -92,14 +92,41 @@
       [mapSystem]="monitor?.map_system || missionMap?.map_system || null"
       [mapState]="monitorMapState()"
       [selectedZoneId]="selectedZone?.id || null"
-      (zoneSelected)="zoneSelected.emit($event)"
+      (zoneSelected)="handleZoneSelected($event)"
+      (evidenceAction)="handleMapEvidenceAction($event)"
     />
   </main>
 
   <aside class="mc-insights">
+    <section class="insight-panel evidence-panel">
+      <div class="panel-title">
+        <span>Preuve active</span>
+        <b>{{ activeEvidence().score || 0 }}</b>
+      </div>
+      <h3>{{ activeEvidence().title || 'Preuve active' }}</h3>
+      <p>{{ activeEvidence().location || scenario().focus_zone || 'Cote d’Ivoire' }}</p>
+      <div class="evidence-grid">
+        @for (line of activeEvidenceRows(); track line.label) {
+          <article>
+            <span>{{ line.label }}</span>
+            <strong>{{ line.value }}</strong>
+          </article>
+        }
+      </div>
+      <div class="evidence-ref-row">
+        @for (ref of activeEvidenceRefs() | slice: 0:3; track ref.id || ref.label) {
+          <span>{{ ref.label || ref.id }}</span>
+        }
+      </div>
+      <div class="evidence-actions">
+        <button type="button" (click)="sendActiveEvidenceToAya()">Envoyer a {{ assistantName }}</button>
+        <button type="button" (click)="prepareActiveEvidenceArbitrage()">Preparer arbitrage</button>
+      </div>
+    </section>
+
     <section class="insight-panel">
       <div class="panel-title">
-        <span>Synthese terrain</span>
+        <span>Signaux correles</span>
         <b>{{ crossSignals().length }}</b>
       </div>
       @for (signal of crossSignals() | slice: 0:3; track signal.id) {
@@ -164,24 +191,6 @@
   </aside>
 
   <section class="mc-bottom">
-    <article class="dock-panel signal-dock">
-      <div class="panel-title">
-        <span>Signaux croises</span>
-        <b>{{ crossSignals().length }}</b>
-      </div>
-      <div class="signal-dock-list">
-        @for (signal of crossSignals() | slice: 0:3; track signal.id) {
-          <button type="button" class="signal-card" [class]="postureTone(signal.severity)" (click)="focusSignal(signal)">
-            <span>
-              <strong>{{ signal.label }}</strong>
-              <small>{{ signal.summary }}</small>
-            </span>
-            <b>{{ signal.score }}</b>
-          </button>
-        }
-      </div>
-    </article>
-
     <article class="dock-panel webcam-dock">
       <div class="panel-title webcam-title">
         <span>Live Webcams</span>
@@ -190,6 +199,7 @@
           @if (primaryVisualSource(); as source) {
             <button type="button" (click)="openExpandedVisualSource(source)">Agrandir</button>
           }
+          <button type="button" (click)="sendActiveEvidenceToAya()">Envoyer a {{ assistantName }}</button>
           <b>{{ sourceHealth().active_sources || 0 }}/{{ sourceHealth().total_sources || 0 }}</b>
         </div>
       </div>
@@ -237,7 +247,7 @@
           }
         </div>
         <div class="webcam-sources">
-          @for (source of visualSources() | slice: 0:6; track source.id) {
+          @for (source of visualSources() | slice: 0:4; track source.id) {
             <button type="button" [class.active]="isVisualSourceSelected(source)" (click)="selectVisualSource(source)">
               <span></span>
               <b>{{ source.name }}</b>

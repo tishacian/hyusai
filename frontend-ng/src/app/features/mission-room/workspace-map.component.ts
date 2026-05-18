@@ -121,6 +121,34 @@ type BasemapOption = {
             <span><i class="critical"></i>critique</span>
           </div>
         }
+        @if (briefOpen && selectedBriefZone(); as zone) {
+          <article class="map-brief-popup" (click)="$event.stopPropagation()">
+            <header>
+              <span>Brief operationnel</span>
+              <button type="button" (click)="closeBrief()">Fermer</button>
+            </header>
+            <strong>{{ zone.name }}</strong>
+            <div class="brief-score">
+              <b>{{ zoneBrief(zone).score || zone.level }}%</b>
+              <small>{{ zoneBrief(zone).severity || zone.tone }}</small>
+            </div>
+            <div class="brief-drivers">
+              @for (driver of zoneBriefDrivers(zone); track driver) {
+                <span>{{ driver }}</span>
+              }
+            </div>
+            <p>{{ zoneBrief(zone).recommendation || zone['recommendations']?.[0] || 'Qualifier puis preparer arbitrage.' }}</p>
+            <div class="brief-source-row">
+              @for (source of zoneBriefSources(zone); track source) {
+                <small>{{ source }}</small>
+              }
+            </div>
+            <footer>
+              <button type="button" (click)="emitEvidenceAction('arbitrage', zone)">Preparer arbitrage</button>
+              <button type="button" (click)="emitEvidenceAction('aya', zone)">Demander AYA</button>
+            </footer>
+          </article>
+        }
       </div>
 
       @if (fallback) {
@@ -555,6 +583,7 @@ type BasemapOption = {
 
       .workspace-map.basemap-contours .map-control-panel,
       .workspace-map.basemap-contours .map-legend,
+      .workspace-map.basemap-contours .map-brief-popup,
       .workspace-map.basemap-contours .map-hud,
       .workspace-map.basemap-contours .map-attribution {
         background: rgba(6, 14, 22, 0.92);
@@ -587,6 +616,107 @@ type BasemapOption = {
       .map-legend .monitoring { background: #8fd2ff; }
       .map-legend .elevated { background: #f1ce71; }
       .map-legend .critical { background: #f27f8b; }
+
+      .map-brief-popup {
+        position: absolute;
+        right: 64px;
+        top: 108px;
+        z-index: 6;
+        width: min(330px, calc(100% - 94px));
+        display: grid;
+        gap: 9px;
+        padding: 12px;
+        border: 1px solid rgba(101, 214, 110, 0.26);
+        border-radius: 12px;
+        background: rgba(2, 6, 10, 0.90);
+        box-shadow: 0 22px 54px rgba(0, 0, 0, 0.42);
+        backdrop-filter: blur(12px);
+        pointer-events: auto;
+      }
+
+      .map-brief-popup header,
+      .map-brief-popup footer,
+      .brief-score,
+      .brief-source-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .map-brief-popup header,
+      .map-brief-popup footer {
+        justify-content: space-between;
+      }
+
+      .map-brief-popup header span,
+      .brief-score small {
+        color: rgba(148, 197, 229, 0.84);
+        font: 800 9px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .map-brief-popup > strong {
+        color: rgba(245, 251, 255, 0.96);
+        font-size: 18px;
+        line-height: 1.1;
+      }
+
+      .brief-score b {
+        color: #f28c38;
+        font: 850 22px/1 var(--mission-mono, monospace);
+      }
+
+      .brief-drivers {
+        display: grid;
+        gap: 5px;
+      }
+
+      .brief-drivers span {
+        padding-left: 9px;
+        border-left: 2px solid rgba(101, 214, 110, 0.48);
+        color: rgba(232, 241, 255, 0.82);
+        font-size: 12px;
+        line-height: 1.28;
+      }
+
+      .map-brief-popup p {
+        margin: 0;
+        color: rgba(213, 229, 242, 0.78);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .brief-source-row {
+        flex-wrap: wrap;
+      }
+
+      .brief-source-row small {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 4px 6px;
+        border: 1px solid rgba(148, 197, 229, 0.13);
+        border-radius: 999px;
+        color: rgba(172, 192, 212, 0.70);
+      }
+
+      .map-brief-popup button {
+        min-height: 26px;
+        padding: 5px 8px;
+        border: 1px solid rgba(101, 214, 110, 0.20);
+        border-radius: 6px;
+        background: rgba(11, 20, 31, 0.86);
+        color: rgba(232, 241, 255, 0.82);
+        font: 750 10px/1 var(--mission-mono, monospace);
+        cursor: pointer;
+      }
+
+      .map-brief-popup button:hover {
+        border-color: rgba(242, 140, 56, 0.45);
+        color: #f28c38;
+      }
 
       .maplibre-canvas.hidden {
         display: none;
@@ -700,12 +830,14 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @Input() selectedZoneId: string | null = null;
   @Input() compact = false;
   @Output() zoneSelected = new EventEmitter<any>();
+  @Output() evidenceAction = new EventEmitter<{ action: string; zone: any }>();
   @ViewChild('mapCanvas') private readonly mapCanvas?: ElementRef<HTMLDivElement>;
 
   fallback = false;
   selectedBasemapKey = 'administrative';
   controlsOpen = false;
   legendOpen = false;
+  briefOpen = true;
 
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly activeLayerKeys = new Set<string>();
@@ -790,6 +922,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.applyExternalMapState(this.mapState);
     }
     if (changes['selectedZoneId'] && !changes['selectedZoneId'].firstChange) {
+      this.briefOpen = true;
       this.focusSelectedZone();
     }
   }
@@ -804,7 +937,34 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   selectZone(zone: MapZone): void {
+    this.briefOpen = true;
     this.zoneSelected.emit(zone);
+  }
+
+  selectedBriefZone(): MapZone | null {
+    return this.zones.find((zone) => zone.id === this.selectedZoneId) || this.zones[0] || null;
+  }
+
+  zoneBrief(zone: MapZone): any {
+    return zone?.['popup_brief'] || {};
+  }
+
+  zoneBriefDrivers(zone: MapZone): string[] {
+    return (this.zoneBrief(zone).drivers || zone?.['signals'] || []).slice(0, 3);
+  }
+
+  zoneBriefSources(zone: MapZone): string[] {
+    return (this.zoneBrief(zone).sources || zone?.['sources'] || []).slice(0, 3);
+  }
+
+  closeBrief(): void {
+    this.briefOpen = false;
+    this.cdr.markForCheck();
+  }
+
+  emitEvidenceAction(action: string, zone: MapZone): void {
+    this.briefOpen = true;
+    this.evidenceAction.emit({ action, zone });
   }
 
   zoneFill(zone: MapZone): string {
@@ -1298,7 +1458,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private emitDeckZone(zoneId: string | undefined): void {
     if (!zoneId) return;
     const zone = this.zones.find((item) => item.id === zoneId);
-    if (zone) this.zoneSelected.emit(zone);
+    if (zone) this.selectZone(zone);
   }
 
   private deckColor(tone: string, selected = false, alpha = 120): number[] {

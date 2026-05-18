@@ -155,7 +155,11 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     assert news_body["social_listening"]["rumor_origins"]
     assert news_body["executive_alerts"][0]["article_id"] == article.id
     assert news_body["executive_alerts"][0]["geography_tier"] == "ci"
+    assert news_body["executive_alerts"][0]["geo_tier"] == "ci"
+    assert news_body["executive_alerts"][0]["velocity"] in {"rapide", "elevee", "moderee", "veille"}
+    assert news_body["executive_alerts"][0]["briefing_value"]
     assert news_body["executive_alerts"][0]["viewpoint"] == "politique interieure ivoirienne"
+    assert [section["key"] for section in news_body["geo_sections"]] == ["ci", "cedeao", "africa", "world"]
     assert "Andritz" not in str(news_body)
     assert cockpit.status_code == 200
     cockpit_body = cockpit.json()
@@ -231,17 +235,26 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert body["visual_intelligence_brief"]["source_quality"]["label"] == "Basse resolution publique"
     assert body["visual_intelligence_brief"]["transcription"]["type"] == "visual_snapshot_analysis"
     assert body["voice_context"]["visual_intelligence_brief"]["question_answered"].startswith("La valeur ajoutee")
+    assert body["worldmonitor_principles"]["map_dominant"] is True
+    assert body["active_evidence"]["title"]
+    assert body["active_evidence"]["decision_deadline"]
+    assert body["active_evidence"]["aya_context"]["answer_frame"].startswith("Situation")
     assert body["voice_context"]["demo_script"]["prompt"].startswith("AYA")
+    assert body["voice_context"]["active_evidence"]["id"] == body["active_evidence"]["id"]
     assert body["voice_context"]["decision_packages"][0]["id"] == "package-zone-nord"
     assert body["voice_context"]["rumor_trace"]["headline"] == "Rumeur prioritaire sous verification"
     assert any(command["intent"] == "rumor_origin" for command in body["voice_context"]["commands"])
     assert body["panel_layout"][0]["key"] == "map"
     assert any(signal["id"] == "visual-activity" for signal in body["cross_source_signals"])
     assert any(signal["id"] == "social-rumor-origin" for signal in body["cross_source_signals"])
+    assert all(signal["evidence_refs"] for signal in body["cross_source_signals"])
+    assert all(signal["decision_deadline"] for signal in body["cross_source_signals"])
+    assert all(signal["aya_context"]["answer_frame"].startswith("Situation") for signal in body["cross_source_signals"])
+    assert body["zones"][0]["popup_brief"]["cta"] == "Preparer arbitrage"
     assert body["visual"]["connector"]["id"] == "visual_streams"
     assert body["visual"]["source_health"]["total_sources"] >= 1
-    assert any(layer["key"] == "regional-context" for layer in body["layers"])
-    assert any(layer["key"] == "social-rumors" for layer in body["layers"])
+    assert [layer["key"] for layer in body["layers"]] == ["territorial-risk", "open-intelligence", "visual-streams"]
+    assert [layer["key"] for layer in body["map_system"]["layer_catalog"]] == ["territorial-risk", "open-intelligence", "visual-streams"]
     assert any(layer["key"] == "visual-streams" for layer in body["layers"])
 
     audit = db_session.query(AuditLog).filter_by(event_type="mission_room.monitor.viewed").one()
