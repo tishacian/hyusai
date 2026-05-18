@@ -10,6 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.models.secure_deposit import DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
@@ -17,6 +18,7 @@ from app.services.secure_deposit import (
     authenticate_link,
     build_deposit_archive,
     create_link,
+    promote_file_to_collection,
     preview_deposit_file,
     record_staged_file_from_path,
     safe_filename,
@@ -331,6 +333,221 @@ def test_preview_deposit_file_returns_docx_text(db_session, monkeypatch, tmp_pat
     assert preview["source_kind"] == "docx"
     assert "Commissioning report" in preview["content"]
     assert "Dryer | Verify pressure" in preview["content"]
+
+
+def _staged_zip(
+    db_session,
+    tmp_path,
+    *,
+    workspace: Workspace,
+    link,
+    entries: dict[str, bytes],
+    filename: str = "Manual_BBA120.zip",
+) -> DepositFile:
+    staged = tmp_path / filename
+    with zipfile.ZipFile(staged, "w") as archive:
+        for name, content in entries.items():
+            archive.writestr(name, content)
+    return record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename=filename,
+        content_type="application/zip",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+
+@pytest.mark.asyncio
+async def test_promote_zip_queues_collection_ingest(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    monkeypatch.setattr(settings, "secure_deposit_archive_promotion_max_files", 50)
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Manual upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    row = _staged_zip(
+        db_session,
+        tmp_path,
+        workspace=workspace,
+        link=link,
+        entries={
+            "Manual_BBA120/Declaration/Declaration.pdf": b"%PDF declaration",
+            "Manual_BBA120/Operator manual/Chapter 01.pdf": b"%PDF chapter",
+            "Manual_BBA120/image.png": b"ignored",
+        },
+    )
+
+    def fake_dispatch(db, job):
+        job.celery_task_id = "task-bba120"
+        return "task-bba120"
+
+    monkeypatch.setattr("app.services.secure_deposit.dispatch_worker_job", fake_dispatch)
+
+    promoted = await promote_file_to_collection(
+        db_session,
+        deposit_file=row,
+        workspace=workspace,
+        user=user,
+        collection_slug="andritz-manuals-bba120-pilot",
+    )
+
+    collection = (
+        db_session.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.slug == "andritz-manuals-bba120-pilot")
+        .one()
+    )
+    job = db_session.query(WorkerJob).filter(WorkerJob.id == promoted.worker_job_id).one()
+
+    assert promoted.status == "promoted"
+    assert promoted.promoted_collection_slug == "andritz-manuals-bba120-pilot"
+    assert promoted.promotion_result["archive"]["extracted_count"] == 2
+    assert promoted.promotion_result["celery_task_id"] == "task-bba120"
+    assert collection.status == "queued"
+    assert collection.document_count == 2
+    assert job.status == "queued"
+    assert job.celery_task_id == "task-bba120"
+    stored_names = sorted(collection.document_names)
+    assert stored_names == [
+        "Manual_BBA120__Declaration__Declaration.pdf",
+        "Manual_BBA120__Operator manual__Chapter 01.pdf",
+    ]
+    assert (
+        tmp_path
+        / "objects"
+        / collection.artifact_prefix
+        / "original"
+        / "Manual_BBA120__Declaration__Declaration.pdf"
+    ).read_bytes() == b"%PDF declaration"
+
+
+@pytest.mark.asyncio
+async def test_promote_invalid_zip_leaves_deposit_received(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Manual upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    staged = tmp_path / "Manual_BHX100_revE.zip"
+    staged.write_bytes(b"not a zip")
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="Manual_BHX100_revE.zip",
+        content_type="application/zip",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await promote_file_to_collection(
+            db_session,
+            deposit_file=row,
+            workspace=workspace,
+            user=user,
+            collection_slug="andritz-manuals-bba120-pilot",
+        )
+
+    db_session.refresh(row)
+    assert exc.value.status_code == 422
+    assert row.status == "received"
+    assert db_session.query(KnowledgeCollection).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_promote_zip_rejects_path_traversal(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Manual upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    row = _staged_zip(
+        db_session,
+        tmp_path,
+        workspace=workspace,
+        link=link,
+        entries={"../evil.pdf": b"%PDF evil"},
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await promote_file_to_collection(
+            db_session,
+            deposit_file=row,
+            workspace=workspace,
+            user=user,
+            collection_slug="andritz-manuals-bba120-pilot",
+        )
+
+    db_session.refresh(row)
+    assert exc.value.status_code == 422
+    assert row.status == "received"
+
+
+@pytest.mark.asyncio
+async def test_promote_zip_rejects_supported_file_count_over_limit(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    monkeypatch.setattr(settings, "secure_deposit_archive_promotion_max_files", 1)
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Manual upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    row = _staged_zip(
+        db_session,
+        tmp_path,
+        workspace=workspace,
+        link=link,
+        entries={
+            "Manual_BBA120/Chapter 01.pdf": b"%PDF one",
+            "Manual_BBA120/Chapter 02.pdf": b"%PDF two",
+        },
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await promote_file_to_collection(
+            db_session,
+            deposit_file=row,
+            workspace=workspace,
+            user=user,
+            collection_slug="andritz-manuals-bba120-pilot",
+        )
+
+    db_session.refresh(row)
+    assert exc.value.status_code == 413
+    assert row.status == "received"
 
 
 def test_safe_filename_strips_paths_and_unsafe_characters():

@@ -31,7 +31,15 @@ from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
+from app.services.knowledge_collections import (
+    create_or_get_collection,
+    create_worker_job,
+    original_key,
+    update_collection_status,
+)
+from app.services.object_store import get_object_store
 from app.services.rag.document_service import DocumentService
+from app.services.worker_dispatch import dispatch_worker_job
 
 try:  # pragma: no cover - exercised when dependency is installed.
     from argon2 import PasswordHasher
@@ -65,6 +73,7 @@ _SPREADSHEET_EXTENSIONS = {"xlsx", "xlsm", "xltx", "xltm"}
 _DOCX_EXTENSIONS = {"docx"}
 _DOCX_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
 _DOCX_PREVIEW_MAX_CHARS = 200_000
+_ARCHIVE_PROMOTION_EXTENSIONS = {"csv", "html", "htm", "md", "pdf", "txt"}
 
 
 def enabled_workspace_slugs() -> set[str]:
@@ -379,6 +388,65 @@ def _unique_archive_name(path: str, used: set[str]) -> str:
     unique = f"{base}-{index}{ext}"
     used.add(unique)
     return unique
+
+
+def _validated_archive_member_path(info: zipfile.ZipInfo) -> PurePosixPath | None:
+    raw_name = str(info.filename or "").replace("\\", "/").strip()
+    if not raw_name or info.is_dir():
+        return None
+    path = PurePosixPath(raw_name)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise HTTPException(status_code=422, detail=f"Unsafe ZIP member path: {info.filename}")
+    if any(":" in part for part in path.parts):
+        raise HTTPException(status_code=422, detail=f"Unsafe ZIP member path: {info.filename}")
+    return path
+
+
+def _archive_document_name(member_path: PurePosixPath, used: set[str]) -> str:
+    safe_path = safe_relative_path(member_path.as_posix())
+    flattened = safe_path.replace("/", "__")
+    return _unique_archive_name(flattened, used)
+
+
+def _read_supported_archive_documents(path: Path) -> list[dict[str, Any]]:
+    max_files = max(1, int(settings.secure_deposit_archive_promotion_max_files or 50))
+    documents: list[dict[str, Any]] = []
+    used_names: set[str] = set()
+
+    try:
+        archive = zipfile.ZipFile(path)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=422, detail="Archive is not a valid ZIP file") from exc
+
+    with archive:
+        for info in archive.infolist():
+            member_path = _validated_archive_member_path(info)
+            if member_path is None:
+                continue
+            ext = extension_for(member_path.name)
+            if ext not in _ARCHIVE_PROMOTION_EXTENSIONS:
+                continue
+            if info.flag_bits & 0x1:
+                raise HTTPException(status_code=422, detail=f"Encrypted ZIP member is not supported: {info.filename}")
+            if len(documents) >= max_files:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Archive contains more than {max_files} supported documents",
+                )
+            document_name = _archive_document_name(member_path, used_names)
+            documents.append(
+                {
+                    "archive_path": member_path.as_posix(),
+                    "filename": document_name,
+                    "extension": ext,
+                    "size_bytes": int(info.file_size or 0),
+                    "content": archive.read(info),
+                }
+            )
+
+    if not documents:
+        raise HTTPException(status_code=422, detail="Archive contains no supported documents")
+    return documents
 
 
 def build_deposit_archive(
@@ -879,6 +947,15 @@ async def promote_file_to_collection(
 
     default_collection_slug = f"{workspace.slug}-secure-deposit"
     collection_slug = (collection_slug or default_collection_slug).strip() or default_collection_slug
+    if extension_for(deposit_file.filename or "") == "zip":
+        return _promote_archive_file_to_collection(
+            db,
+            deposit_file=deposit_file,
+            workspace=workspace,
+            user=user,
+            collection_slug=collection_slug,
+        )
+
     app_settings = get_resolved_settings(workspace_id=workspace.id)
     db_type = (
         app_settings.get("ragVectorDBType")
@@ -916,4 +993,103 @@ async def promote_file_to_collection(
             "result": result,
         },
     )
+    return deposit_file
+
+
+def _promote_archive_file_to_collection(
+    db: DBSession,
+    *,
+    deposit_file: DepositFile,
+    workspace: Workspace,
+    user: User,
+    collection_slug: str,
+) -> DepositFile:
+    archive_path = staged_file_path(deposit_file)
+    documents = _read_supported_archive_documents(archive_path)
+
+    collection = create_or_get_collection(
+        db,
+        workspace=workspace,
+        name=collection_slug,
+        description=f"Secure Deposit archive promotion from {deposit_file.filename}",
+        created_by_user_id=user.id,
+        slug=collection_slug,
+    )
+    store = get_object_store()
+    existing_names = list(collection.document_names or [])
+    extracted_manifest: list[dict[str, Any]] = []
+    for document in documents:
+        filename = str(document["filename"])
+        store.write_bytes(original_key(collection, filename), document["content"])
+        if filename not in existing_names:
+            existing_names.append(filename)
+        extracted_manifest.append(
+            {
+                "archive_path": document["archive_path"],
+                "filename": filename,
+                "extension": document["extension"],
+                "size_bytes": document["size_bytes"],
+            }
+        )
+
+    update_collection_status(
+        db,
+        collection.id,
+        status="queued",
+        document_names=existing_names,
+        document_count=len(existing_names),
+    )
+    job = create_worker_job(
+        db,
+        workspace_id=workspace.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    db.commit()
+    db.refresh(job)
+    db.refresh(collection)
+
+    celery_task_id = dispatch_worker_job(db, job)
+    db.commit()
+    db.refresh(job)
+    db.refresh(collection)
+
+    result = {
+        "status": "queued",
+        "mode": "archive",
+        "collection_id": collection.id,
+        "collection_slug": collection.slug,
+        "job_id": job.id,
+        "celery_task_id": job.celery_task_id or celery_task_id,
+        "archive": {
+            "filename": deposit_file.filename,
+            "supported_extensions": sorted(_ARCHIVE_PROMOTION_EXTENSIONS),
+            "max_files": int(settings.secure_deposit_archive_promotion_max_files or 50),
+            "extracted_count": len(extracted_manifest),
+            "documents": extracted_manifest,
+        },
+    }
+    deposit_file.status = "promoted"
+    deposit_file.promoted_at = datetime.utcnow()
+    deposit_file.promoted_by_user_id = user.id
+    deposit_file.promoted_collection_slug = collection.slug
+    deposit_file.worker_job_id = job.id
+    deposit_file.promotion_result = result
+    db.flush()
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="deposit.file.promoted",
+        actor=user.email or user.username or user.id,
+        details={
+            "file_id": deposit_file.id,
+            "filename": deposit_file.filename,
+            "collection_slug": collection.slug,
+            "worker_job_id": job.id,
+            "archive_extracted_count": len(extracted_manifest),
+            "result": result,
+        },
+    )
+    db.commit()
+    db.refresh(deposit_file)
     return deposit_file
