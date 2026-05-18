@@ -331,16 +331,45 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   visualSituationBrief(source: any | null): any[] {
     const observation = this.visualObservationFor(source);
     const score = Number(observation?.vigilance_score || source?.metadata?.default_vigilance_score || 42);
+    const visualBrief = this.visualIntelligenceBrief();
     const summary = observation?.summary
       || `Vue publique ${this.visualLocationLabel(source)} disponible pour controle visuel sans dependance a l'embed Nest.`;
     const action = score >= 62
       ? 'Rapprocher cette vue des signaux presse et demander validation terrain.'
-      : "Maintenir en surveillance live et capturer un snapshot si l'actualite converge.";
+      : visualBrief?.recommended_next_step || "Maintenir en surveillance live et capturer un snapshot si l'actualite converge.";
     return [
       { label: 'Lecture', value: summary },
       { label: 'Position', value: this.visualLocationLabel(source) },
+      { label: 'Qualite', value: this.visualSourceQualityLabel(source) },
+      { label: 'Croisement', value: this.visualBriefingValue() },
       { label: 'Action', value: action },
     ];
+  }
+
+  visualIntelligenceBrief(): any {
+    return this.monitor?.visual_intelligence_brief || this.monitor?.voice_context?.visual_intelligence_brief || {};
+  }
+
+  visualSourceQualityLabel(source: any | null): string {
+    const metadata = source?.metadata || {};
+    return metadata.resolution_label || this.visualIntelligenceBrief()?.source_quality?.label || 'Basse resolution publique';
+  }
+
+  visualSourceQualityDetail(source: any | null): string {
+    const metadata = source?.metadata || {};
+    return metadata.native_resolution_hint
+      || this.visualIntelligenceBrief()?.source_quality?.native_resolution_hint
+      || "Source publique utile pour contexte macro, insuffisante pour preuve detaillee.";
+  }
+
+  visualBriefingValue(): string {
+    const brief = this.visualIntelligenceBrief();
+    if (brief?.latest_reading?.available) return 'Observation exploitable dans le brief AYA.';
+    return brief?.question_answered || 'Contexte visuel a croiser avant recommandation.';
+  }
+
+  visualTranscriptionValue(): string {
+    return this.visualIntelligenceBrief()?.transcription?.label || 'Lecture visuelle, pas transcription audio';
   }
 
   activatePrompt(prompt: string): void {

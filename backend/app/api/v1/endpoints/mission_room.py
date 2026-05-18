@@ -121,7 +121,7 @@ async def briefing(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    payload = briefing_payload(workspace)
+    payload = briefing_payload(workspace, db=db)
     _audit(
         db=db,
         workspace=workspace,

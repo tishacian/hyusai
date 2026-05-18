@@ -47,6 +47,7 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
 
     navigation = client.get("/api/v1/mission-room/navigation")
     cockpit = client.get("/api/v1/mission-room/cockpit")
+    briefing = client.get("/api/v1/mission-room/briefing")
     search = client.get("/api/v1/mission-room/search", params={"q": "Nord"})
 
     assert navigation.status_code == 200
@@ -78,6 +79,9 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert len(cockpit.json()["sixty_second_cockpit"]["urgences"]) == 3
     assert cockpit.json()["strategic_posture"]["label"] in {"stable", "monitoring", "elevated", "critical"}
     assert cockpit.json()["situation_monitor"]["route"] == "/hypervisor/mission-room/monitor"
+    assert briefing.status_code == 200
+    assert any(section["id"] == "visual_cross_check" for section in briefing.json()["sections"])
+    assert briefing.json()["visual_intelligence_brief"]["transcription"]["available"] is False
     assert search.status_code == 200
     assert search.json()["total"] >= 1
 
@@ -224,6 +228,9 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert len(body["presentation_beats"]) == 4
     assert body["voice_context"]["assistant"] == "AYA"
     assert body["voice_context"]["mode"] == "voice_first"
+    assert body["visual_intelligence_brief"]["source_quality"]["label"] == "Basse resolution publique"
+    assert body["visual_intelligence_brief"]["transcription"]["type"] == "visual_snapshot_analysis"
+    assert body["voice_context"]["visual_intelligence_brief"]["question_answered"].startswith("La valeur ajoutee")
     assert body["voice_context"]["demo_script"]["prompt"].startswith("AYA")
     assert body["voice_context"]["decision_packages"][0]["id"] == "package-zone-nord"
     assert body["voice_context"]["rumor_trace"]["headline"] == "Rumeur prioritaire sous verification"

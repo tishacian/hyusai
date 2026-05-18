@@ -1273,37 +1273,56 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     }
 
 
-def briefing_payload(workspace: Workspace) -> dict[str, Any]:
+def briefing_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
+    mapped = map_payload(workspace, db=db)
+    news = news_payload(workspace, db=db)
+    visual = _visual_payload(workspace, db)
+    calendar_summary = calendar_summary_payload(db, workspace) if db else None
+    visual_brief = _visual_intelligence_brief(
+        visual,
+        news,
+        mapped,
+        calendar_summary=calendar_summary,
+        cross_source_signals=[],
+    )
+    sections = [
+        {
+            "id": "situation",
+            "title": "Situation du jour",
+            "content": "La journee combine un conseil restreint, un point presse et un sujet nord prioritaire. Les signaux presse convergent avec un retard projet territorial.",
+            "sources": ["src-cabinet-brief-001", "src-press-rfi-017"],
+        },
+        {
+            "id": "risks",
+            "title": "Risques principaux",
+            "content": "Risque d'amplification mediatique au Nord si aucune action institutionnelle visible n'est annoncee avant la fin de journee.",
+            "sources": ["src-project-sante-042", "src-press-rfi-017"],
+        },
+        {
+            "id": "visual_cross_check",
+            "title": "Lecture visuelle croisee",
+            "content": visual_brief["briefing_insert"],
+            "sources": ["src-visual-intelligence-001", "src-press-rfi-017", "src-map-sentinel-ci-001"],
+        },
+        {
+            "id": "decisions",
+            "title": "Decisions attendues",
+            "content": "Arbitrer une mission terrain non militaire, valider les elements de langage presse et decider d'une relance cabinet sur le projet rouge.",
+            "sources": ["src-agenda-jour-015", "src-project-sante-042"],
+        },
+        {
+            "id": "talking_points",
+            "title": "Elements de langage",
+            "content": "Insister sur la coordination preventive, la continuite des services publics et le suivi transparent des projets territoriaux.",
+            "sources": ["src-cabinet-brief-001"],
+        },
+    ]
     return {
         "workspace": _workspace_meta(workspace),
         "title": "Briefing quotidien vice-présidence",
         "generated_at": datetime.utcnow().isoformat() + "Z",
-        "sections": [
-            {
-                "id": "situation",
-                "title": "Situation du jour",
-                "content": "La journee combine un conseil restreint, un point presse et un sujet nord prioritaire. Les signaux presse convergent avec un retard projet territorial.",
-                "sources": ["src-cabinet-brief-001", "src-press-rfi-017"],
-            },
-            {
-                "id": "risks",
-                "title": "Risques principaux",
-                "content": "Risque d'amplification mediatique au Nord si aucune action institutionnelle visible n'est annoncee avant la fin de journee.",
-                "sources": ["src-project-sante-042", "src-press-rfi-017"],
-            },
-            {
-                "id": "decisions",
-                "title": "Decisions attendues",
-                "content": "Arbitrer une mission terrain non militaire, valider les elements de langage presse et decider d'une relance cabinet sur le projet rouge.",
-                "sources": ["src-agenda-jour-015", "src-project-sante-042"],
-            },
-            {
-                "id": "talking_points",
-                "title": "Elements de langage",
-                "content": "Insister sur la coordination preventive, la continuite des services publics et le suivi transparent des projets territoriaux.",
-                "sources": ["src-cabinet-brief-001"],
-            },
-        ],
+        "sections": sections,
+        "visual_intelligence_brief": visual_brief,
         "actions": [
             {"id": "act-brief-dircab", "label": "Créer instruction Directeur de cabinet", "target": "proj-health-north"},
             {"id": "act-press-lines", "label": "Valider éléments de langage presse", "target": "proj-civic-radio"},
@@ -1427,6 +1446,13 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         action_summary=action_summary,
         action_items=action_items,
     )
+    visual_intelligence_brief = _visual_intelligence_brief(
+        visual,
+        news,
+        mapped,
+        calendar_summary=calendar_summary,
+        cross_source_signals=cross_source_signals,
+    )
     scenario = _scenario_fusion_payload(
         workspace,
         mapped,
@@ -1486,7 +1512,8 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         "layers": layers,
         "panel_layout": _mission_control_panel_layout(layers, news, visual, calendar_summary, cross_source_signals),
         "cross_source_signals": cross_source_signals,
-        "voice_context": _aya_voice_context(scenario, cross_source_signals),
+        "visual_intelligence_brief": visual_intelligence_brief,
+        "voice_context": _aya_voice_context(scenario, cross_source_signals, visual_intelligence_brief),
         "map": mapped.get("map"),
         "map_system": mapped.get("map_system"),
         "zones": zones,
@@ -1719,6 +1746,87 @@ def _cross_source_signals(
     return sorted(rows, key=lambda item: int(item["score"]), reverse=True)
 
 
+def _visual_intelligence_brief(
+    visual: dict[str, Any],
+    news: dict[str, Any],
+    mapped: dict[str, Any],
+    *,
+    calendar_summary: Optional[dict[str, Any]],
+    cross_source_signals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    sources = visual.get("sources") or []
+    active_sources = [source for source in sources if source.get("enabled") and source.get("status") == "active"]
+    primary_source = active_sources[0] if active_sources else (sources[0] if sources else {})
+    metadata = primary_source.get("metadata") or {}
+    latest = visual.get("latest_observation") or {}
+    top_zone = ((mapped.get("score_summary") or {}).get("top_zone") or {})
+    alerts = news.get("executive_alerts") or news.get("signals") or []
+    high_risk = int((news.get("source_health") or {}).get("high_risk") or 0)
+    visual_signal = next((signal for signal in cross_source_signals if signal.get("id") == "visual-activity"), None)
+    next_event = (calendar_summary or {}).get("next_event") or {}
+    quality_label = metadata.get("resolution_label") or "Basse resolution publique"
+    native_hint = metadata.get("native_resolution_hint") or "Snapshot public sous-HD ; le detail fin ne doit pas etre interprete comme preuve."
+    constraints = metadata.get("analysis_constraints") or [
+        "pas d'identification individuelle",
+        "pas de comptage fin fiable",
+        "validation humaine obligatoire",
+    ]
+    reading = latest.get("summary") or (
+        "Aucune capture analysee recente n'est disponible ; la webcam sert de contexte visuel live et doit etre capturee avant conclusion."
+    )
+    latest_reading = {
+        "available": bool(latest),
+        "summary": reading,
+        "vigilance_score": latest.get("vigilance_score") or (visual.get("posture") or {}).get("score"),
+        "confidence": latest.get("confidence"),
+        "provider": latest.get("provider") or "snapshot_context",
+        "created_at": latest.get("created_at"),
+    }
+    briefing_insert = (
+        f"Lecture visuelle : {reading} "
+        f"Qualite source : {quality_label.lower()} ({native_hint}). "
+        f"Croisement utile : {high_risk} signal(aux) presse, zone {top_zone.get('name') or 'non priorisee'}, "
+        f"prochaine contrainte agenda {next_event.get('time') or 'non critique'}. "
+        "AYA peut utiliser cette lecture pour contextualiser un brief, pas pour identifier des personnes ou etablir une preuve detaillee."
+    )
+    if not latest:
+        briefing_insert = (
+            "Aucune observation visuelle analysee recente n'est encore disponible. "
+            f"Les webcams publiques restent exploitables comme contexte macro ({quality_label.lower()}), "
+            "mais AYA doit demander une capture snapshot avant de s'appuyer dessus dans une recommandation."
+        )
+    return {
+        "status": "ready" if active_sources else "configured",
+        "question_answered": "La valeur ajoutee vient de la lecture snapshot + croisement presse/carte/agenda, pas d'une transcription audio webcam.",
+        "transcription": {
+            "available": False,
+            "type": "visual_snapshot_analysis",
+            "label": "Lecture visuelle, pas transcription audio",
+            "reason": "Les sources publiques Abidjan.net/Nest exposees ici ne fournissent pas de piste audio ni de transcript fiable.",
+        },
+        "source_quality": {
+            "label": quality_label,
+            "native_resolution_hint": native_hint,
+            "evidence_grade": metadata.get("evidence_grade") or "macro_context_only",
+            "best_use": metadata.get("best_use") or "Contexte macro : trafic, meteo visible, densite generale.",
+            "constraints": constraints,
+        },
+        "latest_reading": latest_reading,
+        "cross_check": [
+            {"label": "Presse", "value": f"{high_risk} prioritaire(s)", "detail": (alerts[0] or {}).get("title") if alerts else "Aucun signal presse prioritaire"},
+            {"label": "Carte", "value": top_zone.get("name") or "Cote d'Ivoire", "detail": f"{int(top_zone.get('level') or 0)}% vigilance"},
+            {"label": "Agenda", "value": next_event.get("time") or "pas de conflit", "detail": next_event.get("title") or (calendar_summary or {}).get("summary") or "Fenetre a confirmer"},
+        ],
+        "briefing_insert": briefing_insert,
+        "aya_context": [
+            "Preciser que les webcams publiques sont basse resolution et macro-contextuelles.",
+            "Croiser la lecture visuelle avec presse locale, rumeurs, carte et agenda avant recommandation.",
+            "Demander une capture snapshot si la question porte sur une situation terrain actuelle.",
+        ],
+        "recommended_next_step": (visual_signal or {}).get("action_prompt") or "Capturer un snapshot puis demander a AYA une synthese croisee.",
+    }
+
+
 def _scenario_fusion_payload(
     workspace: Workspace,
     mapped: dict[str, Any],
@@ -1790,7 +1898,11 @@ def _mission_control_panel_layout(
     ]
 
 
-def _aya_voice_context(scenario: dict[str, Any], cross_source_signals: list[dict[str, Any]]) -> dict[str, Any]:
+def _aya_voice_context(
+    scenario: dict[str, Any],
+    cross_source_signals: list[dict[str, Any]],
+    visual_intelligence_brief: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     prompts = [
         "AYA, donne-moi la synthese du scenario croise.",
         "AYA, ouvre la camera Pont General-de-Gaulle.",
@@ -1814,6 +1926,7 @@ def _aya_voice_context(scenario: dict[str, Any], cross_source_signals: list[dict
         "presentation_beats": _clone(PRESENTATION_BEATS),
         "decision_packages": _clone(EXECUTIVE_DECISION_PACKAGES),
         "rumor_trace": _clone(RUMOR_TRACE),
+        "visual_intelligence_brief": visual_intelligence_brief or {},
         "commands": [
             {"utterance": prompts[0], "intent": "scenario_brief", "target": scenario.get("id")},
             {"utterance": prompts[1], "intent": "visual_focus", "target": "pont-general-de-gaulle"},

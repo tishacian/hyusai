@@ -716,7 +716,7 @@
 
 .visual-brief {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 7px;
 }
 
@@ -742,6 +742,46 @@
   font-size: 11px;
   line-height: 1.28;
   font-weight: 500;
+}
+
+.visual-intelligence-note {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.visual-intelligence-note article {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(255, 155, 74, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 155, 74, 0.06);
+}
+
+.visual-intelligence-note span,
+.visual-intelligence-note strong,
+.visual-intelligence-note small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.visual-intelligence-note span {
+  color: var(--mc-orange);
+  font-family: var(--ck-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.visual-intelligence-note strong {
+  margin: 4px 0;
+  color: var(--mc-text);
+  font-size: 12px;
+}
+
+.visual-intelligence-note small {
+  color: var(--mc-muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .webcam-sources {
