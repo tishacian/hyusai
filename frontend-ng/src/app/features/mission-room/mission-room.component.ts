@@ -89,6 +89,19 @@ interface Priority {
   tone: string;
 }
 
+interface AttentionRequiredItem {
+  id?: string;
+  rank?: number;
+  title: string;
+  sentence?: string;
+  summary?: string;
+  deadline?: string;
+  status?: string;
+  action_label?: string;
+  tone?: string;
+  kind?: string;
+}
+
 interface AgendaItem {
   id?: string;
   date?: string;
@@ -289,6 +302,19 @@ interface MissionCockpit {
   title: string;
   date_label: string;
   briefing_status: string;
+  decision_sentence?: {
+    label?: string;
+    text: string;
+    deadline?: string;
+    generated_by?: string;
+  };
+  attention_required?: AttentionRequiredItem[];
+  sixty_second_cockpit?: {
+    urgences?: AttentionRequiredItem[];
+    agenda_focus?: AgendaItem[];
+    menace?: { label?: string; score?: number; tone?: string; deadline?: string };
+    reputation?: { score?: number; delta?: number; sentence?: string };
+  };
   priorities: Priority[];
   kpis: Record<string, number | string>;
   threat_trend: number[];
@@ -1043,14 +1069,12 @@ export class MissionRailComponent {
     'presse',
     'decisions',
     'strategie',
-    'pilotage',
   ];
   private readonly railLabelOverrides: Partial<Record<MissionView, string>> = {
     cockpit: 'Priorites',
     monitor: 'Situation live',
     decisions: 'Arbitrages',
     strategie: 'Carte',
-    pilotage: 'Projets',
   };
   private readonly timeFormatter = new Intl.DateTimeFormat('fr-FR', {
     timeZone: this.clockTimeZone,
@@ -1102,7 +1126,6 @@ export class MissionRailComponent {
     RouterLink,
     GlyphComponent,
     MissionRailComponent,
-    MissionMetricCardComponent,
     MissionChartPanelComponent,
     MissionSourcePillComponent,
     MissionControlMonitorComponent,
@@ -1174,213 +1197,100 @@ export class MissionRailComponent {
     </section>
 
     <ng-template #cockpitView>
-      <section class="priorities-grid" aria-label="Priorites du jour">
-        @for (priority of cockpit()?.priorities || []; track priority.id) {
-          <button
-            type="button"
-            class="priority-card"
-            [class.critical]="priority.tone === 'critical'"
-            [class.watch]="priority.tone === 'watch'"
-            (click)="focusPriority(priority)"
-          >
-            <span>{{ priority.kind }}</span>
-            <strong>{{ priority.title }}</strong>
-            <p>{{ priority.summary }}</p>
-            <small>{{ priority.deadline }}</small>
-          </button>
-        }
-      </section>
-
-      <section class="metrics-grid">
-        <app-mission-metric-card label="Alertes presse" [value]="kpi('press_alerts')" caption="signaux prioritaires" tone="critical" />
-        <app-mission-metric-card label="Emails" [value]="kpi('emails')" caption="2 urgents" tone="watch" />
-        <app-mission-metric-card label="Reunions" [value]="kpi('meetings')" caption="prochaine dans 1h46" tone="info" />
-        <app-mission-metric-card label="Veille qualifiee" [value]="kpi('analyzed_articles')" caption="articles analyses" tone="good" />
-        <app-mission-metric-card label="Decisions" [value]="decisions()?.decisions?.length || 0" caption="validation requise" tone="watch" />
-      </section>
-
-      <section class="executive-strip" aria-label="Synthese presse executive">
-        <article class="content-panel executive-brief">
-          <span class="eyebrow">Ce qui a change depuis le dernier briefing</span>
-          <h2>Brief presse priorise</h2>
-          <ul>
-            @for (item of cockpit()?.what_changed || news()?.briefing_note?.bullets || []; track item) {
-              <li>{{ item }}</li>
-            }
-          </ul>
-          <div class="brief-meta">
-            <span>{{ cockpit()?.press_intelligence?.coverage_label || news()?.source_health?.coverage_label || 'Veille qualifiee' }}</span>
-            <span>{{ intelligenceStatusLabel(cockpit()?.press_intelligence?.last_run_status || news()?.source_health?.last_run_status) }}</span>
-          </div>
-        </article>
-        @for (alert of newsAlerts().slice(0, 2); track alert.id) {
-          <article class="content-panel decision-signal">
-            <span class="status-pill" [class]="alert.risk_level">{{ ministerialRisk(alert.risk_level) }}</span>
-            <h3>{{ alert.title }}</h3>
-            <p>{{ alert.impact_ci || alert.summary }}</p>
-            <small>{{ alert.zone || alert.source }} · confiance {{ confidencePct(alert.confidence) }}</small>
-          </article>
-        }
-      </section>
-
-      <section class="situation-strip" aria-label="Situation monitor">
-        <article class="content-panel situation-brief">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">Situation Monitor</span>
-              <h2>{{ postureLabel(cockpit()?.strategic_posture) }}</h2>
-            </div>
-            <a routerLink="/hypervisor/mission-room/monitor" class="action-button compact">
-              <ck-glyph name="crosshair" [size]="14" />
-              <span>Ouvrir Monitor</span>
+      <section class="vp-command-grid" aria-label="Cockpit 60 secondes">
+        <article class="content-panel vp-sentence span-2">
+          <span class="eyebrow">{{ decisionSentence60().label || 'Sentence du jour' }}</span>
+          <h2>{{ decisionSentence60().text }}</h2>
+          <p>{{ decisionSentence60().deadline || 'avant Conseil 15h00' }} · {{ decisionSentence60().generated_by || assistantName() }}</p>
+          <div class="hero-actions">
+            <button type="button" class="action-button primary" (click)="openAssistant('AYA, donne-moi le cockpit 60 secondes pour le Vice-President.')">
+              <ck-glyph name="bolt" [size]="14" />
+              <span>Interroger {{ assistantName() }}</span>
+            </button>
+            <a routerLink="/hypervisor/mission-room/briefing" class="action-button compact">
+              <ck-glyph name="ledger" [size]="14" />
+              <span>Briefing pret</span>
             </a>
           </div>
-          <p>{{ cockpit()?.strategic_posture?.summary || cockpit()?.situation_monitor?.posture?.summary }}</p>
-          <div class="brief-meta">
-            <span>{{ cockpit()?.situation_monitor?.source_freshness?.['news'] || 'Veille qualifiee' }}</span>
-            <span>{{ cockpit()?.situation_monitor?.source_freshness?.['visual'] || 'Flux visuels habilites' }}</span>
-          </div>
         </article>
-        <article class="content-panel situation-zones">
-          <span class="eyebrow">Top zones</span>
-          <div class="mini-zone-list">
-            @for (zone of cockpit()?.situation_monitor?.top_zones || []; track zone.id) {
-              <button type="button" (click)="selectZoneByName(zone.name)">
-                <strong>{{ zone.name }}</strong>
-                <i><b [style.width.%]="zone.level" [class]="zone.tone"></b></i>
-                <span>{{ zone.level }}%</span>
-              </button>
-            }
-          </div>
-        </article>
-        <article class="content-panel situation-map-preview">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">Carte stratégique</span>
-              <h2>Lecture territoriale</h2>
-            </div>
-            <a routerLink="/hypervisor/mission-room/strategie" class="action-button compact">
-              <ck-glyph name="crosshair" [size]="14" />
-              <span>Ouvrir</span>
-            </a>
-          </div>
-          <app-workspace-map
-            [compact]="true"
-            [zones]="missionMap()?.zones || []"
-            [map]="missionMap()?.map || null"
-            [mapSystem]="missionMap()?.map_system || null"
-            [mapState]="mapCommandState()"
-            [selectedZoneId]="selectedZone()?.id || null"
-            (zoneSelected)="selectZone($event)"
-          />
-        </article>
-        <article class="content-panel situation-visual">
-          <span class="eyebrow">Observation visuelle</span>
-          <strong>{{ cockpit()?.situation_monitor?.visual?.level_label || 'monitoring' }}</strong>
-          <p>{{ cockpit()?.situation_monitor?.visual?.summary || 'Aucune observation visuelle critique ne modifie la posture executive.' }}</p>
-        </article>
-      </section>
 
-      <section class="cockpit-grid">
-        <app-mission-chart-panel eyebrow="Niveau de menace" title="7 derniers jours">
-          <svg class="line-chart" viewBox="0 0 520 190" preserveAspectRatio="none">
-            <path class="area danger" [attr.d]="trendArea(cockpit()?.threat_trend || [])"></path>
-            <path class="line danger" [attr.d]="trendPath(cockpit()?.threat_trend || [])"></path>
-            <path class="line muted" d="M20 145 L500 145"></path>
-          </svg>
-        </app-mission-chart-panel>
-
-        <app-mission-chart-panel eyebrow="Flux communications" title="Aujourd'hui">
-          <div class="bar-chart">
-            @for (bar of cockpit()?.communications_flow || []; track bar.hour) {
-              <div class="bar-col">
-                <div class="bar-pair">
-                  <span class="bar primary" [style.height.%]="barHeight(bar.institutional)"></span>
-                  <span class="bar grey" [style.height.%]="barHeight(bar.press)"></span>
-                </div>
-                <small>{{ bar.hour }}</small>
-              </div>
-            }
-          </div>
-        </app-mission-chart-panel>
-
-        <app-mission-chart-panel eyebrow="Etat ops" title="Disponibilite">
-          <div class="ops-panel">
-            <div class="donut" [style.--value]="kpiNumber('ops_operational_pct')">
-              <strong>{{ kpi('ops_operational_pct') }}%</strong>
-              <span>operationnel</span>
-            </div>
-            <div class="legend">
-              <span><i class="good"></i> Operationnel {{ kpi('ops_operational_pct') }}%</span>
-              <span><i class="watch"></i> En alerte {{ kpi('ops_watch_pct') }}%</span>
-              <span><i class="critical"></i> Critique {{ kpi('ops_critical_pct') }}%</span>
-            </div>
-          </div>
-        </app-mission-chart-panel>
-
-        <app-mission-chart-panel eyebrow="Zones de surveillance" title="Niveaux d'alerte">
-          <div class="zone-bars">
-            @for (zone of cockpit()?.zones || []; track zone.name) {
-              <button type="button" (click)="selectZoneByName(zone.name)">
-                <span>{{ zone.name }}</span>
-                <i><b [style.width.%]="zone.level" [class]="zone.tone"></b></i>
-                <strong>{{ zone.level }}%</strong>
-              </button>
-            }
-          </div>
-        </app-mission-chart-panel>
-
-        <app-mission-chart-panel eyebrow="E-Reputation" title="Sentiment medias" [value]="reputationValue()">
-          <svg class="line-chart" viewBox="0 0 520 190" preserveAspectRatio="none">
-            <path class="line good" [attr.d]="trendPath(cockpit()?.reputation?.trend || [])"></path>
-            <path class="line muted" d="M20 120 L500 120"></path>
-            <path class="line danger soft" d="M20 150 L130 155 L240 142 L340 158 L500 146"></path>
-          </svg>
-        </app-mission-chart-panel>
-
-        <app-mission-chart-panel eyebrow="Veille mediatique" title="Sources & alertes">
-          <div class="source-bars">
-            @for (source of cockpit()?.media_sources || []; track source.label) {
-              <div>
-                <span>{{ source.label }}</span>
-                <i><b [style.width.%]="source.coverage"></b></i>
-                <strong>{{ source.coverage }}%</strong>
-                <small>{{ source.count }}</small>
-              </div>
-            }
-          </div>
-          <ul class="compact-list">
-            @for (alert of cockpit()?.latest_alerts || []; track alert.id) {
-              <li>{{ alert.title }}</li>
-            }
-          </ul>
-        </app-mission-chart-panel>
-
-        <app-mission-chart-panel eyebrow="Agenda" title="Aujourd'hui - 5">
-          <ol class="agenda-list">
-            @for (item of cockpit()?.agenda || []; track item.time) {
-              <li [class]="item.tone">
-                <time>{{ item.time }}</time>
-                <div>
-                  <strong>{{ item.title }}</strong>
-                  <span>{{ item.location }}</span>
-                </div>
-              </li>
-            }
-          </ol>
-        </app-mission-chart-panel>
-
-        <app-mission-chart-panel eyebrow="Mots-cles" title="Tendances de recherche">
-          <div class="keyword-grid">
-            @for (kw of cockpit()?.keywords || []; track kw.label) {
-              <article>
-                <span>{{ kw.label }}</span>
-                <strong>{{ kw.count }}</strong>
-                <small [class.down]="kw.delta < 0">{{ kw.delta > 0 ? '+' : '' }}{{ kw.delta }}%</small>
+        <article class="content-panel vp-snapshot">
+          <span class="eyebrow">Lecture debout</span>
+          @if (sixtySecondCockpit(); as sixty) {
+            <div class="vp-snapshot-grid">
+              <article [class]="attentionTone({ tone: sixty.menace?.tone || 'critical', title: 'menace' })">
+                <span>Menace</span>
+                <strong>{{ sixty.menace?.label || 'Zone Nord' }}</strong>
+                <small>{{ sixty.menace?.score || cockpit()?.strategic_posture?.score || 0 }}% · {{ sixty.menace?.deadline || '15:00' }}</small>
               </article>
-            }
+              <article class="stable">
+                <span>Reputation</span>
+                <strong>{{ sixty.reputation?.score || cockpit()?.reputation?.score || 0 }}/100</strong>
+                <small>{{ sixty.reputation?.sentence || 'Un sujet necessite attention, le reste est gerable.' }}</small>
+              </article>
+              @if (agendaFocus60(); as event) {
+                <article class="watch">
+                  <span>Agenda</span>
+                  <strong>{{ event.time }} · {{ event.title }}</strong>
+                  <small>{{ event.location }}</small>
+                </article>
+              }
+            </div>
+          }
+        </article>
+      </section>
+
+      <section class="vp-urgencies" aria-label="Attention requise">
+        <div class="panel-heading-row">
+          <div>
+            <span class="eyebrow">Attention requise</span>
+            <h2>3 sujets ce matin</h2>
           </div>
-        </app-mission-chart-panel>
+          <a routerLink="/hypervisor/mission-room/decisions" class="action-button compact">
+            <ck-glyph name="check" [size]="14" />
+            <span>Arbitrages</span>
+          </a>
+        </div>
+        <div class="priorities-grid">
+          @for (item of attentionItems60(); track item.id || item.title; let idx = $index) {
+            <button
+              type="button"
+              class="priority-card"
+              [class.critical]="attentionTone(item) === 'critical'"
+              [class.watch]="attentionTone(item) === 'watch'"
+              (click)="openAttentionItem(item)"
+            >
+              <span>{{ item.rank || idx + 1 }} · {{ item.status || 'a traiter' }}</span>
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.sentence || item.summary }}</p>
+              <small>{{ item.deadline || 'ce matin' }}</small>
+              <i>{{ attentionActionLabel(item) }}</i>
+            </button>
+          }
+        </div>
+      </section>
+
+      <section class="vp-operating-strip" aria-label="Drill-down demo">
+        <a routerLink="/hypervisor/mission-room/monitor" class="content-panel vp-capability-card">
+          <span>Preuve terrain</span>
+          <strong>Carte + webcam + signaux</strong>
+          <small>Verifier la Zone Nord et localiser les vues actives.</small>
+        </a>
+        <a routerLink="/hypervisor/mission-room/presse" class="content-panel vp-capability-card">
+          <span>Presse et rumeurs</span>
+          <strong>CI / CEDEAO / international</strong>
+          <small>Identifier l'origine, la propagation et la reponse recommandee.</small>
+        </a>
+        <a routerLink="/hypervisor/mission-room/decisions" class="content-panel vp-capability-card">
+          <span>Arbitrage humain</span>
+          <strong>Instruction preparee</strong>
+          <small>Valider, amender ou ajourner sous controle cabinet.</small>
+        </a>
+        <a routerLink="/hypervisor/mission-room/strategie" class="content-panel vp-capability-card">
+          <span>Carte souveraine</span>
+          <strong>Lecture territoriale</strong>
+          <small>Etendre la lecture Cote d'Ivoire, CEDEAO et Golfe de Guinee.</small>
+        </a>
       </section>
     </ng-template>
 
@@ -1402,6 +1312,27 @@ export class MissionRailComponent {
             </div>
           </article>
         }
+        <article class="content-panel span-2 project-risk-brief">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Risques projets</span>
+              <h3>Impact direct sur les decisions du jour</h3>
+            </div>
+            <a routerLink="/hypervisor/mission-room/decisions" class="action-button compact">
+              <ck-glyph name="check" [size]="14" />
+              <span>Arbitrer</span>
+            </a>
+          </div>
+          <div class="project-risk-grid">
+            @for (project of projectDecisionRisks(); track project.id) {
+              <article [class]="project.weather">
+                <strong>{{ project.name }}</strong>
+                <span>{{ project.weather }} · {{ project.progress }}% vs {{ project.expected }}%</span>
+                <small>{{ project.risk }}</small>
+              </article>
+            }
+          </div>
+        </article>
         <article class="content-panel action-panel">
           <h3>Actions proposees</h3>
           @for (action of briefing()?.actions || []; track action.id) {
@@ -1949,6 +1880,15 @@ export class MissionRailComponent {
               </article>
             }
           </div>
+          <div class="project-risk-list">
+            <span class="eyebrow">Projets integres</span>
+            @for (project of projectDecisionRisks(); track project.id) {
+              <button type="button" (click)="draftForProject(project)">
+                <strong>{{ project.name }}</strong>
+                <small>{{ project.risk }}</small>
+              </button>
+            }
+          </div>
         </article>
         <article class="content-panel selected-detail span-2">
           @if (draft(); as draftValue) {
@@ -2345,24 +2285,35 @@ export class MissionRailComponent {
         line-height: 1.45;
       }
       .priority-card small { color: var(--mission-text-muted); }
-      .metrics-grid {
+      .priority-card i {
+        display: inline-flex;
+        margin-top: 12px;
+        color: var(--mission-orange);
+        font-style: normal;
+        font-weight: 650;
+      }
+      .vp-command-grid {
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.75fr);
         gap: 14px;
         margin-bottom: 14px;
       }
-      .cockpit-grid {
-        display: grid;
-        grid-template-columns: repeat(12, minmax(0, 1fr));
-        gap: 14px;
+      .vp-sentence h2 {
+        max-width: 1100px;
+        margin: 10px 0 8px;
+        color: var(--mission-text);
+        font-size: clamp(28px, 3.4vw, 46px);
+        line-height: 1.04;
+        font-weight: 700;
       }
-      .executive-strip {
-        display: grid;
-        grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr));
-        gap: 14px;
-        margin: 0 0 14px;
+      .vp-sentence p {
+        margin: 0 0 18px;
+        color: var(--mission-text-muted);
       }
-      .executive-brief ul,
+      .vp-snapshot-grid {
+        display: grid;
+        gap: 9px;
+      }
       .now-panel ul,
       .language-list {
         margin: 12px 0 0;
@@ -2370,7 +2321,6 @@ export class MissionRailComponent {
         color: var(--mission-text-soft);
         line-height: 1.55;
       }
-      .executive-brief li,
       .now-panel li,
       .language-list li {
         margin: 7px 0;
@@ -2389,83 +2339,61 @@ export class MissionRailComponent {
         color: var(--mission-text-muted);
         font-size: 12px;
       }
-      .decision-signal h3 {
-        margin: 10px 0 8px;
-      }
-      .decision-signal p {
-        color: var(--mission-text-soft);
-        line-height: 1.45;
-      }
-      .situation-strip {
-        display: grid;
-        grid-template-columns: minmax(0, 1.1fr) minmax(240px, 0.7fr) minmax(320px, 1fr) minmax(240px, 0.72fr);
-        gap: 14px;
-        margin: 0 0 14px;
-      }
-      .situation-brief p,
-      .situation-visual p {
-        margin: 8px 0 0;
-      }
-      .situation-visual strong {
-        display: inline-flex;
-        margin-top: 10px;
-        color: var(--mission-accent);
-        font-family: var(--ck-font-mono);
-        font-size: 12px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-      .situation-map-preview app-workspace-map {
-        display: block;
-        margin-top: 12px;
-      }
-      .mini-zone-list {
-        display: grid;
-        gap: 8px;
-        margin-top: 12px;
-      }
-      .mini-zone-list button {
+      .vp-snapshot-grid article {
         min-width: 0;
-        display: grid;
-        grid-template-columns: 82px minmax(0, 1fr) 42px;
-        gap: 9px;
-        align-items: center;
-        padding: 9px;
+        padding: 12px;
         border: 1px solid var(--mission-border);
+        border-left: 3px solid var(--mission-trust);
         border-radius: var(--mission-radius);
         background: var(--mission-inset);
-        color: var(--mission-text-soft);
-        text-align: left;
-        cursor: pointer;
       }
-      .mini-zone-list.side button.active,
-      .mini-zone-list button:hover {
-        border-color: var(--mission-border-strong);
-        background: var(--mission-accent-wash);
-      }
-      .mini-zone-list i {
-        height: 6px;
-        overflow: hidden;
-        border-radius: 999px;
-        background: rgba(156, 184, 212, 0.12);
-      }
-      .mini-zone-list b {
+      .vp-snapshot-grid article.critical { border-left-color: var(--mission-danger); }
+      .vp-snapshot-grid article.watch { border-left-color: var(--mission-warn); }
+      .vp-snapshot-grid span,
+      .vp-capability-card span {
         display: block;
-        height: 100%;
-        border-radius: inherit;
-        background: var(--mission-accent);
+        color: var(--mission-text-muted);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
       }
-      .mini-zone-list b.critical { background: var(--mission-danger); }
-      .mini-zone-list b.watch { background: var(--mission-warn); }
-      .mini-zone-list b.stable { background: var(--mission-trust); }
-      .cockpit-grid > *:nth-child(1),
-      .cockpit-grid > *:nth-child(2),
-      .cockpit-grid > *:nth-child(5),
-      .cockpit-grid > *:nth-child(6) { grid-column: span 6; }
-      .cockpit-grid > *:nth-child(3),
-      .cockpit-grid > *:nth-child(7) { grid-column: span 4; }
-      .cockpit-grid > *:nth-child(4),
-      .cockpit-grid > *:nth-child(8) { grid-column: span 8; }
+      .vp-snapshot-grid strong,
+      .vp-snapshot-grid small {
+        display: block;
+        overflow-wrap: anywhere;
+      }
+      .vp-snapshot-grid strong {
+        margin: 5px 0 3px;
+        color: var(--mission-text);
+      }
+      .vp-snapshot-grid small {
+        color: var(--mission-text-muted);
+        line-height: 1.35;
+      }
+      .vp-urgencies {
+        margin-bottom: 14px;
+      }
+      .vp-operating-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+      }
+      .vp-capability-card {
+        display: block;
+        min-height: 132px;
+        text-decoration: none;
+      }
+      .vp-capability-card strong {
+        display: block;
+        margin: 8px 0;
+        color: var(--mission-text);
+        font-size: 17px;
+      }
+      .vp-capability-card small {
+        color: var(--mission-text-muted);
+        line-height: 1.4;
+      }
       .line-chart {
         width: 100%;
         min-height: 150px;
@@ -3024,6 +2952,59 @@ export class MissionRailComponent {
         flex-direction: column;
         gap: 10px;
       }
+      .project-risk-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .project-risk-grid article {
+        min-width: 0;
+        padding: 11px;
+        border: 1px solid var(--mission-border);
+        border-left: 3px solid var(--mission-warn);
+        border-radius: var(--mission-radius);
+        background: var(--mission-inset);
+      }
+      .project-risk-grid article.red { border-left-color: var(--mission-danger); }
+      .project-risk-grid strong,
+      .project-risk-grid span,
+      .project-risk-grid small {
+        display: block;
+        overflow-wrap: anywhere;
+      }
+      .project-risk-grid span {
+        margin: 5px 0;
+        color: var(--mission-orange);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        text-transform: uppercase;
+      }
+      .project-risk-grid small {
+        color: var(--mission-text-muted);
+        line-height: 1.35;
+      }
+      .project-risk-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .project-risk-list button {
+        display: grid;
+        gap: 4px;
+        width: 100%;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-inset);
+        color: var(--mission-text);
+        padding: 10px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .project-risk-list small {
+        color: var(--mission-text-muted);
+        line-height: 1.35;
+      }
       .project-summary span,
       .option-list span,
       .collection-list span,
@@ -3312,11 +3293,9 @@ export class MissionRailComponent {
       @media (max-width: 1200px) {
         .mission-shell { grid-template-columns: 200px minmax(0, 1fr); }
         .mission-main { padding: 24px; }
-        .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-        .executive-strip,
-        .situation-strip,
+        .vp-command-grid,
+        .vp-operating-strip,
         .executive-alert-grid { grid-template-columns: 1fr; }
-        .cockpit-grid > * { grid-column: span 12 !important; }
         .two-column, .ministerial-news, .map-layout, .agenda-workbench, .agenda-command { grid-template-columns: 1fr; }
         .agenda-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .linked-action-strip,
@@ -3330,7 +3309,9 @@ export class MissionRailComponent {
         .mission-main { padding: 20px 14px; }
         .mission-hero,
         .priorities-grid,
-        .metrics-grid,
+        .vp-command-grid,
+        .vp-operating-strip,
+        .project-risk-grid,
         .search-form {
           grid-template-columns: 1fr;
           display: grid;
@@ -3395,7 +3376,6 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     { key: 'presse', label: 'Presse', glyph: 'pulse', route: '/hypervisor/mission-room/presse', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
     { key: 'decisions', label: 'Arbitrages', glyph: 'check', route: '/hypervisor/mission-room/decisions', api: '/api/v1/mission-room/decisions', object: 'Review Queue', workbench: 'Review Queue' },
     { key: 'strategie', label: 'Carte', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'pilotage', label: 'Projets', glyph: 'telemetry', route: '/hypervisor/mission-room/pilotage', api: '/api/v1/mission-room/projects', object: 'System', workbench: 'System' },
   ];
 
   readonly currentView = computed<MissionView>(() => {
@@ -3516,6 +3496,65 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return payload?.executive_alerts?.length ? payload.executive_alerts : payload?.signals || [];
   }
 
+  decisionSentence60(): NonNullable<MissionCockpit['decision_sentence']> {
+    return this.cockpit()?.decision_sentence || {
+      label: 'Sentence du jour',
+      text: 'M. le Vice-President, votre priorite absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
+      deadline: 'avant Conseil 15h00',
+      generated_by: this.assistantName(),
+    };
+  }
+
+  sixtySecondCockpit(): NonNullable<MissionCockpit['sixty_second_cockpit']> {
+    return this.cockpit()?.sixty_second_cockpit || {};
+  }
+
+  attentionItems60(): AttentionRequiredItem[] {
+    const direct = this.cockpit()?.attention_required;
+    const sixty = this.cockpit()?.sixty_second_cockpit?.urgences;
+    const priorities = (this.cockpit()?.priorities || []).map((priority) => ({
+      id: priority.id,
+      title: priority.title,
+      sentence: priority.summary,
+      deadline: priority.deadline,
+      kind: priority.kind,
+      tone: priority.tone,
+    }));
+    return (direct?.length ? direct : sixty?.length ? sixty : priorities).slice(0, 3);
+  }
+
+  attentionTone(item: AttentionRequiredItem): string {
+    const raw = `${item.tone || ''} ${item.status || ''}`.toLowerCase();
+    if (raw.includes('critical') || raw.includes('critique')) return 'critical';
+    if (raw.includes('watch') || raw.includes('attente') || raw.includes('pret') || raw.includes('ready')) return 'watch';
+    return 'stable';
+  }
+
+  attentionActionLabel(item: AttentionRequiredItem): string {
+    return item.action_label || 'Ouvrir action';
+  }
+
+  agendaFocus60(): AgendaItem | null {
+    return this.cockpit()?.sixty_second_cockpit?.agenda_focus?.[0] || this.cockpit()?.agenda?.[0] || null;
+  }
+
+  openAttentionItem(item: AttentionRequiredItem): void {
+    const target = `${item.id || ''} ${item.title || ''} ${item.sentence || ''}`.toLowerCase();
+    if (target.includes('article') || target.includes('inter') || target.includes('presse') || target.includes('critique')) {
+      this.router.navigateByUrl('/hypervisor/mission-room/presse');
+      return;
+    }
+    if (target.includes('nord') || target.includes('frontiere') || target.includes('burkina')) {
+      this.focusZoneInMonitor('Nord');
+      return;
+    }
+    if (target.includes('ambassadeur') || target.includes('agenda') || target.includes('dejeuner')) {
+      this.router.navigateByUrl('/hypervisor/mission-room/agenda');
+      return;
+    }
+    this.router.navigateByUrl('/hypervisor/mission-room/decisions');
+  }
+
   ministerialRisk(level: string): string {
     const normalized = (level || '').toLowerCase();
     if (normalized === 'critical' || normalized === 'high') return 'prioritaire';
@@ -3628,8 +3667,26 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.router.navigateByUrl('/hypervisor/mission-room/strategie');
   }
 
+  focusZoneInMonitor(name: string): void {
+    const zone = (this.missionMap()?.zones || this.monitor()?.zones || []).find((item) => item.name === name);
+    if (zone) this.selectedZone.set(zone);
+    this.mapCommandState.set({
+      preset: 'zone',
+      zone: name,
+      zoom: 'territory',
+      highlight: true,
+    });
+    this.router.navigateByUrl('/hypervisor/mission-room/monitor');
+  }
+
   selectProject(project: Project): void {
     this.selectedProject.set(project);
+  }
+
+  projectDecisionRisks(): Project[] {
+    return (this.projects()?.projects || [])
+      .filter((project) => project.weather === 'red' || project.weather === 'orange')
+      .slice(0, 3);
   }
 
   focusPriority(priority: Priority): void {
@@ -3638,11 +3695,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       return;
     }
     if (priority.id === 'prio-security-north') {
-      this.selectZoneByName('Nord');
+      this.focusZoneInMonitor('Nord');
       return;
     }
     if (priority.kind === 'mail') {
-      this.router.navigateByUrl('/hypervisor/mission-room/messages');
+      this.router.navigateByUrl('/hypervisor/mission-room/decisions');
       return;
     }
     this.router.navigateByUrl('/hypervisor/mission-room/agenda');

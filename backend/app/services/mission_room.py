@@ -52,21 +52,13 @@ MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
 
 
 NAVIGATION_ITEMS = [
-    {"key": "cockpit", "label": "Cockpit", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
-    {"key": "monitor", "label": "Monitor", "glyph": "crosshair", "variant": "scenario_fusion_monitor", "object": "Workbench"},
+    {"key": "cockpit", "label": "Priorites", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
+    {"key": "monitor", "label": "Situation live", "glyph": "crosshair", "variant": "scenario_fusion_monitor", "object": "Workbench"},
     {"key": "briefing", "label": "Briefing", "glyph": "ledger", "variant": "ministerial_daily_briefing", "object": "Workbench"},
-    {"key": "pilotage", "label": "Pilotage", "glyph": "telemetry", "variant": "strategic_project_pilotage", "object": "System"},
     {"key": "agenda", "label": "Agenda", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
-    {"key": "messages", "label": "Messages", "glyph": "layers", "variant": "government_mission_room", "object": "Workbench"},
-    {"key": "bibliotheque", "label": "Bibliotheque", "glyph": "cube", "variant": "government_mission_room", "object": "Knowledge"},
-    {"key": "projets", "label": "Projets", "glyph": "flow", "variant": "strategic_project_pilotage", "object": "System"},
     {"key": "presse", "label": "Presse", "glyph": "pulse", "variant": "intelligence", "object": "Run"},
-    {"key": "reputation", "label": "E-Reputation", "glyph": "focus", "variant": "intelligence", "object": "Run"},
-    {"key": "veille", "label": "Veille", "glyph": "crosshair", "variant": "intelligence", "object": "Run"},
-    {"key": "decisions", "label": "Decisions", "glyph": "check", "variant": "executive_instruction_drafting", "object": "Review Queue"},
-    {"key": "strategie", "label": "Strategie", "glyph": "sliders", "variant": "territorial_action_map", "object": "Workbench"},
-    {"key": "recherche", "label": "Recherche", "glyph": "zoom-in", "variant": "government_mission_room", "object": "Knowledge"},
-    {"key": "assistant", "label": "Assistant", "glyph": "bolt", "variant": "government_mission_room", "object": "Workbench"},
+    {"key": "decisions", "label": "Arbitrages", "glyph": "check", "variant": "executive_instruction_drafting", "object": "Review Queue"},
+    {"key": "strategie", "label": "Carte", "glyph": "sliders", "variant": "territorial_action_map", "object": "Workbench"},
 ]
 
 

@@ -53,9 +53,29 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert navigation.json()["app"]["default_view"] == "cockpit"
     assert navigation.json()["app"]["assistant_label"] == "AYA"
     assert navigation.json()["items"][0]["route"] == "/hypervisor/mission-room/cockpit"
-    assert any(item["key"] == "monitor" for item in navigation.json()["items"])
+    assert [item["key"] for item in navigation.json()["items"]] == [
+        "cockpit",
+        "monitor",
+        "briefing",
+        "agenda",
+        "presse",
+        "decisions",
+        "strategie",
+    ]
+    assert [item["label"] for item in navigation.json()["items"]] == [
+        "Priorites",
+        "Situation live",
+        "Briefing",
+        "Agenda",
+        "Presse",
+        "Arbitrages",
+        "Carte",
+    ]
     assert cockpit.status_code == 200
     assert cockpit.json()["layout"]["variant"] == "executive_grid"
+    assert cockpit.json()["decision_sentence"]["text"].startswith("M. le Vice-Président")
+    assert len(cockpit.json()["attention_required"]) == 3
+    assert len(cockpit.json()["sixty_second_cockpit"]["urgences"]) == 3
     assert cockpit.json()["strategic_posture"]["label"] in {"stable", "monitoring", "elevated", "critical"}
     assert cockpit.json()["situation_monitor"]["route"] == "/hypervisor/mission-room/monitor"
     assert search.status_code == 200
@@ -159,6 +179,7 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     timeline = client.get("/api/v1/mission-room/timeline")
     decisions = client.get("/api/v1/mission-room/decisions")
     library = client.get("/api/v1/mission-room/library")
+    projects = client.get("/api/v1/mission-room/projects")
 
     assert timeline.status_code == 200
     assert timeline.json()["workspace"]["slug"] == workspace.slug
@@ -173,6 +194,8 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     assert library.status_code == 200
     assert "sentinel-ci-projects" in library.json()["collections"]
     assert "sentinel-ci-visual-intelligence" in library.json()["collections"]
+    assert projects.status_code == 200
+    assert projects.json()["projects"][0]["name"]
 
 
 def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):

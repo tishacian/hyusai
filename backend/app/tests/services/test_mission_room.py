@@ -39,7 +39,15 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["workspace_app_default_view"] == "cockpit"
     assert workspace.settings["hide_provider_details"] is True
     assert workspace.settings["mission_room"]["label"] == "AYA"
-    assert len(workspace.settings["mission_room"]["navigation"]) >= 10
+    assert [item["key"] for item in workspace.settings["mission_room"]["navigation"]] == [
+        "cockpit",
+        "monitor",
+        "briefing",
+        "agenda",
+        "presse",
+        "decisions",
+        "strategie",
+    ]
     assert workspace.settings["assistant_profile_default"] == "vigie_executive"
     assert workspace.settings["assistant_profiles"][0]["default_knowledge_scope"] == "vigie"
     assert workspace.settings["calendar"]["connector_id"] == "institutional_calendar"
@@ -151,10 +159,9 @@ def test_mission_room_navigation_prefers_workspace_intelligence_system(db_sessio
 
     payload = navigation_payload(db_session, workspace)
     presse = next(item for item in payload["items"] if item["key"] == "presse")
-    veille = next(item for item in payload["items"] if item["key"] == "veille")
 
     assert presse["system_name"] == "Veille Presse & Signaux Faibles"
-    assert veille["system_id"] == presse["system_id"]
+    assert "veille" not in {item["key"] for item in payload["items"]}
 
 
 def test_rag_preset_resolver_does_not_borrow_other_workspace_defaults(db_session):
