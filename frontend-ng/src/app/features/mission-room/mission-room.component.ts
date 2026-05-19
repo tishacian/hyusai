@@ -14,8 +14,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { forkJoin } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { forkJoin, of } from 'rxjs';
+import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
@@ -3465,8 +3465,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   newAgendaStart = '2026-04-15T09:45';
   newAgendaLocation = 'Cabinet vice-presidence';
   private readonly visualObjectUrls: string[] = [];
-  private readonly calendarUpdateListener = () => this.loadAll();
-  private readonly workspaceActionUpdateListener = () => this.loadAll();
+  private readonly calendarUpdateListener = () => this.loadAll(false);
+  private readonly workspaceActionUpdateListener = () => this.loadAll(false);
   private readonly mapCommandListener = (event: Event) => {
     const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
     const target = String(detail['target'] || (detail['map_state'] as any)?.selected_zone || '');
@@ -3545,42 +3545,62 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.visualObjectUrls.length = 0;
   }
 
-  private loadAll(): void {
+  private loadAll(showSpinner = true): void {
+    if (showSpinner) this.loading.set(true);
     forkJoin({
       navigation: this.api.get<MissionNavigation>('/mission-room/navigation'),
       cockpit: this.api.get<MissionCockpit>('/mission-room/cockpit'),
-      briefing: this.api.get<MissionBriefing>('/mission-room/briefing'),
-      projects: this.api.get<MissionProjects>('/mission-room/projects'),
-      missionMap: this.api.get<MissionMap>('/mission-room/map'),
-      monitor: this.api.get<MissionMonitor>('/mission-room/monitor'),
-      news: this.api.get<MissionNews>('/mission-room/news'),
-      timeline: this.api.get<MissionTimeline>('/mission-room/timeline'),
-      decisions: this.api.get<MissionDecisions>('/mission-room/decisions'),
-      library: this.api.get<MissionLibrary>('/mission-room/library'),
-      search: this.api.get<MissionSearch>('/mission-room/search', { q: '' }),
     }).subscribe({
-      next: ({ navigation, cockpit, briefing, projects, missionMap, monitor, news, timeline, decisions, library, search }) => {
+      next: ({ navigation, cockpit }) => {
         this.navigation.set(navigation);
         this.cockpit.set(cockpit);
-        this.briefing.set(briefing);
+        this.loading.set(false);
+        this.loadMissionRoomDetails();
+      },
+      error: () => this.loading.set(false),
+    });
+  }
+
+  private loadMissionRoomDetails(): void {
+    forkJoin({
+      briefing: this.api.get<MissionBriefing>('/mission-room/briefing').pipe(catchError(() => of(null))),
+      projects: this.api.get<MissionProjects>('/mission-room/projects').pipe(catchError(() => of(null))),
+      missionMap: this.api.get<MissionMap>('/mission-room/map').pipe(catchError(() => of(null))),
+      monitor: this.api.get<MissionMonitor>('/mission-room/monitor').pipe(catchError(() => of(null))),
+      news: this.api.get<MissionNews>('/mission-room/news').pipe(catchError(() => of(null))),
+      timeline: this.api.get<MissionTimeline>('/mission-room/timeline').pipe(catchError(() => of(null))),
+      decisions: this.api.get<MissionDecisions>('/mission-room/decisions').pipe(catchError(() => of(null))),
+      library: this.api.get<MissionLibrary>('/mission-room/library').pipe(catchError(() => of(null))),
+      search: this.api.get<MissionSearch>('/mission-room/search', { q: '' }).pipe(catchError(() => of(null))),
+    }).subscribe(({ briefing, projects, missionMap, monitor, news, timeline, decisions, library, search }) => {
+      if (briefing) this.briefing.set(briefing);
+      if (projects) {
         this.projects.set(projects);
+        const current = this.selectedProject();
+        const stillVisible = current?.id ? projects.projects.find((item) => item.id === current.id) : null;
+        this.selectedProject.set(stillVisible || projects.projects[0] || null);
+      }
+      if (missionMap) {
         this.missionMap.set(missionMap);
+        const current = this.selectedZone();
+        const stillVisible = current?.id ? missionMap.zones.find((item) => item.id === current.id) : null;
+        this.selectedZone.set(stillVisible || missionMap.zones[0] || null);
+      }
+      if (monitor) {
         this.monitor.set(monitor);
-        this.news.set(news);
+        this.hydrateVisualCaptureImages(monitor);
+      }
+      if (news) this.news.set(news);
+      if (timeline) {
         this.timeline.set(timeline);
-        this.decisions.set(decisions);
-        this.library.set(library);
-        this.search.set(search);
-        this.selectedProject.set(projects.projects[0] || null);
-        this.selectedZone.set(missionMap.zones[0] || null);
         const currentAgenda = this.selectedAgendaEvent();
         const agenda = timeline.agenda || [];
         const stillVisible = currentAgenda?.id ? agenda.find((item) => item.id === currentAgenda.id) : null;
         this.selectedAgendaEvent.set(stillVisible || agenda.find((item) => item.status !== 'cancelled') || agenda[0] || null);
-        this.hydrateVisualCaptureImages(monitor);
-        this.loading.set(false);
-      },
-      error: () => this.loading.set(false),
+      }
+      if (decisions) this.decisions.set(decisions);
+      if (library) this.library.set(library);
+      if (search) this.search.set(search);
     });
   }
 
