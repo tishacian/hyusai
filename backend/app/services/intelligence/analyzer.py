@@ -57,6 +57,7 @@ class SemanticAnalyzer:
     def __init__(self):
         self._llm = None
         self._embedder = None
+        self._target_embedding_cache: dict[str, list[float]] = {}
 
     def _get_llm(self):
         if self._llm is None:
@@ -75,7 +76,10 @@ class SemanticAnalyzer:
         try:
             embedder = self._get_embedder()
             emb_article = await embedder.embed(article_text[:1000])
-            emb_target = await embedder.embed(target_description)
+            emb_target = self._target_embedding_cache.get(target_description)
+            if emb_target is None:
+                emb_target = await embedder.embed(target_description)
+                self._target_embedding_cache[target_description] = emb_target
             dot = sum(a * b for a, b in zip(emb_article, emb_target))
             norm_a = sum(a ** 2 for a in emb_article) ** 0.5
             norm_b = sum(b ** 2 for b in emb_target) ** 0.5

@@ -11,7 +11,7 @@ _scheduler_started = False
 _stop_event = threading.Event()
 _thread = None
 
-DEFAULT_INTERVAL_SECONDS = 3600  # 1 hour
+DEFAULT_INTERVAL_SECONDS = 43200  # 12 hours
 
 
 def _run_batch_sync():

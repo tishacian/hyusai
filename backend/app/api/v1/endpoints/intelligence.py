@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.config import settings
 from app.db.base import SessionLocal, get_db
 from app.models.intelligence import FeedSource, SemanticTarget, SafetyFilter
 from app.models.run import Run, SkillInvocation
@@ -386,4 +387,11 @@ async def dashboard(
 @router.get("/scheduler")
 async def scheduler_status():
     from app.services.intelligence.scheduler import is_running
-    return {"running": is_running(), "interval_seconds": 3600}
+    return {
+        "running": is_running(),
+        "enabled": settings.intelligence_scheduler_enabled,
+        "interval_seconds": settings.intelligence_scheduler_interval_seconds,
+        "max_articles": settings.intelligence_batch_max_articles,
+        "retry_skipped": settings.intelligence_batch_retry_skipped,
+        "safety_check_enabled": settings.intelligence_batch_safety_check_enabled,
+    }

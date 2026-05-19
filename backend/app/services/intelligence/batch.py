@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from typing import AsyncGenerator
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
 
@@ -208,7 +209,16 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
         total_articles = 0
         analyzed = 0
 
-        yield {"type": "batch_start", "batch_id": batch_id, "sources": total_sources, "targets": len(targets)}
+        max_articles = max(1, int(settings.intelligence_batch_max_articles or 20))
+
+        yield {
+            "type": "batch_start",
+            "batch_id": batch_id,
+            "sources": total_sources,
+            "targets": len(targets),
+            "max_articles": max_articles,
+            "retry_skipped": bool(settings.intelligence_batch_retry_skipped),
+        }
 
         relevance_threshold = min((t.relevance_threshold for t in targets), default=0.25)
 
@@ -231,18 +241,21 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
 
         yield {"type": "batch_fetch_done", "batch_id": batch_id, "total_articles": total_articles}
 
-        from sqlalchemy import or_, cast, String as SAString
-        unanalyzed_q = db.query(FeedArticle).filter(
-            or_(
-                FeedArticle.analysis.is_(None),
-                cast(FeedArticle.analysis, SAString).contains('"skipped"'),
+        unanalyzed_q = db.query(FeedArticle).filter(FeedArticle.analysis.is_(None))
+        if settings.intelligence_batch_retry_skipped:
+            from sqlalchemy import or_, cast, String as SAString
+
+            unanalyzed_q = db.query(FeedArticle).filter(
+                or_(
+                    FeedArticle.analysis.is_(None),
+                    cast(FeedArticle.analysis, SAString).contains('"skipped"'),
+                )
             )
-        )
         if workspace_id:
             unanalyzed_q = unanalyzed_q.join(
                 FeedSource, FeedSource.id == FeedArticle.source_id
             ).filter(FeedSource.workspace_id == workspace_id)
-        unanalyzed = unanalyzed_q.order_by(FeedArticle.fetched_at.desc()).limit(100).all()
+        unanalyzed = unanalyzed_q.order_by(FeedArticle.fetched_at.desc()).limit(max_articles).all()
 
         for ai, article in enumerate(unanalyzed):
             relevance = await analyzer.compute_relevance(
@@ -257,10 +270,13 @@ async def run_batch(target_id: str = None, workspace_id: str = None) -> AsyncGen
                 article.analysis = analysis
                 article.embedded = True
 
-                safety = await analyzer.check_safety(
-                    f"{article.title}: {analysis.get('key_findings', [])}",
-                    filter_rules,
-                )
+                if settings.intelligence_batch_safety_check_enabled:
+                    safety = await analyzer.check_safety(
+                        f"{article.title}: {analysis.get('key_findings', [])}",
+                        filter_rules,
+                    )
+                else:
+                    safety = {"flag": "clear", "reason": "safety LLM disabled for scheduled batch"}
                 article.safety_flag = safety.get("flag", "clear")
                 article.summary = "; ".join(analysis.get("key_findings", []))
                 analyzed += 1

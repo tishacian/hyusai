@@ -130,7 +130,10 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     intelligence_scheduler_enabled: bool = False
-    intelligence_scheduler_interval_seconds: int = 3600
+    intelligence_scheduler_interval_seconds: int = 43200
+    intelligence_batch_max_articles: int = 20
+    intelligence_batch_retry_skipped: bool = False
+    intelligence_batch_safety_check_enabled: bool = False
 
     # SharePoint OTP connector
     # Persistence of captured sessions and MSAL token caches (encrypted at rest
