@@ -48,6 +48,7 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     navigation = client.get("/api/v1/mission-room/navigation")
     cockpit = client.get("/api/v1/mission-room/cockpit")
     briefing = client.get("/api/v1/mission-room/briefing")
+    evidence_graph = client.get("/api/v1/mission-room/evidence-graph")
     search = client.get("/api/v1/mission-room/search", params={"q": "Nord"})
 
     assert navigation.status_code == 200
@@ -57,37 +58,54 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert [item["key"] for item in navigation.json()["items"]] == [
         "cockpit",
         "monitor",
+        "strategie",
         "briefing",
         "agenda",
         "presse",
         "decisions",
-        "strategie",
     ]
     assert [item["label"] for item in navigation.json()["items"]] == [
-        "Priorites",
+        "Cockpit",
         "Situation live",
-        "Briefing",
+        "Carte fusionnee",
+        "Aide a la decision",
         "Agenda",
-        "Presse",
+        "Renseignement",
         "Arbitrages",
-        "Carte",
     ]
     assert cockpit.status_code == 200
-    assert cockpit.json()["layout"]["variant"] == "executive_grid"
+    assert cockpit.json()["layout"]["variant"] == "vp_decision_cockpit"
     assert cockpit.json()["decision_sentence"]["text"].startswith("M. le Vice-Président")
+    assert cockpit.json()["directive_of_day"]["primary_cta"] == "Ouvrir le dossier Zone Nord"
+    assert cockpit.json()["vp_status_bar"][0]["key"] == "posture"
+    assert cockpit.json()["agenda_day"]["label"] == "Agenda ministeriel"
+    assert cockpit.json()["fused_map_preview"]["route"] == "/hypervisor/mission-room/strategie"
+    assert cockpit.json()["geographic_signal_tiers"][0]["key"] == "ci"
     assert len(cockpit.json()["attention_required"]) == 3
     assert len(cockpit.json()["sixty_second_cockpit"]["urgences"]) == 3
     assert cockpit.json()["strategic_posture"]["label"] in {"stable", "monitoring", "elevated", "critical"}
     assert cockpit.json()["situation_monitor"]["route"] == "/hypervisor/mission-room/monitor"
+    assert cockpit.json()["decision_posture"]["modes"][0]["key"] == "explorer"
+    assert cockpit.json()["source_freshness"]["items"]
+    assert cockpit.json()["monitoring_layers"]
+    assert cockpit.json()["evidence_graph_summary"]["node_count"] >= 10
+    assert cockpit.json()["evidence_graph_summary"]["collection_slug"] == "sentinel-ci-evidence-graph"
     assert briefing.status_code == 200
     assert any(section["id"] == "visual_cross_check" for section in briefing.json()["sections"])
     assert briefing.json()["visual_intelligence_brief"]["transcription"]["available"] is False
+    assert evidence_graph.status_code == 200
+    assert evidence_graph.json()["mode"] == "evidence_graph_v1"
+    assert evidence_graph.json()["knowledge"]["scope"] == "vigie"
+    assert evidence_graph.json()["nodes"]
+    assert evidence_graph.json()["edges"]
+    assert evidence_graph.json()["summary"]["top_relationships"]
     assert search.status_code == 200
     assert search.json()["total"] >= 1
 
     event_types = {row.event_type for row in db_session.query(AuditLog).all()}
     assert "mission_room.navigation.viewed" in event_types
     assert "mission_room.cockpit.viewed" in event_types
+    assert "mission_room.evidence_graph.viewed" in event_types
     assert "mission_room.search.performed" in event_types
 
 
@@ -205,6 +223,7 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     assert library.status_code == 200
     assert "sentinel-ci-projects" in library.json()["collections"]
     assert "sentinel-ci-visual-intelligence" in library.json()["collections"]
+    assert "sentinel-ci-evidence-graph" in library.json()["collections"]
     assert projects.status_code == 200
     assert projects.json()["projects"][0]["name"]
 

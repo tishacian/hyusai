@@ -696,6 +696,162 @@ async def _map_command_apply_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
             db.close()
 
 
+async def _source_registry_refresh_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import cockpit_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        cockpit = cockpit_payload(workspace, db=db)
+        return {
+            "status": "ready",
+            "source_health": cockpit.get("source_freshness") or {},
+            "layers": cockpit.get("monitoring_layers") or [],
+            "decision_posture": cockpit.get("decision_posture") or {},
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _osint_signal_prioritize_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import news_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        news = news_payload(workspace, db=db)
+        return {
+            "status": "ready",
+            "priorities": news.get("executive_alerts") or news.get("signals") or [],
+            "geographic_tiers": news.get("geographic_priority") or news.get("geo_sections") or [],
+            "source_health": news.get("source_health") or {},
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _rumor_origin_trace_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import news_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        news = news_payload(workspace, db=db)
+        trace = (news.get("social_listening") or {}).get("rumor_origins") or []
+        rumor = trace[0] if trace else (news.get("rumor_trace") or {})
+        return {
+            "status": "ready",
+            "trace": rumor,
+            "social_listening": news.get("social_listening") or {},
+            "advisory_only": True,
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _evidence_graph_build_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import evidence_graph_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        return evidence_graph_payload(workspace, db=db)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _situation_posture_score_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import cockpit_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        cockpit = cockpit_payload(workspace, db=db)
+        posture = cockpit.get("decision_posture") or {}
+        return {
+            "status": "ready",
+            "score": posture.get("score"),
+            "label": posture.get("label"),
+            "axes": posture.get("axes") or [],
+            "modes": posture.get("modes") or [],
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _maritime_snapshot_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        ensure_workspace_map_seed(db, workspace)
+        mapped = mission_room_map_payload(db, workspace)
+        map_system = mapped.get("map_system") or {}
+        return {
+            "status": "ready",
+            "maritime_snapshot": map_system.get("maritime_snapshot") or {},
+            "source_health": (map_system.get("source_health") or {}),
+            "ports": (map_system.get("maritime_snapshot") or {}).get("ports") or [],
+            "events": (map_system.get("maritime_snapshot") or {}).get("events") or [],
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _decision_option_rank_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import decisions_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        decisions = decisions_payload(workspace, db=db)
+        options = list(payload.get("options") or decisions.get("scenario_options") or [])
+        ranked = sorted(
+            options,
+            key=lambda item: (
+                int(item.get("recommended_score") or item.get("score") or item.get("impact") or 0),
+                int(item.get("confidence") or 0),
+            ),
+            reverse=True,
+        )
+        return {
+            "status": "ready",
+            "recommended": ranked[0] if ranked else None,
+            "alternatives": ranked[1:],
+            "human_validation_required": True,
+        }
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _draft_response_email_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import draft_instruction_payload
+
+    ctx = ctx or {}
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not ctx.get("db")
+    try:
+        return draft_instruction_payload(
+            workspace=workspace,
+            actor=str(ctx.get("actor") or payload.get("actor") or "system:draft_response_email_v1"),
+            target_id=str(payload.get("target_id") or "package-rumeur-emoi"),
+            target_type=str(payload.get("target_type") or "communication_email"),
+            instruction_type=str(payload.get("instruction_type") or "response_email"),
+            db=db,
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
 async def _visual_source_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.services.visual_intelligence import dashboard_payload, ensure_visual_intelligence_seed
 
@@ -1239,6 +1395,14 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "map_signal_attach_v1":     (_map_signal_attach_v1,     "app.services.workspace_maps",          "bound"),
     "map_recommendation_generate_v1": (_map_recommendation_generate_v1, "app.services.workspace_maps", "bound"),
     "map_command_apply_v1":     (_map_command_apply_v1,     "app.services.workspace_maps",          "bound"),
+    "source_registry_refresh_v1": (_source_registry_refresh_v1, "app.services.mission_room",          "bound"),
+    "osint_signal_prioritize_v1": (_osint_signal_prioritize_v1, "app.services.mission_room",          "bound"),
+    "rumor_origin_trace_v1":    (_rumor_origin_trace_v1,    "app.services.mission_room",             "bound"),
+    "evidence_graph_build_v1":  (_evidence_graph_build_v1,  "app.services.mission_room",             "bound"),
+    "situation_posture_score_v1": (_situation_posture_score_v1, "app.services.mission_room",          "bound"),
+    "maritime_snapshot_read_v1": (_maritime_snapshot_read_v1, "app.services.workspace_maps",          "bound"),
+    "decision_option_rank_v1":  (_decision_option_rank_v1,  "app.services.mission_room",             "bound"),
+    "draft_response_email_v1":  (_draft_response_email_v1,  "app.services.mission_room",             "bound"),
     "visual_source_read_v1":    (_visual_source_read_v1,    "app.services.visual_intelligence",     "bound"),
     "visual_snapshot_capture_v1": (_visual_snapshot_capture_v1, "app.services.visual_intelligence",  "bound"),
     "visual_snapshot_analyze_v1": (_visual_snapshot_analyze_v1, "app.services.visual_intelligence",  "bound"),

@@ -53,6 +53,10 @@ COLLECTION_DEFS: dict[str, dict[str, str]] = {
         "name": "SENTINEL-CI Visual Intelligence",
         "description": "Visual snapshots and observations from authorized workspace streams.",
     },
+    mission_room.SENTINEL_EVIDENCE_GRAPH_COLLECTION: {
+        "name": "SENTINEL-CI Evidence Graph",
+        "description": "Entities, rumors, sources, locations, projects and decisions connected for AYA.",
+    },
 }
 
 HEAVY_PAYLOAD_KEYS = {
@@ -225,6 +229,7 @@ def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[st
     decisions = mission_room.decisions_payload(workspace, db=db)
     library = mission_room.library_payload(workspace)
     cockpit = mission_room.cockpit_payload(workspace, db=db)
+    evidence_graph = mission_room.evidence_graph_payload(workspace, db=db)
 
     project_docs = {
         f"project-{_safe_filename(project.get('id') or project.get('name'))}.md": _payload_markdown(
@@ -260,6 +265,18 @@ def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[st
             "cockpit-executif.md": _payload_markdown("Cockpit executif SENTINEL-CI", cockpit),
             "situation-monitor.md": _payload_markdown("Situation Monitor", monitor),
             "bibliotheque-sources.md": _payload_markdown("Bibliotheque institutionnelle", library),
+        },
+        mission_room.SENTINEL_EVIDENCE_GRAPH_COLLECTION: {
+            "evidence-graph.md": _payload_markdown("Evidence Graph AYA", evidence_graph),
+            "evidence-graph-summary.md": _payload_markdown(
+                "Graphe de preuves - synthese",
+                {
+                    "summary": evidence_graph.get("summary") or {},
+                    "clusters": evidence_graph.get("clusters") or [],
+                    "source_freshness": evidence_graph.get("source_freshness") or {},
+                    "suggested_questions": evidence_graph.get("suggested_questions") or [],
+                },
+            ),
         },
     }
 

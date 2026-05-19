@@ -47,18 +47,19 @@ from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_
 SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
 SENTINEL_WORKSPACE_NAME = "SENTINEL-CI"
 SENTINEL_ASSISTANT_NAME = "AYA"
+SENTINEL_EVIDENCE_GRAPH_COLLECTION = "sentinel-ci-evidence-graph"
 MISSION_ROOM_ROOT = "/hypervisor/mission-room"
 MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
 
 
 NAVIGATION_ITEMS = [
-    {"key": "cockpit", "label": "Priorites", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
+    {"key": "cockpit", "label": "Cockpit", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
     {"key": "monitor", "label": "Situation live", "glyph": "crosshair", "variant": "scenario_fusion_monitor", "object": "Workbench"},
-    {"key": "briefing", "label": "Briefing", "glyph": "ledger", "variant": "ministerial_daily_briefing", "object": "Workbench"},
+    {"key": "strategie", "label": "Carte fusionnee", "glyph": "sliders", "variant": "territorial_action_map", "object": "Workbench"},
+    {"key": "briefing", "label": "Aide a la decision", "glyph": "ledger", "variant": "ministerial_daily_briefing", "object": "Workbench"},
     {"key": "agenda", "label": "Agenda", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
-    {"key": "presse", "label": "Presse", "glyph": "pulse", "variant": "intelligence", "object": "Run"},
+    {"key": "presse", "label": "Renseignement", "glyph": "pulse", "variant": "intelligence", "object": "Run"},
     {"key": "decisions", "label": "Arbitrages", "glyph": "check", "variant": "executive_instruction_drafting", "object": "Review Queue"},
-    {"key": "strategie", "label": "Carte", "glyph": "sliders", "variant": "territorial_action_map", "object": "Workbench"},
 ]
 
 
@@ -477,6 +478,10 @@ ATTENTION_REQUIRED = [
         "deadline": "14:00",
         "status": "draft_ready",
         "tone": "critical",
+        "next_step": "Preparer un email au responsable communication",
+        "action_route": f"{MISSION_ROOM_ROOT}/presse",
+        "draft_target_type": "press_response",
+        "draft_recipient": "Responsable communication",
         "source_refs": ["src-press-ci-local-001"],
     },
     {
@@ -488,6 +493,10 @@ ATTENTION_REQUIRED = [
         "deadline": "15:00",
         "status": "decision_required",
         "tone": "critical",
+        "next_step": "Choisir l'option a porter au Conseil",
+        "action_route": f"{MISSION_ROOM_ROOT}/strategie",
+        "draft_target_type": "zone",
+        "draft_recipient": "Directeur de cabinet",
         "source_refs": ["src-cabinet-brief-001", "src-press-cedeao-001"],
     },
     {
@@ -499,6 +508,10 @@ ATTENTION_REQUIRED = [
         "deadline": "13:00",
         "status": "brief_ready",
         "tone": "watch",
+        "next_step": "Ouvrir la fiche et les elements de langage",
+        "action_route": f"{MISSION_ROOM_ROOT}/agenda",
+        "draft_target_type": "briefing_note",
+        "draft_recipient": "Conseiller diplomatique",
         "source_refs": ["src-agenda-jour-015", "src-project-sante-042"],
     },
 ]
@@ -1551,6 +1564,448 @@ def _agenda_items_from_calendar(workspace: Workspace, db: Optional[DBSession]) -
     ]
 
 
+def _vp_status_bar(overview: dict[str, Any], posture: dict[str, Any]) -> list[dict[str, Any]]:
+    kpis = overview.get("kpis") or {}
+    return [
+        {
+            "key": "posture",
+            "label": "Posture nationale",
+            "value": str(posture.get("label") or "vigilance").upper(),
+            "detail": f"{posture.get('score', 72)}/100",
+            "tone": posture.get("label") or "elevated",
+        },
+        {"key": "deadline", "label": "Decision avant", "value": "15h00", "detail": "Conseil des ministres", "tone": "critical"},
+        {"key": "arbitrages", "label": "Arbitrages ouverts", "value": "3", "detail": "validation humaine", "tone": "watch"},
+        {"key": "presse", "label": "Alertes presse", "value": str(kpis.get("press_alerts", 16)), "detail": "qualifiees par AYA", "tone": "critical"},
+        {"key": "agenda", "label": "Rendez-vous", "value": str(kpis.get("meetings", 4)), "detail": "aujourd'hui", "tone": "stable"},
+        {"key": "flux", "label": "Flux temps reel", "value": "8", "detail": "presse · carte · agenda · visuel", "tone": "stable"},
+    ]
+
+
+def _sovereign_indicators(overview: dict[str, Any], posture: dict[str, Any]) -> list[dict[str, Any]]:
+    kpis = overview.get("kpis") or {}
+    reputation = overview.get("reputation") or {}
+    return [
+        {
+            "label": "Menace nationale",
+            "value": posture.get("score", 72),
+            "unit": "/100",
+            "source": "5 sources",
+            "confidence": "94%",
+            "trend": "+12",
+            "tone": "critical" if posture.get("score", 0) >= 80 else "watch",
+        },
+        {
+            "label": "Reputation de l'Etat",
+            "value": reputation.get("score", kpis.get("reputation_score", 63)),
+            "unit": "/100",
+            "source": "OSINT",
+            "confidence": "78%",
+            "trend": f"{reputation.get('delta', -4):+}",
+            "tone": "watch",
+        },
+        {
+            "label": "Stabilite institutionnelle",
+            "value": 78,
+            "unit": "/100",
+            "source": "4 sources",
+            "confidence": "91%",
+            "trend": "stable",
+            "tone": "stable",
+        },
+        {
+            "label": "Securite maritime Golfe",
+            "value": 71,
+            "unit": "/100",
+            "source": "AIS-ready",
+            "confidence": "86%",
+            "trend": "-7",
+            "tone": "watch",
+        },
+    ]
+
+
+def _fused_map_preview(mapped: dict[str, Any], news: dict[str, Any], visual: dict[str, Any]) -> dict[str, Any]:
+    zones = mapped.get("zones") or _clone(MAP_ZONES)
+    top_zone = max(zones, key=lambda zone: zone.get("level", 0)) if zones else {}
+    return {
+        "route": f"{MISSION_ROOM_ROOT}/strategie",
+        "label": "Carte fusionnee",
+        "question": "Quelles zones necessitent une action preventive non militaire ce mois-ci ?",
+        "top_zone": top_zone,
+        "zones": zones[:5],
+        "layers": [
+            {"key": "threat", "label": "Menace", "count": len(zones), "tone": "critical", "visible": True},
+            {"key": "press", "label": "Presse", "count": len(news.get("executive_alerts") or news.get("signals") or []), "tone": "watch", "visible": True},
+            {"key": "projects", "label": "Projets", "count": len(PROJECTS), "tone": "stable", "visible": True},
+            {"key": "visual", "label": "Visuel", "count": (visual.get("source_health") or {}).get("captures", 0), "tone": "stable", "visible": True},
+        ],
+        "heatmap": [
+            {"label": zone.get("name"), "score": zone.get("level"), "tone": zone.get("tone")}
+            for zone in zones[:5]
+        ],
+        "source_label": "Carte, presse, projets, agenda et observations visuelles",
+    }
+
+
+def _agenda_day(overview: dict[str, Any], calendar_summary: Optional[dict[str, Any]]) -> dict[str, Any]:
+    events = overview.get("agenda") or []
+    next_event = (calendar_summary or {}).get("next_event") if calendar_summary else None
+    return {
+        "label": "Agenda ministeriel",
+        "next_event": next_event or (events[0] if events else None),
+        "events": events[:4],
+        "available_window": {
+            "label": "Fenetre utile",
+            "time": "10:00-10:45",
+            "reason": "Dernier creneau avant expression publique et amplification potentielle.",
+        },
+        "separate_from_actions": True,
+    }
+
+
+def _geographic_signal_tiers(news: dict[str, Any]) -> list[dict[str, Any]]:
+    sections = news.get("geo_sections") or []
+    if sections:
+        return [
+            {
+                "key": section.get("key"),
+                "label": section.get("label"),
+                "count": section.get("count", 0),
+                "top_signal": (section.get("signals") or [{}])[0].get("title"),
+                "signals": section.get("signals") or [],
+            }
+            for section in sections
+        ]
+    return [
+        {"key": "ci", "label": "Cote d'Ivoire", "count": 0, "top_signal": None, "signals": []},
+        {"key": "cedeao", "label": "CEDEAO", "count": 0, "top_signal": None, "signals": []},
+        {"key": "africa", "label": "Afrique", "count": 0, "top_signal": None, "signals": []},
+        {"key": "world", "label": "Monde", "count": 0, "top_signal": None, "signals": []},
+    ]
+
+
+def _source_freshness_payload(news: dict[str, Any], visual: dict[str, Any], mapped: dict[str, Any]) -> dict[str, Any]:
+    map_system = mapped.get("map_system") or {}
+    map_health = map_system.get("source_health") or mapped.get("source_health") or {}
+    news_health = news.get("source_health") or {}
+    visual_health = visual.get("source_health") or {}
+    return {
+        "status": "ready",
+        "items": [
+            {
+                "key": "open-intelligence",
+                "label": "Presse / rumeurs",
+                "state": news_health.get("status") or "qualified",
+                "freshness": news_health.get("last_run_label") or news_health.get("coverage_label") or "dernier run veille",
+                "count": news_health.get("analyzed") or news_health.get("total_articles") or len(news.get("signals") or []),
+                "confidence": 72,
+            },
+            {
+                "key": "territorial-risk",
+                "label": "Carte / territoire",
+                "state": map_health.get("status") or "ready",
+                "freshness": map_health.get("freshness") or "scoring actif",
+                "count": (mapped.get("score_summary") or {}).get("zones_scored") or len(mapped.get("zones") or []),
+                "confidence": 78,
+            },
+            {
+                "key": "visual-streams",
+                "label": "Observations visuelles",
+                "state": visual_health.get("status") or "monitoring",
+                "freshness": visual_health.get("freshness_status") or visual_health.get("coverage_label") or "snapshot recent",
+                "count": visual_health.get("observations") or int(visual_health.get("active_sources") or 0),
+                "confidence": 62,
+            },
+            {
+                "key": "maritime-traffic",
+                "label": "Maritime / douanes",
+                "state": "snapshot",
+                "freshness": "snapshot demo-safe · provider AIS optionnel",
+                "count": len(MARITIME_PORTS) + len(MARITIME_EVENTS),
+                "confidence": 66,
+            },
+        ],
+    }
+
+
+def _monitoring_layers_payload(mapped: dict[str, Any]) -> list[dict[str, Any]]:
+    map_system = mapped.get("map_system") or {}
+    registry = map_system.get("layer_registry") or map_system.get("layer_catalog") or []
+    return [
+        {
+            "key": layer.get("key"),
+            "label": layer.get("group") or layer.get("label"),
+            "name": layer.get("label"),
+            "count": int(layer.get("count") or 0),
+            "freshness": layer.get("freshness") or "a jour",
+            "confidence": int(layer.get("confidence") or 0),
+            "source_kind": layer.get("source_kind") or layer.get("kind"),
+            "visible": layer.get("visible", True),
+        }
+        for layer in registry
+    ]
+
+
+def _decision_posture_payload(
+    posture: dict[str, Any],
+    news: dict[str, Any],
+    visual: dict[str, Any],
+    mapped: dict[str, Any],
+    calendar_summary: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    top_zone = ((mapped.get("score_summary") or {}).get("top_zone") or (mapped.get("zones") or [{}])[0] or {})
+    news_alerts = news.get("executive_alerts") or news.get("signals") or []
+    next_event = (calendar_summary or {}).get("next_event") or {}
+    maritime = news.get("maritime_intelligence") or {}
+    latest_maritime = maritime.get("latest_observation") or {}
+    return {
+        "label": posture.get("label") or "monitoring",
+        "score": int(posture.get("score") or 0),
+        "sentence": "Explorer les signaux, comprendre les preuves, decider avant les fenetres cabinet.",
+        "modes": [
+            {"key": "explorer", "label": "Explorer", "goal": "Voir posture, couches, zones et sources fraîches."},
+            {"key": "comprendre", "label": "Comprendre", "goal": "Relier sources, rumeurs, projets, agenda et carte."},
+            {"key": "decider", "label": "Décider", "goal": "Comparer options, coût/impact/confiance et préparer l'action."},
+        ],
+        "axes": [
+            {
+                "key": "security",
+                "label": "Sécurité / territoire",
+                "status": _signal_level(int(top_zone.get("level") or 0)),
+                "score": int(top_zone.get("level") or 0),
+                "why": top_zone.get("summary") or top_zone.get("signals", ["Zone prioritaire"])[0],
+                "action": (top_zone.get("recommendations") or ["Ouvrir dossier zone"])[0],
+                "deadline": "15:00",
+            },
+            {
+                "key": "reputation",
+                "label": "Réputation / presse",
+                "status": "elevated" if news_alerts else "stable",
+                "score": int((news.get("source_health") or {}).get("high_risk") or len(news_alerts)),
+                "why": (news_alerts[0] or {}).get("title") if news_alerts else "Aucun signal prioritaire",
+                "action": (news_alerts[0] or {}).get("recommended_action") or "Surveiller la couverture presse",
+                "deadline": "14:00",
+            },
+            {
+                "key": "economy",
+                "label": "Économie / douanes",
+                "status": "monitoring",
+                "score": int(latest_maritime.get("score") or 58),
+                "why": latest_maritime.get("summary") or "Ports et douanes sous veille contextuelle",
+                "action": latest_maritime.get("recommended_action") or "Qualifier le signal portuaire",
+                "deadline": latest_maritime.get("decision_deadline") or "12:00",
+            },
+            {
+                "key": "agenda",
+                "label": "Agenda / fenêtres",
+                "status": "monitoring" if next_event else "stable",
+                "score": len((calendar_summary or {}).get("decision_deadlines") or []),
+                "why": next_event.get("title") or "Agenda habilité disponible",
+                "action": "Préparer la prochaine séquence utile",
+                "deadline": next_event.get("time") or "aujourd'hui",
+            },
+            {
+                "key": "visual",
+                "label": "Visuel / terrain",
+                "status": "monitoring",
+                "score": int((visual.get("latest_observation") or {}).get("vigilance_score") or 38),
+                "why": (visual.get("latest_observation") or {}).get("summary") or "Observation snapshot sans signal critique confirmé",
+                "action": "Croiser avec presse et carte avant recommandation",
+                "deadline": "prochain cycle",
+            },
+        ],
+    }
+
+
+def _add_graph_node(nodes: dict[str, dict[str, Any]], *, node_id: str, label: str, kind: str, **props: Any) -> None:
+    if not node_id:
+        return
+    nodes[node_id] = {
+        "id": node_id,
+        "label": label,
+        "kind": kind,
+        **{key: value for key, value in props.items() if value not in (None, "", [], {})},
+    }
+
+
+def _add_graph_edge(edges: list[dict[str, Any]], *, source: str, target: str, relation: str, **props: Any) -> None:
+    if not source or not target:
+        return
+    edges.append(
+        {
+            "id": f"{source}->{relation}->{target}",
+            "source": source,
+            "target": target,
+            "relation": relation,
+            **{key: value for key, value in props.items() if value not in (None, "", [], {})},
+        }
+    )
+
+
+def evidence_graph_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
+    """Return a compact OSINT evidence graph for AYA and the executive cockpit."""
+    news = _executive_news_payload(workspace, db)
+    visual = _visual_payload(workspace, db)
+    mapped = map_payload(workspace, db=db)
+    calendar_summary = calendar_summary_payload(db, workspace) if db else None
+    decision_posture = _decision_posture_payload(_strategic_posture(mapped, news, visual), news, visual, mapped, calendar_summary)
+    nodes: dict[str, dict[str, Any]] = {}
+    edges: list[dict[str, Any]] = []
+
+    _add_graph_node(nodes, node_id="workspace-sentinel-ci", label="SENTINEL-CI", kind="workspace", country="Cote d'Ivoire")
+    for source in source_index():
+        _add_graph_node(
+            nodes,
+            node_id=source.get("id"),
+            label=source.get("label") or source.get("title") or source.get("id"),
+            kind="source",
+            source_kind=source.get("kind"),
+            confidence=source.get("confidence"),
+            age=source.get("age"),
+        )
+        _add_graph_edge(edges, source="workspace-sentinel-ci", target=source.get("id"), relation="qualifies_source")
+
+    zones = mapped.get("zones") or []
+    for zone in zones:
+        zone_id = zone.get("id") or zone.get("key")
+        _add_graph_node(
+            nodes,
+            node_id=zone_id,
+            label=zone.get("name") or zone_id,
+            kind="location",
+            score=zone.get("level") or (zone.get("score") or {}).get("score"),
+            severity=_signal_level(int(zone.get("level") or 0)),
+        )
+        _add_graph_edge(edges, source="workspace-sentinel-ci", target=zone_id, relation="monitors_zone")
+
+    alerts = news.get("executive_alerts") or news.get("signals") or _clone(NEWS_SIGNALS)
+    for alert in alerts[:10]:
+        alert_id = alert.get("id")
+        _add_graph_node(
+            nodes,
+            node_id=alert_id,
+            label=alert.get("title") or alert_id,
+            kind="rumor" if "rumeur" in str(alert.get("title", "")).lower() or str(alert.get("id", "")).startswith("social") else "event",
+            risk=alert.get("risk_level"),
+            geo_tier=alert.get("geo_tier") or alert.get("geography_tier"),
+            confidence=alert.get("confidence"),
+            recommended_action=alert.get("recommended_action"),
+        )
+        _add_graph_edge(edges, source="workspace-sentinel-ci", target=alert_id, relation="prioritizes_signal")
+        for source_id in alert.get("sources") or []:
+            _add_graph_edge(edges, source=source_id, target=alert_id, relation="supports")
+        zone_label = str(alert.get("zone") or "").lower()
+        target_zone = next((zone.get("id") for zone in zones if str(zone.get("name", "")).lower() in zone_label), None)
+        if not target_zone and ("nord" in zone_label or "north" in zone_label):
+            target_zone = "zone-nord"
+        if not target_zone and ("abidjan" in zone_label or "golfe" in zone_label):
+            target_zone = "zone-sud"
+        if target_zone:
+            _add_graph_edge(edges, source=alert_id, target=target_zone, relation="impacts_zone")
+
+    for project in PROJECTS:
+        project_id = project.get("id")
+        _add_graph_node(
+            nodes,
+            node_id=project_id,
+            label=project.get("name"),
+            kind="project",
+            weather=project.get("weather"),
+            progress=project.get("progress"),
+            risk=project.get("risk"),
+        )
+        for source_id in project.get("sources") or ["src-project-sante-042"]:
+            _add_graph_edge(edges, source=source_id, target=project_id, relation="documents")
+        if "north" in str(project_id) or "nord" in str(project.get("name", "")).lower():
+            _add_graph_edge(edges, source=project_id, target="zone-nord", relation="affects_zone")
+
+    for package in EXECUTIVE_DECISION_PACKAGES:
+        package_id = package.get("id")
+        _add_graph_node(
+            nodes,
+            node_id=package_id,
+            label=package.get("title"),
+            kind="action",
+            deadline=package.get("deadline"),
+            confidence=package.get("confidence"),
+            status=package.get("status"),
+            recommended_option=package.get("recommended_option"),
+        )
+        _add_graph_edge(edges, source="aya", target=package_id, relation="recommends")
+        if "nord" in str(package_id):
+            _add_graph_edge(edges, source=package_id, target="zone-nord", relation="decides_for")
+
+    _add_graph_node(nodes, node_id="aya", label=SENTINEL_ASSISTANT_NAME, kind="assistant", role="adjoint souverain")
+    for item in (calendar_summary or {}).get("events", [])[:6]:
+        event_id = item.get("id") or f"agenda-{item.get('time')}-{item.get('title')}"
+        _add_graph_node(nodes, node_id=event_id, label=item.get("title"), kind="agenda", time=item.get("time"), location=item.get("location"))
+        _add_graph_edge(edges, source=event_id, target="workspace-sentinel-ci", relation="constrains_day")
+
+    for port in MARITIME_PORTS:
+        port_id = port.get("id")
+        _add_graph_node(nodes, node_id=port_id, label=port.get("name"), kind="port", score=port.get("score"), location=port.get("location"))
+        _add_graph_edge(edges, source="workspace-sentinel-ci", target=port_id, relation="monitors_port")
+    for event in MARITIME_EVENTS:
+        event_id = event.get("id")
+        _add_graph_node(nodes, node_id=event_id, label=event.get("title"), kind="maritime", score=event.get("score"), domain=event.get("domain"))
+        for source_id in event.get("source_refs") or []:
+            _add_graph_edge(edges, source=source_id, target=event_id, relation="supports")
+        _add_graph_edge(edges, source=event_id, target="port-abidjan", relation="impacts_port")
+
+    rumor_id = "rumor-trace-prioritaire"
+    _add_graph_node(nodes, node_id=rumor_id, label=RUMOR_TRACE["headline"], kind="rumor_trace", origin=RUMOR_TRACE["origin"])
+    for index, item in enumerate(RUMOR_TRACE.get("spread") or []):
+        channel_id = f"rumor-channel-{index}-{str(item.get('channel')).lower()}"
+        _add_graph_node(nodes, node_id=channel_id, label=item.get("channel"), kind="channel", time=item.get("time"), confidence=item.get("confidence"))
+        _add_graph_edge(edges, source=channel_id, target=rumor_id, relation="propagates")
+    _add_graph_edge(edges, source=rumor_id, target="package-rumeur-emoi", relation="requires_action")
+
+    clusters = [
+        {"key": "territory", "label": "Territoire", "node_kinds": ["location", "project", "action"]},
+        {"key": "osint", "label": "Presse / rumeurs", "node_kinds": ["source", "event", "rumor", "rumor_trace", "channel"]},
+        {"key": "economy", "label": "Maritime / douanes", "node_kinds": ["port", "maritime"]},
+        {"key": "decision", "label": "Décision", "node_kinds": ["assistant", "agenda", "action"]},
+    ]
+    return {
+        "workspace": _workspace_meta(workspace),
+        "mode": "evidence_graph_v1",
+        "assistant": SENTINEL_ASSISTANT_NAME,
+        "summary": {
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "top_relationships": [
+                "rumeurs -> zones -> options cabinet",
+                "presse locale -> réputation -> brouillon email",
+                "port/douanes -> économie -> arbitrage avant midi",
+                "agenda -> fenêtres -> décision avant Conseil",
+            ],
+            "decision_posture": decision_posture,
+        },
+        "clusters": clusters,
+        "nodes": list(nodes.values()),
+        "edges": edges,
+        "source_freshness": _source_freshness_payload(news, visual, mapped),
+        "knowledge": {
+            "scope": "vigie",
+            "collection_slug": SENTINEL_EVIDENCE_GRAPH_COLLECTION,
+            "adjacent_collections": [
+                "sentinel-ci-open-intelligence",
+                "sentinel-ci-projects",
+                "sentinel-ci-ministerial-briefs",
+                "sentinel-ci-territorial-map",
+                "sentinel-ci-territorial-intelligence",
+                "sentinel-ci-visual-intelligence",
+            ],
+        },
+        "suggested_questions": [
+            "AYA, trace l'origine de la rumeur prioritaire.",
+            "AYA, relie le risque portuaire au point douanes.",
+            "AYA, quelles sources soutiennent l'arbitrage Zone Nord ?",
+        ],
+    }
+
+
 def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
     overview = overview_payload(workspace)
     news = _executive_news_payload(workspace, db)
@@ -1558,6 +2013,10 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     mapped = map_payload(workspace, db=db)
     posture = _strategic_posture(mapped, news, visual)
     calendar_summary = calendar_summary_payload(db, workspace) if db else None
+    decision_posture = _decision_posture_payload(posture, news, visual, mapped, calendar_summary)
+    source_freshness = _source_freshness_payload(news, visual, mapped)
+    monitoring_layers = _monitoring_layers_payload(mapped)
+    evidence_graph = evidence_graph_payload(workspace, db=db)
     alerts = news.get("executive_alerts") or news.get("signals") or _clone(NEWS_SIGNALS)
     source_health = news.get("source_health") or {}
     if alerts:
@@ -1608,12 +2067,59 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         next_event = calendar_summary.get("next_event")
         if next_event:
             overview["kpis"]["next_meeting_in"] = f"{next_event.get('time')} · {next_event.get('title')}"
+    agenda_day = _agenda_day(overview, calendar_summary)
+    fused_map_preview = _fused_map_preview(mapped, news, visual)
+    aya_recommendation = {
+        "assistant": SENTINEL_ASSISTANT_NAME,
+        "voice_first": True,
+        "prompt": VOICE_DEMO_SCRIPT["prompt"],
+        "answer": VOICE_DEMO_SCRIPT["answer"],
+        "target_latency_s": VOICE_DEMO_SCRIPT["target_latency_s"],
+        "cta_primary": "Ecouter le briefing AYA",
+        "cta_secondary": "Parler a AYA",
+        "decision_package": _clone(EXECUTIVE_DECISION_PACKAGES[0]),
+    }
+    decision_queue = [
+        {
+            **_clone(package),
+            "email_draft_ready": package["id"] in {"package-rumeur-emoi", "package-zone-nord"},
+            "validation_required": True,
+        }
+        for package in EXECUTIVE_DECISION_PACKAGES
+    ]
     return {
         **overview,
+        "vp_status_bar": _vp_status_bar(overview, posture),
+        "directive_of_day": {
+            **_clone(DECISION_SENTENCE),
+            "window": "avant Conseil des ministres · 15h00",
+            "primary_cta": "Ouvrir le dossier Zone Nord",
+            "voice_cta": "Ecouter le briefing AYA",
+        },
+        "fused_map_preview": fused_map_preview,
+        "agenda_day": agenda_day,
+        "aya_recommendation": aya_recommendation,
+        "decision_queue": decision_queue,
+        "geographic_signal_tiers": _geographic_signal_tiers(news),
+        "sovereign_indicators": _sovereign_indicators(overview, posture),
+        "decision_posture": decision_posture,
+        "source_freshness": source_freshness,
+        "monitoring_layers": monitoring_layers,
+        "evidence_graph_summary": {
+            **evidence_graph["summary"],
+            "route": f"{MISSION_ROOM_ROOT}/recherche",
+            "collection_slug": SENTINEL_EVIDENCE_GRAPH_COLLECTION,
+        },
+        "scenario_modes": decision_posture["modes"],
         "layout": {
-            "variant": "executive_grid",
+            "variant": "vp_decision_cockpit",
             "density": "desktop_laptop",
-            "charts": ["threat_trend", "communications_flow", "ops_state", "reputation", "media_sources", "keyword_trends"],
+            "demo_strata": [
+                {"label": "Monitoring quotidien", "share": "50%"},
+                {"label": "Information & alerting IA", "share": "25%"},
+                {"label": "Decision & action", "share": "20-25%"},
+            ],
+            "charts": ["fused_map_preview", "threat_trend", "agenda_day", "decision_queue"],
         },
         "decision_focus": _clone(DECISIONS[:2]),
         "messages": _clone(MESSAGES),
@@ -2682,6 +3188,7 @@ def library_payload(workspace: Workspace) -> dict[str, Any]:
             "sentinel-ci-territorial-map",
             "sentinel-ci-territorial-intelligence",
             "sentinel-ci-visual-intelligence",
+            SENTINEL_EVIDENCE_GRAPH_COLLECTION,
         ],
         "sources": source_index(),
     }
@@ -2722,8 +3229,32 @@ def draft_instruction_payload(
 ) -> dict[str, Any]:
     project = next((p for p in PROJECTS if p["id"] == target_id), None)
     zone = next((z for z in MAP_ZONES if z["id"] == target_id), None)
-    title = project["name"] if project else zone["name"] if zone else target_id
-    if project:
+    attention = next((item for item in ATTENTION_REQUIRED if item["id"] == target_id), None)
+    package = next((item for item in EXECUTIVE_DECISION_PACKAGES if item["id"] == target_id), None)
+    is_press_response = target_type in {"press_response", "communication_email"} or target_id in {
+        "attention-inter-budget",
+        "decision-press-lines",
+        "package-rumeur-emoi",
+    }
+    title = project["name"] if project else zone["name"] if zone else (attention or package or {}).get("title", target_id)
+    recipient = "Directeur de cabinet"
+    subject = f"Instruction cabinet - {title}"
+    if is_press_response:
+        recipient = "Responsable communication"
+        subject = "Projet de reponse - sequence presse budget defense"
+        body = (
+            "Bonjour,\n\n"
+            "Merci de preparer, pour validation avant 14h00, une reponse sobre a l'article de L'Inter "
+            "relatif au budget defense. Ligne recommandee : rappeler la continuite de l'action publique, "
+            "la coordination interministerielle et le controle humain des arbitrages, sans amplifier la polemique.\n\n"
+            "Elements a integrer :\n"
+            "- aucune annonce operationnelle non validee ;\n"
+            "- insister sur la protection des populations et le calendrier du Conseil de 15h00 ;\n"
+            "- prevoir une formule de compassion si la rumeur sociale se confirme.\n\n"
+            "AYA recommande une diffusion courte, apres verification source primaire et validation cabinet."
+        )
+        sources = (attention or package or {}).get("source_refs") or (attention or package or {}).get("sources") or ["src-press-ci-local-001"]
+    elif project:
         body = (
             f"Merci de preparer sous 24h une note d'arbitrage sur le projet '{project['name']}'. "
             f"Le projet est a {project['progress']}% au lieu de {project['expected']}%, "
@@ -2750,14 +3281,17 @@ def draft_instruction_payload(
         "instruction_type": instruction_type,
         "target_type": target_type,
         "target_id": target_id,
-        "title": f"Instruction cabinet - {title}",
-        "recipient": "Directeur de cabinet",
+        "title": subject,
+        "recipient": recipient,
+        "subject": subject,
         "body": body,
         "sources": sources,
+        "deadline": "14:00" if is_press_response else "15:00" if zone else "24h",
         "control": {
             "human_authority_required": True,
             "external_delivery": "requires_human_validation",
             "audit": "recorded",
+            "channel": "email_draft" if is_press_response else "cabinet_instruction",
         },
     }
     emit_audit_event(
@@ -3189,6 +3723,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         "sentinel-ci-territorial-map",
                         "sentinel-ci-territorial-intelligence",
                         "sentinel-ci-visual-intelligence",
+                        SENTINEL_EVIDENCE_GRAPH_COLLECTION,
                     ],
                     "default_mode": "chah",
                     "top_k": 8,
@@ -3231,6 +3766,10 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         "read_social_signals",
                         "trace_rumor_origin",
                         "explain_geographic_priority",
+                        "focus_evidence_graph",
+                        "rank_decision_options",
+                        "draft_response_email",
+                        "read_maritime_snapshot",
                     ],
                     "allowed_calendar_actions": [
                         "read_calendar",
@@ -3329,6 +3868,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         ("sentinel-ci-territorial-map", "SENTINEL-CI Territorial Map", "Territorial zones, signals and non-military action recommendations."),
         ("sentinel-ci-territorial-intelligence", "SENTINEL-CI Territorial Intelligence", "Fused territorial scores from news, projects, agenda, visual observations and recommended action windows."),
         ("sentinel-ci-visual-intelligence", "SENTINEL-CI Visual Intelligence", "Visual snapshots and observations from authorized workspace streams."),
+        (SENTINEL_EVIDENCE_GRAPH_COLLECTION, "SENTINEL-CI Evidence Graph", "Entities, rumors, sources, locations, projects and decisions connected for AYA."),
     ):
         _ensure_collection(db, workspace, slug, name, description)
 
@@ -3375,6 +3915,14 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "action_plan_cancel_v1",
                 "time_context_set_v1",
                 "territorial_action_window_v1",
+                "source_registry_refresh_v1",
+                "osint_signal_prioritize_v1",
+                "rumor_origin_trace_v1",
+                "evidence_graph_build_v1",
+                "situation_posture_score_v1",
+                "maritime_snapshot_read_v1",
+                "decision_option_rank_v1",
+                "draft_response_email_v1",
                 "voice_tandem_oracle_v1",
                 "audit_log_v1",
             ],
@@ -3391,8 +3939,31 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "name": "Veille Presse & Signaux Faibles",
             "objective": "Agreger presse ivoirienne, CEDEAO, internationale et signaux publics de rumeurs pour detecter les sujets sensibles avant escalation.",
             "capability_slug": "open_intelligence_watch",
-            "skill_slugs": ["intelligence_batch_v1", "news_signal_synthesis_v1", "audit_log_v1"],
+            "skill_slugs": ["intelligence_batch_v1", "news_signal_synthesis_v1", "source_registry_refresh_v1", "osint_signal_prioritize_v1", "rumor_origin_trace_v1", "audit_log_v1"],
             "variant": "intelligence",
+            "execution_mode": "continuous_monitoring",
+        },
+        {
+            "name": "OSINT & Rumor Intelligence",
+            "objective": "Qualifier les signaux OSINT, rumeurs publiques, origines, propagation et priorite geographique Cote d'Ivoire / CEDEAO / Afrique / Monde.",
+            "capability_slug": "osint_rumor_intelligence",
+            "skill_slugs": ["intelligence_batch_v1", "source_registry_refresh_v1", "osint_signal_prioritize_v1", "rumor_origin_trace_v1", "news_signal_synthesis_v1", "audit_log_v1"],
+            "variant": "osint_rumor_intelligence",
+            "execution_mode": "continuous_monitoring",
+        },
+        {
+            "name": "Evidence Graph",
+            "objective": "Relier sources, entites, lieux, projets, rumeurs, agenda et actions pour les reponses sourcées d'AYA.",
+            "capability_slug": "evidence_graph",
+            "skill_slugs": ["evidence_graph_build_v1", "semantic_search_v1", "chain_mixed_hah_v1", "audit_log_v1"],
+            "variant": "evidence_graph",
+        },
+        {
+            "name": "Maritime & Customs Watch",
+            "objective": "Suivre Abidjan, San Pedro, douanes et routes Golfe de Guinee pour anticiper impacts economiques et projets.",
+            "capability_slug": "maritime_customs_watch",
+            "skill_slugs": ["maritime_snapshot_read_v1", "map_layer_read_v1", "osint_signal_prioritize_v1", "situation_posture_score_v1", "audit_log_v1"],
+            "variant": "maritime_customs_watch",
             "execution_mode": "continuous_monitoring",
         },
         {
@@ -3411,12 +3982,21 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "scenario_generate_v1",
                 "scenario_compare_v1",
                 "scenario_recommend_v1",
+                "situation_posture_score_v1",
+                "decision_option_rank_v1",
                 "chain_mixed_hah_v1",
                 "voice_tandem_oracle_v1",
                 "audit_log_v1",
             ],
             "variant": "scenario_fusion_monitor",
             "execution_mode": "continuous_monitoring",
+        },
+        {
+            "name": "Strategic Forecasts",
+            "objective": "Produire des previsions courtes et options comparees en cout, impact, confiance et fenetres de decision.",
+            "capability_slug": "strategic_forecasts",
+            "skill_slugs": ["situation_posture_score_v1", "scenario_generate_v1", "scenario_compare_v1", "scenario_recommend_v1", "decision_option_rank_v1", "audit_log_v1"],
+            "variant": "strategic_forecasts",
         },
         {
             "name": "Pilotage Projets Strategiques",
@@ -3429,7 +4009,19 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "name": "Carte Strategique Executive",
             "objective": "Afficher les zones d'action preventive non militaire avec signaux, sources et recommandations.",
             "capability_slug": "territorial_action_map",
-            "skill_slugs": ["territorial_signal_map_v1", "territorial_action_window_v1", "map_layer_read_v1", "map_zone_score_v1", "map_signal_attach_v1", "map_recommendation_generate_v1", "chain_mixed_hah_v1", "audit_log_v1"],
+            "skill_slugs": [
+                "territorial_signal_map_v1",
+                "territorial_action_window_v1",
+                "map_layer_read_v1",
+                "map_zone_score_v1",
+                "map_signal_attach_v1",
+                "map_recommendation_generate_v1",
+                "map_command_apply_v1",
+                "situation_posture_score_v1",
+                "maritime_snapshot_read_v1",
+                "chain_mixed_hah_v1",
+                "audit_log_v1",
+            ],
             "variant": "territorial_action_map",
         },
         {
@@ -3456,10 +4048,17 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "variant": "aya_voice_command",
         },
         {
+            "name": "Decision Desk",
+            "objective": "Classer les options, preparer brouillons email/actions et maintenir la validation humaine.",
+            "capability_slug": "decision_desk",
+            "skill_slugs": ["decision_option_rank_v1", "draft_response_email_v1", "instruction_draft_v1", "action_plan_create_v1", "action_plan_status_v1", "audit_log_v1"],
+            "variant": "decision_desk",
+        },
+        {
             "name": "Instructions Cabinet",
             "objective": "Rediger des brouillons d'instruction sources et soumis a validation humaine.",
             "capability_slug": "executive_instruction_drafting",
-            "skill_slugs": ["instruction_draft_v1", "claim_audit_v1", "audit_log_v1"],
+            "skill_slugs": ["instruction_draft_v1", "draft_response_email_v1", "decision_option_rank_v1", "claim_audit_v1", "audit_log_v1"],
             "variant": "executive_instruction_drafting",
         },
     ]

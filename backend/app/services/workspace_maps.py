@@ -89,16 +89,27 @@ SENTINEL_CONTEXT_LINES = [
 
 MAP_COMMAND_INTENTS = {
     "focus_zone",
+    "focus_port",
     "set_layers",
     "set_basemap",
+    "set_time_range",
     "reset_view",
     "show_sources",
+    "show_vessel_snapshot",
+    "show_disruption",
     "highlight_marker",
     "draw_area",
     "show_action_window",
     "open_source_panel",
+    "open_layer_search",
     "compare_before_after",
 }
+
+MAP_TIME_RANGES = [
+    {"key": "24h", "label": "24h", "description": "Signaux recents utiles au briefing du jour."},
+    {"key": "7d", "label": "7 jours", "description": "Tendance ministerielle hebdomadaire."},
+    {"key": "30d", "label": "30 jours", "description": "Lecture de fond et recurrents territoriaux."},
+]
 
 DEFAULT_RENDERER_LAYERS = [
     {
@@ -168,6 +179,17 @@ DEFAULT_RENDERER_LAYERS = [
         "sort_order": 50,
     },
     {
+        "key": "maritime-traffic",
+        "label": "Maritime / douanes",
+        "short_label": "Maritime",
+        "deck_group": "maritime",
+        "tone": "orange",
+        "kind": "maritime_snapshot",
+        "visible": False,
+        "payload": {"sources": ["port_snapshot", "rss_maritime", "ais_provider_optional"]},
+        "sort_order": 55,
+    },
+    {
         "key": "preventive-actions",
         "label": "Actions preventives",
         "short_label": "Actions",
@@ -177,6 +199,82 @@ DEFAULT_RENDERER_LAYERS = [
         "visible": False,
         "payload": {"sources": ["action_plans", "scenario_engine"]},
         "sort_order": 60,
+    },
+]
+
+MARITIME_PORTS = [
+    {
+        "id": "port-abidjan",
+        "name": "Port d'Abidjan",
+        "location": "Abidjan / Vridi",
+        "longitude": -4.0083,
+        "latitude": 5.2512,
+        "score": 71,
+        "tone": "watch",
+        "status": "active",
+        "role": "Hub portuaire et douanier critique pour flux economiques nationaux.",
+    },
+    {
+        "id": "port-san-pedro",
+        "name": "Port de San Pedro",
+        "location": "San Pedro",
+        "longitude": -6.6368,
+        "latitude": 4.7446,
+        "score": 48,
+        "tone": "stable",
+        "status": "monitoring",
+        "role": "Port secondaire a surveiller pour corridors export et approvisionnement.",
+    },
+]
+
+MARITIME_EVENTS = [
+    {
+        "id": "vessel-density-abidjan",
+        "title": "Densite navires · Abidjan",
+        "location": "Rade d'Abidjan",
+        "longitude": -4.12,
+        "latitude": 5.18,
+        "score": 68,
+        "severity": "watch",
+        "domain": "port_flow",
+        "status": "anchored",
+        "speed_knots": 0.3,
+        "summary": "Concentration de navires a rapprocher des flux douaniers et du calendrier economique.",
+        "recommended_action": "Verifier douanes + port avant toute communication economique.",
+        "decision_deadline": "12:00",
+        "source_refs": ["src-maritime-paa-001", "src-marinetraffic-context-001"],
+    },
+    {
+        "id": "vessel-underway-gulf",
+        "title": "Corridor Golfe de Guinee",
+        "location": "Golfe de Guinee",
+        "longitude": -3.62,
+        "latitude": 4.92,
+        "score": 52,
+        "severity": "monitoring",
+        "domain": "gulf_corridor",
+        "status": "underway",
+        "speed_knots": 12.4,
+        "summary": "Transit nominal mais pertinent pour une lecture douanes / commerce exterieur.",
+        "recommended_action": "Maintenir veille portuaire et economique.",
+        "decision_deadline": "aujourd'hui",
+        "source_refs": ["src-maritime-marinelink-001"],
+    },
+    {
+        "id": "customs-watch-san-pedro",
+        "title": "San Pedro · corridor export",
+        "location": "San Pedro",
+        "longitude": -6.72,
+        "latitude": 4.70,
+        "score": 43,
+        "severity": "stable",
+        "domain": "customs",
+        "status": "unknown",
+        "speed_knots": None,
+        "summary": "Point de controle demo-safe pour relier ports, douanes et chantiers industriels.",
+        "recommended_action": "Conserver en veille hebdomadaire.",
+        "decision_deadline": "semaine",
+        "source_refs": ["src-port-san-pedro-context-001"],
     },
 ]
 
@@ -471,6 +569,27 @@ def _basemap_style(source_id: str, tiles: list[str], paint: dict[str, Any], back
 def _map_basemap_options() -> list[dict[str, Any]]:
     return [
         {
+            "key": "command",
+            "label": "Commandement",
+            "description": "Fond sombre tres contraste, inspire situation-room, avec labels et frontieres lisibles.",
+            "style": _basemap_style(
+                "carto-command-dark",
+                [
+                    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                    "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                    "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                ],
+                {
+                    "raster-opacity": 1.0,
+                    "raster-brightness-min": 0.08,
+                    "raster-brightness-max": 0.98,
+                    "raster-saturation": -0.08,
+                    "raster-contrast": 0.42,
+                },
+                background="#151719",
+            ),
+        },
+        {
             "key": "administrative",
             "label": "Administratif",
             "description": "Fond administratif contraste, labels et frontieres visibles pour briefing executif.",
@@ -553,6 +672,41 @@ def _layer_catalog(source_counts: dict[str, int]) -> list[dict[str, Any]]:
     ]
 
 
+def _layer_registry(source_counts: dict[str, int]) -> list[dict[str, Any]]:
+    freshness = _layer_freshness()
+    groups = {
+        "territorial-risk": "Territoire",
+        "open-intelligence": "Presse / rumeurs",
+        "regional-context": "CEDEAO",
+        "strategic-projects": "Projets",
+        "agenda-windows": "Agenda",
+        "visual-streams": "Visuel",
+        "maritime-traffic": "Maritime / douanes",
+        "preventive-actions": "Actions",
+    }
+    icons = {
+        "territorial-risk": "target",
+        "open-intelligence": "rss",
+        "regional-context": "globe",
+        "strategic-projects": "network",
+        "agenda-windows": "calendar",
+        "visual-streams": "camera",
+        "maritime-traffic": "ship",
+        "preventive-actions": "check",
+    }
+    return [
+        {
+            **item,
+            "group": groups.get(item["key"], "Sources"),
+            "icon": icons.get(item["key"], "layer"),
+            "freshness": freshness.get(item["key"], "a jour"),
+            "source_kind": _layer_source_kind(item["key"]),
+            "renderer_support": ["maplibre", "deck.gl", "svg-fallback"],
+        }
+        for item in _layer_catalog(source_counts)
+    ]
+
+
 def _layer_confidence(key: str) -> int:
     return {
         "territorial-risk": 78,
@@ -561,8 +715,35 @@ def _layer_confidence(key: str) -> int:
         "strategic-projects": 69,
         "agenda-windows": 81,
         "visual-streams": 62,
+        "maritime-traffic": 66,
         "preventive-actions": 74,
     }.get(key, 65)
+
+
+def _layer_freshness() -> dict[str, str]:
+    return {
+        "territorial-risk": "scoring actif",
+        "open-intelligence": "dernier run veille",
+        "regional-context": "contexte stable",
+        "strategic-projects": "mise a jour projet",
+        "agenda-windows": "agenda du jour",
+        "visual-streams": "snapshot recent",
+        "maritime-traffic": "snapshot demo-safe",
+        "preventive-actions": "validation requise",
+    }
+
+
+def _layer_source_kind(key: str) -> str:
+    return {
+        "territorial-risk": "workspace_map_score",
+        "open-intelligence": "news_lab",
+        "regional-context": "regional_context",
+        "strategic-projects": "project_record",
+        "agenda-windows": "workspace_calendar",
+        "visual-streams": "visual_intelligence",
+        "maritime-traffic": "maritime_snapshot",
+        "preventive-actions": "action_planner",
+    }.get(key, "workspace")
 
 
 def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
@@ -573,6 +754,7 @@ def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
         "strategic-projects": sum(1 for zone in zones if zone.get("scenario_options")),
         "agenda-windows": sum(len(zone.get("recommended_windows") or []) for zone in zones),
         "visual-streams": 1,
+        "maritime-traffic": len(MARITIME_PORTS) + len(MARITIME_EVENTS),
         "preventive-actions": sum(len(zone.get("recommendations") or []) for zone in zones),
     }
 
@@ -680,6 +862,257 @@ def _cities_geojson() -> dict[str, Any]:
     }
 
 
+def _event_points_geojson(zones: list[dict[str, Any]]) -> dict[str, Any]:
+    features: list[dict[str, Any]] = []
+    for zone in zones:
+        centroid = SENTINEL_ZONE_GEOGRAPHY.get(str(zone.get("id") or ""), {}).get("centroid")
+        if not centroid:
+            continue
+        zone_name = str(zone.get("name") or "Zone")
+        score = int(zone.get("level") or zone.get("score", {}).get("score") or 0)
+        events = [
+            {
+                "suffix": "press",
+                "layer_key": "open-intelligence",
+                "source_kind": "news_lab",
+                "title": f"Signal presse · {zone_name}",
+                "summary": (zone.get("drivers") or zone.get("signals") or [f"Signal prioritaire {zone_name}"])[0],
+                "offset": [-0.10, 0.08],
+                "confidence": 0.72,
+            },
+            {
+                "suffix": "project",
+                "layer_key": "strategic-projects",
+                "source_kind": "project_record",
+                "title": f"Projet sensible · {zone_name}",
+                "summary": "Point d'avancement a relier aux arbitrages cabinet.",
+                "offset": [0.12, -0.05],
+                "confidence": 0.69,
+            },
+        ]
+        if score >= 45:
+            events.append(
+                {
+                    "suffix": "action",
+                    "layer_key": "preventive-actions",
+                    "source_kind": "action_planner",
+                    "title": f"Action recommandee · {zone_name}",
+                    "summary": (zone.get("recommendations") or ["Action preventive a qualifier"])[0],
+                    "offset": [0.02, 0.16],
+                    "confidence": 0.74,
+                }
+            )
+        for event in events:
+            lon = round(float(centroid[0]) + event["offset"][0], 5)
+            lat = round(float(centroid[1]) + event["offset"][1], 5)
+            features.append(
+                {
+                    "type": "Feature",
+                    "id": f"{zone.get('id')}-{event['suffix']}",
+                    "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                    "properties": {
+                        "zone_id": zone.get("id"),
+                        "zone_name": zone_name,
+                        "layer_key": event["layer_key"],
+                        "source_kind": event["source_kind"],
+                        "title": event["title"],
+                        "summary": event["summary"],
+                        "score": score,
+                        "tone": zone.get("tone"),
+                        "confidence": event["confidence"],
+                        "freshness": "7d",
+                        "source_label": "SENTINEL-CI · source qualifiee",
+                    },
+                }
+            )
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
+    point_features = []
+    density_features = []
+    for port in MARITIME_PORTS:
+        point_features.append(
+            {
+                "type": "Feature",
+                "id": port["id"],
+                "geometry": {"type": "Point", "coordinates": [port["longitude"], port["latitude"]]},
+                "properties": {
+                    "kind": "port",
+                    "layer_key": "maritime-traffic",
+                    "source_kind": "port_snapshot",
+                    **port,
+                },
+            }
+        )
+    for event in MARITIME_EVENTS:
+        feature = {
+            "type": "Feature",
+            "id": event["id"],
+            "geometry": {"type": "Point", "coordinates": [event["longitude"], event["latitude"]]},
+            "properties": {
+                "kind": "vessel_snapshot",
+                "layer_key": "maritime-traffic",
+                "source_kind": "maritime_snapshot",
+                **event,
+            },
+        }
+        point_features.append(feature)
+        density_features.append(feature)
+    route_features = [
+        {
+            "type": "Feature",
+            "id": "route-gulf-abidjan",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[-1.2, 4.95], [-2.6, 4.85], [-4.0083, 5.2512], [-6.6368, 4.7446], [-9.1, 4.65]],
+            },
+            "properties": {
+                "name": "Corridor Golfe de Guinee",
+                "layer_key": "maritime-traffic",
+                "status": "monitoring",
+                "confidence": 0.66,
+                "source": "demo-safe maritime corridor",
+            },
+        },
+        {
+            "type": "Feature",
+            "id": "route-port-abidjan-customs",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[-4.0083, 5.2512], [-4.0244, 5.3453], [-5.2767, 6.8276]],
+            },
+            "properties": {
+                "name": "Axe Port d'Abidjan · Cabinet",
+                "layer_key": "maritime-traffic",
+                "status": "watch",
+                "confidence": 0.62,
+                "source": "port + agenda + economie",
+            },
+        },
+    ]
+    return {
+        "maritime_points": {"type": "FeatureCollection", "features": point_features},
+        "maritime_routes": {"type": "FeatureCollection", "features": route_features},
+        "maritime_density": {"type": "FeatureCollection", "features": density_features},
+    }
+
+
+def _maritime_snapshot_payload() -> dict[str, Any]:
+    return {
+        "mode": "snapshot_demo_safe",
+        "provider": "demo-safe / AIS optional",
+        "provider_configured": False,
+        "ports": MARITIME_PORTS,
+        "events": MARITIME_EVENTS,
+        "summary": "Lecture portuaire demo-safe : Abidjan et San Pedro, corridors Golfe de Guinee, densite indicative et liens douanes/projets.",
+        "limitations": [
+            "Pas de promesse de live AIS sans provider active.",
+            "Les points navires sont un snapshot demonstratif et non un suivi individuel.",
+        ],
+    }
+
+
+def _region_scores(zones: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "zone_id": zone.get("id"),
+            "name": zone.get("name"),
+            "score": int(zone.get("level") or zone.get("score", {}).get("score") or 0),
+            "tone": zone.get("tone"),
+            "admin1_refs": zone.get("admin1_refs") or [],
+            "drivers": zone.get("drivers") or zone.get("signals") or [],
+            "sources": zone.get("sources") or [],
+        }
+        for zone in zones
+    ]
+
+
+def _source_health(source_counts: dict[str, int]) -> dict[str, Any]:
+    layers = []
+    for item in _layer_registry(source_counts):
+        layers.append(
+            {
+                "layer_key": item["key"],
+                "label": item["label"],
+                "status": "ready" if item["count"] else "empty",
+                "count": item["count"],
+                "freshness": item["freshness"],
+                "confidence": item["confidence"],
+            }
+        )
+    return {
+        "status": "ready",
+        "updated_at": datetime.utcnow().isoformat(),
+        "layers": layers,
+        "notes": "Toutes les couches sont workspace-scopees et restent advisory-only.",
+    }
+
+
+def _scenario_modes_payload() -> list[dict[str, Any]]:
+    return [
+        {
+            "key": "explorer",
+            "label": "Explorer",
+            "goal": "Surveiller posture, couches, signaux et fraîcheur des sources.",
+            "active_layers": ["territorial-risk", "open-intelligence", "regional-context"],
+            "default_question": "Que se passe-t-il et où regarder en priorité ?",
+        },
+        {
+            "key": "comprendre",
+            "label": "Comprendre",
+            "goal": "Relier zones, rumeurs, projets, agenda, visuel et sources.",
+            "active_layers": ["territorial-risk", "open-intelligence", "strategic-projects", "visual-streams"],
+            "default_question": "Pourquoi cette zone mérite-t-elle l'attention du cabinet ?",
+        },
+        {
+            "key": "decider",
+            "label": "Décider",
+            "goal": "Comparer options, échéances, impact, coût et confiance.",
+            "active_layers": ["territorial-risk", "agenda-windows", "preventive-actions", "maritime-traffic"],
+            "default_question": "Quelle action recommander et avant quelle fenêtre ?",
+        },
+    ]
+
+
+def _forecast_signals_payload(zones: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    signals = []
+    for zone in zones[:5]:
+        score = int(zone.get("level") or (zone.get("score") or {}).get("score") or 0)
+        if score < 25:
+            continue
+        label = zone.get("name") or zone.get("id")
+        signals.append(
+            {
+                "id": f"forecast-{zone.get('id')}",
+                "zone_id": zone.get("id"),
+                "title": f"{label} · trajectoire { _tone_for(score) }",
+                "horizon": "24-48h" if score >= 45 else "7j",
+                "score": score,
+                "confidence": min(86, max(54, int(zone.get("confidence") or score + 8))),
+                "drivers": zone.get("drivers") or zone.get("signals") or [],
+                "recommended_action": (zone.get("recommendations") or ["Maintenir la veille qualifiée"])[0],
+                "source_refs": zone.get("sources") or [],
+            }
+        )
+    signals.extend(
+        [
+            {
+                "id": "forecast-port-abidjan",
+                "zone_id": "port-abidjan",
+                "title": "Port d'Abidjan · vigilance douanes",
+                "horizon": "24h",
+                "score": 58,
+                "confidence": 66,
+                "drivers": ["congestion indicative", "fenêtre arbitrage import", "presse économique"],
+                "recommended_action": "Qualifier l'impact sur les projets sensibles avant midi.",
+                "source_refs": ["src-maritime-paa-001", "src-maritime-marinelink-001"],
+            }
+        ]
+    )
+    return signals
+
+
 def _slugify(value: str) -> str:
     normalized = (value or "").lower().replace("'", "").replace("/", " ")
     return "-".join(part for part in normalized.replace("_", " ").split() if part)
@@ -767,6 +1200,7 @@ def build_map_command(
     target: Optional[str] = None,
     layers: Optional[list[str]] = None,
     basemap: Optional[str] = None,
+    time_range: Optional[str] = None,
     camera: Optional[dict[str, Any]] = None,
     annotation: Optional[dict[str, Any]] = None,
     user: Optional[User] = None,
@@ -778,12 +1212,18 @@ def build_map_command(
     normalized_intent = "show_sources" if intent == "open_source_panel" else intent
     normalized_intent = normalized_intent if normalized_intent in MAP_COMMAND_INTENTS else "focus_zone"
     zones = payload.get("zones") or []
-    selected = None if normalized_intent == "reset_view" else _find_zone_payload(zones, target)
-    if normalized_intent != "reset_view":
+    selected_port = None if normalized_intent == "reset_view" else _find_port_payload(target)
+    selected = None if normalized_intent in {"reset_view", "focus_port", "show_vessel_snapshot", "show_disruption"} else _find_zone_payload(zones, target)
+    if normalized_intent != "reset_view" and not selected_port:
         selected = selected or payload.get("score_summary", {}).get("top_zone")
     selected_key = selected.get("id") if selected else None
     presets = map_system.get("camera_presets") or {}
-    selected_camera = camera or (presets.get("country") if normalized_intent == "reset_view" else presets.get(selected_key)) or presets.get("country")
+    port_key = selected_port.get("id") if selected_port else None
+    selected_camera = (
+        camera
+        or (presets.get("country") if normalized_intent == "reset_view" else presets.get(port_key or selected_key))
+        or presets.get("country")
+    )
     default_state = map_system.get("default_map_state") or {}
     layer_catalog = map_system.get("layer_catalog") or []
     allowed_layers = {layer.get("key") for layer in layer_catalog}
@@ -794,32 +1234,47 @@ def build_map_command(
     )
     if requested_layers:
         active_layers = requested_layers
+    elif normalized_intent in {"focus_port", "show_vessel_snapshot", "show_disruption"}:
+        active_layers = ["territorial-risk", "open-intelligence", "maritime-traffic", "preventive-actions"]
     elif normalized_intent in {"set_layers", "reset_view"}:
         active_layers = default_active_layers
     else:
         active_layers = default_active_layers
     basemap_options = {option.get("key") for option in map_system.get("basemap_options") or []}
-    selected_basemap = basemap if basemap in basemap_options else default_state.get("basemap") or "administrative"
-    explanation = _command_explanation(normalized_intent, selected, selected_basemap)
-    sources = _zone_sources(selected)
+    selected_basemap = basemap if basemap in basemap_options else default_state.get("basemap") or "command"
+    selected_time_range = time_range if time_range in {item["key"] for item in MAP_TIME_RANGES} else default_state.get("time_range") or "7d"
+    explanation = _command_explanation(normalized_intent, selected, selected_basemap, selected_port=selected_port, time_range=selected_time_range)
+    sources = _port_sources(selected_port) if selected_port else _zone_sources(selected)
+    target_key = port_key or selected_key
+    target_label = selected_port.get("name") if selected_port else (selected.get("name") if selected else None)
     command = {
         "command_id": str(uuid4()),
         "map_id": map_row.id,
         "map_slug": map_row.slug,
         "intent": normalized_intent,
-        "target": selected_key,
-        "target_label": selected.get("name") if selected else None,
+        "target": target_key,
+        "target_label": target_label,
         "map_state": {
             "renderer": map_system.get("renderer_config", {}).get("renderer", "maplibre"),
             "selected_zone": selected_key,
+            "selected_port": port_key,
             "active_layers": active_layers,
             "basemap": selected_basemap,
+            "time_range": selected_time_range,
             "camera": selected_camera,
+            "focus_marker": {
+                "longitude": selected_port.get("longitude"),
+                "latitude": selected_port.get("latitude"),
+                "label": selected_port.get("name"),
+                "tone": "maritime",
+            }
+            if selected_port
+            else None,
             "annotation": annotation
             or {
-                "label": selected.get("name") if selected else "Cote d'Ivoire",
+                "label": target_label or "Cote d'Ivoire",
                 "summary": explanation,
-                "tone": selected.get("tone") if selected else "monitoring",
+                "tone": (selected_port.get("tone") if selected_port else selected.get("tone")) if (selected_port or selected) else "monitoring",
             },
         },
         "explanation": explanation,
@@ -833,9 +1288,10 @@ def build_map_command(
         details={
             "map_id": map_row.id,
             "intent": normalized_intent,
-            "target": selected_key,
+            "target": target_key,
             "layers": active_layers,
             "basemap": selected_basemap,
+            "time_range": selected_time_range,
             "source_count": len(sources),
         },
     )
@@ -859,11 +1315,44 @@ def handle_map_chat_query(
     if assistant_profile != "vigie_executive":
         return None
     normalized = (query or "").lower()
-    map_terms = ("carte", "zone", "zones", "nord", "ouest", "centre", "sud", "est", "zoom", "montre", "affiche")
+    map_terms = (
+        "carte",
+        "zone",
+        "zones",
+        "nord",
+        "ouest",
+        "centre",
+        "sud",
+        "est",
+        "zoom",
+        "montre",
+        "affiche",
+        "port",
+        "ports",
+        "maritime",
+        "navire",
+        "navires",
+        "douane",
+        "douanes",
+        "abidjan",
+        "san pedro",
+        "san-pedro",
+    )
     if not any(term in normalized for term in map_terms):
         return None
     intent = "focus_zone"
     basemap = None
+    layers = None
+    target = _extract_zone_target(normalized)
+    port_target = _extract_port_target(normalized)
+    if port_target:
+        intent = "focus_port"
+        target = port_target
+        layers = ["territorial-risk", "open-intelligence", "maritime-traffic", "preventive-actions"]
+        if "navire" in normalized or "bateau" in normalized:
+            intent = "show_vessel_snapshot"
+        if "risque" in normalized or "douane" in normalized or "douanes" in normalized:
+            intent = "show_disruption"
     if "source" in normalized:
         intent = "show_sources"
     if "fenetre" in normalized or "créneau" in normalized or "creneau" in normalized:
@@ -878,23 +1367,31 @@ def handle_map_chat_query(
             basemap = "contours"
         elif "sombre" in normalized:
             basemap = "dark"
+        elif "commandement" in normalized or "worldmonitor" in normalized:
+            basemap = "command"
         else:
             basemap = "administrative"
-    target = _extract_zone_target(normalized)
     command = build_map_command(
         db,
         workspace,
         intent=intent,
         target=target,
+        layers=layers,
         basemap=basemap,
         user=user,
     )
     label = command.get("target_label") or "les zones prioritaires"
-    content = (
-        f"J'affiche {label} sur la carte stratégique. La vue active les couches vigilance, "
-        "presse, projets, flux visuels et actions préventives pour garder une lecture sourcée "
-        "et exploitable par le cabinet."
-    )
+    if intent in {"focus_port", "show_vessel_snapshot", "show_disruption"}:
+        content = (
+            f"J'affiche {label} avec les couches maritime, douanes, presse et actions. "
+            "Lecture demo-safe : ports, corridor Golfe de Guinee, densite indicative et options cabinet."
+        )
+    else:
+        content = (
+            f"J'affiche {label} sur la carte stratégique. La vue active les couches vigilance, "
+            "presse, projets, flux visuels et actions préventives pour garder une lecture sourcée "
+            "et exploitable par le cabinet."
+        )
     return {
         "action": "map_command",
         "applied": True,
@@ -967,41 +1464,59 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
             }
         )
     camera_presets = _camera_presets(zones, view_box)
+    event_points = _event_points_geojson(zones)
+    maritime_sources = _maritime_geojson_sources()
+    default_basemap = "command"
     return {
+        "map_version": "situation_map_v3",
+        "time_range": "7d",
+        "available_time_ranges": MAP_TIME_RANGES,
         "renderer_config": {
             "renderer": "maplibre",
             "fallback_renderer": "svg",
-            "basemap_policy": "public_osm_muted",
-            "default_basemap": "administrative",
+            "basemap_policy": "public_osm_carto_with_self_hosted_ready",
+            "default_basemap": default_basemap,
             "style": basemap_options[0]["style"],
             "initial_view_state": camera_presets["country"],
             "bounds": [[REGIONAL_CONTEXT_BOUNDS["west"], REGIONAL_CONTEXT_BOUNDS["south"]], [REGIONAL_CONTEXT_BOUNDS["east"], REGIONAL_CONTEXT_BOUNDS["north"]]],
             "attribution": "Fond OSM/CARTO · frontières geoBoundaries CC BY 4.0 · contexte CEDEAO Agentium workspace",
             "interaction_contract": {
                 "commands": sorted(MAP_COMMAND_INTENTS),
+                "scenario_modes": [mode["key"] for mode in _scenario_modes_payload()],
                 "selection": "zone",
                 "events": ["zone_selected", "map_state_updated", "source_panel_requested"],
             },
         },
         "basemap_options": basemap_options,
         "layer_catalog": _layer_catalog(source_counts),
+        "layer_registry": _layer_registry(source_counts),
         "default_map_state": {
-            "basemap": "administrative",
+            "basemap": default_basemap,
             "active_layers": default_layers,
             "selected_zone": zones[0]["id"] if zones else None,
             "camera": camera_presets["country"],
+            "time_range": "7d",
+            "mode": "explorer",
         },
         "geodata_metadata": _geo_metadata(),
         "country_boundary": _country_boundary_geojson(),
         "district_boundaries": _district_boundaries_geojson(),
         "admin_boundaries": _admin_boundaries_geojson(),
         "cities": _cities_geojson(),
+        "region_scores": _region_scores(zones),
+        "event_points": event_points,
+        "maritime_snapshot": _maritime_snapshot_payload(),
+        "source_health": _source_health(source_counts),
+        "forecast_signals": _forecast_signals_payload(zones),
+        "scenario_modes": _scenario_modes_payload(),
         "source_counts": source_counts,
         "geojson_sources": {
             "zones": {"type": "FeatureCollection", "features": zone_features},
             "markers": {"type": "FeatureCollection", "features": marker_features},
             "context_markers": {"type": "FeatureCollection", "features": context_features},
             "context_lines": {"type": "FeatureCollection", "features": line_features},
+            "event_points": event_points,
+            **maritime_sources,
         },
         "camera_presets": camera_presets,
         "visual_effects": {
@@ -1166,6 +1681,15 @@ def _camera_presets(zones: list[dict[str, Any]], view_box: tuple[float, float, f
             "duration_ms": 900,
         }
     }
+    for port in MARITIME_PORTS:
+        presets[port["id"]] = {
+            "longitude": port["longitude"],
+            "latitude": port["latitude"],
+            "zoom": 8.65 if port["id"] == "port-abidjan" else 8.35,
+            "pitch": 0,
+            "bearing": 0,
+            "duration_ms": 850,
+        }
     for zone in zones:
         point = _zone_lonlat_centroid(zone, view_box)
         if not point:
@@ -1194,6 +1718,27 @@ def _find_zone_payload(zones: list[dict[str, Any]], target: Optional[str]) -> Op
     return None
 
 
+def _find_port_payload(target: Optional[str]) -> Optional[dict[str, Any]]:
+    if not target:
+        return None
+    normalized = target.lower().strip()
+    aliases = {
+        "abidjan": "port-abidjan",
+        "port-abidjan": "port-abidjan",
+        "vridi": "port-abidjan",
+        "san pedro": "port-san-pedro",
+        "san-pedro": "port-san-pedro",
+        "port-san-pedro": "port-san-pedro",
+    }
+    canonical = aliases.get(normalized, normalized)
+    for port in MARITIME_PORTS:
+        if canonical in {str(port.get("id", "")).lower(), str(port.get("name", "")).lower()}:
+            return port
+        if canonical and canonical in str(port.get("name", "")).lower():
+            return port
+    return None
+
+
 def _extract_zone_target(query: str) -> Optional[str]:
     for key, labels in {
         "zone-nord": ("nord", "korhogo", "frontaliere nord"),
@@ -1207,13 +1752,35 @@ def _extract_zone_target(query: str) -> Optional[str]:
     return None
 
 
-def _command_explanation(intent: str, selected: Optional[dict[str, Any]], basemap: Optional[str] = None) -> str:
+def _extract_port_target(query: str) -> Optional[str]:
+    if any(label in query for label in ("san pedro", "san-pedro")):
+        return "port-san-pedro"
+    if any(label in query for label in ("port", "abidjan", "vridi", "douane", "douanes", "maritime", "navire", "bateau")):
+        return "port-abidjan"
+    return None
+
+
+def _command_explanation(
+    intent: str,
+    selected: Optional[dict[str, Any]],
+    basemap: Optional[str] = None,
+    *,
+    selected_port: Optional[dict[str, Any]] = None,
+    time_range: Optional[str] = None,
+) -> str:
     if intent == "reset_view":
         return "Vue Côte d'Ivoire réinitialisée avec les couches ministérielles par défaut."
     if intent == "set_basemap":
         return f"Fond cartographique basculé sur {basemap or 'le fond par défaut'}."
+    if intent == "set_time_range":
+        return f"Fenêtre temporelle basculée sur {time_range or 'la tendance active'}."
     if intent == "set_layers":
         return "Couches ministérielles ajustées pour la lecture territoriale demandée."
+    if intent in {"focus_port", "show_vessel_snapshot", "show_disruption"} and selected_port:
+        return (
+            f"Focus portuaire sur {selected_port.get('name')} : couche maritime, douanes, presse et actions "
+            "préventives activées pour une lecture économique et gouvernementale."
+        )
     if not selected:
         return "Vue consolidee de la posture territoriale et des signaux qualifiés."
     name = selected.get("name")
@@ -1237,4 +1804,29 @@ def _zone_sources(selected: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
             "zone": selected.get("id"),
         }
         for source in (selected.get("sources") or ["Carte stratégique"])
+    ]
+
+
+def _port_sources(selected_port: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not selected_port:
+        return [{"title": "Maritime / douanes", "kind": "maritime_snapshot", "source_label": "Couche maritime"}]
+    return [
+        {
+            "title": selected_port.get("name"),
+            "kind": "port_snapshot",
+            "source_label": "Flux maritime demo-safe",
+            "port": selected_port.get("id"),
+        },
+        {
+            "title": "Corridor Golfe de Guinee",
+            "kind": "maritime_route",
+            "source_label": "Route maritime indicative",
+            "port": selected_port.get("id"),
+        },
+        {
+            "title": "Douanes / economie",
+            "kind": "cabinet_context",
+            "source_label": "Contexte ministeriel",
+            "port": selected_port.get("id"),
+        },
     ]

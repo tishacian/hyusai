@@ -36,16 +36,22 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     listed = client.get("/api/v1/maps/")
     assert listed.status_code == 200
     assert listed.json()["maps"][0]["slug"] == "sentinel-ci-strategic-map"
+    assert listed.json()["maps"][0]["map_version"] == "situation_map_v3"
     assert listed.json()["maps"][0]["renderer_config"]["renderer"] == "maplibre"
-    assert listed.json()["maps"][0]["renderer_config"]["basemap_policy"] == "public_osm_muted"
-    assert listed.json()["maps"][0]["renderer_config"]["default_basemap"] == "administrative"
+    assert listed.json()["maps"][0]["renderer_config"]["basemap_policy"] == "public_osm_carto_with_self_hosted_ready"
+    assert listed.json()["maps"][0]["renderer_config"]["default_basemap"] == "command"
     assert listed.json()["maps"][0]["renderer_config"]["bounds"][0][0] <= -13.0
-    assert {item["key"] for item in listed.json()["maps"][0]["basemap_options"]} >= {"administrative", "dark", "contours"}
+    assert {item["key"] for item in listed.json()["maps"][0]["basemap_options"]} >= {"command", "administrative", "dark", "contours"}
     assert listed.json()["maps"][0]["default_map_state"]["camera"]["pitch"] == 0
     assert listed.json()["maps"][0]["default_map_state"]["camera"]["zoom"] <= 5.9
+    assert listed.json()["maps"][0]["default_map_state"]["time_range"] == "7d"
+    assert {item["key"] for item in listed.json()["maps"][0]["available_time_ranges"]} >= {"24h", "7d", "30d"}
     layer_keys = {item["key"] for item in listed.json()["maps"][0]["layer_catalog"]}
+    registry_keys = {item["key"] for item in listed.json()["maps"][0]["layer_registry"]}
     assert listed.json()["maps"][0]["layer_catalog"][0]["key"] == "territorial-risk"
     assert "regional-context" in layer_keys
+    assert "maritime-traffic" in layer_keys
+    assert "maritime-traffic" in registry_keys
     assert listed.json()["maps"][0]["geodata_metadata"]["source"].startswith("geoBoundaries")
     assert listed.json()["maps"][0]["country_boundary"]["features"][0]["properties"]["admin_level"] == "ADM0"
     assert listed.json()["maps"][0]["district_boundaries"]["features"][0]["properties"]["admin_level"] == "ADM1"
@@ -63,6 +69,21 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert context_markers
     assert {"Accra", "Bamako", "Ouagadougou"} <= {feature["properties"]["name"] for feature in context_markers}
     assert any(feature["properties"].get("scope") == "regional" for feature in context_markers)
+    assert listed.json()["maps"][0]["event_points"]["features"]
+    assert listed.json()["maps"][0]["geojson_sources"]["maritime_points"]["features"]
+    assert listed.json()["maps"][0]["maritime_snapshot"]["mode"] == "snapshot_demo_safe"
+    assert listed.json()["maps"][0]["source_health"]["status"] == "ready"
+    assert {item["key"] for item in listed.json()["maps"][0]["scenario_modes"]} == {
+        "explorer",
+        "comprendre",
+        "decider",
+    }
+    assert listed.json()["maps"][0]["forecast_signals"]
+    assert listed.json()["maps"][0]["renderer_config"]["interaction_contract"]["scenario_modes"] == [
+        "explorer",
+        "comprendre",
+        "decider",
+    ]
 
     scored = client.post("/api/v1/maps/sentinel-ci-strategic-map/score")
     assert scored.status_code == 200
@@ -87,9 +108,19 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert command_body["intent"] == "focus_zone"
     assert command_body["target"] == "zone-nord"
     assert command_body["map_state"]["renderer"] == "maplibre"
-    assert command_body["map_state"]["basemap"] == "administrative"
+    assert command_body["map_state"]["basemap"] == "command"
     assert command_body["map_state"]["active_layers"] == ["territorial-risk", "open-intelligence"]
     assert command_body["map_state"]["camera"]["longitude"]
+
+    port_command = client.post(
+        "/api/v1/maps/sentinel-ci-strategic-map/command",
+        json={"intent": "focus_port", "target": "abidjan"},
+    )
+    assert port_command.status_code == 200
+    assert port_command.json()["intent"] == "focus_port"
+    assert port_command.json()["target"] == "port-abidjan"
+    assert "maritime-traffic" in port_command.json()["map_state"]["active_layers"]
+    assert port_command.json()["map_state"]["selected_port"] == "port-abidjan"
 
     basemap_command = client.post(
         "/api/v1/maps/sentinel-ci-strategic-map/command",

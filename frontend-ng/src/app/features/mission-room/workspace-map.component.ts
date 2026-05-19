@@ -30,6 +30,10 @@ type MapLayerControl = {
   label: string;
   shortLabel: string;
   tone: string;
+  group?: string;
+  icon?: string;
+  freshness?: string;
+  sourceKind?: string;
   count: number;
   confidence: number;
   visible: boolean;
@@ -53,6 +57,7 @@ type BasemapOption = {
       [class.compact]="compact"
       [class.is-fallback]="fallback"
       [class.basemap-administrative]="selectedBasemapKey === 'administrative'"
+      [class.basemap-command]="selectedBasemapKey === 'command'"
       [class.basemap-dark]="selectedBasemapKey === 'dark'"
       [class.basemap-contours]="selectedBasemapKey === 'contours'"
     >
@@ -69,6 +74,15 @@ type BasemapOption = {
             </button>
           </header>
           @if (controlsOpen) {
+            <section class="control-section">
+              <span>Mode</span>
+              <div class="read-mode-switch" role="tablist" aria-label="Mode de lecture carte">
+                <button type="button" [class.active]="readMode === 'explorer'" (click)="setReadMode('explorer')">Explorer</button>
+                <button type="button" [class.active]="readMode === 'understand'" (click)="setReadMode('understand')">Comprendre</button>
+                <button type="button" [class.active]="readMode === 'decide'" (click)="setReadMode('decide')">Décider</button>
+              </div>
+            </section>
+
             <section class="control-section">
               <span>Fond</span>
               <div class="basemap-switch">
@@ -87,8 +101,12 @@ type BasemapOption = {
 
             <section class="control-section">
               <span>Couches</span>
+              <label class="layer-search">
+                <span>Rechercher</span>
+                <input type="search" [value]="layerSearch" (input)="setLayerSearch($any($event.target).value)" placeholder="navire, presse, agenda..." />
+              </label>
               <div class="layer-list">
-                @for (layer of layerControls; track layer.key) {
+                @for (layer of filteredLayerControls; track layer.key) {
                   <button
                     type="button"
                     class="layer-toggle"
@@ -98,7 +116,8 @@ type BasemapOption = {
                   >
                     <i [class]="'tone-' + layer.tone"></i>
                     <strong>{{ layer.shortLabel }}</strong>
-                    <small>{{ isLayerActive(layer.key) ? 'visible' : 'masqué' }} · {{ layer.count }} · {{ layer.confidence }}%</small>
+                    <small>{{ layer.group || 'Source' }} · {{ layer.count }} · {{ layer.confidence }}%</small>
+                    <em>{{ layer.freshness || (isLayerActive(layer.key) ? 'visible' : 'masqué') }}</em>
                   </button>
                 }
               </div>
@@ -271,6 +290,10 @@ type BasemapOption = {
         filter: contrast(1.08) saturate(0.82) brightness(0.98);
       }
 
+      .workspace-map.basemap-command .maplibre-canvas {
+        filter: contrast(1.28) saturate(0.94) brightness(1.08);
+      }
+
       .workspace-map.basemap-dark .maplibre-canvas {
         filter: contrast(1.05) saturate(1.02);
       }
@@ -392,7 +415,14 @@ type BasemapOption = {
         gap: 6px;
       }
 
+      .read-mode-switch {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+      }
+
       .basemap-switch button,
+      .read-mode-switch button,
       .map-reset {
         min-height: 31px;
         padding: 7px 10px;
@@ -408,6 +438,7 @@ type BasemapOption = {
       }
 
       .basemap-switch button.active,
+      .read-mode-switch button.active,
       .map-reset:hover {
         border-color: rgba(101, 214, 110, 0.42);
         background: rgba(10, 34, 49, 0.82);
@@ -416,9 +447,41 @@ type BasemapOption = {
       }
 
       .basemap-switch button:hover,
+      .read-mode-switch button:hover,
       .layer-toggle:hover {
         border-color: rgba(101, 214, 110, 0.52);
         color: rgba(245, 251, 255, 0.95);
+      }
+
+      .layer-search {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 5px;
+      }
+
+      .layer-search span {
+        color: rgba(148, 197, 229, 0.70);
+        font: 800 9px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .layer-search input {
+        width: 100%;
+        min-height: 34px;
+        border: 1px solid rgba(101, 214, 110, 0.16);
+        border-radius: 10px;
+        background: rgba(6, 12, 19, 0.92);
+        color: rgba(245, 251, 255, 0.90);
+        font-size: 12px;
+        padding: 7px 10px;
+        outline: none;
+      }
+
+      .layer-search input:focus {
+        border-color: rgba(101, 214, 110, 0.46);
+        box-shadow: 0 0 0 2px rgba(101, 214, 110, 0.10);
       }
 
       .layer-list {
@@ -434,7 +497,7 @@ type BasemapOption = {
         min-width: 0;
         display: grid;
         grid-template-columns: 9px minmax(0, 1fr);
-        grid-template-areas: 'tone label' 'tone meta';
+        grid-template-areas: 'tone label' 'tone meta' 'tone fresh';
         column-gap: 8px;
         row-gap: 2px;
         align-items: center;
@@ -493,6 +556,13 @@ type BasemapOption = {
         grid-area: meta;
         color: rgba(172, 192, 212, 0.70);
         font: 700 10px/1.2 var(--mission-mono, monospace);
+      }
+
+      .layer-toggle em {
+        grid-area: fresh;
+        font-style: normal;
+        color: rgba(148, 197, 229, 0.62);
+        font: 700 9px/1.2 var(--mission-mono, monospace);
       }
 
       .map-reset {
@@ -834,10 +904,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @ViewChild('mapCanvas') private readonly mapCanvas?: ElementRef<HTMLDivElement>;
 
   fallback = false;
-  selectedBasemapKey = 'administrative';
+  selectedBasemapKey = 'command';
   controlsOpen = true;
   legendOpen = true;
   briefOpen = false;
+  readMode: 'explorer' | 'understand' | 'decide' = 'explorer';
+  layerSearch = '';
 
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly activeLayerKeys = new Set<string>();
@@ -848,13 +920,17 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private focusMarker: any | null = null;
 
   get layerControls(): MapLayerControl[] {
-    const catalog = this.mapSystem?.['layer_catalog'];
+    const catalog = this.mapSystem?.['layer_registry'] || this.mapSystem?.['layer_catalog'];
     if (Array.isArray(catalog) && catalog.length) {
       return catalog.map((layer: any) => ({
         key: String(layer.key || ''),
         label: String(layer.label || layer.key || ''),
         shortLabel: String(layer.short_label || layer.label || layer.key || ''),
         tone: String(layer.tone || 'cyan'),
+        group: layer.group ? String(layer.group) : undefined,
+        icon: layer.icon ? String(layer.icon) : undefined,
+        freshness: layer.freshness ? String(layer.freshness) : undefined,
+        sourceKind: layer.source_kind ? String(layer.source_kind) : undefined,
         count: Number(layer.count || 0),
         confidence: Math.round(Number(layer.confidence || 0)),
         visible: layer.visible !== false,
@@ -867,8 +943,18 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       { key: 'strategic-projects', label: 'Projets sensibles', shortLabel: 'Projets', tone: 'green', count: 3, confidence: 69, visible: true },
       { key: 'agenda-windows', label: 'Agenda / fenêtres d’action', shortLabel: 'Agenda', tone: 'amber', count: 5, confidence: 81, visible: true },
       { key: 'visual-streams', label: 'Observations visuelles', shortLabel: 'Visuel', tone: 'violet', count: 1, confidence: 62, visible: true },
+      { key: 'maritime-traffic', label: 'Maritime / douanes', shortLabel: 'Maritime', tone: 'orange', count: 5, confidence: 66, visible: false },
       { key: 'preventive-actions', label: 'Actions recommandées', shortLabel: 'Actions', tone: 'red', count: 4, confidence: 74, visible: true },
     ];
+  }
+
+  get filteredLayerControls(): MapLayerControl[] {
+    const query = this.layerSearch.trim().toLowerCase();
+    if (!query) return this.layerControls;
+    return this.layerControls.filter((layer) => {
+      const haystack = `${layer.key} ${layer.label} ${layer.shortLabel} ${layer.group || ''} ${layer.sourceKind || ''}`.toLowerCase();
+      return haystack.includes(query);
+    });
   }
 
   get activeLayerCount(): number {
@@ -886,6 +972,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       })).filter((item) => item.key);
     }
     return [
+      { key: 'command', label: 'Commandement', style: this.defaultStyle('#151719') },
       { key: 'administrative', label: 'Administratif', style: this.defaultStyle('#12202b') },
       { key: 'dark', label: 'Sombre', style: this.defaultStyle('#05080d') },
       { key: 'contours', label: 'Contours', style: this.defaultStyle('#071018') },
@@ -1000,6 +1087,30 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     }
     this.updateDeckLayers();
     this.cdr.markForCheck();
+  }
+
+  setReadMode(mode: 'explorer' | 'understand' | 'decide'): void {
+    this.readMode = mode;
+    if (mode === 'explorer') {
+      this.ensureLayers(['territorial-risk', 'open-intelligence', 'strategic-projects', 'visual-streams']);
+    } else if (mode === 'understand') {
+      this.ensureLayers(['territorial-risk', 'open-intelligence', 'regional-context', 'maritime-traffic']);
+    } else {
+      this.ensureLayers(['territorial-risk', 'agenda-windows', 'preventive-actions', 'strategic-projects']);
+    }
+    this.updateDeckLayers();
+    this.cdr.markForCheck();
+  }
+
+  setLayerSearch(value: string): void {
+    this.layerSearch = value || '';
+    this.cdr.markForCheck();
+  }
+
+  private ensureLayers(keys: string[]): void {
+    for (const key of keys) {
+      if (this.layerControls.some((layer) => layer.key === key)) this.activeLayerKeys.add(key);
+    }
   }
 
   switchBasemap(key: string): void {
@@ -1197,8 +1308,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const markersSource = this.mapSystem?.['geojson_sources']?.markers;
     const contextMarkersSource = this.mapSystem?.['geojson_sources']?.context_markers;
     const contextLinesSource = this.mapSystem?.['geojson_sources']?.context_lines;
+    const eventPointsSource = this.mapSystem?.['geojson_sources']?.event_points || this.mapSystem?.['event_points'];
     const maritimePointsSource = this.mapSystem?.['geojson_sources']?.maritime_points;
     const maritimeRoutesSource = this.mapSystem?.['geojson_sources']?.maritime_routes;
+    const maritimeDensitySource = this.mapSystem?.['geojson_sources']?.maritime_density;
     const countryBoundarySource = this.mapSystem?.['country_boundary'];
     const districtBoundariesSource = this.mapSystem?.['district_boundaries'];
     const adminBoundariesSource = this.mapSystem?.['admin_boundaries'];
@@ -1222,6 +1335,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const showVisual = this.isLayerActive('visual-streams');
     const showMaritime = this.isLayerActive('maritime-traffic');
     const showActions = this.isLayerActive('preventive-actions');
+    const eventFeatures = eventPointsSource?.features || [];
     const layers: any[] = [];
 
     layers.push(new GeoJsonLayer({
@@ -1277,6 +1391,21 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     }
 
     if (showMaritime) {
+      const densityFeatures = maritimeDensitySource?.features || [];
+      if (densityFeatures.length) {
+        layers.push(new ScatterplotLayer({
+          id: 'sentinel-maritime-density',
+          data: densityFeatures,
+          pickable: false,
+          stroked: false,
+          filled: true,
+          getPosition: (feature: any) => feature.geometry.coordinates,
+          radiusUnits: 'meters',
+          getRadius: (feature: any) => Math.max(18000, Math.min(42000, (feature.properties?.score || 52) * 520)),
+          getFillColor: [255, 140, 42, 42],
+          parameters: { depthTest: false },
+        }));
+      }
       layers.push(new GeoJsonLayer({
         id: 'sentinel-maritime-routes',
         data: maritimeRoutesSource,
@@ -1334,6 +1463,45 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       }));
     }
 
+    const visibleEventPoints = eventFeatures.filter((feature: any) => {
+      const layerKey = feature.properties?.layer_key;
+      if (layerKey === 'open-intelligence') return showPresse;
+      if (layerKey === 'strategic-projects') return showProjects;
+      if (layerKey === 'agenda-windows') return showAgenda;
+      if (layerKey === 'visual-streams') return showVisual;
+      if (layerKey === 'preventive-actions') return showActions;
+      return false;
+    });
+    if (visibleEventPoints.length) {
+      layers.push(new ScatterplotLayer({
+        id: 'sentinel-source-event-halos',
+        data: visibleEventPoints,
+        pickable: false,
+        stroked: true,
+        filled: true,
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => Math.max(12, Math.min(24, Number(feature.properties?.score || 48) / 3.2)),
+        getFillColor: (feature: any) => this.eventLayerColor(feature.properties?.layer_key, 34),
+        getLineColor: (feature: any) => this.eventLayerColor(feature.properties?.layer_key, 176),
+        lineWidthMinPixels: 1.25,
+        parameters: { depthTest: false },
+      }));
+      layers.push(new ScatterplotLayer({
+        id: 'sentinel-source-events',
+        data: visibleEventPoints,
+        pickable: true,
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => Math.max(4, Math.min(8, Number(feature.properties?.score || 48) / 10)),
+        getFillColor: (feature: any) => this.eventLayerColor(feature.properties?.layer_key, 232),
+        getLineColor: [250, 254, 255, 238],
+        lineWidthMinPixels: 1.4,
+        parameters: { depthTest: false },
+        onClick: (info: any) => this.emitEventEvidence(info.object),
+      }));
+    }
+
     if (showTerritory || showProjects || showActions) {
       layers.push(new GeoJsonLayer({
         id: 'sentinel-zones',
@@ -1363,10 +1531,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       }));
     }
 
-    if (showPresse || showRegional) {
+    if (showRegional) {
       layers.push(new ScatterplotLayer({
         id: 'sentinel-context-marker-rings',
-        data: this.contextMarkerFeatures(contextMarkersSource?.features || [], showPresse, showRegional),
+        data: this.contextMarkerFeatures(contextMarkersSource?.features || [], false, showRegional),
         pickable: false,
         stroked: true,
         filled: true,
@@ -1380,7 +1548,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       }));
       layers.push(new ScatterplotLayer({
         id: 'sentinel-context-markers',
-        data: this.contextMarkerFeatures(contextMarkersSource?.features || [], showPresse, showRegional),
+        data: this.contextMarkerFeatures(contextMarkersSource?.features || [], false, showRegional),
         pickable: false,
         getPosition: (feature: any) => feature.geometry.coordinates,
         radiusUnits: 'pixels',
@@ -1567,6 +1735,45 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     });
   }
 
+  private emitEventEvidence(feature: any): void {
+    if (!feature?.properties) return;
+    const properties = feature.properties;
+    const longitude = Number(feature.geometry?.coordinates?.[0] ?? -5.75);
+    const latitude = Number(feature.geometry?.coordinates?.[1] ?? 7.95);
+    this.evidenceAction.emit({
+      action: String(properties.layer_key || 'source'),
+      zone: {
+        id: properties.zone_id || properties.id || 'map-source',
+        name: properties.zone_name || properties.title || 'Source qualifiée',
+        level: Number(properties.score || 52),
+        tone: properties.tone || 'monitoring',
+        sources: [properties.source_label].filter(Boolean),
+        signals: [properties.summary].filter(Boolean),
+        popup_brief: {
+          title: properties.title || 'Source qualifiée',
+          score: Number(properties.score || 52),
+          severity: properties.tone || 'monitoring',
+          drivers: [properties.summary, properties.source_kind, properties.zone_name].filter(Boolean).slice(0, 3),
+          sources: [properties.source_label].filter(Boolean),
+          recommendation: 'Rapprocher cette source des décisions en cours avant arbitrage.',
+          decision_deadline: "aujourd'hui",
+          cta: 'Ouvrir dossier source',
+          map_focus: {
+            active_layers: Array.from(this.activeLayerKeys),
+            camera: { longitude, latitude, zoom: 8.1, duration_ms: 220 },
+            focus_marker: {
+              longitude,
+              latitude,
+              label: properties.title || 'Source qualifiée',
+              zone_id: properties.zone_id,
+              tone: properties.layer_key || 'source',
+            },
+          },
+        },
+      },
+    });
+  }
+
   private deckColor(tone: string, selected = false, alpha = 120): number[] {
     const base = tone === 'critical' ? [255, 68, 82] : tone === 'watch' ? [250, 176, 34] : [58, 218, 128];
     return [...base, selected ? Math.max(alpha, 174) : alpha];
@@ -1598,6 +1805,15 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private contextMarkerLine(feature: any): number[] {
     return feature.properties?.scope === 'regional' ? [255, 176, 94, 146] : [148, 222, 255, 138];
+  }
+
+  private eventLayerColor(layerKey: string, alpha = 220): number[] {
+    if (layerKey === 'strategic-projects') return [118, 223, 166, alpha];
+    if (layerKey === 'agenda-windows') return [241, 206, 113, alpha];
+    if (layerKey === 'visual-streams') return [185, 165, 255, alpha];
+    if (layerKey === 'preventive-actions') return [242, 127, 139, alpha];
+    if (layerKey === 'maritime-traffic') return [242, 140, 56, alpha];
+    return [143, 210, 255, alpha];
   }
 
   private enableFallback(): void {

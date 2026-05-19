@@ -45,6 +45,7 @@ class MapCommandRequest(BaseModel):
     target: Optional[str] = Field(default=None, max_length=160)
     layers: Optional[list[str]] = None
     basemap: Optional[str] = Field(default=None, max_length=80)
+    time_range: Optional[str] = Field(default=None, max_length=40)
     camera: Optional[dict[str, Any]] = None
     annotation: Optional[dict[str, Any]] = None
 
@@ -134,6 +135,7 @@ async def maps_command(
             target=request.target,
             layers=request.layers,
             basemap=request.basemap,
+            time_range=request.time_range,
             camera=request.camera,
             annotation=request.annotation,
             user=user,

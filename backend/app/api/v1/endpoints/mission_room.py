@@ -22,6 +22,7 @@ from app.services.mission_room import (
     cockpit_payload,
     decisions_payload,
     draft_instruction_payload,
+    evidence_graph_payload,
     library_payload,
     map_payload,
     monitor_payload,
@@ -260,6 +261,28 @@ async def situation_monitor(
             "zones": len(payload.get("zones") or []),
             "visual_observations": len(payload.get("visual_observations") or []),
             "posture": (payload.get("posture") or {}).get("label"),
+        },
+    )
+    return payload
+
+
+@router.get("/evidence-graph")
+async def evidence_graph(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = evidence_graph_payload(workspace, db=db)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.evidence_graph.viewed",
+        details={
+            "nodes": len(payload.get("nodes") or []),
+            "edges": len(payload.get("edges") or []),
+            "clusters": len(payload.get("clusters") or []),
+            "collection_slug": (payload.get("knowledge") or {}).get("collection_slug"),
         },
     )
     return payload

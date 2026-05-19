@@ -100,6 +100,10 @@ interface AttentionRequiredItem {
   action_label?: string;
   tone?: string;
   kind?: string;
+  next_step?: string;
+  action_route?: string;
+  draft_target_type?: string;
+  draft_recipient?: string;
 }
 
 interface AgendaItem {
@@ -376,9 +380,118 @@ interface MissionCockpit {
     visual?: VisualObservation | null;
     source_freshness?: Record<string, string>;
   };
+  decision_posture?: {
+    label?: string;
+    score?: number;
+    sentence?: string;
+    modes?: { key: string; label: string; goal?: string }[];
+    axes?: {
+      key: string;
+      label: string;
+      status?: string;
+      score?: number;
+      why?: string;
+      action?: string;
+      deadline?: string;
+    }[];
+  };
+  source_freshness?: {
+    status?: string;
+    items?: {
+      key: string;
+      label: string;
+      state?: string;
+      freshness?: string;
+      count?: number;
+      confidence?: number;
+    }[];
+  };
+  monitoring_layers?: {
+    key?: string;
+    label?: string;
+    name?: string;
+    count?: number;
+    freshness?: string;
+    confidence?: number;
+    source_kind?: string;
+    visible?: boolean;
+  }[];
+  evidence_graph_summary?: {
+    node_count?: number;
+    edge_count?: number;
+    route?: string;
+    collection_slug?: string;
+    top_relationships?: string[];
+  };
+  scenario_modes?: { key: string; label: string; goal?: string }[];
+  territorial_live_status?: { zone: string; level: string; bars: number; summary: string; tone: string }[];
+  executive_decision_packages?: Record<string, any>[];
   visual_summary?: VisualSourceHealth;
   strategic_posture?: StrategicPosture;
   what_changed?: string[];
+  vp_status_bar?: { key: string; label: string; value: string; detail?: string; tone?: string }[];
+  directive_of_day?: {
+    label?: string;
+    text: string;
+    deadline?: string;
+    generated_by?: string;
+    window?: string;
+    primary_cta?: string;
+    voice_cta?: string;
+  };
+  fused_map_preview?: {
+    route: string;
+    label: string;
+    question: string;
+    top_zone?: MapZone;
+    zones: MapZone[];
+    layers: { key: string; label: string; count: number; tone: string; visible: boolean }[];
+    heatmap: { label: string; score: number; tone: string }[];
+    source_label: string;
+  };
+  agenda_day?: {
+    label: string;
+    next_event?: AgendaItem | null;
+    events: AgendaItem[];
+    available_window?: { label: string; time: string; reason: string };
+  };
+  aya_recommendation?: {
+    assistant: string;
+    voice_first: boolean;
+    prompt: string;
+    answer: string;
+    target_latency_s: number;
+    cta_primary: string;
+    cta_secondary: string;
+    decision_package?: Record<string, any>;
+  };
+  decision_queue?: {
+    id: string;
+    label: string;
+    title: string;
+    decision: string;
+    recommended_option: string;
+    why_now: string;
+    deadline: string;
+    owner: string;
+    confidence: number;
+    status: string;
+    tone: string;
+    sources: string[];
+    cta: string;
+    email_draft_ready?: boolean;
+    validation_required?: boolean;
+  }[];
+  geographic_signal_tiers?: { key: string; label: string; count: number; top_signal?: string | null; signals: NewsSignal[] }[];
+  sovereign_indicators?: {
+    label: string;
+    value: number | string;
+    unit?: string;
+    source?: string;
+    confidence?: string;
+    trend?: string;
+    tone?: string;
+  }[];
   sources: SourceRef[];
 }
 
@@ -647,6 +760,8 @@ interface DraftInstruction {
   sent: boolean;
   title: string;
   recipient: string;
+  subject?: string;
+  deadline?: string;
   body: string;
   sources: string[];
   control: Record<string, unknown>;
@@ -1145,17 +1260,18 @@ export class MissionRailComponent {
   private readonly primaryRailKeys: MissionView[] = [
     'cockpit',
     'monitor',
+    'strategie',
     'briefing',
     'agenda',
     'presse',
     'decisions',
-    'strategie',
   ];
   private readonly railLabelOverrides: Partial<Record<MissionView, string>> = {
-    cockpit: 'Priorites',
-    monitor: 'Situation live',
+    cockpit: 'Cockpit',
+    strategie: 'Carte fusionnee',
+    briefing: 'Aide a la decision',
+    presse: 'Renseignement',
     decisions: 'Arbitrages',
-    strategie: 'Carte',
   };
   private readonly timeFormatter = new Intl.DateTimeFormat('fr-FR', {
     timeZone: this.clockTimeZone,
@@ -1233,7 +1349,7 @@ export class MissionRailComponent {
           <header class="mission-hero">
             <div class="hero-copy">
               <div class="hero-meta">
-                <span class="eyebrow">Mission Room Gouvernementale</span>
+                <span class="eyebrow">Mission Room · Vice-Presidence</span>
                 <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
               </div>
               <h1>{{ cockpit()?.title || 'Bonjour, M. le Vice-Président.' }}</h1>
@@ -1278,100 +1394,214 @@ export class MissionRailComponent {
     </section>
 
     <ng-template #cockpitView>
-      <section class="vp-command-grid" aria-label="Cockpit 60 secondes">
-        <article class="content-panel vp-sentence span-2">
-          <span class="eyebrow">{{ decisionSentence60().label || 'Sentence du jour' }}</span>
-          <h2>{{ decisionSentence60().text }}</h2>
-          <p>{{ decisionSentence60().deadline || 'avant Conseil 15h00' }} · {{ decisionSentence60().generated_by || assistantName() }}</p>
+      <section class="vp-status-bar" aria-label="Posture nationale">
+        @for (item of vpStatusBar(); track item.key) {
+          <article [class]="'vp-status-item ' + monitorTone(item.tone)">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <small>{{ item.detail }}</small>
+          </article>
+        }
+      </section>
+
+      <section class="vp-directive-layout" aria-label="Directive du jour">
+        <article class="content-panel vp-aya-card">
+          <span class="assistant-orb" aria-hidden="true">{{ assistantName().slice(0, 1) }}</span>
+          <div>
+            <span class="eyebrow">{{ assistantName() }} · Adjoint souverain</span>
+            <h2>{{ ayaRecommendation()?.cta_primary || 'Ecouter le briefing AYA' }}</h2>
+            <p>{{ ayaRecommendation()?.prompt || 'AYA, quelle est la situation prioritaire maintenant ?' }}</p>
+          </div>
           <div class="hero-actions">
-            <button type="button" class="action-button primary" (click)="openAssistant('AYA, donne-moi le cockpit 60 secondes pour le Vice-President.')">
+            <button type="button" class="action-button primary" (click)="openAssistant(ayaRecommendation()?.prompt)">
               <ck-glyph name="bolt" [size]="14" />
-              <span>Interroger {{ assistantName() }}</span>
+              <span>Parler a {{ assistantName() }}</span>
             </button>
-            <a routerLink="/hypervisor/mission-room/briefing" class="action-button compact">
-              <ck-glyph name="ledger" [size]="14" />
-              <span>Briefing pret</span>
-            </a>
+            <button type="button" class="action-button compact" (click)="openAssistant('AYA, lis le briefing souverain en 60 secondes.')">
+              <ck-glyph name="pulse" [size]="14" />
+              <span>Ecouter</span>
+            </button>
           </div>
         </article>
 
-        <article class="content-panel vp-snapshot">
-          <span class="eyebrow">Lecture debout</span>
-          @if (sixtySecondCockpit(); as sixty) {
-            <div class="vp-snapshot-grid">
-              <article [class]="attentionTone({ tone: sixty.menace?.tone || 'critical', title: 'menace' })">
-                <span>Menace</span>
-                <strong>{{ sixty.menace?.label || 'Zone Nord' }}</strong>
-                <small>{{ sixty.menace?.score || cockpit()?.strategic_posture?.score || 0 }}% · {{ sixty.menace?.deadline || '15:00' }}</small>
+        <article class="content-panel vp-sentence">
+          <span class="eyebrow">{{ directiveOfDay().label || 'Directive du jour · Synthese AYA' }}</span>
+          <h2>{{ directiveOfDay().text }}</h2>
+          <p>{{ directiveOfDay().window || directiveOfDay().deadline || 'avant Conseil 15h00' }} · {{ directiveOfDay().generated_by || assistantName() }}</p>
+          <div class="hero-actions">
+            <a routerLink="/hypervisor/mission-room/strategie" class="action-button primary">
+              <ck-glyph name="crosshair" [size]="14" />
+              <span>{{ directiveOfDay().primary_cta || 'Ouvrir le dossier Zone Nord' }}</span>
+            </a>
+            <button type="button" class="action-button compact" (click)="openAssistant('AYA, explique la directive du jour avec sources et options.')">
+              <ck-glyph name="ledger" [size]="14" />
+              <span>Comprendre</span>
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <section class="vp-c2-strip" aria-label="Explorer comprendre decider">
+        <article class="content-panel vp-c2-card">
+          <span class="eyebrow">Boucle de decision</span>
+          <div class="vp-mode-row">
+            @for (mode of scenarioModes(); track mode.key) {
+              <button type="button" [class]="mode.key" (click)="openAssistant('AYA, active le mode ' + mode.label + ' pour le cockpit du Vice-President.')">
+                <strong>{{ mode.label }}</strong>
+                <small>{{ mode.goal }}</small>
+              </button>
+            }
+          </div>
+        </article>
+
+        <article class="content-panel vp-source-stack">
+          <span class="eyebrow">Fraicheur sources</span>
+          <div class="vp-source-grid">
+            @for (item of sourceFreshnessItems(); track item.key) {
+              <article>
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.count || 0 }} · {{ item.freshness || item.state }}</span>
+                <i [style.width.%]="item.confidence || 50"></i>
               </article>
-              <article class="stable">
-                <span>Reputation</span>
-                <strong>{{ sixty.reputation?.score || cockpit()?.reputation?.score || 0 }}/100</strong>
-                <small>{{ sixty.reputation?.sentence || 'Un sujet necessite attention, le reste est gerable.' }}</small>
+            }
+          </div>
+        </article>
+
+        <article class="content-panel vp-evidence-card">
+          <span class="eyebrow">Graphe de preuves</span>
+          <strong>{{ evidenceGraphSummary()?.node_count || 0 }} entites · {{ evidenceGraphSummary()?.edge_count || 0 }} liens</strong>
+          <p>{{ evidenceGraphSummary()?.top_relationships?.[0] || 'Sources, zones, projets et actions reliees pour AYA.' }}</p>
+        </article>
+      </section>
+
+      <section class="vp-dashboard-grid" aria-label="Cockpit VP 60 secondes">
+        <article class="content-panel vp-attention-panel">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Attention requise</span>
+              <h2>3 sujets ce matin</h2>
+            </div>
+            <a routerLink="/hypervisor/mission-room/decisions" class="action-button compact">
+              <ck-glyph name="check" [size]="14" />
+              <span>Arbitrer</span>
+            </a>
+          </div>
+          <div class="vp-attention-list">
+            @for (item of attentionItems60(); track item.id || item.title; let idx = $index) {
+              <article class="vp-attention-card" [class.critical]="attentionTone(item) === 'critical'" [class.watch]="attentionTone(item) === 'watch'">
+                <span>{{ item.rank || idx + 1 }} · {{ item.deadline || 'ce matin' }}</span>
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.sentence || item.summary }}</p>
+                <small>{{ item.next_step || attentionActionLabel(item) }}</small>
+                <div class="card-actions">
+                  <button type="button" class="inline-action" (click)="openAttentionItem(item)">Comprendre</button>
+                  <button type="button" class="inline-action" (click)="createAttentionDraft(item)">
+                    {{ item.draft_target_type === 'press_response' ? 'Preparer email' : 'Preparer action' }}
+                  </button>
+                </div>
               </article>
-              @if (agendaFocus60(); as event) {
-                <article class="watch">
-                  <span>Agenda</span>
-                  <strong>{{ event.time }} · {{ event.title }}</strong>
-                  <small>{{ event.location }}</small>
-                </article>
+            }
+          </div>
+        </article>
+
+        <article class="content-panel vp-map-card">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">{{ fusedMapPreview().label || 'Carte fusionnee' }}</span>
+              <h2>Territoire et signaux</h2>
+            </div>
+            <a [routerLink]="fusedMapPreview().route || '/hypervisor/mission-room/strategie'" class="action-button compact">
+              <ck-glyph name="sliders" [size]="14" />
+              <span>Ouvrir carte</span>
+            </a>
+          </div>
+          <div class="vp-map-preview">
+            <div class="vp-map-zone-list">
+              @for (zone of territorialLiveStatus(); track zone.zone) {
+                <button type="button" [class]="zone.tone" (click)="focusZoneInMonitor(zone.zone)">
+                  <strong>{{ zone.zone }}</strong>
+                  <span>{{ zone.level }}</span>
+                  <small>{{ zone.summary }}</small>
+                  <i [style.--bars]="zone.bars"></i>
+                </button>
               }
+            </div>
+            <div class="vp-map-layers">
+              @for (layer of fusedMapPreview().layers || []; track layer.key) {
+                <span [class]="layer.tone">{{ layer.label }} · {{ layer.count }}</span>
+              }
+            </div>
+          </div>
+        </article>
+
+        <article class="content-panel vp-agenda-card">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Agenda ministériel</span>
+              <h2>Pilotage du temps</h2>
+            </div>
+            <a routerLink="/hypervisor/mission-room/agenda" class="action-button compact">Agenda</a>
+          </div>
+          @if (agendaDay().next_event; as event) {
+            <div class="vp-next-event">
+              <span>{{ event.time }}</span>
+              <strong>{{ event.title }}</strong>
+              <small>{{ event.location }}</small>
+            </div>
+          }
+          @if (agendaDay().available_window; as window) {
+            <div class="vp-window">
+              <span>{{ window.time }}</span>
+              <strong>{{ window.label }}</strong>
+              <p>{{ window.reason }}</p>
             </div>
           }
         </article>
-      </section>
 
-      <section class="vp-urgencies" aria-label="Attention requise">
-        <div class="panel-heading-row">
-          <div>
-            <span class="eyebrow">Attention requise</span>
-            <h2>3 sujets ce matin</h2>
+        <article class="content-panel vp-indicators-card">
+          <span class="eyebrow">Indicateurs souverains</span>
+          <div class="vp-indicator-list">
+            @for (indicator of sovereignIndicators(); track indicator.label) {
+              <article [class]="monitorTone(indicator.tone)">
+                <span>{{ indicator.label }}</span>
+                <strong>{{ indicator.value }}{{ indicator.unit || '' }}</strong>
+                <small>{{ indicator.source }} · confiance {{ indicator.confidence }} · {{ indicator.trend }}</small>
+              </article>
+            }
           </div>
-          <a routerLink="/hypervisor/mission-room/decisions" class="action-button compact">
-            <ck-glyph name="check" [size]="14" />
-            <span>Arbitrages</span>
-          </a>
-        </div>
-        <div class="priorities-grid">
-          @for (item of attentionItems60(); track item.id || item.title; let idx = $index) {
-            <button
-              type="button"
-              class="priority-card"
-              [class.critical]="attentionTone(item) === 'critical'"
-              [class.watch]="attentionTone(item) === 'watch'"
-              (click)="openAttentionItem(item)"
-            >
-              <span>{{ item.rank || idx + 1 }} · {{ item.status || 'a traiter' }}</span>
-              <strong>{{ item.title }}</strong>
-              <p>{{ item.sentence || item.summary }}</p>
-              <small>{{ item.deadline || 'ce matin' }}</small>
-              <i>{{ attentionActionLabel(item) }}</i>
-            </button>
-          }
-        </div>
-      </section>
+        </article>
 
-      <section class="vp-operating-strip" aria-label="Drill-down demo">
-        <a routerLink="/hypervisor/mission-room/monitor" class="content-panel vp-capability-card">
-          <span>Preuve terrain</span>
-          <strong>Carte + webcam + signaux</strong>
-          <small>Verifier la Zone Nord et localiser les vues actives.</small>
-        </a>
-        <a routerLink="/hypervisor/mission-room/presse" class="content-panel vp-capability-card">
-          <span>Presse et rumeurs</span>
-          <strong>CI / CEDEAO / international</strong>
-          <small>Identifier l'origine, la propagation et la reponse recommandee.</small>
-        </a>
-        <a routerLink="/hypervisor/mission-room/decisions" class="content-panel vp-capability-card">
-          <span>Arbitrage humain</span>
-          <strong>Instruction preparee</strong>
-          <small>Valider, amender ou ajourner sous controle cabinet.</small>
-        </a>
-        <a routerLink="/hypervisor/mission-room/strategie" class="content-panel vp-capability-card">
-          <span>Carte souveraine</span>
-          <strong>Lecture territoriale</strong>
-          <small>Etendre la lecture Cote d'Ivoire, CEDEAO et Golfe de Guinee.</small>
-        </a>
+        <article class="content-panel vp-decision-card">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Si ça ne va pas</span>
+              <h2>Options AYA</h2>
+            </div>
+            <a routerLink="/hypervisor/mission-room/briefing" class="action-button compact">Dossier</a>
+          </div>
+          @if (decisionQueue()[0]; as decision) {
+            <strong>{{ decision.title }}</strong>
+            <p>{{ decision.recommended_option }}</p>
+            <small>{{ decision.deadline }} · {{ decision.owner }} · confiance {{ confidencePct(decision.confidence) }}</small>
+            <div class="card-actions">
+              <button type="button" class="inline-action" (click)="openAssistant('AYA, explique les options de ' + decision.title)">Expliquer</button>
+              <button type="button" class="inline-action" (click)="createDraft(decision.id, decision.email_draft_ready ? 'press_response' : 'decision')">Preparer email</button>
+            </div>
+          }
+        </article>
+
+        <article class="content-panel vp-geo-card">
+          <span class="eyebrow">Renseignement par zone</span>
+          <div class="vp-tier-list">
+            @for (tier of geographicSignalTiers(); track tier.key) {
+              <button type="button" (click)="openAssistant('AYA, synthetise le niveau ' + tier.label + ' et les actions attendues.')">
+                <strong>{{ tier.label }}</strong>
+                <span>{{ tier.count }} signaux</span>
+                <small>{{ tier.top_signal || 'Aucun signal prioritaire' }}</small>
+              </button>
+            }
+          </div>
+        </article>
       </section>
     </ng-template>
 
@@ -2384,63 +2614,362 @@ export class MissionRailComponent {
       .panel-heading-row h2 {
         margin: 0;
       }
-      .priorities-grid {
+      .vp-status-bar {
         display: grid;
-        grid-template-columns: 1.2fr 1fr 1fr;
+        grid-template-columns: repeat(5, minmax(120px, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .vp-status-item {
+        min-width: 0;
+        padding: 11px 12px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: rgba(8, 14, 20, 0.78);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+      }
+      .vp-status-item.critical { border-color: rgba(240, 100, 118, 0.34); background: linear-gradient(135deg, var(--mission-danger-wash), rgba(8, 14, 20, 0.82)); }
+      .vp-status-item.elevated { border-color: rgba(241, 180, 90, 0.32); background: linear-gradient(135deg, var(--mission-warn-wash), rgba(8, 14, 20, 0.82)); }
+      .vp-status-item.stable { border-color: rgba(63, 209, 141, 0.28); }
+      .vp-status-item span,
+      .vp-status-item small {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .vp-status-item span {
+        color: var(--mission-text-muted);
+        font-family: var(--ck-font-mono);
+        font-size: 9px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .vp-status-item strong {
+        display: block;
+        margin: 5px 0 3px;
+        color: var(--mission-text);
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.1;
+      }
+      .vp-status-item small {
+        color: var(--mission-text-faint);
+        font-size: 11px;
+      }
+      .vp-directive-layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
         gap: 14px;
         margin-bottom: 14px;
       }
-      .priority-card {
-        min-height: 150px;
-        padding: 18px;
+      .vp-aya-card {
+        display: grid;
+        grid-template-columns: 54px minmax(0, 1fr);
+        align-items: start;
+        gap: 14px;
+        position: relative;
+        overflow: hidden;
+      }
+      .vp-aya-card::after,
+      .vp-sentence::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at 84% 18%, rgba(242, 140, 56, 0.16), transparent 34%),
+          radial-gradient(circle at 18% 92%, rgba(101, 214, 110, 0.09), transparent 30%);
+        opacity: 0.76;
+      }
+      .vp-aya-card > *,
+      .vp-sentence > * {
+        position: relative;
+        z-index: 1;
+      }
+      .assistant-orb {
+        width: 54px;
+        height: 54px;
+        border-radius: 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(242, 140, 56, 0.38);
+        background: linear-gradient(135deg, rgba(242, 140, 56, 0.18), rgba(101, 214, 110, 0.08));
+        color: var(--mission-orange);
+        font-family: var(--ck-font-mono);
+        font-size: 20px;
+        font-weight: 850;
+        box-shadow: 0 0 34px rgba(242, 140, 56, 0.12);
+      }
+      .vp-aya-card h2 {
+        margin: 7px 0 5px;
+        font-size: 22px;
+        line-height: 1.12;
+      }
+      .vp-aya-card p,
+      .vp-sentence p {
+        color: var(--mission-text-muted);
+        line-height: 1.45;
+      }
+      .vp-aya-card .hero-actions {
+        grid-column: 1 / -1;
+      }
+      .vp-c2-strip {
+        display: grid;
+        grid-template-columns: minmax(320px, 1.05fr) minmax(340px, 1.1fr) minmax(260px, 0.75fr);
+        gap: 14px;
+        margin-bottom: 14px;
+      }
+      .vp-mode-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .vp-mode-row button {
+        min-width: 0;
+        padding: 9px;
         border: 1px solid var(--mission-border);
-        background: linear-gradient(135deg, var(--mission-accent-wash), rgba(10, 15, 23, 0.96));
+        border-radius: var(--mission-radius-sm);
+        background: var(--mission-inset);
         color: var(--mission-text);
-        border-radius: var(--mission-radius);
-        box-shadow: var(--mission-shadow-card);
         text-align: left;
         cursor: pointer;
+      }
+      .vp-mode-row strong,
+      .vp-evidence-card strong,
+      .vp-source-grid strong {
+        display: block;
+        color: var(--mission-text);
+      }
+      .vp-mode-row small,
+      .vp-evidence-card p {
+        display: block;
+        margin-top: 6px;
+        color: var(--mission-text-muted);
+        line-height: 1.34;
+      }
+      .vp-source-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .vp-source-grid article {
+        min-width: 0;
+        padding: 9px 10px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-sm);
+      }
+      .vp-source-grid span {
+        color: var(--mission-text-muted);
+      }
+      .vp-dashboard-grid {
+        display: grid;
+        grid-template-columns: minmax(360px, 1.18fr) minmax(320px, 0.82fr) minmax(280px, 0.72fr);
+        gap: 14px;
+        align-items: stretch;
+      }
+      .vp-attention-panel {
+        grid-row: span 2;
+      }
+      .vp-attention-list {
+        display: grid;
+        gap: 10px;
+      }
+      .vp-attention-card {
+        min-width: 0;
+        padding: 13px;
+        border: 1px solid var(--mission-border);
+        border-left: 4px solid var(--mission-trust);
+        border-radius: var(--mission-radius);
+        background: rgba(4, 8, 13, 0.62);
+      }
+      .vp-attention-card.critical {
+        border-left-color: var(--mission-danger);
+        background: linear-gradient(135deg, var(--mission-danger-wash), rgba(4, 8, 13, 0.66));
+      }
+      .vp-attention-card.watch {
+        border-left-color: var(--mission-warn);
+      }
+      .vp-attention-card span {
+        color: var(--mission-orange);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .vp-attention-card strong {
+        display: block;
+        margin: 6px 0;
+        font-size: 18px;
+        line-height: 1.15;
+      }
+      .vp-attention-card p {
+        margin: 0;
+        color: var(--mission-text-soft);
+        line-height: 1.42;
+      }
+      .vp-attention-card small {
+        display: block;
+        margin-top: 8px;
+        color: var(--mission-text-muted);
+      }
+      .card-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .inline-action {
+        min-height: 28px;
+        padding: 5px 9px;
+        color: var(--mission-accent);
+        font-size: 12px;
+        background: rgba(101, 214, 110, 0.08);
+        border-color: rgba(101, 214, 110, 0.18);
+      }
+      .vp-map-card {
+        min-height: 300px;
+      }
+      .vp-map-preview {
+        display: grid;
+        gap: 12px;
+        min-height: 226px;
+        padding: 12px;
+        border: 1px solid rgba(101, 214, 110, 0.18);
+        border-radius: var(--mission-radius);
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+          radial-gradient(circle at 84% 8%, rgba(241, 180, 90, 0.12), transparent 32%),
+          rgba(2, 7, 10, 0.68);
+        background-size: 30px 30px, 30px 30px, auto, auto;
+      }
+      .vp-map-zone-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .vp-map-zone-list button {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 3px 8px;
+        padding: 10px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-sm);
+        background: rgba(9, 18, 24, 0.82);
+        color: var(--mission-text);
+        text-align: left;
+        cursor: pointer;
+      }
+      .vp-map-zone-list button.critical { border-color: rgba(240, 100, 118, 0.42); }
+      .vp-map-zone-list button.elevated { border-color: rgba(241, 180, 90, 0.38); }
+      .vp-map-zone-list button.stable { border-color: rgba(63, 209, 141, 0.28); }
+      .vp-map-zone-list strong,
+      .vp-map-zone-list small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .vp-map-zone-list span {
+        color: var(--mission-text-muted);
+        font-size: 12px;
+      }
+      .vp-map-zone-list small {
+        grid-column: 1 / -1;
+        color: var(--mission-text-muted);
+      }
+      .vp-map-zone-list i {
+        grid-column: 1 / -1;
+        display: block;
+        height: 5px;
+        border-radius: 999px;
+        background:
+          linear-gradient(90deg, var(--mission-orange) calc(var(--bars) * 25%), rgba(255,255,255,0.08) 0);
+      }
+      .vp-map-layers,
+      .vp-tier-list,
+      .vp-indicator-list {
+        display: grid;
+        gap: 8px;
+      }
+      .vp-map-layers {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .vp-map-layers span {
+        padding: 7px 9px;
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        color: var(--mission-text-soft);
+        font-size: 12px;
+        background: rgba(5, 10, 16, 0.72);
+      }
+      .vp-next-event,
+      .vp-window,
+      .vp-indicator-list article,
+      .vp-tier-list button {
+        padding: 12px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: var(--mission-inset);
         min-width: 0;
       }
-      .priority-card.critical {
-        background: linear-gradient(135deg, var(--mission-danger-wash), rgba(10, 15, 23, 0.96));
-        border-color: rgba(240, 100, 118, 0.28);
-      }
-      .priority-card.watch {
-        background: linear-gradient(135deg, var(--mission-warn-wash), rgba(10, 15, 23, 0.96));
-        border-color: rgba(234, 184, 92, 0.24);
-      }
-      .priority-card span {
+      .vp-next-event span,
+      .vp-window span,
+      .vp-indicator-list span {
         color: var(--mission-accent);
         font-family: var(--ck-font-mono);
         font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.13em;
+        letter-spacing: 0.08em;
       }
-      .priority-card strong {
+      .vp-next-event strong,
+      .vp-window strong,
+      .vp-indicator-list strong,
+      .vp-tier-list strong {
+        display: block;
+        margin: 5px 0;
+        color: var(--mission-text);
+      }
+      .vp-window p,
+      .vp-indicator-list small,
+      .vp-tier-list small {
+        margin: 0;
+        color: var(--mission-text-muted);
+        line-height: 1.38;
+      }
+      .vp-indicator-list article.critical { border-color: rgba(240, 100, 118, 0.32); }
+      .vp-indicator-list article.elevated { border-color: rgba(241, 180, 90, 0.32); }
+      .vp-decision-card strong {
         display: block;
         margin-top: 8px;
-        font-size: 19px;
-        font-weight: 650;
-        letter-spacing: -0.01em;
+        font-size: 20px;
       }
-      .priority-card p {
+      .vp-decision-card p {
         color: var(--mission-text-soft);
-        line-height: 1.45;
+        line-height: 1.5;
       }
-      .priority-card small { color: var(--mission-text-muted); }
-      .priority-card i {
-        display: inline-flex;
-        margin-top: 12px;
+      .vp-decision-card small {
+        color: var(--mission-text-muted);
+      }
+      .vp-tier-list button {
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .vp-tier-list button:hover,
+      .vp-map-zone-list button:hover {
+        border-color: var(--mission-border-strong);
+        background: var(--mission-panel-hi);
+      }
+      .vp-tier-list span {
+        display: block;
         color: var(--mission-orange);
-        font-style: normal;
-        font-weight: 650;
-      }
-      .vp-command-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.75fr);
-        gap: 14px;
-        margin-bottom: 14px;
+        font-size: 12px;
       }
       .vp-sentence h2 {
         max-width: 1100px;
@@ -2453,10 +2982,6 @@ export class MissionRailComponent {
       .vp-sentence p {
         margin: 0 0 18px;
         color: var(--mission-text-muted);
-      }
-      .vp-snapshot-grid {
-        display: grid;
-        gap: 9px;
       }
       .now-panel ul,
       .language-list {
@@ -2482,61 +3007,6 @@ export class MissionRailComponent {
         background: var(--mission-panel-hi);
         color: var(--mission-text-muted);
         font-size: 12px;
-      }
-      .vp-snapshot-grid article {
-        min-width: 0;
-        padding: 12px;
-        border: 1px solid var(--mission-border);
-        border-left: 3px solid var(--mission-trust);
-        border-radius: var(--mission-radius);
-        background: var(--mission-inset);
-      }
-      .vp-snapshot-grid article.critical { border-left-color: var(--mission-danger); }
-      .vp-snapshot-grid article.watch { border-left-color: var(--mission-warn); }
-      .vp-snapshot-grid span,
-      .vp-capability-card span {
-        display: block;
-        color: var(--mission-text-muted);
-        font-family: var(--ck-font-mono);
-        font-size: 10px;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-      }
-      .vp-snapshot-grid strong,
-      .vp-snapshot-grid small {
-        display: block;
-        overflow-wrap: anywhere;
-      }
-      .vp-snapshot-grid strong {
-        margin: 5px 0 3px;
-        color: var(--mission-text);
-      }
-      .vp-snapshot-grid small {
-        color: var(--mission-text-muted);
-        line-height: 1.35;
-      }
-      .vp-urgencies {
-        margin-bottom: 14px;
-      }
-      .vp-operating-strip {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px;
-      }
-      .vp-capability-card {
-        display: block;
-        min-height: 132px;
-        text-decoration: none;
-      }
-      .vp-capability-card strong {
-        display: block;
-        margin: 8px 0;
-        color: var(--mission-text);
-        font-size: 17px;
-      }
-      .vp-capability-card small {
-        color: var(--mission-text-muted);
-        line-height: 1.4;
       }
       .line-chart {
         width: 100%;
@@ -3530,9 +4000,11 @@ export class MissionRailComponent {
       @media (max-width: 1200px) {
         .mission-shell { grid-template-columns: 200px minmax(0, 1fr); }
         .mission-main { padding: 24px; }
-        .vp-command-grid,
-        .vp-operating-strip,
+        .vp-directive-layout,
+        .vp-c2-strip,
+        .vp-dashboard-grid,
         .executive-alert-grid, .maritime-news-grid { grid-template-columns: 1fr; }
+        .vp-status-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .two-column, .ministerial-news, .map-layout, .agenda-workbench, .agenda-command { grid-template-columns: 1fr; }
         .agenda-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .linked-action-strip,
@@ -3545,9 +4017,14 @@ export class MissionRailComponent {
         app-mission-rail { position: sticky; top: 0; z-index: 5; }
         .mission-main { padding: 20px 14px; }
         .mission-hero,
-        .priorities-grid,
-        .vp-command-grid,
-        .vp-operating-strip,
+        .vp-status-bar,
+        .vp-directive-layout,
+        .vp-c2-strip,
+        .vp-mode-row,
+        .vp-source-grid,
+        .vp-dashboard-grid,
+        .vp-map-zone-list,
+        .vp-map-layers,
         .project-risk-grid,
         .search-form {
           grid-template-columns: 1fr;
@@ -3607,13 +4084,13 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   };
 
   readonly fallbackNav: MissionNavigationItem[] = [
-    { key: 'cockpit', label: 'Priorites', glyph: 'ledger', route: '/hypervisor/mission-room/cockpit', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'cockpit', label: 'Cockpit', glyph: 'ledger', route: '/hypervisor/mission-room/cockpit', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
     { key: 'monitor', label: 'Situation live', glyph: 'crosshair', route: '/hypervisor/mission-room/monitor', api: '/api/v1/mission-room/monitor', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'briefing', label: 'Briefing', glyph: 'ledger', route: '/hypervisor/mission-room/briefing', api: '/api/v1/mission-room/briefing', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'strategie', label: 'Carte fusionnee', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'briefing', label: 'Aide a la decision', glyph: 'ledger', route: '/hypervisor/mission-room/briefing', api: '/api/v1/mission-room/briefing', object: 'Workbench', workbench: 'Workbench' },
     { key: 'agenda', label: 'Agenda', glyph: 'ledger', route: '/hypervisor/mission-room/agenda', api: '/api/v1/mission-room/timeline', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'presse', label: 'Presse', glyph: 'pulse', route: '/hypervisor/mission-room/presse', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
+    { key: 'presse', label: 'Renseignement', glyph: 'pulse', route: '/hypervisor/mission-room/presse', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
     { key: 'decisions', label: 'Arbitrages', glyph: 'check', route: '/hypervisor/mission-room/decisions', api: '/api/v1/mission-room/decisions', object: 'Review Queue', workbench: 'Review Queue' },
-    { key: 'strategie', label: 'Carte', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
   ];
 
   readonly currentView = computed<MissionView>(() => {
@@ -3824,6 +4301,79 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     };
   }
 
+  vpStatusBar(): NonNullable<MissionCockpit['vp_status_bar']> {
+    const direct = this.cockpit()?.vp_status_bar;
+    if (direct?.length) return direct;
+    return [
+      { key: 'posture', label: 'Posture nationale', value: this.postureLabel(this.cockpit()?.strategic_posture), detail: 'consolidation sources', tone: this.cockpit()?.strategic_posture?.label || 'monitoring' },
+      { key: 'decisions', label: 'Decisions', value: '3', detail: 'avant 15h00', tone: 'elevated' },
+      { key: 'press', label: 'Presse', value: String(this.kpiNumber('press_alerts') || 16), detail: 'alertes qualifiees', tone: 'critical' },
+      { key: 'agenda', label: 'Agenda', value: this.kpi('next_meeting_in') === '-' ? '1h46' : String(this.kpi('next_meeting_in')), detail: 'prochaine sequence', tone: 'stable' },
+      { key: 'flux', label: 'Flux', value: String(this.kpiNumber('analyzed_articles') || 80), detail: 'articles analyses', tone: 'monitoring' },
+    ];
+  }
+
+  directiveOfDay(): NonNullable<MissionCockpit['directive_of_day']> {
+    const direct = this.cockpit()?.directive_of_day;
+    if (direct?.text) return direct;
+    return {
+      ...this.decisionSentence60(),
+      window: this.decisionSentence60().deadline || 'avant Conseil 15h00',
+      primary_cta: 'Ouvrir le dossier Zone Nord',
+      voice_cta: 'Ecouter le briefing AYA',
+    };
+  }
+
+  ayaRecommendation(): MissionCockpit['aya_recommendation'] | null {
+    return this.cockpit()?.aya_recommendation || {
+      assistant: this.assistantName(),
+      voice_first: true,
+      prompt: 'AYA, quelle est la situation au nord en ce moment ?',
+      answer: 'Zone Nord sous attention prioritaire. Deux options sont preparees : coordination locale ou arbitrage cabinet avant 15h00.',
+      target_latency_s: 6,
+      cta_primary: 'Ecouter le briefing AYA',
+      cta_secondary: 'Parler a AYA',
+    };
+  }
+
+  scenarioModes(): NonNullable<MissionCockpit['scenario_modes']> {
+    const direct = this.cockpit()?.scenario_modes;
+    if (direct?.length) return direct;
+    const postureModes = this.cockpit()?.decision_posture?.modes;
+    if (postureModes?.length) return postureModes;
+    return [
+      { key: 'explorer', label: 'Explorer', goal: 'Voir posture, couches, zones et sources fraiches.' },
+      { key: 'comprendre', label: 'Comprendre', goal: 'Relier sources, rumeurs, projets, agenda et carte.' },
+      { key: 'decider', label: 'Decider', goal: "Comparer options, impact, confiance et preparer l'action." },
+    ];
+  }
+
+  sourceFreshnessItems(): NonNullable<NonNullable<MissionCockpit['source_freshness']>['items']> {
+    const items = this.cockpit()?.source_freshness?.items;
+    if (items?.length) return items;
+    const layers = this.cockpit()?.monitoring_layers || [];
+    if (layers.length) {
+      return layers.slice(0, 4).map((layer) => ({
+        key: layer.key || layer.name || layer.label || 'source',
+        label: layer.label || layer.name || 'Source',
+        state: layer.visible === false ? 'masque' : 'visible',
+        freshness: layer.freshness || 'a jour',
+        count: layer.count || 0,
+        confidence: layer.confidence || 50,
+      }));
+    }
+    return [
+      { key: 'open-intelligence', label: 'Presse / rumeurs', state: 'qualified', freshness: 'veille qualifiee', count: this.kpiNumber('analyzed_articles') || 80, confidence: 72 },
+      { key: 'territorial-risk', label: 'Carte / territoire', state: 'ready', freshness: 'scoring actif', count: this.fusedMapPreview().zones.length || 5, confidence: 78 },
+      { key: 'visual-streams', label: 'Observations visuelles', state: 'monitoring', freshness: 'snapshot recent', count: this.cockpit()?.visual_summary?.observations || 1, confidence: 62 },
+      { key: 'maritime-traffic', label: 'Maritime / douanes', state: 'snapshot', freshness: 'provider optionnel', count: 5, confidence: 66 },
+    ];
+  }
+
+  evidenceGraphSummary(): MissionCockpit['evidence_graph_summary'] | null {
+    return this.cockpit()?.evidence_graph_summary || null;
+  }
+
   sixtySecondCockpit(): NonNullable<MissionCockpit['sixty_second_cockpit']> {
     return this.cockpit()?.sixty_second_cockpit || {};
   }
@@ -3855,6 +4405,152 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   agendaFocus60(): AgendaItem | null {
     return this.cockpit()?.sixty_second_cockpit?.agenda_focus?.[0] || this.cockpit()?.agenda?.[0] || null;
+  }
+
+  fusedMapPreview(): NonNullable<MissionCockpit['fused_map_preview']> {
+    const direct = this.cockpit()?.fused_map_preview;
+    if (direct) return direct;
+    const zones = this.missionMap()?.zones || this.cockpit()?.situation_monitor?.top_zones || [];
+    return {
+      route: '/hypervisor/mission-room/strategie',
+      label: 'Carte fusionnee',
+      question: 'Quelles zones necessitent une action preventive non militaire ce mois-ci ?',
+      top_zone: zones[0],
+      zones,
+      layers: [
+        { key: 'press', label: 'Presse', count: 10, tone: 'elevated', visible: true },
+        { key: 'projects', label: 'Projets', count: 5, tone: 'stable', visible: true },
+        { key: 'agenda', label: 'Agenda', count: 6, tone: 'watch', visible: true },
+        { key: 'visual', label: 'Visuel', count: this.cockpit()?.visual_summary?.observations || 1, tone: 'monitoring', visible: true },
+      ],
+      heatmap: zones.slice(0, 3).map((zone) => ({ label: zone.name, score: zone.level, tone: zone.tone })),
+      source_label: 'Presse + projets + agenda + observations',
+    };
+  }
+
+  territorialLiveStatus(): { zone: string; level: string; bars: number; summary: string; tone: string }[] {
+    const direct = this.cockpit()?.territorial_live_status;
+    if (direct?.length) return direct;
+    const zones = this.fusedMapPreview().zones;
+    if (zones.length) {
+      return zones.slice(0, 5).map((zone) => ({
+        zone: zone.name,
+        level: zone.level >= 75 ? 'critique' : zone.level >= 50 ? 'surveillance' : 'stable',
+        bars: Math.max(1, Math.min(4, Math.ceil(zone.level / 25))),
+        summary: zone.signals?.[0] || zone.recommendations?.[0] || 'suivi territorial',
+        tone: this.monitorTone(zone.tone),
+      }));
+    }
+    return [
+      { zone: 'Nord', level: 'critique', bars: 4, summary: 'Incident frontiere · arbitrage attendu', tone: 'critical' },
+      { zone: 'Ouest', level: 'surveillance', bars: 3, summary: 'Rumeur locale en progression', tone: 'elevated' },
+      { zone: 'Centre', level: 'stable', bars: 2, summary: 'Projets sous controle', tone: 'stable' },
+      { zone: 'Sud', level: 'operationnel', bars: 1, summary: 'Abidjan nominal', tone: 'stable' },
+    ];
+  }
+
+  agendaDay(): NonNullable<MissionCockpit['agenda_day']> {
+    const direct = this.cockpit()?.agenda_day;
+    if (direct) return direct;
+    const events = this.cockpit()?.agenda || this.timeline()?.agenda || [];
+    return {
+      label: 'Agenda ministeriel',
+      next_event: this.agendaFocus60(),
+      events,
+      available_window: {
+        label: 'Avant point presse',
+        time: '13:40-14:00',
+        reason: 'Dernier creneau utile pour valider une reponse publique.',
+      },
+    };
+  }
+
+  sovereignIndicators(): NonNullable<MissionCockpit['sovereign_indicators']> {
+    const direct = this.cockpit()?.sovereign_indicators;
+    if (direct?.length) return direct;
+    return [
+      { label: 'Menace nationale', value: this.sixtySecondCockpit().menace?.score || 85, unit: '/100', source: 'Carte + veille', confidence: '72%', trend: 'hausse', tone: 'critical' },
+      { label: "Reputation de l'Etat", value: this.cockpit()?.reputation?.score || 63, unit: '%', source: 'Presse locale', confidence: '68%', trend: '+5 pts', tone: 'stable' },
+      { label: 'Arbitrages', value: this.decisionQueue().length || 3, unit: '', source: 'Cabinet', confidence: 'haute', trend: 'avant 15h', tone: 'elevated' },
+      { label: 'Agenda critique', value: this.agendaDay().events?.length || 5, unit: '', source: 'Agenda habilite', confidence: 'haute', trend: 'journee chargee', tone: 'monitoring' },
+    ];
+  }
+
+  decisionQueue(): NonNullable<MissionCockpit['decision_queue']> {
+    const direct = this.cockpit()?.decision_queue;
+    if (direct?.length) return direct;
+    const packages = this.cockpit()?.executive_decision_packages || [];
+    if (packages.length) {
+      return packages.map((item) => ({
+        id: String(item['id'] || item['target_id'] || item['title']),
+        label: String(item['label'] || 'Arbitrage'),
+        title: String(item['title'] || item['label'] || 'Decision cabinet'),
+        decision: String(item['decision'] || item['summary'] || ''),
+        recommended_option: String(item['recommended_option'] || item['recommendation'] || item['summary'] || ''),
+        why_now: String(item['why_now'] || item['rationale'] || ''),
+        deadline: String(item['deadline'] || '15:00'),
+        owner: String(item['owner'] || 'Cabinet'),
+        confidence: Number(item['confidence'] || 0.68),
+        status: String(item['status'] || 'validation_required'),
+        tone: String(item['tone'] || 'elevated'),
+        sources: Array.isArray(item['sources']) ? item['sources'] : [],
+        cta: String(item['cta'] || 'Preparer arbitrage'),
+        email_draft_ready: Boolean(item['email_draft_ready']),
+        validation_required: true,
+      }));
+    }
+    return [
+      {
+        id: 'attention-inter-budget',
+        label: 'Presse',
+        title: "Article L'Inter - budget defense",
+        decision: 'Valider une reponse publique prudente.',
+        recommended_option: 'Projet de reponse au responsable communication avant 14h00.',
+        why_now: 'L’article peut structurer le point presse hebdomadaire.',
+        deadline: '14:00',
+        owner: 'Cabinet communication',
+        confidence: 0.72,
+        status: 'validation_required',
+        tone: 'elevated',
+        sources: ['L’Inter', 'veille presse'],
+        cta: 'Preparer email',
+        email_draft_ready: true,
+        validation_required: true,
+      },
+    ];
+  }
+
+  geographicSignalTiers(): NonNullable<MissionCockpit['geographic_signal_tiers']> {
+    const direct = this.cockpit()?.geographic_signal_tiers;
+    if (direct?.length) return direct;
+    const newsSections = this.news()?.geo_sections || [];
+    if (newsSections.length) {
+      return newsSections.map((section) => ({
+        key: section.key,
+        label: section.label,
+        count: section.count,
+        top_signal: section.signals?.[0]?.title || null,
+        signals: section.signals || [],
+      }));
+    }
+    return [
+      { key: 'ci', label: "Cote d'Ivoire", count: 3, top_signal: 'Article budget defense et rumeur sociale locale', signals: [] },
+      { key: 'cedeao', label: 'CEDEAO', count: 2, top_signal: 'Coordination frontiere Burkina', signals: [] },
+      { key: 'africa', label: 'Afrique', count: 4, top_signal: 'Tensions regionales a surveiller', signals: [] },
+      { key: 'world', label: 'Monde', count: 1, top_signal: 'Lecture diplomatique France-CI', signals: [] },
+    ];
+  }
+
+  createAttentionDraft(item: AttentionRequiredItem): void {
+    const targetId = item.id || item.title;
+    const targetType = item.draft_target_type
+      || (this.openAttentionTargetLooksPress(item) ? 'press_response' : 'decision');
+    this.createDraft(targetId, targetType);
+  }
+
+  private openAttentionTargetLooksPress(item: AttentionRequiredItem): boolean {
+    const target = `${item.id || ''} ${item.title || ''} ${item.sentence || ''}`.toLowerCase();
+    return target.includes('inter') || target.includes('article') || target.includes('presse') || target.includes('reponse');
   }
 
   openAttentionItem(item: AttentionRequiredItem): void {

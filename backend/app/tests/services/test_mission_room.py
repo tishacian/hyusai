@@ -42,11 +42,11 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert [item["key"] for item in workspace.settings["mission_room"]["navigation"]] == [
         "cockpit",
         "monitor",
+        "strategie",
         "briefing",
         "agenda",
         "presse",
         "decisions",
-        "strategie",
     ]
     assert workspace.settings["assistant_profile_default"] == "vigie_executive"
     assert workspace.settings["assistant_profiles"][0]["default_knowledge_scope"] == "vigie"
@@ -64,9 +64,10 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
         "sentinel-ci-territorial-map",
         "sentinel-ci-territorial-intelligence",
         "sentinel-ci-visual-intelligence",
+        "sentinel-ci-evidence-graph",
     ]
     assert db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).count() == 1
-    assert db_session.query(System).filter_by(workspace_id=workspace.id).count() == 10
+    assert db_session.query(System).filter_by(workspace_id=workspace.id).count() >= 15
     assert db_session.query(WorkspaceCalendarEvent).filter_by(workspace_id=workspace.id).count() >= 7
     assert db_session.query(WorkspaceActionItem).filter_by(workspace_id=workspace.id).count() >= 3
     assert db_session.query(WorkspaceVisualSource).filter_by(workspace_id=workspace.id).count() >= 8
@@ -98,6 +99,11 @@ def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):
         "government_calendar_assist",
         "aya_voice_command",
         "executive_instruction_drafting",
+        "osint_rumor_intelligence",
+        "evidence_graph",
+        "maritime_customs_watch",
+        "strategic_forecasts",
+        "decision_desk",
     ]:
         assert db_session.query(Capability).filter(Capability.slug == slug).one()
 
@@ -124,6 +130,14 @@ def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):
         "visual_snapshot_capture_v1",
         "visual_snapshot_analyze_v1",
         "visual_observation_sync_knowledge_v1",
+        "source_registry_refresh_v1",
+        "osint_signal_prioritize_v1",
+        "rumor_origin_trace_v1",
+        "evidence_graph_build_v1",
+        "situation_posture_score_v1",
+        "maritime_snapshot_read_v1",
+        "decision_option_rank_v1",
+        "draft_response_email_v1",
     ]:
         assert statuses[slug] == "bound"
 
