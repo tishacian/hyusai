@@ -835,8 +835,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   fallback = false;
   selectedBasemapKey = 'administrative';
-  controlsOpen = false;
-  legendOpen = false;
+  controlsOpen = true;
+  legendOpen = true;
   briefOpen = false;
 
   private readonly cdr = inject(ChangeDetectorRef);
@@ -1169,21 +1169,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (!this.mapInstance) return;
     const bounds = this.mapSystem?.['renderer_config']?.bounds || [[-8.65, 4.2], [-2.45, 10.75]];
     const preset = this.mapSystem?.['default_map_state']?.camera || this.mapSystem?.['camera_presets']?.country;
-    if (!this.compact) {
-      this.mapInstance.easeTo({
-        center: [preset?.longitude ?? -5.45, preset?.latitude ?? 7.45],
-        zoom: preset?.zoom ?? 6.72,
-        pitch: 0,
-        bearing: 0,
-        duration,
-      });
-      this.updateDeckLayers();
-      return;
-    }
     try {
       this.mapInstance.fitBounds(bounds, {
-        padding: { top: 20, right: 20, bottom: 20, left: 20 },
-        maxZoom: 5.55,
+        padding: this.compact
+          ? { top: 20, right: 20, bottom: 20, left: 20 }
+          : { top: 62, right: 42, bottom: 54, left: 332 },
+        maxZoom: this.compact ? 5.55 : 5.85,
         pitch: 0,
         bearing: 0,
         duration,
@@ -1209,6 +1200,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const maritimePointsSource = this.mapSystem?.['geojson_sources']?.maritime_points;
     const maritimeRoutesSource = this.mapSystem?.['geojson_sources']?.maritime_routes;
     const countryBoundarySource = this.mapSystem?.['country_boundary'];
+    const districtBoundariesSource = this.mapSystem?.['district_boundaries'];
     const adminBoundariesSource = this.mapSystem?.['admin_boundaries'];
     const citiesSource = this.mapSystem?.['cities'];
     const arcs = this.mapSystem?.['visual_effects']?.arc_links || [];
@@ -1245,16 +1237,30 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       }));
 
     layers.push(new GeoJsonLayer({
-      id: 'sentinel-admin-boundaries',
-      data: adminBoundariesSource,
+      id: 'sentinel-district-boundaries',
+      data: districtBoundariesSource,
       pickable: false,
       filled: false,
       stroked: true,
       getFillColor: [0, 0, 0, 0],
-      getLineColor: this.selectedBasemapKey === 'administrative' ? [30, 78, 102, showTerritory ? 128 : 72] : [185, 224, 241, showTerritory ? 150 : 84],
-      lineWidthMinPixels: showTerritory ? 0.9 : 0.7,
+      getLineColor: this.selectedBasemapKey === 'administrative' ? [20, 70, 96, 182] : [178, 229, 251, 164],
+      lineWidthMinPixels: 1.15,
       parameters: { depthTest: false },
     }));
+
+    if (currentZoom >= 6.85 && showTerritory) {
+      layers.push(new GeoJsonLayer({
+        id: 'sentinel-admin-boundaries',
+        data: adminBoundariesSource,
+        pickable: false,
+        filled: false,
+        stroked: true,
+        getFillColor: [0, 0, 0, 0],
+        getLineColor: this.selectedBasemapKey === 'administrative' ? [27, 77, 103, 82] : [185, 224, 241, 72],
+        lineWidthMinPixels: 0.55,
+        parameters: { depthTest: false },
+      }));
+    }
 
     if (showAgenda || showActions || showRegional) {
       layers.push(new GeoJsonLayer({
@@ -1335,10 +1341,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: true,
         filled: true,
         stroked: true,
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 118 : 58),
+        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 118 : 46),
         getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId),
-        lineWidthMinPixels: 1.4,
-        lineWidthMaxPixels: 3.0,
+        lineWidthMinPixels: 1.35,
+        lineWidthMaxPixels: 3.8,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
       }));

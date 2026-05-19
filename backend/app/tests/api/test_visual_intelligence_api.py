@@ -27,6 +27,7 @@ def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db
         "_fetch_http_image",
         lambda _url: (b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml"),
     )
+    monkeypatch.setattr(visual_service.settings, "worker_eager_mode", True)
     workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
@@ -49,18 +50,19 @@ def test_visual_sources_seed_capture_dashboard_and_image_are_workspace_scoped(db
 
     capture = client.post(f"/api/v1/visual-intelligence/sources/{source['id']}/capture")
 
-    assert capture.status_code == 200
+    assert capture.status_code == 202
     capture_body = capture.json()
-    assert capture_body["capture"]["status"] == "analyzed"
-    assert capture_body["observation"]["level_label"] in {"stable", "monitoring", "elevated", "critical"}
+    assert capture_body["job"]["status"] == "completed"
 
     dashboard = client.get("/api/v1/visual-intelligence/dashboard")
 
     assert dashboard.status_code == 200
     assert dashboard.json()["source_health"]["captures"] == 1
-    assert dashboard.json()["latest_observation"]["capture_id"] == capture_body["capture"]["id"]
+    assert dashboard.json()["source_health"]["freshness_status"] == "fresh"
+    latest = dashboard.json()["latest_observation"]
+    assert latest["level_label"] in {"stable", "monitoring", "elevated", "critical"}
 
-    image = client.get(f"/api/v1/visual-intelligence/captures/{capture_body['capture']['id']}/image")
+    image = client.get(f"/api/v1/visual-intelligence/captures/{latest['capture_id']}/image")
 
     assert image.status_code == 200
     assert image.headers["content-type"].startswith("image/svg+xml")
@@ -86,6 +88,7 @@ def test_visual_capture_image_cannot_cross_workspace(db_session, monkeypatch):
         "_fetch_http_image",
         lambda _url: (b"<svg xmlns='http://www.w3.org/2000/svg'></svg>", "image/svg+xml"),
     )
+    monkeypatch.setattr(visual_service.settings, "worker_eager_mode", True)
     sentinel = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
     other = Workspace(id="workspace-other", slug="andritz", name="Andritz", mode="standard")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
@@ -95,9 +98,15 @@ def test_visual_capture_image_cannot_cross_workspace(db_session, monkeypatch):
     other_client = _client(db_session, other, user)
 
     source = sentinel_client.get("/api/v1/visual-intelligence/sources").json()["sources"][0]
-    capture = sentinel_client.post(f"/api/v1/visual-intelligence/sources/{source['id']}/capture").json()["capture"]
+    sentinel_client.post(f"/api/v1/visual-intelligence/sources/{source['id']}/capture")
+    capture = (
+        db_session.query(WorkspaceVisualCapture)
+        .filter_by(workspace_id=sentinel.id)
+        .order_by(WorkspaceVisualCapture.captured_at.desc())
+        .first()
+    )
 
-    response = other_client.get(f"/api/v1/visual-intelligence/captures/{capture['id']}/image")
+    response = other_client.get(f"/api/v1/visual-intelligence/captures/{capture.id}/image")
 
     assert response.status_code == 404
 
@@ -108,6 +117,7 @@ def test_visual_capture_uses_vlm_analysis_when_enabled(db_session, monkeypatch):
         "_fetch_http_image",
         lambda _url: (b"\xff\xd8\xff\xe0visual", "image/jpeg"),
     )
+    monkeypatch.setattr(visual_service.settings, "worker_eager_mode", True)
     monkeypatch.setattr(visual_service.settings, "visual_analysis_enabled", True)
     monkeypatch.setattr(
         visual_service,
@@ -134,8 +144,9 @@ def test_visual_capture_uses_vlm_analysis_when_enabled(db_session, monkeypatch):
     source = client.get("/api/v1/visual-intelligence/sources").json()["sources"][0]
     capture = client.post(f"/api/v1/visual-intelligence/sources/{source['id']}/capture")
 
-    assert capture.status_code == 200
-    observation = capture.json()["observation"]
+    assert capture.status_code == 202
+    observation_row = db_session.query(WorkspaceVisualObservation).filter_by(workspace_id=workspace.id).one()
+    observation = visual_service.serialize_observation(observation_row)
     assert observation["provider"] == "openai"
     assert observation["model"] == "gpt-4o-mini"
     assert observation["vigilance_score"] == 22

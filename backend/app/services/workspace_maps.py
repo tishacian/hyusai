@@ -130,7 +130,7 @@ DEFAULT_RENDERER_LAYERS = [
         "deck_group": "region",
         "tone": "orange",
         "kind": "regional_context",
-        "visible": True,
+        "visible": False,
         "payload": {"sources": ["rss_press_regional", "diplomatic_context", "social_listening"]},
         "sort_order": 25,
     },
@@ -246,6 +246,17 @@ def ensure_workspace_map_seed(db: DBSession, workspace: Workspace, *, system_id:
         .first()
     )
     if existing:
+        if existing.projection != "geojson_admin_boundaries_v1":
+            existing.projection = "geojson_admin_boundaries_v1"
+            existing.settings = {
+                **(existing.settings or {}),
+                "policy": "advisory_only",
+                "scope": "government_mission_room",
+                "version": 2,
+                "renderer_source": "geoBoundaries.ADM1.ADM2",
+                "legacy_polygon_mode": "compatibility_only",
+            }
+            existing.updated_at = datetime.utcnow()
         _ensure_map_layers(db, existing)
         return existing
     now = datetime.utcnow()
@@ -257,10 +268,16 @@ def ensure_workspace_map_seed(db: DBSession, workspace: Workspace, *, system_id:
         name="Carte strategique executive",
         description="Carte decisionnelle Cote d'Ivoire, zones, signaux et actions preventives non militaires.",
         country="Cote d'Ivoire",
-        projection="illustrative_exec_demo",
+        projection="geojson_admin_boundaries_v1",
         view_box="200 40 470 480",
         center={"x": 430, "y": 270},
-        settings={"policy": "advisory_only", "scope": "government_mission_room", "version": 1},
+        settings={
+            "policy": "advisory_only",
+            "scope": "government_mission_room",
+            "version": 2,
+            "renderer_source": "geoBoundaries.ADM1.ADM2",
+            "legacy_polygon_mode": "compatibility_only",
+        },
         created_at=now,
         updated_at=now,
     )
@@ -469,7 +486,7 @@ def _map_basemap_options() -> list[dict[str, Any]]:
                     "raster-brightness-min": 0.0,
                     "raster-brightness-max": 0.98,
                     "raster-saturation": -0.12,
-                    "raster-contrast": 0.16,
+                    "raster-contrast": 0.22,
                 },
                 background="#d9e4ea",
             ),
@@ -478,13 +495,43 @@ def _map_basemap_options() -> list[dict[str, Any]]:
             "key": "dark",
             "label": "Sombre",
             "description": "Fond cockpit sombre avec relief visuel et labels discrets.",
-            "style": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+            "style": _basemap_style(
+                "carto-dark-admin",
+                [
+                    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                    "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                    "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                ],
+                {
+                    "raster-opacity": 1.0,
+                    "raster-brightness-min": 0.04,
+                    "raster-brightness-max": 0.82,
+                    "raster-saturation": -0.18,
+                    "raster-contrast": 0.26,
+                },
+                background="#0d1217",
+            ),
         },
         {
             "key": "contours",
             "label": "Contours",
             "description": "Fond clair desature pour briefing imprime, projection ou capture de sources.",
-            "style": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+            "style": _basemap_style(
+                "carto-contours",
+                [
+                    "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+                    "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+                    "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+                ],
+                {
+                    "raster-opacity": 1.0,
+                    "raster-brightness-min": 0.0,
+                    "raster-brightness-max": 0.96,
+                    "raster-saturation": -0.34,
+                    "raster-contrast": 0.24,
+                },
+                background="#e9eff2",
+            ),
         },
     ]
 
@@ -639,6 +686,7 @@ def _slugify(value: str) -> str:
 
 
 def serialize_zone(zone: WorkspaceMapZone, score: Optional[WorkspaceMapScore] = None) -> dict[str, Any]:
+    zone_definition = SENTINEL_ZONE_GEOGRAPHY.get(zone.zone_key) or {}
     payload = {
         "id": zone.zone_key,
         "zone_id": zone.id,
@@ -647,6 +695,8 @@ def serialize_zone(zone: WorkspaceMapZone, score: Optional[WorkspaceMapScore] = 
         "tone": _tone_for(score.score if score else zone.level),
         "centroid": zone.centroid or {},
         "polygon": zone.polygon,
+        "geometry_kind": "geoBoundaries.ADM1_group",
+        "admin1_refs": list(zone_definition.get("admin1") or []),
         "signals": list((zone.meta_data or {}).get("signals") or []),
         "recommendations": list((zone.meta_data or {}).get("recommendations") or []),
         "sources": zone.source_refs or [],
@@ -691,7 +741,7 @@ def mission_room_map_payload(db: DBSession, workspace: Workspace) -> dict[str, A
             "country": map_row.country,
             "view_box": map_row.view_box,
             "projection": map_row.projection,
-            "accuracy": "strategic_demo_not_geospatial_reference",
+            "accuracy": "geojson_admin_boundaries_v1",
         },
         "zones": zone_payloads,
         "recommended_windows": [

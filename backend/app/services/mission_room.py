@@ -2831,6 +2831,52 @@ def _ensure_feed(db: DBSession, workspace: Workspace, name: str, url: str, categ
     )
 
 
+def _cleanup_sentinel_demo_artifacts(db: DBSession, workspace: Workspace) -> int:
+    """Hide ad hoc QA artifacts from executive Sentinel surfaces."""
+    from app.models.action_plan import WorkspaceActionItem
+    from app.models.calendar import WorkspaceCalendarEvent
+
+    cleaned = 0
+    for pattern in ("%agenda qa wiring%", "%qa wiring%", "%codex qa%"):
+        rows = (
+            db.query(WorkspaceCalendarEvent)
+            .filter(
+                WorkspaceCalendarEvent.workspace_id == workspace.id,
+                WorkspaceCalendarEvent.status != "cancelled",
+                WorkspaceCalendarEvent.title.ilike(pattern),
+            )
+            .all()
+        )
+        for row in rows:
+            row.status = "cancelled"
+            row.updated_at = datetime.utcnow()
+            row.meta_data = {**(row.meta_data or {}), "hidden_by_demo_clean": True}
+            cleaned += 1
+
+    for pattern in (
+        "action cabinet ajoutee%",
+        "action cabinet ajoutée%",
+        "aya, action cabinet%",
+        "%resume les prochaines etapes%",
+        "%résume les prochaines étapes%",
+    ):
+        rows = (
+            db.query(WorkspaceActionItem)
+            .filter(
+                WorkspaceActionItem.workspace_id == workspace.id,
+                WorkspaceActionItem.status != "cancelled",
+                WorkspaceActionItem.title.ilike(pattern),
+            )
+            .all()
+        )
+        for row in rows:
+            row.status = "cancelled"
+            row.updated_at = datetime.utcnow()
+            row.meta_data = {**(row.meta_data or {}), "hidden_by_demo_clean": True}
+            cleaned += 1
+    return cleaned
+
+
 def _ensure_target(db: DBSession, workspace: Workspace) -> None:
     name = "SENTINEL-CI ministerial signals"
     description = (
@@ -3293,6 +3339,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
     _ensure_rag_preset(db, workspace)
     ensure_calendar_seed(db, workspace)
     ensure_action_plan_seed(db, workspace)
+    cleaned_demo_artifacts = _cleanup_sentinel_demo_artifacts(db, workspace)
 
     system_specs = [
         {
@@ -3433,4 +3480,5 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         "workspace_created": created,
         "members_added": members_added,
         "systems_created": systems_created,
+        "demo_artifacts_cleaned": cleaned_demo_artifacts,
     }

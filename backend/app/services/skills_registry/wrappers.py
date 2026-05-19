@@ -710,7 +710,13 @@ async def _visual_source_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
 
 
 async def _visual_snapshot_capture_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from app.services.visual_intelligence import capture_source, ensure_visual_intelligence_seed, get_source, list_sources
+    from app.services.visual_intelligence import (
+        dispatch_visual_capture_job,
+        ensure_visual_intelligence_seed,
+        get_source,
+        list_sources,
+        queue_visual_capture,
+    )
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
@@ -718,9 +724,11 @@ async def _visual_snapshot_capture_v1(payload: Dict[str, Any], ctx: Optional[Dic
         ensure_visual_intelligence_seed(db, workspace)
         source_id = payload.get("source_id")
         source = get_source(db, workspace, str(source_id)) if source_id else (list_sources(db, workspace)[0])
-        result = capture_source(db, workspace, source)
+        job = queue_visual_capture(db, workspace, source)
         db.commit()
-        return result
+        task_id = dispatch_visual_capture_job(db, workspace, job, source)
+        db.commit()
+        return {"job_id": job.id, "status": job.status, "task_id": task_id}
     finally:
         if owns_db:
             db.close()

@@ -40,6 +40,8 @@ export class SseService {
   stream(url: string, body: unknown): Observable<SseChunk> {
     const subject = new Subject<SseChunk>();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const controller = new AbortController();
+    const streamTimeoutMs = 190_000;
 
     const token = this.tokenStorage.getToken();
     if (token) headers['Authorization'] = token;
@@ -55,13 +57,26 @@ export class SseService {
       doneEmitted = true;
       subject.next({ type: 'done' });
     };
+    const timeoutHandle = window.setTimeout(() => {
+      subject.next({
+        chunk_type: 'error',
+        content: 'La réponse prend trop de temps. La session a été arrêtée proprement.',
+        is_final: true,
+      });
+      emitDone();
+      subject.complete();
+      controller.abort();
+    }, streamTimeoutMs);
+    const clearStreamTimeout = () => window.clearTimeout(timeoutHandle);
 
-    fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
+    fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal })
       .then(async (response) => {
+        if (doneEmitted) return;
         if (!response.ok || !response.body) {
           subject.next({ chunk_type: 'error', content: `HTTP ${response.status}`, is_final: true });
           emitDone();
           subject.complete();
+          clearStreamTimeout();
           return;
         }
 
@@ -116,11 +131,14 @@ export class SseService {
         if (buffer.trim()) emitFrame(buffer.trim());
         emitDone();
         subject.complete();
+        clearStreamTimeout();
       })
       .catch((err) => {
+        if (doneEmitted) return;
         subject.next({ chunk_type: 'error', content: String(err), is_final: true });
         emitDone();
         subject.complete();
+        clearStreamTimeout();
       });
 
     return subject.asObservable();

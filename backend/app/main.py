@@ -3,9 +3,11 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.agents.orchestrator import AgentOrchestrator
 from app.agents.procurement_agent import OmniRAGAgent
@@ -15,7 +17,7 @@ from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import error_handler_middleware
 from app.core.settings_manager import get_settings_manager
-from app.db.base import Base, engine
+from app.db.base import Base, SessionLocal, engine
 from app.seed_knowledge_base import seed_knowledge_base
 
 setup_logging(settings.log_level)
@@ -140,6 +142,47 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "app": settings.app_name, "version": settings.app_version}
+
+
+@app.get("/health/live")
+async def health_live_check():
+    return {"status": "healthy", "app": settings.app_name, "version": settings.app_version}
+
+
+@app.get("/health/ready")
+async def health_ready_check():
+    checks = {
+        "database": _ready_database_check(),
+        "qdrant": _ready_qdrant_check(),
+    }
+    healthy = all(item.get("status") == "ok" for item in checks.values())
+    return {
+        "status": "healthy" if healthy else "degraded",
+        "app": settings.app_name,
+        "version": settings.app_version,
+        "checks": checks,
+    }
+
+
+def _ready_database_check() -> dict[str, str]:
+    try:
+        with SessionLocal() as db:
+            db.execute(text("select 1"))
+        return {"status": "ok"}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "error", "error": str(exc)[:160]}
+
+
+def _ready_qdrant_check() -> dict[str, str | int]:
+    scheme = "https" if settings.qdrant_https else "http"
+    url = f"{scheme}://{settings.qdrant_host}:{settings.qdrant_port}/healthz"
+    headers = {"api-key": settings.qdrant_api_key} if settings.qdrant_api_key else None
+    try:
+        with httpx.Client(timeout=1.5, follow_redirects=False) as client:
+            response = client.get(url, headers=headers)
+        return {"status": "ok" if response.status_code < 500 else "error", "status_code": response.status_code}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "error", "error": str(exc)[:160]}
 
 
 # Serve frontend static files (catch-all, must be LAST)

@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -12,6 +12,7 @@ import httpx
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
+from app.db.base import SessionLocal
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -395,12 +396,12 @@ def update_source(
     return row
 
 
-def capture_source(
+def queue_visual_capture(
     db: DBSession,
     workspace: Workspace,
     source: WorkspaceVisualSource,
     user: Optional[User] = None,
-) -> dict[str, Any]:
+) -> Any:
     if source.workspace_id != workspace.id:
         raise LookupError("visual_source_not_found")
     if not source.enabled or source.status != "active":
@@ -414,6 +415,75 @@ def capture_source(
         input_ref={"source_id": source.id, "adapter": source.adapter},
         status="queued",
     )
+    _audit(db, workspace, user, "visual.capture.queued", {"source_id": source.id, "job_id": job.id})
+    return job
+
+
+def dispatch_visual_capture_job(
+    db: DBSession,
+    workspace: Workspace,
+    job: Any,
+    source: WorkspaceVisualSource,
+    user: Optional[User] = None,
+) -> str:
+    """Dispatch a visual capture without blocking the request path.
+
+    Tests and local demos can keep ``WORKER_EAGER_MODE=true``; production uses
+    Celery so HTTP returns as soon as the WorkspaceJob is persisted.
+    """
+    if settings.worker_eager_mode:
+        capture_source(db, workspace, source, user=user, job=job)
+        return f"eager:{job.id}"
+    from app.workers.tasks import visual_snapshot_capture
+
+    result = visual_snapshot_capture.apply_async(args=(job.id,), queue=settings.celery_task_default_queue)
+    job.result = {**(job.result or {}), "celery_task_id": result.id}
+    db.flush()
+    return result.id
+
+
+def run_visual_capture_job(job_id: str) -> dict[str, Any]:
+    """Worker entrypoint for ``agentium.visual_snapshot_capture``."""
+    with SessionLocal() as db:
+        from app.models.workspace_job import WorkspaceJob
+
+        job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).first()
+        if not job:
+            raise LookupError("visual_capture_job_not_found")
+        workspace = db.query(Workspace).filter(Workspace.id == job.workspace_id).first()
+        if not workspace:
+            raise LookupError("visual_capture_workspace_not_found")
+        source_id = (job.input_ref or {}).get("source_id")
+        source = (
+            db.query(WorkspaceVisualSource)
+            .filter(WorkspaceVisualSource.id == source_id, WorkspaceVisualSource.workspace_id == workspace.id)
+            .first()
+        )
+        if not source:
+            raise LookupError("visual_source_not_found")
+        try:
+            result = capture_source(db, workspace, source, user=None, job=job)
+            db.commit()
+            return result
+        except Exception:
+            db.commit()
+            raise
+
+
+def capture_source(
+    db: DBSession,
+    workspace: Workspace,
+    source: WorkspaceVisualSource,
+    user: Optional[User] = None,
+    *,
+    job: Optional[Any] = None,
+) -> dict[str, Any]:
+    if source.workspace_id != workspace.id:
+        raise LookupError("visual_source_not_found")
+    if not source.enabled or source.status != "active":
+        raise RuntimeError("visual_source_not_active")
+    if job is None:
+        job = queue_visual_capture(db, workspace, source, user=user)
     transition_job(db, workspace, job, "running", progress=25, stage="capture_snapshot", user=user)
     capture_id = str(uuid4())
     try:
@@ -543,7 +613,15 @@ def dashboard_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     observations = latest_observations(db, workspace, limit=8)
     active_sources = [source for source in sources if source.enabled and source.status == "active"]
     latest = observations[0] if observations else None
+    latest_capture = captures[0] if captures else None
     posture = strategic_visual_posture(observations)
+    cadence = min((source.capture_cadence_minutes or 60 for source in active_sources), default=60)
+    freshness = _freshness_status(latest_capture.captured_at if latest_capture else None, cadence)
+    next_capture_at = (
+        latest_capture.captured_at + timedelta(minutes=cadence)
+        if latest_capture and latest_capture.captured_at
+        else None
+    )
     return {
         "connector": {
             "id": "visual_streams",
@@ -557,7 +635,10 @@ def dashboard_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
             "total_sources": len(sources),
             "captures": len(captures),
             "observations": len(observations),
-            "last_capture_at": captures[0].captured_at.isoformat() if captures else None,
+            "last_capture_at": latest_capture.captured_at.isoformat() if latest_capture and latest_capture.captured_at else None,
+            "last_analysis_at": latest.created_at.isoformat() if latest and latest.created_at else None,
+            "freshness_status": freshness,
+            "next_capture_at": next_capture_at.isoformat() if next_capture_at else None,
             "coverage_label": "Flux visuels habilites" if active_sources else "Aucune source active",
         },
         "posture": posture,
@@ -677,6 +758,12 @@ def sync_observation_to_knowledge(
 
 
 def serialize_source(source: WorkspaceVisualSource) -> dict[str, Any]:
+    freshness = _freshness_status(source.last_captured_at, source.capture_cadence_minutes or 60)
+    next_capture_at = (
+        source.last_captured_at + timedelta(minutes=source.capture_cadence_minutes or 60)
+        if source.last_captured_at
+        else None
+    )
     return {
         "id": source.id,
         "name": source.name,
@@ -691,9 +778,23 @@ def serialize_source(source: WorkspaceVisualSource) -> dict[str, Any]:
         "policy": source.policy or {},
         "metadata": source.meta_data or {},
         "last_captured_at": source.last_captured_at.isoformat() if source.last_captured_at else None,
+        "freshness_status": freshness,
+        "next_capture_at": next_capture_at.isoformat() if next_capture_at else None,
         "created_at": source.created_at.isoformat() if source.created_at else None,
         "updated_at": source.updated_at.isoformat() if source.updated_at else None,
     }
+
+
+def _freshness_status(timestamp: Optional[datetime], cadence_minutes: int) -> str:
+    if not timestamp:
+        return "missing"
+    age = datetime.utcnow() - timestamp
+    cadence = max(1, cadence_minutes)
+    if age <= timedelta(minutes=cadence * 1.5):
+        return "fresh"
+    if age <= timedelta(minutes=cadence * 3):
+        return "aging"
+    return "stale"
 
 
 def serialize_capture(capture: WorkspaceVisualCapture) -> dict[str, Any]:

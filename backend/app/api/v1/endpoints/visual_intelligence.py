@@ -8,23 +8,26 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.config import settings
 from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.object_store import get_object_store
 from app.services.visual_intelligence import (
-    capture_source,
     create_source,
     dashboard_payload,
+    dispatch_visual_capture_job,
     ensure_visual_intelligence_seed,
     get_capture,
     get_source,
     list_captures,
     list_sources,
+    queue_visual_capture,
     serialize_capture,
     serialize_source,
     update_source,
 )
+from app.services.workspace_jobs import serialize_job
 
 
 router = APIRouter()
@@ -114,7 +117,7 @@ async def visual_source_patch(
     return serialize_source(row)
 
 
-@router.post("/sources/{source_id}/capture")
+@router.post("/sources/{source_id}/capture", status_code=202)
 def visual_source_capture(
     source_id: str,
     workspace: Workspace = Depends(get_current_workspace),
@@ -123,14 +126,38 @@ def visual_source_capture(
 ):
     try:
         source = get_source(db, workspace, source_id)
-        result = capture_source(db, workspace, source, user=user)
+        job = queue_visual_capture(db, workspace, source, user=user)
+        if not settings.worker_eager_mode:
+            db.commit()
+        task_id = dispatch_visual_capture_job(db, workspace, job, source, user=user)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Visual source not found") from exc
     except Exception as exc:  # noqa: BLE001
+        try:
+            if "job" in locals():
+                from app.services.workspace_jobs import transition_job
+
+                transition_job(
+                    db,
+                    workspace,
+                    job,
+                    "failed",
+                    progress=100,
+                    stage="queue_failed",
+                    result={"error": str(exc)},
+                    user=user,
+                )
+        except Exception:  # noqa: BLE001
+            pass
         db.commit()
-        raise HTTPException(status_code=502, detail=f"Visual capture failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Visual capture could not be queued: {exc}") from exc
     db.commit()
-    return result
+    return {
+        "job_id": job.id,
+        "status": "queued" if not str(task_id).startswith("eager:") else job.status,
+        "task_id": task_id,
+        "job": serialize_job(job),
+    }
 
 
 @router.get("/sources/{source_id}/captures")
