@@ -129,6 +129,8 @@ class Settings(BaseSettings):
     mfa_max_attempts: int = 5
 
     log_level: str = "INFO"
+    intelligence_scheduler_enabled: bool = False
+    intelligence_scheduler_interval_seconds: int = 3600
 
     # SharePoint OTP connector
     # Persistence of captured sessions and MSAL token caches (encrypted at rest

@@ -86,12 +86,19 @@ async def lifespan(app: FastAPI):
 
     logger.info("Application started", agents_count=len(orchestrator.agents))
 
-    # Start intelligence RSS scheduler (1h interval, daemon thread)
-    try:
-        from app.services.intelligence.scheduler import start_scheduler
-        start_scheduler(interval_seconds=3600)
-    except Exception as e:
-        logger.warning("Intelligence scheduler failed to start (non-blocking)", error=str(e))
+    # Start intelligence RSS scheduler only when explicitly enabled. The
+    # mission-room demo is designed to stay responsive with stored signals and
+    # deterministic fallbacks; long external RSS/LLM batches must not compete
+    # with live executive screens by default.
+    if settings.intelligence_scheduler_enabled:
+        try:
+            from app.services.intelligence.scheduler import start_scheduler
+
+            start_scheduler(interval_seconds=settings.intelligence_scheduler_interval_seconds)
+        except Exception as e:
+            logger.warning("Intelligence scheduler failed to start (non-blocking)", error=str(e))
+    else:
+        logger.info("Intelligence scheduler disabled", reason="settings.intelligence_scheduler_enabled=false")
 
     yield
 
