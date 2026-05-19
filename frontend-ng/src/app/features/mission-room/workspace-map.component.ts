@@ -837,7 +837,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   selectedBasemapKey = 'administrative';
   controlsOpen = false;
   legendOpen = false;
-  briefOpen = true;
+  briefOpen = false;
 
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly activeLayerKeys = new Set<string>();
@@ -1206,6 +1206,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const markersSource = this.mapSystem?.['geojson_sources']?.markers;
     const contextMarkersSource = this.mapSystem?.['geojson_sources']?.context_markers;
     const contextLinesSource = this.mapSystem?.['geojson_sources']?.context_lines;
+    const maritimePointsSource = this.mapSystem?.['geojson_sources']?.maritime_points;
+    const maritimeRoutesSource = this.mapSystem?.['geojson_sources']?.maritime_routes;
     const countryBoundarySource = this.mapSystem?.['country_boundary'];
     const adminBoundariesSource = this.mapSystem?.['admin_boundaries'];
     const citiesSource = this.mapSystem?.['cities'];
@@ -1226,6 +1228,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const showProjects = this.isLayerActive('strategic-projects');
     const showAgenda = this.isLayerActive('agenda-windows');
     const showVisual = this.isLayerActive('visual-streams');
+    const showMaritime = this.isLayerActive('maritime-traffic');
     const showActions = this.isLayerActive('preventive-actions');
     const layers: any[] = [];
 
@@ -1263,6 +1266,64 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getLineColor: (feature: any) => this.contextLineColor(feature.properties?.tone),
         getLineWidth: (feature: any) => feature.properties?.tone === 'regional' ? 7800 : 5500,
         lineWidthMinPixels: 1.6,
+        parameters: { depthTest: false },
+      }));
+    }
+
+    if (showMaritime) {
+      layers.push(new GeoJsonLayer({
+        id: 'sentinel-maritime-routes',
+        data: maritimeRoutesSource,
+        pickable: false,
+        filled: false,
+        stroked: true,
+        getLineColor: [255, 155, 74, 178],
+        getLineWidth: 7200,
+        lineWidthMinPixels: 1.8,
+        parameters: { depthTest: false },
+      }));
+      const maritimeFeatures = maritimePointsSource?.features || [];
+      layers.push(new ScatterplotLayer({
+        id: 'sentinel-maritime-rings',
+        data: maritimeFeatures,
+        pickable: false,
+        stroked: true,
+        filled: true,
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => Math.max(16, Math.min(32, (feature.properties?.weight || 48) / 2.8)),
+        getFillColor: [255, 155, 74, 34],
+        getLineColor: [255, 183, 94, 210],
+        lineWidthMinPixels: 1.7,
+        parameters: { depthTest: false },
+      }));
+      layers.push(new ScatterplotLayer({
+        id: 'sentinel-maritime-points',
+        data: maritimeFeatures,
+        pickable: true,
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => feature.properties?.kind === 'port' ? 7 : 9,
+        getFillColor: (feature: any) => feature.properties?.kind === 'port' ? [66, 217, 155, 238] : [255, 155, 74, 238],
+        getLineColor: [250, 254, 255, 238],
+        lineWidthMinPixels: 1.7,
+        parameters: { depthTest: false },
+        onClick: (info: any) => this.emitMaritimeEvidence(info.object),
+      }));
+      layers.push(new TextLayer({
+        id: 'sentinel-maritime-labels',
+        data: maritimeFeatures.slice(0, 3),
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        getText: (feature: any) => feature.properties?.name || '',
+        getSize: this.compact ? 9 : 11,
+        getColor: [255, 255, 255, 244],
+        getPixelOffset: [0, -25],
+        getTextAnchor: 'middle',
+        getAlignmentBaseline: 'bottom',
+        fontSettings: { sdf: true },
+        outlineColor: [4, 8, 13, 242],
+        outlineWidth: 3,
+        billboard: true,
         parameters: { depthTest: false },
       }));
     }
@@ -1459,6 +1520,45 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (!zoneId) return;
     const zone = this.zones.find((item) => item.id === zoneId);
     if (zone) this.selectZone(zone);
+  }
+
+  private emitMaritimeEvidence(feature: any): void {
+    if (!feature?.properties) return;
+    const properties = feature.properties;
+    const longitude = Number(feature.geometry?.coordinates?.[0] ?? -4.0083);
+    const latitude = Number(feature.geometry?.coordinates?.[1] ?? 5.2512);
+    this.evidenceAction.emit({
+      action: 'maritime',
+      zone: {
+        id: properties.id || 'maritime-evidence',
+        name: properties.name || 'Maritime / douanes',
+        level: Number(properties.weight || 58),
+        tone: properties.tone || 'monitoring',
+        sources: properties.source_refs || [],
+        signals: [properties.summary].filter(Boolean),
+        popup_brief: {
+          title: properties.name || 'Maritime / douanes',
+          score: Number(properties.weight || 58),
+          severity: properties.tone || 'monitoring',
+          drivers: [properties.summary, properties.domain, properties.location].filter(Boolean).slice(0, 3),
+          sources: properties.source_refs || [],
+          recommendation: properties.recommended_action || 'Relier le signal maritime aux douanes avant arbitrage.',
+          decision_deadline: properties.decision_deadline || "aujourd'hui",
+          cta: 'Preparer arbitrage',
+          map_focus: {
+            active_layers: ['territorial-risk', 'open-intelligence', 'visual-streams', 'maritime-traffic'],
+            camera: { longitude, latitude, zoom: 9.15, duration_ms: 220 },
+            focus_marker: {
+              longitude,
+              latitude,
+              label: properties.name || 'Maritime / douanes',
+              zone_id: 'zone-sud',
+              tone: 'maritime',
+            },
+          },
+        },
+      },
+    });
   }
 
   private deckColor(tone: string, selected = false, alpha = 120): number[] {

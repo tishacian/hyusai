@@ -119,6 +119,27 @@ SOURCES = [
         "confidence": 0.68,
         "age": "capture recente",
     },
+    {
+        "id": "src-maritime-paa-001",
+        "label": "Port Autonome d'Abidjan - actualites",
+        "kind": "rss_maritime_local",
+        "confidence": 0.79,
+        "age": "flux RSS",
+    },
+    {
+        "id": "src-maritime-marinelink-001",
+        "label": "MarineLink - maritime news",
+        "kind": "rss_maritime_world",
+        "confidence": 0.71,
+        "age": "flux RSS",
+    },
+    {
+        "id": "src-marinetraffic-context-001",
+        "label": "MarineTraffic - contexte AIS/API-ready",
+        "kind": "maritime_ais_context",
+        "confidence": 0.64,
+        "age": "source externe",
+    },
 ]
 
 AGENDA = [
@@ -243,6 +264,40 @@ NEWS_SIGNALS = [
         "confidence": 0.61,
         "source_count": 3,
     },
+    {
+        "id": "news-maritime-001",
+        "title": "Port d'Abidjan : signal maritime a rapprocher des points douanes",
+        "risk_level": "medium",
+        "sentiment": "mixed",
+        "summary": "Actualite portuaire et veille maritime convergent vers un point d'attention logistique : inspection, congestion ou retard doivent etre qualifies avant prise de parole economique.",
+        "source": "Port Autonome d'Abidjan + veille maritime internationale",
+        "sources": ["src-maritime-paa-001", "src-maritime-marinelink-001", "src-marinetraffic-context-001"],
+        "zone": "Abidjan / Golfe de Guinee",
+        "geography_tier": "ci",
+        "geo_tier": "ci",
+        "viewpoint": "douanes, securite portuaire et flux economiques",
+        "origin": "RSS Port Autonome d'Abidjan + MarineLink + contexte MarineTraffic",
+        "domain": "port_flow",
+        "source_type": "rss",
+        "tags": ["port", "douanes", "congestion", "retard", "securite maritime", "Golfe de Guinee"],
+        "impact_ci": "Impact interieur : anticiper congestion, retards douaniers ou perception de rupture logistique autour du port.",
+        "impact_international": "Impact international : surveiller perception investisseurs, chaines logistiques et partenaires commerciaux.",
+        "why_it_matters": "Le port d'Abidjan est un signal economique et securitaire ; un incident ou retard visible peut devenir sujet presse, douanes et cabinet.",
+        "recommended_action": "Demander une confirmation douanes/port avant 12h00, puis preparer une note VP si le signal se confirme.",
+        "briefing_value": "Ajoute une preuve maritime au brief : port, douanes, flux economiques et communication gouvernementale.",
+        "confidence": 0.66,
+        "source_count": 3,
+        "evidence_refs": [
+            {"type": "rss", "id": "src-maritime-paa-001", "label": "RSS Port Autonome d'Abidjan"},
+            {"type": "rss", "id": "src-maritime-marinelink-001", "label": "MarineLink maritime news"},
+            {"type": "source", "id": "src-marinetraffic-context-001", "label": "MarineTraffic AIS/API-ready"},
+        ],
+        "aya_context": {
+            "prompt": "AYA, relie ce signal portuaire aux douanes, au trafic maritime et au risque de congestion.",
+            "answer_frame": "Situation portuaire, preuve maritime, impact douanes/securite, option recommandee, deadline, confiance.",
+            "confidence": 0.66,
+        },
+    },
 ]
 
 SENTINEL_NEWS_FEEDS = [
@@ -258,6 +313,8 @@ SENTINEL_NEWS_FEEDS = [
     ("France 24 Afrique", "https://www.france24.com/fr/afrique/rss", "afrique"),
     ("RFI Afrique", "https://www.rfi.fr/fr/afrique/rss", "afrique"),
     ("BBC World News", "https://feeds.bbci.co.uk/news/world/rss.xml", "world"),
+    ("Port Autonome d'Abidjan", "https://www.portabidjan.ci/rss.xml", "ci-maritime"),
+    ("MarineLink Maritime News", "https://www.marinelink.com/news/rss", "maritime-world"),
 ]
 
 GEOGRAPHIC_PRIORITY_ORDER = [
@@ -278,7 +335,65 @@ FEED_CATEGORY_SCOPE = {
     "africa-fr": "africa",
     "afrique": "africa",
     "world": "world",
+    "ci-maritime": "ci",
+    "maritime-world": "world",
 }
+
+MARITIME_PORTS = [
+    {
+        "id": "port-abidjan",
+        "name": "Port autonome d'Abidjan",
+        "location": "Abidjan / Vridi",
+        "longitude": -4.0083,
+        "latitude": 5.2512,
+        "score": 68,
+        "tone": "elevated",
+        "role": "hub economique et douanier prioritaire",
+    },
+    {
+        "id": "port-san-pedro",
+        "name": "Port autonome de San-Pedro",
+        "location": "San-Pedro",
+        "longitude": -6.6368,
+        "latitude": 4.7446,
+        "score": 44,
+        "tone": "monitoring",
+        "role": "flux export et surveillance logistique",
+    },
+]
+
+MARITIME_EVENTS = [
+    {
+        "id": "maritime-abidjan-customs-watch",
+        "title": "Point d'attention Port d'Abidjan / douanes",
+        "location": "Port autonome d'Abidjan",
+        "longitude": -4.0083,
+        "latitude": 5.2512,
+        "score": 68,
+        "severity": "elevated",
+        "domain": "customs",
+        "summary": "Activite portuaire a rapprocher d'une actualite douanes/logistique avant toute communication economique.",
+        "recommended_action": "Verifier aupres du Port et des Douanes avant 12h00 ; preparer une note VP si congestion ou inspection sensible se confirme.",
+        "decision_deadline": "12:00",
+        "source_type": "rss+api_ready",
+        "source_refs": ["src-maritime-paa-001", "src-maritime-marinelink-001", "src-marinetraffic-context-001"],
+    },
+    {
+        "id": "maritime-gulf-security-watch",
+        "title": "Golfe de Guinee : veille securite maritime",
+        "location": "Golfe de Guinee",
+        "longitude": -3.9,
+        "latitude": 5.8,
+        "score": 52,
+        "severity": "monitoring",
+        "domain": "maritime_security",
+        "summary": "Contexte regional a garder en contrepoint des flux commerciaux et des alertes internationales.",
+        "recommended_action": "Maintenir en veille et rapprocher de la cellule economique si un incident touche les corridors Abidjan/San-Pedro.",
+        "decision_deadline": "aujourd'hui",
+        "source_type": "rss+source_link",
+        "source_refs": ["src-maritime-marinelink-001", "src-marinetraffic-context-001"],
+    },
+]
 
 MESSAGES = [
     {
@@ -699,6 +814,39 @@ def _news_geo_tier(signal: dict[str, Any]) -> str:
     return tier if tier in {"ci", "cedeao", "africa", "world"} else "world"
 
 
+def _is_maritime_signal(signal: dict[str, Any]) -> bool:
+    haystack = " ".join(
+        str(value or "")
+        for value in [
+            signal.get("id"),
+            signal.get("title"),
+            signal.get("summary"),
+            signal.get("source"),
+            signal.get("source_category"),
+            signal.get("domain"),
+            " ".join(signal.get("tags") or []),
+        ]
+    ).lower()
+    return any(
+        token in haystack
+        for token in (
+            "maritime",
+            "marine",
+            "port",
+            "douane",
+            "douanes",
+            "customs",
+            "ais",
+            "navire",
+            "vessel",
+            "congestion",
+            "logistique",
+            "golfe de guinee",
+            "golfe de guinée",
+        )
+    )
+
+
 def _news_velocity(signal: dict[str, Any], index: int = 0) -> str:
     explicit = signal.get("velocity")
     if explicit:
@@ -743,8 +891,129 @@ def _normalize_news_signal(signal: dict[str, Any], index: int = 0) -> dict[str, 
         if tier in {"world", "africa", "cedeao"}
         else "Impact international faible sauf amplification regionale ou partenaire."
     )
+    if _is_maritime_signal(row):
+        row["domain"] = row.get("domain") or "port_flow"
+        row["source_type"] = row.get("source_type") or "rss"
+        row["tags"] = row.get("tags") or ["port", "douanes", "securite maritime", "flux logistiques"]
+        if "maritime" not in row["badges"]:
+            row["badges"].insert(0, "maritime")
+        row["briefing_value"] = row.get("briefing_value") or "Signal maritime utile pour relier port, douanes, securite et agenda economique."
     row["recommended_action"] = row.get("recommended_action") or _action_for_risk(row.get("risk_level"))
     return row
+
+
+def _maritime_geo_tier(signal: dict[str, Any]) -> str:
+    zone = f"{signal.get('zone') or ''} {signal.get('source') or ''} {signal.get('summary') or ''}".lower()
+    if "abidjan" in zone or "san-pedro" in zone or "san pedro" in zone or "cote d'ivoire" in zone or "côte d'ivoire" in zone:
+        return "ci"
+    if "golfe" in zone or "guinee" in zone or "guinée" in zone or "ghana" in zone or "liberia" in zone:
+        return "gulf_of_guinea"
+    if "africa" in zone or "afrique" in zone:
+        return "africa"
+    return "world"
+
+
+def _maritime_intelligence_payload(feed_rows: list[dict[str, Any]], signals: list[dict[str, Any]]) -> dict[str, Any]:
+    maritime_signals = [_normalize_news_signal(signal) for signal in signals if _is_maritime_signal(signal)]
+    feeds = [
+        row for row in feed_rows
+        if row.get("active") and "maritime" in str(row.get("category") or "").lower()
+    ]
+    if not feeds:
+        feeds = [
+            {"name": name, "url": url, "category": category, "active": True}
+            for name, url, category in SENTINEL_NEWS_FEEDS
+            if "maritime" in category
+        ]
+    latest_signal = maritime_signals[0] if maritime_signals else {}
+    latest_event = _clone(MARITIME_EVENTS[0])
+    latest_observation = {
+        "id": latest_event["id"],
+        "title": latest_signal.get("title") or latest_event["title"],
+        "summary": latest_signal.get("summary") or latest_event["summary"],
+        "geo_tier": _maritime_geo_tier(latest_signal or latest_event),
+        "domain": latest_signal.get("domain") or latest_event["domain"],
+        "source_type": latest_signal.get("source_type") or latest_event["source_type"],
+        "score": int(latest_signal.get("score") or latest_event["score"]),
+        "severity": latest_signal.get("severity") or latest_event["severity"],
+        "recommended_action": latest_signal.get("recommended_action") or latest_event["recommended_action"],
+        "decision_deadline": latest_signal.get("decision_deadline") or latest_event["decision_deadline"],
+        "briefing_value": latest_signal.get("briefing_value") or "Croiser flux portuaire, douanes, securite maritime et agenda economique.",
+        "confidence": latest_signal.get("confidence") or 0.66,
+        "evidence_refs": latest_signal.get("evidence_refs") or [
+            {"type": "rss", "id": "src-maritime-paa-001", "label": "RSS Port Autonome d'Abidjan"},
+            {"type": "rss", "id": "src-maritime-marinelink-001", "label": "MarineLink Maritime News"},
+            {"type": "source", "id": "src-marinetraffic-context-001", "label": "MarineTraffic AIS/API-ready"},
+        ],
+    }
+    map_focus = {
+        "basemap": "administrative",
+        "active_layers": ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"],
+        "camera": {"longitude": latest_event["longitude"], "latitude": latest_event["latitude"], "zoom": 9.15, "duration_ms": 220},
+        "focus_marker": {
+            "longitude": latest_event["longitude"],
+            "latitude": latest_event["latitude"],
+            "label": "Port d'Abidjan · surveillance maritime",
+            "zone_id": "zone-sud",
+            "tone": "maritime",
+        },
+    }
+    active_evidence = {
+        "id": "active-maritime-customs-watch",
+        "type": "maritime",
+        "title": "Maritime / douanes · Port d'Abidjan",
+        "location": "Port autonome d'Abidjan / Golfe de Guinee",
+        "score": latest_observation["score"],
+        "severity": latest_observation["severity"],
+        "source_quality": "RSS Port d'Abidjan + MarineLink + MarineTraffic API-ready",
+        "observation": latest_observation["summary"],
+        "recommended_action": latest_observation["recommended_action"],
+        "decision_deadline": latest_observation["decision_deadline"],
+        "evidence_refs": latest_observation["evidence_refs"],
+        "aya_context": {
+            "prompt": "AYA, relie l'actualite douanes au trafic maritime autour du port d'Abidjan.",
+            "answer_frame": "Situation portuaire, preuve maritime, impact douanes/securite, option recommandee, deadline, confiance.",
+            "decision_deadline": latest_observation["decision_deadline"],
+            "confidence": latest_observation["confidence"],
+        },
+        "map_focus": map_focus,
+    }
+    return {
+        "status": "ready",
+        "provider": "MarineTraffic API-ready + RSS maritime qualifie",
+        "source_url": "https://www.marinetraffic.com/en/ais/home/centerx:-3.9/centery:5.8/zoom:8",
+        "source_policy": "Pas de scraping MarineTraffic ; RSS publics et API officielle si cle disponible.",
+        "focus_area": "Port d'Abidjan, San-Pedro, Golfe de Guinee",
+        "source_quality": {
+            "label": "RSS publics + source AIS contextuelle",
+            "limitations": "MarineTraffic News n'expose pas de RSS public confirme ; l'AIS live requiert API ou integration licenciee.",
+        },
+        "ports": _clone(MARITIME_PORTS),
+        "vessel_events": _clone(MARITIME_EVENTS),
+        "customs_links": [
+            {
+                "id": "customs-abidjan-verification",
+                "label": "Douanes / verification portuaire",
+                "domain": "customs",
+                "summary": "Verifier si inspection, congestion ou retard a une origine douane, securite ou logistique.",
+                "recommended_action": "Demander confirmation Port + Douanes avant communication publique.",
+            }
+        ],
+        "signals": maritime_signals[:4],
+        "feeds": [
+            {"name": row.get("name"), "url": row.get("url"), "category": row.get("category"), "source_type": "rss"}
+            for row in feeds
+        ],
+        "latest_observation": latest_observation,
+        "active_evidence": active_evidence,
+        "briefing_value": "Relie actualite portuaire, douanes, securite maritime, flux economiques et restitution AYA.",
+        "aya_context": active_evidence["aya_context"],
+        "prompts": [
+            "AYA, quel est le risque autour du port d'Abidjan ?",
+            "AYA, relie cette actualite douanes au trafic maritime.",
+            "AYA, prepare une note pour le Vice-President avant le point economie.",
+        ],
+    }
 
 
 def _news_geo_sections(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -885,6 +1154,7 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
     """Bridge News Lab diagnostics into a ministerial, advisory payload."""
     feed_rows = _feed_rows(db, workspace)
     fallback_signals = [_normalize_news_signal(signal, index) for index, signal in enumerate(_clone(NEWS_SIGNALS))]
+    fallback_maritime = _maritime_intelligence_payload(feed_rows, fallback_signals)
     fallback = {
         "workspace": _workspace_meta(workspace),
         "signals": fallback_signals,
@@ -896,16 +1166,19 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
                 "Cote d'Ivoire : rumeurs, emotion publique et projets sensibles demandent une lecture cabinet rapide.",
                 "CEDEAO / Golfe de Guinee : surveiller les effets transfrontaliers et narratifs regionaux.",
                 "International : garder le contrepoint partenaires Europe/USA/Asie pour anticiper pression et opportunites.",
+                "Maritime / douanes : surveiller Port d'Abidjan, San-Pedro et Golfe de Guinee quand un signal logistique touche l'agenda economique.",
             ],
             "talking_points": [
                 "Coordination preventive avec les autorites locales.",
                 "Continuité des services publics et suivi transparent des projets.",
                 "AYA peut expliquer l'origine d'une rumeur, la zone touchee et l'action recommandee.",
+                "Sur le maritime, ne communiquer qu'apres confirmation Port + Douanes.",
             ],
             "decisions_expected": [
                 "Valider les elements de langage presse.",
                 "Mandater une note cabinet sur les zones nord.",
                 "Qualifier le signal social prioritaire avant toute action publique.",
+                "Verifier le signal maritime/douanes avant le point economie.",
             ],
         },
         "source_health": {
@@ -931,6 +1204,7 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
         "geo_sections": _news_geo_sections(fallback_signals),
         "viewpoints": _news_viewpoints_payload(feed_rows, fallback_signals),
         "social_listening": _social_listening_payload(fallback_signals),
+        "maritime_intelligence": fallback_maritime,
         "sources": source_index(),
     }
     if not db:
@@ -1074,6 +1348,7 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
         "geo_sections": _news_geo_sections([*alerts, *fallback_signals]),
         "viewpoints": _news_viewpoints_payload(feed_rows, [*alerts, *_clone(NEWS_SIGNALS)]),
         "social_listening": _social_listening_payload(fallback_signals),
+        "maritime_intelligence": _maritime_intelligence_payload(feed_rows, [*alerts, *fallback_signals]),
         "analysis_link": {
             "system_id": latest_run.system_id if latest_run else None,
             "run_id": latest_run.id if latest_run else None,
@@ -1350,6 +1625,7 @@ def briefing_payload(workspace: Workspace, db: Optional[DBSession] = None) -> di
     mapped = map_payload(workspace, db=db)
     news = news_payload(workspace, db=db)
     visual = _visual_payload(workspace, db)
+    maritime = news.get("maritime_intelligence") or _maritime_intelligence_payload(_feed_rows(db, workspace), news.get("executive_alerts") or news.get("signals") or [])
     calendar_summary = calendar_summary_payload(db, workspace) if db else None
     visual_brief = _visual_intelligence_brief(
         visual,
@@ -1378,6 +1654,16 @@ def briefing_payload(workspace: Workspace, db: Optional[DBSession] = None) -> di
             "sources": ["src-visual-intelligence-001", "src-press-rfi-017", "src-map-sentinel-ci-001"],
         },
         {
+            "id": "maritime_customs",
+            "title": "Maritime / douanes",
+            "content": (
+                f"{(maritime.get('latest_observation') or {}).get('summary')} "
+                f"Action recommandee : {(maritime.get('latest_observation') or {}).get('recommended_action')} "
+                "Ce signal doit rester une preuve de contexte tant que Port + Douanes n'ont pas confirme."
+            ),
+            "sources": ["src-maritime-paa-001", "src-maritime-marinelink-001", "src-marinetraffic-context-001"],
+        },
+        {
             "id": "decisions",
             "title": "Decisions attendues",
             "content": "Arbitrer une mission terrain non militaire, valider les elements de langage presse et decider d'une relance cabinet sur le projet rouge.",
@@ -1396,6 +1682,7 @@ def briefing_payload(workspace: Workspace, db: Optional[DBSession] = None) -> di
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "sections": sections,
         "visual_intelligence_brief": visual_brief,
+        "maritime_intelligence": maritime,
         "actions": [
             {"id": "act-brief-dircab", "label": "Créer instruction Directeur de cabinet", "target": "proj-health-north"},
             {"id": "act-press-lines", "label": "Valider éléments de langage presse", "target": "proj-civic-radio"},
@@ -1503,6 +1790,7 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     mapped = map_payload(workspace, db=db)
     news = news_payload(workspace, db=db)
     visual = _visual_payload(workspace, db)
+    maritime = news.get("maritime_intelligence") or _maritime_intelligence_payload(_feed_rows(db, workspace), news.get("executive_alerts") or news.get("signals") or [])
     calendar_summary = calendar_summary_payload(db, workspace) if db else None
     action_rows = list_action_items(db, workspace, include_cancelled=False) if db else []
     action_items = [serialize_action_item(row) for row in action_rows[:6]]
@@ -1515,6 +1803,7 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         mapped,
         news,
         visual,
+        maritime=maritime,
         calendar_summary=calendar_summary,
         action_summary=action_summary,
         action_items=action_items,
@@ -1534,8 +1823,8 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         calendar_summary=calendar_summary,
         action_summary=action_summary,
     )
-    layers = _monitor_layers(zones, news, visual)
-    monitor_map_system = _monitor_map_system(mapped, layers)
+    layers = _monitor_layers(zones, news, visual, maritime)
+    monitor_map_system = _monitor_map_system(mapped, layers, maritime)
     active_evidence = _active_evidence_payload(scenario, cross_source_signals, visual_intelligence_brief)
     forecasts = [
         {
@@ -1582,6 +1871,7 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         "active_evidence": active_evidence,
         "cross_source_signals": cross_source_signals,
         "visual_intelligence_brief": visual_intelligence_brief,
+        "maritime": maritime,
         "voice_context": _aya_voice_context(scenario, cross_source_signals, visual_intelligence_brief, active_evidence),
         "map": mapped.get("map"),
         "map_system": monitor_map_system,
@@ -1693,20 +1983,22 @@ def _signal_level(score: int) -> str:
     return "stable"
 
 
-def _monitor_layers(zones: list[dict[str, Any]], news: dict[str, Any], visual: dict[str, Any]) -> list[dict[str, Any]]:
+def _monitor_layers(zones: list[dict[str, Any]], news: dict[str, Any], visual: dict[str, Any], maritime: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
     alerts = news.get("executive_alerts") or news.get("signals") or []
+    maritime_count = len((maritime or {}).get("vessel_events") or [])
     return [
         {"key": "territorial-risk", "label": "Territoire", "enabled": True, "count": len(zones)},
         {"key": "open-intelligence", "label": "Presse / rumeurs", "enabled": True, "count": len(alerts)},
-        {"key": "visual-streams", "label": "Flux visuels", "enabled": True, "count": int((visual.get("source_health") or {}).get("active_sources") or 0)},
+        {"key": "visual-streams", "label": "Flux terrain", "enabled": True, "count": int((visual.get("source_health") or {}).get("active_sources") or 0)},
+        {"key": "maritime-traffic", "label": "Maritime / douanes", "enabled": False, "count": maritime_count},
     ]
 
 
-def _monitor_map_system(mapped: dict[str, Any], layers: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+def _monitor_map_system(mapped: dict[str, Any], layers: list[dict[str, Any]], maritime: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
     map_system = _clone(mapped.get("map_system"))
     if not map_system:
         return None
-    layer_keys = [layer["key"] for layer in layers]
+    active_layer_keys = [layer["key"] for layer in layers if layer.get("enabled") is not False]
     catalog_by_key = {
         str(layer.get("key")): layer
         for layer in (map_system.get("layer_catalog") or [])
@@ -1720,17 +2012,90 @@ def _monitor_map_system(mapped: dict[str, Any], layers: list[dict[str, Any]]) ->
                 "key": layer["key"],
                 "label": layer["label"],
                 "short_label": layer["label"],
-                "visible": True,
+                "visible": layer.get("enabled") is not False,
                 "count": layer["count"],
+                "tone": "orange" if layer["key"] == "maritime-traffic" else existing.get("tone", "cyan"),
+                "kind": "maritime_evidence" if layer["key"] == "maritime-traffic" else existing.get("kind"),
+                "confidence": 64 if layer["key"] == "maritime-traffic" else existing.get("confidence", 65),
             }
         )
         compact_catalog.append(existing)
     map_system["layer_catalog"] = compact_catalog
     default_state = _clone(map_system.get("default_map_state") or {})
-    default_state["active_layers"] = layer_keys
+    default_state["active_layers"] = active_layer_keys
     default_state["basemap"] = default_state.get("basemap") or "administrative"
     map_system["default_map_state"] = default_state
+    maritime_sources = _maritime_map_sources(maritime or {})
+    geojson_sources = _clone(map_system.get("geojson_sources") or {})
+    geojson_sources.update(maritime_sources)
+    map_system["geojson_sources"] = geojson_sources
+    presets = _clone(map_system.get("camera_presets") or {})
+    presets["maritime-abidjan"] = {"longitude": -4.0083, "latitude": 5.2512, "zoom": 9.15, "duration_ms": 220}
+    map_system["camera_presets"] = presets
     return map_system
+
+
+def _maritime_map_sources(maritime: dict[str, Any]) -> dict[str, Any]:
+    ports = maritime.get("ports") or _clone(MARITIME_PORTS)
+    events = maritime.get("vessel_events") or _clone(MARITIME_EVENTS)
+    port_features = [
+        {
+            "type": "Feature",
+            "id": port.get("id"),
+            "geometry": {"type": "Point", "coordinates": [port.get("longitude"), port.get("latitude")]},
+            "properties": {
+                "id": port.get("id"),
+                "name": port.get("name"),
+                "kind": "port",
+                "location": port.get("location"),
+                "weight": port.get("score") or 40,
+                "tone": port.get("tone") or "monitoring",
+                "summary": port.get("role"),
+            },
+        }
+        for port in ports
+        if port.get("longitude") is not None and port.get("latitude") is not None
+    ]
+    event_features = [
+        {
+            "type": "Feature",
+            "id": event.get("id"),
+            "geometry": {"type": "Point", "coordinates": [event.get("longitude"), event.get("latitude")]},
+            "properties": {
+                "id": event.get("id"),
+                "name": event.get("title"),
+                "kind": "maritime_event",
+                "location": event.get("location"),
+                "weight": event.get("score") or 50,
+                "tone": event.get("severity") or "monitoring",
+                "domain": event.get("domain"),
+                "summary": event.get("summary"),
+                "recommended_action": event.get("recommended_action"),
+                "decision_deadline": event.get("decision_deadline"),
+                "source_refs": event.get("source_refs") or [],
+            },
+        }
+        for event in events
+        if event.get("longitude") is not None and event.get("latitude") is not None
+    ]
+    route_features = [
+        {
+            "type": "Feature",
+            "id": "maritime-route-abidjan-san-pedro",
+            "geometry": {"type": "LineString", "coordinates": [[-4.0083, 5.2512], [-6.6368, 4.7446]]},
+            "properties": {"name": "Couloir Abidjan / San-Pedro", "tone": "maritime"},
+        },
+        {
+            "type": "Feature",
+            "id": "maritime-route-gulf-watch",
+            "geometry": {"type": "LineString", "coordinates": [[-4.0083, 5.2512], [-3.9, 5.8]]},
+            "properties": {"name": "Veille Golfe de Guinee", "tone": "maritime"},
+        },
+    ]
+    return {
+        "maritime_points": {"type": "FeatureCollection", "features": [*port_features, *event_features]},
+        "maritime_routes": {"type": "FeatureCollection", "features": route_features},
+    }
 
 
 def _zone_map_focus(mapped: dict[str, Any], zone_id: Optional[str]) -> dict[str, Any]:
@@ -1785,6 +2150,8 @@ def _signal_deadline(row: dict[str, Any]) -> str:
         return "14:00"
     if signal_id == "visual-activity":
         return "avant prochain point cabinet"
+    if signal_id == "maritime-customs-watch":
+        return "12:00"
     if signal_id == "agenda-pressure":
         return "avant prochain rendez-vous"
     return "aujourd'hui"
@@ -1796,10 +2163,18 @@ def _signal_evidence_refs(row: dict[str, Any], mapped: dict[str, Any], news: dic
     alerts = news.get("executive_alerts") or news.get("signals") or []
     sources = visual.get("sources") or []
     primary_source = sources[0] if sources else {}
+    maritime = news.get("maritime_intelligence") or {}
     if signal_id == "visual-activity":
         return [
             {"type": "webcam", "id": primary_source.get("id"), "label": primary_source.get("name") or "Flux visuel actif"},
             {"type": "observation", "id": (visual.get("latest_observation") or {}).get("id"), "label": "Lecture snapshot"},
+        ]
+    if signal_id == "maritime-customs-watch":
+        latest = maritime.get("latest_observation") or {}
+        return latest.get("evidence_refs") or [
+            {"type": "rss", "id": "src-maritime-paa-001", "label": "RSS Port Autonome d'Abidjan"},
+            {"type": "rss", "id": "src-maritime-marinelink-001", "label": "MarineLink Maritime News"},
+            {"type": "source", "id": "src-marinetraffic-context-001", "label": "MarineTraffic AIS/API-ready"},
         ]
     if signal_id in {"press-escalation", "social-rumor-origin"}:
         return [
@@ -1853,6 +2228,23 @@ def _visual_map_focus(visual: dict[str, Any], mapped: dict[str, Any]) -> dict[st
     }
 
 
+def _maritime_map_focus(news: dict[str, Any]) -> dict[str, Any]:
+    maritime = news.get("maritime_intelligence") or {}
+    return (maritime.get("active_evidence") or {}).get("map_focus") or {
+        "selected_zone": "zone-sud",
+        "basemap": "administrative",
+        "active_layers": ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"],
+        "camera": {"longitude": -4.0083, "latitude": 5.2512, "zoom": 9.15, "duration_ms": 220},
+        "focus_marker": {
+            "longitude": -4.0083,
+            "latitude": 5.2512,
+            "label": "Port d'Abidjan · surveillance maritime",
+            "zone_id": "zone-sud",
+            "tone": "maritime",
+        },
+    }
+
+
 def _enrich_cross_source_signal(row: dict[str, Any], mapped: dict[str, Any], news: dict[str, Any], visual: dict[str, Any]) -> dict[str, Any]:
     enriched = _clone(row)
     deadline = _signal_deadline(enriched)
@@ -1861,6 +2253,8 @@ def _enrich_cross_source_signal(row: dict[str, Any], mapped: dict[str, Any], new
     enriched["aya_context"] = _signal_aya_context(enriched, deadline)
     if enriched.get("id") == "visual-activity":
         enriched["map_focus"] = _visual_map_focus(visual, mapped)
+    elif enriched.get("id") == "maritime-customs-watch":
+        enriched["map_focus"] = _maritime_map_focus(news)
     else:
         enriched["map_focus"] = _zone_map_focus(mapped, enriched.get("related_zone"))
     return enriched
@@ -1892,7 +2286,7 @@ def _active_evidence_payload(
 def _worldmonitor_principles_payload() -> dict[str, Any]:
     return {
         "map_dominant": True,
-        "compact_layers": ["territorial-risk", "open-intelligence", "visual-streams"],
+        "compact_layers": ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"],
         "evidence_popup": True,
         "live_docks": "reduced",
         "decision_contract": "que faire, quand, avec quelle preuve",
@@ -1908,6 +2302,7 @@ def _cross_source_signals(
     calendar_summary: Optional[dict[str, Any]],
     action_summary: Optional[dict[str, Any]],
     action_items: list[dict[str, Any]],
+    maritime: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     top_zone = ((mapped.get("score_summary") or {}).get("top_zone") or {})
     zone_score = int(top_zone.get("level") or top_zone.get("score", {}).get("score") or 0)
@@ -1916,6 +2311,9 @@ def _cross_source_signals(
     press_score = min(100, high_risk * 24 + len(alerts[:3]) * 7)
     visual_score = int((visual.get("posture") or {}).get("score") or 0)
     latest_observation = visual.get("latest_observation") or {}
+    maritime_payload = maritime or news.get("maritime_intelligence") or {}
+    maritime_observation = maritime_payload.get("latest_observation") or {}
+    maritime_score = int(maritime_observation.get("score") or 0)
     social = news.get("social_listening") or {}
     rumor_origins = social.get("rumor_origins") or []
     rumor_score = min(100, len(rumor_origins) * 18 + round(max([float(item.get("confidence") or 0.0) for item in rumor_origins] or [0.0]) * 52))
@@ -1963,6 +2361,17 @@ def _cross_source_signals(
             "source_keys": ["visual_situation_watch", "visual_streams"],
             "related_zone": latest_observation.get("zone_id"),
             "action_prompt": "Ouvrir le flux webcam le plus parlant avant arbitrage.",
+        },
+        {
+            "id": "maritime-customs-watch",
+            "type": "maritime",
+            "label": "Maritime / douanes",
+            "summary": maritime_observation.get("summary") or "Port d'Abidjan, San-Pedro et Golfe de Guinee disponibles comme preuve maritime corrélée.",
+            "severity": _signal_level(maritime_score),
+            "score": maritime_score,
+            "source_keys": ["maritime_intelligence", "port_abidjan_rss", "marinetraffic_context"],
+            "related_zone": "zone-sud",
+            "action_prompt": maritime_observation.get("recommended_action") or "Verifier Port + Douanes puis preparer une note VP si le signal se confirme.",
         },
         {
             "id": "social-rumor-origin",
@@ -2189,6 +2598,8 @@ def _aya_voice_context(
         "AYA, separe politique interieure ivoirienne et perception internationale.",
         "AYA, montre la lecture CEDEAO autour de la Cote d'Ivoire.",
         "AYA, prepare une instruction executive.",
+        "AYA, quel est le risque autour du port d'Abidjan ?",
+        "AYA, relie cette actualite douanes au trafic maritime.",
     ]
     return {
         "assistant": SENTINEL_ASSISTANT_NAME,
@@ -2214,6 +2625,8 @@ def _aya_voice_context(
             {"utterance": prompts[5], "intent": "political_viewpoint_split", "target": "news_viewpoints"},
             {"utterance": prompts[6], "intent": "regional_map_focus", "target": "regional-context"},
             {"utterance": prompts[7], "intent": "instruction_draft", "target": (cross_source_signals[0] or {}).get("id") if cross_source_signals else None},
+            {"utterance": prompts[8], "intent": "maritime_port_risk", "target": "maritime-customs-watch"},
+            {"utterance": prompts[9], "intent": "maritime_customs_link", "target": "maritime-customs-watch"},
         ],
         "answer_contract": {
             "required_parts": ["situation", "preuve", "option recommandee", "deadline", "confiance"],
@@ -2437,6 +2850,12 @@ def _ensure_target(db: DBSession, workspace: Workspace) -> None:
         "West Africa",
         "Sahel",
         "Golfe de Guinee",
+        "Port d'Abidjan",
+        "San-Pedro",
+        "douanes",
+        "maritime",
+        "AIS",
+        "congestion portuaire",
         "presidence",
         "vice-presidence",
         "securite",

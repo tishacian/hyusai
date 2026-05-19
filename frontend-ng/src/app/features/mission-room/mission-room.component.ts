@@ -214,6 +214,11 @@ interface NewsSignal {
   briefing_value?: string;
   confidence?: number;
   source_count?: number;
+  domain?: string;
+  source_type?: string;
+  tags?: string[];
+  evidence_refs?: { type?: string; id?: string; label?: string }[];
+  aya_context?: Record<string, unknown>;
   url?: string | null;
   run_id?: string | null;
   entities?: string[];
@@ -281,6 +286,35 @@ interface NewsBriefingNote {
   bullets: string[];
   talking_points: string[];
   decisions_expected: string[];
+}
+
+interface MaritimeIntelligence {
+  status: string;
+  provider: string;
+  source_url: string;
+  source_policy?: string;
+  focus_area: string;
+  source_quality?: { label?: string; limitations?: string };
+  ports?: { id: string; name: string; location?: string; score?: number; tone?: string; role?: string }[];
+  vessel_events?: {
+    id: string;
+    title: string;
+    location: string;
+    score?: number;
+    severity?: string;
+    domain?: string;
+    summary?: string;
+    recommended_action?: string;
+    decision_deadline?: string;
+  }[];
+  customs_links?: { id: string; label: string; domain?: string; summary?: string; recommended_action?: string }[];
+  signals?: NewsSignal[];
+  feeds?: { name: string; url: string; category?: string; source_type?: string }[];
+  latest_observation?: Record<string, any>;
+  active_evidence?: Record<string, any>;
+  briefing_value?: string;
+  aya_context?: Record<string, unknown>;
+  prompts?: string[];
 }
 
 interface DecisionItem {
@@ -474,6 +508,7 @@ interface MissionMonitor {
   zones: MapZone[];
   top_zones: MapZone[];
   visual: VisualDashboard;
+  maritime?: MaritimeIntelligence;
   visual_observations: VisualObservation[];
   forecasts: { id: string; title: string; summary: string; level: string; horizon: string; confidence: number }[];
   news_signals: NewsSignal[];
@@ -492,6 +527,7 @@ interface MissionNews {
   geo_sections?: { key: string; label: string; description: string; count: number; signals: NewsSignal[] }[];
   viewpoints?: NewsViewpoint[];
   social_listening?: SocialListeningPayload;
+  maritime_intelligence?: MaritimeIntelligence;
   analysis_link?: { system_id?: string | null; run_id?: string | null; label?: string };
   sources: SourceRef[];
 }
@@ -1694,6 +1730,47 @@ export class MissionRailComponent {
             </article>
           </div>
           <p>La Mission Room restitue les signaux utiles au pilotage. L'atelier conserve le diagnostic detaille et les sources brutes.</p>
+        </article>
+
+        <article class="content-panel span-2 maritime-news-panel">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Maritime / Douanes</span>
+              <h2>{{ maritimeIntelligence()?.latest_observation?.['title'] || 'Port d’Abidjan · flux economiques' }}</h2>
+            </div>
+            <button type="button" class="action-button compact" (click)="openMaritimeMonitor()">
+              <ck-glyph name="crosshair" [size]="14" />
+              <span>Voir sur Situation live</span>
+            </button>
+          </div>
+          <p>{{ maritimeIntelligence()?.briefing_value || maritimeIntelligence()?.latest_observation?.['briefing_value'] }}</p>
+          <div class="brief-meta">
+            <span>{{ maritimeIntelligence()?.focus_area || 'Port d’Abidjan / San-Pedro / Golfe de Guinee' }}</span>
+            <span>{{ maritimeIntelligence()?.provider || 'RSS maritime + AIS API-ready' }}</span>
+            <span>{{ maritimeIntelligence()?.latest_observation?.['decision_deadline'] || 'deadline a confirmer' }}</span>
+          </div>
+          <div class="maritime-news-grid">
+            @for (feed of maritimeIntelligence()?.feeds || []; track feed.url) {
+              <a [href]="feed.url" target="_blank" rel="noopener">
+                <strong>{{ feed.name }}</strong>
+                <small>{{ feed.source_type }} · {{ feed.category }}</small>
+              </a>
+            }
+            @for (event of maritimeIntelligence()?.vessel_events || []; track event.id) {
+              <article>
+                <strong>{{ event.title }}</strong>
+                <small>{{ event.location }} · {{ event.domain }} · {{ event.decision_deadline }}</small>
+                <p>{{ event.summary }}</p>
+              </article>
+            }
+          </div>
+          <div class="panel-heading-row compact-row">
+            <small>{{ maritimeIntelligence()?.source_quality?.limitations }}</small>
+            <button type="button" class="action-button compact" (click)="openAssistant('AYA, relie cette actualite douanes au trafic maritime autour du port d Abidjan.')">
+              <ck-glyph name="bolt" [size]="14" />
+              <span>Demander a {{ assistantName() }}</span>
+            </button>
+          </div>
         </article>
 
         <article class="content-panel">
@@ -2952,6 +3029,59 @@ export class MissionRailComponent {
           linear-gradient(135deg, rgba(139, 216, 255, 0.10), rgba(66, 217, 155, 0.04)),
           var(--mission-panel);
       }
+      .maritime-news-panel {
+        border-color: rgba(255, 155, 74, 0.22);
+        background:
+          linear-gradient(135deg, rgba(255, 155, 74, 0.08), rgba(66, 217, 155, 0.035)),
+          var(--mission-panel);
+      }
+      .maritime-news-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 14px;
+      }
+      .maritime-news-grid a,
+      .maritime-news-grid article {
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid rgba(255, 155, 74, 0.16);
+        border-radius: 7px;
+        background: rgba(255, 155, 74, 0.045);
+        text-decoration: none;
+      }
+      .maritime-news-grid strong,
+      .maritime-news-grid small {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .maritime-news-grid strong {
+        color: var(--mission-text);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+      .maritime-news-grid small {
+        margin-top: 5px;
+        color: var(--mission-orange);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .maritime-news-grid p {
+        margin: 8px 0 0;
+        font-size: 12px;
+        line-height: 1.38;
+      }
+      .compact-row {
+        margin-top: 14px;
+      }
+      .compact-row > small {
+        color: var(--mission-text-muted);
+        line-height: 1.4;
+      }
       .health-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3402,7 +3532,7 @@ export class MissionRailComponent {
         .mission-main { padding: 24px; }
         .vp-command-grid,
         .vp-operating-strip,
-        .executive-alert-grid { grid-template-columns: 1fr; }
+        .executive-alert-grid, .maritime-news-grid { grid-template-columns: 1fr; }
         .two-column, .ministerial-news, .map-layout, .agenda-workbench, .agenda-command { grid-template-columns: 1fr; }
         .agenda-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .linked-action-strip,
@@ -3622,6 +3752,26 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   newsAlerts(): NewsSignal[] {
     const payload = this.news();
     return payload?.executive_alerts?.length ? payload.executive_alerts : payload?.signals || [];
+  }
+
+  maritimeIntelligence(): MaritimeIntelligence | null {
+    return this.news()?.maritime_intelligence || this.monitor()?.maritime || null;
+  }
+
+  openMaritimeMonitor(): void {
+    const evidence = this.maritimeIntelligence()?.active_evidence;
+    this.mapCommandState.set(evidence?.['map_focus'] || {
+      active_layers: ['territorial-risk', 'open-intelligence', 'visual-streams', 'maritime-traffic'],
+      camera: { longitude: -4.0083, latitude: 5.2512, zoom: 9.15, duration_ms: 220 },
+      focus_marker: {
+        longitude: -4.0083,
+        latitude: 5.2512,
+        label: "Port d'Abidjan · maritime",
+        zone_id: 'zone-sud',
+        tone: 'maritime',
+      },
+    });
+    this.router.navigateByUrl('/hypervisor/mission-room/monitor');
   }
 
   newsGeoTabs(): { key: 'ci' | 'cedeao' | 'africa' | 'world'; label: string; count: number }[] {

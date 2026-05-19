@@ -153,6 +153,9 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     assert news_body["geographic_priority"][0]["key"] == "ci"
     assert news_body["viewpoints"][0]["key"] == "interior"
     assert news_body["social_listening"]["rumor_origins"]
+    assert news_body["maritime_intelligence"]["latest_observation"]["domain"] in {"customs", "port_flow"}
+    assert news_body["maritime_intelligence"]["active_evidence"]["type"] == "maritime"
+    assert any(feed["url"] == "https://www.portabidjan.ci/rss.xml" for feed in news_body["maritime_intelligence"]["feeds"])
     assert news_body["executive_alerts"][0]["article_id"] == article.id
     assert news_body["executive_alerts"][0]["geography_tier"] == "ci"
     assert news_body["executive_alerts"][0]["geo_tier"] == "ci"
@@ -246,6 +249,7 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert any(command["intent"] == "rumor_origin" for command in body["voice_context"]["commands"])
     assert body["panel_layout"][0]["key"] == "map"
     assert any(signal["id"] == "visual-activity" for signal in body["cross_source_signals"])
+    assert any(signal["id"] == "maritime-customs-watch" for signal in body["cross_source_signals"])
     assert any(signal["id"] == "social-rumor-origin" for signal in body["cross_source_signals"])
     assert all(signal["evidence_refs"] for signal in body["cross_source_signals"])
     assert all(signal["decision_deadline"] for signal in body["cross_source_signals"])
@@ -253,8 +257,12 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert body["zones"][0]["popup_brief"]["cta"] == "Preparer arbitrage"
     assert body["visual"]["connector"]["id"] == "visual_streams"
     assert body["visual"]["source_health"]["total_sources"] >= 1
-    assert [layer["key"] for layer in body["layers"]] == ["territorial-risk", "open-intelligence", "visual-streams"]
-    assert [layer["key"] for layer in body["map_system"]["layer_catalog"]] == ["territorial-risk", "open-intelligence", "visual-streams"]
+    assert body["maritime"]["active_evidence"]["type"] == "maritime"
+    assert body["maritime"]["active_evidence"]["map_focus"]["active_layers"][-1] == "maritime-traffic"
+    assert [layer["key"] for layer in body["layers"]] == ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"]
+    assert body["layers"][-1]["enabled"] is False
+    assert [layer["key"] for layer in body["map_system"]["layer_catalog"]] == ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"]
+    assert "maritime-traffic" not in body["map_system"]["default_map_state"]["active_layers"]
     assert any(layer["key"] == "visual-streams" for layer in body["layers"])
 
     audit = db_session.query(AuditLog).filter_by(event_type="mission_room.monitor.viewed").one()

@@ -51,6 +51,14 @@
         </button>
       }
     </div>
+    <div class="terrain-switch" role="group" aria-label="Mode flux terrain">
+      <button type="button" [class.active]="isTerrainMode('webcams')" (click)="setTerrainMode('webcams')">
+        Webcams
+      </button>
+      <button type="button" [class.active]="isTerrainMode('maritime')" (click)="setTerrainMode('maritime')">
+        Maritime
+      </button>
+    </div>
     @if (primaryVisualSource(); as source) {
       <article class="visual-location-card">
         <span>Vue active</span>
@@ -80,10 +88,12 @@
         <span>Focus Abidjan</span>
       </button>
     </div>
-    <div class="decision-banner">
-      <span>{{ decisionSentence().label || 'Sentence du jour' }}</span>
-      <strong>{{ decisionSentence().text }}</strong>
-      <small>{{ decisionSentence().deadline }} · {{ decisionSentence().generated_by || assistantName }}</small>
+    <div class="decision-banner" [class.open]="decisionBannerOpen()">
+      <button type="button" (click)="toggleDecisionBanner()">
+        <span>{{ decisionSentence().label || 'Sentence du jour' }}</span>
+        <strong>{{ decisionBannerOpen() ? decisionSentence().text : 'Priorite VP · ' + (decisionSentence().deadline || 'aujourd’hui') }}</strong>
+        <small>{{ decisionBannerOpen() ? (decisionSentence().deadline + ' · ' + (decisionSentence().generated_by || assistantName)) : 'ouvrir' }}</small>
+      </button>
     </div>
     <app-workspace-map
       class="mission-map"
@@ -193,75 +203,111 @@
   <section class="mc-bottom">
     <article class="dock-panel webcam-dock">
       <div class="panel-title webcam-title">
-        <span>Live Webcams</span>
+        <span>Flux terrain</span>
         <div>
-          <button type="button" (click)="focusPrimaryVisualSource()">Localiser</button>
-          @if (primaryVisualSource(); as source) {
-            <button type="button" (click)="openExpandedVisualSource(source)">Agrandir</button>
+          @if (isTerrainMode('maritime')) {
+            <button type="button" (click)="focusMaritimeEvidence()">Localiser</button>
+            <a [href]="maritimeIntelligence()?.source_url" target="_blank" rel="noopener">MarineTraffic</a>
+          } @else {
+            <button type="button" (click)="focusPrimaryVisualSource()">Localiser</button>
+            @if (primaryVisualSource(); as source) {
+              <button type="button" (click)="openExpandedVisualSource(source)">Agrandir</button>
+            }
           }
           <button type="button" (click)="sendActiveEvidenceToAya()">Envoyer a {{ assistantName }}</button>
-          <b>{{ sourceHealth().active_sources || 0 }}/{{ sourceHealth().total_sources || 0 }}</b>
+          <b>{{ isTerrainMode('maritime') ? maritimeEvents().length : ((sourceHealth().active_sources || 0) + '/' + (sourceHealth().total_sources || 0)) }}</b>
         </div>
       </div>
-      <div class="webcam-grid">
-        <div class="camera-live-stack">
-          <figure class="camera-frame">
-            @if (primaryVisualSource(); as source) {
-              @if (webcamPreviewUrl(source); as previewUrl) {
-                <img [src]="previewUrl" [alt]="'Image webcam publique - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
-              } @else if (visualEmbedUrl(source); as embedUrl) {
-                <iframe
-                  [src]="embedUrl"
-                  [title]="'Flux live - ' + source.name"
-                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                  referrerpolicy="no-referrer-when-downgrade"
-                  allowfullscreen
-                ></iframe>
-              } @else if (latestVisualCapture(); as capture) {
-                @if (visualCaptureImage(capture.id); as imageUrl) {
-                  <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
+      @if (isTerrainMode('maritime')) {
+        <div class="maritime-grid">
+          <article class="maritime-brief-card">
+            <span>Maritime / douanes</span>
+            <strong>{{ maritimeEvidence().title }}</strong>
+            <p>{{ maritimeEvidence().observation }}</p>
+            <div>
+              <small>Action</small>
+              <b>{{ maritimeEvidence().recommended_action }}</b>
+            </div>
+          </article>
+          <div class="maritime-events">
+            @for (event of maritimeEvents() | slice: 0:3; track event.id) {
+              <button type="button" (click)="focusMaritimeEvidence()">
+                <span></span>
+                <b>{{ event.title }}</b>
+                <small>{{ event.location }} · {{ event.decision_deadline }}</small>
+              </button>
+            }
+          </div>
+          <div class="maritime-sources">
+            @for (feed of maritimeIntelligence()?.feeds || []; track feed.url) {
+              <a [href]="feed.url" target="_blank" rel="noopener">
+                <strong>{{ feed.name }}</strong>
+                <small>{{ feed.source_type }} · {{ feed.category }}</small>
+              </a>
+            }
+          </div>
+        </div>
+      } @else {
+        <div class="webcam-grid">
+          <div class="camera-live-stack">
+            <figure class="camera-frame">
+              @if (primaryVisualSource(); as source) {
+                @if (webcamPreviewUrl(source); as previewUrl) {
+                  <img [src]="previewUrl" [alt]="'Image webcam publique - ' + source.name" (error)="markVisualPreviewFailed(source.id)" />
+                } @else if (visualEmbedUrl(source); as embedUrl) {
+                  <iframe
+                    [src]="embedUrl"
+                    [title]="'Flux live - ' + source.name"
+                    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                    referrerpolicy="no-referrer-when-downgrade"
+                    allowfullscreen
+                  ></iframe>
+                } @else if (latestVisualCapture(); as capture) {
+                  @if (visualCaptureImage(capture.id); as imageUrl) {
+                    <img [src]="imageUrl" alt="Derniere capture visuelle institutionnelle" />
+                  } @else {
+                    <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+                  }
                 } @else {
                   <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
                 }
+                <figcaption>
+                  <strong>{{ source.name }}</strong>
+                  <span>{{ visualLocationLabel(source) }}</span>
+                  <small>{{ visualSourceDetail(source) }}</small>
+                </figcaption>
               } @else {
-                <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+                <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Aucune webcam active</span></div>
               }
-              <figcaption>
-                <strong>{{ source.name }}</strong>
-                <span>{{ visualLocationLabel(source) }}</span>
-                <small>{{ visualSourceDetail(source) }}</small>
-              </figcaption>
-            } @else {
-              <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Aucune webcam active</span></div>
+            </figure>
+            @if (primaryVisualSource(); as source) {
+              <div class="visual-brief">
+                @for (line of visualSituationBrief(source); track line.label) {
+                  <article>
+                    <span>{{ line.label }}</span>
+                    <strong>{{ line.value }}</strong>
+                  </article>
+                }
+              </div>
             }
-          </figure>
-          @if (primaryVisualSource(); as source) {
-            <div class="visual-brief">
-              @for (line of visualSituationBrief(source); track line.label) {
-                <article>
-                  <span>{{ line.label }}</span>
-                  <strong>{{ line.value }}</strong>
-                </article>
-              }
-            </div>
-          }
+          </div>
+          <div class="webcam-sources">
+            @for (source of visualSources() | slice: 0:4; track source.id) {
+              <button type="button" [class.active]="isVisualSourceSelected(source)" (click)="selectVisualSource(source)">
+                <span></span>
+                <b>{{ source.name }}</b>
+                <small>{{ visualLocationLabel(source) }}</small>
+              </button>
+            }
+            @if (primaryVisualSource(); as source) {
+              <button type="button" class="capture-command" (click)="visualCapture.emit(source)">
+                <ck-glyph name="focus" [size]="13" />
+                <span>Capture snapshot</span>
+              </button>
+            }
+          </div>
         </div>
-        <div class="webcam-sources">
-          @for (source of visualSources() | slice: 0:4; track source.id) {
-            <button type="button" [class.active]="isVisualSourceSelected(source)" (click)="selectVisualSource(source)">
-              <span></span>
-              <b>{{ source.name }}</b>
-              <small>{{ visualLocationLabel(source) }}</small>
-            </button>
-          }
-          @if (primaryVisualSource(); as source) {
-            <button type="button" class="capture-command" (click)="visualCapture.emit(source)">
-              <ck-glyph name="focus" [size]="13" />
-              <span>Capture snapshot</span>
-            </button>
-          }
-        </div>
-      </div>
+      }
     </article>
   </section>
 

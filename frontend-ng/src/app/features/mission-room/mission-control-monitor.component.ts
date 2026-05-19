@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnDestroy, OnInit, Output, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
@@ -8,6 +8,7 @@ import { GlyphComponent } from '@app/shared/cockpit';
 import { WorkspaceMapComponent } from './workspace-map.component';
 
 type VoiceState = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking' | 'error';
+type TerrainMode = 'webcams' | 'maritime';
 
 @Component({
   selector: 'app-mission-control-monitor',
@@ -17,7 +18,7 @@ type VoiceState = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking' 
   templateUrl: './mission-control-monitor.component.html',
   styleUrls: ['./mission-control-monitor.component.scss'],
 })
-export class MissionControlMonitorComponent implements OnInit, OnDestroy {
+export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly voiceSession = inject(VoiceSessionService);
@@ -40,6 +41,8 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   readonly mapVisualFocus = signal<Record<string, unknown> | null>(null);
   readonly activeEvidenceOverride = signal<any | null>(null);
   readonly visualPreviewFailures = signal<Record<string, true>>({});
+  readonly selectedTerrainMode = signal<TerrainMode>('webcams');
+  readonly decisionBannerOpen = signal(false);
   readonly voiceState = signal<VoiceState>('idle');
   readonly voiceTranscript = signal('');
   readonly voiceAnswer = signal('');
@@ -61,6 +64,13 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.refreshClock();
     this.clockTimer = setInterval(() => this.refreshClock(), 15_000);
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['mapCommandState'] && this.hasMaritimeLayer(this.mapCommandState)) {
+      this.selectedTerrainMode.set('maritime');
+      this.activeEvidenceOverride.set(this.maritimeEvidence());
+    }
   }
 
   ngOnDestroy(): void {
@@ -118,18 +128,22 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
         kind: 'signals',
       },
       {
-        label: 'Flux visuels',
-        value: this.sourceHealth().active_sources || this.visualSources().length,
-        detail: this.selectedVisualLocationLabel(),
-        kind: 'visual',
+        label: 'Flux terrain',
+        value: (this.sourceHealth().active_sources || this.visualSources().length) + this.maritimeEvents().length,
+        detail: this.selectedTerrainMode() === 'maritime' ? "Maritime / douanes" : this.selectedVisualLocationLabel(),
+        kind: 'terrain',
       },
     ];
   }
 
   applyMissionFilter(filter: any): void {
-    if (filter?.kind === 'visual') {
-      const source = this.primaryVisualSource();
-      if (source) this.selectVisualSource(source);
+    if (filter?.kind === 'terrain') {
+      if (this.selectedTerrainMode() === 'maritime') {
+        this.focusMaritimeEvidence();
+      } else {
+        const source = this.primaryVisualSource();
+        if (source) this.selectVisualSource(source);
+      }
       return;
     }
     if (filter?.kind === 'signals') {
@@ -197,6 +211,46 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     return this.monitor?.news_signals || [];
   }
 
+  maritimeIntelligence(): any {
+    return this.monitor?.maritime || this.monitor?.news?.maritime_intelligence || {};
+  }
+
+  maritimeEvents(): any[] {
+    return this.maritimeIntelligence()?.vessel_events || [];
+  }
+
+  primaryMaritimeEvent(): any | null {
+    return this.maritimeEvents()[0] || null;
+  }
+
+  maritimePrompts(): string[] {
+    return this.maritimeIntelligence()?.prompts || [
+      "AYA, quel est le risque autour du port d'Abidjan ?",
+      "AYA, relie cette actualite douanes au trafic maritime.",
+    ];
+  }
+
+  maritimeEvidence(): any {
+    const direct = this.maritimeIntelligence()?.active_evidence;
+    if (direct) return direct;
+    const observation = this.maritimeIntelligence()?.latest_observation || {};
+    return {
+      id: 'active-maritime-customs-watch',
+      type: 'maritime',
+      title: "Maritime / douanes · Port d'Abidjan",
+      location: "Port autonome d'Abidjan / Golfe de Guinee",
+      score: observation.score || 58,
+      severity: observation.severity || 'monitoring',
+      source_quality: 'RSS portuaire + veille maritime',
+      observation: observation.summary || "Signal maritime a rapprocher des douanes, de la securite portuaire et de l'agenda economique.",
+      recommended_action: observation.recommended_action || 'Verifier Port + Douanes avant communication publique.',
+      decision_deadline: observation.decision_deadline || "aujourd'hui",
+      evidence_refs: observation.evidence_refs || [],
+      aya_context: observation.aya_context,
+      map_focus: observation.map_focus,
+    };
+  }
+
   agendaItems(): any[] {
     return this.monitor?.agenda || [];
   }
@@ -206,11 +260,16 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
   }
 
   voicePrompts(): string[] {
-    return this.monitor?.voice_context?.prompts || [
+    const prompts = this.monitor?.voice_context?.prompts || [
       'AYA, donne-moi la synthese du scenario croise.',
       'AYA, ouvre la camera Pont General-de-Gaulle.',
       'AYA, filtre la carte sur Abidjan.',
     ];
+    const maritime = this.maritimePrompts();
+    const ordered = this.selectedTerrainMode() === 'maritime'
+      ? [...maritime, ...prompts]
+      : [...prompts.slice(0, 6), ...maritime.slice(0, 2)];
+    return ordered.filter((prompt, index, all) => all.indexOf(prompt) === index).slice(0, 8);
   }
 
   sourceHealth(): any {
@@ -252,6 +311,7 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
 
   selectVisualSource(source: any): void {
     if (!source) return;
+    this.selectedTerrainMode.set('webcams');
     if (source.id) this.selectedVisualSourceId.set(source.id);
     this.focusVisualSourceOnMap(source);
     const evidence = this.buildVisualEvidence(source);
@@ -271,6 +331,46 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
 
   closeExpandedVisualSource(): void {
     this.expandedVisualSourceId.set(null);
+  }
+
+  setTerrainMode(mode: TerrainMode): void {
+    this.selectedTerrainMode.set(mode);
+    if (mode === 'maritime') {
+      this.focusMaritimeEvidence();
+      return;
+    }
+    this.activeEvidenceOverride.set(null);
+    this.focusPrimaryVisualSource();
+  }
+
+  isTerrainMode(mode: TerrainMode): boolean {
+    return this.selectedTerrainMode() === mode;
+  }
+
+  private hasMaritimeLayer(state: Record<string, unknown> | null): boolean {
+    const layers = state?.['active_layers'];
+    return Array.isArray(layers) && layers.map(String).includes('maritime-traffic');
+  }
+
+  toggleDecisionBanner(): void {
+    this.decisionBannerOpen.set(!this.decisionBannerOpen());
+  }
+
+  focusMaritimeEvidence(): void {
+    const evidence = this.maritimeEvidence();
+    this.selectedTerrainMode.set('maritime');
+    this.activeEvidenceOverride.set(evidence);
+    this.mapVisualFocus.set(evidence.map_focus || {
+      active_layers: ['territorial-risk', 'open-intelligence', 'visual-streams', 'maritime-traffic'],
+      camera: { longitude: -4.0083, latitude: 5.2512, zoom: 9.15, duration_ms: 220 },
+      focus_marker: {
+        longitude: -4.0083,
+        latitude: 5.2512,
+        label: "Port d'Abidjan · maritime",
+        zone_id: 'zone-sud',
+        tone: 'maritime',
+      },
+    });
   }
 
   expandedVisualSource(): any | null {
@@ -447,6 +547,23 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
 
   handleMapEvidenceAction(event: any): void {
     const zone = event?.zone;
+    if (event?.action === 'maritime') {
+      this.selectedTerrainMode.set('maritime');
+      const brief = zone?.popup_brief || {};
+      this.activeEvidenceOverride.set({
+        ...this.maritimeEvidence(),
+        id: `maritime-${zone?.id || 'active'}`,
+        title: brief.title || zone?.name || this.maritimeEvidence().title,
+        score: brief.score || zone?.level || this.maritimeEvidence().score,
+        severity: brief.severity || zone?.tone || this.maritimeEvidence().severity,
+        observation: (brief.drivers || zone?.signals || [this.maritimeEvidence().observation]).filter(Boolean).join(' · '),
+        recommended_action: brief.recommendation || this.maritimeEvidence().recommended_action,
+        decision_deadline: brief.decision_deadline || this.maritimeEvidence().decision_deadline,
+        map_focus: brief.map_focus || this.maritimeEvidence().map_focus,
+      });
+      if (brief.map_focus) this.mapVisualFocus.set(brief.map_focus);
+      return;
+    }
     if (zone) this.activateZoneEvidence(zone);
     if (event?.action === 'aya') {
       const prompt = zone?.popup_brief?.aya_context?.prompt || `AYA, donne-moi le brief operationnel pour ${zone?.name || 'la zone selectionnee'}.`;
@@ -798,6 +915,9 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
 
   private applyVoiceCommand(text: string): void {
     const lower = text.toLowerCase();
+    if (lower.includes('maritime') || lower.includes('port') || lower.includes('douane') || lower.includes('douanes') || lower.includes('trafic maritime')) {
+      this.focusMaritimeEvidence();
+    }
     if (lower.includes('pont') || lower.includes('camera') || lower.includes('webcam')) {
       const source = this.visualSources().find((item) => String(item.name || '').toLowerCase().includes('pont'))
         || this.visualSources()[0];
@@ -813,6 +933,10 @@ export class MissionControlMonitorComponent implements OnInit, OnDestroy {
     if (lower.includes('preuve') || lower.includes('webcam') || lower.includes('camera') || lower.includes('visuel')) {
       const evidence = this.activeEvidence();
       return `${evidence?.title || 'Preuve active'}. Situation : ${evidence?.observation || 'lecture en cours'}. Preuve : ${evidence?.source_quality || 'sources qualifiees'}. Option recommandee : ${evidence?.recommended_action || 'qualifier puis arbitrer'}. Deadline : ${evidence?.decision_deadline || "aujourd'hui"}.`;
+    }
+    if (lower.includes('maritime') || lower.includes('port') || lower.includes('douane') || lower.includes('douanes') || lower.includes('trafic maritime')) {
+      const evidence = this.maritimeEvidence();
+      return `${evidence.title}. Situation : ${evidence.observation}. Preuve : ${evidence.source_quality}. Option recommandee : ${evidence.recommended_action}. Deadline : ${evidence.decision_deadline}. Confiance : ${this.confidencePct(evidence.aya_context?.confidence || 0.66)}.`;
     }
     if (lower.includes('ambassadeur') || lower.includes('france')) {
       return "Le dejeuner avec l'Ambassadeur de France est dans 1 heure 44. La fiche est prete : cooperation France Cote d'Ivoire, perception presse et suivi des projets frontaliers. Je recommande de valider la position publique avant le dejeuner.";
