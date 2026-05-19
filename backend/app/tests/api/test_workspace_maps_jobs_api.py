@@ -38,9 +38,11 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert listed.json()["maps"][0]["slug"] == "sentinel-ci-strategic-map"
     assert listed.json()["maps"][0]["map_version"] == "situation_map_v3"
     assert listed.json()["maps"][0]["renderer_config"]["renderer"] == "maplibre"
+    assert listed.json()["maps"][0]["rendering_profile"] == "executive_command_v1"
     assert listed.json()["maps"][0]["renderer_config"]["basemap_policy"] == "public_osm_carto_with_self_hosted_ready"
     assert listed.json()["maps"][0]["renderer_config"]["default_basemap"] == "command"
-    assert listed.json()["maps"][0]["renderer_config"]["bounds"][0][0] <= -13.0
+    assert -8.8 <= listed.json()["maps"][0]["renderer_config"]["bounds"][0][0] <= -8.4
+    assert listed.json()["maps"][0]["renderer_config"]["regional_bounds"][0][0] <= -13.0
     assert {item["key"] for item in listed.json()["maps"][0]["basemap_options"]} >= {"command", "administrative", "dark", "contours"}
     assert listed.json()["maps"][0]["default_map_state"]["camera"]["pitch"] == 0
     assert listed.json()["maps"][0]["default_map_state"]["camera"]["zoom"] <= 5.9
@@ -52,6 +54,10 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert "regional-context" in layer_keys
     assert "maritime-traffic" in layer_keys
     assert "maritime-traffic" in registry_keys
+    maritime_registry = next(item for item in listed.json()["maps"][0]["layer_registry"] if item["key"] == "maritime-traffic")
+    assert maritime_registry["status"] == "ready"
+    assert maritime_registry["freshness_at"]
+    assert maritime_registry["source_kind"] == "maritime_snapshot"
     assert listed.json()["maps"][0]["geodata_metadata"]["source"].startswith("geoBoundaries")
     assert listed.json()["maps"][0]["country_boundary"]["features"][0]["properties"]["admin_level"] == "ADM0"
     assert listed.json()["maps"][0]["district_boundaries"]["features"][0]["properties"]["admin_level"] == "ADM1"
@@ -72,6 +78,10 @@ def test_workspace_map_scoring_creates_job_and_stays_workspace_scoped(db_session
     assert listed.json()["maps"][0]["event_points"]["features"]
     assert listed.json()["maps"][0]["geojson_sources"]["maritime_points"]["features"]
     assert listed.json()["maps"][0]["maritime_snapshot"]["mode"] == "snapshot_demo_safe"
+    assert listed.json()["maps"][0]["maritime_snapshot"]["density_zones"]
+    assert listed.json()["maps"][0]["maritime_snapshot"]["disruptions"]
+    assert listed.json()["maps"][0]["tooltip_templates"]["maritime_snapshot"]
+    assert "maritime" in listed.json()["maps"][0]["default_layer_groups"]
     assert listed.json()["maps"][0]["source_health"]["status"] == "ready"
     assert {item["key"] for item in listed.json()["maps"][0]["scenario_modes"]} == {
         "explorer",

@@ -16,7 +16,7 @@ La carte reste une primitive Agentium : elle est servie par le workspace, contro
 
 Quatre fonds sont exposes dans le selecteur `Fond` :
 
-- `Commandement` : fond sombre contraste par defaut, inspire situation-room, avec labels et frontieres lisibles. C'est le mode recommande pour la demo VP.
+- `Commandement` : fond executif contraste par defaut, volontairement plus lisible qu'un dark pur, avec labels et frontieres visibles en salle. C'est le mode recommande pour la demo VP.
 - `Administratif` : fond CARTO/OSM contraste par defaut, avec labels et frontieres visibles. C'est le mode de briefing recommande : la geographie doit rester lisible avant les overlays.
 - `Sombre` : fond cockpit type situation monitor, utile en salle basse lumiere quand les couches Agentium doivent dominer.
 - `Contours` : fond clair desature, utile pour projection ou capture d'ecran quand le contexte geographique doit rester lisible.
@@ -42,9 +42,10 @@ Depuis le correctif robustesse SENTINEL-CI, le champ `WorkspaceMap.projection` c
 Le contrat V3 expose la carte comme un cockpit de situation, pas seulement comme une liste de polygones :
 
 - `map_version: situation_map_v3` ;
+- `rendering_profile: executive_command_v1` ;
 - `layer_registry` : registre central des couches, avec groupe, compteur, fraicheur, confiance, source et visibilite ;
 - `source_health` : etat de fraicheur par famille de sources ;
-- `maritime_snapshot` : ports, corridor Golfe de Guinee, points navires demo-safe et statut douanes ;
+- `maritime_snapshot` : ports, corridor Golfe de Guinee, points navires demo-safe, densites, disruptions et statut douanes ;
 - `forecast_signals` : signaux prospectifs a horizon court ;
 - `scenario_modes` : modes `Explorer`, `Comprendre`, `Decider` utilisés par AYA et le cockpit.
 
@@ -101,6 +102,8 @@ La couche maritime est volontairement `snapshot_demo_safe` tant qu'un provider A
 
 - deux ports : `Port d'Abidjan` et `Port de San Pedro` ;
 - un corridor Golfe de Guinee ;
+- des zones de densite : `Densite Abidjan / Vridi` et `Densite San Pedro` ;
+- des disruptions demo-safe : fenetre douanes Abidjan et surveillance du corridor Golfe de Guinee ;
 - des points de densite ou d'observation navires demonstratifs ;
 - des statuts simples : `en route`, `a quai`, `congestion`, `inconnu`.
 
@@ -138,9 +141,11 @@ Toute carte du cockpit doit repondre a quatre questions : `quoi`, `pourquoi`, `q
 La carte consomme `/api/v1/maps/{map_id}`. Ce payload expose :
 
 - `map_version: situation_map_v3`, `projection`, `time_range`, `available_time_ranges` ;
+- `rendering_profile: executive_command_v1` ;
 - `basemap_options`, `layer_catalog`, `layer_registry`, `default_map_state` ;
 - `country_boundary`, `district_boundaries`, `admin_boundaries`, `cities` ;
 - `region_scores`, `event_points`, `maritime_snapshot`, `source_health`, `forecast_signals`, `scenario_modes` ;
+- `default_layer_groups` et `tooltip_templates` pour aligner UI, AYA et rendu deck.gl ;
 - `geojson_sources` pour les zones, marqueurs, signaux, lignes de contexte, ports, routes et densites maritimes ;
 - `source_counts` pour afficher des compteurs utiles dans le panneau `Couches`.
 - `/api/v1/mission-room/evidence-graph` pour relier sources, lieux, rumeurs, ports, projets, agenda et actions dans AYA.

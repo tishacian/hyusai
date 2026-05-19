@@ -223,6 +223,7 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     assert library.status_code == 200
     assert "sentinel-ci-projects" in library.json()["collections"]
     assert "sentinel-ci-visual-intelligence" in library.json()["collections"]
+    assert "sentinel-ci-maritime-intelligence" in library.json()["collections"]
     assert "sentinel-ci-evidence-graph" in library.json()["collections"]
     assert projects.status_code == 200
     assert projects.json()["projects"][0]["name"]

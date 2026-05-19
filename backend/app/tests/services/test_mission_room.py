@@ -64,6 +64,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
         "sentinel-ci-territorial-map",
         "sentinel-ci-territorial-intelligence",
         "sentinel-ci-visual-intelligence",
+        "sentinel-ci-maritime-intelligence",
         "sentinel-ci-evidence-graph",
     ]
     assert db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).count() == 1

@@ -48,6 +48,7 @@ SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
 SENTINEL_WORKSPACE_NAME = "SENTINEL-CI"
 SENTINEL_ASSISTANT_NAME = "AYA"
 SENTINEL_EVIDENCE_GRAPH_COLLECTION = "sentinel-ci-evidence-graph"
+SENTINEL_MARITIME_INTELLIGENCE_COLLECTION = "sentinel-ci-maritime-intelligence"
 MISSION_ROOM_ROOT = "/hypervisor/mission-room"
 MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
 
@@ -3188,6 +3189,7 @@ def library_payload(workspace: Workspace) -> dict[str, Any]:
             "sentinel-ci-territorial-map",
             "sentinel-ci-territorial-intelligence",
             "sentinel-ci-visual-intelligence",
+            SENTINEL_MARITIME_INTELLIGENCE_COLLECTION,
             SENTINEL_EVIDENCE_GRAPH_COLLECTION,
         ],
         "sources": source_index(),
@@ -3723,6 +3725,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         "sentinel-ci-territorial-map",
                         "sentinel-ci-territorial-intelligence",
                         "sentinel-ci-visual-intelligence",
+                        SENTINEL_MARITIME_INTELLIGENCE_COLLECTION,
                         SENTINEL_EVIDENCE_GRAPH_COLLECTION,
                     ],
                     "default_mode": "chah",
@@ -3868,6 +3871,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         ("sentinel-ci-territorial-map", "SENTINEL-CI Territorial Map", "Territorial zones, signals and non-military action recommendations."),
         ("sentinel-ci-territorial-intelligence", "SENTINEL-CI Territorial Intelligence", "Fused territorial scores from news, projects, agenda, visual observations and recommended action windows."),
         ("sentinel-ci-visual-intelligence", "SENTINEL-CI Visual Intelligence", "Visual snapshots and observations from authorized workspace streams."),
+        (SENTINEL_MARITIME_INTELLIGENCE_COLLECTION, "SENTINEL-CI Maritime Intelligence", "Port, customs and Gulf of Guinea signals used by AYA for executive briefings."),
         (SENTINEL_EVIDENCE_GRAPH_COLLECTION, "SENTINEL-CI Evidence Graph", "Entities, rumors, sources, locations, projects and decisions connected for AYA."),
     ):
         _ensure_collection(db, workspace, slug, name, description)

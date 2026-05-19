@@ -53,6 +53,10 @@ COLLECTION_DEFS: dict[str, dict[str, str]] = {
         "name": "SENTINEL-CI Visual Intelligence",
         "description": "Visual snapshots and observations from authorized workspace streams.",
     },
+    mission_room.SENTINEL_MARITIME_INTELLIGENCE_COLLECTION: {
+        "name": "SENTINEL-CI Maritime Intelligence",
+        "description": "Port, customs and Gulf of Guinea signals used by AYA for executive briefings.",
+    },
     mission_room.SENTINEL_EVIDENCE_GRAPH_COLLECTION: {
         "name": "SENTINEL-CI Evidence Graph",
         "description": "Entities, rumors, sources, locations, projects and decisions connected for AYA.",
@@ -230,6 +234,10 @@ def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[st
     library = mission_room.library_payload(workspace)
     cockpit = mission_room.cockpit_payload(workspace, db=db)
     evidence_graph = mission_room.evidence_graph_payload(workspace, db=db)
+    news = mission_room.news_payload(workspace, db=db)
+    map_system = map_payload.get("map_system") or {}
+    maritime_snapshot = map_system.get("maritime_snapshot") or {}
+    maritime_intelligence = news.get("maritime_intelligence") or {}
 
     project_docs = {
         f"project-{_safe_filename(project.get('id') or project.get('name'))}.md": _payload_markdown(
@@ -265,6 +273,31 @@ def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[st
             "cockpit-executif.md": _payload_markdown("Cockpit executif SENTINEL-CI", cockpit),
             "situation-monitor.md": _payload_markdown("Situation Monitor", monitor),
             "bibliotheque-sources.md": _payload_markdown("Bibliotheque institutionnelle", library),
+        },
+        mission_room.SENTINEL_MARITIME_INTELLIGENCE_COLLECTION: {
+            "maritime-et-douanes.md": _payload_markdown(
+                "Maritime et douanes - lecture executive",
+                {
+                    "maritime_intelligence": maritime_intelligence,
+                    "map_snapshot": maritime_snapshot,
+                    "source_health": map_system.get("source_health") or [],
+                    "layer_registry": [
+                        layer
+                        for layer in map_system.get("layer_registry") or []
+                        if layer.get("key") == "maritime-traffic"
+                    ],
+                },
+            ),
+            "port-abidjan.md": _payload_markdown(
+                "Port d'Abidjan - vigilance cabinet",
+                {
+                    "port": "Abidjan",
+                    "active_evidence": maritime_intelligence.get("active_evidence") or {},
+                    "latest_observation": maritime_intelligence.get("latest_observation") or {},
+                    "density_zones": maritime_snapshot.get("density_zones") or [],
+                    "disruptions": maritime_snapshot.get("disruptions") or [],
+                },
+            ),
         },
         mission_room.SENTINEL_EVIDENCE_GRAPH_COLLECTION: {
             "evidence-graph.md": _payload_markdown("Evidence Graph AYA", evidence_graph),

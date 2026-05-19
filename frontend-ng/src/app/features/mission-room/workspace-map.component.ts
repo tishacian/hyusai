@@ -32,11 +32,16 @@ type MapLayerControl = {
   tone: string;
   group?: string;
   icon?: string;
+  status?: string;
+  stateLabel?: string;
   freshness?: string;
+  freshnessAt?: string;
+  failureReason?: string | null;
   sourceKind?: string;
   count: number;
   confidence: number;
   visible: boolean;
+  defaultVisible?: boolean;
 };
 
 type BasemapOption = {
@@ -117,7 +122,7 @@ type BasemapOption = {
                     <i [class]="'tone-' + layer.tone"></i>
                     <strong>{{ layer.shortLabel }}</strong>
                     <small>{{ layer.group || 'Source' }} · {{ layer.count }} · {{ layer.confidence }}%</small>
-                    <em>{{ layer.freshness || (isLayerActive(layer.key) ? 'visible' : 'masqué') }}</em>
+                    <em>{{ layer.stateLabel || (isLayerActive(layer.key) ? 'visible' : 'masqué') }} · {{ layer.freshness || 'source workspace' }}</em>
                   </button>
                 }
               </div>
@@ -929,11 +934,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         tone: String(layer.tone || 'cyan'),
         group: layer.group ? String(layer.group) : undefined,
         icon: layer.icon ? String(layer.icon) : undefined,
+        status: layer.status ? String(layer.status) : undefined,
+        stateLabel: layer.state_label ? String(layer.state_label) : undefined,
         freshness: layer.freshness ? String(layer.freshness) : undefined,
+        freshnessAt: layer.freshness_at ? String(layer.freshness_at) : undefined,
+        failureReason: layer.failure_reason ? String(layer.failure_reason) : null,
         sourceKind: layer.source_kind ? String(layer.source_kind) : undefined,
         count: Number(layer.count || 0),
         confidence: Math.round(Number(layer.confidence || 0)),
         visible: layer.visible !== false,
+        defaultVisible: layer.default_visible !== false,
       })).filter((layer) => layer.key);
     }
     return [
@@ -1164,6 +1174,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.deckOverlay = new overlayCtor({
         interleaved: false,
         layers: this.buildDeckLayers(),
+        getTooltip: (info: any) => this.deckTooltip(info),
       });
       this.mapInstance.on('load', () => {
         this.mapInstance.addControl(this.deckOverlay);
@@ -1259,7 +1270,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private updateDeckLayers(): void {
     if (!this.deckOverlay || !this.deckLayersModule) return;
-    this.deckOverlay.setProps({ layers: this.buildDeckLayers() });
+    this.deckOverlay.setProps({ layers: this.buildDeckLayers(), getTooltip: (info: any) => this.deckTooltip(info) });
   }
 
   private normalizeFocusMarker(rawMarker: any): any | null {
@@ -1318,15 +1329,13 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const citiesSource = this.mapSystem?.['cities'];
     const arcs = this.mapSystem?.['visual_effects']?.arc_links || [];
     const currentZoom = Number(this.mapInstance?.getZoom?.() || 0);
-    const cityFeatures = (citiesSource?.features || [])
-      .filter((feature: any) => Number(feature.properties?.weight || 0) >= 92)
-      .slice(0, 4);
+    const allCityFeatures = citiesSource?.features || [];
     const zoneMarkerFeatures = markersSource?.features || [];
     const selectedOrTopZoneMarkers = zoneMarkerFeatures.filter((feature: any, index: number) => {
       const zoneId = feature.properties?.zone_id;
       return zoneId === this.selectedZoneId || (!this.selectedZoneId && index === 0);
     });
-    const showCityLabels = this.selectedBasemapKey === 'contours' && currentZoom >= 7.2 && !this.compact;
+    const showCityLabels = currentZoom >= (this.compact ? 5.75 : 5.15);
     const showTerritory = this.isLayerActive('territorial-risk');
     const showPresse = this.isLayerActive('open-intelligence');
     const showRegional = this.isLayerActive('regional-context');
@@ -1336,6 +1345,13 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const showMaritime = this.isLayerActive('maritime-traffic');
     const showActions = this.isLayerActive('preventive-actions');
     const eventFeatures = eventPointsSource?.features || [];
+    const cityFeatures = allCityFeatures
+      .filter((feature: any) => {
+        const weight = Number(feature.properties?.weight || 0);
+        const regional = feature.properties?.scope === 'regional';
+        return regional ? showRegional && weight >= 70 : weight >= (this.compact ? 70 : 55);
+      })
+      .slice(0, this.compact ? 8 : 14);
     const layers: any[] = [];
 
     layers.push(new GeoJsonLayer({
@@ -1373,6 +1389,30 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getLineColor: this.selectedBasemapKey === 'administrative' ? [27, 77, 103, 82] : [185, 224, 241, 72],
         lineWidthMinPixels: 0.55,
         parameters: { depthTest: false },
+      }));
+    }
+
+    if (showTerritory || showProjects || showActions) {
+      layers.push(new GeoJsonLayer({
+        id: 'sentinel-zones',
+        data: zonesSource,
+        pickable: true,
+        filled: true,
+        stroked: true,
+        getFillColor: (feature: any) => this.deckColor(
+          feature.properties?.tone,
+          feature.properties?.id === this.selectedZoneId,
+          feature.properties?.id === this.selectedZoneId ? 132 : (showTerritory ? 76 : 34),
+        ),
+        getLineColor: (feature: any) => this.deckLineColor(
+          feature.properties?.tone,
+          feature.properties?.id === this.selectedZoneId,
+          feature.properties?.id === this.selectedZoneId ? 242 : 196,
+        ),
+        lineWidthMinPixels: 1.9,
+        lineWidthMaxPixels: 4.2,
+        parameters: { depthTest: false },
+        onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
       }));
     }
 
@@ -1502,22 +1542,6 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       }));
     }
 
-    if (showTerritory || showProjects || showActions) {
-      layers.push(new GeoJsonLayer({
-        id: 'sentinel-zones',
-        data: zonesSource,
-        pickable: true,
-        filled: true,
-        stroked: true,
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId, showTerritory ? 118 : 46),
-        getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.id === this.selectedZoneId),
-        lineWidthMinPixels: 1.35,
-        lineWidthMaxPixels: 3.8,
-        parameters: { depthTest: false },
-        onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
-      }));
-    }
-
     if (showAgenda || showActions) {
       layers.push(new ArcLayer({
         id: 'sentinel-arcs',
@@ -1596,13 +1620,13 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         data: cityFeatures,
         getPosition: (feature: any) => feature.geometry.coordinates,
         getText: (feature: any) => feature.properties?.name || '',
-        getSize: 10,
-        getColor: [18, 39, 54, 230],
+        getSize: this.compact ? 9 : 11,
+        getColor: this.selectedBasemapKey === 'dark' ? [245, 250, 255, 234] : [18, 39, 54, 232],
         getPixelOffset: [0, -12],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'bottom',
         fontSettings: { sdf: true },
-        outlineColor: [250, 254, 255, 240],
+        outlineColor: this.selectedBasemapKey === 'dark' ? [3, 6, 10, 248] : [250, 254, 255, 246],
         outlineWidth: 3,
         billboard: true,
         parameters: { depthTest: false },
@@ -1814,6 +1838,50 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (layerKey === 'preventive-actions') return [242, 127, 139, alpha];
     if (layerKey === 'maritime-traffic') return [242, 140, 56, alpha];
     return [143, 210, 255, alpha];
+  }
+
+  private deckTooltip(info: any): any {
+    const properties = info?.object?.properties || info?.object;
+    if (!properties) return null;
+    const title = properties.title || properties.name || properties.zone_name || properties.label;
+    if (!title) return null;
+    const summary = properties.summary || properties.role || properties.kind || properties.source_label || '';
+    const rawConfidence = Number(properties.confidence);
+    const confidence = properties.confidence !== undefined
+      ? `Confiance ${Math.round(rawConfidence <= 1 ? rawConfidence * 100 : rawConfidence)}%`
+      : '';
+    const score = properties.score || properties.level ? `Score ${properties.score || properties.level}` : '';
+    const source = properties.source_kind || properties.source || properties.layer_key || '';
+    const meta = [score, confidence, source].filter(Boolean).join(' · ');
+    return {
+      html: `
+        <div class="sentinel-map-tooltip">
+          <strong>${this.escapeTooltip(title)}</strong>
+          ${summary ? `<p>${this.escapeTooltip(summary)}</p>` : ''}
+          ${meta ? `<small>${this.escapeTooltip(meta)}</small>` : ''}
+        </div>
+      `,
+      style: {
+        backgroundColor: 'rgba(5, 10, 15, 0.94)',
+        border: '1px solid rgba(141, 214, 255, 0.42)',
+        borderRadius: '10px',
+        boxShadow: '0 18px 34px rgba(0,0,0,0.35)',
+        color: '#f7fbff',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        maxWidth: '320px',
+        padding: '12px 14px',
+        pointerEvents: 'none',
+      },
+    };
+  }
+
+  private escapeTooltip(value: any): string {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   private enableFallback(): void {

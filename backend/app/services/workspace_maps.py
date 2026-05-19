@@ -571,22 +571,22 @@ def _map_basemap_options() -> list[dict[str, Any]]:
         {
             "key": "command",
             "label": "Commandement",
-            "description": "Fond sombre tres contraste, inspire situation-room, avec labels et frontieres lisibles.",
+            "description": "Fond executif contraste, lisible en salle, avec labels et frontieres visibles.",
             "style": _basemap_style(
-                "carto-command-dark",
+                "carto-command-voyager",
                 [
-                    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                    "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                    "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                    "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                    "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+                    "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
                 ],
                 {
                     "raster-opacity": 1.0,
-                    "raster-brightness-min": 0.08,
-                    "raster-brightness-max": 0.98,
-                    "raster-saturation": -0.08,
-                    "raster-contrast": 0.42,
+                    "raster-brightness-min": 0.0,
+                    "raster-brightness-max": 1.0,
+                    "raster-saturation": -0.28,
+                    "raster-contrast": 0.34,
                 },
-                background="#151719",
+                background="#dbe7ec",
             ),
         },
         {
@@ -674,6 +674,7 @@ def _layer_catalog(source_counts: dict[str, int]) -> list[dict[str, Any]]:
 
 def _layer_registry(source_counts: dict[str, int]) -> list[dict[str, Any]]:
     freshness = _layer_freshness()
+    updated_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     groups = {
         "territorial-risk": "Territoire",
         "open-intelligence": "Presse / rumeurs",
@@ -694,17 +695,65 @@ def _layer_registry(source_counts: dict[str, int]) -> list[dict[str, Any]]:
         "maritime-traffic": "ship",
         "preventive-actions": "check",
     }
-    return [
-        {
-            **item,
-            "group": groups.get(item["key"], "Sources"),
-            "icon": icons.get(item["key"], "layer"),
-            "freshness": freshness.get(item["key"], "a jour"),
-            "source_kind": _layer_source_kind(item["key"]),
-            "renderer_support": ["maplibre", "deck.gl", "svg-fallback"],
-        }
-        for item in _layer_catalog(source_counts)
-    ]
+    registry = []
+    for item in _layer_catalog(source_counts):
+        count = int(item.get("count") or 0)
+        status = "ready" if count else "empty"
+        registry.append(
+            {
+                **item,
+                "group": groups.get(item["key"], "Sources"),
+                "icon": icons.get(item["key"], "layer"),
+                "status": status,
+                "state_label": "pret" if status == "ready" else "vide",
+                "freshness": freshness.get(item["key"], "a jour"),
+                "freshness_at": updated_at,
+                "failure_reason": None,
+                "default_visible": bool(item.get("visible")),
+                "source_kind": _layer_source_kind(item["key"]),
+                "source_count": count,
+                "renderer_support": ["maplibre", "deck.gl", "svg-fallback"],
+                "tooltip": _layer_tooltip(item["key"]),
+            }
+        )
+    return registry
+
+
+def _layer_tooltip(key: str) -> dict[str, str]:
+    return {
+        "territorial-risk": {
+            "title": "Zones de vigilance",
+            "body": "Scores territoriaux calcules depuis presse, projets, agenda et observations.",
+        },
+        "open-intelligence": {
+            "title": "Presse et rumeurs",
+            "body": "Signaux qualifies par origine, zone, impact institutionnel et confiance.",
+        },
+        "regional-context": {
+            "title": "Contexte CEDEAO",
+            "body": "Pays voisins, axes regionaux et signaux susceptibles d'affecter la Cote d'Ivoire.",
+        },
+        "strategic-projects": {
+            "title": "Projets publics",
+            "body": "Chantiers et dossiers sensibles relies aux zones et aux arbitrages cabinet.",
+        },
+        "agenda-windows": {
+            "title": "Fenetres agenda",
+            "body": "Creneaux utiles pour arbitrage, communication ou mission terrain.",
+        },
+        "visual-streams": {
+            "title": "Flux visuels",
+            "body": "Captures publiques ou habilitees, analysees sans biometrie ni suivi individuel.",
+        },
+        "maritime-traffic": {
+            "title": "Maritime et douanes",
+            "body": "Ports, corridors et densites demo-safe, avec provider AIS optionnel.",
+        },
+        "preventive-actions": {
+            "title": "Actions preventives",
+            "body": "Options advisory-only, a valider par le VP ou le cabinet.",
+        },
+    }.get(key, {"title": "Couche", "body": "Donnees workspace scopees."})
 
 
 def _layer_confidence(key: str) -> int:
@@ -959,6 +1008,36 @@ def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
         }
         point_features.append(feature)
         density_features.append(feature)
+    for zone in _maritime_density_zones():
+        density_features.append(
+            {
+                "type": "Feature",
+                "id": zone["id"],
+                "geometry": {"type": "Point", "coordinates": zone["coordinates"]},
+                "properties": {
+                    **zone,
+                    "kind": "density_zone",
+                    "layer_key": "maritime-traffic",
+                    "source_kind": "maritime_snapshot",
+                    "source": "snapshot maritime demo-safe",
+                },
+            }
+        )
+    for disruption in _maritime_disruptions():
+        point_features.append(
+            {
+                "type": "Feature",
+                "id": disruption["id"],
+                "geometry": {"type": "Point", "coordinates": disruption["coordinates"]},
+                "properties": {
+                    **disruption,
+                    "kind": "disruption",
+                    "layer_key": "maritime-traffic",
+                    "source_kind": "port_customs_watch",
+                    "source": "port + douanes + veille economique",
+                },
+            }
+        )
     route_features = [
         {
             "type": "Feature",
@@ -999,18 +1078,90 @@ def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
 
 
 def _maritime_snapshot_payload() -> dict[str, Any]:
+    density_zones = _maritime_density_zones()
+    disruptions = _maritime_disruptions()
     return {
         "mode": "snapshot_demo_safe",
         "provider": "demo-safe / AIS optional",
         "provider_configured": False,
         "ports": MARITIME_PORTS,
         "events": MARITIME_EVENTS,
+        "density_zones": density_zones,
+        "disruptions": disruptions,
+        "freshness": {
+            "status": "ready",
+            "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "ttl_seconds": 300,
+            "cache_policy": "bbox_quantized_snapshot",
+        },
         "summary": "Lecture portuaire demo-safe : Abidjan et San Pedro, corridors Golfe de Guinee, densite indicative et liens douanes/projets.",
         "limitations": [
             "Pas de promesse de live AIS sans provider active.",
             "Les points navires sont un snapshot demonstratif et non un suivi individuel.",
         ],
     }
+
+
+def _maritime_density_zones() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "density-abidjan-vridi",
+            "name": "Densite Abidjan / Vridi",
+            "coordinates": [-4.055, 5.205],
+            "radius_km": 22,
+            "intensity": 0.72,
+            "vessel_count": 18,
+            "delta_pct": 12,
+            "status": "elevated",
+            "score": 72,
+            "confidence": 0.66,
+            "summary": "Densite indicative autour du port d'Abidjan, utile pour lecture douanes, approvisionnement et projets BTP.",
+            "recommended_action": "Croiser douanes, agenda economique et communication gouvernementale avant 14h.",
+        },
+        {
+            "id": "density-san-pedro",
+            "name": "Densite San Pedro",
+            "coordinates": [-6.67, 4.72],
+            "radius_km": 18,
+            "intensity": 0.42,
+            "vessel_count": 7,
+            "delta_pct": -3,
+            "status": "monitoring",
+            "score": 48,
+            "confidence": 0.61,
+            "summary": "Flux export a surveiller, sans signal critique dans le scenario courant.",
+            "recommended_action": "Maintenir veille hebdomadaire.",
+        },
+    ]
+
+
+def _maritime_disruptions() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "disruption-abidjan-customs-window",
+            "title": "Fenetre douanes / Port d'Abidjan",
+            "coordinates": [-4.0244, 5.3453],
+            "severity": "elevated",
+            "score": 69,
+            "confidence": 0.64,
+            "status": "watch",
+            "summary": "Signal economique reliant port d'Abidjan, dossier BTP et calendrier cabinet.",
+            "recommended_action": "Preparer une note courte avant arbitrage budgetaire.",
+            "decision_deadline": "14:00",
+        },
+        {
+            "id": "disruption-gulf-route-watch",
+            "title": "Corridor Golfe de Guinee sous surveillance",
+            "coordinates": [-3.35, 4.82],
+            "severity": "monitoring",
+            "score": 54,
+            "confidence": 0.58,
+            "status": "monitoring",
+            "summary": "Transit regional nominal mais a relier aux signaux presse CEDEAO.",
+            "recommended_action": "Aucun arbitrage immediat, conserver veille.",
+            "decision_deadline": "24-48h",
+        },
+    ]
 
 
 def _region_scores(zones: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1035,17 +1186,69 @@ def _source_health(source_counts: dict[str, int]) -> dict[str, Any]:
             {
                 "layer_key": item["key"],
                 "label": item["label"],
-                "status": "ready" if item["count"] else "empty",
+                "status": item["status"],
                 "count": item["count"],
                 "freshness": item["freshness"],
+                "freshness_at": item["freshness_at"],
+                "failure_reason": item["failure_reason"],
                 "confidence": item["confidence"],
+                "source_kind": item["source_kind"],
             }
         )
     return {
         "status": "ready",
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "layers": layers,
         "notes": "Toutes les couches sont workspace-scopees et restent advisory-only.",
+    }
+
+
+def _tooltip_templates() -> dict[str, dict[str, str]]:
+    return {
+        "zone_score": {
+            "title": "{name} · {level}/100",
+            "body": "{summary}",
+            "footer": "Sources : presse, projets, agenda, visuel",
+        },
+        "signal": {
+            "title": "{title}",
+            "body": "{summary}",
+            "footer": "Confiance {confidence}",
+        },
+        "project": {
+            "title": "{title}",
+            "body": "{summary}",
+            "footer": "Projet sensible · advisory-only",
+        },
+        "agenda_window": {
+            "title": "{label}",
+            "body": "{why}",
+            "footer": "{start}-{end}",
+        },
+        "visual_observation": {
+            "title": "{title}",
+            "body": "{summary}",
+            "footer": "Pas de biometrie · validation humaine",
+        },
+        "maritime_snapshot": {
+            "title": "{title}",
+            "body": "{summary}",
+            "footer": "Snapshot demo-safe · AIS optionnel",
+        },
+        "action": {
+            "title": "{title}",
+            "body": "{recommended_action}",
+            "footer": "Validation requise",
+        },
+    }
+
+
+def _default_layer_groups() -> dict[str, list[str]]:
+    return {
+        "explorer": ["territorial-risk", "open-intelligence", "strategic-projects", "visual-streams"],
+        "comprendre": ["territorial-risk", "open-intelligence", "regional-context", "visual-streams", "maritime-traffic"],
+        "decider": ["territorial-risk", "agenda-windows", "preventive-actions", "strategic-projects", "maritime-traffic"],
+        "maritime": ["maritime-traffic", "open-intelligence", "strategic-projects", "preventive-actions"],
     }
 
 
@@ -1469,16 +1672,19 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
     default_basemap = "command"
     return {
         "map_version": "situation_map_v3",
+        "rendering_profile": "executive_command_v1",
         "time_range": "7d",
         "available_time_ranges": MAP_TIME_RANGES,
         "renderer_config": {
             "renderer": "maplibre",
+            "rendering_profile": "executive_command_v1",
             "fallback_renderer": "svg",
             "basemap_policy": "public_osm_carto_with_self_hosted_ready",
             "default_basemap": default_basemap,
             "style": basemap_options[0]["style"],
             "initial_view_state": camera_presets["country"],
-            "bounds": [[REGIONAL_CONTEXT_BOUNDS["west"], REGIONAL_CONTEXT_BOUNDS["south"]], [REGIONAL_CONTEXT_BOUNDS["east"], REGIONAL_CONTEXT_BOUNDS["north"]]],
+            "bounds": [[IVORY_COAST_BOUNDS["west"], IVORY_COAST_BOUNDS["south"]], [IVORY_COAST_BOUNDS["east"], IVORY_COAST_BOUNDS["north"]]],
+            "regional_bounds": [[REGIONAL_CONTEXT_BOUNDS["west"], REGIONAL_CONTEXT_BOUNDS["south"]], [REGIONAL_CONTEXT_BOUNDS["east"], REGIONAL_CONTEXT_BOUNDS["north"]]],
             "attribution": "Fond OSM/CARTO · frontières geoBoundaries CC BY 4.0 · contexte CEDEAO Agentium workspace",
             "interaction_contract": {
                 "commands": sorted(MAP_COMMAND_INTENTS),
@@ -1509,6 +1715,8 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
         "source_health": _source_health(source_counts),
         "forecast_signals": _forecast_signals_payload(zones),
         "scenario_modes": _scenario_modes_payload(),
+        "default_layer_groups": _default_layer_groups(),
+        "tooltip_templates": _tooltip_templates(),
         "source_counts": source_counts,
         "geojson_sources": {
             "zones": {"type": "FeatureCollection", "features": zone_features},
