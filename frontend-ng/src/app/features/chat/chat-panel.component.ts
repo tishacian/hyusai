@@ -3328,13 +3328,18 @@ export class ChatPanelComponent {
   }
 
   stopConversationLoop(reason = 'user_stop'): void {
-    if (!this.voiceConversationActive() && !this.recording()) return;
+    if (!this.voiceConversationActive() && !this.recording() && !this.transcribing() && !this.ttsSpeaking()) return;
     this.voiceConversationActive.set(false);
     this.voiceConversationPaused.set(false);
     this.clearVoiceLoopRearmTimer();
     this.voiceLoop.stopLoop();
     this.recording.set(false);
+    this.transcribing.set(false);
+    this.voicePartial.set('');
+    this.voiceLastEndpointReason = null;
+    if (this.ttsSpeaking()) this.resetTtsPipeline();
     this.voiceConnection?.loopStop({ surface: 'chat', reason });
+    this.closeVoiceSession();
     this.voiceNotice.set(reason === 'user_stop' ? 'Conversation stopped' : `Conversation stopped · ${reason.replace(/_/g, ' ')}`);
     this.voiceOracleStage.set('idle');
     this.voiceOracleMessage.set('Conversation loop stopped. Batch voice turns remain available.');
@@ -3459,18 +3464,44 @@ export class ChatPanelComponent {
       : '';
     const hasTrigger = !!triggerWord && (text === triggerWord || text.startsWith(`${triggerWord} `));
     if (hasTrigger) text = text.slice(triggerWord.length).trim();
-    const words = text.split(/\s+/).filter(Boolean);
-    if (!hasTrigger && words.length > 4) return null;
     const compact = text.replace(/\s+/g, ' ');
+    const commandText = compact.replace(/['-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (this.isNaturalStopCommand(commandText)) return 'stop';
+    const words = commandText.split(/\s+/).filter(Boolean);
+    if (!hasTrigger && words.length > 4) return null;
     if (['stop', 'arrete', 'arret', 'fin', 'termine'].includes(compact)) return 'stop';
-    if (['pause', 'mets en pause'].includes(compact)) return 'pause';
-    if (['reprends', 'reprendre', 'continue', 'relance'].includes(compact)) return 'resume';
-    if (['annule', 'annuler', 'cancel', 'efface'].includes(compact)) return 'cancel';
-    if (['repete', 'repeter', 'repeat'].includes(compact)) return 'repeat';
-    if (['reformule', 'reformuler', 'rephrase'].includes(compact)) return 'rephrase';
-    if (compact === 'question suivante' || compact === 'suivant') return 'next_question';
-    if (['valider', 'valide', 'confirmer', 'confirme'].includes(compact)) return 'validate';
+    if (['stop', 'arrete', 'arret', 'fin', 'termine'].includes(commandText)) return 'stop';
+    if (['pause', 'mets en pause'].includes(commandText)) return 'pause';
+    if (['reprends', 'reprendre', 'continue', 'relance'].includes(commandText)) return 'resume';
+    if (['annule', 'annuler', 'cancel', 'efface'].includes(commandText)) return 'cancel';
+    if (['repete', 'repeter', 'repeat'].includes(commandText)) return 'repeat';
+    if (['reformule', 'reformuler', 'rephrase'].includes(commandText)) return 'rephrase';
+    if (commandText === 'question suivante' || commandText === 'suivant') return 'next_question';
+    if (['valider', 'valide', 'confirmer', 'confirme'].includes(commandText)) return 'validate';
     return null;
+  }
+
+  private isNaturalStopCommand(commandText: string): boolean {
+    if (!commandText) return false;
+    return [
+      /\bon peut s arreter(?: la)?\b/,
+      /\bon peut arreter(?: la)?\b/,
+      /\bnous pouvons nous arreter(?: la)?\b/,
+      /\bon s arrete(?: la)?\b/,
+      /\bon arrete(?: la)?\b/,
+      /\bon va s arreter(?: la)?\b/,
+      /\bje vais m arreter(?: la)?\b/,
+      /\bc est bon\b.*\b(?:arreter|stop|termine|terminer|fini|fin)\b/,
+      /\bca suffit\b/,
+      /\bcela suffit\b/,
+      /\bon a fini\b/,
+      /\bc est fini\b/,
+      /\bc est termine\b/,
+      /\bfin de session\b/,
+      /\btu peux t arreter\b/,
+      /\btu peux couper\b/,
+      /\bon coupe\b/,
+    ].some((pattern) => pattern.test(commandText));
   }
 
   private handleVoiceCommand(command: string, transcript: string): boolean {
@@ -3635,6 +3666,7 @@ export class ChatPanelComponent {
   }
 
   private handleVoiceSessionEvent(event: VoiceSessionEvent): void {
+    if (event.session_id && event.session_id !== this.chatVoiceSessionId) return;
     const payload = event.payload || {};
 	    if (event.type === 'session.ready') {
 	      this.voiceNotice.set('Voice session ready');
