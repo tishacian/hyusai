@@ -106,17 +106,30 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             <span class="t-header-hint">{{ modeHint() }}</span>
           </div>
           <div class="t-header-right">
-            <label class="t-picker-label">System</label>
-            <select
-              class="t-picker"
-              [(ngModel)]="selectedSystemId"
-              (ngModelChange)="onSystemChange($event)"
-            >
-              <option [ngValue]="null">— Quick ask (workspace defaults)</option>
-              @for (s of systems(); track s.id) {
-                <option [ngValue]="s.id">{{ s.name }}</option>
-              }
-            </select>
+            <div class="t-system-control">
+              <span class="t-picker-label">
+                System
+                <span
+                  class="t-info-dot"
+                  title="Choose a System to scope presets, audit and run analytics. Quick ask uses workspace defaults."
+                >
+                  <app-icon name="info" [size]="10" />
+                </span>
+              </span>
+              <div class="t-picker-wrap">
+                <select
+                  class="t-picker"
+                  [(ngModel)]="selectedSystemId"
+                  (ngModelChange)="onSystemChange($event)"
+                >
+                  <option [ngValue]="null">Quick ask · workspace defaults</option>
+                  @for (s of systems(); track s.id) {
+                    <option [ngValue]="s.id">{{ s.name }}</option>
+                  }
+                </select>
+                <app-icon name="chevron-down" [size]="12" class="t-picker-chevron" />
+              </div>
+            </div>
           </div>
         }
       </header>
@@ -127,7 +140,15 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
         @if (!executiveAssistant() || startMode() === 'drop' || sessionDocs().length > 0) {
         <aside class="t-sidebar" [class.t-sidebar-collapsed]="!dropOpen() && inline()">
           <div class="t-sidebar-head">
-            <span class="ck-mono t-sidebar-eyebrow">Session docs</span>
+            <span class="ck-mono t-sidebar-eyebrow">
+              Session docs
+              <span
+                class="t-info-dot"
+                title="Drop documents here to create a temporary chat context. In the chat controls, choose whether these docs replace or complement the Knowledge source."
+              >
+                <app-icon name="info" [size]="10" />
+              </span>
+            </span>
             @if (inline()) {
               <button
                 type="button"
@@ -341,22 +362,74 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       gap: 8px;
       flex-shrink: 0;
     }
+    .t-system-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 7px 4px 9px;
+      min-height: 34px;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 197, 229, 0.14);
+      background: rgba(255, 255, 255, 0.04);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
     .t-picker-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
       font-family: var(--ck-font-mono);
       font-size: 9px;
       letter-spacing: 0.14em;
       text-transform: uppercase;
       color: var(--ck-fg-4);
     }
+    .t-info-dot {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      color: rgba(177, 190, 210, 0.78);
+      background: rgba(255, 255, 255, 0.055);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      cursor: help;
+    }
+    .t-info-dot:hover {
+      color: rgb(219, 249, 255);
+      background: rgba(34, 211, 238, 0.13);
+      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.25);
+    }
+    .t-picker-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-width: 260px;
+      max-width: 360px;
+    }
     .t-picker {
-      background: var(--ck-bg-inset);
-      border: 1px solid var(--ck-stroke-2);
-      border-radius: 4px;
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(2, 8, 18, 0.38);
+      border: 0;
+      border-radius: 8px;
       color: var(--ck-fg-1);
+      color-scheme: dark;
       font-size: 12px;
-      padding: 4px 8px;
-      min-width: 200px;
-      max-width: 260px;
+      font-weight: 650;
+      padding: 6px 26px 6px 10px;
+      outline: 0;
+    }
+    .t-picker:focus {
+      box-shadow: 0 0 0 1px rgba(103, 213, 246, 0.42);
+      background: rgba(6, 13, 25, 0.76);
+    }
+    .t-picker-chevron {
+      position: absolute;
+      right: 8px;
+      color: rgba(177, 190, 210, 0.72);
+      pointer-events: none;
     }
     .t-source-pill {
       display: inline-flex;

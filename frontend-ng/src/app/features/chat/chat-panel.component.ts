@@ -282,21 +282,28 @@ const STEP_ICONS: Record<string, string> = {
 
       @if (!executiveMode() || traceOpen()) {
       <!-- Toolbar -->
-      <div
-        class="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-white/5 bg-white/[0.02]"
-      >
-        <div class="flex items-center gap-2 text-[11px] text-gray-400 min-w-0 flex-wrap">
-          <app-icon name="circle-dot" [size]="12" class="text-emerald-400" />
-          <span class="uppercase tracking-wider font-semibold">Chat</span>
-          <span class="text-gray-600">·</span>
-          <span class="font-mono truncate">{{ chatRuntimeLabel() }}</span>
-          <span class="text-gray-600">·</span>
+      <div class="chat-control-bar">
+        <div class="chat-control-main">
+          <div
+            class="chat-mode-chip"
+            title="Chat runtime used for answer generation. Provider details are hidden in demo workspaces."
+          >
+            <app-icon name="circle-dot" [size]="12" class="text-emerald-400" />
+            <span>Chat</span>
+            <span class="chat-mode-model">{{ chatRuntimeLabel() }}</span>
+          </div>
 
           @if (knowledgeScopeOptions().length > 0) {
             <div class="source-picker" [title]="assistantScopeLabel()">
               <span class="source-picker-label">
                 <app-icon name="database" [size]="12" />
                 Knowledge
+                <span
+                  class="control-info-dot"
+                  title="Select the workspace Knowledge source searched by retrieval. Auto uses the assistant profile default when available, otherwise the workspace default."
+                >
+                  <app-icon name="info" [size]="10" />
+                </span>
               </span>
               <div class="source-picker-select-wrap">
                 <select
@@ -321,6 +328,12 @@ const STEP_ICONS: Record<string, string> = {
               <span class="session-doc-label">
                 <app-icon name="files" [size]="12" />
                 Session docs
+                <span
+                  class="control-info-dot"
+                  title="Only searches uploaded session docs. + Knowledge searches session docs plus the selected Knowledge source."
+                >
+                  <app-icon name="info" [size]="10" />
+                </span>
               </span>
               <button
                 type="button"
@@ -342,41 +355,59 @@ const STEP_ICONS: Record<string, string> = {
             <span class="text-gray-600">·</span>
           }
 
-          <!-- Per-query retrieval mode chip -->
-          <label class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500">
-            Retrieval
-          </label>
-          <select
-            class="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-brand-400"
-            [ngModel]="ragModeOverride()"
-            (ngModelChange)="ragModeOverride.set($event)"
-            [title]="ragModeHint()"
-          >
-            @for (m of ragModeChoices; track m.slug) {
-              <option [value]="m.slug">{{ m.label }}</option>
+          <div class="mini-control" [title]="ragModeHint()">
+            <span class="mini-control-label">
+              Retrieval
+              <span
+                class="control-info-dot"
+                title="Choose how Agentium searches indexed Knowledge for this question. Auto follows workspace/source defaults."
+              >
+                <app-icon name="info" [size]="10" />
+              </span>
+            </span>
+            <div class="mini-select-wrap">
+              <select
+                class="mini-select"
+                [ngModel]="ragModeOverride()"
+                (ngModelChange)="ragModeOverride.set($event)"
+              >
+                @for (m of ragModeChoices; track m.slug) {
+                  <option [value]="m.slug">{{ m.label }}</option>
+                }
+              </select>
+              <app-icon name="chevron-down" [size]="12" class="mini-select-chevron" />
+            </div>
+            @if (ragModeOverride() !== 'auto') {
+              <ck-runtime-status [status]="ragModeRuntimeStatus()" />
             }
-          </select>
-          @if (ragModeOverride() !== 'auto') {
-            <ck-runtime-status [status]="ragModeRuntimeStatus()" />
-          }
+          </div>
 
-          <!-- Reasoning template chip -->
-          <label class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500">
-            Reasoning
-          </label>
-          <select
-            class="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-400"
-            [ngModel]="promptType()"
-            (ngModelChange)="promptType.set($event)"
-            [title]="promptTypeHint()"
-          >
-            <option value="auto">Auto</option>
-            @for (t of reasoningTemplates(); track t.slug) {
-              <option [value]="t.slug">{{ t.label }}</option>
-            }
-          </select>
+          <div class="mini-control" [title]="promptTypeHint()">
+            <span class="mini-control-label">
+              Reasoning
+              <span
+                class="control-info-dot"
+                title="Choose the answer framing. Auto lets Agentium infer the best reasoning template from the question."
+              >
+                <app-icon name="info" [size]="10" />
+              </span>
+            </span>
+            <div class="mini-select-wrap">
+              <select
+                class="mini-select"
+                [ngModel]="promptType()"
+                (ngModelChange)="promptType.set($event)"
+              >
+                <option value="auto">Auto</option>
+                @for (t of reasoningTemplates(); track t.slug) {
+                  <option [value]="t.slug">{{ t.label }}</option>
+                }
+              </select>
+              <app-icon name="chevron-down" [size]="12" class="mini-select-chevron" />
+            </div>
+          </div>
         </div>
-        <div class="flex items-center gap-1.5">
+        <div class="chat-control-actions">
           @if (ttsEnabled() && ttsSpeaking()) {
             <button
               type="button"
@@ -412,38 +443,46 @@ const STEP_ICONS: Record<string, string> = {
       }
 
       @if (!executiveMode() || traceOpen()) {
-      <div class="px-4 py-2 border-b border-white/5 bg-black/[0.08] flex items-center gap-2 text-[11px] text-gray-400 flex-wrap">
-        <span class="inline-flex items-center gap-1.5 text-gray-300 font-medium">
-          <app-icon name="waves" [size]="13" class="text-brand-300" />
-          Voice runtime
-        </span>
+      <div class="voice-control-bar">
+        <div class="voice-control-group">
+          <span class="voice-control-label">
+            <app-icon name="waves" [size]="13" class="text-brand-300" />
+            Voice runtime
+            <span
+              class="control-info-dot"
+              title="Select the voice provider/runtime used for speech-to-text and voice session events."
+            >
+              <app-icon name="info" [size]="10" />
+            </span>
+          </span>
         @if (isDemoMode()) {
           <span
-            class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 ring-1 ring-white/10 text-gray-200"
+            class="managed-runtime-pill"
             title="Provider and model details are hidden in workspace demo mode."
           >
             <app-icon name="shield-check" [size]="12" class="text-brand-300" />
             Managed runtime
           </span>
         } @else {
-          <select
-            class="bg-white/5 border border-white/10 rounded px-2 py-1 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-400"
-            [ngModel]="voiceProvider()"
-            (ngModelChange)="onVoiceProviderChange($event)"
-            [title]="selectedVoiceDescription()"
-          >
-            @for (runtime of voiceRuntimeOptions(); track runtime.slug) {
-              <option [value]="runtime.slug">{{ voiceRuntimeLabel(runtime) }}</option>
-            }
-          </select>
+          <div class="voice-select-wrap" [title]="selectedVoiceDescription()">
+            <select
+              class="voice-select"
+              [ngModel]="voiceProvider()"
+              (ngModelChange)="onVoiceProviderChange($event)"
+            >
+              @for (runtime of voiceRuntimeOptions(); track runtime.slug) {
+                <option [value]="runtime.slug">{{ voiceRuntimeLabel(runtime) }}</option>
+              }
+            </select>
+            <app-icon name="chevron-down" [size]="12" class="voice-select-chevron" />
+          </div>
         }
-        <div class="inline-flex overflow-hidden rounded-lg border border-white/10 bg-white/[0.03]">
+        </div>
+        <div class="voice-transport-toggle" title="Batch records one segment. Session streams voice events when the selected runtime supports it.">
           <button
             type="button"
-            class="px-2.5 py-1 transition"
-            [class.bg-brand-500\\/20]="voiceTransport() === 'batch_http'"
-            [class.text-brand-100]="voiceTransport() === 'batch_http'"
-            [class.text-gray-400]="voiceTransport() !== 'batch_http'"
+            class="voice-transport-button"
+            [class.voice-transport-active]="voiceTransport() === 'batch_http'"
             (click)="setVoiceTransport('batch_http')"
             title="Record one audio segment, then transcribe through /voice/transcribe."
           >
@@ -451,10 +490,8 @@ const STEP_ICONS: Record<string, string> = {
           </button>
           <button
             type="button"
-            class="px-2.5 py-1 transition disabled:opacity-40"
-            [class.bg-brand-500\\/20]="voiceTransport() === 'backend_ws'"
-            [class.text-brand-100]="voiceTransport() === 'backend_ws'"
-            [class.text-gray-400]="voiceTransport() !== 'backend_ws'"
+            class="voice-transport-button"
+            [class.voice-transport-active]="voiceTransport() === 'backend_ws'"
             [disabled]="!canUseVoiceSession()"
             (click)="setVoiceTransport('backend_ws')"
             title="Use Agentium voice session events: text.partial, text.final, runtime.metric."
@@ -463,13 +500,22 @@ const STEP_ICONS: Record<string, string> = {
           </button>
         </div>
         <span
-          class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-cyan-500/10 text-cyan-100 ring-1 ring-cyan-300/20"
+          class="tandem-oracle-pill"
           [title]="voiceTandemOracleHint()"
         >
           <app-icon name="activity" [size]="12" />
           Tandem oracle
+          <span
+            class="control-info-dot"
+            title="Fast voice loop plus background Knowledge oracle. It can update context while the conversation continues."
+          >
+            <app-icon name="info" [size]="10" />
+          </span>
         </span>
-        <label class="inline-flex items-center gap-1.5 text-gray-400">
+        <label
+          class="voice-checkbox"
+          title="When enabled, the final transcript produced by STT is automatically submitted as a chat question."
+        >
           <input
             type="checkbox"
             class="accent-brand-500"
@@ -1125,8 +1171,54 @@ const STEP_ICONS: Record<string, string> = {
       color: #f4f8ff;
       background: rgba(18, 31, 45, 0.82);
     }
+    .chat-control-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.010)),
+        rgba(3, 8, 16, 0.40);
+    }
+    .chat-control-main {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+    .chat-control-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .chat-mode-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 30px;
+      padding: 4px 9px;
+      border: 1px solid rgba(148, 197, 229, 0.12);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.035);
+      color: rgba(232, 239, 250, 0.88);
+      font-size: 11px;
+      font-weight: 750;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .chat-mode-model {
+      color: rgba(177, 190, 210, 0.82);
+      font: 650 11px/1.2 var(--ck-font-mono, ui-monospace, monospace);
+      text-transform: none;
+      letter-spacing: 0;
+    }
     .source-picker,
-    .session-doc-mode {
+    .session-doc-mode,
+    .mini-control {
       display: inline-flex;
       align-items: center;
       gap: 7px;
@@ -1140,7 +1232,8 @@ const STEP_ICONS: Record<string, string> = {
       padding: 3px 7px 3px 9px;
     }
     .source-picker-label,
-    .session-doc-label {
+    .session-doc-label,
+    .mini-control-label {
       display: inline-flex;
       align-items: center;
       gap: 5px;
@@ -1152,7 +1245,8 @@ const STEP_ICONS: Record<string, string> = {
       white-space: nowrap;
     }
     .source-picker-label app-icon,
-    .session-doc-label app-icon {
+    .session-doc-label app-icon,
+    .mini-control-label app-icon {
       color: rgb(103, 213, 246);
     }
     .source-picker-select-wrap {
@@ -1162,8 +1256,11 @@ const STEP_ICONS: Record<string, string> = {
       min-width: 184px;
       max-width: 270px;
     }
-    .source-picker-select {
+    .source-picker-select,
+    .mini-select,
+    .voice-select {
       width: 100%;
+      -webkit-appearance: none;
       appearance: none;
       border: 0;
       outline: 0;
@@ -1172,12 +1269,17 @@ const STEP_ICONS: Record<string, string> = {
       color: rgba(245, 248, 252, 0.92);
       padding: 4px 24px 4px 9px;
       font: 600 11px/1.2 var(--ck-font-sans, ui-sans-serif, system-ui);
+      color-scheme: dark;
     }
-    .source-picker-select:focus {
+    .source-picker-select:focus,
+    .mini-select:focus,
+    .voice-select:focus {
       box-shadow: 0 0 0 1px rgba(103, 213, 246, 0.42);
       background: rgba(6, 13, 25, 0.76);
     }
-    .source-picker-chevron {
+    .source-picker-chevron,
+    .mini-select-chevron,
+    .voice-select-chevron {
       position: absolute;
       right: 7px;
       color: rgba(177, 190, 210, 0.72);
@@ -1206,6 +1308,107 @@ const STEP_ICONS: Record<string, string> = {
       color: rgb(219, 249, 255);
       background: rgba(34, 211, 238, 0.15);
       box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.22);
+    }
+    .mini-control {
+      padding: 3px 7px 3px 9px;
+    }
+    .mini-select-wrap,
+    .voice-select-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-width: 104px;
+    }
+    .mini-select {
+      min-width: 96px;
+      font-family: var(--ck-font-mono, ui-monospace, monospace);
+    }
+    .control-info-dot {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      color: rgba(177, 190, 210, 0.78);
+      background: rgba(255, 255, 255, 0.055);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      cursor: help;
+    }
+    .control-info-dot:hover {
+      color: rgb(219, 249, 255);
+      background: rgba(34, 211, 238, 0.13);
+      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.25);
+    }
+    .voice-control-bar {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex-wrap: wrap;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(0, 0, 0, 0.15);
+      color: rgba(177, 190, 210, 0.82);
+      font-size: 11px;
+    }
+    .voice-control-group,
+    .voice-control-label,
+    .managed-runtime-pill,
+    .tandem-oracle-pill,
+    .voice-checkbox {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .voice-control-label {
+      color: rgba(232, 239, 250, 0.86);
+      font-weight: 700;
+    }
+    .managed-runtime-pill,
+    .tandem-oracle-pill {
+      min-height: 30px;
+      padding: 5px 9px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.045);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      color: rgba(232, 239, 250, 0.88);
+    }
+    .tandem-oracle-pill {
+      background: rgba(34, 211, 238, 0.10);
+      color: rgb(207, 250, 254);
+      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.20);
+    }
+    .voice-select-wrap {
+      min-width: 176px;
+      max-width: 260px;
+    }
+    .voice-transport-toggle {
+      display: inline-flex;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 197, 229, 0.14);
+      background: rgba(255, 255, 255, 0.035);
+    }
+    .voice-transport-button {
+      padding: 6px 11px;
+      color: rgba(177, 190, 210, 0.78);
+      font-weight: 700;
+      transition: 140ms ease;
+    }
+    .voice-transport-button:hover:not(:disabled) {
+      color: rgba(245, 248, 252, 0.94);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .voice-transport-button:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+    }
+    .voice-transport-active {
+      color: rgb(207, 250, 254);
+      background: rgba(34, 211, 238, 0.14);
+    }
+    .voice-checkbox {
+      color: rgba(177, 190, 210, 0.84);
     }
     .vigie-messages {
       background:
