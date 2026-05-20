@@ -47,6 +47,19 @@ interface ChatSettingsDraft {
   prompt_pack: PromptCardDraft[];
 }
 
+interface AssistantProfileDraft {
+  key: string;
+  label?: string;
+  subtitle?: string;
+  default_knowledge_scope?: string;
+  executive_mode?: boolean;
+  showcase_mode?: string;
+  design_mode?: string;
+  tone?: string;
+  prompt_pack?: PromptCardDraft[];
+  chat?: Record<string, unknown>;
+}
+
 @Component({
   selector: 'app-chat-knowledge-settings',
   standalone: true,
@@ -88,7 +101,7 @@ interface ChatSettingsDraft {
             <div>
               <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Knowledge routing</p>
               <h3 class="text-base font-semibold text-white mt-1">Knowledge scopes</h3>
-              <p class="text-sm text-gray-400 mt-1 max-w-2xl">
+              <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
                 A scope gives the chat a human label and maps it to one or more indexed collections.
                 The default scope is what users see as <span class="text-gray-200">Workspace default</span>.
               </p>
@@ -106,17 +119,19 @@ interface ChatSettingsDraft {
           <div class="divide-y divide-white/5">
             @for (scope of scopes(); track scope.key; let i = $index) {
               <article class="p-5">
-                <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-                  <label class="inline-flex items-center gap-2 text-sm text-gray-200">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+                  <label class="scope-default-toggle">
                     <input
                       type="radio"
                       name="default_scope"
-                      class="accent-brand-400"
                       [checked]="scope.is_default"
                       [disabled]="!canEdit()"
                       (change)="setDefaultScope(i)"
                     />
-                    Workspace default
+                    <span>
+                      <span class="block text-sm font-semibold text-gray-100">Workspace default</span>
+                      <span class="block text-xs text-gray-500">Used by Quick ask unless the default assistant profile defines another scope.</span>
+                    </span>
                   </label>
                   <button
                     type="button"
@@ -128,7 +143,7 @@ interface ChatSettingsDraft {
                   </button>
                 </div>
 
-                <div class="grid gap-4 lg:grid-cols-[1fr_1fr_150px_110px]">
+                <div class="grid gap-4 md:grid-cols-[minmax(150px,0.75fr)_minmax(240px,1.25fr)]">
                   <label class="block">
                     <span class="field-label">Key</span>
                     <input class="ag-field font-mono" [(ngModel)]="scope.key" [disabled]="!canEdit()" />
@@ -137,6 +152,9 @@ interface ChatSettingsDraft {
                     <span class="field-label">Visible label</span>
                     <input class="ag-field" [(ngModel)]="scope.label" [disabled]="!canEdit()" />
                   </label>
+                </div>
+
+                <div class="grid gap-4 mt-4 md:grid-cols-[minmax(180px,260px)_minmax(120px,160px)]">
                   <label class="block">
                     <span class="field-label">Retrieval mode</span>
                     <span class="ag-select-wrap">
@@ -176,9 +194,10 @@ interface ChatSettingsDraft {
         <section class="t-card t-elevated rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5">
             <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Chat surface</p>
-            <h3 class="text-base font-semibold text-white mt-1">Chat defaults</h3>
-            <p class="text-sm text-gray-400 mt-1 max-w-2xl">
-              These values drive the empty state, input placeholder and suggested prompts in Quick ask.
+              <h3 class="text-base font-semibold text-white mt-1">Chat defaults</h3>
+            <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
+              Workspace defaults are the portable baseline. The preview below shows the effective Quick ask surface after
+              assistant profile overrides and generated source prompts are applied.
             </p>
           </div>
 
@@ -257,6 +276,65 @@ interface ChatSettingsDraft {
                 }
               </div>
             </div>
+
+            <div class="effective-preview">
+              <div class="effective-preview-header">
+                <div>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Effective Quick ask</p>
+                  <h4 class="text-sm font-semibold text-white mt-1">What the chat will show now</h4>
+                </div>
+                <div class="text-right">
+                  <p class="text-[10px] uppercase tracking-[0.16em] text-gray-500">Auto source</p>
+                  <p class="text-sm font-semibold text-cyan-100">{{ effectiveScopeLabel() }}</p>
+                </div>
+              </div>
+
+              @if (activeProfileChatOverrides()) {
+                <div class="mx-4 mt-4 rounded border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                  The default assistant profile contributes chat metadata. This is why the live chat can differ from empty workspace fields.
+                </div>
+              }
+
+              <div class="p-4">
+                <div class="rounded border border-white/10 bg-black/20 p-4">
+                  <div class="flex items-start gap-3">
+                    <span class="preview-orb">
+                      <app-icon name="sparkles" [size]="18" />
+                    </span>
+                    <div class="min-w-0">
+                      <h5 class="text-base font-semibold text-white">{{ effectiveChatTitle() }}</h5>
+                      <p class="mt-1 text-sm text-gray-400 leading-relaxed">{{ effectiveChatSubtitle() }}</p>
+                      <p class="mt-3 rounded bg-black/25 px-3 py-2 text-xs text-gray-500 ring-1 ring-white/10">
+                        Placeholder: <span class="text-gray-300">{{ effectiveChatPlaceholder() }}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="mt-4 grid gap-3 md:grid-cols-2">
+                    @for (prompt of effectivePromptCards(); track prompt.label + prompt.prompt) {
+                      <div class="preview-prompt">
+                        <span class="preview-prompt-icon">
+                          <app-icon [name]="prompt.icon || 'sparkles'" [size]="14" />
+                        </span>
+                        <div class="min-w-0">
+                          <p class="text-sm font-semibold text-white truncate">{{ prompt.label }}</p>
+                          <p class="mt-1 text-xs leading-relaxed text-gray-400 line-clamp-2">{{ prompt.prompt }}</p>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  class="mt-3 inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                  [disabled]="!canEdit()"
+                  (click)="copyEffectiveChatToWorkspace()"
+                >
+                  <app-icon name="copy" [size]="13" /> Copy preview into workspace defaults
+                </button>
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -286,6 +364,9 @@ interface ChatSettingsDraft {
         <section class="t-card t-elevated rounded-md p-5">
           <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Assistant profile</p>
           <h3 class="text-sm font-semibold text-white mt-1">Default assistant</h3>
+          <p class="mt-2 text-xs text-gray-500 leading-relaxed">
+            The default assistant may set the automatic Knowledge source and, when configured, the visible Quick ask surface.
+          </p>
           <label class="block mt-4">
             <span class="field-label">assistant_profile_default</span>
             <span class="ag-select-wrap">
@@ -375,6 +456,69 @@ interface ChatSettingsDraft {
       color: rgb(156 163 175);
       pointer-events: none;
     }
+    .scope-default-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.025);
+      padding: 0.625rem 0.75rem;
+    }
+    .scope-default-toggle input {
+      width: 1rem;
+      height: 1rem;
+      accent-color: rgb(56 189 248);
+    }
+    .effective-preview {
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid rgba(34,211,238,0.22);
+      background:
+        radial-gradient(circle at 80% 0%, rgba(34,211,238,0.08), transparent 34%),
+        rgba(0,0,0,0.12);
+    }
+    .effective-preview-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 1rem;
+    }
+    .preview-orb {
+      display: inline-flex;
+      width: 2.5rem;
+      height: 2.5rem;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: linear-gradient(135deg, rgba(14,165,233,0.18), rgba(124,58,237,0.22));
+      color: rgb(34 211 238);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+    }
+    .preview-prompt {
+      display: flex;
+      min-height: 5rem;
+      align-items: flex-start;
+      gap: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.025);
+      padding: 0.875rem;
+    }
+    .preview-prompt-icon {
+      display: inline-flex;
+      width: 2rem;
+      height: 2rem;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      border-radius: 7px;
+      background: rgba(34,211,238,0.10);
+      color: rgb(34 211 238);
+    }
   `],
 })
 export class ChatKnowledgeSettingsComponent {
@@ -411,15 +555,83 @@ export class ChatKnowledgeSettingsComponent {
   });
 
   readonly assistantProfileOptions = computed(() => {
+    return this.assistantProfiles()
+      .map((profile) => typeof profile?.key === 'string' ? profile.key : '')
+      .filter(Boolean);
+  });
+
+  readonly assistantProfiles = computed<AssistantProfileDraft[]>(() => {
     try {
       const parsed = JSON.parse(this.assistantProfilesJson || '[]');
-      if (!Array.isArray(parsed)) return [];
-      return parsed
-        .map((profile) => typeof profile?.key === 'string' ? profile.key : '')
-        .filter(Boolean);
+      return Array.isArray(parsed) ? parsed.filter((profile) => this.asRecord(profile)) as AssistantProfileDraft[] : [];
     } catch {
       return [];
     }
+  });
+
+  readonly activeAssistantProfile = computed<AssistantProfileDraft | null>(() =>
+    this.assistantProfiles().find((profile) => profile.key === this.assistantProfileDefault) ?? null,
+  );
+
+  readonly workspaceDefaultScope = computed(() =>
+    this.scopes().find((scope) => scope.is_default)?.key || this.scopes()[0]?.key || null,
+  );
+
+  readonly effectiveScopeKey = computed(() =>
+    this.activeAssistantProfile()?.default_knowledge_scope || this.workspaceDefaultScope(),
+  );
+
+  readonly effectiveScopeLabel = computed(() => this.scopeLabel(this.effectiveScopeKey()));
+
+  readonly activeProfileChatOverrides = computed(() => {
+    const profile = this.activeAssistantProfile();
+    if (!profile) return false;
+    const chat = this.asRecord(profile.chat);
+    return Boolean(
+      this.str(chat['title'])
+      || this.str(chat['subtitle'])
+      || this.str(chat['placeholder'])
+      || this.promptPackDraft(chat['prompt_pack']).length,
+    );
+  });
+
+  readonly effectiveChatTitle = computed(() => {
+    const configured = this.str(this.effectiveChatConfig()['title']);
+    if (configured) return configured;
+    const profile = this.activeAssistantProfile();
+    if (profile?.label) return `Ask ${profile.label}`;
+    return 'Start a conversation';
+  });
+
+  readonly effectiveChatSubtitle = computed(() => {
+    const configured = this.str(this.effectiveChatConfig()['subtitle']);
+    if (configured) return configured;
+    const scope = this.effectiveScopeLabel();
+    return scope && scope !== 'workspace'
+      ? `Ask a sourced question using ${scope}.`
+      : 'Ask a workspace question, or choose a Knowledge source before sending.';
+  });
+
+  readonly effectiveChatPlaceholder = computed(() => {
+    const configured = this.str(this.effectiveChatConfig()['placeholder']);
+    if (configured) return configured;
+    const scope = this.effectiveScopeLabel();
+    return scope && scope !== 'workspace'
+      ? `Ask a sourced question using ${scope}...`
+      : 'Ask a workspace question...';
+  });
+
+  readonly effectivePromptCards = computed<PromptCardDraft[]>(() => {
+    const config = this.effectiveChatConfig();
+    const activeScope = this.effectiveScopeKey();
+    const byScope = this.asRecord(config['prompt_pack_by_scope']);
+    const scopedPack = activeScope ? this.promptPackDraft(byScope[activeScope]) : [];
+    if (scopedPack.length) return scopedPack.slice(0, 4);
+    const workspacePack = this.promptPackDraft(config['prompt_pack']).filter((card) => {
+      return !card.scope_key || !activeScope || card.scope_key === activeScope;
+    });
+    if (workspacePack.length) return workspacePack.slice(0, 4);
+    return this.generatedKnowledgePrompts(this.effectiveScopeLabel());
   });
 
   constructor() {
@@ -484,6 +696,16 @@ export class ChatKnowledgeSettingsComponent {
     this.chatDraft.prompt_pack = this.chatDraft.prompt_pack.filter((_, i) => i !== index);
   }
 
+  copyEffectiveChatToWorkspace(): void {
+    this.chatDraft = {
+      title: this.effectiveChatTitle(),
+      subtitle: this.effectiveChatSubtitle(),
+      placeholder: this.effectiveChatPlaceholder(),
+      prompt_pack: this.effectivePromptCards().map((prompt) => ({ ...prompt })),
+    };
+    this.toastr.info('Preview copied into editable workspace defaults', 'Workspace');
+  }
+
   copyCollection(collection: string): void {
     void navigator.clipboard?.writeText(collection);
     this.toastr.info(collection, 'Collection slug copied');
@@ -506,7 +728,7 @@ export class ChatKnowledgeSettingsComponent {
 
     const settings = { ...(detail.settings || {}) };
     settings['knowledge_scopes'] = scopePayload;
-    settings['chat'] = this.cleanChatSettings();
+    settings['chat'] = this.cleanChatSettings(this.asRecord(settings['chat']));
     settings['assistant_profile_default'] = this.assistantProfileDefault || null;
     settings['assistant_profiles'] = assistantProfiles;
 
@@ -589,11 +811,11 @@ export class ChatKnowledgeSettingsComponent {
     return payload;
   }
 
-  private cleanChatSettings(): Record<string, unknown> {
-    const chat: Record<string, unknown> = {};
-    if (this.chatDraft.title.trim()) chat['title'] = this.chatDraft.title.trim();
-    if (this.chatDraft.subtitle.trim()) chat['subtitle'] = this.chatDraft.subtitle.trim();
-    if (this.chatDraft.placeholder.trim()) chat['placeholder'] = this.chatDraft.placeholder.trim();
+  private cleanChatSettings(base: Record<string, unknown> = {}): Record<string, unknown> {
+    const chat: Record<string, unknown> = { ...base };
+    this.setOrDelete(chat, 'title', this.chatDraft.title);
+    this.setOrDelete(chat, 'subtitle', this.chatDraft.subtitle);
+    this.setOrDelete(chat, 'placeholder', this.chatDraft.placeholder);
     const prompts = this.chatDraft.prompt_pack
       .map((prompt) => ({
         icon: prompt.icon.trim() || 'sparkles',
@@ -604,6 +826,7 @@ export class ChatKnowledgeSettingsComponent {
       }))
       .filter((prompt) => prompt.label && prompt.prompt);
     if (prompts.length) chat['prompt_pack'] = prompts;
+    else delete chat['prompt_pack'];
     return chat;
   }
 
@@ -632,5 +855,70 @@ export class ChatKnowledgeSettingsComponent {
 
   private str(value: unknown): string {
     return typeof value === 'string' ? value : '';
+  }
+
+  private effectiveChatConfig(): Record<string, unknown> {
+    const workspaceChat = this.workspaceChatDraftRecord();
+    const profileChat = this.asRecord(this.activeAssistantProfile()?.chat);
+    return { ...workspaceChat, ...profileChat };
+  }
+
+  private workspaceChatDraftRecord(): Record<string, unknown> {
+    const chat: Record<string, unknown> = { ...this.asRecord(this.detail()?.settings?.['chat']) };
+    this.setOrDelete(chat, 'title', this.chatDraft.title);
+    this.setOrDelete(chat, 'subtitle', this.chatDraft.subtitle);
+    this.setOrDelete(chat, 'placeholder', this.chatDraft.placeholder);
+    const prompts = this.chatDraft.prompt_pack
+      .map((prompt) => ({ ...prompt }))
+      .filter((prompt) => prompt.label.trim() && prompt.prompt.trim());
+    if (prompts.length) chat['prompt_pack'] = prompts;
+    else delete chat['prompt_pack'];
+    return chat;
+  }
+
+  private setOrDelete(target: Record<string, unknown>, key: string, value: string): void {
+    const trimmed = value.trim();
+    if (trimmed) target[key] = trimmed;
+    else delete target[key];
+  }
+
+  private generatedKnowledgePrompts(sourceLabel: string): PromptCardDraft[] {
+    const label = sourceLabel || 'workspace Knowledge';
+    return [
+      {
+        icon: 'file-search',
+        label: 'Find a value',
+        prompt: `In ${label}, find the value of a business parameter and cite the file, page/sheet, and row or section used.`,
+        scope_key: '',
+        context_mode: 'any',
+      },
+      {
+        icon: 'binary',
+        label: 'Cited answer',
+        prompt: `Answer using ${label} only, with citations for every factual claim.`,
+        scope_key: '',
+        context_mode: 'any',
+      },
+      {
+        icon: 'layers',
+        label: 'Locate the table',
+        prompt: `Find the table or section in ${label} that defines a parameter, then explain how to read it.`,
+        scope_key: '',
+        context_mode: 'any',
+      },
+      {
+        icon: 'shield-check',
+        label: 'Evidence gap',
+        prompt: `Check whether ${label} contains enough evidence to answer the question, and say what is missing if it does not.`,
+        scope_key: '',
+        context_mode: 'any',
+      },
+    ];
+  }
+
+  private scopeLabel(scopeKey: string | null | undefined): string {
+    if (!scopeKey) return 'workspace';
+    const scope = this.scopes().find((item) => item.key === scopeKey);
+    return scope?.label || scopeKey;
   }
 }
