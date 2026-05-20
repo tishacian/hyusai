@@ -91,6 +91,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         notes="Workspace-scoped action planner for advisory decisions, cabinet follow-up and controlled assistant actions.",
     ),
     SurfaceMetadata(
+        "/api/v1/actions",
+        "Operate",
+        "Run",
+        "canonical",
+        "workspace-user",
+        "Agentium Core",
+        ("/chat", "/flow-builder", "/workspace/:slug/settings"),
+        notes="Provider-neutral action manifests, effective inheritance, resolution and execution across Chat, Voice, Flow and System workbenches.",
+    ),
+    SurfaceMetadata(
         "/api/v1/workspace-jobs",
         "Operate",
         "Run",

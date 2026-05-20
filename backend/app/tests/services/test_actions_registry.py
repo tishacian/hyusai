@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.api.v1.endpoints import actions
+from app.core.iam.roles import WORKSPACE_OWNER
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
+from app.services.actions import effective_action_manifests, handle_transverse_chat_action, resolve_action
+from app.services.action_plans import list_action_items
+
+
+def _workspace(slug: str, *, settings: dict | None = None) -> Workspace:
+    return Workspace(id=f"ws-{slug}", slug=slug, name=slug.title(), settings=settings or {}, mode="builder")
+
+
+def test_andritz_inherits_industrial_actions_but_not_aya():
+    workspace = _workspace("andritz")
+
+    ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat")}
+
+    assert "andritz.find_parameter_value" in ids
+    assert "andritz.locate_evidence_table" in ids
+    assert "aya.action_plan_status" not in ids
+
+
+def test_sentinel_inherits_aya_actions_without_andritz_pack():
+    workspace = _workspace("sentinel-ci")
+
+    ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat")}
+
+    assert "aya.action_plan_status" in ids
+    assert "andritz.find_parameter_value" not in ids
+
+
+def test_global_voice_actions_are_trans_workspace():
+    andritz = _workspace("andritz")
+    sentinel = _workspace("sentinel-ci")
+
+    andritz_ids = {action.action_id for action in effective_action_manifests(andritz, surface="voice")}
+    sentinel_ids = {action.action_id for action in effective_action_manifests(sentinel, surface="voice")}
+
+    assert "voice.stop" in andritz_ids
+    assert "voice.stop" in sentinel_ids
+    assert resolve_action(andritz, text="on peut s'arrêter là", surface="voice").action_id == "voice.stop"
+
+
+def test_catalog_override_can_enable_aya_in_andritz():
+    workspace = _workspace("andritz", settings={"catalog": {"enabled_capabilities": ["aya_voice_command"]}})
+
+    ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat")}
+
+    assert "aya.action_plan_status" in ids
+    assert "andritz.find_parameter_value" in ids
+
+
+def test_resolver_matches_andritz_parameter_action():
+    workspace = _workspace("andritz")
+
+    result = resolve_action(
+        workspace,
+        text="Peux-tu retrouver le diamètre labellisé par la lettre B ?",
+        surface="chat",
+    )
+
+    assert result.matched is True
+    assert result.action_id == "andritz.find_parameter_value"
+    assert result.requires_confirmation is False
+
+
+def test_aya_legacy_action_plan_still_creates_direct_action(db_session):
+    workspace = _workspace(
+        "sentinel-ci",
+        settings={"action_planner": {"write_policy": "direct"}},
+    )
+    user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    result = handle_transverse_chat_action(
+        db_session,
+        workspace,
+        user,
+        query="Ajoute une action cabinet prioritaire pour preparer les elements de langage a 10h30",
+        assistant_profile="vigie_executive",
+    )
+
+    assert result is not None
+    assert result["action"] == "action_plan_create"
+    assert len(list_action_items(db_session, workspace)) == 1
+
+
+def test_actions_api_exposes_effective_actions(db_session):
+    workspace = _workspace("andritz")
+    user = User(id="user-1", username="thib", email="thib@example.test", is_active=True)
+    membership = WorkspaceMember(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role="owner",
+        role_template=WORKSPACE_OWNER,
+    )
+    db_session.add_all([workspace, user, membership])
+    db_session.commit()
+
+    app = FastAPI()
+    app.include_router(actions.router, prefix="/api/v1/actions")
+    app.dependency_overrides[actions.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[actions.get_current_user] = lambda: user
+    app.dependency_overrides[actions.get_db] = lambda: db_session
+
+    response = TestClient(app).get("/api/v1/actions/effective?surface=chat")
+
+    assert response.status_code == 200
+    ids = {item["action_id"] for item in response.json()["actions"]}
+    assert "andritz.find_parameter_value" in ids
+    assert "aya.action_plan_status" not in ids

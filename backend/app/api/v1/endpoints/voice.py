@@ -15,6 +15,7 @@ Implementation notes:
   blocking call, preserving the streaming response pattern.
 """
 
+import time
 from typing import Any, Dict, Optional
 
 import httpx
@@ -32,6 +33,7 @@ from app.services.voice_runtime import (
     VoiceProviderError,
     VoiceProviderNotAllowed,
     VoiceProviderUnavailable,
+    audio_media_type,
     build_openai_realtime_session,
     create_openai_realtime_call,
     create_openai_realtime_client_secret,
@@ -58,6 +60,9 @@ class SynthesizeRequest(BaseModel):
     text: str
     voice: str = "nova"
     provider: Optional[str] = None
+    latency_profile: Optional[str] = None
+    surface: Optional[str] = None
+    format: Optional[str] = None
 
 
 class RealtimeSessionRequest(BaseModel):
@@ -144,15 +149,28 @@ async def synthesize_speech(
     req: SynthesizeRequest,
     permission: PermissionContext = Depends(voice_read),
 ):
+    started_at = time.perf_counter()
+    response_format = req.format or "mp3"
+    latency_profile = (req.latency_profile or "balanced").strip().lower()
+    surface = (req.surface or "unknown").strip() or "unknown"
     try:
         provider = get_voice_runtime_provider(req.provider or "cascade_openai", workspace_settings=permission.workspace.settings)
-        speech = await provider.create_speech(req.text, voice=req.voice)
+        speech = await provider.create_speech(
+            req.text,
+            voice=req.voice,
+            latency_profile=latency_profile,
+            response_format=response_format,
+        )
         logger.info(
             "synthesize: streaming",
+            surface=surface,
+            provider=getattr(provider, "slug", req.provider or "cascade_openai"),
             model=speech.model,
+            latency_profile=latency_profile,
             text_chars=len(req.text),
+            duration_ms=round((time.perf_counter() - started_at) * 1000),
         )
-        return StreamingResponse(stream_response_bytes(speech.response), media_type="audio/mpeg")
+        return StreamingResponse(stream_response_bytes(speech.response), media_type=audio_media_type(response_format))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except VoiceProviderError as exc:

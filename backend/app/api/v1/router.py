@@ -39,6 +39,7 @@ from app.api.v1.endpoints import (
     mission_room,
     calendar,
     action_plans,
+    actions,
     workspace_jobs,
     maps,
     visual_intelligence,
@@ -87,6 +88,7 @@ api_router.include_router(blueprints.router, prefix="/blueprints", tags=["bluepr
 api_router.include_router(mission_room.router, prefix="/mission-room", tags=["mission-room"])
 api_router.include_router(calendar.router, prefix="/calendar", tags=["calendar"])
 api_router.include_router(action_plans.router, prefix="/action-plans", tags=["action-plans"])
+api_router.include_router(actions.router, prefix="/actions", tags=["actions"])
 api_router.include_router(workspace_jobs.router, prefix="/workspace-jobs", tags=["workspace-jobs"])
 api_router.include_router(maps.router, prefix="/maps", tags=["maps"])
 api_router.include_router(visual_intelligence.router, prefix="/visual-intelligence", tags=["visual-intelligence"])

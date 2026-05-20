@@ -103,11 +103,22 @@ VOICE2VOICE_MANIFEST = CapabilityIAMManifest(
     ),
 )
 
+AGENTIUM_ACTIONS_MANIFEST = CapabilityIAMManifest(
+    capability_id="agentium_actions",
+    permissions=(
+        PermissionRule("action", "read", ALL_CAPTURE_ROLES),
+        PermissionRule("action", "resolve", ALL_CAPTURE_ROLES),
+        PermissionRule("action", "execute", CONTRIBUTOR_OR_ADMIN + (WORKSPACE_REVIEWER,)),
+        PermissionRule("action", "manage", ADMIN_ROLES),
+    ),
+)
+
 
 MANIFESTS: Dict[str, CapabilityIAMManifest] = {
     CAPTURE_MANIFEST.capability_id: CAPTURE_MANIFEST,
     SECURE_DEPOSIT_MANIFEST.capability_id: SECURE_DEPOSIT_MANIFEST,
     VOICE2VOICE_MANIFEST.capability_id: VOICE2VOICE_MANIFEST,
+    AGENTIUM_ACTIONS_MANIFEST.capability_id: AGENTIUM_ACTIONS_MANIFEST,
 }
 
 

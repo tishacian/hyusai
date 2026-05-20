@@ -19,6 +19,11 @@ import { SettingsService } from '@app/core/settings.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import {
+  VoiceOutputConfig,
+  VoiceTtsPlaybackService,
+  VoiceTtsState,
+} from '@app/core/voice-tts-playback.service';
+import {
   VoiceLoopControllerFactory,
   VoiceLoopEndpointReason,
   VoiceLoopState,
@@ -112,6 +117,7 @@ interface AssistantProfile {
   hidden_controls?: string[];
   chat?: WorkspaceChatConfig;
   voice_loop?: WorkspaceVoiceLoopConfig;
+  voice_output?: VoiceOutputConfig;
 }
 
 interface KnowledgeScopeOption {
@@ -153,6 +159,19 @@ interface WorkspaceVoiceLoopConfig {
   max_turn_ms?: number;
   cooldown_ms?: number;
   rms_threshold?: number;
+}
+
+interface WorkspaceVoiceOutputConfig extends VoiceOutputConfig {}
+
+interface ActionManifest {
+  action_id: string;
+  label: string;
+  description?: string;
+  surfaces?: string[];
+  phrases?: string[];
+  requires_confirmation?: boolean;
+  inherited_from?: string;
+  handler?: { kind?: string; name?: string };
 }
 
 function isSentinelShowcaseProfile(profile: AssistantProfile | null): boolean {
@@ -526,6 +545,31 @@ const STEP_ICONS: Record<string, string> = {
       />
       }
 
+      @if ((!executiveMode() || traceOpen()) && effectiveChatActions().length) {
+        <div class="action-surface-bar">
+          <span class="action-surface-label">
+            <app-icon name="zap" [size]="12" />
+            Actions
+            <span class="control-info-dot" title="Workspace/system action manifests available to this chat. Voice can resolve the same safe commands from final transcripts.">
+              <app-icon name="info" [size]="10" />
+            </span>
+          </span>
+          @for (action of effectiveChatActions(); track action.action_id) {
+            <button
+              type="button"
+              class="action-chip"
+              [title]="action.description || action.label"
+              (click)="stageActionPrompt(action)"
+            >
+              {{ action.label }}
+              @if (action.requires_confirmation) {
+                <span>confirm</span>
+              }
+            </button>
+          }
+        </div>
+      }
+
       <!-- Messages -->
       <div
         class="flex-1 overflow-y-auto px-4 py-4 space-y-5"
@@ -566,6 +610,21 @@ const STEP_ICONS: Record<string, string> = {
                 </button>
               }
             </div>
+            @if (effectiveChatActions().length) {
+              <div class="mt-4 flex max-w-2xl flex-wrap items-center justify-center gap-2">
+                @for (action of effectiveChatActions().slice(0, 4); track action.action_id) {
+                  <button
+                    type="button"
+                    class="action-empty-chip"
+                    [title]="action.description || action.label"
+                    (click)="stageActionPrompt(action)"
+                  >
+                    <app-icon name="zap" [size]="12" />
+                    {{ action.label }}
+                  </button>
+                }
+              </div>
+            }
           </div>
         }
 
@@ -1332,6 +1391,59 @@ const STEP_ICONS: Record<string, string> = {
       background: rgba(34, 211, 238, 0.13);
       box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.25);
     }
+    .action-surface-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+      background: rgba(2, 8, 18, 0.28);
+    }
+    .action-surface-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: rgba(177, 190, 210, 0.82);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .action-chip,
+    .action-empty-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      border-radius: 10px;
+      padding: 5px 9px;
+      border: 1px solid rgba(103, 213, 246, 0.16);
+      background: rgba(34, 211, 238, 0.07);
+      color: rgb(207, 250, 254);
+      font-size: 11px;
+      font-weight: 700;
+      transition: 140ms ease;
+    }
+    .action-chip:hover,
+    .action-empty-chip:hover {
+      border-color: rgba(103, 213, 246, 0.35);
+      background: rgba(34, 211, 238, 0.13);
+    }
+    .action-chip span {
+      border-radius: 999px;
+      padding: 1px 5px;
+      background: rgba(245, 158, 11, 0.12);
+      color: rgb(253, 230, 138);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .action-empty-chip {
+      min-height: 32px;
+      background: rgba(255, 255, 255, 0.03);
+      color: rgba(232, 239, 250, 0.88);
+    }
     .voice-control-bar {
       display: flex;
       align-items: center;
@@ -1617,6 +1729,7 @@ export class ChatPanelComponent {
   private readonly health = inject(RuntimeHealthService);
   private readonly voiceSession = inject(VoiceSessionService);
   private readonly voiceLoopFactory = inject(VoiceLoopControllerFactory);
+  private readonly ttsPlaybackFactory = inject(VoiceTtsPlaybackService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly workspace = inject(WorkspaceService);
@@ -1637,6 +1750,7 @@ export class ChatPanelComponent {
   readonly promptType = signal<string>('auto');
   readonly reasoningTemplates = signal<ReasoningTemplate[]>([]);
   readonly voiceRuntimes = signal<VoiceRuntimeCatalog | null>(null);
+  readonly effectiveChatActions = signal<ActionManifest[]>([]);
   readonly voiceProvider = signal('cascade_openai');
 	  readonly voiceTransport = signal<VoiceTransportChoice>('batch_http');
 	  readonly voiceAutoSend = signal(false);
@@ -1686,6 +1800,21 @@ export class ChatPanelComponent {
       ...(this.isRecord(workspaceConfig) ? workspaceConfig : {}),
       ...(this.isRecord(profileConfig) ? profileConfig : {}),
     } as WorkspaceVoiceLoopConfig;
+  });
+  readonly workspaceVoiceOutputConfig = computed<WorkspaceVoiceOutputConfig>(() => {
+    const settings = this.workspace.current()?.settings;
+    const workspaceConfig = this.isRecord(settings?.['voice_output']) ? settings?.['voice_output'] : {};
+    const profileConfig = this.activeAssistantProfile()?.voice_output;
+    return {
+      latency_profile: 'fast',
+      voice: 'nova',
+      flush_first_chars: 24,
+      flush_next_chars: 80,
+      flush_timeout_ms: 900,
+      interrupt_on_user_speech: true,
+      ...(this.isRecord(workspaceConfig) ? workspaceConfig : {}),
+      ...(this.isRecord(profileConfig) ? profileConfig : {}),
+    } as WorkspaceVoiceOutputConfig;
   });
   readonly selectedSource = signal<SourceSelection>('auto');
   readonly sessionDocsMode = signal<SessionDocsMode>('replace');
@@ -1970,28 +2099,18 @@ export class ChatPanelComponent {
    * metric card without expanding every other step below it.
    */
   private readonly openEvals = signal<Set<string>>(new Set());
-  private currentAudio: HTMLAudioElement | null = null;
   private voiceConnection: VoiceSessionConnection | null = null;
   private readonly voiceLoop = this.voiceLoopFactory.create('chat');
+  private readonly ttsPlayback = this.ttsPlaybackFactory.createController('chat');
   private chatVoiceSessionId = `chat-${crypto.randomUUID?.() || Date.now()}`;
   private streamStart = 0;
   private voiceLoopRearmTimer: ReturnType<typeof setTimeout> | null = null;
   private voiceLastEndpointReason: VoiceLoopEndpointReason | null = null;
   private appliedVoiceDefaultsSignature = '';
-
-  // TTS pipeline state — we flush completed sentences from the LLM
-  // stream to OpenAI TTS as they come in, then play the resulting MP3
-  // chunks sequentially so the user hears the first sentence while the
-  // model is still generating the last one.
-  private ttsFlushedIdx = 0;
-  private ttsQueue: HTMLAudioElement[] = [];
-  private ttsPlaying = false;
-  private ttsAborted = false;
   /**
    * Signals reflecting TTS transport state so the template can show a
-   * pause/resume button only while audio is actually being played or
-   * queued up. ``ttsSpeaking`` is OR of (currentAudio active || queue
-   * non-empty); ``ttsPaused`` flips when the user hits pause/resume.
+   * pause/resume button only while audio is actually being prepared,
+   * queued or played.
    */
   readonly ttsSpeaking = signal(false);
   readonly ttsPaused = signal(false);
@@ -2017,14 +2136,21 @@ export class ChatPanelComponent {
       this.appliedVoiceDefaultsSignature = signature;
       this.applyWorkspaceVoiceDefaults(config, selectable);
     });
+    effect(() => {
+      const workspaceSlug = this.workspace.current()?.slug || '';
+      const profileKey = this.activeAssistantProfile()?.key || this.assistantProfileKey() || '';
+      const systemId = this.systemId() || '';
+      if (!workspaceSlug) return;
+      this.loadEffectiveChatActions(profileKey, systemId);
+    });
     this.settings.refresh();
     this.health.load().subscribe();
     this.loadReasoningTemplates();
     this.loadVoiceRuntimes();
     this.destroyRef.onDestroy(() => {
-      this.currentAudio?.pause();
       this.clearVoiceLoopRearmTimer();
       this.voiceLoop.dispose();
+      this.ttsPlayback.destroy();
       this.voiceConnection?.close();
     });
   }
@@ -2057,6 +2183,16 @@ export class ChatPanelComponent {
         this.voiceRuntimes.set(null);
         this.voiceProvider.set('cascade_openai');
       },
+    });
+  }
+
+  private loadEffectiveChatActions(assistantProfile: string, systemId: string): void {
+    const params: Record<string, string> = { surface: 'chat' };
+    if (assistantProfile) params['assistant_profile'] = assistantProfile;
+    if (systemId) params['system_id'] = systemId;
+    this.api.get<{ actions: ActionManifest[] }>('/actions/effective', params).subscribe({
+      next: (res) => this.effectiveChatActions.set((res?.actions || []).filter((action) => !action.action_id.startsWith('voice.')).slice(0, 8)),
+      error: () => this.effectiveChatActions.set([]),
     });
   }
 
@@ -2602,6 +2738,13 @@ export class ChatPanelComponent {
     this.send();
   }
 
+  stageActionPrompt(action: ActionManifest): void {
+    const phrase = action.phrases?.[0] || action.label;
+    this.userInput = phrase;
+    this.voiceOracleMessage.set(action.requires_confirmation ? `Action proposed: ${action.label}. Confirmation will be requested if it changes data.` : `Action ready: ${action.label}.`);
+    this.cdr.markForCheck();
+  }
+
   private configuredPromptPack(): SuggestionCard[] {
     const config = this.workspaceChatConfig();
     const activeScope = this.activeKnowledgeScope();
@@ -2814,6 +2957,9 @@ export class ChatPanelComponent {
     this.liveSteps.set([]);
     this.streamStart = Date.now();
     this.resetTtsPipeline();
+    if (this.ttsEnabled()) {
+      this.beginTtsStream();
+    }
 
     const s = this.settings.settings();
     let buffer = '';
@@ -2926,6 +3072,7 @@ export class ChatPanelComponent {
             if (this.ttsEnabled() && buffer.trim()) {
               this.flushTrailingTts(buffer);
             } else {
+              if (this.ttsEnabled()) this.resetTtsPipeline();
               this.scheduleVoiceLoopRearm();
             }
           }
@@ -2935,6 +3082,7 @@ export class ChatPanelComponent {
           this.streaming.set(false);
           this.streamBuffer.set('');
           this.liveSteps.set([]);
+          if (this.ttsEnabled()) this.resetTtsPipeline();
           this.scheduleVoiceLoopRearm();
         },
       });
@@ -3548,7 +3696,8 @@ export class ChatPanelComponent {
       if (!this.ttsEnabled() && this.voiceOutputProvider()) this.ttsEnabled.set(true);
       if (this.ttsEnabled()) {
         this.resetTtsPipeline();
-        this.queueTtsChunk(last.content);
+        this.beginTtsStream();
+        this.flushTrailingTts(last.content);
       }
       return true;
     }
@@ -3794,145 +3943,61 @@ export class ChatPanelComponent {
     return fallback;
   }
 
-  /**
-   * Reset the sentence-streaming TTS pipeline at the start of each new
-   * answer (or when the user mutes). Stops any playing audio, clears the
-   * queue, and arms the abort flag so in-flight HTTP responses drop
-   * their blobs instead of auto-playing.
-   */
   private resetTtsPipeline(): void {
-    this.ttsAborted = true;
-    try {
-      this.currentAudio?.pause();
-    } catch {
-      /* ignore */
-    }
-    this.currentAudio = null;
-    this.ttsQueue = [];
-    this.ttsPlaying = false;
-    this.ttsFlushedIdx = 0;
+    this.ttsPlayback.reset(true);
     this.ttsSpeaking.set(false);
     this.ttsPaused.set(false);
-    // Re-open the gate on the next animation frame so freshly-issued
-    // requests from the next call to ``send()`` aren't dropped.
-    queueMicrotask(() => {
-      this.ttsAborted = false;
-    });
   }
 
-  /**
-   * Pause or resume the currently playing TTS audio. While paused, the
-   * chunk queue keeps accepting new MP3s from in-flight requests but
-   * they don't start playing until the user hits resume (the current
-   * audio's ``onended`` is what drives queue advancement, and a paused
-   * audio never fires that event).
-   */
   pauseResumeTts(): void {
     if (!this.ttsSpeaking()) return;
-    if (this.ttsPaused()) {
-      this.currentAudio?.play().catch(() => {
-        /* ignore — browser may block autoplay resume */
-      });
-      this.ttsPaused.set(false);
-    } else {
-      try {
-        this.currentAudio?.pause();
-      } catch {
-        /* ignore */
-      }
-      this.ttsPaused.set(true);
-    }
+    this.ttsPlayback.togglePause();
   }
 
-  /**
-   * Scan the in-flight assistant buffer for the last completed sentence
-   * boundary past ``ttsFlushedIdx`` and queue a TTS chunk for it. We
-   * only flush when the pending slice is at least 40 chars long to
-   * avoid spamming OpenAI with 3-word sentences — a single TTS call
-   * with 2 short sentences is both cheaper and less choppy than two.
-   */
+  private beginTtsStream(): void {
+    this.ttsPlayback.begin({
+      surface: 'chat',
+      provider: this.voiceOutputProvider(),
+      config: this.workspaceVoiceOutputConfig(),
+      onState: (state) => this.syncTtsState(state),
+      onStarted: (metric) => {
+        this.voiceConnection?.ttsStarted({
+          surface: 'chat',
+          latency_profile: metric.latency_profile,
+          time_to_first_audio_ms: metric.time_to_first_audio_ms,
+        });
+        this.voiceNotice.set('Speaking.');
+      },
+      onEnded: (metric) => {
+        this.voiceConnection?.ttsEnded({
+          surface: 'chat',
+          duration_ms: metric.duration_ms,
+          time_to_first_audio_ms: metric.time_to_first_audio_ms,
+        });
+        this.scheduleVoiceLoopRearm();
+      },
+      onInterrupted: (reason) => {
+        this.voiceConnection?.ttsInterrupted({ surface: 'chat', reason });
+      },
+      onNotice: (message) => {
+        if (message) this.voiceNotice.set(message);
+      },
+    });
+  }
+
+  private syncTtsState(state: VoiceTtsState): void {
+    this.ttsSpeaking.set(['preparing', 'queued', 'speaking', 'paused'].includes(state));
+    this.ttsPaused.set(state === 'paused');
+  }
+
   private maybeFlushSentences(buffer: string): void {
-    const pending = buffer.slice(this.ttsFlushedIdx);
-    if (pending.length < 40) return;
-    // Match sentence-ending punctuation (accepting trailing quotes/brackets)
-    // followed by whitespace.
-    const sentenceEnd = /[.!?…]["'\)\]]*(\s|$)/g;
-    let lastEnd = -1;
-    let m: RegExpExecArray | null;
-    while ((m = sentenceEnd.exec(pending)) !== null) {
-      lastEnd = m.index + m[0].length;
-    }
-    if (lastEnd < 40) return;
-    const toSend = pending.slice(0, lastEnd).trim();
-    this.ttsFlushedIdx += lastEnd;
-    if (toSend) this.queueTtsChunk(toSend);
+    if (this.ttsPlayback.state() === 'idle') this.beginTtsStream();
+    this.ttsPlayback.appendBuffer(buffer);
   }
 
-  /**
-   * After the LLM stream completes, flush whatever text hasn't yet been
-   * sent to TTS — typically the last partial sentence that didn't end
-   * with punctuation, or a very short answer that never hit the 40-char
-   * threshold.
-   */
   private flushTrailingTts(buffer: string): void {
-    const remainder = buffer.slice(this.ttsFlushedIdx).trim();
-    this.ttsFlushedIdx = buffer.length;
-    if (remainder) this.queueTtsChunk(remainder);
-  }
-
-  private queueTtsChunk(text: string): void {
-    // Strip markdown noise that would be pronounced literally ("star
-    // star bold star star"), and cap at the backend limit.
-    const clean = text.replace(/[#*_`\[\]|]/g, '').slice(0, 4000);
-    if (!clean.trim()) return;
-    this.api.synthesizeSpeech(clean, 'nova', this.voiceOutputProvider()).subscribe({
-      next: (blob) => {
-        if (this.ttsAborted) return;
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.onended = () => {
-          URL.revokeObjectURL(url);
-          this.ttsPlaying = false;
-          this.playNextInQueue();
-        };
-        audio.onerror = () => {
-          URL.revokeObjectURL(url);
-          this.ttsPlaying = false;
-          this.playNextInQueue();
-        };
-        this.ttsQueue.push(audio);
-        this.ttsSpeaking.set(true);
-        if (!this.ttsPlaying && !this.ttsPaused()) this.playNextInQueue();
-      },
-      error: () => {
-        // Skip this chunk and let the next one play. We don't toast —
-        // this is non-blocking and toasting on every sentence would be
-        // noisy if the quota is hit.
-        if (!this.ttsPlaying && this.ttsQueue.length === 0) this.scheduleVoiceLoopRearm();
-      },
-    });
-  }
-
-  private playNextInQueue(): void {
-    if (this.ttsAborted || this.ttsPaused()) return;
-    const next = this.ttsQueue.shift();
-    if (!next) {
-      // Queue drained and current audio finished — flip the speaking
-      // flag so the pause/resume button disappears.
-      this.ttsPlaying = false;
-      this.ttsSpeaking.set(false);
-      this.voiceConnection?.ttsEnded({ surface: 'chat' });
-      this.scheduleVoiceLoopRearm();
-      return;
-    }
-    this.ttsPlaying = true;
-    this.currentAudio = next;
-    this.ttsSpeaking.set(true);
-    this.voiceConnection?.ttsStarted({ surface: 'chat' });
-    next.play().catch(() => {
-      this.ttsPlaying = false;
-      this.playNextInQueue();
-    });
+    if (this.ttsPlayback.state() === 'idle') this.beginTtsStream();
+    this.ttsPlayback.finish(buffer);
   }
 
   private lastUserMessageBefore(id: string): ChatMessage | undefined {

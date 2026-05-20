@@ -93,6 +93,33 @@ async def test_openai_realtime_batch_calls_fallback_to_cascade(monkeypatch):
     assert result["fallback"] is True
 
 
+@pytest.mark.asyncio
+async def test_cascade_tts_fast_profile_uses_fast_model(monkeypatch):
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    calls = []
+
+    class FakeSpeech:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(iter_bytes=lambda chunk_size: iter([b"audio"]))
+
+    class FakeClient:
+        audio = SimpleNamespace(speech=FakeSpeech())
+
+    monkeypatch.setattr("app.services.voice_runtime._get_client", lambda: FakeClient())
+
+    result = await CascadeVoiceRuntime().synthesize_bytes(
+        "Hello from Agentium.",
+        latency_profile="fast",
+        response_format="mp3",
+    )
+
+    assert calls[0]["model"] == "tts-1"
+    assert calls[0]["response_format"] == "mp3"
+    assert result["latency_profile"] == "fast"
+    assert result["content_type"] == "audio/mpeg"
+
+
 def test_voice_skills_and_capability_seed_are_idempotent(db_session):
     seed_skills_and_capabilities(db_session)
     seed_skills_and_capabilities(db_session)

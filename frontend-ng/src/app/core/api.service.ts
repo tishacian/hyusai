@@ -121,10 +121,22 @@ export class ApiService {
   }
 
   /** Synthesize speech (returns a playable audio Blob). */
-  synthesizeSpeech(text: string, voice = 'nova', provider?: string | null): Observable<Blob> {
+  synthesizeSpeech(
+    text: string,
+    voice = 'nova',
+    provider?: string | null,
+    options?: { latency_profile?: string | null; surface?: string | null; format?: string | null },
+  ): Observable<Blob> {
     return this.http.post(
       `${this.base}/voice/synthesize`,
-      { text, voice, provider: provider || undefined },
+      {
+        text,
+        voice,
+        provider: provider || undefined,
+        latency_profile: options?.latency_profile || undefined,
+        surface: options?.surface || undefined,
+        format: options?.format || undefined,
+      },
       { responseType: 'blob' },
     );
   }

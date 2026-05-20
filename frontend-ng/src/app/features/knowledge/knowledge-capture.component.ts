@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '@app/core/api.service';
 import { PermissionsService } from '@app/core/permissions.service';
+import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-playback.service';
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -1479,9 +1480,23 @@ export class KnowledgeCaptureComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly zoom = inject(ZoomContextService);
   private readonly voiceSession = inject(VoiceSessionService);
+  private readonly ttsPlaybackFactory = inject(VoiceTtsPlaybackService);
   private readonly workspace = inject(WorkspaceService);
   readonly permissions = inject(PermissionsService);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
+  readonly workspaceVoiceOutputConfig = computed(() => {
+    const settings = this.asRecord(this.workspace.current()?.settings);
+    const voiceOutput = this.asRecord(settings['voice_output']);
+    return {
+      latency_profile: 'fast',
+      voice: 'nova',
+      flush_first_chars: 24,
+      flush_next_chars: 80,
+      flush_timeout_ms: 900,
+      interrupt_on_user_speech: true,
+      ...voiceOutput,
+    };
+  });
 
   objective =
     'Capture tacit troubleshooting and offer reasoning from a senior industrial expert.';
@@ -1613,15 +1628,17 @@ export class KnowledgeCaptureComponent implements OnInit {
   private currentClientTurnId: string | null = null;
   private activeAudio: HTMLAudioElement | null = null;
   private voiceConnection: VoiceSessionConnection | null = null;
+  private readonly ttsPlayback = this.ttsPlaybackFactory.createController('knowledge_capture');
   private pendingVoiceFrameSends: Promise<void>[] = [];
-  private audioQueue: string[] = [];
   private revokedAudioUrls: string[] = [];
-  private speechGeneration = 0;
   private autoResumeTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSuggestedContextName = '';
 
   ngOnInit(): void {
-    this.destroyRef.onDestroy(() => this.closeVoiceConnection());
+    this.destroyRef.onDestroy(() => {
+      this.closeVoiceConnection();
+      this.ttsPlayback.destroy();
+    });
     this.permissions.refresh().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     this.contextId = this.route.snapshot.queryParamMap.get('contextId') || '';
     this.systemId =
@@ -1666,6 +1683,10 @@ export class KnowledgeCaptureComponent implements OnInit {
         .subscribe((system) => this.applySystemScope(system));
     }
     this.refreshDashboard();
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   }
 
   createPlan(): void {
@@ -3231,18 +3252,42 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (!clean) {
       return;
     }
-    this.setVoiceNotice('Agentium is reading the prompt. You can interrupt and answer at any time.', 'info');
+    this.setVoiceNotice('Preparing voice output. You can interrupt and answer at any time.', 'info');
     this.stopSpeech(false);
-    const generation = ++this.speechGeneration;
-    this.audioQueue = this.splitSpeech(clean);
-    this.playNextSpeechSegment(generation);
+    this.ttsPlayback.playText(clean, {
+      surface: 'knowledge_capture',
+      provider: this.session()?.voice_runtime || 'cascade_openai',
+      config: this.workspaceVoiceOutputConfig(),
+      onState: (state) => this.syncCaptureTtsState(state),
+      onStarted: (metric) => {
+        this.voiceConnection?.ttsStarted({
+          surface: 'knowledge_capture',
+          latency_profile: metric.latency_profile,
+          time_to_first_audio_ms: metric.time_to_first_audio_ms,
+        });
+        this.setVoiceNotice('Agentium is reading the prompt. You can interrupt and answer at any time.', 'info');
+      },
+      onEnded: (metric) => {
+        this.voiceConnection?.ttsEnded({
+          surface: 'knowledge_capture',
+          duration_ms: metric.duration_ms,
+          time_to_first_audio_ms: metric.time_to_first_audio_ms,
+        });
+        this.scheduleConversationResume();
+      },
+      onInterrupted: (reason) => {
+        this.voiceConnection?.ttsInterrupted({ surface: 'knowledge_capture', reason });
+      },
+      onNotice: (message, tone) => {
+        if (message) this.setVoiceNotice(message, tone || 'info');
+      },
+    });
   }
 
   interruptSpeech(): void {
     const promptEventId = this.lastSystemPromptEventId();
     this.stopSpeech(true);
     this.voiceConnection?.bargeIn(promptEventId);
-    this.voiceConnection?.ttsInterrupted({ surface: 'knowledge_capture', reason: 'barge_in' });
     this.interruptionOfEventId.set(promptEventId || 'client-interruption');
     this.voiceState.set('interrupted');
   }
@@ -3395,80 +3440,37 @@ export class KnowledgeCaptureComponent implements OnInit {
       });
   }
 
-  private splitSpeech(text: string): string[] {
-    return text
-      .replace(/\s+/g, ' ')
-      .split(/(?<=[.!?])\s+/)
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .reduce<string[]>((segments, part) => {
-        if (part.length <= 220) return [...segments, part];
-        const chunks = part.match(/.{1,220}(\s|$)/g) || [part.slice(0, 220)];
-        return [...segments, ...chunks.map((chunk) => chunk.trim()).filter(Boolean)];
-      }, []);
-  }
-
   retrievalChunkTrack(index: number, chunk: string): string {
     return `${index}:${chunk.slice(0, 80)}`;
   }
 
-  private playNextSpeechSegment(generation: number): void {
-    if (generation !== this.speechGeneration) {
-      return;
-    }
-    const segment = this.audioQueue.shift();
-    if (!segment) {
-      this.speaking.set(false);
-      this.voiceState.set('idle');
-      this.cleanupAudioUrls();
-      this.voiceConnection?.ttsEnded({ surface: 'knowledge_capture' });
-      this.scheduleConversationResume();
-      return;
-    }
-    this.speaking.set(true);
-    this.voiceState.set('speaking');
-    this.voiceConnection?.ttsStarted({ surface: 'knowledge_capture' });
-    this.api
-      .synthesizeSpeech(segment.slice(0, 600))
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (blob) => {
-          if (generation !== this.speechGeneration) {
-            return;
-          }
-          const url = URL.createObjectURL(blob);
-          this.revokedAudioUrls.push(url);
-          const audio = new Audio(url);
-          this.activeAudio = audio;
-          audio.onended = () => this.playNextSpeechSegment(generation);
-          audio.onerror = () => {
-            this.setVoiceNotice('Audio playback failed; opening the microphone instead.', 'warning');
-            this.playNextSpeechSegment(generation);
-          };
-          void audio.play().catch(() => {
-            this.setVoiceNotice('Browser blocked audio playback; opening the microphone instead.', 'warning');
-            this.playNextSpeechSegment(generation);
-          });
-        },
-        error: () => {
-          this.setVoiceNotice('Voice synthesis is unavailable; opening the microphone instead.', 'warning');
-          this.playNextSpeechSegment(generation);
-        },
-      });
-  }
-
   private stopSpeech(markInterrupted: boolean): void {
-    this.speechGeneration += 1;
+    this.ttsPlayback.stop(markInterrupted ? 'barge_in' : 'reset', markInterrupted);
     if (this.activeAudio) {
       this.activeAudio.pause();
       this.activeAudio.currentTime = 0;
       this.activeAudio = null;
     }
-    this.audioQueue = [];
     this.speaking.set(false);
     this.cleanupAudioUrls();
     if (markInterrupted) {
       this.voiceState.set('interrupted');
+    }
+  }
+
+  private syncCaptureTtsState(state: VoiceTtsState): void {
+    const active = ['preparing', 'queued', 'speaking', 'paused'].includes(state);
+    this.speaking.set(active);
+    if (state === 'speaking' || state === 'preparing' || state === 'queued' || state === 'paused') {
+      this.voiceState.set('speaking');
+      return;
+    }
+    if (state === 'idle' && !this.recording() && !this.transcribing()) {
+      this.voiceState.set('idle');
+    }
+    if (state === 'error') {
+      this.voiceState.set('idle');
+      this.setVoiceNotice('Voice synthesis is unavailable; opening the microphone instead.', 'warning');
     }
   }
 

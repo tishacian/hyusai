@@ -23,6 +23,7 @@ logger = get_logger(__name__)
 
 _TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
 _TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+_TTS_FAST_MODEL = os.getenv("OPENAI_TTS_FAST_MODEL", "tts-1")
 _sync_client: openai.OpenAI | None = None
 _async_client: openai.AsyncOpenAI | None = None
 
@@ -120,10 +121,24 @@ class VoiceRuntimeProvider(Protocol):
     ) -> Dict[str, Any]:
         ...
 
-    async def create_speech(self, text: str, *, voice: str = "nova") -> SpeechResponse:
+    async def create_speech(
+        self,
+        text: str,
+        *,
+        voice: str = "nova",
+        latency_profile: str | None = None,
+        response_format: str = "mp3",
+    ) -> SpeechResponse:
         ...
 
-    async def synthesize_bytes(self, text: str, *, voice: str = "nova") -> Dict[str, Any]:
+    async def synthesize_bytes(
+        self,
+        text: str,
+        *,
+        voice: str = "nova",
+        latency_profile: str | None = None,
+        response_format: str = "mp3",
+    ) -> Dict[str, Any]:
         ...
 
     async def stream_in(self, frames: AsyncIterator[bytes]) -> AsyncIterator[VoiceToken]:
@@ -221,6 +236,27 @@ def _assert_capability(provider: VoiceRuntimeProvider, capability: str) -> None:
         )
 
 
+def _normalize_audio_format(value: str | None) -> str:
+    candidate = (value or "mp3").strip().lower()
+    return candidate if candidate in {"mp3", "opus", "aac", "flac", "wav", "pcm"} else "mp3"
+
+
+def audio_media_type(response_format: str | None) -> str:
+    fmt = _normalize_audio_format(response_format)
+    return {
+        "mp3": "audio/mpeg",
+        "opus": "audio/ogg",
+        "aac": "audio/aac",
+        "flac": "audio/flac",
+        "wav": "audio/wav",
+        "pcm": "audio/pcm",
+    }.get(fmt, "audio/mpeg")
+
+
+def _select_tts_model(latency_profile: str | None) -> str:
+    return _TTS_FAST_MODEL if (latency_profile or "").strip().lower() == "fast" else _TTS_MODEL
+
+
 class CascadeVoiceRuntime:
     """OpenAI-backed cascade provider used by the production-safe path."""
 
@@ -281,12 +317,21 @@ class CascadeVoiceRuntime:
                 return fallback
             raise
 
-    async def create_speech(self, text: str, *, voice: str = "nova") -> SpeechResponse:
+    async def create_speech(
+        self,
+        text: str,
+        *,
+        voice: str = "nova",
+        latency_profile: str | None = None,
+        response_format: str = "mp3",
+    ) -> SpeechResponse:
         _assert_capability(self, "tts")
         if not settings.openai_api_key:
             raise VoiceProviderUnavailable("OpenAI API key not configured")
         if not text or len(text) > 4096:
             raise ValueError("Text must be 1-4096 characters")
+        fmt = _normalize_audio_format(response_format)
+        model = _select_tts_model(latency_profile)
 
         def _create(model: str):
             client = _get_client()
@@ -294,33 +339,48 @@ class CascadeVoiceRuntime:
                 model=model,
                 input=text,
                 voice=voice,
-                response_format="mp3",
+                response_format=fmt,
             )
 
         loop = asyncio.get_running_loop()
         try:
-            response = await loop.run_in_executor(None, _create, _TTS_MODEL)
-            return SpeechResponse(response=response, model=_TTS_MODEL)
+            response = await loop.run_in_executor(None, _create, model)
+            return SpeechResponse(response=response, model=model)
         except Exception as primary_err:
             logger.warning(
                 "voice_runtime.synthesize.primary_failed",
-                model=_TTS_MODEL,
+                model=model,
+                latency_profile=latency_profile,
                 error=str(primary_err),
             )
-            if _TTS_MODEL == "tts-1":
+            if model == "tts-1":
                 raise
-            response = await loop.run_in_executor(None, _create, "tts-1")
-            return SpeechResponse(response=response, model="tts-1")
+            fallback_model = _TTS_FAST_MODEL if _TTS_FAST_MODEL != model else "tts-1"
+            response = await loop.run_in_executor(None, _create, fallback_model)
+            return SpeechResponse(response=response, model=fallback_model)
 
-    async def synthesize_bytes(self, text: str, *, voice: str = "nova") -> Dict[str, Any]:
-        speech = await self.create_speech(text, voice=voice)
+    async def synthesize_bytes(
+        self,
+        text: str,
+        *,
+        voice: str = "nova",
+        latency_profile: str | None = None,
+        response_format: str = "mp3",
+    ) -> Dict[str, Any]:
+        speech = await self.create_speech(
+            text,
+            voice=voice,
+            latency_profile=latency_profile,
+            response_format=response_format,
+        )
         audio_bytes = b"".join(speech.response.iter_bytes(4096))
         return {
             "audio_bytes": audio_bytes,
             "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
-            "content_type": "audio/mpeg",
+            "content_type": audio_media_type(response_format),
             "model": speech.model,
             "provider": self.slug,
+            "latency_profile": latency_profile or "balanced",
             "bytes": len(audio_bytes),
         }
 
@@ -380,11 +440,35 @@ class OpenAIRealtimeVoiceRuntime:
         fallback["fallback_reason"] = "openai_realtime_batch_transcription_uses_cascade"
         return fallback
 
-    async def create_speech(self, text: str, *, voice: str = "nova") -> SpeechResponse:
-        return await CascadeVoiceRuntime().create_speech(text, voice=voice)
+    async def create_speech(
+        self,
+        text: str,
+        *,
+        voice: str = "nova",
+        latency_profile: str | None = None,
+        response_format: str = "mp3",
+    ) -> SpeechResponse:
+        return await CascadeVoiceRuntime().create_speech(
+            text,
+            voice=voice,
+            latency_profile=latency_profile,
+            response_format=response_format,
+        )
 
-    async def synthesize_bytes(self, text: str, *, voice: str = "nova") -> Dict[str, Any]:
-        fallback = await CascadeVoiceRuntime().synthesize_bytes(text, voice=voice)
+    async def synthesize_bytes(
+        self,
+        text: str,
+        *,
+        voice: str = "nova",
+        latency_profile: str | None = None,
+        response_format: str = "mp3",
+    ) -> Dict[str, Any]:
+        fallback = await CascadeVoiceRuntime().synthesize_bytes(
+            text,
+            voice=voice,
+            latency_profile=latency_profile,
+            response_format=response_format,
+        )
         fallback["requested_provider"] = self.slug
         fallback["fallback"] = True
         fallback["fallback_reason"] = "openai_realtime_tts_uses_cascade"
@@ -438,14 +522,39 @@ class LocalHttpVoiceRuntime:
             "model": data.get("model") or self.model,
         }
 
-    async def create_speech(self, text: str, *, voice: str = "nova") -> SpeechResponse:
+    async def create_speech(
+        self,
+        text: str,
+        *,
+        voice: str = "nova",
+        latency_profile: str | None = None,
+        response_format: str = "mp3",
+    ) -> SpeechResponse:
         _assert_capability(self, "tts")
-        result = await self.synthesize_bytes(text, voice=voice)
+        result = await self.synthesize_bytes(
+            text,
+            voice=voice,
+            latency_profile=latency_profile,
+            response_format=response_format,
+        )
         return SpeechResponse(response=_BytesSpeechResponse(result["audio_bytes"]), model=result.get("model") or self.model or self.slug)
 
-    async def synthesize_bytes(self, text: str, *, voice: str = "nova") -> Dict[str, Any]:
+    async def synthesize_bytes(
+        self,
+        text: str,
+        *,
+        voice: str = "nova",
+        latency_profile: str | None = None,
+        response_format: str = "mp3",
+    ) -> Dict[str, Any]:
         _assert_capability(self, "tts")
-        payload = {"text": text, "voice": voice, "model": self.model}
+        payload = {
+            "text": text,
+            "voice": voice,
+            "model": self.model,
+            "latency_profile": latency_profile or "balanced",
+            "format": _normalize_audio_format(response_format),
+        }
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(f"{self._endpoint()}/synthesize", json=payload)
             response.raise_for_status()
@@ -464,6 +573,7 @@ class LocalHttpVoiceRuntime:
             "content_type": content_type,
             "model": model,
             "provider": self.slug,
+            "latency_profile": latency_profile or "balanced",
             "bytes": len(raw),
         }
 
@@ -633,7 +743,7 @@ def _provider_descriptor(slug: str, workspace_slug: str | None = None) -> Dict[s
 
 def _provider_models(slug: str) -> list[str]:
     if slug == "cascade_openai":
-        return [_TRANSCRIBE_MODEL, _TTS_MODEL]
+        return list(dict.fromkeys([_TRANSCRIBE_MODEL, _TTS_MODEL, _TTS_FAST_MODEL]))
     if slug == "openai_realtime":
         return [
             settings.openai_realtime_model,

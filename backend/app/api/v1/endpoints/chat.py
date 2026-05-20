@@ -35,7 +35,8 @@ from app.services.evaluation.canonical_answer_service import (
     find_canonical_answer,
     record_hit,
 )
-from app.services.action_plans import action_context_for_chat, handle_action_plan_chat_action
+from app.services.action_plans import action_context_for_chat
+from app.services.actions import handle_transverse_chat_action
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
@@ -679,7 +680,7 @@ async def chat_completion(
                 "calendar_action": calendar_action,
             }
 
-        action_plan_action = handle_action_plan_chat_action(
+        action_plan_action = handle_transverse_chat_action(
             db,
             workspace,
             user,
@@ -1212,7 +1213,7 @@ async def chat_stream(
                 yield _sse_done()
                 return
 
-            action_plan_action = handle_action_plan_chat_action(
+            action_plan_action = handle_transverse_chat_action(
                 db,
                 workspace,
                 user,

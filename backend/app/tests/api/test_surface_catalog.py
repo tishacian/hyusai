@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.v1.endpoints import agents, catalog, settings, traces
+from app.api.v1.endpoints import actions, agents, catalog, settings, traces
 
 
 def _catalog_client() -> TestClient:
@@ -24,6 +24,7 @@ def _catalog_client() -> TestClient:
     app.include_router(catalog.router, prefix="/api/v1/catalog")
     app.include_router(knowledge_router, prefix="/api/v1/knowledge-capture")
     app.include_router(deposit_router, prefix="/api/v1/deposit-links")
+    app.include_router(actions.router, prefix="/api/v1/actions")
     app.include_router(agents.router, prefix="/api/v1/agents")
     app.include_router(traces.router, prefix="/api/v1/traces")
     app.include_router(settings.router, prefix="/api/v1/settings")
@@ -41,6 +42,7 @@ def test_endpoint_catalog_covers_all_openapi_routes():
 
     paths = {(entry["method"], entry["path"]) for entry in body["entries"]}
     assert ("GET", "/api/v1/catalog/endpoints") in paths
+    assert ("GET", "/api/v1/actions/effective") in paths
     assert ("GET", "/api/v1/knowledge-capture/sessions") in paths
     assert any(
         entry["path"].startswith("/api/v1/deposit-links/")

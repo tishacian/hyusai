@@ -48,6 +48,7 @@ interface ChatSettingsDraft {
 }
 
 type VoiceLoopDefaultMode = 'batch' | 'session_loop' | 'realtime';
+type VoiceOutputLatencyProfile = 'fast' | 'balanced' | 'quality';
 
 interface VoiceLoopSettingsDraft {
   default_mode: VoiceLoopDefaultMode;
@@ -63,6 +64,22 @@ interface VoiceLoopSettingsDraft {
   min_speech_ms: number;
   max_turn_ms: number;
   cooldown_ms: number;
+}
+
+interface VoiceOutputSettingsDraft {
+  latency_profile: VoiceOutputLatencyProfile;
+  voice: string;
+  flush_first_chars: number;
+  flush_next_chars: number;
+  flush_timeout_ms: number;
+  interrupt_on_user_speech: boolean;
+}
+
+interface WorkspaceActionSettingsDraft {
+  enabled_packs_text: string;
+  hidden_packs_text: string;
+  enabled_actions_text: string;
+  hidden_actions_text: string;
 }
 
 interface AssistantProfileDraft {
@@ -472,6 +489,112 @@ interface AssistantProfileDraft {
                 Profiles can override this with <span class="font-mono text-gray-300">voice_loop</span>. Example:
                 AYA can keep the same Session loop while changing only command wording or default mode.
               </p>
+            </div>
+
+            <div class="rounded-md border border-cyan-400/20 bg-cyan-500/5 p-4">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Voice output</p>
+                  <h4 class="text-sm font-semibold text-white mt-1">Low-latency TTS playback</h4>
+                  <p class="text-xs text-gray-400 mt-1 max-w-xl leading-relaxed">
+                    Fast mode starts synthesis on short text chunks while the answer is still streaming. Demo mode shows
+                    this as Voice output · Fast without revealing provider or model.
+                  </p>
+                </div>
+                <label class="voice-toggle-row voice-toggle-compact">
+                  <input type="checkbox" [(ngModel)]="voiceOutputDraft.interrupt_on_user_speech" [disabled]="!canEdit()" />
+                  <span>
+                    <strong>Interrupt on speech</strong>
+                    <small>Stop queued TTS when the user starts speaking again.</small>
+                  </span>
+                </label>
+              </div>
+              <div class="mt-4 grid gap-4 md:grid-cols-3">
+                <label class="block">
+                  <span class="field-label">Latency profile</span>
+                  <span class="ag-select-wrap">
+                    <select class="ag-select" [(ngModel)]="voiceOutputDraft.latency_profile" [disabled]="!canEdit()">
+                      <option value="fast">Fast</option>
+                      <option value="balanced">Balanced</option>
+                      <option value="quality">Quality</option>
+                    </select>
+                    <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                  </span>
+                </label>
+                <label class="block">
+                  <span class="field-label">Voice</span>
+                  <input class="ag-field" [(ngModel)]="voiceOutputDraft.voice" [disabled]="!canEdit()" placeholder="nova" />
+                </label>
+                <label class="block">
+                  <span class="field-label">First flush ms</span>
+                  <input class="ag-field" type="number" min="250" max="5000" [(ngModel)]="voiceOutputDraft.flush_timeout_ms" [disabled]="!canEdit()" />
+                </label>
+              </div>
+              <div class="mt-4 grid gap-4 md:grid-cols-2">
+                <label class="block">
+                  <span class="field-label">First chunk chars</span>
+                  <input class="ag-field" type="number" min="12" max="240" [(ngModel)]="voiceOutputDraft.flush_first_chars" [disabled]="!canEdit()" />
+                </label>
+                <label class="block">
+                  <span class="field-label">Next chunk chars</span>
+                  <input class="ag-field" type="number" min="40" max="600" [(ngModel)]="voiceOutputDraft.flush_next_chars" [disabled]="!canEdit()" />
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="t-card t-elevated rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5">
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Actions & Assistants</p>
+            <h3 class="text-base font-semibold text-white mt-1">Action inheritance</h3>
+            <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
+              Action packs are inherited by Chat, Voice, Flow Builder and System workbenches. Sentinel-CI keeps AYA
+              actions isolated; Andritz inherits industrial Knowledge actions unless explicitly changed here.
+            </p>
+          </div>
+          <div class="p-5 space-y-4">
+            <div class="grid gap-4 lg:grid-cols-2">
+              <label class="block">
+                <span class="field-label">Enabled packs</span>
+                <input
+                  class="ag-field font-mono"
+                  [(ngModel)]="actionSettingsDraft.enabled_packs_text"
+                  [disabled]="!canEdit()"
+                  placeholder="andritz_industrial_v1, sentinel_ci_aya_v1"
+                />
+              </label>
+              <label class="block">
+                <span class="field-label">Hidden packs</span>
+                <input
+                  class="ag-field font-mono"
+                  [(ngModel)]="actionSettingsDraft.hidden_packs_text"
+                  [disabled]="!canEdit()"
+                  placeholder="sentinel_ci_aya_v1"
+                />
+              </label>
+              <label class="block">
+                <span class="field-label">Enabled actions</span>
+                <input
+                  class="ag-field font-mono"
+                  [(ngModel)]="actionSettingsDraft.enabled_actions_text"
+                  [disabled]="!canEdit()"
+                  placeholder="aya.action_plan_status"
+                />
+              </label>
+              <label class="block">
+                <span class="field-label">Hidden actions</span>
+                <input
+                  class="ag-field font-mono"
+                  [(ngModel)]="actionSettingsDraft.hidden_actions_text"
+                  [disabled]="!canEdit()"
+                  placeholder="aya.map_focus"
+                />
+              </label>
+            </div>
+            <div class="rounded-md border border-white/10 bg-black/10 px-4 py-3 text-xs text-gray-400 leading-relaxed">
+              Resolution order: system override → assistant profile → workspace action pack → capability template → global default.
+              Side-effect actions require confirmation unless marked direct-safe by the backend manifest.
             </div>
           </div>
         </section>
@@ -921,6 +1044,8 @@ export class ChatKnowledgeSettingsComponent {
     prompt_pack: [],
   };
   voiceLoopDraft: VoiceLoopSettingsDraft = this.defaultVoiceLoopDraft();
+  voiceOutputDraft: VoiceOutputSettingsDraft = this.defaultVoiceOutputDraft();
+  actionSettingsDraft: WorkspaceActionSettingsDraft = this.defaultActionSettingsDraft();
 
   readonly canEdit = computed(() => {
     const role = this.detail()?.role;
@@ -1199,6 +1324,8 @@ export class ChatKnowledgeSettingsComponent {
     settings['knowledge_scopes'] = scopePayload;
     settings['chat'] = this.cleanChatSettings(this.asRecord(settings['chat']));
     settings['voice_loop'] = this.cleanVoiceLoopSettings();
+    settings['voice_output'] = this.cleanVoiceOutputSettings();
+    settings['actions'] = this.cleanActionSettings();
     settings['assistant_profile_default'] = this.assistantProfileDefault || null;
     settings['assistant_profiles'] = assistantProfiles;
 
@@ -1237,6 +1364,8 @@ export class ChatKnowledgeSettingsComponent {
       prompt_pack: this.promptPackDraft(chat['prompt_pack']),
     };
     this.voiceLoopDraft = this.voiceLoopToDraft(settings['voice_loop']);
+    this.voiceOutputDraft = this.voiceOutputToDraft(settings['voice_output']);
+    this.actionSettingsDraft = this.actionSettingsToDraft(settings['actions']);
     this.assistantProfileDefault = this.str(settings['assistant_profile_default']);
     this.assistantProfilesJson = JSON.stringify(Array.isArray(settings['assistant_profiles']) ? settings['assistant_profiles'] : [], null, 2);
     this.selectedAssistantProfileIndex.set(0);
@@ -1321,6 +1450,30 @@ export class ChatKnowledgeSettingsComponent {
     };
   }
 
+  private cleanVoiceOutputSettings(): Record<string, unknown> {
+    return {
+      latency_profile: this.voiceOutputDraft.latency_profile,
+      voice: this.voiceOutputDraft.voice.trim() || 'nova',
+      flush_first_chars: this.clampNumber(this.voiceOutputDraft.flush_first_chars, 24, 12, 240),
+      flush_next_chars: this.clampNumber(this.voiceOutputDraft.flush_next_chars, 80, 40, 600),
+      flush_timeout_ms: this.clampNumber(this.voiceOutputDraft.flush_timeout_ms, 900, 250, 5000),
+      interrupt_on_user_speech: !!this.voiceOutputDraft.interrupt_on_user_speech,
+    };
+  }
+
+  private cleanActionSettings(): Record<string, unknown> {
+    const actions: Record<string, unknown> = {};
+    const enabledPacks = this.csvToList(this.actionSettingsDraft.enabled_packs_text);
+    const hiddenPacks = this.csvToList(this.actionSettingsDraft.hidden_packs_text);
+    const enabledActions = this.csvToList(this.actionSettingsDraft.enabled_actions_text);
+    const hiddenActions = this.csvToList(this.actionSettingsDraft.hidden_actions_text);
+    if (enabledPacks.length) actions['enabled_packs'] = enabledPacks;
+    if (hiddenPacks.length) actions['hidden_packs'] = hiddenPacks;
+    if (enabledActions.length) actions['enabled_actions'] = enabledActions;
+    if (hiddenActions.length) actions['hidden_actions'] = hiddenActions;
+    return actions;
+  }
+
   private parseAssistantProfilesForEdit(): AssistantProfileDraft[] {
     try {
       const parsed = JSON.parse(this.assistantProfilesJson || '[]');
@@ -1370,6 +1523,21 @@ export class ChatKnowledgeSettingsComponent {
     };
   }
 
+  private voiceOutputToDraft(value: unknown): VoiceOutputSettingsDraft {
+    const config = this.asRecord(value);
+    const profile = config['latency_profile'] === 'balanced' || config['latency_profile'] === 'quality'
+      ? config['latency_profile'] as VoiceOutputLatencyProfile
+      : 'fast';
+    return {
+      latency_profile: profile,
+      voice: this.str(config['voice']) || 'nova',
+      flush_first_chars: this.num(config['flush_first_chars'], 24),
+      flush_next_chars: this.num(config['flush_next_chars'], 80),
+      flush_timeout_ms: this.num(config['flush_timeout_ms'], 900),
+      interrupt_on_user_speech: config['interrupt_on_user_speech'] !== false,
+    };
+  }
+
   private defaultVoiceLoopDraft(): VoiceLoopSettingsDraft {
     return {
       default_mode: 'batch',
@@ -1385,6 +1553,36 @@ export class ChatKnowledgeSettingsComponent {
       min_speech_ms: 350,
       max_turn_ms: 45000,
       cooldown_ms: 500,
+    };
+  }
+
+  private defaultVoiceOutputDraft(): VoiceOutputSettingsDraft {
+    return {
+      latency_profile: 'fast',
+      voice: 'nova',
+      flush_first_chars: 24,
+      flush_next_chars: 80,
+      flush_timeout_ms: 900,
+      interrupt_on_user_speech: true,
+    };
+  }
+
+  private actionSettingsToDraft(value: unknown): WorkspaceActionSettingsDraft {
+    const config = this.asRecord(value);
+    return {
+      enabled_packs_text: this.listToCsv(config['enabled_packs']),
+      hidden_packs_text: this.listToCsv(config['hidden_packs']),
+      enabled_actions_text: this.listToCsv(config['enabled_actions']),
+      hidden_actions_text: this.listToCsv(config['hidden_actions']),
+    };
+  }
+
+  private defaultActionSettingsDraft(): WorkspaceActionSettingsDraft {
+    return {
+      enabled_packs_text: '',
+      hidden_packs_text: '',
+      enabled_actions_text: '',
+      hidden_actions_text: '',
     };
   }
 
