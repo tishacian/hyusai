@@ -77,6 +77,8 @@ interface ChatMessage {
   } | null;
 }
 
+type VoiceOracleStage = 'idle' | 'listening' | 'thinking' | 'committed' | 'superseded' | 'fallback' | 'error';
+
 interface SuggestionCard {
   icon: string;
   label: string;
@@ -477,13 +479,18 @@ const STEP_ICONS: Record<string, string> = {
               (ngModelChange)="onVoiceProviderChange($event)"
             >
               @for (runtime of voiceRuntimeOptions(); track runtime.slug) {
-                <option [value]="runtime.slug">{{ voiceRuntimeLabel(runtime) }}</option>
+                <option
+                  [value]="runtime.slug"
+                  [disabled]="!isVoiceRuntimeSelectableInChat(runtime)"
+                >
+                  {{ voiceRuntimeLabel(runtime) }}
+                </option>
               }
             </select>
             <app-icon name="chevron-down" [size]="12" class="voice-select-chevron" />
           </div>
         </div>
-        <div class="voice-transport-toggle" title="Batch records one segment. Session streams voice events when the selected runtime supports it.">
+        <div class="voice-transport-toggle" [title]="voiceTransportHint()">
           <button
             type="button"
             class="voice-transport-button"
@@ -499,11 +506,17 @@ const STEP_ICONS: Record<string, string> = {
             [class.voice-transport-active]="voiceTransport() === 'backend_ws'"
             [disabled]="!canUseVoiceSession()"
             (click)="setVoiceTransport('backend_ws')"
-            title="Use Agentium voice session events: text.partial, text.final, runtime.metric."
+            [title]="voiceSessionButtonTitle()"
           >
             Session
           </button>
         </div>
+        @if (voiceRealtimeBlockedHint()) {
+          <span class="voice-warning-pill" [title]="voiceRealtimeBlockedHint()">
+            <app-icon name="radio" [size]="12" />
+            WebRTC required
+          </span>
+        }
         <span
           class="tandem-oracle-pill"
           [title]="voiceTandemOracleHint()"
@@ -519,7 +532,7 @@ const STEP_ICONS: Record<string, string> = {
         </span>
         <label
           class="voice-checkbox"
-          title="When enabled, the final transcript produced by STT is automatically submitted as a chat question."
+          title="When enabled, the final voice transcript replaces the current draft and is sent as one chat turn."
         >
           <input
             type="checkbox"
@@ -537,6 +550,28 @@ const STEP_ICONS: Record<string, string> = {
           <span class="text-brand-200 truncate max-w-xs">“{{ voicePartial() }}”</span>
         }
       </div>
+      @if (voiceTransport() === 'backend_ws') {
+        <div class="voice-oracle-panel" [title]="voiceOraclePanelHint()">
+          <div class="voice-oracle-copy">
+            <span class="voice-oracle-kicker">Agentium voice session</span>
+            <span class="voice-oracle-message">{{ voiceOracleMessage() }}</span>
+          </div>
+          <div class="voice-oracle-steps">
+            @for (step of voiceOracleTimeline(); track step.stage) {
+              <span
+                class="voice-oracle-step"
+                [class.voice-oracle-step-active]="step.state === 'active'"
+                [class.voice-oracle-step-done]="step.state === 'done'"
+                [class.voice-oracle-step-error]="step.state === 'error'"
+                [title]="step.detail"
+              >
+                <app-icon [name]="step.icon" [size]="11" />
+                {{ step.label }}
+              </span>
+            }
+          </div>
+        </div>
+      }
       }
 
       <!-- Messages -->
@@ -1356,15 +1391,16 @@ const STEP_ICONS: Record<string, string> = {
       color: rgba(177, 190, 210, 0.82);
       font-size: 11px;
     }
-    .voice-control-group,
-    .voice-control-label,
-    .managed-runtime-pill,
-    .tandem-oracle-pill,
-    .voice-checkbox {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-    }
+	    .voice-control-group,
+	    .voice-control-label,
+	    .managed-runtime-pill,
+	    .tandem-oracle-pill,
+	    .voice-warning-pill,
+	    .voice-checkbox {
+	      display: inline-flex;
+	      align-items: center;
+	      gap: 7px;
+	    }
     .voice-control-label {
       color: rgba(232, 239, 250, 0.86);
       font-weight: 700;
@@ -1378,15 +1414,24 @@ const STEP_ICONS: Record<string, string> = {
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
       color: rgba(232, 239, 250, 0.88);
     }
-    .tandem-oracle-pill {
-      background: rgba(34, 211, 238, 0.10);
-      color: rgb(207, 250, 254);
-      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.20);
-    }
-    .voice-select-wrap {
-      min-width: 176px;
-      max-width: 260px;
-    }
+	    .tandem-oracle-pill {
+	      background: rgba(34, 211, 238, 0.10);
+	      color: rgb(207, 250, 254);
+	      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.20);
+	    }
+	    .voice-warning-pill {
+	      min-height: 30px;
+	      padding: 5px 9px;
+	      border-radius: 12px;
+	      background: rgba(245, 158, 11, 0.10);
+	      color: rgb(253, 230, 138);
+	      box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.22);
+	      font-weight: 750;
+	    }
+	    .voice-select-wrap {
+	      min-width: 176px;
+	      max-width: 260px;
+	    }
     .voice-transport-toggle {
       display: inline-flex;
       overflow: hidden;
@@ -1412,10 +1457,85 @@ const STEP_ICONS: Record<string, string> = {
       color: rgb(207, 250, 254);
       background: rgba(34, 211, 238, 0.14);
     }
-    .voice-checkbox {
-      color: rgba(177, 190, 210, 0.84);
-    }
-    .vigie-messages {
+	    .voice-checkbox {
+	      color: rgba(177, 190, 210, 0.84);
+	    }
+	    .voice-oracle-panel {
+	      display: flex;
+	      align-items: center;
+	      justify-content: space-between;
+	      gap: 12px;
+	      padding: 10px 14px;
+	      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	      background:
+	        linear-gradient(90deg, rgba(34, 211, 238, 0.055), transparent 42%),
+	        rgba(3, 8, 16, 0.30);
+	      color: rgba(177, 190, 210, 0.84);
+	      font-size: 11px;
+	    }
+	    .voice-oracle-copy {
+	      display: flex;
+	      align-items: baseline;
+	      gap: 9px;
+	      min-width: 0;
+	    }
+	    .voice-oracle-kicker {
+	      color: rgb(103, 213, 246);
+	      font: 700 10px/1.2 var(--ck-font-mono, ui-monospace, monospace);
+	      letter-spacing: 0.12em;
+	      text-transform: uppercase;
+	      white-space: nowrap;
+	    }
+	    .voice-oracle-message {
+	      overflow: hidden;
+	      text-overflow: ellipsis;
+	      white-space: nowrap;
+	      color: rgba(232, 239, 250, 0.82);
+	    }
+	    .voice-oracle-steps {
+	      display: flex;
+	      align-items: center;
+	      gap: 6px;
+	      flex-wrap: wrap;
+	      justify-content: flex-end;
+	    }
+	    .voice-oracle-step {
+	      display: inline-flex;
+	      align-items: center;
+	      gap: 5px;
+	      min-height: 24px;
+	      padding: 3px 7px;
+	      border-radius: 999px;
+	      background: rgba(255, 255, 255, 0.035);
+	      color: rgba(177, 190, 210, 0.70);
+	      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+	      white-space: nowrap;
+	    }
+	    .voice-oracle-step-active {
+	      background: rgba(34, 211, 238, 0.12);
+	      color: rgb(207, 250, 254);
+	      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.24);
+	    }
+	    .voice-oracle-step-done {
+	      background: rgba(16, 185, 129, 0.10);
+	      color: rgb(187, 247, 208);
+	      box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.18);
+	    }
+	    .voice-oracle-step-error {
+	      background: rgba(239, 68, 68, 0.10);
+	      color: rgb(254, 202, 202);
+	      box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.20);
+	    }
+	    @media (max-width: 900px) {
+	      .voice-oracle-panel {
+	        align-items: flex-start;
+	        flex-direction: column;
+	      }
+	      .voice-oracle-steps {
+	        justify-content: flex-start;
+	      }
+	    }
+	    .vigie-messages {
       background:
         radial-gradient(circle at 82% 4%, rgba(101, 214, 110, 0.055), transparent 32%),
         linear-gradient(180deg, rgba(5, 10, 16, 0.18), transparent 38%);
@@ -1527,11 +1647,13 @@ export class ChatPanelComponent {
   readonly reasoningTemplates = signal<ReasoningTemplate[]>([]);
   readonly voiceRuntimes = signal<VoiceRuntimeCatalog | null>(null);
   readonly voiceProvider = signal('cascade_openai');
-  readonly voiceTransport = signal<VoiceTransportChoice>('batch_http');
-  readonly voiceAutoSend = signal(false);
-  readonly voicePartial = signal('');
-  readonly voiceNotice = signal<string | null>(null);
-  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
+	  readonly voiceTransport = signal<VoiceTransportChoice>('batch_http');
+	  readonly voiceAutoSend = signal(false);
+	  readonly voicePartial = signal('');
+	  readonly voiceNotice = signal<string | null>(null);
+	  readonly voiceOracleStage = signal<VoiceOracleStage>('idle');
+	  readonly voiceOracleMessage = signal('Batch mode: no persistent voice session is open.');
+	  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly chatRuntimeLabel = computed(() =>
     this.isDemoMode() ? 'managed runtime' : this.settings.settings().defaultModel || '—',
   );
@@ -1693,15 +1815,17 @@ export class ChatPanelComponent {
         ];
   });
 
-  readonly selectedVoiceRuntime = computed<VoiceRuntimeProviderOption | null>(() => {
-    const provider = this.voiceProvider();
-    return this.voiceRuntimeOptions().find((runtime) => runtime.slug === provider) ?? null;
-  });
+	  readonly selectedVoiceRuntime = computed<VoiceRuntimeProviderOption | null>(() => {
+	    const provider = this.voiceProvider();
+	    return this.voiceRuntimeOptions().find((runtime) => runtime.slug === provider) ?? null;
+	  });
 
-  readonly canUseVoiceSession = computed(() => {
-    const caps = this.selectedVoiceRuntime()?.capabilities ?? {};
-    return Boolean(caps['streaming_transcription'] || caps['batch_transcription']);
-  });
+	  readonly canUseVoiceSession = computed(() => {
+	    const runtime = this.selectedVoiceRuntime();
+	    if (!runtime || !this.isVoiceRuntimeSelectableInChat(runtime)) return false;
+	    const caps = runtime.capabilities ?? {};
+	    return Boolean(caps['streaming_transcription'] || caps['batch_transcription']);
+	  });
 
   readonly canTranscribeVoice = computed(() => {
     const caps = this.selectedVoiceRuntime()?.capabilities ?? {};
@@ -1720,18 +1844,74 @@ export class ChatPanelComponent {
     return status.replace(/_/g, ' ');
   });
 
-  readonly voiceStatusClass = computed(() => {
+	  readonly voiceStatusClass = computed(() => {
     const status = this.selectedVoiceRuntime()?.status || 'unknown';
     if (this.voiceNotice()) return 'px-2 py-1 rounded bg-brand-500/10 text-brand-100 ring-1 ring-brand-300/20';
     if (status === 'bound') return 'px-2 py-1 rounded bg-emerald-500/10 text-emerald-200 ring-1 ring-emerald-400/20';
     if (status === 'disabled' || status === 'unconfigured') return 'px-2 py-1 rounded bg-amber-500/10 text-amber-200 ring-1 ring-amber-400/20';
     if (status === 'experimental') return 'px-2 py-1 rounded bg-violet-500/10 text-violet-200 ring-1 ring-violet-400/20';
-    return 'px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10';
-  });
+	    return 'px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10';
+	  });
 
-  readonly voiceRuntimeDetail = computed(() => {
-    const runtime = this.selectedVoiceRuntime();
-    const caps = runtime?.capabilities ?? {};
+	  readonly voiceOracleTimeline = computed(() => {
+	    const stage = this.voiceOracleStage();
+	    const rank: Record<VoiceOracleStage, number> = {
+	      idle: 0,
+	      listening: 1,
+	      thinking: 2,
+	      superseded: 2,
+	      fallback: 2,
+	      committed: 3,
+	      error: 0,
+	    };
+	    const currentRank = rank[stage] ?? 0;
+	    const mkState = (stepRank: number, stepStage: VoiceOracleStage) => {
+	      if (stage === 'error') return stepStage === 'fallback' ? 'error' : 'pending';
+	      if (stage === stepStage) return 'active';
+	      return currentRank > stepRank ? 'done' : 'pending';
+	    };
+	    return [
+	      {
+	        stage: 'listening' as VoiceOracleStage,
+	        label: 'listening',
+	        icon: 'mic',
+	        detail: 'Microphone input is being recorded. Agent speech is paused to avoid overlap.',
+	        state: mkState(1, 'listening'),
+	      },
+	      {
+	        stage: 'thinking' as VoiceOracleStage,
+	        label: 'thinking',
+	        icon: 'activity',
+	        detail: 'Agentium received a transcript and is updating the background oracle.',
+	        state: mkState(2, 'thinking'),
+	      },
+	      {
+	        stage: 'superseded' as VoiceOracleStage,
+	        label: 'refreshed',
+	        icon: 'refresh-cw',
+	        detail: 'A newer oracle signal replaced an older one using latest-wins semantics.',
+	        state: stage === 'superseded' ? 'active' : currentRank > 2 ? 'done' : 'pending',
+	      },
+	      {
+	        stage: 'fallback' as VoiceOracleStage,
+	        label: 'fallback',
+	        icon: 'route',
+	        detail: 'The selected runtime used its fallback lane for this voice turn.',
+	        state: stage === 'fallback' ? 'active' : 'pending',
+	      },
+	      {
+	        stage: 'committed' as VoiceOracleStage,
+	        label: 'committed',
+	        icon: 'check-circle-2',
+	        detail: 'The latest transcript/oracle decision is committed for the current turn.',
+	        state: mkState(3, 'committed'),
+	      },
+	    ];
+	  });
+
+	  readonly voiceRuntimeDetail = computed(() => {
+	    const runtime = this.selectedVoiceRuntime();
+	    const caps = runtime?.capabilities ?? {};
     const input = caps['streaming_transcription']
       ? 'streaming STT'
       : caps['batch_transcription']
@@ -1740,20 +1920,25 @@ export class ChatPanelComponent {
           ? 'input fallback cascade'
           : 'no STT';
     const output = caps['tts'] || caps['speech_to_speech'] ? 'native output' : this.hasCascadeFallback() ? 'output fallback cascade' : 'no TTS';
-    const transport = this.voiceTransport() === 'backend_ws' ? 'Agentium session events' : 'HTTP batch';
-    const oracle = caps['oracle_injection'] || caps['background_tool_calls'] ? 'tandem oracle' : 'oracle via fallback';
-    if (this.isDemoMode()) {
-      const mode = this.voiceRuntimeKind(runtime?.slug || this.voiceProvider()).toLowerCase();
-      return `${mode} · ${input} · ${output} · ${transport} · ${oracle}`;
+	    const transport = this.voiceTransport() === 'backend_ws' ? 'Agentium voice channel' : 'HTTP batch';
+	    const oracle = caps['oracle_injection'] || caps['background_tool_calls'] ? 'tandem oracle' : 'oracle via fallback';
+	    if (runtime && this.voiceRuntimeNeedsWebRtc(runtime)) {
+	      return this.isDemoMode()
+	        ? 'realtime · WebRTC required · not available in chat session yet'
+	        : `${runtime.slug.replace(/_/g, ' ')} · WebRTC required · chat session not wired yet`;
+	    }
+	    if (this.isDemoMode()) {
+	      const mode = this.voiceRuntimeKind(runtime?.slug || this.voiceProvider()).toLowerCase();
+	      return `${mode} · ${input} · ${output} · ${transport} · ${oracle}`;
     }
     return `${input} · ${output} · ${transport} · ${oracle}`;
   });
 
-  readonly voiceTandemOracleHint = computed(() =>
-    this.isDemoMode()
-      ? 'Realtime voice loop plus background Knowledge oracle. Provider details are hidden.'
-      : 'Realtime loop + background oracle with latest-wins events: oracle.delta, oracle.superseded, oracle.action and oracle.commit.',
-  );
+	  readonly voiceTandemOracleHint = computed(() =>
+	    this.isDemoMode()
+	      ? 'Realtime voice loop plus background Knowledge oracle. Provider details are hidden.'
+	      : 'Realtime loop + background oracle with latest-wins events: oracle.delta, oracle.superseded, oracle.action and oracle.commit.',
+	  );
 
   recording = signal(false);
   /**
@@ -1828,16 +2013,21 @@ export class ChatPanelComponent {
       });
   }
 
-  private loadVoiceRuntimes(): void {
-    this.api.listVoiceRuntimes().subscribe({
-      next: (catalog) => {
-        this.voiceRuntimes.set(catalog);
-        const current = this.voiceProvider();
-        const allowed = catalog.allowed_providers || [];
-        if (!allowed.includes(current)) {
-          this.voiceProvider.set(catalog.default_provider || allowed[0] || 'cascade_openai');
-        }
-      },
+	  private loadVoiceRuntimes(): void {
+	    this.api.listVoiceRuntimes().subscribe({
+	      next: (catalog) => {
+	        this.voiceRuntimes.set(catalog);
+	        const current = this.voiceProvider();
+	        const allowed = catalog.allowed_providers || [];
+	        const providers = catalog.providers || [];
+	        const currentRuntime = providers.find((runtime) => runtime.slug === current);
+	        const preferred = providers.find((runtime) => runtime.slug === catalog.default_provider && this.isVoiceRuntimeSelectableInChat(runtime));
+	        const fallback = providers.find((runtime) => (catalog.fallback_providers || []).includes(runtime.slug) && this.isVoiceRuntimeSelectableInChat(runtime));
+	        const firstSelectable = providers.find((runtime) => this.isVoiceRuntimeSelectableInChat(runtime));
+	        if (!allowed.includes(current) || (currentRuntime && !this.isVoiceRuntimeSelectableInChat(currentRuntime))) {
+	          this.voiceProvider.set(preferred?.slug || fallback?.slug || firstSelectable?.slug || 'cascade_openai');
+	        }
+	      },
       error: () => {
         this.voiceRuntimes.set(null);
         this.voiceProvider.set('cascade_openai');
@@ -1845,44 +2035,100 @@ export class ChatPanelComponent {
     });
   }
 
-  voiceRuntimeLabel(runtime: VoiceRuntimeProviderOption): string {
-    if (this.isDemoMode()) {
-      const label = this.voiceRuntimeKind(runtime.slug);
-      if (runtime.status === 'bound') return label;
-      if (runtime.status === 'disabled') return `${label} · unavailable`;
-      if (runtime.status === 'unconfigured') return `${label} · not configured`;
+	  voiceRuntimeLabel(runtime: VoiceRuntimeProviderOption): string {
+	    const webRtcRequired = this.voiceRuntimeNeedsWebRtc(runtime);
+	    if (this.isDemoMode()) {
+	      const label = this.voiceRuntimeKind(runtime.slug);
+	      if (webRtcRequired) return `${label} · WebRTC required`;
+	      if (runtime.status === 'bound') return label;
+	      if (runtime.status === 'disabled') return `${label} · unavailable`;
+	      if (runtime.status === 'unconfigured') return `${label} · not configured`;
       if (runtime.status === 'experimental') return `${label} · experimental`;
       return label;
+	    }
+	    const label = runtime.slug.replace(/_/g, ' ');
+	    if (webRtcRequired) return `${label} · WebRTC not wired in chat`;
+	    if (runtime.status === 'bound') return label;
+	    return `${label} · ${runtime.status}`;
+	  }
+
+	  selectedVoiceDescription(): string {
+	    const runtime = this.selectedVoiceRuntime();
+	    if (runtime && this.voiceRuntimeNeedsWebRtc(runtime)) {
+	      return this.isDemoMode()
+	        ? 'Realtime voice requires the WebRTC lane, which is not wired into this chat control yet.'
+	        : `${runtime.slug.replace(/_/g, ' ')} requires WebRTC. This chat control currently uses Agentium backend WebSocket sessions.`;
+	    }
+	    if (this.isDemoMode()) return `${this.voiceRuntimeKind(this.voiceProvider())} runtime. Provider and model details are hidden in demo-safe presentation.`;
+	    return runtime?.description || this.voiceRuntimeDetail();
+	  }
+
+	  onVoiceProviderChange(slug: string): void {
+	    const runtime = this.voiceRuntimeOptions().find((item) => item.slug === slug);
+	    if (runtime && !this.isVoiceRuntimeSelectableInChat(runtime)) {
+	      this.toast.info('Realtime voice requires the WebRTC lane; this chat surface uses Agentium voice sessions for now.', 'Voice');
+	      return;
+	    }
+	    this.voiceProvider.set(slug || 'cascade_openai');
+	    this.voicePartial.set('');
+	    this.voiceNotice.set(null);
+	    this.voiceOracleStage.set('idle');
+	    this.voiceOracleMessage.set('Batch mode: no persistent voice session is open.');
+	    this.closeVoiceSession();
+	    if (!this.canUseVoiceSession()) {
+	      this.voiceTransport.set('batch_http');
     }
-    const label = runtime.slug.replace(/_/g, ' ');
-    if (runtime.status === 'bound') return label;
-    return `${label} · ${runtime.status}`;
   }
 
-  selectedVoiceDescription(): string {
-    if (this.isDemoMode()) return `${this.voiceRuntimeKind(this.voiceProvider())} runtime. Provider and model details are hidden in demo-safe presentation.`;
-    return this.selectedVoiceRuntime()?.description || this.voiceRuntimeDetail();
-  }
+	  setVoiceTransport(transport: VoiceTransportChoice): void {
+	    if (transport === 'backend_ws' && !this.canUseVoiceSession()) {
+	      this.toast.info(this.voiceSessionButtonTitle(), 'Voice');
+	      return;
+	    }
+	    this.voiceTransport.set(transport);
+	    this.voiceNotice.set(null);
+	    if (transport === 'batch_http') {
+	      this.closeVoiceSession();
+	      this.voiceOracleStage.set('idle');
+	      this.voiceOracleMessage.set('Batch mode: no persistent voice session is open.');
+	    } else {
+	      this.voiceOracleStage.set('idle');
+	      this.voiceOracleMessage.set('Session mode: Agentium will emit transcript, oracle and runtime events for each voice turn.');
+	    }
+	  }
 
-  onVoiceProviderChange(slug: string): void {
-    this.voiceProvider.set(slug || 'cascade_openai');
-    this.voicePartial.set('');
-    this.voiceNotice.set(null);
-    this.closeVoiceSession();
-    if (!this.canUseVoiceSession()) {
-      this.voiceTransport.set('batch_http');
-    }
-  }
+	  isVoiceRuntimeSelectableInChat(runtime: VoiceRuntimeProviderOption): boolean {
+	    return !this.voiceRuntimeNeedsWebRtc(runtime);
+	  }
 
-  setVoiceTransport(transport: VoiceTransportChoice): void {
-    if (transport === 'backend_ws' && !this.canUseVoiceSession()) {
-      this.toast.info(this.isDemoMode() ? 'This voice runtime does not expose a session path.' : 'This provider does not expose an Agentium voice session path.', 'Voice');
-      return;
-    }
-    this.voiceTransport.set(transport);
-    this.voiceNotice.set(null);
-    if (transport === 'batch_http') this.closeVoiceSession();
-  }
+	  private voiceRuntimeNeedsWebRtc(runtime: VoiceRuntimeProviderOption): boolean {
+	    return String(runtime.transport || '').toLowerCase() === 'webrtc';
+	  }
+
+	  voiceTransportHint(): string {
+	    return 'Batch records one audio segment over HTTP. Session opens a persistent Agentium voice channel; Cascade still finalizes by segment. Full realtime speech requires WebRTC.';
+	  }
+
+	  voiceSessionButtonTitle(): string {
+	    const runtime = this.selectedVoiceRuntime();
+	    if (runtime && this.voiceRuntimeNeedsWebRtc(runtime)) {
+	      return 'Realtime voice requires WebRTC; this chat session control is not wired to WebRTC yet.';
+	    }
+	    if (!this.canUseVoiceSession()) return 'This voice runtime does not expose an Agentium voice session path.';
+	    return 'Use an Agentium voice session: text.partial, text.final, oracle events and runtime metrics.';
+	  }
+
+	  voiceRealtimeBlockedHint(): string | null {
+	    const runtime = this.selectedVoiceRuntime();
+	    if (!runtime || !this.voiceRuntimeNeedsWebRtc(runtime)) return null;
+	    return this.isDemoMode()
+	      ? 'Realtime voice requires the WebRTC lane. This chat control currently uses Agentium voice sessions.'
+	      : `${runtime.slug.replace(/_/g, ' ')} requires WebRTC. This chat control currently uses Agentium backend WebSocket sessions.`;
+	  }
+
+	  voiceOraclePanelHint(): string {
+	    return 'The session panel shows the voice turn lifecycle: listening, background oracle update, latest-wins refreshes, fallback and commit.';
+	  }
 
   voiceMicTitle(): string {
     if (!this.canTranscribeVoice()) return this.isDemoMode() ? 'Voice runtime cannot transcribe audio' : 'Selected provider cannot transcribe voice';
@@ -2798,18 +3044,22 @@ export class ChatPanelComponent {
     }
   }
 
-  async toggleMic(): Promise<void> {
-    if (!this.canTranscribeVoice()) {
-      this.toast.error(this.isDemoMode() ? 'Voice runtime cannot transcribe audio.' : 'Selected voice provider cannot transcribe audio.', 'Voice');
-      return;
-    }
-    if (this.recording()) {
-      this.mediaRecorder?.stop();
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+	  async toggleMic(): Promise<void> {
+	    if (!this.canTranscribeVoice()) {
+	      this.toast.error(this.isDemoMode() ? 'Voice runtime cannot transcribe audio.' : 'Selected voice provider cannot transcribe audio.', 'Voice');
+	      return;
+	    }
+	    if (this.recording()) {
+	      this.mediaRecorder?.stop();
+	      return;
+	    }
+	    try {
+	      if (this.ttsSpeaking()) {
+	        this.resetTtsPipeline();
+	        this.voiceNotice.set('Voice output stopped for listening');
+	      }
+	      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+	      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       this.mediaRecorder = recorder;
       this.recordedChunks = [];
       recorder.ondataavailable = (e) => {
@@ -2821,11 +3071,15 @@ export class ChatPanelComponent {
         this.recording.set(false);
         this.transcribe(blob);
       };
-      recorder.start();
-      this.recording.set(true);
-    } catch {
-      this.toast.error('Microphone access denied', 'Voice');
-    }
+	      recorder.start();
+	      this.recording.set(true);
+	      if (this.voiceTransport() === 'backend_ws') {
+	        this.voiceOracleStage.set('listening');
+	        this.voiceOracleMessage.set('Listening: the next final transcript will drive the chat turn.');
+	      }
+	    } catch {
+	      this.toast.error('Microphone access denied', 'Voice');
+	    }
   }
 
   private transcribe(blob: Blob): void {
@@ -2866,11 +3120,13 @@ export class ChatPanelComponent {
     });
   }
 
-  private async transcribeViaVoiceSession(blob: Blob): Promise<void> {
-    this.transcribing.set(true);
-    this.voicePartial.set('');
-    this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', this.voiceInputProvider()));
-    const connection = this.ensureVoiceSession();
+	  private async transcribeViaVoiceSession(blob: Blob): Promise<void> {
+	    this.transcribing.set(true);
+	    this.voicePartial.set('');
+	    this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', this.voiceInputProvider()));
+	    this.voiceOracleStage.set('thinking');
+	    this.voiceOracleMessage.set('Audio segment sent to Agentium voice session; waiting for transcript.');
+	    const connection = this.ensureVoiceSession();
     if (!connection) {
       this.voiceTransport.set('batch_http');
       this.transcribe(blob);
@@ -2923,62 +3179,91 @@ export class ChatPanelComponent {
 
   private handleVoiceSessionEvent(event: VoiceSessionEvent): void {
     const payload = event.payload || {};
-    if (event.type === 'session.ready') {
-      this.voiceNotice.set('Voice session ready');
-      return;
-    }
-    if (event.type === 'text.partial') {
-      const text = String(payload['text'] || '').trim();
-      if (text) this.voicePartial.set(text);
-      return;
-    }
-    if (event.type === 'text.final') {
-      const text = String(payload['text'] || '').trim();
-      if (text) {
-        this.userInput = (this.userInput ? `${this.userInput} ` : '') + text;
-      } else {
-        this.toast.info('No speech detected in the recording', 'Voice');
-      }
-      this.voicePartial.set('');
-      this.transcribing.set(false);
-      this.voiceNotice.set(payload['fallback_used'] ? 'Transcript ready · fallback used' : 'Transcript ready');
-      this.cdr.markForCheck();
-      if (this.voiceAutoSend() && this.userInput.trim() && !this.streaming()) {
-        queueMicrotask(() => this.send());
-      }
-      return;
-    }
-    if (event.type === 'runtime.metric') {
-      const provider = payload['provider'];
-      if (payload['metric'] === 'micro_turn') {
-        this.voiceNotice.set('Tandem oracle tracking micro-turns');
-      } else if (provider) {
-        this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', String(provider)));
-      }
-      return;
-    }
-    if (event.type === 'oracle.delta') {
-      this.voiceNotice.set('Tandem oracle updating');
-      return;
-    }
-    if (event.type === 'oracle.superseded') {
-      this.voiceNotice.set('Tandem oracle refreshed');
-      return;
-    }
-    if (event.type === 'oracle.action') {
-      const action = String(payload['action'] || 'action').replace(/_/g, ' ');
-      this.voiceNotice.set(`Oracle action · ${action}`);
-      return;
-    }
-    if (event.type === 'oracle.commit') {
-      this.voiceNotice.set('Oracle committed latest turn');
-      return;
-    }
-    if (event.type === 'session.error') {
-      this.transcribing.set(false);
-      this.voicePartial.set('');
-      this.voiceNotice.set(null);
-      this.toast.error(String(payload['message'] || 'Voice session failed'), 'Voice');
+	    if (event.type === 'session.ready') {
+	      this.voiceNotice.set('Voice session ready');
+	      this.voiceOracleMessage.set('Session channel ready. Record a voice turn to start oracle tracking.');
+	      return;
+	    }
+	    if (event.type === 'text.partial') {
+	      const text = String(payload['text'] || '').trim();
+	      if (text) this.voicePartial.set(text);
+	      this.voiceOracleStage.set('thinking');
+	      this.voiceOracleMessage.set(text ? `Transcript received: “${text.slice(0, 90)}${text.length > 90 ? '…' : ''}”` : 'Transcript received; oracle is updating.');
+	      return;
+	    }
+	    if (event.type === 'text.final') {
+	      const text = String(payload['text'] || '').trim();
+	      const autoSendNow = this.voiceAutoSend() && !this.streaming();
+	      if (text) {
+	        if (autoSendNow) {
+	          if (this.userInput.trim()) {
+	            this.toast.info('Existing draft replaced by the final voice transcript before auto-send.', 'Voice');
+	          }
+	          this.userInput = text;
+	        } else {
+	          this.userInput = this.userInput ? `${this.userInput} ${text}` : text;
+	        }
+	      } else {
+	        this.toast.info('No speech detected in the recording', 'Voice');
+	      }
+	      this.voicePartial.set('');
+	      this.transcribing.set(false);
+	      this.voiceNotice.set(payload['fallback_used'] ? 'Transcript ready · fallback used' : 'Transcript ready');
+	      this.voiceOracleStage.set(payload['fallback_used'] ? 'fallback' : 'committed');
+	      this.voiceOracleMessage.set(
+	        payload['fallback_used']
+	          ? 'Transcript produced through fallback; final voice text is ready.'
+	          : 'Final transcript committed for this voice turn.',
+	      );
+	      this.cdr.markForCheck();
+	      if (autoSendNow && this.userInput.trim()) {
+	        queueMicrotask(() => this.send());
+	      }
+	      return;
+	    }
+	    if (event.type === 'runtime.metric') {
+	      const provider = payload['provider'];
+	      if (payload['metric'] === 'micro_turn') {
+	        this.voiceNotice.set('Tandem oracle tracking micro-turns');
+	        this.voiceOracleStage.set('thinking');
+	        this.voiceOracleMessage.set('Micro-turn tracked; background oracle is following the conversation.');
+	      } else if (provider) {
+	        this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', String(provider)));
+	      }
+	      return;
+	    }
+	    if (event.type === 'oracle.delta') {
+	      this.voiceNotice.set('Tandem oracle updating');
+	      this.voiceOracleStage.set('thinking');
+	      this.voiceOracleMessage.set('Oracle delta received; the background context is updating.');
+	      return;
+	    }
+	    if (event.type === 'oracle.superseded') {
+	      this.voiceNotice.set('Tandem oracle refreshed');
+	      this.voiceOracleStage.set('superseded');
+	      this.voiceOracleMessage.set('Older oracle signal superseded by a newer transcript state.');
+	      return;
+	    }
+	    if (event.type === 'oracle.action') {
+	      const action = String(payload['action'] || 'action').replace(/_/g, ' ');
+	      this.voiceNotice.set(`Oracle action · ${action}`);
+	      this.voiceOracleStage.set('committed');
+	      this.voiceOracleMessage.set(`Oracle action ready: ${action}.`);
+	      return;
+	    }
+	    if (event.type === 'oracle.commit') {
+	      this.voiceNotice.set('Oracle committed latest turn');
+	      this.voiceOracleStage.set('committed');
+	      this.voiceOracleMessage.set('Latest oracle state committed for this turn.');
+	      return;
+	    }
+	    if (event.type === 'session.error') {
+	      this.transcribing.set(false);
+	      this.voicePartial.set('');
+	      this.voiceNotice.set(null);
+	      this.voiceOracleStage.set('error');
+	      this.voiceOracleMessage.set(String(payload['message'] || 'Voice session failed.'));
+	      this.toast.error(String(payload['message'] || 'Voice session failed'), 'Voice');
       this.closeVoiceSession();
       this.cdr.markForCheck();
     }
