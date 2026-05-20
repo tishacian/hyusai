@@ -156,7 +156,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 multiple
                 class="t-file-input"
                 (change)="onFileSelect($event)"
-                accept=".pdf,.txt,.md,.docx,.csv,.json"
+                accept=".pdf,.txt,.md,.docx,.csv,.json,.xlsx,.xlsm,.xltx,.xltm"
               />
               <div class="t-drop-icon">
                 <app-icon name="cloud-upload" [size]="18" />
@@ -164,7 +164,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               <div class="t-drop-text">
                 Drop files <span class="t-drop-accent">or click</span>
               </div>
-              <div class="t-drop-hint">PDF · TXT · MD · DOCX · CSV · JSON</div>
+              <div class="t-drop-hint">PDF · DOCX · XLSX · CSV · TXT · MD · JSON</div>
               @if (uploading()) {
                 <div class="t-drop-progress">
                   <app-icon name="loader-2" [size]="12" class="animate-spin" />
@@ -250,8 +250,8 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               </div>
             } @else {
               <div class="t-empty-hint">
-                No docs yet. Drop PDFs or click browse to ground answers on
-                your own files.
+                No docs yet. Drop PDFs, spreadsheets, or click browse to ground
+                answers on your own files.
               </div>
             }
           }

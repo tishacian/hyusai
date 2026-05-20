@@ -58,6 +58,7 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         system_id=request.get("system_id"),
     )
     context_collection = str(request.get("context_collection") or "").strip()
+    context_mode = str(request.get("context_mode") or "").strip().lower()
     fallback_collection = context_collection or app_settings.get("ragCollectionName", "documents")
     if context_collection and not request.get("knowledge_scope"):
         context_key = str(request.get("context_id") or context_collection)
@@ -72,6 +73,12 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
             requested_key=request.get("knowledge_scope"),
             fallback_collection=fallback_collection,
         )
+        if context_collection and context_mode == "combine":
+            collections = list(scope.get("collection_slugs") or [])
+            if context_collection not in collections:
+                collections.append(context_collection)
+            scope["collection_slugs"] = collections
+            scope["label"] = f"{scope.get('label') or scope.get('key') or 'Knowledge'} + Session docs"
     scope_default_mode = scope.get("default_mode")
     if scope_default_mode == "auto":
         scope_default_mode = None

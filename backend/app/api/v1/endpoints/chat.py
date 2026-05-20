@@ -81,6 +81,10 @@ class ChatRequest(BaseModel):
     # grounded on that source while the session/run ledger keeps the Context
     # id for replay.
     context_id: Optional[str] = None
+    # How a selected session Context interacts with Knowledge Scope retrieval:
+    # ``replace`` = use session docs only, ``combine`` = search both the
+    # selected Knowledge Scope and the session docs collection.
+    context_mode: Optional[str] = None
     # Product-facing assistant profile. It does not bypass backend policy; it
     # carries UI/prompt intent into the Run ledger for audit and replay.
     assistant_profile: Optional[str] = None
@@ -153,10 +157,11 @@ def _apply_context_to_chat_request(
 ) -> None:
     """Fold a selected Context into the orchestrator request payload.
 
-    Existing ``knowledge_scope`` wins. Otherwise a Context can select either a
-    workspace Knowledge Scope (``environment_state.knowledge_scope``) or a
-    direct collection (``environment_state.collection``), which is useful for
-    drop-and-ask and collection-specific demos.
+    A Context can select either a workspace Knowledge Scope
+    (``environment_state.knowledge_scope``) or a direct collection
+    (``environment_state.collection``). When ``context_mode=combine`` and the
+    UI also selected a Knowledge Scope, the retrieval profile searches both
+    layers.
     """
     if not context:
         return
@@ -172,13 +177,13 @@ def _apply_context_to_chat_request(
             "environment_state": state,
         }
     )
-    if not request_dict.get("knowledge_scope") and isinstance(state, dict):
+    if isinstance(state, dict):
         knowledge_scope = state.get("knowledge_scope")
         collection = state.get("collection")
-        if knowledge_scope:
-            request_dict["knowledge_scope"] = str(knowledge_scope)
-        elif collection:
+        if collection:
             request_dict["context_collection"] = str(collection)
+        if not request_dict.get("knowledge_scope") and knowledge_scope:
+            request_dict["knowledge_scope"] = str(knowledge_scope)
 
 
 def _persist_chat_run(
@@ -928,6 +933,7 @@ async def chat_completion(
                 "reasoning_trace": chunk_state["reasoning_trace"],
                 "sources": chunk_state["sources"],
                 "context_id": request.context_id,
+                "context_mode": request.context_mode,
                 "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
             }
             
@@ -970,6 +976,7 @@ async def chat_completion(
                 "retrieval_fallback": chunk_state["retrieval_fallback"],
                 "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                 "context_id": request.context_id,
+                "context_mode": request.context_mode,
                 "assistant_profile": request.assistant_profile,
                 "collections_touched": chunk_state.get("collections_touched"),
             },
@@ -1627,6 +1634,7 @@ async def chat_stream(
                     "reasoning_trace": chunk_state["reasoning_trace"],
                     "sources": chunk_state["sources"],
                     "context_id": request.context_id,
+                    "context_mode": request.context_mode,
                     "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                 }
                 
@@ -1678,6 +1686,7 @@ async def chat_stream(
                         "retrieval_fallback": chunk_state["retrieval_fallback"],
                         "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                         "context_id": request.context_id,
+                        "context_mode": request.context_mode,
                         "assistant_profile": request.assistant_profile,
                         "collections_touched": chunk_state.get("collections_touched"),
                     },

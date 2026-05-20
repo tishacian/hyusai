@@ -205,3 +205,46 @@ def test_retrieval_profile_uses_workspace_knowledge_scope(monkeypatch):
     ]
     assert profile["rag_mode"] == "chah"
     assert profile["top_k"] == 8
+
+
+def test_retrieval_profile_combines_scope_and_session_context(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "get_resolved_settings",
+        lambda **_kwargs: {
+            "ragCollectionName": "documents",
+            "ragVectorDBType": "qdrant",
+            "ragTopK": 5,
+            "ragPipelineMode": "hybrid",
+        },
+    )
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "non_wovens",
+            "label": "NON-WOVENS France Excel pilot",
+            "collection_slugs": ["andritz-non-wovens-france-excel-pilot"],
+            "default_mode": "hybrid",
+            "top_k": 5,
+        },
+    )
+
+    profile = get_retrieval_profile(
+        {
+            "query": "diametre B",
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+            "knowledge_scope": "non_wovens",
+            "context_id": "ctx-drop",
+            "context_collection": "documents",
+            "context_mode": "combine",
+        }
+    )
+
+    assert profile["knowledge_scope"] == "non_wovens"
+    assert profile["scope_label"] == "NON-WOVENS France Excel pilot + Session docs"
+    assert profile["collections"] == [
+        "andritz-non-wovens-france-excel-pilot",
+        "documents",
+    ]

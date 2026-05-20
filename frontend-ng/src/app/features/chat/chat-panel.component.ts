@@ -105,6 +105,7 @@ interface KnowledgeScopeOption {
 }
 
 type SourceSelection = 'auto' | 'workspace_default' | string;
+type SessionDocsMode = 'replace' | 'combine';
 
 function isSentinelShowcaseProfile(profile: AssistantProfile | null): boolean {
   if (!profile) return false;
@@ -292,22 +293,52 @@ const STEP_ICONS: Record<string, string> = {
           <span class="text-gray-600">·</span>
 
           @if (knowledgeScopeOptions().length > 0) {
-            <label class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500">
-              Sources
-            </label>
-            <select
-              class="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[11px] min-w-[10rem] max-w-[18rem] focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-60"
-              [ngModel]="selectedSource()"
-              (ngModelChange)="onSourceSelectionChange($event)"
-              [disabled]="!!contextId()"
-              [title]="assistantScopeLabel()"
-            >
-              <option value="auto">Auto · {{ autoSourceLabel() }}</option>
-              <option value="workspace_default">Workspace default</option>
-              @for (scope of knowledgeScopeOptions(); track scope.key) {
-                <option [value]="scope.key">{{ scope.label || scope.key }}</option>
-              }
-            </select>
+            <div class="source-picker" [title]="assistantScopeLabel()">
+              <span class="source-picker-label">
+                <app-icon name="database" [size]="12" />
+                Knowledge
+              </span>
+              <div class="source-picker-select-wrap">
+                <select
+                  class="source-picker-select"
+                  [ngModel]="selectedSource()"
+                  (ngModelChange)="onSourceSelectionChange($event)"
+                >
+                  <option value="auto">Auto · {{ autoSourceLabel() }}</option>
+                  <option value="workspace_default">Workspace default</option>
+                  @for (scope of knowledgeScopeOptions(); track scope.key) {
+                    <option [value]="scope.key">{{ scope.label || scope.key }}</option>
+                  }
+                </select>
+                <app-icon name="chevron-down" [size]="12" class="source-picker-chevron" />
+              </div>
+            </div>
+            <span class="text-gray-600">·</span>
+          }
+
+          @if (contextId()) {
+            <div class="session-doc-mode" title="Choose whether uploaded session documents replace or complement the selected Knowledge source.">
+              <span class="session-doc-label">
+                <app-icon name="files" [size]="12" />
+                Session docs
+              </span>
+              <button
+                type="button"
+                class="session-doc-mode-button"
+                [class.session-doc-mode-active]="sessionDocsMode() === 'replace'"
+                (click)="setSessionDocsMode('replace')"
+              >
+                Only
+              </button>
+              <button
+                type="button"
+                class="session-doc-mode-button"
+                [class.session-doc-mode-active]="sessionDocsMode() === 'combine'"
+                (click)="setSessionDocsMode('combine')"
+              >
+                + Knowledge
+              </button>
+            </div>
             <span class="text-gray-600">·</span>
           }
 
@@ -1094,6 +1125,88 @@ const STEP_ICONS: Record<string, string> = {
       color: #f4f8ff;
       background: rgba(18, 31, 45, 0.82);
     }
+    .source-picker,
+    .session-doc-mode {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 30px;
+      border: 1px solid rgba(148, 197, 229, 0.14);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.045);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .source-picker {
+      padding: 3px 7px 3px 9px;
+    }
+    .source-picker-label,
+    .session-doc-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: rgba(177, 190, 210, 0.82);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .source-picker-label app-icon,
+    .session-doc-label app-icon {
+      color: rgb(103, 213, 246);
+    }
+    .source-picker-select-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      min-width: 184px;
+      max-width: 270px;
+    }
+    .source-picker-select {
+      width: 100%;
+      appearance: none;
+      border: 0;
+      outline: 0;
+      border-radius: 8px;
+      background: rgba(2, 8, 18, 0.38);
+      color: rgba(245, 248, 252, 0.92);
+      padding: 4px 24px 4px 9px;
+      font: 600 11px/1.2 var(--ck-font-sans, ui-sans-serif, system-ui);
+    }
+    .source-picker-select:focus {
+      box-shadow: 0 0 0 1px rgba(103, 213, 246, 0.42);
+      background: rgba(6, 13, 25, 0.76);
+    }
+    .source-picker-chevron {
+      position: absolute;
+      right: 7px;
+      color: rgba(177, 190, 210, 0.72);
+      pointer-events: none;
+    }
+    .session-doc-mode {
+      padding: 3px;
+    }
+    .session-doc-label {
+      padding-left: 6px;
+    }
+    .session-doc-mode-button {
+      border: 0;
+      border-radius: 8px;
+      color: rgba(177, 190, 210, 0.78);
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      transition: 140ms ease;
+    }
+    .session-doc-mode-button:hover {
+      color: rgba(245, 248, 252, 0.92);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .session-doc-mode-active {
+      color: rgb(219, 249, 255);
+      background: rgba(34, 211, 238, 0.15);
+      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.22);
+    }
     .vigie-messages {
       background:
         radial-gradient(circle at 82% 4%, rgba(101, 214, 110, 0.055), transparent 32%),
@@ -1233,6 +1346,7 @@ export class ChatPanelComponent {
   readonly executiveMode = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
   readonly assistantLabel = computed(() => this.activeAssistantProfile()?.label || 'Agentium');
   readonly selectedSource = signal<SourceSelection>('auto');
+  readonly sessionDocsMode = signal<SessionDocsMode>('replace');
   readonly knowledgeScopeOptions = computed<KnowledgeScopeOption[]>(() => {
     const settings = this.workspace.current()?.settings;
     const scopes = settings?.['knowledge_scopes'];
@@ -1255,16 +1369,17 @@ export class ChatPanelComponent {
     return scopes.find((scope) => scope.is_default)?.key || scopes[0]?.key || null;
   });
   readonly activeKnowledgeScope = computed(() => {
-    if (this.contextId()) return null;
+    if (this.contextId() && this.sessionDocsMode() === 'replace') return null;
     const selected = this.selectedSource();
     if (selected === 'workspace_default') return this.workspaceDefaultKnowledgeScope();
     if (selected !== 'auto') return selected;
     return this.profileKnowledgeScope() || this.workspaceDefaultKnowledgeScope();
   });
   readonly assistantScopeLabel = computed(() => {
-    if (this.contextId()) return 'Sources : session context';
     const label = this.scopeLabel(this.activeKnowledgeScope());
-    return `Sources : ${label}`;
+    if (!this.contextId()) return `Knowledge source: ${label}`;
+    if (this.sessionDocsMode() === 'combine') return `Session docs + ${label}`;
+    return 'Session docs only';
   });
   readonly autoSourceLabel = computed(() => {
     const key = this.profileKnowledgeScope() || this.workspaceDefaultKnowledgeScope();
@@ -1292,6 +1407,10 @@ export class ChatPanelComponent {
   readonly emptySubtitle = computed(() =>
     this.executiveMode()
       ? 'Posez une question sur les signaux, projets, sources et décisions attendues.'
+      : this.contextId() && this.sessionDocsMode() === 'replace'
+        ? 'Ask a question grounded only in the documents uploaded for this session.'
+      : this.contextId() && this.sessionDocsMode() === 'combine'
+        ? 'Ask a question grounded in session documents plus the selected Knowledge source.'
       : this.activeKnowledgeScope()
         ? 'Ask a question grounded in the selected workspace knowledge scope.'
         : 'Try one of these prompts or ask anything about your corpus.',
@@ -1299,6 +1418,10 @@ export class ChatPanelComponent {
   readonly inputPlaceholder = computed(() =>
     this.executiveMode()
       ? `Interroger ${this.assistantLabel()} sur les sources du workspace...`
+      : this.contextId() && this.sessionDocsMode() === 'replace'
+        ? 'Ask about the uploaded session documents...'
+      : this.contextId() && this.sessionDocsMode() === 'combine'
+        ? 'Ask across uploaded documents and the selected Knowledge source...'
       : this.activeKnowledgeScope()
         ? `Ask ${this.assistantLabel()} about the selected knowledge scope...`
         : 'Ask anything… (Shift+Enter for newline)',
@@ -1945,6 +2068,12 @@ export class ChatPanelComponent {
     this.chatSessionSignature = null;
   }
 
+  setSessionDocsMode(mode: SessionDocsMode): void {
+    this.sessionDocsMode.set(mode);
+    this.chatSessionId = null;
+    this.chatSessionSignature = null;
+  }
+
   iconFor(step: DecisionStep): string {
     return STEP_ICONS[step.type ?? 'default'] ?? STEP_ICONS['default'];
   }
@@ -2010,6 +2139,7 @@ export class ChatPanelComponent {
         agent_id: this.systemId(),
         session_id: this.chatSessionId,
         context_id: this.contextId(),
+        context_mode: this.contextId() ? this.sessionDocsMode() : null,
         stream: true,
         include_reasoning: true,
         include_sources: true,
@@ -2131,6 +2261,7 @@ export class ChatPanelComponent {
       this.contextId() || 'no-context',
       this.activeAssistantProfile()?.key || this.assistantProfileKey() || 'default-profile',
       this.selectedSource(),
+      this.contextId() ? this.sessionDocsMode() : 'no-session-docs',
       this.activeKnowledgeScope() || 'workspace-scope',
     ].join('|');
   }
@@ -2139,6 +2270,7 @@ export class ChatPanelComponent {
     return {
       system_id: this.systemId(),
       context_id: this.contextId(),
+      context_mode: this.contextId() ? this.sessionDocsMode() : null,
       assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
       knowledge_scope: this.activeKnowledgeScope(),
       source_selection: this.selectedSource(),
