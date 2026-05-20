@@ -16,7 +16,7 @@ from typing import Any
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
-from app.services.rag.knowledge_scopes import resolve_knowledge_scope
+from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
 from app.services.rag.mode_selector import resolve_retrieval_mode
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
 from app.services.rag.vector_store_config import resolve_vector_db_type
@@ -57,12 +57,21 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         capability_id=request.get("capability_id"),
         system_id=request.get("system_id"),
     )
-    fallback_collection = app_settings.get("ragCollectionName", "documents")
-    scope = resolve_knowledge_scope(
-        workspace_id=request.get("workspace_id"),
-        requested_key=request.get("knowledge_scope"),
-        fallback_collection=fallback_collection,
-    )
+    context_collection = str(request.get("context_collection") or "").strip()
+    fallback_collection = context_collection or app_settings.get("ragCollectionName", "documents")
+    if context_collection and not request.get("knowledge_scope"):
+        context_key = str(request.get("context_id") or context_collection)
+        scope = fallback_scope(
+            context_collection,
+            key=f"context_{sha1(context_key.encode('utf-8')).hexdigest()[:10]}",
+        )
+        scope["label"] = "Selected context"
+    else:
+        scope = resolve_knowledge_scope(
+            workspace_id=request.get("workspace_id"),
+            requested_key=request.get("knowledge_scope"),
+            fallback_collection=fallback_collection,
+        )
     scope_default_mode = scope.get("default_mode")
     if scope_default_mode == "auto":
         scope_default_mode = None

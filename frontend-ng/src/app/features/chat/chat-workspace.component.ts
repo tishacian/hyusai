@@ -50,6 +50,14 @@ interface SessionDoc {
   meta: DocFacts | null;
 }
 
+function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boolean {
+  if (!profile) return false;
+  return profile['key'] === 'vigie_executive'
+    || profile['showcase_mode'] === 'sentinel_ci'
+    || profile['design_mode'] === 'sentinel_ci'
+    || profile['tone'] === 'ministerial';
+}
+
 /**
  * `ChatWorkspaceComponent` — the global chat surface (Vague D / D0).
  *
@@ -673,8 +681,8 @@ export class ChatWorkspaceComponent implements OnInit {
     return (profiles as Record<string, unknown>[]).find((profile) => profile['key'] === key) ?? null;
   });
 
-  readonly executiveAssistant = computed(() => this.activeAssistantProfile()?.['executive_mode'] === true);
-  readonly assistantLabel = computed(() => String(this.activeAssistantProfile()?.['label'] || 'AYA'));
+  readonly executiveAssistant = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
+  readonly assistantLabel = computed(() => String(this.activeAssistantProfile()?.['label'] || 'Agentium'));
   readonly assistantInitials = computed(() => this.assistantLabel().slice(0, 3).toUpperCase());
 
   readonly assistantSubtitle = computed(() => {
@@ -920,6 +928,8 @@ export class ChatWorkspaceComponent implements OnInit {
       this.canonical
         .updateContext(existing, {
           data_refs: allFilenames,
+          environment_state: { collection: 'documents' },
+          business_constraints: { source: 'drop_and_ask' },
         })
         .subscribe();
       return;
@@ -928,6 +938,8 @@ export class ChatWorkspaceComponent implements OnInit {
       .createContext({
         name: `Drop-and-ask · ${new Date().toLocaleString()}`,
         data_refs: newDocs,
+        environment_state: { collection: 'documents' },
+        business_constraints: { source: 'drop_and_ask' },
         ephemeral: true,
         ttl_hours: 24,
       })

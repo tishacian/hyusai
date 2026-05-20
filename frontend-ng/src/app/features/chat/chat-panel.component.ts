@@ -89,8 +89,29 @@ interface AssistantProfile {
   subtitle?: string;
   default_knowledge_scope?: string;
   executive_mode?: boolean;
+  showcase_mode?: string;
+  design_mode?: string;
+  tone?: string;
   prompt_pack?: SuggestionCard[];
   hidden_controls?: string[];
+}
+
+interface KnowledgeScopeOption {
+  key: string;
+  label?: string;
+  description?: string;
+  is_default?: boolean;
+  collection_slugs?: string[];
+}
+
+type SourceSelection = 'auto' | 'workspace_default' | string;
+
+function isSentinelShowcaseProfile(profile: AssistantProfile | null): boolean {
+  if (!profile) return false;
+  return profile.key === 'vigie_executive'
+    || profile.showcase_mode === 'sentinel_ci'
+    || profile.design_mode === 'sentinel_ci'
+    || profile.tone === 'ministerial';
 }
 
 interface ReasoningTemplate {
@@ -269,6 +290,26 @@ const STEP_ICONS: Record<string, string> = {
           <span class="text-gray-600">·</span>
           <span class="font-mono truncate">{{ chatRuntimeLabel() }}</span>
           <span class="text-gray-600">·</span>
+
+          @if (knowledgeScopeOptions().length > 0) {
+            <label class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500">
+              Sources
+            </label>
+            <select
+              class="bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-[11px] min-w-[10rem] max-w-[18rem] focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-60"
+              [ngModel]="selectedSource()"
+              (ngModelChange)="onSourceSelectionChange($event)"
+              [disabled]="!!contextId()"
+              [title]="assistantScopeLabel()"
+            >
+              <option value="auto">Auto · {{ autoSourceLabel() }}</option>
+              <option value="workspace_default">Workspace default</option>
+              @for (scope of knowledgeScopeOptions(); track scope.key) {
+                <option [value]="scope.key">{{ scope.label || scope.key }}</option>
+              }
+            </select>
+            <span class="text-gray-600">·</span>
+          }
 
           <!-- Per-query retrieval mode chip -->
           <label class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500">
@@ -1155,6 +1196,9 @@ export class ChatPanelComponent {
   liveSteps = signal<DecisionStep[]>([]);
   evaluatingId = signal<string | null>(null);
   userInput = '';
+  private chatSessionId: string | null = null;
+  private chatSessionSignature: string | null = null;
+  private creatingChatSession = false;
 
   readonly ragModeChoices = RAG_MODE_CHOICES;
   readonly ragModeOverride = signal<RagModeChoice>('auto');
@@ -1186,18 +1230,53 @@ export class ChatPanelComponent {
     return match ?? null;
   });
 
-  readonly executiveMode = computed(() => this.activeAssistantProfile()?.executive_mode === true);
+  readonly executiveMode = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
   readonly assistantLabel = computed(() => this.activeAssistantProfile()?.label || 'Agentium');
-  readonly activeKnowledgeScope = computed(() => this.activeAssistantProfile()?.default_knowledge_scope || null);
-  readonly assistantScopeLabel = computed(() => {
+  readonly selectedSource = signal<SourceSelection>('auto');
+  readonly knowledgeScopeOptions = computed<KnowledgeScopeOption[]>(() => {
     const settings = this.workspace.current()?.settings;
-    const scopeKey = this.activeKnowledgeScope();
     const scopes = settings?.['knowledge_scopes'];
-    if (scopeKey && Array.isArray(scopes)) {
-      const scope = (scopes as Array<Record<string, unknown>>).find((item) => item['key'] === scopeKey);
-      if (scope?.['label']) return `Sources : ${scope['label']}`;
+    if (!Array.isArray(scopes)) return [];
+    return (scopes as Array<Record<string, unknown>>)
+      .map((scope) => ({
+        key: String(scope['key'] || ''),
+        label: typeof scope['label'] === 'string' ? scope['label'] : undefined,
+        description: typeof scope['description'] === 'string' ? scope['description'] : undefined,
+        is_default: !!scope['is_default'],
+        collection_slugs: Array.isArray(scope['collection_slugs'])
+          ? scope['collection_slugs'].map((slug) => String(slug))
+          : undefined,
+      }))
+      .filter((scope) => !!scope.key);
+  });
+  readonly profileKnowledgeScope = computed(() => this.activeAssistantProfile()?.default_knowledge_scope || null);
+  readonly workspaceDefaultKnowledgeScope = computed(() => {
+    const scopes = this.knowledgeScopeOptions();
+    return scopes.find((scope) => scope.is_default)?.key || scopes[0]?.key || null;
+  });
+  readonly activeKnowledgeScope = computed(() => {
+    if (this.contextId()) return null;
+    const selected = this.selectedSource();
+    if (selected === 'workspace_default') return this.workspaceDefaultKnowledgeScope();
+    if (selected !== 'auto') return selected;
+    return this.profileKnowledgeScope() || this.workspaceDefaultKnowledgeScope();
+  });
+  readonly assistantScopeLabel = computed(() => {
+    if (this.contextId()) return 'Sources : session context';
+    const label = this.scopeLabel(this.activeKnowledgeScope());
+    return `Sources : ${label}`;
+  });
+  readonly autoSourceLabel = computed(() => {
+    const key = this.profileKnowledgeScope() || this.workspaceDefaultKnowledgeScope();
+    return this.scopeLabel(key);
+  });
+  readonly sourceSelectionLabel = computed(() => {
+    const selected = this.selectedSource();
+    if (selected === 'auto') {
+      return this.profileKnowledgeScope() ? 'Profile default' : 'Workspace default';
     }
-    return 'Sources : workspace';
+    if (selected === 'workspace_default') return 'Workspace default';
+    return this.scopeLabel(selected);
   });
 
   readonly activeSuggestions = computed<SuggestionCard[]>(() => {
@@ -1205,16 +1284,24 @@ export class ChatPanelComponent {
     return Array.isArray(pack) && pack.length > 0 ? pack : this.suggestions;
   });
 
-  readonly emptyTitle = computed(() => this.executiveMode() ? `Interroger ${this.assistantLabel()}` : 'Start a conversation');
+  readonly emptyTitle = computed(() => {
+    if (this.executiveMode()) return `Interroger ${this.assistantLabel()}`;
+    if (this.activeAssistantProfile()) return `Ask ${this.assistantLabel()}`;
+    return 'Start a conversation';
+  });
   readonly emptySubtitle = computed(() =>
     this.executiveMode()
       ? 'Posez une question sur les signaux, projets, sources et décisions attendues.'
-      : 'Try one of these prompts or ask anything about your corpus.',
+      : this.activeKnowledgeScope()
+        ? 'Ask a question grounded in the selected workspace knowledge scope.'
+        : 'Try one of these prompts or ask anything about your corpus.',
   );
   readonly inputPlaceholder = computed(() =>
     this.executiveMode()
       ? `Interroger ${this.assistantLabel()} sur les sources du workspace...`
-      : 'Ask anything… (Shift+Enter for newline)',
+      : this.activeKnowledgeScope()
+        ? `Ask ${this.assistantLabel()} about the selected knowledge scope...`
+        : 'Ask anything… (Shift+Enter for newline)',
   );
   readonly sendLabel = computed(() => this.executiveMode() ? 'Interroger' : 'Send');
 
@@ -1846,6 +1933,18 @@ export class ChatPanelComponent {
     this.send();
   }
 
+  scopeLabel(scopeKey: string | null | undefined): string {
+    if (!scopeKey) return 'workspace';
+    const scope = this.knowledgeScopeOptions().find((item) => item.key === scopeKey);
+    return scope?.label || scopeKey;
+  }
+
+  onSourceSelectionChange(value: SourceSelection): void {
+    this.selectedSource.set(value || 'auto');
+    this.chatSessionId = null;
+    this.chatSessionSignature = null;
+  }
+
   iconFor(step: DecisionStep): string {
     return STEP_ICONS[step.type ?? 'default'] ?? STEP_ICONS['default'];
   }
@@ -1859,7 +1958,30 @@ export class ChatPanelComponent {
 
   send(): void {
     const text = this.userInput.trim();
-    if (!text || this.streaming()) return;
+    if (!text || this.streaming() || this.creatingChatSession) return;
+
+    const nextSignature = this.currentChatSessionSignature();
+    if (this.chatSessionSignature !== nextSignature) {
+      this.chatSessionId = null;
+      this.chatSessionSignature = nextSignature;
+    }
+    if (!this.chatSessionId) {
+      this.creatingChatSession = true;
+      this.api
+        .post<{ id: string }>('/sessions', { context: this.currentChatSessionContext() })
+        .subscribe({
+          next: (session) => {
+            this.chatSessionId = session.id;
+            this.creatingChatSession = false;
+            this.send();
+          },
+          error: () => {
+            this.creatingChatSession = false;
+            this.toast.error('Could not create a chat session', 'Chat');
+          },
+        });
+      return;
+    }
 
     const userMsg: ChatMessage = {
       id: cryptoId(),
@@ -1886,7 +2008,8 @@ export class ChatPanelComponent {
       .stream('/api/v1/chat/stream', {
         query: text,
         agent_id: this.systemId(),
-        session_id: null,
+        session_id: this.chatSessionId,
+        context_id: this.contextId(),
         stream: true,
         include_reasoning: true,
         include_sources: true,
@@ -1997,6 +2120,30 @@ export class ChatPanelComponent {
     this.streamBuffer.set('');
     this.liveSteps.set([]);
     this.openTrails.set(new Set());
+    this.chatSessionId = null;
+    this.chatSessionSignature = null;
+    this.creatingChatSession = false;
+  }
+
+  private currentChatSessionSignature(): string {
+    return [
+      this.systemId() || 'workspace',
+      this.contextId() || 'no-context',
+      this.activeAssistantProfile()?.key || this.assistantProfileKey() || 'default-profile',
+      this.selectedSource(),
+      this.activeKnowledgeScope() || 'workspace-scope',
+    ].join('|');
+  }
+
+  private currentChatSessionContext(): Record<string, unknown> {
+    return {
+      system_id: this.systemId(),
+      context_id: this.contextId(),
+      assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
+      knowledge_scope: this.activeKnowledgeScope(),
+      source_selection: this.selectedSource(),
+      created_from: 'chat_panel',
+    };
   }
 
   /**

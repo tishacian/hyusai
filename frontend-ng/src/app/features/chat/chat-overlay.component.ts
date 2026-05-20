@@ -5,6 +5,14 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { ChatOverlayService } from './chat-overlay.service';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
 
+function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boolean {
+  if (!profile) return false;
+  return profile['key'] === 'vigie_executive'
+    || profile['showcase_mode'] === 'sentinel_ci'
+    || profile['design_mode'] === 'sentinel_ci'
+    || profile['tone'] === 'ministerial';
+}
+
 /**
  * `ChatOverlayComponent` — shell-level side-panel that hosts the global
  * chat workspace. Mounted once inside `ShellComponent` so the chat is
@@ -85,7 +93,7 @@ export class ChatOverlayComponent {
   });
 
   readonly panelWidth = computed<string>(() => {
-    return this.activeProfile()?.['executive_mode'] === true ? '680px' : '560px';
+    return isSentinelShowcaseProfile(this.activeProfile()) ? '680px' : '560px';
   });
 
   onOpenChange(open: boolean): void {

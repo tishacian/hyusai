@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import chat
 from app.core.config import settings
+from app.models.context import Context
 from app.models.run import Run
 from app.models.workspace import Workspace
 from app.services.workspace_maps import ensure_workspace_map_seed
@@ -75,6 +76,16 @@ class SlowOrchestrator:
         yield {"chunk_type": "text", "content": "too late", "is_final": True}
 
 
+class CapturingOrchestrator:
+    def __init__(self):
+        self.last_request = None
+
+    async def process_request(self, request):
+        self.last_request = request
+        yield {"chunk_type": "text", "content": "context answer", "is_final": False}
+        yield {"chunk_type": "text", "content": "", "is_final": True}
+
+
 def test_chat_stream_emits_stable_retrieval_eval_and_persists_run(db_session, monkeypatch):
     workspace = Workspace(id="ws-chat", name="Chat", slug="chat")
     db_session.add(workspace)
@@ -98,6 +109,50 @@ def test_chat_stream_emits_stable_retrieval_eval_and_persists_run(db_session, mo
     assert run.output_ref["retrieval_worker_task_id"] == "task-1"
     assert run.output_ref["retrieval_metrics"]["chunks_retrieved"] == 1
     assert run.output_ref["rag_context"]["chunks"] == ["context"]
+
+
+def test_chat_stream_uses_selected_context_collection(db_session, monkeypatch):
+    workspace = Workspace(id="ws-context-chat", name="Context Chat", slug="context-chat")
+    db_session.add(workspace)
+    db_session.add(
+        Context(
+            id="ctx-context-chat",
+            workspace_id=workspace.id,
+            name="NON-WOVENS France Excel pilot",
+            environment_state={"collection": "andritz-non-wovens-france-excel-pilot"},
+            data_refs=["andritz-non-wovens-france-excel-pilot"],
+        )
+    )
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+
+    response = _client(db_session, workspace, orchestrator, monkeypatch).post(
+        "/chat/stream",
+        json={"query": "Diametre B ?", "context_id": "ctx-context-chat"},
+    )
+
+    assert response.status_code == 200
+    assert "data: [DONE]" in response.text
+    assert orchestrator.last_request["context_collection"] == "andritz-non-wovens-france-excel-pilot"
+    assert orchestrator.last_request["context"]["context_id"] == "ctx-context-chat"
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.output_ref["context_id"] == "ctx-context-chat"
+
+
+def test_chat_stream_unknown_context_returns_controlled_error(db_session, monkeypatch):
+    workspace = Workspace(id="ws-missing-context", name="Missing Context", slug="missing-context")
+    db_session.add(workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={"query": "Anything", "context_id": "ctx-does-not-exist"},
+    )
+
+    assert response.status_code == 200
+    assert '"code": "CHAT_CONTEXT_NOT_FOUND"' in response.text
+    assert "data: [DONE]" in response.text
+    assert db_session.query(Run).filter(Run.workspace_id == workspace.id).count() == 0
 
 
 def test_chat_stream_timeout_returns_controlled_error(db_session, monkeypatch):

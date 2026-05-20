@@ -26,7 +26,8 @@ from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
 from app.models.run import Run
 from app.models.system import System
-from app.models.user import Message, User
+from app.models.context import Context
+from app.models.user import Message, Session as ChatSession, User
 from app.models.workspace import Workspace
 from app.api.v1.endpoints.agents import get_orchestrator
 from app.services.evaluation.auto_eval import schedule_eval
@@ -75,6 +76,11 @@ class ChatRequest(BaseModel):
     prompt_type: Optional[str] = None
     # Workspace-scoped Knowledge Scope aggregating one or more collections.
     knowledge_scope: Optional[str] = None
+    # Optional Context row selected by the UI. When it carries an
+    # ``environment_state.collection`` (or ``knowledge_scope``), retrieval is
+    # grounded on that source while the session/run ledger keeps the Context
+    # id for replay.
+    context_id: Optional[str] = None
     # Product-facing assistant profile. It does not bypass backend policy; it
     # carries UI/prompt intent into the Run ledger for audit and replay.
     assistant_profile: Optional[str] = None
@@ -101,6 +107,78 @@ def _resolve_system_id(
         .first()
     )
     return row[0] if row else None
+
+
+def _chat_session_belongs_to_scope(
+    db: Session,
+    *,
+    workspace_id: str,
+    user_id: str,
+    candidate: Optional[str],
+) -> bool:
+    """Return whether a chat session is owned by the current user/workspace."""
+    if not candidate:
+        return True
+    row = (
+        db.query(ChatSession.id)
+        .filter(
+            ChatSession.id == candidate,
+            ChatSession.user_id == user_id,
+            ChatSession.workspace_id == workspace_id,
+        )
+        .first()
+    )
+    return bool(row)
+
+
+def _resolve_chat_context(
+    db: Session,
+    *,
+    workspace_id: str,
+    candidate: Optional[str],
+) -> Optional[Context]:
+    """Return a workspace-owned Context for chat grounding/audit."""
+    if not candidate:
+        return None
+    return (
+        db.query(Context)
+        .filter(Context.id == candidate, Context.workspace_id == workspace_id)
+        .first()
+    )
+
+
+def _apply_context_to_chat_request(
+    request_dict: Dict[str, Any],
+    context: Optional[Context],
+) -> None:
+    """Fold a selected Context into the orchestrator request payload.
+
+    Existing ``knowledge_scope`` wins. Otherwise a Context can select either a
+    workspace Knowledge Scope (``environment_state.knowledge_scope``) or a
+    direct collection (``environment_state.collection``), which is useful for
+    drop-and-ask and collection-specific demos.
+    """
+    if not context:
+        return
+    state = context.environment_state or {}
+    data_refs = context.data_refs or []
+    request_dict["context_id"] = context.id
+    request_context = request_dict.setdefault("context", {})
+    request_context.update(
+        {
+            "context_id": context.id,
+            "context_name": context.name,
+            "data_refs": data_refs,
+            "environment_state": state,
+        }
+    )
+    if not request_dict.get("knowledge_scope") and isinstance(state, dict):
+        knowledge_scope = state.get("knowledge_scope")
+        collection = state.get("collection")
+        if knowledge_scope:
+            request_dict["knowledge_scope"] = str(knowledge_scope)
+        elif collection:
+            request_dict["context_collection"] = str(collection)
 
 
 def _persist_chat_run(
@@ -474,13 +552,29 @@ async def chat_completion(
 ):
     """Non-streaming chat completion (scoped to current workspace)."""
     try:
+        if not _chat_session_belongs_to_scope(
+            db,
+            workspace_id=workspace.id,
+            user_id=getattr(user, "id", ""),
+            candidate=request.session_id,
+        ):
+            raise HTTPException(status_code=404, detail="Chat session not found")
+
+        chat_context = _resolve_chat_context(
+            db,
+            workspace_id=workspace.id,
+            candidate=request.context_id,
+        )
+        if request.context_id and chat_context is None:
+            raise HTTPException(status_code=404, detail="Chat context not found")
+
         # Validate query
         try:
             validated_query = query_validator.validate(request.query)
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
         
-        canonical = _canonical_answer_hit(
+        canonical = None if (request.context_id or request.knowledge_scope) else _canonical_answer_hit(
             db,
             workspace_id=workspace.id,
             query=validated_query,
@@ -740,6 +834,7 @@ async def chat_completion(
         request_dict["query"] = validated_query
         request_dict["workspace_slug"] = workspace.slug
         request_dict["workspace_id"] = workspace.id
+        _apply_context_to_chat_request(request_dict, chat_context)
         if request.assistant_profile == "vigie_executive":
             request_dict.setdefault("context", {})["workspace_calendar"] = calendar_context_for_chat(db, workspace)
             request_dict.setdefault("context", {})["workspace_actions"] = action_context_for_chat(db, workspace)
@@ -832,6 +927,8 @@ async def chat_completion(
             meta_data = {
                 "reasoning_trace": chunk_state["reasoning_trace"],
                 "sources": chunk_state["sources"],
+                "context_id": request.context_id,
+                "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
             }
             
             # Add decision steps if any were collected
@@ -871,7 +968,8 @@ async def chat_completion(
                 "retrieval_metrics": chunk_state["retrieval_metrics"],
                 "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
                 "retrieval_fallback": chunk_state["retrieval_fallback"],
-                "knowledge_scope": request.knowledge_scope or chunk_state.get("knowledge_scope"),
+                "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
+                "context_id": request.context_id,
                 "assistant_profile": request.assistant_profile,
                 "collections_touched": chunk_state.get("collections_touched"),
             },
@@ -904,6 +1002,38 @@ async def chat_stream(
 
     async def generate():
         try:
+            if not _chat_session_belongs_to_scope(
+                db,
+                workspace_id=workspace.id,
+                user_id=getattr(user, "id", ""),
+                candidate=request.session_id,
+            ):
+                yield _sse_data(
+                    _error_chunk(
+                        "CHAT_SESSION_NOT_FOUND",
+                        "Chat session not found",
+                        recoverable=True,
+                    )
+                )
+                yield _sse_done()
+                return
+
+            chat_context = _resolve_chat_context(
+                db,
+                workspace_id=workspace.id,
+                candidate=request.context_id,
+            )
+            if request.context_id and chat_context is None:
+                yield _sse_data(
+                    _error_chunk(
+                        "CHAT_CONTEXT_NOT_FOUND",
+                        "Chat context not found",
+                        recoverable=True,
+                    )
+                )
+                yield _sse_done()
+                return
+
             orchestrator = get_orchestrator()
             if not orchestrator:
                 yield _sse_data(
@@ -921,6 +1051,7 @@ async def chat_stream(
             request_dict = request.model_dump()
             request_dict["workspace_slug"] = workspace.slug
             request_dict["workspace_id"] = workspace.id
+            _apply_context_to_chat_request(request_dict, chat_context)
             if request.rag_mode_override:
                 request_dict["rag_pipeline_mode"] = request.rag_mode_override
 
@@ -938,7 +1069,7 @@ async def chat_stream(
                 return
             request_dict["query"] = validated_query
 
-            canonical = _canonical_answer_hit(
+            canonical = None if (request.context_id or request.knowledge_scope) else _canonical_answer_hit(
                 db,
                 workspace_id=workspace.id,
                 query=validated_query,
@@ -1495,6 +1626,8 @@ async def chat_stream(
                 meta_data = {
                     "reasoning_trace": chunk_state["reasoning_trace"],
                     "sources": chunk_state["sources"],
+                    "context_id": request.context_id,
+                    "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                 }
                 
                 # Add decision steps if any were collected
@@ -1543,7 +1676,8 @@ async def chat_stream(
                         "retrieval_metrics": chunk_state["retrieval_metrics"],
                         "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
                         "retrieval_fallback": chunk_state["retrieval_fallback"],
-                        "knowledge_scope": request.knowledge_scope or chunk_state.get("knowledge_scope"),
+                        "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
+                        "context_id": request.context_id,
                         "assistant_profile": request.assistant_profile,
                         "collections_touched": chunk_state.get("collections_touched"),
                     },
