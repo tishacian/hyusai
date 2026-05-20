@@ -543,6 +543,21 @@ const STEP_ICONS: Record<string, string> = {
           />
           Auto-send final transcript
         </label>
+        @if (voiceTransport() === 'backend_ws') {
+          <label
+            class="voice-checkbox"
+            title="When enabled, Agentium ends the current voice turn after speech followed by a short silence. This does not keep the microphone open between assistant turns yet."
+          >
+            <input
+              type="checkbox"
+              class="accent-brand-500"
+              [ngModel]="voiceAutoEndpoint()"
+              (ngModelChange)="voiceAutoEndpoint.set($event)"
+              [disabled]="!canUseVoiceSession()"
+            />
+            Auto endpoint
+          </label>
+        }
         <span [class]="voiceStatusClass()">{{ voiceStatusLabel() }}</span>
         <span class="text-gray-600">·</span>
         <span class="truncate max-w-[36rem]" [title]="voiceRuntimeDetail()">{{ voiceRuntimeDetail() }}</span>
@@ -911,7 +926,7 @@ const STEP_ICONS: Record<string, string> = {
                             </span>
                             @if (sourceLocator(src); as loc) {
                               <span
-                                class="font-mono text-[10px] text-brand-400/80 shrink-0"
+                                class="font-mono text-[10px] text-brand-400/80 shrink min-w-0 max-w-[14rem] truncate"
                                 [title]="loc.tooltip"
                               >
                                 · {{ loc.label }}
@@ -1649,6 +1664,7 @@ export class ChatPanelComponent {
   readonly voiceProvider = signal('cascade_openai');
 	  readonly voiceTransport = signal<VoiceTransportChoice>('batch_http');
 	  readonly voiceAutoSend = signal(false);
+	  readonly voiceAutoEndpoint = signal(true);
 	  readonly voicePartial = signal('');
 	  readonly voiceNotice = signal<string | null>(null);
 	  readonly voiceOracleStage = signal<VoiceOracleStage>('idle');
@@ -1964,6 +1980,16 @@ export class ChatPanelComponent {
   private voiceConnection: VoiceSessionConnection | null = null;
   private chatVoiceSessionId = `chat-${crypto.randomUUID?.() || Date.now()}`;
   private streamStart = 0;
+  private voiceEndpointRaf: number | null = null;
+  private voiceEndpointAudioContext: AudioContext | null = null;
+  private voiceEndpointSource: MediaStreamAudioSourceNode | null = null;
+  private voiceEndpointSpeechDetected = false;
+  private voiceEndpointLastVoiceAt = 0;
+  private voiceEndpointStartedAt = 0;
+  private readonly voiceEndpointSilenceMs = 1200;
+  private readonly voiceEndpointMinSpeechMs = 350;
+  private readonly voiceEndpointMaxTurnMs = 45000;
+  private readonly voiceEndpointRmsThreshold = 0.018;
 
   // TTS pipeline state — we flush completed sentences from the LLM
   // stream to OpenAI TTS as they come in, then play the resulting MP3
@@ -1999,6 +2025,7 @@ export class ChatPanelComponent {
     this.loadVoiceRuntimes();
     this.destroyRef.onDestroy(() => {
       this.currentAudio?.pause();
+      this.stopVoiceEndpointMonitor();
       if (this.mediaRecorder?.state === 'recording') this.mediaRecorder.stop();
       this.voiceConnection?.close();
     });
@@ -2494,6 +2521,24 @@ export class ChatPanelComponent {
    */
   sourceLocator(src: Source): { label: string; tooltip: string } | null {
     const meta = (src.metadata ?? {}) as Record<string, unknown>;
+    const sheet = (src['sheet_name'] as string | undefined) ?? (meta['sheet_name'] as string | undefined);
+    const cellRange = (src['cell_range'] as string | undefined) ?? (meta['cell_range'] as string | undefined);
+    const rowStart = (src['row_start'] as number | string | undefined) ?? (meta['row_start'] as number | string | undefined);
+    const rowEnd = (src['row_end'] as number | string | undefined) ?? (meta['row_end'] as number | string | undefined);
+    if (sheet || cellRange || rowStart !== undefined || rowEnd !== undefined) {
+      const parts: string[] = [];
+      if (sheet) parts.push(sheet);
+      if (cellRange) {
+        parts.push(cellRange);
+      } else if (rowStart !== undefined && rowStart !== null) {
+        const end = rowEnd !== undefined && rowEnd !== null && `${rowEnd}` !== `${rowStart}` ? `-${rowEnd}` : '';
+        parts.push(`row ${rowStart}${end}`);
+      }
+      return {
+        label: parts.join(' · '),
+        tooltip: `Spreadsheet locator: ${parts.join(' · ')}`,
+      };
+    }
     const page = (src.page as number | string | undefined) ?? (meta['page'] as number | string | undefined);
     if (page !== undefined && page !== null && `${page}`.trim() !== '') {
       return { label: `p. ${page}`, tooltip: `Page ${page}` };
@@ -3066,6 +3111,7 @@ export class ChatPanelComponent {
         if (e.data.size > 0) this.recordedChunks.push(e.data);
       };
       recorder.onstop = () => {
+        this.stopVoiceEndpointMonitor();
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
         this.recording.set(false);
@@ -3075,11 +3121,103 @@ export class ChatPanelComponent {
 	      this.recording.set(true);
 	      if (this.voiceTransport() === 'backend_ws') {
 	        this.voiceOracleStage.set('listening');
-	        this.voiceOracleMessage.set('Listening: the next final transcript will drive the chat turn.');
+	        this.voiceOracleMessage.set(
+            this.voiceAutoEndpoint()
+              ? 'Listening: Agentium will end this voice turn after a short silence.'
+              : 'Listening: press the microphone again to end this voice turn.',
+          );
+          if (this.voiceAutoEndpoint()) this.startVoiceEndpointMonitor(stream, recorder);
 	      }
 	    } catch {
 	      this.toast.error('Microphone access denied', 'Voice');
 	    }
+  }
+
+  private startVoiceEndpointMonitor(stream: MediaStream, recorder: MediaRecorder): void {
+    this.stopVoiceEndpointMonitor();
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) {
+      this.voiceNotice.set('Auto endpoint unavailable');
+      return;
+    }
+
+    try {
+      const audioContext = new AudioContextCtor() as AudioContext;
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.18;
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const data = new Uint8Array(analyser.fftSize);
+      this.voiceEndpointAudioContext = audioContext;
+      this.voiceEndpointSource = source;
+      this.voiceEndpointSpeechDetected = false;
+      this.voiceEndpointStartedAt = performance.now();
+      this.voiceEndpointLastVoiceAt = this.voiceEndpointStartedAt;
+      this.voiceNotice.set('Auto endpoint listening');
+
+      const tick = () => {
+        if (recorder.state !== 'recording') return;
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (const sample of data) {
+          const normalized = (sample - 128) / 128;
+          sum += normalized * normalized;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        const now = performance.now();
+        const elapsed = now - this.voiceEndpointStartedAt;
+        if (rms >= this.voiceEndpointRmsThreshold) {
+          if (!this.voiceEndpointSpeechDetected) {
+            this.voiceOracleMessage.set('Speech detected. Agentium will submit after silence.');
+          }
+          this.voiceEndpointSpeechDetected = true;
+          this.voiceEndpointLastVoiceAt = now;
+        }
+
+        const silenceMs = now - this.voiceEndpointLastVoiceAt;
+        const reachedSilence = this.voiceEndpointSpeechDetected
+          && elapsed >= this.voiceEndpointMinSpeechMs
+          && silenceMs >= this.voiceEndpointSilenceMs;
+        const reachedMax = elapsed >= this.voiceEndpointMaxTurnMs;
+        if (reachedSilence || reachedMax) {
+          this.voiceNotice.set(reachedSilence ? 'Silence detected' : 'Max voice turn reached');
+          this.voiceOracleMessage.set(
+            reachedSilence
+              ? 'Silence detected; ending the voice turn.'
+              : 'Maximum voice turn length reached; ending the voice turn.',
+          );
+          if (recorder.state === 'recording') recorder.stop();
+          return;
+        }
+        this.voiceEndpointRaf = requestAnimationFrame(tick);
+      };
+
+      this.voiceEndpointRaf = requestAnimationFrame(tick);
+    } catch {
+      this.stopVoiceEndpointMonitor();
+      this.voiceNotice.set('Auto endpoint unavailable');
+    }
+  }
+
+  private stopVoiceEndpointMonitor(): void {
+    if (this.voiceEndpointRaf !== null) {
+      cancelAnimationFrame(this.voiceEndpointRaf);
+      this.voiceEndpointRaf = null;
+    }
+    try {
+      this.voiceEndpointSource?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    const context = this.voiceEndpointAudioContext;
+    this.voiceEndpointSource = null;
+    this.voiceEndpointAudioContext = null;
+    this.voiceEndpointSpeechDetected = false;
+    if (context && context.state !== 'closed') {
+      void context.close().catch(() => undefined);
+    }
   }
 
   private transcribe(blob: Blob): void {
