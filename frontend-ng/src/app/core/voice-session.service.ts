@@ -6,9 +6,18 @@ import { WorkspaceService } from './workspace.service';
 export type VoiceSessionEventType =
   | 'session.ready'
   | 'session.start'
+  | 'loop.start'
+  | 'loop.pause'
+  | 'loop.resume'
+  | 'loop.stop'
+  | 'loop.armed'
   | 'audio.frame'
   | 'audio.endpoint'
+  | 'audio.endpoint.auto'
   | 'audio.out'
+  | 'tts.started'
+  | 'tts.ended'
+  | 'tts.interrupted'
   | 'text.partial'
   | 'text.final'
   | 'translation.partial'
@@ -16,6 +25,7 @@ export type VoiceSessionEventType =
   | 'evaluation.delta'
   | 'prompt.next'
   | 'barge_in'
+  | 'voice.command'
   | 'oracle.delta'
   | 'oracle.action'
   | 'oracle.commit'
@@ -63,6 +73,8 @@ export interface VoiceFrameMeta {
   retrieval_event_id?: string | null;
   interruption_of_event_id?: string | null;
   content_type?: string | null;
+  auto?: boolean;
+  reason?: string | null;
 }
 
 export class VoiceSessionConnection {
@@ -137,16 +149,54 @@ export class VoiceSessionConnection {
   }
 
   endpoint(meta: VoiceFrameMeta): void {
-    this.send('audio.endpoint', {
+    this.send(meta.auto ? 'audio.endpoint.auto' : 'audio.endpoint', {
       turn_id: meta.turn_id,
       question_id: meta.question_id,
       retrieval_event_id: meta.retrieval_event_id,
       interruption_of_event_id: meta.interruption_of_event_id,
+      auto: Boolean(meta.auto),
+      reason: meta.reason || null,
     });
   }
 
   bargeIn(promptEventId?: string | null): void {
     this.send('barge_in', { prompt_event_id: promptEventId || null });
+  }
+
+  loopStart(payload: Record<string, any> = {}): void {
+    this.send('loop.start', payload);
+  }
+
+  loopPause(payload: Record<string, any> = {}): void {
+    this.send('loop.pause', payload);
+  }
+
+  loopResume(payload: Record<string, any> = {}): void {
+    this.send('loop.resume', payload);
+  }
+
+  loopStop(payload: Record<string, any> = {}): void {
+    this.send('loop.stop', payload);
+  }
+
+  loopArmed(payload: Record<string, any> = {}): void {
+    this.send('loop.armed', payload);
+  }
+
+  voiceCommand(command: string, transcript: string, payload: Record<string, any> = {}): void {
+    this.send('voice.command', { command, transcript, ...payload });
+  }
+
+  ttsStarted(payload: Record<string, any> = {}): void {
+    this.send('tts.started', payload);
+  }
+
+  ttsEnded(payload: Record<string, any> = {}): void {
+    this.send('tts.ended', payload);
+  }
+
+  ttsInterrupted(payload: Record<string, any> = {}): void {
+    this.send('tts.interrupted', payload);
   }
 
   close(): void {

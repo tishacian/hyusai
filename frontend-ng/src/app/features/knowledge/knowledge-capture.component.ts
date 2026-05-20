@@ -3111,10 +3111,14 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     const session = this.session();
-    if (session) {
-      this.ensureVoiceConnection(session);
-    }
+    const connection = session ? this.ensureVoiceConnection(session) : null;
     this.conversationSessionActive.set(true);
+    connection?.loopStart({
+      surface: 'knowledge_capture',
+      mode: 'conversation_loop',
+      auto_rearm_after_tts: true,
+      barge_in: true,
+    });
     this.setVoiceNotice('Preparing microphone access for the conversation session.', 'info');
     const armed = await this.ensureAudioStream();
     if (!armed) {
@@ -3238,6 +3242,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     const promptEventId = this.lastSystemPromptEventId();
     this.stopSpeech(true);
     this.voiceConnection?.bargeIn(promptEventId);
+    this.voiceConnection?.ttsInterrupted({ surface: 'knowledge_capture', reason: 'barge_in' });
     this.interruptionOfEventId.set(promptEventId || 'client-interruption');
     this.voiceState.set('interrupted');
   }
@@ -3416,11 +3421,13 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.speaking.set(false);
       this.voiceState.set('idle');
       this.cleanupAudioUrls();
+      this.voiceConnection?.ttsEnded({ surface: 'knowledge_capture' });
       this.scheduleConversationResume();
       return;
     }
     this.speaking.set(true);
     this.voiceState.set('speaking');
+    this.voiceConnection?.ttsStarted({ surface: 'knowledge_capture' });
     this.api
       .synthesizeSpeech(segment.slice(0, 600))
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -3520,7 +3527,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.lastPrefetchAt = 0;
     const session = this.session();
     if (session) {
-      this.ensureVoiceConnection(session);
+      this.ensureVoiceConnection(session)?.loopArmed({ surface: 'knowledge_capture', mode: 'conversation_loop' });
     }
     if (!this.startAudioRecorder('Microphone is open. End the turn when the expert answer is complete.')) {
       this.conversationSessionActive.set(false);
@@ -3531,6 +3538,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   private stopConversationSession(): void {
     this.conversationSessionActive.set(false);
     this.clearAutoResumeTimer();
+    this.voiceConnection?.loopStop({ surface: 'knowledge_capture', reason: 'user_stop' });
     this.stopSpeech(false);
     this.setVoiceNotice(null);
     if (this.recording()) {
@@ -3597,6 +3605,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         !this.transcribing() &&
         !this.speaking()
       ) {
+        this.voiceConnection?.loopArmed({ surface: 'knowledge_capture', mode: 'conversation_loop' });
         void this.startRecordingTurn();
       }
     }, 450);

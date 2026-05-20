@@ -18,6 +18,11 @@ import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { SettingsService } from '@app/core/settings.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
+import {
+  VoiceLoopControllerFactory,
+  VoiceLoopEndpointReason,
+  VoiceLoopState,
+} from '@app/core/voice-loop-controller.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -508,9 +513,50 @@ const STEP_ICONS: Record<string, string> = {
             (click)="setVoiceTransport('backend_ws')"
             [title]="voiceSessionButtonTitle()"
           >
-            Session
+            Session loop
+          </button>
+          <button
+            type="button"
+            class="voice-transport-button"
+            disabled
+            [title]="voiceRealtimeBlockedHint() || 'Realtime voice uses WebRTC and is enabled only when the workspace/provider lane is ready.'"
+          >
+            Realtime
           </button>
         </div>
+        @if (voiceTransport() === 'backend_ws') {
+          <div class="voice-loop-actions" title="Start or pause a hands-free Agentium voice session. The microphone rearms after the spoken answer.">
+            @if (!voiceConversationActive()) {
+              <button
+                type="button"
+                class="voice-loop-button voice-loop-start"
+                [disabled]="!canUseVoiceSession() || streaming() || transcribing()"
+                (click)="startConversationLoop()"
+              >
+                <app-icon name="play" [size]="12" />
+                Start conversation
+              </button>
+            } @else {
+              <button
+                type="button"
+                class="voice-loop-button"
+                [disabled]="transcribing()"
+                (click)="voiceConversationPaused() ? resumeConversationLoop() : pauseConversationLoop()"
+              >
+                <app-icon [name]="voiceConversationPaused() ? 'play' : 'pause'" [size]="12" />
+                {{ voiceConversationPaused() ? 'Resume' : 'Pause' }}
+              </button>
+              <button
+                type="button"
+                class="voice-loop-button voice-loop-stop"
+                (click)="stopConversationLoop()"
+              >
+                <app-icon name="square" [size]="12" />
+                Stop
+              </button>
+            }
+          </div>
+        }
         @if (voiceRealtimeBlockedHint()) {
           <span class="voice-warning-pill" [title]="voiceRealtimeBlockedHint()">
             <app-icon name="radio" [size]="12" />
@@ -1472,6 +1518,44 @@ const STEP_ICONS: Record<string, string> = {
       color: rgb(207, 250, 254);
       background: rgba(34, 211, 238, 0.14);
     }
+	    .voice-loop-actions {
+	      display: inline-flex;
+	      align-items: center;
+	      gap: 6px;
+	      padding: 3px;
+	      border-radius: 12px;
+	      border: 1px solid rgba(148, 197, 229, 0.14);
+	      background: rgba(255, 255, 255, 0.035);
+	    }
+	    .voice-loop-button {
+	      display: inline-flex;
+	      align-items: center;
+	      gap: 6px;
+	      min-height: 28px;
+	      border-radius: 9px;
+	      padding: 5px 9px;
+	      color: rgba(232, 239, 250, 0.86);
+	      font-weight: 750;
+	      transition: 140ms ease;
+	    }
+	    .voice-loop-button:hover:not(:disabled) {
+	      background: rgba(255, 255, 255, 0.07);
+	      color: rgb(245, 248, 252);
+	    }
+	    .voice-loop-button:disabled {
+	      opacity: 0.48;
+	      cursor: not-allowed;
+	    }
+	    .voice-loop-start {
+	      background: rgba(16, 185, 129, 0.12);
+	      color: rgb(187, 247, 208);
+	      box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.20);
+	    }
+	    .voice-loop-stop {
+	      background: rgba(239, 68, 68, 0.10);
+	      color: rgb(254, 202, 202);
+	      box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.18);
+	    }
 	    .voice-checkbox {
 	      color: rgba(177, 190, 210, 0.84);
 	    }
@@ -1641,6 +1725,7 @@ export class ChatPanelComponent {
   private readonly router = inject(Router);
   private readonly health = inject(RuntimeHealthService);
   private readonly voiceSession = inject(VoiceSessionService);
+  private readonly voiceLoopFactory = inject(VoiceLoopControllerFactory);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly workspace = inject(WorkspaceService);
@@ -1665,6 +1750,8 @@ export class ChatPanelComponent {
 	  readonly voiceTransport = signal<VoiceTransportChoice>('batch_http');
 	  readonly voiceAutoSend = signal(false);
 	  readonly voiceAutoEndpoint = signal(true);
+	  readonly voiceConversationActive = signal(false);
+	  readonly voiceConversationPaused = signal(false);
 	  readonly voicePartial = signal('');
 	  readonly voiceNotice = signal<string | null>(null);
 	  readonly voiceOracleStage = signal<VoiceOracleStage>('idle');
@@ -1974,18 +2061,13 @@ export class ChatPanelComponent {
    * metric card without expanding every other step below it.
    */
   private readonly openEvals = signal<Set<string>>(new Set());
-  private mediaRecorder: MediaRecorder | null = null;
-  private recordedChunks: Blob[] = [];
   private currentAudio: HTMLAudioElement | null = null;
   private voiceConnection: VoiceSessionConnection | null = null;
+  private readonly voiceLoop = this.voiceLoopFactory.create('chat');
   private chatVoiceSessionId = `chat-${crypto.randomUUID?.() || Date.now()}`;
   private streamStart = 0;
-  private voiceEndpointRaf: number | null = null;
-  private voiceEndpointAudioContext: AudioContext | null = null;
-  private voiceEndpointSource: MediaStreamAudioSourceNode | null = null;
-  private voiceEndpointSpeechDetected = false;
-  private voiceEndpointLastVoiceAt = 0;
-  private voiceEndpointStartedAt = 0;
+  private voiceLoopRearmTimer: ReturnType<typeof setTimeout> | null = null;
+  private voiceLastEndpointReason: VoiceLoopEndpointReason | null = null;
   private readonly voiceEndpointSilenceMs = 1200;
   private readonly voiceEndpointMinSpeechMs = 350;
   private readonly voiceEndpointMaxTurnMs = 45000;
@@ -2025,8 +2107,8 @@ export class ChatPanelComponent {
     this.loadVoiceRuntimes();
     this.destroyRef.onDestroy(() => {
       this.currentAudio?.pause();
-      this.stopVoiceEndpointMonitor();
-      if (this.mediaRecorder?.state === 'recording') this.mediaRecorder.stop();
+      this.clearVoiceLoopRearmTimer();
+      this.voiceLoop.dispose();
       this.voiceConnection?.close();
     });
   }
@@ -2101,6 +2183,7 @@ export class ChatPanelComponent {
 	    this.voiceNotice.set(null);
 	    this.voiceOracleStage.set('idle');
 	    this.voiceOracleMessage.set('Batch mode: no persistent voice session is open.');
+	    this.stopConversationLoop();
 	    this.closeVoiceSession();
 	    if (!this.canUseVoiceSession()) {
 	      this.voiceTransport.set('batch_http');
@@ -2115,6 +2198,7 @@ export class ChatPanelComponent {
 	    this.voiceTransport.set(transport);
 	    this.voiceNotice.set(null);
 	    if (transport === 'batch_http') {
+	      this.stopConversationLoop();
 	      this.closeVoiceSession();
 	      this.voiceOracleStage.set('idle');
 	      this.voiceOracleMessage.set('Batch mode: no persistent voice session is open.');
@@ -2159,8 +2243,17 @@ export class ChatPanelComponent {
 
   voiceMicTitle(): string {
     if (!this.canTranscribeVoice()) return this.isDemoMode() ? 'Voice runtime cannot transcribe audio' : 'Selected provider cannot transcribe voice';
+    if (this.voiceConversationActive()) {
+      if (this.voiceConversationPaused()) return 'Conversation loop paused. Press Resume to reopen the microphone.';
+      if (this.recording()) return 'Listening. Silence will submit this voice turn automatically.';
+      return 'Conversation loop is armed. The microphone reopens after each answer.';
+    }
     if (this.transcribing()) return this.isDemoMode() ? 'Transcribing…' : `Transcribing with ${this.voiceInputProvider()}…`;
-    if (this.recording()) return 'Stop recording';
+    if (this.recording()) {
+      return this.voiceAutoEndpoint() && this.voiceTransport() === 'backend_ws'
+        ? 'Listening. Silence submits this turn.'
+        : 'Stop recording';
+    }
     if (this.isDemoMode()) return `Record voice · ${this.voiceTransport() === 'backend_ws' ? 'session' : 'batch'}`;
     return `Record voice · ${this.voiceInputProvider()} · ${this.voiceTransport() === 'backend_ws' ? 'session' : 'batch'}`;
   }
@@ -2897,7 +2990,11 @@ export class ChatPanelComponent {
               steps: reasoning.length,
               duration_ms: durationMs,
             });
-            if (this.ttsEnabled() && buffer.trim()) this.flushTrailingTts(buffer);
+            if (this.ttsEnabled() && buffer.trim()) {
+              this.flushTrailingTts(buffer);
+            } else {
+              this.scheduleVoiceLoopRearm();
+            }
           }
         },
         error: () => {
@@ -2905,6 +3002,7 @@ export class ChatPanelComponent {
           this.streaming.set(false);
           this.streamBuffer.set('');
           this.liveSteps.set([]);
+          this.scheduleVoiceLoopRearm();
         },
       });
   }
@@ -3089,135 +3187,352 @@ export class ChatPanelComponent {
     }
   }
 
-	  async toggleMic(): Promise<void> {
-	    if (!this.canTranscribeVoice()) {
-	      this.toast.error(this.isDemoMode() ? 'Voice runtime cannot transcribe audio.' : 'Selected voice provider cannot transcribe audio.', 'Voice');
-	      return;
-	    }
-	    if (this.recording()) {
-	      this.mediaRecorder?.stop();
-	      return;
-	    }
-	    try {
-	      if (this.ttsSpeaking()) {
-	        this.resetTtsPipeline();
-	        this.voiceNotice.set('Voice output stopped for listening');
-	      }
-	      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-	      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      this.mediaRecorder = recorder;
-      this.recordedChunks = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) this.recordedChunks.push(e.data);
-      };
-      recorder.onstop = () => {
-        this.stopVoiceEndpointMonitor();
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
-        this.recording.set(false);
-        this.transcribe(blob);
-      };
-	      recorder.start();
-	      this.recording.set(true);
-	      if (this.voiceTransport() === 'backend_ws') {
-	        this.voiceOracleStage.set('listening');
-	        this.voiceOracleMessage.set(
-            this.voiceAutoEndpoint()
-              ? 'Listening: Agentium will end this voice turn after a short silence.'
-              : 'Listening: press the microphone again to end this voice turn.',
-          );
-          if (this.voiceAutoEndpoint()) this.startVoiceEndpointMonitor(stream, recorder);
-	      }
-	    } catch {
-	      this.toast.error('Microphone access denied', 'Voice');
-	    }
-  }
-
-  private startVoiceEndpointMonitor(stream: MediaStream, recorder: MediaRecorder): void {
-    this.stopVoiceEndpointMonitor();
-    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextCtor) {
-      this.voiceNotice.set('Auto endpoint unavailable');
+  async toggleMic(): Promise<void> {
+    if (this.recording()) {
+      this.voiceLoop.stopTurn('manual');
       return;
     }
+    await this.startVoiceTurn(false);
+  }
 
+  private async startVoiceTurn(fromConversationLoop: boolean): Promise<boolean> {
+    if (!this.canTranscribeVoice()) {
+      this.toast.error(
+        this.isDemoMode() ? 'Voice runtime cannot transcribe audio.' : 'Selected voice provider cannot transcribe audio.',
+        'Voice',
+      );
+      return false;
+    }
+    if (this.recording() || this.transcribing() || this.streaming()) return false;
+    if (fromConversationLoop && (!this.voiceConversationActive() || this.voiceConversationPaused())) return false;
+
+    this.clearVoiceLoopRearmTimer();
     try {
-      const audioContext = new AudioContextCtor() as AudioContext;
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.18;
-      const source = audioContext.createMediaStreamSource(stream);
-      source.connect(analyser);
+      if (this.ttsSpeaking()) {
+        this.voiceConnection?.bargeIn();
+        this.voiceConnection?.ttsInterrupted({ reason: 'user_speech', surface: 'chat' });
+        this.resetTtsPipeline();
+        this.voiceNotice.set('Voice output stopped for listening');
+      }
 
-      const data = new Uint8Array(analyser.fftSize);
-      this.voiceEndpointAudioContext = audioContext;
-      this.voiceEndpointSource = source;
-      this.voiceEndpointSpeechDetected = false;
-      this.voiceEndpointStartedAt = performance.now();
-      this.voiceEndpointLastVoiceAt = this.voiceEndpointStartedAt;
-      this.voiceNotice.set('Auto endpoint listening');
+      const autoEndpoint = this.voiceTransport() === 'backend_ws' && (fromConversationLoop || this.voiceAutoEndpoint());
+      this.voiceConnection?.loopArmed({
+        surface: 'chat',
+        mode: fromConversationLoop ? 'conversation_loop' : 'manual_turn',
+        auto_endpoint: autoEndpoint,
+      });
+      this.voiceOracleStage.set('listening');
+      this.voiceOracleMessage.set(
+        autoEndpoint
+          ? 'Listening: Agentium will end this voice turn after a short silence.'
+          : 'Listening: press the microphone again to end this voice turn.',
+      );
 
-      const tick = () => {
-        if (recorder.state !== 'recording') return;
-        analyser.getByteTimeDomainData(data);
-        let sum = 0;
-        for (const sample of data) {
-          const normalized = (sample - 128) / 128;
-          sum += normalized * normalized;
-        }
-        const rms = Math.sqrt(sum / data.length);
-        const now = performance.now();
-        const elapsed = now - this.voiceEndpointStartedAt;
-        if (rms >= this.voiceEndpointRmsThreshold) {
-          if (!this.voiceEndpointSpeechDetected) {
-            this.voiceOracleMessage.set('Speech detected. Agentium will submit after silence.');
+      const started = await this.voiceLoop.startTurn({
+        autoEndpoint,
+        mimeType: 'audio/webm',
+        silenceMs: this.voiceEndpointSilenceMs,
+        minSpeechMs: this.voiceEndpointMinSpeechMs,
+        maxTurnMs: this.voiceEndpointMaxTurnMs,
+        rmsThreshold: this.voiceEndpointRmsThreshold,
+        onState: (state) => this.syncVoiceLoopState(state),
+        onSpeechStart: () => {
+          this.voiceOracleStage.set('listening');
+          this.voiceOracleMessage.set('Speech detected. Agentium will submit after silence.');
+          if (this.ttsSpeaking()) {
+            this.voiceConnection?.bargeIn();
+            this.voiceConnection?.ttsInterrupted({ reason: 'user_speech', surface: 'chat' });
+            this.resetTtsPipeline();
           }
-          this.voiceEndpointSpeechDetected = true;
-          this.voiceEndpointLastVoiceAt = now;
-        }
-
-        const silenceMs = now - this.voiceEndpointLastVoiceAt;
-        const reachedSilence = this.voiceEndpointSpeechDetected
-          && elapsed >= this.voiceEndpointMinSpeechMs
-          && silenceMs >= this.voiceEndpointSilenceMs;
-        const reachedMax = elapsed >= this.voiceEndpointMaxTurnMs;
-        if (reachedSilence || reachedMax) {
-          this.voiceNotice.set(reachedSilence ? 'Silence detected' : 'Max voice turn reached');
-          this.voiceOracleMessage.set(
-            reachedSilence
-              ? 'Silence detected; ending the voice turn.'
-              : 'Maximum voice turn length reached; ending the voice turn.',
-          );
-          if (recorder.state === 'recording') recorder.stop();
-          return;
-        }
-        this.voiceEndpointRaf = requestAnimationFrame(tick);
-      };
-
-      this.voiceEndpointRaf = requestAnimationFrame(tick);
+        },
+        onNotice: (message) => this.voiceNotice.set(message),
+        onEndpoint: (blob, reason) => {
+          this.recording.set(false);
+          this.voiceLastEndpointReason = reason;
+          this.voiceNotice.set(this.voiceEndpointNotice(reason));
+          this.voiceOracleStage.set('thinking');
+          this.voiceOracleMessage.set('Voice turn ended; transcribing final audio.');
+          this.transcribe(blob);
+        },
+        onError: (message) => {
+          this.recording.set(false);
+          this.voiceOracleStage.set('error');
+          this.voiceOracleMessage.set(message);
+          this.toast.error(message, 'Voice');
+        },
+      });
+      this.recording.set(started);
+      if (!started && fromConversationLoop) this.stopConversationLoop('microphone_unavailable');
+      return started;
     } catch {
-      this.stopVoiceEndpointMonitor();
-      this.voiceNotice.set('Auto endpoint unavailable');
+      this.recording.set(false);
+      this.toast.error('Microphone access denied', 'Voice');
+      if (fromConversationLoop) this.stopConversationLoop('microphone_denied');
+      return false;
     }
   }
 
-  private stopVoiceEndpointMonitor(): void {
-    if (this.voiceEndpointRaf !== null) {
-      cancelAnimationFrame(this.voiceEndpointRaf);
-      this.voiceEndpointRaf = null;
+  async startConversationLoop(): Promise<void> {
+    if (!this.canUseVoiceSession()) {
+      this.toast.error(
+        this.isDemoMode() ? 'Voice session loop is not available for this runtime.' : 'Selected runtime cannot open an Agentium voice session.',
+        'Voice',
+      );
+      return;
     }
-    try {
-      this.voiceEndpointSource?.disconnect();
-    } catch {
-      /* ignore */
+    if (this.voiceConversationActive()) return;
+    this.setVoiceTransport('backend_ws');
+    this.voiceAutoEndpoint.set(true);
+    this.voiceAutoSend.set(true);
+    if (this.voiceOutputProvider()) this.ttsEnabled.set(true);
+    this.voiceConversationActive.set(true);
+    this.voiceConversationPaused.set(false);
+    const connection = this.ensureVoiceSession();
+    connection?.loopStart({
+      surface: 'chat',
+      mode: 'conversation_loop',
+      auto_endpoint: true,
+      auto_rearm_after_tts: true,
+      silence_ms: this.voiceEndpointSilenceMs,
+      max_turn_ms: this.voiceEndpointMaxTurnMs,
+      barge_in: true,
+    });
+    this.voiceNotice.set('Conversation loop starting');
+    this.voiceOracleStage.set('listening');
+    this.voiceOracleMessage.set('Conversation loop armed. Speak after the microphone opens.');
+    const started = await this.startVoiceTurn(true);
+    if (!started && this.voiceConversationActive() && !this.voiceConversationPaused()) {
+      this.scheduleVoiceLoopRearm();
     }
-    const context = this.voiceEndpointAudioContext;
-    this.voiceEndpointSource = null;
-    this.voiceEndpointAudioContext = null;
-    this.voiceEndpointSpeechDetected = false;
-    if (context && context.state !== 'closed') {
-      void context.close().catch(() => undefined);
+  }
+
+  pauseConversationLoop(): void {
+    if (!this.voiceConversationActive()) return;
+    this.voiceConversationPaused.set(true);
+    this.clearVoiceLoopRearmTimer();
+    if (this.recording()) this.voiceLoop.pause();
+    this.voiceConnection?.loopPause({ surface: 'chat' });
+    this.voiceNotice.set('Conversation paused');
+    this.voiceOracleStage.set('idle');
+    this.voiceOracleMessage.set('Conversation loop is paused. Resume to reopen the microphone.');
+    this.cdr.markForCheck();
+  }
+
+  resumeConversationLoop(): void {
+    if (!this.voiceConversationActive()) return;
+    this.voiceConversationPaused.set(false);
+    this.voiceConnection?.loopResume({ surface: 'chat' });
+    this.voiceNotice.set('Conversation resuming');
+    this.voiceOracleMessage.set('Conversation loop is rearming the microphone.');
+    void this.armConversationLoopTurn();
+  }
+
+  stopConversationLoop(reason = 'user_stop'): void {
+    if (!this.voiceConversationActive() && !this.recording()) return;
+    this.voiceConversationActive.set(false);
+    this.voiceConversationPaused.set(false);
+    this.clearVoiceLoopRearmTimer();
+    this.voiceLoop.stopLoop();
+    this.recording.set(false);
+    this.voiceConnection?.loopStop({ surface: 'chat', reason });
+    this.voiceNotice.set(reason === 'user_stop' ? 'Conversation stopped' : `Conversation stopped · ${reason.replace(/_/g, ' ')}`);
+    this.voiceOracleStage.set('idle');
+    this.voiceOracleMessage.set('Conversation loop stopped. Batch voice turns remain available.');
+    this.cdr.markForCheck();
+  }
+
+  private async armConversationLoopTurn(): Promise<void> {
+    if (!this.voiceConversationActive() || this.voiceConversationPaused()) return;
+    if (this.recording() || this.transcribing() || this.streaming() || this.ttsSpeaking()) return;
+    await this.startVoiceTurn(true);
+  }
+
+  private scheduleVoiceLoopRearm(): void {
+    if (!this.voiceConversationActive() || this.voiceConversationPaused()) return;
+    if (this.recording() || this.transcribing() || this.streaming()) return;
+    this.clearVoiceLoopRearmTimer();
+    this.voiceNotice.set('Conversation rearming');
+    this.voiceOracleMessage.set('Answer complete. The microphone will reopen automatically.');
+    this.voiceLoopRearmTimer = setTimeout(() => {
+      this.voiceLoopRearmTimer = null;
+      void this.armConversationLoopTurn();
+    }, 500);
+  }
+
+  private clearVoiceLoopRearmTimer(): void {
+    if (this.voiceLoopRearmTimer !== null) {
+      clearTimeout(this.voiceLoopRearmTimer);
+      this.voiceLoopRearmTimer = null;
     }
+  }
+
+  private syncVoiceLoopState(state: VoiceLoopState): void {
+    if (state === 'arming') {
+      this.voiceNotice.set('Arming microphone');
+      return;
+    }
+    if (state === 'listening') {
+      this.voiceOracleStage.set('listening');
+      return;
+    }
+    if (state === 'endpointing') {
+      this.voiceOracleStage.set('thinking');
+      this.voiceOracleMessage.set('Endpoint detected; closing the voice turn.');
+      return;
+    }
+    if (state === 'transcribing' || state === 'thinking') {
+      this.voiceOracleStage.set('thinking');
+      return;
+    }
+    if (state === 'paused') {
+      this.recording.set(false);
+      this.voiceOracleStage.set('idle');
+      this.voiceOracleMessage.set('Conversation loop paused.');
+      return;
+    }
+    if (state === 'idle') {
+      this.recording.set(false);
+      return;
+    }
+    if (state === 'error') {
+      this.voiceOracleStage.set('error');
+    }
+  }
+
+  private voiceEndpointNotice(reason: VoiceLoopEndpointReason): string {
+    if (reason === 'silence') return 'Silence detected';
+    if (reason === 'max_turn') return 'Max voice turn reached';
+    if (reason === 'pause') return 'Voice turn paused';
+    if (reason === 'stop') return 'Voice turn stopped';
+    return 'Voice turn ended';
+  }
+
+  private handleFinalVoiceTranscript(
+    rawText: string,
+    options: { fallbackUsed?: boolean; provider?: string | null } = {},
+  ): boolean {
+    const text = rawText.trim();
+    if (!text) {
+      this.toast.info('No speech detected in the recording', 'Voice');
+      this.scheduleVoiceLoopRearm();
+      return true;
+    }
+
+    const command = this.detectVoiceCommand(text);
+    if (command && this.handleVoiceCommand(command, text)) {
+      this.cdr.markForCheck();
+      return true;
+    }
+
+    const autoSendNow = (this.voiceConversationActive() || this.voiceAutoSend()) && !this.streaming();
+    if (autoSendNow) {
+      if (this.userInput.trim()) {
+        this.toast.info('Existing draft replaced by the final voice transcript before auto-send.', 'Voice');
+      }
+      this.userInput = text;
+    } else {
+      this.userInput = this.userInput ? `${this.userInput} ${text}` : text;
+    }
+    this.voiceNotice.set(
+      options.fallbackUsed
+        ? this.voiceRuntimeNotice('Transcript ready · fallback used', options.provider || this.voiceInputProvider())
+        : this.voiceRuntimeNotice('Transcript ready', options.provider || this.voiceInputProvider()),
+    );
+    this.cdr.markForCheck();
+    if (autoSendNow && this.userInput.trim()) {
+      queueMicrotask(() => this.send());
+    }
+    return false;
+  }
+
+  private detectVoiceCommand(rawText: string): string | null {
+    let text = rawText
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const settings = this.workspace.current()?.settings?.['voice_loop'];
+    const triggerWord = this.isRecord(settings) && typeof settings['trigger_word'] === 'string'
+      ? settings['trigger_word'].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+      : '';
+    const hasTrigger = !!triggerWord && (text === triggerWord || text.startsWith(`${triggerWord} `));
+    if (hasTrigger) text = text.slice(triggerWord.length).trim();
+    const words = text.split(/\s+/).filter(Boolean);
+    if (!hasTrigger && words.length > 4) return null;
+    const compact = text.replace(/\s+/g, ' ');
+    if (['stop', 'arrete', 'arret', 'fin', 'termine'].includes(compact)) return 'stop';
+    if (['pause', 'mets en pause'].includes(compact)) return 'pause';
+    if (['reprends', 'reprendre', 'continue', 'relance'].includes(compact)) return 'resume';
+    if (['annule', 'annuler', 'cancel', 'efface'].includes(compact)) return 'cancel';
+    if (['repete', 'repeter', 'repeat'].includes(compact)) return 'repeat';
+    if (['reformule', 'reformuler', 'rephrase'].includes(compact)) return 'rephrase';
+    if (compact === 'question suivante' || compact === 'suivant') return 'next_question';
+    if (['valider', 'valide', 'confirmer', 'confirme'].includes(compact)) return 'validate';
+    return null;
+  }
+
+  private handleVoiceCommand(command: string, transcript: string): boolean {
+    this.voiceConnection?.voiceCommand(command, transcript, { surface: 'chat' });
+    this.voicePartial.set('');
+    this.transcribing.set(false);
+    this.voiceOracleStage.set('committed');
+    this.voiceOracleMessage.set(`Voice command committed: ${command.replace(/_/g, ' ')}.`);
+
+    if (command === 'stop') {
+      this.stopConversationLoop('voice_command');
+      return true;
+    }
+    if (command === 'pause') {
+      this.pauseConversationLoop();
+      return true;
+    }
+    if (command === 'resume') {
+      this.resumeConversationLoop();
+      return true;
+    }
+    if (command === 'cancel') {
+      this.userInput = '';
+      this.voiceNotice.set('Voice draft cancelled');
+      this.scheduleVoiceLoopRearm();
+      return true;
+    }
+    if (command === 'repeat') {
+      const last = this.lastAssistantMessage();
+      if (!last?.content?.trim()) {
+        this.toast.info('No assistant answer to repeat yet', 'Voice');
+        this.scheduleVoiceLoopRearm();
+        return true;
+      }
+      if (!this.ttsEnabled() && this.voiceOutputProvider()) this.ttsEnabled.set(true);
+      if (this.ttsEnabled()) {
+        this.resetTtsPipeline();
+        this.queueTtsChunk(last.content);
+      }
+      return true;
+    }
+    if (command === 'rephrase') {
+      const last = this.lastAssistantMessage();
+      if (!last?.content?.trim()) {
+        this.toast.info('No assistant answer to rephrase yet', 'Voice');
+        this.scheduleVoiceLoopRearm();
+        return true;
+      }
+      this.userInput = 'Reformule ta dernière réponse de façon plus courte et opérationnelle.';
+      if (!this.streaming()) queueMicrotask(() => this.send());
+      return true;
+    }
+    if (command === 'next_question' || command === 'validate') {
+      this.toast.info('This voice command is available in Knowledge Capture sessions.', 'Voice');
+      this.scheduleVoiceLoopRearm();
+      return true;
+    }
+    return false;
+  }
+
+  private lastAssistantMessage(): ChatMessage | undefined {
+    return [...this.messages()].reverse().find((msg) => msg.role === 'assistant');
   }
 
   private transcribe(blob: Blob): void {
@@ -3235,11 +3550,10 @@ export class ChatPanelComponent {
         // — NgModel only re-reads on an input/event tick. We force a
         // re-check so the textarea picks up the transcribed text and
         // emit a small toast when Whisper returned nothing (silence).
-        if (res?.text && res.text.trim()) {
-          this.userInput = (this.userInput ? this.userInput + ' ' : '') + res.text.trim();
-        } else {
-          this.toast.info('No speech detected in the recording', 'Voice');
-        }
+        this.handleFinalVoiceTranscript(String(res?.text || ''), {
+          fallbackUsed: !!res?.fallback,
+          provider: res?.provider || provider,
+        });
         this.transcribing.set(false);
         this.voiceNotice.set(
           res?.fallback
@@ -3273,7 +3587,12 @@ export class ChatPanelComponent {
     try {
       const turnId = crypto.randomUUID?.() || String(Date.now());
       await connection.sendAudioFrame(blob, { turn_id: turnId, content_type: blob.type || 'audio/webm' });
-      connection.endpoint({ turn_id: turnId });
+      connection.endpoint({
+        turn_id: turnId,
+        auto: this.voiceLastEndpointReason === 'silence' || this.voiceLastEndpointReason === 'max_turn',
+        reason: this.voiceLastEndpointReason,
+      });
+      this.voiceLastEndpointReason = null;
     } catch (err) {
       this.transcribing.set(false);
       this.voiceNotice.set(null);
@@ -3331,21 +3650,16 @@ export class ChatPanelComponent {
 	    }
 	    if (event.type === 'text.final') {
 	      const text = String(payload['text'] || '').trim();
-	      const autoSendNow = this.voiceAutoSend() && !this.streaming();
-	      if (text) {
-	        if (autoSendNow) {
-	          if (this.userInput.trim()) {
-	            this.toast.info('Existing draft replaced by the final voice transcript before auto-send.', 'Voice');
-	          }
-	          this.userInput = text;
-	        } else {
-	          this.userInput = this.userInput ? `${this.userInput} ${text}` : text;
-	        }
-	      } else {
-	        this.toast.info('No speech detected in the recording', 'Voice');
-	      }
+	      const consumed = this.handleFinalVoiceTranscript(text, {
+	        fallbackUsed: !!payload['fallback_used'],
+	        provider: this.voiceInputProvider(),
+	      });
 	      this.voicePartial.set('');
 	      this.transcribing.set(false);
+	      if (consumed) {
+	        this.cdr.markForCheck();
+	        return;
+	      }
 	      this.voiceNotice.set(payload['fallback_used'] ? 'Transcript ready · fallback used' : 'Transcript ready');
 	      this.voiceOracleStage.set(payload['fallback_used'] ? 'fallback' : 'committed');
 	      this.voiceOracleMessage.set(
@@ -3354,9 +3668,32 @@ export class ChatPanelComponent {
 	          : 'Final transcript committed for this voice turn.',
 	      );
 	      this.cdr.markForCheck();
-	      if (autoSendNow && this.userInput.trim()) {
-	        queueMicrotask(() => this.send());
-	      }
+	      return;
+	    }
+	    if (event.type === 'loop.start' || event.type === 'loop.resume' || event.type === 'loop.armed') {
+	      this.voiceNotice.set(event.type === 'loop.armed' ? 'Conversation armed' : 'Conversation loop ready');
+	      return;
+	    }
+	    if (event.type === 'loop.pause' || event.type === 'loop.stop') {
+	      this.voiceNotice.set(event.type === 'loop.pause' ? 'Conversation paused' : 'Conversation stopped');
+	      return;
+	    }
+	    if (event.type === 'tts.started') {
+	      this.voiceNotice.set('Speaking');
+	      return;
+	    }
+	    if (event.type === 'tts.ended') {
+	      this.voiceNotice.set('Voice output complete');
+	      this.scheduleVoiceLoopRearm();
+	      return;
+	    }
+	    if (event.type === 'tts.interrupted') {
+	      this.voiceNotice.set('Voice output interrupted');
+	      return;
+	    }
+	    if (event.type === 'voice.command') {
+	      const command = String(payload['command'] || '').trim();
+	      if (command) this.voiceNotice.set(`Voice command · ${command.replace(/_/g, ' ')}`);
 	      return;
 	    }
 	    if (event.type === 'runtime.metric') {
@@ -3530,6 +3867,7 @@ export class ChatPanelComponent {
         // Skip this chunk and let the next one play. We don't toast —
         // this is non-blocking and toasting on every sentence would be
         // noisy if the quota is hit.
+        if (!this.ttsPlaying && this.ttsQueue.length === 0) this.scheduleVoiceLoopRearm();
       },
     });
   }
@@ -3542,11 +3880,14 @@ export class ChatPanelComponent {
       // flag so the pause/resume button disappears.
       this.ttsPlaying = false;
       this.ttsSpeaking.set(false);
+      this.voiceConnection?.ttsEnded({ surface: 'chat' });
+      this.scheduleVoiceLoopRearm();
       return;
     }
     this.ttsPlaying = true;
     this.currentAudio = next;
     this.ttsSpeaking.set(true);
+    this.voiceConnection?.ttsStarted({ surface: 'chat' });
     next.play().catch(() => {
       this.ttsPlaying = false;
       this.playNextInQueue();

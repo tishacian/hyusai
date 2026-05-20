@@ -184,14 +184,55 @@ class VoiceSessionGateway:
                 },
             )
             return
+        if event_type in {
+            "loop.start",
+            "loop.pause",
+            "loop.resume",
+            "loop.stop",
+            "loop.armed",
+            "tts.started",
+            "tts.ended",
+            "tts.interrupted",
+        }:
+            emit_audit_event(
+                workspace_id=workspace.id,
+                event_type=f"voice.{event_type}",
+                actor=user.email or user.username or user.id,
+                details={
+                    "session_id": state.session_id,
+                    "runtime": state.runtime,
+                    "transport": state.transport,
+                    **payload,
+                },
+            )
+            await self._send(websocket, state, event_type, {"status": "ok", **payload})
+            return
         if event_type == "audio.frame":
             await self._handle_audio_frame(websocket, state, payload)
             return
-        if event_type == "audio.endpoint":
+        if event_type in {"audio.endpoint", "audio.endpoint.auto"}:
+            if event_type == "audio.endpoint.auto":
+                payload = {**payload, "auto": True, "event_type": event_type}
             await self._handle_audio_endpoint(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
             return
         if event_type == "barge_in":
             await self._send(websocket, state, "barge_in", {"status": "accepted", **payload})
+            return
+        if event_type == "voice.command":
+            command = str(payload.get("command") or "").strip()
+            emit_audit_event(
+                workspace_id=workspace.id,
+                event_type="voice.command",
+                actor=user.email or user.username or user.id,
+                details={
+                    "session_id": state.session_id,
+                    "turn_id": payload.get("turn_id") or state.client_turn_id,
+                    "command": command,
+                    "runtime": state.runtime,
+                    "transport": state.transport,
+                },
+            )
+            await self._send(websocket, state, "voice.command", {"status": "accepted", **payload, "command": command})
             return
         if event_type == "text.partial":
             await self._handle_text_partial(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
