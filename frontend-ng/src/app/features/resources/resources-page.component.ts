@@ -140,7 +140,7 @@ type Tab = 'models' | 'connectors';
           </div>
           <h3 class="text-sm font-semibold text-white mb-2">Managed runtime</h3>
           <p class="text-xs text-gray-400 max-w-md mx-auto">
-            Provider and model catalog details are hidden while this workspace is in demo mode.
+            Provider and model catalog details are hidden by demo-safe presentation.
           </p>
         </section>
       } @else {
@@ -391,7 +391,7 @@ export class ResourcesPageComponent implements OnInit {
   readonly allConnectors = CONNECTORS;
 
   readonly tab = signal<Tab>('models');
-  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   readonly models = signal<ModelInfo[]>([]);
   readonly loading = signal(false);

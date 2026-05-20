@@ -76,7 +76,7 @@ const RAG_MODES = [
                 Managed runtime
               </div>
               <p class="text-xs text-gray-400 mt-2 leading-relaxed">
-                Provider and model names are hidden in demo mode. Generation settings still apply, and backend policy remains authoritative.
+                Provider and model names are hidden by demo-safe presentation. Generation settings still apply, and backend policy remains authoritative.
               </p>
             </div>
           } @else {
@@ -368,7 +368,7 @@ export class RagSettingsComponent implements OnInit {
 
   draft = signal<AppSettings>({ ...this.settings.settings() });
   saving = signal(false);
-  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   readonly dirty = computed(() => {
     return JSON.stringify(this.draft()) !== JSON.stringify(this.settings.settings());

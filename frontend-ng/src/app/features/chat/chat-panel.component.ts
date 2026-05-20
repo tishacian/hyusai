@@ -301,7 +301,7 @@ const STEP_ICONS: Record<string, string> = {
         <div class="chat-control-main">
           <div
             class="chat-mode-chip"
-            title="Chat runtime used for answer generation. Provider details are hidden in demo workspaces."
+            title="Chat runtime used for answer generation. Provider details are hidden in demo-safe presentation."
           >
             <app-icon name="circle-dot" [size]="12" class="text-emerald-400" />
             <span>Chat</span>
@@ -470,15 +470,6 @@ const STEP_ICONS: Record<string, string> = {
               <app-icon name="info" [size]="10" />
             </span>
           </span>
-        @if (isDemoMode()) {
-          <span
-            class="managed-runtime-pill"
-            title="Provider and model details are hidden in workspace demo mode."
-          >
-            <app-icon name="shield-check" [size]="12" class="text-brand-300" />
-            Managed runtime
-          </span>
-        } @else {
           <div class="voice-select-wrap" [title]="selectedVoiceDescription()">
             <select
               class="voice-select"
@@ -491,7 +482,6 @@ const STEP_ICONS: Record<string, string> = {
             </select>
             <app-icon name="chevron-down" [size]="12" class="voice-select-chevron" />
           </div>
-        }
         </div>
         <div class="voice-transport-toggle" title="Batch records one segment. Session streams voice events when the selected runtime supports it.">
           <button
@@ -1541,7 +1531,7 @@ export class ChatPanelComponent {
   readonly voiceAutoSend = signal(false);
   readonly voicePartial = signal('');
   readonly voiceNotice = signal<string | null>(null);
-  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly chatRuntimeLabel = computed(() =>
     this.isDemoMode() ? 'managed runtime' : this.settings.settings().defaultModel || '—',
   );
@@ -1722,7 +1712,6 @@ export class ChatPanelComponent {
     const runtime = this.selectedVoiceRuntime();
     if (!runtime) return 'runtime unknown';
     if (this.voiceNotice()) return this.voiceNotice();
-    if (this.isDemoMode()) return 'managed';
     const status = runtime.status || 'unknown';
     if (status === 'bound') return 'ready';
     if (status === 'disabled') return 'disabled';
@@ -1741,7 +1730,6 @@ export class ChatPanelComponent {
   });
 
   readonly voiceRuntimeDetail = computed(() => {
-    if (this.isDemoMode()) return 'Provider and model details hidden by workspace demo mode';
     const runtime = this.selectedVoiceRuntime();
     const caps = runtime?.capabilities ?? {};
     const input = caps['streaming_transcription']
@@ -1754,6 +1742,10 @@ export class ChatPanelComponent {
     const output = caps['tts'] || caps['speech_to_speech'] ? 'native output' : this.hasCascadeFallback() ? 'output fallback cascade' : 'no TTS';
     const transport = this.voiceTransport() === 'backend_ws' ? 'Agentium session events' : 'HTTP batch';
     const oracle = caps['oracle_injection'] || caps['background_tool_calls'] ? 'tandem oracle' : 'oracle via fallback';
+    if (this.isDemoMode()) {
+      const mode = this.voiceRuntimeKind(runtime?.slug || this.voiceProvider()).toLowerCase();
+      return `${mode} · ${input} · ${output} · ${transport} · ${oracle}`;
+    }
     return `${input} · ${output} · ${transport} · ${oracle}`;
   });
 
@@ -1854,14 +1846,21 @@ export class ChatPanelComponent {
   }
 
   voiceRuntimeLabel(runtime: VoiceRuntimeProviderOption): string {
-    if (this.isDemoMode()) return 'Managed runtime';
+    if (this.isDemoMode()) {
+      const label = this.voiceRuntimeKind(runtime.slug);
+      if (runtime.status === 'bound') return label;
+      if (runtime.status === 'disabled') return `${label} · unavailable`;
+      if (runtime.status === 'unconfigured') return `${label} · not configured`;
+      if (runtime.status === 'experimental') return `${label} · experimental`;
+      return label;
+    }
     const label = runtime.slug.replace(/_/g, ' ');
     if (runtime.status === 'bound') return label;
     return `${label} · ${runtime.status}`;
   }
 
   selectedVoiceDescription(): string {
-    if (this.isDemoMode()) return 'Provider and model details are hidden in demo mode.';
+    if (this.isDemoMode()) return `${this.voiceRuntimeKind(this.voiceProvider())} runtime. Provider and model details are hidden in demo-safe presentation.`;
     return this.selectedVoiceRuntime()?.description || this.voiceRuntimeDetail();
   }
 
@@ -1896,6 +1895,15 @@ export class ChatPanelComponent {
   private voiceRuntimeNotice(label: string, provider?: string | null): string {
     if (this.isDemoMode()) return label;
     return provider ? `${label} · ${provider}` : label;
+  }
+
+  private voiceRuntimeKind(slug: string): string {
+    const normalized = (slug || '').toLowerCase();
+    if (normalized === 'cascade' || normalized === 'cascade_openai') return 'Cascade';
+    if (normalized.includes('realtime') || normalized === 'realtime_gpu') return 'Realtime';
+    if (normalized.includes('stt')) return 'Transcription';
+    if (normalized.includes('tts')) return 'Speech output';
+    return 'Voice runtime';
   }
 
   private hasCascadeFallback(): boolean {

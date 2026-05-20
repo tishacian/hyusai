@@ -138,7 +138,7 @@ const CHUNKING_METHODS = [
               <div class="rounded-md bg-white/5 ring-1 ring-white/10 p-4">
                 <div class="text-sm font-semibold text-white">Managed runtime</div>
                 <p class="text-xs text-gray-400 mt-2">
-                  Provider and model names are hidden while this workspace is in demo mode.
+                  Provider and model names are hidden by demo-safe presentation.
                 </p>
               </div>
             } @else {
@@ -428,7 +428,7 @@ export class PresetViewComponent implements OnInit {
   private readonly service = inject(RagPresetService);
   private readonly toastr = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
-  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   readonly providers = PROVIDERS;
   readonly pipelineModes = PIPELINE_MODES;

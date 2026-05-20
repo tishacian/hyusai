@@ -647,7 +647,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     Managed by workspace
                   </div>
                   <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
-                    Provider and model details are hidden while this workspace is in demo mode.
+                    Provider and model details are hidden by demo-safe presentation.
                   </p>
                 } @else {
                   <select
@@ -859,7 +859,7 @@ export class SystemBuilderComponent implements OnInit {
   private readonly serializer = inject(FlowSerializerService);
   private readonly workspace = inject(WorkspaceService);
   readonly settings = inject(SettingsService);
-  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   /**
    * When set, the builder is editing an existing System (Flow → Form

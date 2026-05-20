@@ -1481,7 +1481,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   private readonly voiceSession = inject(VoiceSessionService);
   private readonly workspace = inject(WorkspaceService);
   readonly permissions = inject(PermissionsService);
-  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   objective =
     'Capture tacit troubleshooting and offer reasoning from a senior industrial expert.';
@@ -2901,8 +2901,14 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   runtimeLabel(runtime?: string | null): string {
-    if (this.isDemoMode()) return 'Managed voice runtime';
     const value = runtime || 'cascade_openai';
+    if (this.isDemoMode()) {
+      if (value === 'cascade' || value === 'cascade_openai') return 'Cascade';
+      if (value === 'openai_realtime' || value === 'local_realtime' || value === 'realtime_gpu') return 'Realtime';
+      if (value === 'local_stt') return 'Transcription';
+      if (value === 'local_tts') return 'Speech output';
+      return 'Voice runtime';
+    }
     if (value === 'cascade' || value === 'cascade_openai') return 'cascade_openai · batch STT · segmented TTS';
     if (value === 'openai_realtime') return 'openai_realtime · speech-to-speech';
     if (value === 'local_stt') return 'local_stt · open-source STT';

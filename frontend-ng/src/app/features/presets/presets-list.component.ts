@@ -439,7 +439,7 @@ export class PresetsListComponent implements OnInit {
   private readonly toastr = inject(ToastrService);
   private readonly zoom = inject(ZoomContextService);
   private readonly workspace = inject(WorkspaceService);
-  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   readonly presets = signal<RagPreset[]>([]);
   readonly capabilities = signal<Capability[]>([]);

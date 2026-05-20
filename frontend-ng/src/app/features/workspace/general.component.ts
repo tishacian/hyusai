@@ -102,11 +102,11 @@ const FIELD =
                 <ck-help id="workspace.mode.switch" />
               </h2>
               <p class="text-sm text-gray-400 mt-0.5 max-w-xl">
-                Progressive disclosure of the cockpit surface. Data never changes—only what you see. Switch at any time.
+                Progressive disclosure of menus and cockpit pages. Data never changes—only what you see. Switch at any time.
               </p>
             </div>
           </div>
-          <div class="grid gap-3 md:grid-cols-4">
+          <div class="grid gap-3 md:grid-cols-3">
             @for (m of modes; track m.key) {
               <button
                 type="button"
@@ -128,6 +128,38 @@ const FIELD =
                 <p class="text-xs text-gray-400 leading-relaxed">{{ m.description }}</p>
               </button>
             }
+          </div>
+          <div class="mt-4 pt-4 border-t border-white/10">
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
+              <div class="flex items-start gap-3">
+                <div class="w-9 h-9 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/25">
+                  <app-icon name="eye-off" [size]="16" />
+                </div>
+                <div>
+                  <h3 class="text-sm font-semibold text-white">Demo-safe presentation</h3>
+                  <p class="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
+                    Hides provider and model implementation details in Chat, Systems, Resources and Presets while keeping the selected workspace mode active.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                (click)="setDemoSafe(!demoSafeMode())"
+                [disabled]="!canEdit() || savingDemoSafe()"
+                class="relative inline-flex h-8 w-16 shrink-0 items-center rounded-full ring-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                [class.bg-brand-500\\/25]="demoSafeMode()"
+                [class.ring-brand-400\\/60]="demoSafeMode()"
+                [class.bg-white\\/5]="!demoSafeMode()"
+                [class.ring-white\\/10]="!demoSafeMode()"
+                [title]="demoSafeMode() ? 'Provider/model names are hidden' : 'Provider/model names are visible'"
+              >
+                <span
+                  class="inline-block h-6 w-6 rounded-full bg-white shadow transition-transform"
+                  [class.translate-x-9]="demoSafeMode()"
+                  [class.translate-x-1]="!demoSafeMode()"
+                ></span>
+              </button>
+            </div>
           </div>
           @if (!canEdit()) {
             <p class="text-xs text-gray-500 mt-3">Only owners and admins can change the workspace mode.</p>
@@ -186,9 +218,10 @@ export class WorkspaceGeneralComponent {
   readonly detail = signal<WorkspaceDetail | null>(null);
   readonly saving = signal(false);
   readonly savingMode = signal(false);
+  readonly savingDemoSafe = signal(false);
   readonly copied = signal(false);
 
-  readonly modes: { key: WorkspaceMode; label: string; icon: string; description: string }[] = [
+  readonly modes: { key: Exclude<WorkspaceMode, 'demo'>; label: string; icon: string; description: string }[] = [
     {
       key: 'builder',
       label: 'Builder',
@@ -207,17 +240,16 @@ export class WorkspaceGeneralComponent {
       icon: 'briefcase',
       description: 'Full portfolio view with Hypervisor, ROI, balance sheet and capability ranking.',
     },
-    {
-      key: 'demo',
-      label: 'Demo',
-      icon: 'eye-off',
-      description: 'Operator-safe surface: provider and model implementation details are hidden.',
-    },
   ];
 
   readonly currentMode = computed<WorkspaceMode>(
     () => (this.detail()?.mode as WorkspaceMode) || 'executive',
   );
+  readonly demoSafeMode = computed(() => {
+    const d = this.detail();
+    if (!d) return false;
+    return d.mode === 'demo' || this.demoSafeFromSettings(d.settings);
+  });
 
   name = '';
 
@@ -286,10 +318,56 @@ export class WorkspaceGeneralComponent {
     });
   }
 
+  setDemoSafe(enabled: boolean): void {
+    const d = this.detail();
+    if (!d || !this.canEdit()) return;
+    const settings = { ...(d.settings || {}) };
+    const presentation = this.asRecord(settings['presentation']);
+    settings['demo_safe'] = enabled;
+    settings['presentation'] = {
+      ...presentation,
+      demo_safe: enabled,
+      hide_provider_details: enabled,
+    };
+    this.savingDemoSafe.set(true);
+    this.workspaceService.updateWorkspaceSettings(d.slug, settings).subscribe({
+      next: (updated) => {
+        this.savingDemoSafe.set(false);
+        this.detail.set(updated);
+        this.toastr.success(
+          enabled ? 'Provider and model details are hidden.' : 'Provider and model details are visible.',
+          'Saved',
+        );
+      },
+      error: (err) => {
+        this.savingDemoSafe.set(false);
+        this.toastr.error(err?.error?.detail || 'Failed to update presentation setting', 'Error');
+      },
+    });
+  }
+
   copy(slug: string): void {
     navigator.clipboard?.writeText(slug).then(() => {
       this.copied.set(true);
       setTimeout(() => this.copied.set(false), 1500);
     });
+  }
+
+  private demoSafeFromSettings(settings?: Record<string, unknown>): boolean {
+    if (!settings) return false;
+    const presentation = this.asRecord(settings['presentation']);
+    return (
+      settings['demo_safe'] === true ||
+      settings['demo_safe_mode'] === true ||
+      settings['hide_provider_details'] === true ||
+      presentation['demo_safe'] === true ||
+      presentation['hide_provider_details'] === true
+    );
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
   }
 }

@@ -119,6 +119,9 @@ export class WorkspaceService {
   readonly isOperatorMode = computed(() => this.mode() === 'operator');
   readonly isExecutiveMode = computed(() => this.mode() === 'executive');
   readonly isDemoMode = computed(() => this.mode() === 'demo');
+  readonly isDemoSafeMode = computed(() =>
+    this.isDemoMode() || this.demoSafeFromSettings(this.current()?.settings),
+  );
 
   constructor() {
     effect(() => {
@@ -265,5 +268,23 @@ export class WorkspaceService {
 
   removeMember(slug: string, userId: string): Observable<unknown> {
     return this.http.delete(`/api/v1/auth/workspaces/${slug}/members/${userId}`);
+  }
+
+  private demoSafeFromSettings(settings?: Record<string, unknown>): boolean {
+    if (!settings) return false;
+    const presentation = this.asRecord(settings['presentation']);
+    return (
+      settings['demo_safe'] === true ||
+      settings['demo_safe_mode'] === true ||
+      settings['hide_provider_details'] === true ||
+      presentation['demo_safe'] === true ||
+      presentation['hide_provider_details'] === true
+    );
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
   }
 }

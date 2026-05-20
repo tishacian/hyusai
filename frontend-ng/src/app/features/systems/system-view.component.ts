@@ -660,7 +660,7 @@ export class SystemViewComponent implements OnInit {
   /** Side panels — Settings and Chat live here, never as tabs. */
   readonly settingsPanelOpen = signal(false);
   readonly chatPanelOpen = signal(false);
-  readonly isDemoMode = computed(() => this.workspace.isDemoMode());
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   readonly systemDefaults = signal<{
     default_prompt_type?: string | null;
