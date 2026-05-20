@@ -22,6 +22,50 @@ class FakeDocumentService:
         ][:top_k]
 
 
+class FakeSpreadsheetDuplicateService:
+    async def get_document_count(self) -> int:
+        return 3
+
+    async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid=None):  # noqa: ARG002
+        return [
+            {
+                "content": (
+                    "Spreadsheet sheet: test 2 Row 2: B2=Customer Row 4: B4=Material "
+                    "and blend Row 5: O5=CONFIDENTIAL Row 7: B7=Date | C7=45798 | "
+                    "Date = 45798 Row 8: C8=Speed | D8=196 | E8=m/min | F8=at | G8=winder"
+                ),
+                "score": 0.91,
+                "metadata": {
+                    "document_id": "geotex-workbook",
+                    "document_filename": "GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+                },
+            },
+            {
+                "content": (
+                    "Spreadsheet sheet: test 1 Row 2: B2=Customer Row 4: B4=Material "
+                    "and blend Row 5: O5=CONFIDENTIAL Row 7: B7=Date | C7=45798 | "
+                    "Date = 45798 Row 8: C8=Speed | D8=196 | E8=m/min | F8=at | G8=winder"
+                ),
+                "score": 0.89,
+                "metadata": {
+                    "document_id": "geotex-workbook",
+                    "document_filename": "GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+                },
+            },
+            {
+                "content": (
+                    "Spreadsheet sheet: Def strips Row 1: A1=A | B1=80 | A = 80 "
+                    "Row 2: A2=B | B2=85 | B = 85 Row 3: A3=C | B3=90 | C = 90"
+                ),
+                "score": 0.86,
+                "metadata": {
+                    "document_id": "geotex-workbook",
+                    "document_filename": "GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+                },
+            },
+        ][:top_k]
+
+
 async def test_retrieve_rag_context_returns_serialisable_contract():
     result = await retrieve_rag_context(
         {
@@ -43,6 +87,26 @@ async def test_retrieve_rag_context_returns_serialisable_contract():
     assert result["metrics"]["vector_db"] == "faiss"
     assert result["collections_touched"] == ["documents"]
     assert result["collection_errors"] == []
+
+
+async def test_retrieve_rag_context_dedupes_repeated_spreadsheet_boilerplate():
+    result = await retrieve_rag_context(
+        {
+            "query": "diametre B",
+            "rag_pipeline_mode": "naive",
+            "top_k": 3,
+            "workspace_slug": "andritz",
+        },
+        doc_svc=FakeSpreadsheetDuplicateService(),
+    )
+
+    assert len(result["chunks"]) == 2
+    assert result["metrics"]["raw_chunks_retrieved"] == 3
+    assert result["metrics"]["duplicates_removed"] == 1
+    assert "Spreadsheet sheet: test 2" in result["chunks"][0]
+    assert "Spreadsheet sheet: test 1" not in "\n".join(result["chunks"])
+    assert "B = 85" in result["chunks"][1]
+    assert len(result["scores"]) == len(result["chunks"]) == len(result["metadatas"])
 
 
 async def test_retrieve_rag_context_exposes_multi_collection_metadata(monkeypatch):

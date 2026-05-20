@@ -74,8 +74,8 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
  * Used both by:
  *  - `ChatOverlayComponent` — mounted inside a `ck-panel` side-panel
  *    (560px), triggered by the title-bar icon / ⌘J / palette commands.
- *  - Route `/chat` — full-screen wrapping container for focus mode and
- *    drop-and-ask demo sessions.
+ *  - Routes `/chat` and `/workspace/:slug/chat` — full-screen/focus
+ *    containers for workspace Q&A and drop-and-ask sessions.
  *
  * The [inline] input switches between compact overlay layout (stacked,
  * dropzone collapsible) and the full-screen two-column layout.

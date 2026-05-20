@@ -8,6 +8,11 @@ export const workspaceRoutes: Routes = [
       import('./workspace-redirect.component').then((m) => m.WorkspaceRedirectComponent),
   },
   {
+    path: ':slug/chat',
+    loadComponent: () =>
+      import('../chat/chat-focus.component').then((m) => m.ChatFocusComponent),
+  },
+  {
     path: ':slug',
     loadComponent: () =>
       import('./workspace-shell.component').then((m) => m.WorkspaceShellComponent),

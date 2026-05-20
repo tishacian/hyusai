@@ -7,6 +7,7 @@ the payload consumed by ``OmniRAGAgent``.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import Mapping
 from datetime import date, datetime
@@ -22,6 +23,11 @@ from app.services.rag.pipeline_retrieval import retrieve_for_mode
 from app.services.rag.vector_store_config import resolve_vector_db_type
 
 logger = get_logger(__name__)
+
+_SPREADSHEET_SHEET_PREFIX_RE = re.compile(
+    r"\bspreadsheet\s+sheet:\s*.*?(?=\s+row\s+\d+:)",
+    re.IGNORECASE,
+)
 
 
 def _int_or_default(value: Any, default: int) -> int:
@@ -126,6 +132,90 @@ def _document_service_for_profile(profile: dict[str, Any], collection: str):
     )
 
 
+def _chunk_exact_key(chunk: Any) -> str:
+    text = " ".join(str(chunk or "").split()).lower()
+    return sha1(text.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _source_identity(meta: Mapping[str, Any]) -> str:
+    for key in (
+        "document_id",
+        "source_path",
+        "object_key",
+        "document_filename",
+        "filename",
+        "path",
+        "url",
+    ):
+        value = meta.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _spreadsheet_near_key(chunk: Any, meta: Mapping[str, Any]) -> str | None:
+    """Return a cautious near-duplicate key for repeated spreadsheet boilerplate.
+
+    Excel workbooks often contain several operational sheets with identical
+    header/setup rows. Those rows are useful once, but noisy when the chat UI
+    shows them as separate sources. We only ignore the sheet name when the hit
+    clearly comes from the same source document, so repeated evidence across
+    different files remains visible.
+    """
+    text = " ".join(str(chunk or "").split()).lower()
+    if "spreadsheet sheet:" not in text:
+        return None
+    source = _source_identity(meta)
+    if not source:
+        return None
+    normalized = _SPREADSHEET_SHEET_PREFIX_RE.sub("spreadsheet sheet:", text)
+    if normalized == text:
+        return None
+    return sha1(f"{source}|{normalized}".encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _dedupe_aligned_results(
+    chunks: list[Any],
+    scores: list[Any] | None,
+    metadatas: list[Any] | None,
+) -> tuple[list[str], list[float], list[dict[str, Any]], int]:
+    """Collapse duplicate retrieval chunks while preserving list alignment."""
+    deduped_chunks: list[str] = []
+    deduped_scores: list[float] = []
+    deduped_metadatas: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    removed = 0
+
+    scores = scores or []
+    metadatas = metadatas or []
+    for index, chunk in enumerate(chunks or []):
+        text = str(chunk or "")
+        if not text.strip():
+            continue
+        meta = (
+            dict(metadatas[index])
+            if index < len(metadatas) and isinstance(metadatas[index], Mapping)
+            else {}
+        )
+        keys = [f"exact:{_chunk_exact_key(text)}"]
+        near_key = _spreadsheet_near_key(text, meta)
+        if near_key:
+            keys.append(f"spreadsheet:{near_key}")
+        if any(key in seen for key in keys):
+            removed += 1
+            continue
+        seen.update(keys)
+        deduped_chunks.append(text)
+        try:
+            score = float(scores[index]) if index < len(scores) else 0.0
+        except (TypeError, ValueError):
+            score = 0.0
+        deduped_scores.append(score)
+        deduped_metadatas.append(meta)
+
+    return deduped_chunks, deduped_scores, deduped_metadatas, removed
+
+
 def retrieval_event(
     phase: str,
     *,
@@ -226,25 +316,33 @@ async def retrieve_rag_context(
     )
 
     duration_ms = int((time.time() - started) * 1000)
+    raw_chunk_count = len(result.chunks)
     metadatas = []
     for meta in result.metadatas or []:
         annotated = dict(meta or {})
         annotated["collection"] = profile["collection"]
         annotated["collection_name"] = profile["collection"]
         metadatas.append(annotated)
+    chunks, scores, metadatas, duplicates_removed = _dedupe_aligned_results(
+        result.chunks,
+        result.scores,
+        metadatas,
+    )
     metrics.update(
         {
             "duration_ms": duration_ms,
-            "chunks_retrieved": len(result.chunks),
+            "chunks_retrieved": len(chunks),
+            "raw_chunks_retrieved": raw_chunk_count,
+            "duplicates_removed": duplicates_removed,
             "pipeline": result.pipeline,
             "mode_label": mode_label,
-            "no_context": len(result.chunks) == 0,
+            "no_context": len(chunks) == 0,
         }
     )
     return _jsonable(
         {
-            "chunks": result.chunks,
-            "scores": result.scores,
+            "chunks": chunks,
+            "scores": scores,
             "metadatas": metadatas,
             "pipeline": result.pipeline,
             "label": result.label,
@@ -372,12 +470,20 @@ async def _retrieve_multi_collection_context(
         collection_results,
         limit=profile["top_k"],
     )
+    raw_chunk_count = len(chunks)
+    chunks, scores, metadatas, duplicates_removed = _dedupe_aligned_results(
+        chunks,
+        scores,
+        metadatas,
+    )
     duration_ms = int((time.time() - started) * 1000)
     touched = [item["collection"] for item in collection_results]
     metrics.update(
         {
             "duration_ms": duration_ms,
             "chunks_retrieved": len(chunks),
+            "raw_chunks_retrieved": raw_chunk_count,
+            "duplicates_removed": duplicates_removed,
             "pipeline": f"multi_{profile['rag_mode'] or 'auto'}",
             "mode_label": "multi_collection",
             "no_context": len(chunks) == 0,

@@ -1,7 +1,9 @@
 import { ChangeDetectionStrategy, Component, HostListener, computed, inject } from '@angular/core';
+import { Router } from '@angular/router';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { IconComponent } from '@app/shared/ui/icon.component';
 import { ChatOverlayService } from './chat-overlay.service';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
 
@@ -32,7 +34,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
   selector: 'app-chat-overlay',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CkPanelComponent, ChatWorkspaceComponent],
+  imports: [CkPanelComponent, IconComponent, ChatWorkspaceComponent],
   template: `
     <ck-panel
       [open]="overlay.isOpen()"
@@ -43,14 +45,30 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       [width]="panelWidth()"
     >
       @if (overlay.isOpen()) {
-        <app-chat-workspace
-          [inline]="true"
-          [startMode]="overlay.startMode()"
-          [initialSystemId]="overlay.preselectedSystemId()"
-          [initialContextId]="overlay.preselectedContextId()"
-          [assistantProfileKey]="overlay.assistantProfile()"
-          [initialPrompt]="overlay.initialPrompt()"
-        />
+        <div class="chat-overlay-frame">
+          <div class="chat-overlay-toolbar">
+            <span class="chat-overlay-hint">
+              Quick panel
+            </span>
+            <button
+              type="button"
+              class="chat-overlay-expand"
+              (click)="expandToWorkspaceChat()"
+              title="Open this chat as a direct full-page workspace view"
+            >
+              <app-icon name="maximize" [size]="13" />
+              Expand
+            </button>
+          </div>
+          <app-chat-workspace
+            [inline]="true"
+            [startMode]="overlay.startMode()"
+            [initialSystemId]="overlay.preselectedSystemId()"
+            [initialContextId]="overlay.preselectedContextId()"
+            [assistantProfileKey]="overlay.assistantProfile()"
+            [initialPrompt]="overlay.initialPrompt()"
+          />
+        </div>
       }
     </ck-panel>
   `,
@@ -62,12 +80,60 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
     :host ::ng-deep ck-panel > div[role="complementary"] > div:last-child {
       padding: 0 !important;
     }
+    .chat-overlay-frame {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+      background: var(--ck-bg-base, #0a0e14);
+    }
+    .chat-overlay-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex: 0 0 auto;
+      min-height: 34px;
+      padding: 6px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.018);
+    }
+    .chat-overlay-hint {
+      color: var(--ck-fg-4, rgba(177, 190, 210, 0.68));
+      font: 700 9px/1 var(--ck-font-mono, ui-monospace, monospace);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .chat-overlay-expand {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      padding: 0 8px;
+      border-radius: 7px;
+      border: 1px solid rgba(103, 213, 246, 0.18);
+      background: rgba(34, 211, 238, 0.08);
+      color: rgb(207, 250, 254);
+      font-size: 11px;
+      font-weight: 700;
+      transition: 140ms ease;
+    }
+    .chat-overlay-expand:hover {
+      border-color: rgba(103, 213, 246, 0.36);
+      background: rgba(34, 211, 238, 0.14);
+      color: rgb(245, 248, 252);
+    }
+    .chat-overlay-frame app-chat-workspace {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
   `],
 })
 export class ChatOverlayComponent {
   readonly overlay = inject(ChatOverlayService);
   protected readonly i18n = inject(I18nService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly router = inject(Router);
 
   readonly activeProfile = computed<Record<string, unknown> | null>(() => {
     const settings = this.workspace.current()?.settings as Record<string, unknown> | undefined;
@@ -98,6 +164,35 @@ export class ChatOverlayComponent {
 
   onOpenChange(open: boolean): void {
     if (!open) this.overlay.close();
+  }
+
+  expandToWorkspaceChat(): void {
+    const navigate = () => {
+      const slug = this.workspace.currentSlug() || this.workspace.current()?.slug;
+      if (!slug) return;
+      const queryParams: Record<string, string> = {
+        mode: this.overlay.startMode(),
+      };
+      const systemId = this.overlay.preselectedSystemId();
+      const contextId = this.overlay.preselectedContextId();
+      const assistantProfile = this.overlay.assistantProfile();
+      const initialPrompt = this.overlay.initialPrompt();
+      if (systemId) queryParams['systemId'] = systemId;
+      if (contextId) queryParams['contextId'] = contextId;
+      if (assistantProfile) queryParams['assistantProfile'] = assistantProfile;
+      if (initialPrompt) queryParams['initialPrompt'] = initialPrompt;
+      this.overlay.close();
+      this.router.navigate(['/workspace', slug, 'chat'], { queryParams });
+    };
+
+    if (this.workspace.current()) {
+      navigate();
+      return;
+    }
+    this.workspace.refreshCurrentWorkspace().subscribe({
+      next: navigate,
+      error: navigate,
+    });
   }
 
   /**

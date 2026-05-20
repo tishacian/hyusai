@@ -83,9 +83,13 @@ export class ShellComponent {
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
   readonly immersiveWorkspaceApp = computed(() => {
     const workspace = this.workspaceService.current();
+    const path = this.currentPath();
+    if (/^\/workspace\/[^/]+\/chat$/.test(path)) {
+      return true;
+    }
     return (
       this.workspaceService.isDemoMode() &&
-      this.currentPath().startsWith('/hypervisor/mission-room') &&
+      path.startsWith('/hypervisor/mission-room') &&
       (workspace?.settings?.['workspace_app_shell'] as string | undefined) === 'immersive'
     );
   });

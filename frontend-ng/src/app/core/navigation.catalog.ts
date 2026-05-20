@@ -161,6 +161,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Synchronous chat surface with workspace and system context.',
   },
   {
+    id: 'workspace-chat',
+    label: 'Workspace Chat Focus',
+    route: '/workspace/:slug/chat',
+    lens: 'operate',
+    object: 'Workbench',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/chat',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'Direct expanded workspace chat surface without the standard Agentium chrome.',
+  },
+  {
     id: 'runs',
     label: 'Runs',
     route: '/runs',

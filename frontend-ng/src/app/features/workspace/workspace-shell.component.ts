@@ -97,6 +97,12 @@ export class WorkspaceShellComponent {
   readonly allTabs = signal<TabItem[]>([
     { path: 'settings', label: 'General', icon: 'settings', description: 'Name, identity, metadata' },
     {
+      path: 'chat',
+      label: 'Chat',
+      icon: 'message-square',
+      description: 'Expanded workspace assistant',
+    },
+    {
       path: 'chat-knowledge',
       label: 'Chat & Knowledge',
       icon: 'database',

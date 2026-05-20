@@ -13,9 +13,9 @@ import { Injectable, signal } from '@angular/core';
  * right affordance. The overlay itself owns the lifecycle of the
  * ephemeral Context (drop-and-ask sessions).
  *
- * The route `/chat` mounts the same `ChatWorkspaceComponent` in full-
- * screen outside the overlay; switching between full-screen and
- * overlay should preserve state where possible (future work).
+ * The route `/chat` keeps the standard Agentium chat surface, while
+ * `/workspace/:slug/chat` provides a direct expanded workspace URL that
+ * can be opened from the panel without replacing this quick access.
  */
 export type ChatStartMode = 'quick' | 'system' | 'drop';
 
