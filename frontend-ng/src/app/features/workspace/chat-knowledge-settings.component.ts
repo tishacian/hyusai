@@ -47,6 +47,24 @@ interface ChatSettingsDraft {
   prompt_pack: PromptCardDraft[];
 }
 
+type VoiceLoopDefaultMode = 'batch' | 'session_loop' | 'realtime';
+
+interface VoiceLoopSettingsDraft {
+  default_mode: VoiceLoopDefaultMode;
+  auto_send_final_transcript: boolean;
+  auto_endpoint: boolean;
+  auto_rearm_after_tts: boolean;
+  barge_in: boolean;
+  commands_enabled: boolean;
+  trigger_word: string;
+  command_packs_text: string;
+  stop_phrases_text: string;
+  silence_ms: number;
+  min_speech_ms: number;
+  max_turn_ms: number;
+  cooldown_ms: number;
+}
+
 interface AssistantProfileDraft {
   key: string;
   label?: string;
@@ -58,6 +76,7 @@ interface AssistantProfileDraft {
   tone?: string;
   prompt_pack?: PromptCardDraft[];
   chat?: Record<string, unknown>;
+  voice_loop?: Record<string, unknown>;
 }
 
 @Component({
@@ -337,6 +356,125 @@ interface AssistantProfileDraft {
             </div>
           </div>
         </section>
+
+        <section class="t-card t-elevated rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5">
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Voice interaction</p>
+            <h3 class="text-base font-semibold text-white mt-1">Voice loop defaults</h3>
+            <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
+              These settings make voice-to-voice a reusable workspace capability. Assistant profiles may override them
+              in JSON, while demo mode only changes what users see.
+            </p>
+          </div>
+
+          <div class="p-5 space-y-5">
+            <div>
+              <span class="field-label">Default voice mode</span>
+              <div class="voice-mode-grid">
+                @for (mode of voiceModeOptions; track mode.value) {
+                  <button
+                    type="button"
+                    class="voice-mode-card"
+                    [class.voice-mode-card-active]="voiceLoopDraft.default_mode === mode.value"
+                    [disabled]="!canEdit()"
+                    (click)="voiceLoopDraft.default_mode = mode.value"
+                  >
+                    <app-icon [name]="mode.icon" [size]="16" />
+                    <span>
+                      <strong>{{ mode.label }}</strong>
+                      <small>{{ mode.help }}</small>
+                    </span>
+                  </button>
+                }
+              </div>
+            </div>
+
+            <div class="grid gap-3 lg:grid-cols-2">
+              <label class="voice-toggle-row">
+                <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_send_final_transcript" [disabled]="!canEdit()" />
+                <span>
+                  <strong>Auto-send final transcript</strong>
+                  <small>Final speech becomes one chat turn; existing draft text is replaced.</small>
+                </span>
+              </label>
+              <label class="voice-toggle-row">
+                <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_endpoint" [disabled]="!canEdit()" />
+                <span>
+                  <strong>Auto endpoint</strong>
+                  <small>Close the current voice turn after speech followed by silence.</small>
+                </span>
+              </label>
+              <label class="voice-toggle-row">
+                <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_rearm_after_tts" [disabled]="!canEdit()" />
+                <span>
+                  <strong>Rearm after spoken answer</strong>
+                  <small>Reopen the microphone after TTS plus cooldown in Session loop.</small>
+                </span>
+              </label>
+              <label class="voice-toggle-row">
+                <input type="checkbox" [(ngModel)]="voiceLoopDraft.barge_in" [disabled]="!canEdit()" />
+                <span>
+                  <strong>Barge-in</strong>
+                  <small>Pause agent speech if the user starts talking again.</small>
+                </span>
+              </label>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-4">
+              <label class="block">
+                <span class="field-label">Silence ms</span>
+                <input class="ag-field" type="number" min="300" max="5000" [(ngModel)]="voiceLoopDraft.silence_ms" [disabled]="!canEdit()" />
+              </label>
+              <label class="block">
+                <span class="field-label">Min speech ms</span>
+                <input class="ag-field" type="number" min="100" max="3000" [(ngModel)]="voiceLoopDraft.min_speech_ms" [disabled]="!canEdit()" />
+              </label>
+              <label class="block">
+                <span class="field-label">Max turn ms</span>
+                <input class="ag-field" type="number" min="5000" max="180000" [(ngModel)]="voiceLoopDraft.max_turn_ms" [disabled]="!canEdit()" />
+              </label>
+              <label class="block">
+                <span class="field-label">Cooldown ms</span>
+                <input class="ag-field" type="number" min="0" max="5000" [(ngModel)]="voiceLoopDraft.cooldown_ms" [disabled]="!canEdit()" />
+              </label>
+            </div>
+
+            <div class="rounded-md border border-white/10 bg-black/10 p-4">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <label class="voice-toggle-row voice-toggle-compact">
+                  <input type="checkbox" [(ngModel)]="voiceLoopDraft.commands_enabled" [disabled]="!canEdit()" />
+                  <span>
+                    <strong>Voice commands enabled</strong>
+                    <small>Generic commands can be inherited by AYA, Andritz and future workspace assistants.</small>
+                  </span>
+                </label>
+                <label class="block min-w-56 flex-1">
+                  <span class="field-label">Optional trigger word</span>
+                  <input class="ag-field" [(ngModel)]="voiceLoopDraft.trigger_word" [disabled]="!canEdit()" placeholder="Agentium" />
+                </label>
+              </div>
+              <div class="grid gap-4 mt-4 lg:grid-cols-2">
+                <label class="block">
+                  <span class="field-label">Command packs</span>
+                  <input class="ag-field font-mono" [(ngModel)]="voiceLoopDraft.command_packs_text" [disabled]="!canEdit()" placeholder="generic, fr_basic" />
+                </label>
+                <label class="block">
+                  <span class="field-label">Stop phrases</span>
+                  <input
+                    class="ag-field"
+                    [(ngModel)]="voiceLoopDraft.stop_phrases_text"
+                    [disabled]="!canEdit()"
+                    placeholder="on peut s'arrêter là, ça suffit"
+                  />
+                </label>
+              </div>
+              <p class="mt-3 text-xs text-gray-500 leading-relaxed">
+                Profiles can override this with <span class="font-mono text-gray-300">voice_loop</span>. Example:
+                AYA can keep the same Session loop while changing only command wording or default mode.
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
 
       <aside class="space-y-5">
@@ -519,6 +657,83 @@ interface AssistantProfileDraft {
       background: rgba(34,211,238,0.10);
       color: rgb(34 211 238);
     }
+    .voice-mode-grid {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .voice-mode-card {
+      min-height: 5.5rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.025);
+      padding: 0.875rem;
+      text-align: left;
+      color: rgb(209 213 219);
+      transition: border-color 120ms, background 120ms, box-shadow 120ms;
+    }
+    .voice-mode-card:hover:not(:disabled) {
+      border-color: rgba(56,189,248,0.35);
+      background: rgba(34,211,238,0.05);
+    }
+    .voice-mode-card-active {
+      border-color: rgba(34,211,238,0.75);
+      background: rgba(34,211,238,0.09);
+      box-shadow: 0 0 0 1px rgba(34,211,238,0.12);
+      color: white;
+    }
+    .voice-mode-card strong {
+      display: block;
+      font-size: 0.875rem;
+      color: inherit;
+    }
+    .voice-mode-card small {
+      display: block;
+      margin-top: 0.35rem;
+      font-size: 0.75rem;
+      line-height: 1.35;
+      color: rgb(156 163 175);
+    }
+    .voice-toggle-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      min-height: 4.25rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.025);
+      padding: 0.875rem;
+    }
+    .voice-toggle-compact {
+      min-height: 0;
+      flex: 1 1 18rem;
+    }
+    .voice-toggle-row input[type='checkbox'] {
+      width: 1rem;
+      height: 1rem;
+      margin-top: 0.125rem;
+      accent-color: rgb(34 211 238);
+    }
+    .voice-toggle-row strong {
+      display: block;
+      font-size: 0.875rem;
+      color: rgb(243 244 246);
+    }
+    .voice-toggle-row small {
+      display: block;
+      margin-top: 0.25rem;
+      font-size: 0.75rem;
+      line-height: 1.35;
+      color: rgb(156 163 175);
+    }
+    @media (max-width: 900px) {
+      .voice-mode-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   `],
 })
 export class ChatKnowledgeSettingsComponent {
@@ -539,6 +754,11 @@ export class ChatKnowledgeSettingsComponent {
   readonly error = signal<string | null>(null);
 
   readonly ragModes: RagMode[] = ['auto', 'naive', 'hybrid', 'hah', 'chah'];
+  readonly voiceModeOptions: { value: VoiceLoopDefaultMode; label: string; icon: string; help: string }[] = [
+    { value: 'batch', label: 'Batch', icon: 'mic', help: 'Push-to-talk voice turn.' },
+    { value: 'session_loop', label: 'Session loop', icon: 'waves', help: 'Hands-free Agentium loop.' },
+    { value: 'realtime', label: 'Realtime', icon: 'radio', help: 'WebRTC lane when enabled.' },
+  ];
   assistantProfileDefault = '';
   assistantProfilesJson = '[]';
   chatDraft: ChatSettingsDraft = {
@@ -547,6 +767,7 @@ export class ChatKnowledgeSettingsComponent {
     placeholder: '',
     prompt_pack: [],
   };
+  voiceLoopDraft: VoiceLoopSettingsDraft = this.defaultVoiceLoopDraft();
 
   readonly canEdit = computed(() => {
     const role = this.detail()?.role;
@@ -729,6 +950,7 @@ export class ChatKnowledgeSettingsComponent {
     const settings = { ...(detail.settings || {}) };
     settings['knowledge_scopes'] = scopePayload;
     settings['chat'] = this.cleanChatSettings(this.asRecord(settings['chat']));
+    settings['voice_loop'] = this.cleanVoiceLoopSettings();
     settings['assistant_profile_default'] = this.assistantProfileDefault || null;
     settings['assistant_profiles'] = assistantProfiles;
 
@@ -766,6 +988,7 @@ export class ChatKnowledgeSettingsComponent {
       placeholder: this.str(chat['placeholder']),
       prompt_pack: this.promptPackDraft(chat['prompt_pack']),
     };
+    this.voiceLoopDraft = this.voiceLoopToDraft(settings['voice_loop']);
     this.assistantProfileDefault = this.str(settings['assistant_profile_default']);
     this.assistantProfilesJson = JSON.stringify(Array.isArray(settings['assistant_profiles']) ? settings['assistant_profiles'] : [], null, 2);
   }
@@ -828,6 +1051,88 @@ export class ChatKnowledgeSettingsComponent {
     if (prompts.length) chat['prompt_pack'] = prompts;
     else delete chat['prompt_pack'];
     return chat;
+  }
+
+  private cleanVoiceLoopSettings(): Record<string, unknown> {
+    return {
+      default_mode: this.voiceLoopDraft.default_mode,
+      enabled_default: this.voiceLoopDraft.default_mode === 'session_loop',
+      auto_send_final_transcript: !!this.voiceLoopDraft.auto_send_final_transcript,
+      auto_endpoint: !!this.voiceLoopDraft.auto_endpoint,
+      auto_rearm_after_tts: !!this.voiceLoopDraft.auto_rearm_after_tts,
+      barge_in: !!this.voiceLoopDraft.barge_in,
+      commands_enabled: !!this.voiceLoopDraft.commands_enabled,
+      trigger_word: this.voiceLoopDraft.trigger_word.trim() || null,
+      command_packs: this.csvToList(this.voiceLoopDraft.command_packs_text),
+      stop_phrases: this.csvToList(this.voiceLoopDraft.stop_phrases_text),
+      silence_ms: this.clampNumber(this.voiceLoopDraft.silence_ms, 1200, 300, 5000),
+      min_speech_ms: this.clampNumber(this.voiceLoopDraft.min_speech_ms, 350, 100, 3000),
+      max_turn_ms: this.clampNumber(this.voiceLoopDraft.max_turn_ms, 45000, 5000, 180000),
+      cooldown_ms: this.clampNumber(this.voiceLoopDraft.cooldown_ms, 500, 0, 5000),
+    };
+  }
+
+  private voiceLoopToDraft(value: unknown): VoiceLoopSettingsDraft {
+    const config = this.asRecord(value);
+    const mode = config['default_mode'] === 'session_loop' || config['default_mode'] === 'realtime'
+      ? config['default_mode'] as VoiceLoopDefaultMode
+      : config['enabled_default'] === true
+        ? 'session_loop'
+        : 'batch';
+    return {
+      default_mode: mode,
+      auto_send_final_transcript: config['auto_send_final_transcript'] === true,
+      auto_endpoint: config['auto_endpoint'] !== false,
+      auto_rearm_after_tts: config['auto_rearm_after_tts'] !== false,
+      barge_in: config['barge_in'] !== false,
+      commands_enabled: config['commands_enabled'] !== false,
+      trigger_word: this.str(config['trigger_word']),
+      command_packs_text: this.listToCsv(config['command_packs']) || 'generic, fr_basic',
+      stop_phrases_text: this.listToCsv(config['stop_phrases']) || "on peut s'arrêter là, ça suffit, fin de session",
+      silence_ms: this.num(config['silence_ms'], 1200),
+      min_speech_ms: this.num(config['min_speech_ms'], 350),
+      max_turn_ms: this.num(config['max_turn_ms'], 45000),
+      cooldown_ms: this.num(config['cooldown_ms'], 500),
+    };
+  }
+
+  private defaultVoiceLoopDraft(): VoiceLoopSettingsDraft {
+    return {
+      default_mode: 'batch',
+      auto_send_final_transcript: false,
+      auto_endpoint: true,
+      auto_rearm_after_tts: true,
+      barge_in: true,
+      commands_enabled: true,
+      trigger_word: '',
+      command_packs_text: 'generic, fr_basic',
+      stop_phrases_text: "on peut s'arrêter là, ça suffit, fin de session",
+      silence_ms: 1200,
+      min_speech_ms: 350,
+      max_turn_ms: 45000,
+      cooldown_ms: 500,
+    };
+  }
+
+  private csvToList(value: string): string[] {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  private listToCsv(value: unknown): string {
+    return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean).join(', ') : '';
+  }
+
+  private num(value: unknown, fallback: number): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  private clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+    const n = this.num(value, fallback);
+    return Math.min(max, Math.max(min, Math.round(n)));
   }
 
   private promptPackDraft(value: unknown): PromptCardDraft[] {

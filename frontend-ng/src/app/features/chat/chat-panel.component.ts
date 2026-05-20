@@ -106,6 +106,7 @@ interface AssistantProfile {
   prompt_pack?: SuggestionCard[];
   hidden_controls?: string[];
   chat?: WorkspaceChatConfig;
+  voice_loop?: WorkspaceVoiceLoopConfig;
 }
 
 interface KnowledgeScopeOption {
@@ -127,6 +128,26 @@ interface WorkspaceChatConfig {
   prompt_pack_by_scope?: Record<string, SuggestionCard[]>;
   session_doc_prompt_pack?: SuggestionCard[];
   use_assistant_profile_prompt_pack?: boolean;
+}
+
+type VoiceLoopDefaultMode = 'batch' | 'session_loop' | 'realtime';
+
+interface WorkspaceVoiceLoopConfig {
+  default_mode?: VoiceLoopDefaultMode;
+  enabled_default?: boolean;
+  auto_send_final_transcript?: boolean;
+  auto_endpoint?: boolean;
+  auto_rearm_after_tts?: boolean;
+  barge_in?: boolean;
+  commands_enabled?: boolean;
+  trigger_word?: string | null;
+  command_packs?: string[];
+  stop_phrases?: string[];
+  silence_ms?: number;
+  min_speech_ms?: number;
+  max_turn_ms?: number;
+  cooldown_ms?: number;
+  rms_threshold?: number;
 }
 
 function isSentinelShowcaseProfile(profile: AssistantProfile | null): boolean {
@@ -1787,6 +1808,15 @@ export class ChatPanelComponent {
       ...(this.isRecord(profileConfig) ? profileConfig : {}),
     } as WorkspaceChatConfig;
   });
+  readonly workspaceVoiceLoopConfig = computed<WorkspaceVoiceLoopConfig>(() => {
+    const settings = this.workspace.current()?.settings;
+    const workspaceConfig = this.isRecord(settings?.['voice_loop']) ? settings?.['voice_loop'] : {};
+    const profileConfig = this.activeAssistantProfile()?.voice_loop;
+    return {
+      ...(this.isRecord(workspaceConfig) ? workspaceConfig : {}),
+      ...(this.isRecord(profileConfig) ? profileConfig : {}),
+    } as WorkspaceVoiceLoopConfig;
+  });
   readonly selectedSource = signal<SourceSelection>('auto');
   readonly sessionDocsMode = signal<SessionDocsMode>('replace');
   readonly knowledgeScopeOptions = computed<KnowledgeScopeOption[]>(() => {
@@ -2068,10 +2098,7 @@ export class ChatPanelComponent {
   private streamStart = 0;
   private voiceLoopRearmTimer: ReturnType<typeof setTimeout> | null = null;
   private voiceLastEndpointReason: VoiceLoopEndpointReason | null = null;
-  private readonly voiceEndpointSilenceMs = 1200;
-  private readonly voiceEndpointMinSpeechMs = 350;
-  private readonly voiceEndpointMaxTurnMs = 45000;
-  private readonly voiceEndpointRmsThreshold = 0.018;
+  private appliedVoiceDefaultsSignature = '';
 
   // TTS pipeline state — we flush completed sentences from the LLM
   // stream to OpenAI TTS as they come in, then play the resulting MP3
@@ -2101,6 +2128,16 @@ export class ChatPanelComponent {
         this.cdr.markForCheck();
       }
     });
+    effect(() => {
+      const workspaceSlug = this.workspace.current()?.slug || 'workspace';
+      const profileKey = this.activeAssistantProfile()?.key || this.assistantProfileKey() || 'default';
+      const config = this.workspaceVoiceLoopConfig();
+      const selectable = this.canUseVoiceSession();
+      const signature = `${workspaceSlug}|${profileKey}|${selectable}|${JSON.stringify(config)}`;
+      if (signature === this.appliedVoiceDefaultsSignature) return;
+      this.appliedVoiceDefaultsSignature = signature;
+      this.applyWorkspaceVoiceDefaults(config, selectable);
+    });
     this.settings.refresh();
     this.health.load().subscribe();
     this.loadReasoningTemplates();
@@ -2122,10 +2159,10 @@ export class ChatPanelComponent {
       });
   }
 
-	  private loadVoiceRuntimes(): void {
-	    this.api.listVoiceRuntimes().subscribe({
-	      next: (catalog) => {
-	        this.voiceRuntimes.set(catalog);
+  private loadVoiceRuntimes(): void {
+    this.api.listVoiceRuntimes().subscribe({
+      next: (catalog) => {
+        this.voiceRuntimes.set(catalog);
 	        const current = this.voiceProvider();
 	        const allowed = catalog.allowed_providers || [];
 	        const providers = catalog.providers || [];
@@ -2142,6 +2179,23 @@ export class ChatPanelComponent {
         this.voiceProvider.set('cascade_openai');
       },
     });
+  }
+
+  private applyWorkspaceVoiceDefaults(config: WorkspaceVoiceLoopConfig, canUseSession: boolean): void {
+    if (this.voiceConversationActive() || this.recording() || this.transcribing()) return;
+    const mode = config.default_mode || (config.enabled_default ? 'session_loop' : 'batch');
+    if (mode === 'session_loop' && canUseSession) {
+      this.voiceTransport.set('backend_ws');
+    } else {
+      this.voiceTransport.set('batch_http');
+    }
+    if (typeof config.auto_send_final_transcript === 'boolean') {
+      this.voiceAutoSend.set(config.auto_send_final_transcript);
+    }
+    if (typeof config.auto_endpoint === 'boolean') {
+      this.voiceAutoEndpoint.set(config.auto_endpoint);
+    }
+    this.cdr.markForCheck();
   }
 
 	  voiceRuntimeLabel(runtime: VoiceRuntimeProviderOption): string {
@@ -3195,6 +3249,41 @@ export class ChatPanelComponent {
     await this.startVoiceTurn(false);
   }
 
+  private voiceLoopSettingNumber(key: keyof WorkspaceVoiceLoopConfig, fallback: number, min: number, max: number): number {
+    const value = Number(this.workspaceVoiceLoopConfig()[key]);
+    if (!Number.isFinite(value)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(value)));
+  }
+
+  private voiceEndpointSilenceMs(): number {
+    return this.voiceLoopSettingNumber('silence_ms', 1200, 300, 5000);
+  }
+
+  private voiceEndpointMinSpeechMs(): number {
+    return this.voiceLoopSettingNumber('min_speech_ms', 350, 100, 3000);
+  }
+
+  private voiceEndpointMaxTurnMs(): number {
+    return this.voiceLoopSettingNumber('max_turn_ms', 45000, 5000, 180000);
+  }
+
+  private voiceEndpointRmsThreshold(): number {
+    const value = Number(this.workspaceVoiceLoopConfig().rms_threshold);
+    return Number.isFinite(value) ? Math.min(0.15, Math.max(0.001, value)) : 0.018;
+  }
+
+  private voiceLoopCooldownMs(): number {
+    return this.voiceLoopSettingNumber('cooldown_ms', 500, 0, 5000);
+  }
+
+  private voiceLoopBargeInEnabled(): boolean {
+    return this.workspaceVoiceLoopConfig().barge_in !== false;
+  }
+
+  private voiceLoopAutoRearmEnabled(): boolean {
+    return this.workspaceVoiceLoopConfig().auto_rearm_after_tts !== false;
+  }
+
   private async startVoiceTurn(fromConversationLoop: boolean): Promise<boolean> {
     if (!this.canTranscribeVoice()) {
       this.toast.error(
@@ -3208,7 +3297,7 @@ export class ChatPanelComponent {
 
     this.clearVoiceLoopRearmTimer();
     try {
-      if (this.ttsSpeaking()) {
+      if (this.ttsSpeaking() && this.voiceLoopBargeInEnabled()) {
         this.voiceConnection?.bargeIn();
         this.voiceConnection?.ttsInterrupted({ reason: 'user_speech', surface: 'chat' });
         this.resetTtsPipeline();
@@ -3231,15 +3320,15 @@ export class ChatPanelComponent {
       const started = await this.voiceLoop.startTurn({
         autoEndpoint,
         mimeType: 'audio/webm',
-        silenceMs: this.voiceEndpointSilenceMs,
-        minSpeechMs: this.voiceEndpointMinSpeechMs,
-        maxTurnMs: this.voiceEndpointMaxTurnMs,
-        rmsThreshold: this.voiceEndpointRmsThreshold,
+        silenceMs: this.voiceEndpointSilenceMs(),
+        minSpeechMs: this.voiceEndpointMinSpeechMs(),
+        maxTurnMs: this.voiceEndpointMaxTurnMs(),
+        rmsThreshold: this.voiceEndpointRmsThreshold(),
         onState: (state) => this.syncVoiceLoopState(state),
         onSpeechStart: () => {
           this.voiceOracleStage.set('listening');
           this.voiceOracleMessage.set('Speech detected. Agentium will submit after silence.');
-          if (this.ttsSpeaking()) {
+          if (this.ttsSpeaking() && this.voiceLoopBargeInEnabled()) {
             this.voiceConnection?.bargeIn();
             this.voiceConnection?.ttsInterrupted({ reason: 'user_speech', surface: 'chat' });
             this.resetTtsPipeline();
@@ -3281,9 +3370,10 @@ export class ChatPanelComponent {
       return;
     }
     if (this.voiceConversationActive()) return;
+    const config = this.workspaceVoiceLoopConfig();
     this.setVoiceTransport('backend_ws');
-    this.voiceAutoEndpoint.set(true);
-    this.voiceAutoSend.set(true);
+    this.voiceAutoEndpoint.set(config.auto_endpoint !== false);
+    this.voiceAutoSend.set(config.auto_send_final_transcript !== false);
     if (this.voiceOutputProvider()) this.ttsEnabled.set(true);
     this.voiceConversationActive.set(true);
     this.voiceConversationPaused.set(false);
@@ -3292,10 +3382,10 @@ export class ChatPanelComponent {
       surface: 'chat',
       mode: 'conversation_loop',
       auto_endpoint: true,
-      auto_rearm_after_tts: true,
-      silence_ms: this.voiceEndpointSilenceMs,
-      max_turn_ms: this.voiceEndpointMaxTurnMs,
-      barge_in: true,
+      auto_rearm_after_tts: this.voiceLoopAutoRearmEnabled(),
+      silence_ms: this.voiceEndpointSilenceMs(),
+      max_turn_ms: this.voiceEndpointMaxTurnMs(),
+      barge_in: this.voiceLoopBargeInEnabled(),
     });
     this.voiceNotice.set('Conversation loop starting');
     this.voiceOracleStage.set('listening');
@@ -3354,6 +3444,7 @@ export class ChatPanelComponent {
 
   private scheduleVoiceLoopRearm(): void {
     if (!this.voiceConversationActive() || this.voiceConversationPaused()) return;
+    if (!this.voiceLoopAutoRearmEnabled()) return;
     if (this.recording() || this.transcribing() || this.streaming()) return;
     this.clearVoiceLoopRearmTimer();
     this.voiceNotice.set('Conversation rearming');
@@ -3361,7 +3452,7 @@ export class ChatPanelComponent {
     this.voiceLoopRearmTimer = setTimeout(() => {
       this.voiceLoopRearmTimer = null;
       void this.armConversationLoopTurn();
-    }, 500);
+    }, this.voiceLoopCooldownMs());
   }
 
   private clearVoiceLoopRearmTimer(): void {
@@ -3451,6 +3542,8 @@ export class ChatPanelComponent {
   }
 
   private detectVoiceCommand(rawText: string): string | null {
+    const settings = this.workspaceVoiceLoopConfig();
+    if (settings.commands_enabled === false) return null;
     let text = rawText
       .toLowerCase()
       .normalize('NFD')
@@ -3458,15 +3551,16 @@ export class ChatPanelComponent {
       .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    const settings = this.workspace.current()?.settings?.['voice_loop'];
-    const triggerWord = this.isRecord(settings) && typeof settings['trigger_word'] === 'string'
+    const triggerWord = typeof settings.trigger_word === 'string'
       ? settings['trigger_word'].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
       : '';
     const hasTrigger = !!triggerWord && (text === triggerWord || text.startsWith(`${triggerWord} `));
     if (hasTrigger) text = text.slice(triggerWord.length).trim();
     const compact = text.replace(/\s+/g, ' ');
     const commandText = compact.replace(/['-]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (this.isNaturalStopCommand(commandText)) return 'stop';
+    const genericCommandsEnabled = this.voiceCommandPackEnabled(settings, ['generic', 'fr_basic', 'workspace']);
+    if (this.isNaturalStopCommand(commandText, settings.stop_phrases, genericCommandsEnabled)) return 'stop';
+    if (!genericCommandsEnabled) return null;
     const words = commandText.split(/\s+/).filter(Boolean);
     if (!hasTrigger && words.length > 4) return null;
     if (['stop', 'arrete', 'arret', 'fin', 'termine'].includes(compact)) return 'stop';
@@ -3481,8 +3575,15 @@ export class ChatPanelComponent {
     return null;
   }
 
-  private isNaturalStopCommand(commandText: string): boolean {
+  private isNaturalStopCommand(commandText: string, configuredPhrases: unknown = null, includeDefaultPhrases = true): boolean {
     if (!commandText) return false;
+    const customPhrases = Array.isArray(configuredPhrases)
+      ? configuredPhrases
+          .map((phrase) => this.normalizeVoiceCommandText(String(phrase)))
+          .filter(Boolean)
+      : [];
+    if (customPhrases.some((phrase) => commandText === phrase || commandText.includes(phrase))) return true;
+    if (!includeDefaultPhrases) return false;
     return [
       /\bon peut s arreter(?: la)?\b/,
       /\bon peut arreter(?: la)?\b/,
@@ -3502,6 +3603,25 @@ export class ChatPanelComponent {
       /\btu peux couper\b/,
       /\bon coupe\b/,
     ].some((pattern) => pattern.test(commandText));
+  }
+
+  private normalizeVoiceCommandText(value: string): string {
+    return value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')
+      .replace(/['-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private voiceCommandPackEnabled(settings: WorkspaceVoiceLoopConfig, accepted: string[]): boolean {
+    const packs = Array.isArray(settings.command_packs)
+      ? settings.command_packs.map((pack) => String(pack).trim().toLowerCase()).filter(Boolean)
+      : [];
+    if (packs.length === 0) return true;
+    return accepted.some((name) => packs.includes(name));
   }
 
   private handleVoiceCommand(command: string, transcript: string): boolean {
