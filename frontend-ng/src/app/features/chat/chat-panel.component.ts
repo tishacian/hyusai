@@ -27,6 +27,11 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { RuntimeStatusBadgeComponent } from '@app/shared/cockpit';
+import {
+  SharedVoiceOracleStep,
+  SharedVoiceRuntimeOption,
+  VoiceControlsComponent,
+} from '@app/shared/voice/voice-controls.component';
 
 interface DecisionStep {
   id: string;
@@ -296,7 +301,7 @@ const STEP_ICONS: Record<string, string> = {
   selector: 'app-chat-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, IconComponent, RuntimeStatusBadgeComponent],
+  imports: [FormsModule, RouterLink, IconComponent, RuntimeStatusBadgeComponent, VoiceControlsComponent],
   template: `
     <div class="flex flex-col h-full">
       @if (executiveMode()) {
@@ -486,174 +491,39 @@ const STEP_ICONS: Record<string, string> = {
       }
 
       @if (!executiveMode() || traceOpen()) {
-      <div class="voice-control-bar">
-        <div class="voice-control-group">
-          <span class="voice-control-label">
-            <app-icon name="waves" [size]="13" class="text-brand-300" />
-            Voice runtime
-            <span
-              class="control-info-dot"
-              title="Select the voice provider/runtime used for speech-to-text and voice session events."
-            >
-              <app-icon name="info" [size]="10" />
-            </span>
-          </span>
-          <div class="voice-select-wrap" [title]="selectedVoiceDescription()">
-            <select
-              class="voice-select"
-              [ngModel]="voiceProvider()"
-              (ngModelChange)="onVoiceProviderChange($event)"
-            >
-              @for (runtime of voiceRuntimeOptions(); track runtime.slug) {
-                <option
-                  [value]="runtime.slug"
-                  [disabled]="!isVoiceRuntimeSelectableInChat(runtime)"
-                >
-                  {{ voiceRuntimeLabel(runtime) }}
-                </option>
-              }
-            </select>
-            <app-icon name="chevron-down" [size]="12" class="voice-select-chevron" />
-          </div>
-        </div>
-        <div class="voice-transport-toggle" [title]="voiceTransportHint()">
-          <button
-            type="button"
-            class="voice-transport-button"
-            [class.voice-transport-active]="voiceTransport() === 'batch_http'"
-            (click)="setVoiceTransport('batch_http')"
-            title="Record one audio segment, then transcribe through /voice/transcribe."
-          >
-            Batch
-          </button>
-          <button
-            type="button"
-            class="voice-transport-button"
-            [class.voice-transport-active]="voiceTransport() === 'backend_ws'"
-            [disabled]="!canUseVoiceSession()"
-            (click)="setVoiceTransport('backend_ws')"
-            [title]="voiceSessionButtonTitle()"
-          >
-            Session loop
-          </button>
-          <button
-            type="button"
-            class="voice-transport-button"
-            disabled
-            [title]="voiceRealtimeBlockedHint() || 'Realtime voice uses WebRTC and is enabled only when the workspace/provider lane is ready.'"
-          >
-            Realtime
-          </button>
-        </div>
-        @if (voiceTransport() === 'backend_ws') {
-          <div class="voice-loop-actions" title="Start or pause a hands-free Agentium voice session. The microphone rearms after the spoken answer.">
-            @if (!voiceConversationActive()) {
-              <button
-                type="button"
-                class="voice-loop-button voice-loop-start"
-                [disabled]="!canUseVoiceSession() || streaming() || transcribing()"
-                (click)="startConversationLoop()"
-              >
-                <app-icon name="play" [size]="12" />
-                Start conversation
-              </button>
-            } @else {
-              <button
-                type="button"
-                class="voice-loop-button"
-                [disabled]="transcribing()"
-                (click)="voiceConversationPaused() ? resumeConversationLoop() : pauseConversationLoop()"
-              >
-                <app-icon [name]="voiceConversationPaused() ? 'play' : 'pause'" [size]="12" />
-                {{ voiceConversationPaused() ? 'Resume' : 'Pause' }}
-              </button>
-              <button
-                type="button"
-                class="voice-loop-button voice-loop-stop"
-                (click)="stopConversationLoop()"
-              >
-                <app-icon name="square" [size]="12" />
-                Stop
-              </button>
-            }
-          </div>
-        }
-        @if (voiceRealtimeBlockedHint()) {
-          <span class="voice-warning-pill" [title]="voiceRealtimeBlockedHint()">
-            <app-icon name="radio" [size]="12" />
-            WebRTC required
-          </span>
-        }
-        <span
-          class="tandem-oracle-pill"
-          [title]="voiceTandemOracleHint()"
-        >
-          <app-icon name="activity" [size]="12" />
-          Tandem oracle
-          <span
-            class="control-info-dot"
-            title="Fast voice loop plus background Knowledge oracle. It can update context while the conversation continues."
-          >
-            <app-icon name="info" [size]="10" />
-          </span>
-        </span>
-        <label
-          class="voice-checkbox"
-          title="When enabled, the final voice transcript replaces the current draft and is sent as one chat turn."
-        >
-          <input
-            type="checkbox"
-            class="accent-brand-500"
-            [ngModel]="voiceAutoSend()"
-            (ngModelChange)="voiceAutoSend.set($event)"
-            [disabled]="!canTranscribeVoice()"
-          />
-          Auto-send final transcript
-        </label>
-        @if (voiceTransport() === 'backend_ws') {
-          <label
-            class="voice-checkbox"
-            title="When enabled, Agentium ends the current voice turn after speech followed by a short silence. This does not keep the microphone open between assistant turns yet."
-          >
-            <input
-              type="checkbox"
-              class="accent-brand-500"
-              [ngModel]="voiceAutoEndpoint()"
-              (ngModelChange)="voiceAutoEndpoint.set($event)"
-              [disabled]="!canUseVoiceSession()"
-            />
-            Auto endpoint
-          </label>
-        }
-        <span [class]="voiceStatusClass()">{{ voiceStatusLabel() }}</span>
-        <span class="text-gray-600">·</span>
-        <span class="truncate max-w-[36rem]" [title]="voiceRuntimeDetail()">{{ voiceRuntimeDetail() }}</span>
-        @if (voicePartial()) {
-          <span class="text-brand-200 truncate max-w-xs">“{{ voicePartial() }}”</span>
-        }
-      </div>
-      @if (voiceTransport() === 'backend_ws') {
-        <div class="voice-oracle-panel" [title]="voiceOraclePanelHint()">
-          <div class="voice-oracle-copy">
-            <span class="voice-oracle-kicker">Agentium voice session</span>
-            <span class="voice-oracle-message">{{ voiceOracleMessage() }}</span>
-          </div>
-          <div class="voice-oracle-steps">
-            @for (step of voiceOracleTimeline(); track step.stage) {
-              <span
-                class="voice-oracle-step"
-                [class.voice-oracle-step-active]="step.state === 'active'"
-                [class.voice-oracle-step-done]="step.state === 'done'"
-                [class.voice-oracle-step-error]="step.state === 'error'"
-                [title]="step.detail"
-              >
-                <app-icon [name]="step.icon" [size]="11" />
-                {{ step.label }}
-              </span>
-            }
-          </div>
-        </div>
-      }
+      <app-voice-controls
+        [runtimeOptions]="voiceControlRuntimeOptions()"
+        [provider]="voiceProvider()"
+        [selectedRuntimeDescription]="selectedVoiceDescription()"
+        [transport]="voiceTransport()"
+        [transportHint]="voiceTransportHint()"
+        [sessionButtonTitle]="voiceSessionButtonTitle()"
+        [realtimeBlockedHint]="voiceRealtimeBlockedHint()"
+        [canUseSession]="canUseVoiceSession()"
+        [canTranscribe]="canTranscribeVoice()"
+        [streaming]="streaming()"
+        [transcribing]="transcribing()"
+        [conversationActive]="voiceConversationActive()"
+        [conversationPaused]="voiceConversationPaused()"
+        [tandemOracleHint]="voiceTandemOracleHint()"
+        [autoSend]="voiceAutoSend()"
+        [autoEndpoint]="voiceAutoEndpoint()"
+        [statusClass]="voiceStatusClass()"
+        [statusLabel]="voiceStatusLabel()"
+        [runtimeDetail]="voiceRuntimeDetail()"
+        [partial]="voicePartial()"
+        [oraclePanelHint]="voiceOraclePanelHint()"
+        [oracleMessage]="voiceOracleMessage()"
+        [oracleTimeline]="voiceOracleTimeline()"
+        (providerChange)="onVoiceProviderChange($event)"
+        (transportChange)="setVoiceTransport($event)"
+        (startConversation)="startConversationLoop()"
+        (pauseConversation)="pauseConversationLoop()"
+        (resumeConversation)="resumeConversationLoop()"
+        (stopConversation)="stopConversationLoop()"
+        (autoSendChange)="voiceAutoSend.set($event)"
+        (autoEndpointChange)="voiceAutoEndpoint.set($event)"
+      />
       }
 
       <!-- Messages -->
@@ -1948,6 +1818,14 @@ export class ChatPanelComponent {
         ];
   });
 
+  readonly voiceControlRuntimeOptions = computed<SharedVoiceRuntimeOption[]>(() =>
+    this.voiceRuntimeOptions().map((runtime) => ({
+      slug: runtime.slug,
+      label: this.voiceRuntimeLabel(runtime),
+      disabled: !this.isVoiceRuntimeSelectableInChat(runtime),
+    })),
+  );
+
 	  readonly selectedVoiceRuntime = computed<VoiceRuntimeProviderOption | null>(() => {
 	    const provider = this.voiceProvider();
 	    return this.voiceRuntimeOptions().find((runtime) => runtime.slug === provider) ?? null;
@@ -1965,10 +1843,11 @@ export class ChatPanelComponent {
     return Boolean(caps['streaming_transcription'] || caps['batch_transcription'] || this.hasCascadeFallback());
   });
 
-  readonly voiceStatusLabel = computed(() => {
+  readonly voiceStatusLabel = computed<string>(() => {
     const runtime = this.selectedVoiceRuntime();
     if (!runtime) return 'runtime unknown';
-    if (this.voiceNotice()) return this.voiceNotice();
+    const notice = this.voiceNotice();
+    if (notice) return notice;
     const status = runtime.status || 'unknown';
     if (status === 'bound') return 'ready';
     if (status === 'disabled') return 'disabled';
@@ -1986,7 +1865,7 @@ export class ChatPanelComponent {
 	    return 'px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10';
 	  });
 
-	  readonly voiceOracleTimeline = computed(() => {
+		  readonly voiceOracleTimeline = computed<SharedVoiceOracleStep[]>(() => {
 	    const stage = this.voiceOracleStage();
 	    const rank: Record<VoiceOracleStage, number> = {
 	      idle: 0,
@@ -1998,7 +1877,7 @@ export class ChatPanelComponent {
 	      error: 0,
 	    };
 	    const currentRank = rank[stage] ?? 0;
-	    const mkState = (stepRank: number, stepStage: VoiceOracleStage) => {
+		    const mkState = (stepRank: number, stepStage: VoiceOracleStage): SharedVoiceOracleStep['state'] => {
 	      if (stage === 'error') return stepStage === 'fallback' ? 'error' : 'pending';
 	      if (stage === stepStage) return 'active';
 	      return currentRank > stepRank ? 'done' : 'pending';

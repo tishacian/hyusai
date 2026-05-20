@@ -517,8 +517,160 @@ interface AssistantProfileDraft {
               <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
             </span>
           </label>
+
+          <div class="mt-5 rounded-md border border-white/10 bg-black/10 overflow-hidden">
+            <div class="px-4 py-3 border-b border-white/5 flex items-center justify-between gap-3">
+              <div>
+                <h4 class="text-sm font-semibold text-white">Profile editor</h4>
+                <p class="text-xs text-gray-500 mt-0.5">Edit the reusable assistant persona without touching raw JSON.</p>
+              </div>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 disabled:opacity-40"
+                [disabled]="!canEdit()"
+                (click)="addAssistantProfile()"
+              >
+                <app-icon name="plus" [size]="13" /> Add
+              </button>
+            </div>
+
+            @if (activeProfileDraft(); as profile) {
+              <div class="p-4 space-y-4">
+                <div class="flex items-center gap-2">
+                  <span class="ag-select-wrap flex-1">
+                    <select
+                      class="ag-select"
+                      [ngModel]="selectedAssistantProfileIndex()"
+                      [disabled]="!canEdit()"
+                      (ngModelChange)="selectedAssistantProfileIndex.set($event)"
+                    >
+                      @for (item of assistantProfiles(); track item.key || $index; let i = $index) {
+                        <option [ngValue]="i">{{ item.label || item.key || ('Profile ' + (i + 1)) }}</option>
+                      }
+                    </select>
+                    <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                  </span>
+                  <button
+                    type="button"
+                    class="h-10 px-3 rounded bg-red-500/10 text-red-200 ring-1 ring-red-400/20 disabled:opacity-40"
+                    [disabled]="!canEdit()"
+                    (click)="removeAssistantProfile(selectedAssistantProfileIndex())"
+                    title="Remove profile"
+                  >
+                    <app-icon name="trash-2" [size]="14" class="inline" />
+                  </button>
+                </div>
+
+                <div class="grid gap-3 md:grid-cols-2">
+                  <label class="block">
+                    <span class="field-label">Key</span>
+                    <input class="ag-field font-mono" [ngModel]="profile.key || ''" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileField('key', $event)" />
+                  </label>
+                  <label class="block">
+                    <span class="field-label">Label</span>
+                    <input class="ag-field" [ngModel]="profile.label || ''" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileField('label', $event)" />
+                  </label>
+                </div>
+
+                <label class="block">
+                  <span class="field-label">Subtitle</span>
+                  <input class="ag-field" [ngModel]="profile.subtitle || ''" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileField('subtitle', $event)" />
+                </label>
+
+                <label class="block">
+                  <span class="field-label">Default Knowledge scope</span>
+                  <span class="ag-select-wrap">
+                    <select
+                      class="ag-select"
+                      [ngModel]="profile.default_knowledge_scope || ''"
+                      [disabled]="!canEdit()"
+                      (ngModelChange)="updateAssistantProfileField('default_knowledge_scope', $event)"
+                    >
+                      <option value="">Workspace default</option>
+                      @for (scope of scopes(); track scope.key) {
+                        <option [ngValue]="scope.key">{{ scope.label || scope.key }}</option>
+                      }
+                    </select>
+                    <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                  </span>
+                </label>
+
+                <div class="grid gap-3 md:grid-cols-2">
+                  <label class="block">
+                    <span class="field-label">Design mode</span>
+                    <input class="ag-field" [ngModel]="profile.design_mode || ''" [disabled]="!canEdit()" placeholder="agentium, sentinel_ci" (ngModelChange)="updateAssistantProfileField('design_mode', $event)" />
+                  </label>
+                  <label class="block">
+                    <span class="field-label">Tone</span>
+                    <input class="ag-field" [ngModel]="profile.tone || ''" [disabled]="!canEdit()" placeholder="technical, ministerial" (ngModelChange)="updateAssistantProfileField('tone', $event)" />
+                  </label>
+                </div>
+
+                <div class="rounded-md border border-white/10 bg-white/[0.025] p-3 space-y-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <div>
+                      <p class="text-sm font-semibold text-white">Profile chat override</p>
+                      <p class="text-xs text-gray-500 mt-0.5">Optional surface metadata for Quick ask.</p>
+                    </div>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1.5 rounded bg-white/5 px-2.5 py-1.5 text-[11px] text-gray-200 ring-1 ring-white/10 disabled:opacity-40"
+                      [disabled]="!canEdit()"
+                      (click)="copyWorkspaceChatToProfile()"
+                    >
+                      <app-icon name="copy" [size]="12" /> Use workspace chat
+                    </button>
+                  </div>
+                  <label class="block">
+                    <span class="field-label">Chat title</span>
+                    <input class="ag-field" [ngModel]="profileChatField('title')" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileChatField('title', $event)" />
+                  </label>
+                  <label class="block">
+                    <span class="field-label">Placeholder</span>
+                    <input class="ag-field" [ngModel]="profileChatField('placeholder')" [disabled]="!canEdit()" (ngModelChange)="updateAssistantProfileChatField('placeholder', $event)" />
+                  </label>
+                </div>
+
+                <div class="rounded-md border border-white/10 bg-white/[0.025] p-3 space-y-3">
+                  <p class="text-sm font-semibold text-white">Profile voice override</p>
+                  <div class="grid gap-3 md:grid-cols-2">
+                    <label class="block">
+                      <span class="field-label">Voice mode</span>
+                      <span class="ag-select-wrap">
+                        <select
+                          class="ag-select"
+                          [ngModel]="profileVoiceField('default_mode') || ''"
+                          [disabled]="!canEdit()"
+                          (ngModelChange)="updateAssistantProfileVoiceField('default_mode', $event)"
+                        >
+                          <option value="">Workspace default</option>
+                          @for (mode of voiceModeOptions; track mode.value) {
+                            <option [ngValue]="mode.value">{{ mode.label }}</option>
+                          }
+                        </select>
+                        <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                      </span>
+                    </label>
+                    <label class="block">
+                      <span class="field-label">Stop phrases</span>
+                      <input
+                        class="ag-field"
+                        [ngModel]="profileVoiceListField('stop_phrases')"
+                        [disabled]="!canEdit()"
+                        placeholder="on peut s'arrêter là"
+                        (ngModelChange)="updateAssistantProfileVoiceListField('stop_phrases', $event)"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            } @else {
+              <p class="px-4 py-5 text-sm text-gray-500">No assistant profiles yet. Add one to define a reusable chat and voice persona.</p>
+            }
+          </div>
+
           <label class="block mt-4">
-            <span class="field-label">assistant_profiles JSON</span>
+            <span class="field-label">assistant_profiles JSON · advanced</span>
             <textarea
               class="ag-field min-h-56 font-mono text-xs leading-relaxed"
               [(ngModel)]="assistantProfilesJson"
@@ -752,6 +904,7 @@ export class ChatKnowledgeSettingsComponent {
   readonly scopes = signal<KnowledgeScopeDraft[]>([]);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
+  readonly selectedAssistantProfileIndex = signal(0);
 
   readonly ragModes: RagMode[] = ['auto', 'naive', 'hybrid', 'hah', 'chah'];
   readonly voiceModeOptions: { value: VoiceLoopDefaultMode; label: string; icon: string; help: string }[] = [
@@ -792,6 +945,10 @@ export class ChatKnowledgeSettingsComponent {
 
   readonly activeAssistantProfile = computed<AssistantProfileDraft | null>(() =>
     this.assistantProfiles().find((profile) => profile.key === this.assistantProfileDefault) ?? null,
+  );
+
+  readonly activeProfileDraft = computed<AssistantProfileDraft | null>(() =>
+    this.assistantProfiles()[this.selectedAssistantProfileIndex()] ?? null,
   );
 
   readonly workspaceDefaultScope = computed(() =>
@@ -932,6 +1089,97 @@ export class ChatKnowledgeSettingsComponent {
     this.toastr.info(collection, 'Collection slug copied');
   }
 
+  addAssistantProfile(): void {
+    const profiles = this.parseAssistantProfilesForEdit();
+    const index = profiles.length + 1;
+    profiles.push({
+      key: `assistant_${index}`,
+      label: `Assistant ${index}`,
+      subtitle: '',
+      default_knowledge_scope: this.workspaceDefaultScope() || '',
+      design_mode: 'agentium',
+      tone: 'technical',
+      chat: {},
+      voice_loop: {},
+    });
+    this.writeAssistantProfiles(profiles);
+    this.selectedAssistantProfileIndex.set(profiles.length - 1);
+  }
+
+  removeAssistantProfile(index: number): void {
+    const profiles = this.parseAssistantProfilesForEdit();
+    if (index < 0 || index >= profiles.length) return;
+    const removed = profiles[index]?.key;
+    profiles.splice(index, 1);
+    if (removed && this.assistantProfileDefault === removed) {
+      this.assistantProfileDefault = profiles[0]?.key || '';
+    }
+    this.writeAssistantProfiles(profiles);
+    this.selectedAssistantProfileIndex.set(Math.max(0, Math.min(index, profiles.length - 1)));
+  }
+
+  updateAssistantProfileField(field: keyof AssistantProfileDraft, value: unknown): void {
+    this.mutateSelectedAssistantProfile((profile) => {
+      const draft = profile as unknown as Record<string, unknown>;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed) draft[field] = trimmed;
+        else delete draft[field];
+      } else {
+        draft[field] = value;
+      }
+    });
+  }
+
+  profileChatField(field: string): string {
+    return this.str(this.asRecord(this.activeProfileDraft()?.chat)[field]);
+  }
+
+  updateAssistantProfileChatField(field: string, value: string): void {
+    this.mutateSelectedAssistantProfile((profile) => {
+      const chat = { ...this.asRecord(profile.chat) };
+      this.setOrDelete(chat, field, value);
+      if (Object.keys(chat).length) profile.chat = chat;
+      else delete profile.chat;
+    });
+  }
+
+  copyWorkspaceChatToProfile(): void {
+    this.mutateSelectedAssistantProfile((profile) => {
+      profile.chat = this.cleanChatSettings(this.asRecord(profile.chat));
+    });
+    this.toastr.info('Workspace chat defaults copied into selected profile', 'Assistant profile');
+  }
+
+  profileVoiceField(field: string): string {
+    const value = this.asRecord(this.activeProfileDraft()?.voice_loop)[field];
+    return typeof value === 'string' ? value : '';
+  }
+
+  profileVoiceListField(field: string): string {
+    return this.listToCsv(this.asRecord(this.activeProfileDraft()?.voice_loop)[field]);
+  }
+
+  updateAssistantProfileVoiceField(field: string, value: string): void {
+    this.mutateSelectedAssistantProfile((profile) => {
+      const voice = { ...this.asRecord(profile.voice_loop) };
+      this.setOrDelete(voice, field, value);
+      if (Object.keys(voice).length) profile.voice_loop = voice;
+      else delete profile.voice_loop;
+    });
+  }
+
+  updateAssistantProfileVoiceListField(field: string, value: string): void {
+    this.mutateSelectedAssistantProfile((profile) => {
+      const voice = { ...this.asRecord(profile.voice_loop) };
+      const list = this.csvToList(value);
+      if (list.length) voice[field] = list;
+      else delete voice[field];
+      if (Object.keys(voice).length) profile.voice_loop = voice;
+      else delete profile.voice_loop;
+    });
+  }
+
   saveAll(): void {
     const detail = this.detail();
     if (!detail) return;
@@ -991,6 +1239,7 @@ export class ChatKnowledgeSettingsComponent {
     this.voiceLoopDraft = this.voiceLoopToDraft(settings['voice_loop']);
     this.assistantProfileDefault = this.str(settings['assistant_profile_default']);
     this.assistantProfilesJson = JSON.stringify(Array.isArray(settings['assistant_profiles']) ? settings['assistant_profiles'] : [], null, 2);
+    this.selectedAssistantProfileIndex.set(0);
   }
 
   private scopeToDraft(scope: KnowledgeScopeApi): KnowledgeScopeDraft {
@@ -1070,6 +1319,31 @@ export class ChatKnowledgeSettingsComponent {
       max_turn_ms: this.clampNumber(this.voiceLoopDraft.max_turn_ms, 45000, 5000, 180000),
       cooldown_ms: this.clampNumber(this.voiceLoopDraft.cooldown_ms, 500, 0, 5000),
     };
+  }
+
+  private parseAssistantProfilesForEdit(): AssistantProfileDraft[] {
+    try {
+      const parsed = JSON.parse(this.assistantProfilesJson || '[]');
+      return Array.isArray(parsed)
+        ? parsed
+            .filter((profile) => this.asRecord(profile))
+            .map((profile) => ({ ...(profile as AssistantProfileDraft) }))
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private writeAssistantProfiles(profiles: AssistantProfileDraft[]): void {
+    this.assistantProfilesJson = JSON.stringify(profiles, null, 2);
+  }
+
+  private mutateSelectedAssistantProfile(mutator: (profile: AssistantProfileDraft) => void): void {
+    const profiles = this.parseAssistantProfilesForEdit();
+    const index = this.selectedAssistantProfileIndex();
+    if (!profiles[index]) return;
+    mutator(profiles[index]);
+    this.writeAssistantProfiles(profiles);
   }
 
   private voiceLoopToDraft(value: unknown): VoiceLoopSettingsDraft {
