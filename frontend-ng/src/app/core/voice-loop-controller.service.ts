@@ -12,7 +12,7 @@ export type VoiceLoopState =
   | 'paused'
   | 'error';
 
-export type VoiceLoopEndpointReason = 'manual' | 'silence' | 'max_turn' | 'pause' | 'stop' | 'error';
+export type VoiceLoopEndpointReason = 'manual' | 'silence' | 'max_turn' | 'no_speech' | 'pause' | 'stop' | 'error';
 
 export interface VoiceLoopTurnConfig {
   autoEndpoint?: boolean;
@@ -196,9 +196,16 @@ export class VoiceLoopController {
         }
         const reachedSilence = this.speechDetected && elapsed >= minSpeechMs && now - this.lastVoiceAt >= silenceMs;
         const reachedMax = elapsed >= maxTurnMs;
+        const reachedNoSpeech = reachedMax && !this.speechDetected;
         if (reachedSilence || reachedMax) {
-          config.onNotice?.(reachedSilence ? 'Silence detected' : 'Max voice turn reached');
-          this.stopTurn(reachedSilence ? 'silence' : 'max_turn');
+          config.onNotice?.(
+            reachedNoSpeech
+              ? 'No speech detected'
+              : reachedSilence
+                ? 'Silence detected'
+                : 'Max voice turn reached',
+          );
+          this.stopTurn(reachedNoSpeech ? 'no_speech' : reachedSilence ? 'silence' : 'max_turn');
           return;
         }
         this.raf = requestAnimationFrame(tick);

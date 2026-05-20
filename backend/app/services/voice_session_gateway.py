@@ -417,23 +417,25 @@ class VoiceSessionGateway:
                 },
             )
             await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=oracle_events)
-            await self._send(
-                websocket,
-                state,
-                "text.final",
-                {
-                    "turn_id": state.client_turn_id,
-                    "speaker": "expert",
-                    "text": text,
-                    "confidence": transcript.get("confidence"),
-                    "latency_ms": first_text_ms,
-                    "source": f"{transcript.get('provider') or state.runtime}_stt",
-                    "provider": transcript.get("provider") or state.runtime,
-                    "requested_provider": transcript.get("requested_provider") or state.runtime,
-                    "model": transcript.get("model") or state.model,
-                    "fallback_used": bool(transcript.get("fallback")),
-                },
-            )
+        await self._send(
+            websocket,
+            state,
+            "text.final",
+            {
+                "turn_id": state.client_turn_id,
+                "speaker": "expert",
+                "text": text,
+                "empty": not bool(text),
+                "reason": None if text else "empty_transcript",
+                "confidence": transcript.get("confidence"),
+                "latency_ms": first_text_ms,
+                "source": f"{transcript.get('provider') or state.runtime}_stt",
+                "provider": transcript.get("provider") or state.runtime,
+                "requested_provider": transcript.get("requested_provider") or state.runtime,
+                "model": transcript.get("model") or state.model,
+                "fallback_used": bool(transcript.get("fallback")),
+            },
+        )
         await self._send(
             websocket,
             state,

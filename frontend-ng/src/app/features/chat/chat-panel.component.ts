@@ -3216,6 +3216,15 @@ export class ChatPanelComponent {
         onNotice: (message) => this.voiceNotice.set(message),
         onEndpoint: (blob, reason) => {
           this.recording.set(false);
+          if (reason === 'no_speech') {
+            this.voiceLastEndpointReason = null;
+            this.voiceNotice.set('No speech detected');
+            this.voiceOracleStage.set('idle');
+            this.voiceOracleMessage.set('No voice turn was submitted. The microphone will reopen automatically.');
+            this.scheduleVoiceLoopRearm();
+            this.cdr.markForCheck();
+            return;
+          }
           this.voiceLastEndpointReason = reason;
           this.voiceNotice.set(this.voiceEndpointNotice(reason));
           this.voiceOracleStage.set('thinking');
@@ -3377,6 +3386,7 @@ export class ChatPanelComponent {
   private voiceEndpointNotice(reason: VoiceLoopEndpointReason): string {
     if (reason === 'silence') return 'Silence detected';
     if (reason === 'max_turn') return 'Max voice turn reached';
+    if (reason === 'no_speech') return 'No speech detected';
     if (reason === 'pause') return 'Voice turn paused';
     if (reason === 'stop') return 'Voice turn stopped';
     return 'Voice turn ended';
