@@ -74,16 +74,19 @@ import {
                     <label class="block min-w-0">
                       <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Role template</span>
                       @if (canEditMemberRole(member)) {
-                        <select
-                          class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
-                          [(ngModel)]="member.role_template"
-                        >
-                          @for (role of roleOptions; track role.value) {
-                            <option [ngValue]="role.value" [disabled]="role.value === 'workspace_owner'">
-                              {{ role.label }}
-                            </option>
-                          }
-                        </select>
+                        <span class="ag-select-wrap">
+                          <select
+                            class="ag-select"
+                            [(ngModel)]="member.role_template"
+                          >
+                            @for (role of roleOptions; track role.value) {
+                              <option [ngValue]="role.value" [disabled]="role.value === 'workspace_owner'">
+                                {{ role.label }}
+                              </option>
+                            }
+                          </select>
+                          <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                        </span>
                       } @else {
                         <span
                           [class]="roleBadgeClass(memberRoleTemplate(member))"
@@ -238,6 +241,40 @@ import {
       </section>
     }
   `,
+  styles: [`
+    .ag-select-wrap {
+      position: relative;
+      display: block;
+    }
+    .ag-select {
+      width: 100%;
+      height: 40px;
+      appearance: none;
+      -webkit-appearance: none;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(0,0,0,0.30);
+      color: rgb(243 244 246);
+      padding: 0 2.25rem 0 0.75rem;
+      font-size: 0.875rem;
+      outline: none;
+      color-scheme: dark;
+      transition: border-color 120ms, box-shadow 120ms, background 120ms;
+    }
+    .ag-select:focus {
+      border-color: rgba(56,189,248,0.65);
+      box-shadow: 0 0 0 2px rgba(56,189,248,0.18);
+      background: rgba(0,0,0,0.38);
+    }
+    .ag-select-chevron {
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: rgb(156 163 175);
+      pointer-events: none;
+    }
+  `],
 })
 export class AccessRolesComponent implements OnInit {
   private readonly workspace = inject(WorkspaceService);

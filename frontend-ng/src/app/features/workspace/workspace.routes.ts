@@ -19,6 +19,11 @@ export const workspaceRoutes: Routes = [
           import('./general.component').then((m) => m.WorkspaceGeneralComponent),
       },
       {
+        path: 'chat-knowledge',
+        loadComponent: () =>
+          import('./chat-knowledge-settings.component').then((m) => m.ChatKnowledgeSettingsComponent),
+      },
+      {
         path: 'members',
         loadComponent: () =>
           import('./members.component').then((m) => m.WorkspaceMembersComponent),

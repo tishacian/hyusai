@@ -181,6 +181,12 @@ export class WorkspaceService {
     );
   }
 
+  updateWorkspaceSettings(slug: string, settings: Record<string, unknown>): Observable<WorkspaceDetail> {
+    return this.http.patch<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}`, { settings }).pipe(
+      tap(() => this.loadWorkspaces().subscribe())
+    );
+  }
+
   setMode(slug: string, mode: WorkspaceMode): Observable<WorkspaceDetail> {
     return this.http.patch<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}/mode`, { mode }).pipe(
       tap(() => this.loadWorkspaces().subscribe()),
