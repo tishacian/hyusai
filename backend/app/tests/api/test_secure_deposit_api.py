@@ -4,6 +4,7 @@ import zipfile
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from app.api.v1.endpoints import secure_deposit
 from app.core.config import settings
@@ -74,3 +75,62 @@ def test_promote_deposit_zip_returns_queued_worker_payload(db_session, monkeypat
     assert body["worker_job_id"]
     assert body["promotion_result"]["archive"]["extracted_count"] == 2
     assert body["promotion_result"]["celery_task_id"] == "task-bba120"
+
+
+def test_promote_deposit_spreadsheet_returns_queued_worker_payload(db_session, monkeypatch, tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Excel upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    source = tmp_path / "GEOTEX-SPL-Y25.05.22-PIL.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Def strips"
+    sheet.append(["A", 80])
+    sheet.append(["B", 85])
+    workbook.save(source)
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=source,
+        filename="1-NON-WOVENS/FRANCE/GEOTEX/2025-05-PIL-tests diff_rents filets/GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+    db_session.commit()
+
+    def fake_dispatch(db, job):
+        job.celery_task_id = "task-excel"
+        return "task-excel"
+
+    monkeypatch.setattr("app.services.secure_deposit.dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, workspace, user).post(
+        f"/sftp/deposits/{row.id}/promote",
+        json={"collection_slug": "andritz-non-wovens-france-excel-pilot"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()["file"]
+    assert body["status"] == "promoted"
+    assert body["promoted_collection_slug"] == "andritz-non-wovens-france-excel-pilot"
+    assert body["worker_job_id"]
+    assert body["promotion_result"]["mode"] == "spreadsheet"
+    assert body["promotion_result"]["spreadsheet"]["extension"] == "xlsx"
+    assert body["promotion_result"]["celery_task_id"] == "task-excel"

@@ -28,6 +28,17 @@ from app.core.settings_manager import get_resolved_settings
 logger = get_logger(__name__)
 
 
+_RESERVED_CHUNK_METADATA_KEYS = {"content", "start_char", "end_char", "chunk_index", "page"}
+
+
+def _chunk_extra_metadata(chunk: Dict) -> Dict:
+    return {
+        key: value
+        for key, value in chunk.items()
+        if key not in _RESERVED_CHUNK_METADATA_KEYS and value is not None
+    }
+
+
 class DocumentService:
     """Service for ingesting and indexing documents"""
     
@@ -165,6 +176,7 @@ class DocumentService:
                     "end_char": chunk.get("end_char", len(chunk["content"])),
                     "page": chunk.get("page"),
                     "document_type": parsed_doc.document_type.value,
+                    **_chunk_extra_metadata(chunk),
                     **{k: v for k, v in parsed_doc.metadata.items() if v is not None},
                     # docmeta-sourced fields last so they override any
                     # parser-supplied value for the same key (e.g. PDF
@@ -281,6 +293,7 @@ class DocumentService:
                         "end_char": chunk.get("end_char", len(chunk["content"])),
                         "page": chunk.get("page"),
                         "document_type": parsed_doc.document_type.value,
+                        **_chunk_extra_metadata(chunk),
                         **{k: v for k, v in parsed_doc.metadata.items() if v is not None},
                         **document_meta,
                     })

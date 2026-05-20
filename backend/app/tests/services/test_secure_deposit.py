@@ -293,6 +293,121 @@ def test_preview_deposit_file_returns_spreadsheet_rows(db_session, monkeypatch, 
     assert preview["rows"][1] == ["PULP80", "154.8"]
 
 
+@pytest.mark.asyncio
+async def test_promote_spreadsheet_queues_collection_ingest(db_session, monkeypatch, tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Excel pilot",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    staged = tmp_path / "GEOTEX-SPL-Y25.05.22-PIL.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Def strips"
+    sheet.append(["A", 80])
+    sheet.append(["B", 85])
+    workbook.save(staged)
+    staged_bytes = staged.read_bytes()
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="1-NON-WOVENS/FRANCE/GEOTEX/2025-05-PIL-tests diff_rents filets/GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    def fake_dispatch(db, job):
+        job.celery_task_id = "task-excel"
+        return "task-excel"
+
+    monkeypatch.setattr("app.services.secure_deposit.dispatch_worker_job", fake_dispatch)
+
+    promoted = await promote_file_to_collection(
+        db_session,
+        deposit_file=row,
+        workspace=workspace,
+        user=user,
+        collection_slug="andritz-non-wovens-france-excel-pilot",
+    )
+
+    collection = (
+        db_session.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.slug == "andritz-non-wovens-france-excel-pilot")
+        .one()
+    )
+    job = db_session.query(WorkerJob).filter(WorkerJob.id == promoted.worker_job_id).one()
+
+    assert promoted.status == "promoted"
+    assert promoted.promoted_collection_slug == "andritz-non-wovens-france-excel-pilot"
+    assert promoted.promotion_result["mode"] == "spreadsheet"
+    assert promoted.promotion_result["spreadsheet"]["extension"] == "xlsx"
+    assert promoted.promotion_result["celery_task_id"] == "task-excel"
+    assert collection.status == "queued"
+    assert collection.document_count == 1
+    assert job.status == "queued"
+    assert job.celery_task_id == "task-excel"
+    stored_name = collection.document_names[0]
+    assert stored_name.endswith("GEOTEX-SPL-Y25.05.22-PIL.xlsx")
+    assert (
+        tmp_path
+        / "objects"
+            / collection.artifact_prefix
+            / "original"
+            / stored_name
+        ).read_bytes() == staged_bytes
+
+
+@pytest.mark.asyncio
+async def test_promote_legacy_xls_is_rejected_without_text_fallback(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Legacy Excel",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    staged = tmp_path / "legacy.xls"
+    staged.write_bytes(b"legacy binary")
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="1-NON-WOVENS/FRANCE/legacy.xls",
+        content_type="application/vnd.ms-excel",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await promote_file_to_collection(
+            db_session,
+            deposit_file=row,
+            workspace=workspace,
+            user=user,
+            collection_slug="andritz-non-wovens-france-excel-pilot",
+        )
+
+    db_session.refresh(row)
+    assert exc.value.status_code == 422
+    assert row.status == "received"
+    assert db_session.query(KnowledgeCollection).count() == 0
+
+
 def test_preview_deposit_file_returns_docx_text(db_session, monkeypatch, tmp_path):
     docx = pytest.importorskip("docx")
     monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))

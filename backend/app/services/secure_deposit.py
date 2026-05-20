@@ -70,6 +70,7 @@ _TEXT_EXTENSIONS = {
     "yml",
 }
 _SPREADSHEET_EXTENSIONS = {"xlsx", "xlsm", "xltx", "xltm"}
+_LEGACY_SPREADSHEET_EXTENSIONS = {"xls"}
 _DOCX_EXTENSIONS = {"docx"}
 _DOCX_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
 _DOCX_PREVIEW_MAX_CHARS = 200_000
@@ -947,13 +948,28 @@ async def promote_file_to_collection(
 
     default_collection_slug = f"{workspace.slug}-secure-deposit"
     collection_slug = (collection_slug or default_collection_slug).strip() or default_collection_slug
-    if extension_for(deposit_file.filename or "") == "zip":
+    extension = extension_for(deposit_file.filename or "")
+    if extension == "zip":
         return _promote_archive_file_to_collection(
             db,
             deposit_file=deposit_file,
             workspace=workspace,
             user=user,
             collection_slug=collection_slug,
+        )
+    if extension in _LEGACY_SPREADSHEET_EXTENSIONS:
+        raise HTTPException(
+            status_code=422,
+            detail="Legacy .xls spreadsheets are not supported for Knowledge promotion yet",
+        )
+    if extension in _SPREADSHEET_EXTENSIONS:
+        return _promote_single_worker_file_to_collection(
+            db,
+            deposit_file=deposit_file,
+            workspace=workspace,
+            user=user,
+            collection_slug=collection_slug,
+            mode="spreadsheet",
         )
 
     app_settings = get_resolved_settings(workspace_id=workspace.id)
@@ -990,6 +1006,97 @@ async def promote_file_to_collection(
             "file_id": deposit_file.id,
             "filename": deposit_file.filename,
             "collection_slug": collection_slug,
+            "result": result,
+        },
+    )
+    return deposit_file
+
+
+def _single_document_name(deposit_file: DepositFile) -> str:
+    raw_name = str(deposit_file.filename or "upload").replace("\\", "/")
+    safe_path = safe_relative_path(raw_name)
+    return safe_path.replace("/", "__")
+
+
+def _promote_single_worker_file_to_collection(
+    db: DBSession,
+    *,
+    deposit_file: DepositFile,
+    workspace: Workspace,
+    user: User,
+    collection_slug: str,
+    mode: str,
+) -> DepositFile:
+    source_path = staged_file_path(deposit_file)
+    document_name = _single_document_name(deposit_file)
+    collection = create_or_get_collection(
+        db,
+        workspace=workspace,
+        name=collection_slug,
+        description=f"Secure Deposit {mode} promotion from {deposit_file.filename}",
+        created_by_user_id=user.id,
+        slug=collection_slug,
+    )
+    store = get_object_store()
+    existing_names = list(collection.document_names or [])
+    if document_name not in existing_names:
+        existing_names.append(document_name)
+    store.write_bytes(original_key(collection, document_name), source_path.read_bytes())
+
+    update_collection_status(
+        db,
+        collection.id,
+        status="queued",
+        document_names=existing_names,
+        document_count=len(existing_names),
+    )
+    job = create_worker_job(
+        db,
+        workspace_id=workspace.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    db.commit()
+    db.refresh(job)
+    db.refresh(collection)
+
+    celery_task_id = dispatch_worker_job(db, job)
+    db.commit()
+    db.refresh(job)
+    db.refresh(collection)
+
+    result = {
+        "status": "queued",
+        "mode": mode,
+        "collection_id": collection.id,
+        "collection_slug": collection.slug,
+        "job_id": job.id,
+        "celery_task_id": job.celery_task_id or celery_task_id,
+        mode: {
+            "filename": deposit_file.filename,
+            "document_name": document_name,
+            "extension": extension_for(deposit_file.filename or ""),
+            "size_bytes": deposit_file.size_bytes,
+        },
+    }
+    deposit_file.status = "promoted"
+    deposit_file.promoted_at = datetime.utcnow()
+    deposit_file.promoted_by_user_id = user.id
+    deposit_file.promoted_collection_slug = collection.slug
+    deposit_file.worker_job_id = job.id
+    deposit_file.promotion_result = result
+    db.flush()
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="deposit.file.promoted",
+        actor=user.email or user.username or user.id,
+        details={
+            "file_id": deposit_file.id,
+            "filename": deposit_file.filename,
+            "collection_slug": collection.slug,
+            "worker_job_id": job.id,
+            "mode": mode,
             "result": result,
         },
     )

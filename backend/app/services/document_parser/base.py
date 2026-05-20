@@ -18,6 +18,7 @@ class DocumentType(Enum):
     HTML = "html"
     ODT = "odt"
     CSV = "csv"
+    SPREADSHEET = "spreadsheet"
     XML = "xml"
     TEX = "tex"
     PAGES = "pages"
@@ -79,4 +80,3 @@ class BaseDocumentParser(ABC):
     def _generate_id(self, file_path: str) -> str:
         """Generate unique ID for document"""
         return str(uuid.uuid5(uuid.NAMESPACE_URL, file_path))
-

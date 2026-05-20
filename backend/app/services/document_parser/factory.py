@@ -32,6 +32,10 @@ class DocumentParserFactory:
             except ImportError:
                 logger.debug("Advanced PDF parser not available, using basic parser")
                 parser_class = cls._parsers.get(doc_type)
+        if doc_type == DocumentType.SPREADSHEET:
+            from app.services.document_parser.parsers.spreadsheet_parser import SpreadsheetParser
+
+            return SpreadsheetParser()
         
         if not parser_class:
             # Fallback to text parser
@@ -54,6 +58,11 @@ class DocumentParserFactory:
             '.rtf': DocumentType.RTF,
             '.html': DocumentType.HTML,
             '.htm': DocumentType.HTML,
+            '.xls': DocumentType.SPREADSHEET,
+            '.xlsm': DocumentType.SPREADSHEET,
+            '.xlsx': DocumentType.SPREADSHEET,
+            '.xltm': DocumentType.SPREADSHEET,
+            '.xltx': DocumentType.SPREADSHEET,
             '.odt': DocumentType.ODT,
             '.csv': DocumentType.CSV,
             '.xml': DocumentType.XML,
@@ -84,4 +93,3 @@ class DocumentParserFactory:
             return DocumentType.IMAGE
         
         return type_map.get(ext, DocumentType.UNKNOWN)
-
