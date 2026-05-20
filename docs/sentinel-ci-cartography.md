@@ -51,6 +51,18 @@ Le contrat V3 expose la carte comme un cockpit de situation, pas seulement comme
 
 La Mission Room expose aussi `/api/v1/mission-room/evidence-graph`. Ce graphe relie sources, rumeurs, lieux, projets, agenda, ports et actions. Il alimente le Knowledge Scope `vigie` via la collection `sentinel-ci-evidence-graph`, afin qu'AYA puisse citer et expliquer les relations, pas seulement resumer un texte.
 
+## Chantier Dedie
+
+La cartographie SENTINEL-CI est traitee comme un moteur produit, pas comme un polish CSS. Les corrections de contraste ou de placement ne suffisent pas si les couches ne sont pas solides. Le chantier dedie suit donc cet ordre :
+
+1. `Donnees` : GeoJSON officiels, regions, villes, ports, sources et metadonnees.
+2. `Layer Registry` : statut, fraicheur, compteur, confiance, source, groupe fonctionnel.
+3. `Rendu` : ordre de couches, seuils de zoom, labels, halos, tooltips, clustering.
+4. `Interaction` : toggles effectifs, recherche, time range, focus zone/port, sources et actions.
+5. `AYA` : commandes auditees et reponses courtes qui pilotent la carte sans exposer le provider.
+
+Ce decoupage est la condition pour atteindre un niveau Worldmonitor-like credible : une carte dynamique, lisible, sourcee et explicable, pas une composition graphique decorative.
+
 ## Couches
 
 Chaque couche du panneau `Couches` correspond a un type de source Agentium. Le compteur indique le nombre d'elements visibles et le pourcentage indique la confiance operationnelle estimee.

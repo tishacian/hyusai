@@ -66,7 +66,7 @@ def _audit(
 
 
 @router.get("/overview")
-async def overview(
+def overview(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -77,7 +77,7 @@ async def overview(
 
 
 @router.get("/navigation")
-async def navigation(
+def navigation(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -94,7 +94,7 @@ async def navigation(
 
 
 @router.get("/cockpit")
-async def cockpit(
+def cockpit(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -117,7 +117,7 @@ async def cockpit(
 
 
 @router.get("/briefing")
-async def briefing(
+def briefing(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -134,7 +134,7 @@ async def briefing(
 
 
 @router.get("/timeline")
-async def timeline(
+def timeline(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -156,7 +156,7 @@ async def timeline(
 
 
 @router.get("/projects")
-async def projects(
+def projects(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -173,7 +173,7 @@ async def projects(
 
 
 @router.get("/decisions")
-async def decisions(
+def decisions(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -194,7 +194,7 @@ async def decisions(
 
 
 @router.get("/library")
-async def library(
+def library(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -211,7 +211,7 @@ async def library(
 
 
 @router.get("/search")
-async def search(
+def search(
     q: str = Query("", max_length=200),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
@@ -229,7 +229,7 @@ async def search(
 
 
 @router.get("/map")
-async def strategic_map(
+def strategic_map(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -246,7 +246,7 @@ async def strategic_map(
 
 
 @router.get("/monitor")
-async def situation_monitor(
+def situation_monitor(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -267,7 +267,7 @@ async def situation_monitor(
 
 
 @router.get("/evidence-graph")
-async def evidence_graph(
+def evidence_graph(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -289,7 +289,7 @@ async def evidence_graph(
 
 
 @router.get("/news")
-async def news(
+def news(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -313,7 +313,7 @@ async def news(
 
 
 @router.post("/actions/draft")
-async def draft_action(
+def draft_action(
     body: DraftInstructionRequest,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),

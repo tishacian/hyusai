@@ -22,17 +22,17 @@ router = APIRouter()
 
 
 @router.get("")
-async def health():
+def health():
     return _live_payload()
 
 
 @router.get("/live")
-async def health_live():
+def health_live():
     return _live_payload()
 
 
 @router.get("/ready")
-async def health_ready():
+def health_ready():
     started = time.perf_counter()
     checks: dict[str, Any] = {
         "database": _check_database(),

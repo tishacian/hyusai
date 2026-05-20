@@ -1518,36 +1518,42 @@ def handle_map_chat_query(
     if assistant_profile != "vigie_executive":
         return None
     normalized = (query or "").lower()
-    map_terms = (
+    explicit_map_terms = (
         "carte",
-        "zone",
-        "zones",
-        "nord",
-        "ouest",
-        "centre",
-        "sud",
-        "est",
         "zoom",
         "montre",
         "affiche",
-        "port",
-        "ports",
-        "maritime",
-        "navire",
-        "navires",
-        "douane",
-        "douanes",
-        "abidjan",
-        "san pedro",
-        "san-pedro",
+        "visualise",
+        "focalise",
+        "ouvre",
+        "couche",
+        "couches",
+        "layer",
+        "fond",
+        "basemap",
+        "réinitialise",
+        "reinitialise",
     )
-    if not any(term in normalized for term in map_terms):
+    port_target = _extract_port_target(normalized)
+    explicit_port_map = bool(port_target) and any(
+        term in normalized
+        for term in (
+            "montre",
+            "affiche",
+            "visualise",
+            "carte",
+            "zoom",
+            "focalise",
+            "couche maritime",
+            "couches maritime",
+        )
+    )
+    if not any(term in normalized for term in explicit_map_terms) and not explicit_port_map:
         return None
     intent = "focus_zone"
     basemap = None
     layers = None
     target = _extract_zone_target(normalized)
-    port_target = _extract_port_target(normalized)
     if port_target:
         intent = "focus_port"
         target = port_target

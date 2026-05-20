@@ -22,7 +22,8 @@ WORKDIR /app
 
 COPY --chown=$USERNAME:$USERNAME . .
 
-RUN mkdir -p /data/object_store /data/secure_deposit /app/vector_store \
+RUN chmod +x /app/docker/run_backend.sh \
+    && mkdir -p /data/object_store /data/secure_deposit /app/vector_store \
     && chown -R "$USERNAME":"$USERNAME" /data /app/vector_store
 
 USER $USERNAME
@@ -32,4 +33,4 @@ WORKDIR /app/backend
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+CMD ["/app/docker/run_backend.sh"]

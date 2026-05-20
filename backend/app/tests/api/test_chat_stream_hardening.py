@@ -167,3 +167,76 @@ def test_chat_stream_vigie_signals_uses_fast_mission_room_reply(db_session, monk
     run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
     assert run.trigger == "vigie_quick_brief"
     assert run.output_ref["knowledge_scope"] == "vigie"
+
+
+def test_chat_stream_vigie_cockpit_60s_uses_deterministic_reply(db_session, monkeypatch):
+    workspace = Workspace(id="ws-sentinel-cockpit", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    db_session.add(workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Donne-moi le cockpit 60 secondes",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Lecture 60 secondes" in response.text
+    assert "Zone Nord" in response.text
+    assert "L'Inter" in response.text
+    assert "data: [DONE]" in response.text
+    assert '"chunk_type": "retrieval"' not in response.text
+
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.trigger == "vigie_quick_brief"
+    assert run.output_ref["vigie_quick_reply"]["handler"] == "cockpit_60s"
+
+
+def test_chat_stream_vigie_north_situation_does_not_emit_map_command(db_session, monkeypatch):
+    workspace = Workspace(id="ws-sentinel-north", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    db_session.add(workspace)
+    db_session.commit()
+    ensure_workspace_map_seed(db_session, workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "AYA, quelle est la situation au nord ?",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Zone Nord" in response.text
+    assert "15h00" in response.text
+    assert '"chunk_type": "map_command"' not in response.text
+    assert '"chunk_type": "retrieval"' not in response.text
+    assert "data: [DONE]" in response.text
+
+
+def test_chat_stream_vigie_abidjan_port_has_text_reply_without_map_command(db_session, monkeypatch):
+    workspace = Workspace(id="ws-sentinel-port", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    db_session.add(workspace)
+    db_session.commit()
+    ensure_workspace_map_seed(db_session, workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Quel est le risque portuaire autour d'Abidjan ?",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Port d'Abidjan" in response.text
+    assert '"chunk_type": "map_command"' not in response.text
+    assert '"chunk_type": "retrieval"' not in response.text
+    assert "data: [DONE]" in response.text

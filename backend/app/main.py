@@ -1,6 +1,8 @@
 """FastAPI application entry point"""
 
-from contextlib import asynccontextmanager
+import asyncio
+import time
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import httpx
@@ -16,6 +18,7 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
 from app.core.middleware import error_handler_middleware
+from app.core.monitoring import metrics_collector
 from app.core.settings_manager import get_settings_manager
 from app.db.base import Base, SessionLocal, engine
 from app.seed_knowledge_base import seed_knowledge_base
@@ -24,11 +27,22 @@ setup_logging(settings.log_level)
 logger = get_logger(__name__)
 
 orchestrator = None
+_loop_lag_task = None
+
+
+async def _record_event_loop_lag(interval_seconds: float = 1.0):
+    """Record worker event-loop lag without touching DB or external services."""
+    expected = time.monotonic() + interval_seconds
+    while True:
+        await asyncio.sleep(interval_seconds)
+        now = time.monotonic()
+        metrics_collector.record_event_loop_lag((now - expected) * 1000.0)
+        expected = now + interval_seconds
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global orchestrator
+    global orchestrator, _loop_lag_task
 
     logger.info("Starting application")
 
@@ -102,9 +116,17 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Intelligence scheduler disabled", reason="settings.intelligence_scheduler_enabled=false")
 
+    _loop_lag_task = asyncio.create_task(_record_event_loop_lag())
+
     yield
 
     logger.info("Shutting down application")
+
+    if _loop_lag_task:
+        _loop_lag_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _loop_lag_task
+        _loop_lag_task = None
 
     try:
         from app.services.intelligence.scheduler import stop_scheduler
@@ -140,17 +162,17 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 
 @app.get("/health")
-async def health_check():
+def health_check():
     return {"status": "healthy", "app": settings.app_name, "version": settings.app_version}
 
 
 @app.get("/health/live")
-async def health_live_check():
+def health_live_check():
     return {"status": "healthy", "app": settings.app_name, "version": settings.app_version}
 
 
 @app.get("/health/ready")
-async def health_ready_check():
+def health_ready_check():
     checks = {
         "database": _ready_database_check(),
         "qdrant": _ready_qdrant_check(),

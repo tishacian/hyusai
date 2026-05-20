@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.monitoring import metrics_collector
 from app.core.validation import QueryValidator, ResponseValidator
 from app.core.errors import ValidationError
 from app.core.settings_manager import get_resolved_settings
@@ -37,7 +38,7 @@ from app.services.action_plans import action_context_for_chat, handle_action_pla
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
-from app.services.mission_room import briefing_payload, cockpit_payload, news_payload
+from app.services.mission_room import briefing_payload, cockpit_payload, news_payload, source_index
 logger = get_logger(__name__)
 router = APIRouter()
 query_validator = QueryValidator()
@@ -256,32 +257,163 @@ def _vigie_executive_quick_reply(
     if assistant_profile != "vigie_executive":
         return None
     normalized = query.lower()
-    if not any(
-        term in normalized
-        for term in (
-            "signal",
-            "signaux",
-            "attention cabinet",
-            "alerte",
-            "alertes",
-            "brief",
-            "briefing",
-            "presse",
-            "veille",
-            "priorit",
-            "synthese",
-            "synthèse",
-        )
-    ):
+    trigger_terms = (
+        "60",
+        "soixante",
+        "cockpit",
+        "que dois-je faire",
+        "quoi faire",
+        "priorit",
+        "signal",
+        "signaux",
+        "attention cabinet",
+        "alerte",
+        "alertes",
+        "brief",
+        "briefing",
+        "presse",
+        "veille",
+        "synthese",
+        "synthèse",
+        "nord",
+        "l'inter",
+        "inter",
+        "budget defense",
+        "budget défense",
+        "réponse",
+        "reponse",
+        "langage",
+        "email",
+        "agenda",
+        "ambassadeur",
+        "dejeuner",
+        "déjeuner",
+        "conseil",
+        "port",
+        "abidjan",
+        "maritime",
+        "douane",
+        "douanes",
+    )
+    if not any(term in normalized for term in trigger_terms):
         return None
 
     news = news_payload(workspace, db)
     cockpit = cockpit_payload(workspace, db)
     briefing = briefing_payload(workspace)
+    attention = cockpit.get("attention_required") or []
     alerts = (news.get("executive_alerts") or news.get("signals") or cockpit.get("latest_alerts") or [])[:3]
     note = news.get("briefing_note") or {}
     source_health = news.get("source_health") or {}
-    sources_catalog = news.get("sources") or cockpit.get("sources") or []
+    maritime = news.get("maritime_intelligence") or briefing.get("maritime_intelligence") or {}
+    latest_maritime = maritime.get("latest_observation") or {}
+    sources_catalog = news.get("sources") or cockpit.get("sources") or source_index()
+    source_lookup = {str(item.get("id")): item for item in sources_catalog if item.get("id")}
+
+    def _sources_for(refs: list[str]) -> list[dict[str, Any]]:
+        sources = []
+        for source_id in refs[:6]:
+            source = source_lookup.get(str(source_id)) or {"id": source_id, "label": source_id}
+            sources.append(
+                {
+                    "title": source.get("label") or source_id,
+                    "source_label": source.get("label") or source_id,
+                    "kind": source.get("kind") or "mission_room",
+                    "confidence": source.get("confidence"),
+                }
+            )
+        return sources or [{"title": "Mission Room SENTINEL-CI", "source_label": "Briefing souverain", "kind": "mission_room"}]
+
+    def _attention_by_id(item_id: str) -> dict[str, Any]:
+        return next((item for item in attention if item.get("id") == item_id), {})
+
+    is_cockpit = any(term in normalized for term in ("60", "soixante", "cockpit", "que dois-je faire", "quoi faire", "priorit"))
+    is_north = "nord" in normalized and not any(term in normalized for term in ("carte", "montre", "affiche", "zoom"))
+    is_press_response = any(term in normalized for term in ("l'inter", "inter", "budget defense", "budget défense", "réponse", "reponse", "langage", "email"))
+    is_agenda = any(term in normalized for term in ("agenda", "ambassadeur", "dejeuner", "déjeuner", "conseil", "rendez-vous", "rdv"))
+    is_port = any(term in normalized for term in ("port", "abidjan", "maritime", "douane", "douanes")) and not any(
+        term in normalized for term in ("carte", "montre", "affiche", "zoom", "visualise")
+    )
+
+    if is_cockpit:
+        refs = []
+        for item in attention[:3]:
+            refs.extend(item.get("source_refs") or item.get("sources") or [])
+        lines = [
+            "Lecture 60 secondes :",
+            "1. Zone Nord : arbitrage avant le Conseil de 15h00. C'est la priorité du matin.",
+            "2. Article L'Inter : réponse presse recommandée avant 14h00, brouillon prêt pour validation.",
+            "3. Déjeuner Ambassadeur de France : fiche de préparation prête avant 13h00.",
+            "Action immédiate : ouvrir le dossier Zone Nord, puis valider la réponse communication si le cabinet confirme la ligne.",
+        ]
+        return {
+            "content": "\n".join(lines),
+            "sources": _sources_for(list(dict.fromkeys(refs)) or ["src-cabinet-brief-001", "src-press-ci-local-001", "src-agenda-jour-015"]),
+            "details": {"handler": "cockpit_60s", "scenario": "vp_decision_cockpit"},
+        }
+
+    if is_north:
+        north = _attention_by_id("attention-zone-nord")
+        lines = [
+            "Zone Nord — niveau critique depuis ce matin 06h14.",
+            "Le Général Konaté signale des mouvements à 40 kilomètres de la frontière Burkina. Deux options sont ouvertes : renforcement préventif ou coordination CEDEAO.",
+            "AYA recommande une coordination CEDEAO avec présence institutionnelle sobre, avec arbitrage avant 15h00.",
+        ]
+        return {
+            "content": "\n".join(lines),
+            "sources": _sources_for((north.get("source_refs") or []) + ["src-cabinet-brief-001", "src-press-cedeao-001"]),
+            "details": {"handler": "north_situation", "deadline": "15:00", "advisory_only": True},
+        }
+
+    if is_press_response:
+        press = _attention_by_id("attention-inter-budget")
+        lines = [
+            "Réponse presse recommandée avant 14h00.",
+            "Objet : clarification sur le budget défense et la continuité des priorités nationales.",
+            "Projet : rappeler la maîtrise budgétaire, la transparence des arbitrages et l'absence de rupture dans les engagements de sécurité et de service public.",
+            "Statut : brouillon uniquement, validation humaine requise avant tout envoi.",
+        ]
+        return {
+            "content": "\n".join(lines),
+            "sources": _sources_for(press.get("source_refs") or ["src-press-ci-local-001"]),
+            "details": {"handler": "press_response", "deadline": "14:00", "draft_only": True},
+        }
+
+    if is_agenda:
+        agenda_day = cockpit.get("agenda_day") or {}
+        items = agenda_day.get("items") or cockpit.get("agenda") or []
+        agenda_lines = []
+        for item in items[:4]:
+            time_value = item.get("time") or item.get("start_time") or item.get("starts_at") or "horaire à confirmer"
+            title = item.get("title") or item.get("summary") or "Événement"
+            location = item.get("location") or item.get("place") or ""
+            agenda_lines.append(f"- {time_value} · {title}" + (f" · {location}" if location else ""))
+        lines = [
+            "Agenda du jour :",
+            *(agenda_lines or ["- 08:30 · Conseil Défense restreint", "- 11:00 · Point presse hebdomadaire", "- 13:00 · Déjeuner Ambassadeur de France"]),
+            "Fenêtre utile : 10:00-10:45 pour cadrer la réponse presse et préparer l'arbitrage Zone Nord.",
+        ]
+        return {
+            "content": "\n".join(lines),
+            "sources": _sources_for(["src-agenda-jour-015", "src-cabinet-brief-001"]),
+            "details": {"handler": "agenda_summary", "calendar_used": bool(items)},
+        }
+
+    if is_port:
+        summary = latest_maritime.get("summary") or "Le port d'Abidjan reste sous vigilance contextualisée : flux portuaires, douanes et presse économique doivent être recoupés avant communication."
+        action = latest_maritime.get("recommended_action") or "Demander confirmation Port + Douanes avant prise de parole économique."
+        deadline = latest_maritime.get("decision_deadline") or "12:00"
+        lines = [
+            "Port d'Abidjan — vigilance maritime et douanière.",
+            summary,
+            f"Action recommandée : {action}",
+            f"Échéance de qualification : {deadline}.",
+        ]
+        return {
+            "content": "\n".join(lines),
+            "sources": _sources_for(["src-maritime-paa-001", "src-maritime-marinelink-001", "src-marinetraffic-context-001"]),
+            "details": {"handler": "abidjan_port", "deadline": deadline, "advisory_only": True},
+        }
 
     lines = ["Voici les signaux qui méritent une attention cabinet aujourd'hui :"]
     if alerts:
@@ -310,7 +442,6 @@ def _vigie_executive_quick_reply(
     source_ids = []
     for alert in alerts:
         source_ids.extend([str(item) for item in (alert.get("sources") or [])])
-    source_lookup = {str(item.get("id")): item for item in sources_catalog if item.get("id")}
     sources = [
         {
             "title": source_lookup.get(source_id, {}).get("label") or source_id,
@@ -559,6 +690,43 @@ async def chat_completion(
                 "sources": map_action.get("sources") or [{"title": "Carte strategique", "kind": "workspace_map"}],
                 "status": "completed",
                 "map_action": map_action,
+            }
+
+        vigie_reply = _vigie_executive_quick_reply(
+            db,
+            workspace,
+            validated_query,
+            assistant_profile=request.assistant_profile,
+        )
+        if vigie_reply:
+            content = vigie_reply["content"]
+            sources = vigie_reply.get("sources") or []
+            run_completed_at = datetime.utcnow()
+            run_id = _persist_chat_run(
+                db,
+                workspace_id=workspace.id,
+                system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                query=validated_query,
+                response_text=content,
+                sources=sources,
+                reasoning_trace=None,
+                started_at=run_completed_at,
+                completed_at=run_completed_at,
+                duration_ms=0.0,
+                trigger="vigie_quick_brief",
+                extra_output={
+                    "assistant_profile": request.assistant_profile,
+                    "knowledge_scope": request.knowledge_scope,
+                    "vigie_quick_reply": vigie_reply.get("details") or {},
+                },
+            )
+            db.commit()
+            return {
+                "run_id": run_id,
+                "content": content,
+                "sources": sources,
+                "status": "completed",
+                "vigie_quick_reply": vigie_reply.get("details") or {},
             }
 
         orchestrator = get_orchestrator()
@@ -1296,6 +1464,7 @@ async def chat_stream(
                             pipeline_start_time = _time.time()
                         yield _sse_data(chunk)
             except TimeoutError as exc:
+                metrics_collector.record_timeout("/api/v1/chat/stream", "chat_stream")
                 stream_error = _error_chunk(
                     "CHAT_STREAM_TIMEOUT",
                     f"Chat stream exceeded {settings.chat_stream_timeout_seconds:.0f}s",

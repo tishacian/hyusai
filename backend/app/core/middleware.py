@@ -9,11 +9,14 @@ from app.core.monitoring import metrics_collector
 import time
 
 logger = get_logger(__name__)
+SLOW_REQUEST_MS = 2500.0
 
 
 async def error_handler_middleware(request: Request, call_next):
     """Global error handler middleware"""
     start_time = time.time()
+    path = request.url.path
+    metrics_collector.start_request(path)
     
     try:
         response = await call_next(request)
@@ -23,13 +26,21 @@ async def error_handler_middleware(request: Request, call_next):
         duration_ms = duration * 1000
         
         # Record metrics
-        metrics_collector.record_latency(request.url.path, duration_ms)
-        metrics_collector.record_request(request.url.path, response.status_code)
+        metrics_collector.record_latency(path, duration_ms)
+        metrics_collector.record_request(path, response.status_code)
+        if duration_ms >= SLOW_REQUEST_MS:
+            logger.warning(
+                "Slow request completed",
+                method=request.method,
+                path=path,
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+            )
         
         logger.info(
             "Request completed",
             method=request.method,
-            path=request.url.path,
+            path=path,
             status_code=response.status_code,
             duration_ms=duration_ms
         )
@@ -41,9 +52,16 @@ async def error_handler_middleware(request: Request, call_next):
         duration_ms = duration * 1000
         
         # Record error metrics
+        metrics_collector.record_latency(path, duration_ms)
         metrics_collector.record_error(e.category.value)
-        metrics_collector.record_request(request.url.path, status.HTTP_500_INTERNAL_SERVER_ERROR)
         
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        if e.category == ErrorCategory.VALIDATION:
+            status_code = status.HTTP_400_BAD_REQUEST
+        elif e.category == ErrorCategory.MODEL_UNAVAILABLE:
+            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        metrics_collector.record_request(path, status_code)
+
         logger.error(
             "Application error",
             error_type=type(e).__name__,
@@ -51,14 +69,9 @@ async def error_handler_middleware(request: Request, call_next):
             category=e.category.value,
             recoverable=e.recoverable,
             details=e.details,
-            duration_ms=duration_ms
+            duration_ms=duration_ms,
+            status_code=status_code,
         )
-        
-        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        if e.category == ErrorCategory.VALIDATION:
-            status_code = status.HTTP_400_BAD_REQUEST
-        elif e.category == ErrorCategory.MODEL_UNAVAILABLE:
-            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         
         return JSONResponse(
             status_code=status_code,
@@ -74,10 +87,14 @@ async def error_handler_middleware(request: Request, call_next):
     
     except RequestValidationError as e:
         duration = time.time() - start_time
+        duration_ms = duration * 1000
+        metrics_collector.record_latency(path, duration_ms)
+        metrics_collector.record_error("validation_error")
+        metrics_collector.record_request(path, status.HTTP_422_UNPROCESSABLE_ENTITY)
         logger.warning(
             "Validation error",
             errors=e.errors(),
-            duration_ms=duration * 1000
+            duration_ms=duration_ms
         )
         
         return JSONResponse(
@@ -93,11 +110,15 @@ async def error_handler_middleware(request: Request, call_next):
     
     except StarletteHTTPException as e:
         duration = time.time() - start_time
+        duration_ms = duration * 1000
+        metrics_collector.record_latency(path, duration_ms)
+        metrics_collector.record_error("http_error")
+        metrics_collector.record_request(path, e.status_code)
         logger.warning(
             "HTTP exception",
             status_code=e.status_code,
             detail=e.detail,
-            duration_ms=duration * 1000
+            duration_ms=duration_ms
         )
         
         return JSONResponse(
@@ -112,11 +133,15 @@ async def error_handler_middleware(request: Request, call_next):
     
     except Exception as e:
         duration = time.time() - start_time
+        duration_ms = duration * 1000
+        metrics_collector.record_latency(path, duration_ms)
+        metrics_collector.record_error(type(e).__name__)
+        metrics_collector.record_request(path, status.HTTP_500_INTERNAL_SERVER_ERROR)
         logger.exception(
             "Unhandled exception",
             error_type=type(e).__name__,
             error=str(e),
-            duration_ms=duration * 1000
+            duration_ms=duration_ms
         )
         
         return JSONResponse(
@@ -129,4 +154,5 @@ async def error_handler_middleware(request: Request, call_next):
                 }
             }
         )
-
+    finally:
+        metrics_collector.finish_request(path)

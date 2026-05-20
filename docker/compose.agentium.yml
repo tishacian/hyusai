@@ -77,12 +77,15 @@ services:
       - "127.0.0.1:${AGENTIUM_BACKEND_HOST_PORT:-8001}:8000"
     env_file:
       - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
+    environment:
+      AGENTIUM_BACKEND_WORKERS: ${AGENTIUM_BACKEND_WORKERS:-3}
+      AGENTIUM_BACKEND_TIMEOUT_KEEP_ALIVE: ${AGENTIUM_BACKEND_TIMEOUT_KEEP_ALIVE:-5}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
       - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
       - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import http.client; c=http.client.HTTPConnection(\"127.0.0.1\",8000,timeout=5); c.request(\"GET\",\"/health\"); raise SystemExit(0 if c.getresponse().status == 200 else 1)'"]
+      test: ["CMD-SHELL", "python -c 'import http.client; c=http.client.HTTPConnection(\"127.0.0.1\",8000,timeout=5); c.request(\"GET\",\"/health/live\"); raise SystemExit(0 if c.getresponse().status == 200 else 1)'"]
       interval: 10s
       timeout: 5s
       retries: 6
