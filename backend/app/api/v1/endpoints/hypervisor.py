@@ -33,6 +33,7 @@ from app.services.evaluation.feedback_service import (
     record_feedback,
     serialize_feedback,
 )
+from app.services.catalog_visibility import visible_capabilities, workspace_catalog_policy
 from app.services.recommendations.proactive_service import (
     generate_proactive_recommendations,
 )
@@ -54,6 +55,8 @@ async def balance_sheet(
         .order_by(Capability.tier, Capability.name)
         .all()
     )
+    policy = workspace_catalog_policy(workspace)
+    caps = visible_capabilities(caps, workspace, policy)
     capability_rows = []
     for c in caps:
         agg = _aggregate(db, workspace.id, capability_id=c.id, period=period)

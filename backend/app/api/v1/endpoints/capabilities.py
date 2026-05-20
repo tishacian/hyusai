@@ -15,6 +15,12 @@ from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.capability import Capability
 from app.models.workspace import Workspace
+from app.services.catalog_visibility import (
+    capability_is_visible,
+    visibility_label,
+    visible_capabilities,
+    workspace_catalog_policy,
+)
 
 router = APIRouter()
 
@@ -48,7 +54,8 @@ class CapabilityUpdate(BaseModel):
     roi_model: Optional[Dict[str, Any]] = None
 
 
-def _serialize(c: Capability) -> Dict[str, Any]:
+def _serialize(c: Capability, workspace: Workspace | None = None) -> Dict[str, Any]:
+    policy = workspace_catalog_policy(workspace) if workspace else None
     return {
         "id": c.id,
         "slug": c.slug,
@@ -65,20 +72,30 @@ def _serialize(c: Capability) -> Dict[str, Any]:
         "sla": c.sla or {},
         "roi_model": c.roi_model or {},
         "is_seeded": c.is_seeded == "Y",
+        "workspace_scope": "global" if c.workspace_id is None else "workspace",
+        "workspace_visibility": visibility_label(c, workspace, policy) if workspace else None,
     }
 
 
 @router.get("/catalog")
 async def get_catalog(
     tier: Optional[str] = None,
+    workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    """Universal seed catalog (workspace_id IS NULL). Visible to all workspaces."""
+    """Seed catalog rows visible to the current workspace."""
     q = db.query(Capability).filter(Capability.workspace_id.is_(None), Capability.is_seeded == "Y")
     if tier:
         q = q.filter(Capability.tier == tier)
-    rows = q.order_by(Capability.name.asc()).all()
-    return {"capabilities": [_serialize(c) for c in rows]}
+    policy = workspace_catalog_policy(workspace)
+    rows = visible_capabilities(q.order_by(Capability.name.asc()).all(), workspace, policy)
+    return {
+        "capabilities": [_serialize(c, workspace) for c in rows],
+        "catalog_policy": {
+            "allowed_industries": sorted(policy.allowed_industries),
+            "show_universal": policy.show_universal,
+        },
+    }
 
 
 @router.get("")
@@ -92,8 +109,15 @@ async def list_capabilities(
     )
     if tier:
         q = q.filter(Capability.tier == tier)
-    rows = q.order_by(Capability.tier.asc(), Capability.name.asc()).all()
-    return {"capabilities": [_serialize(c) for c in rows]}
+    policy = workspace_catalog_policy(workspace)
+    rows = visible_capabilities(q.order_by(Capability.tier.asc(), Capability.name.asc()).all(), workspace, policy)
+    return {
+        "capabilities": [_serialize(c, workspace) for c in rows],
+        "catalog_policy": {
+            "allowed_industries": sorted(policy.allowed_industries),
+            "show_universal": policy.show_universal,
+        },
+    }
 
 
 @router.post("")
@@ -108,7 +132,7 @@ async def create_capability(
     db.add(c)
     db.commit()
     db.refresh(c)
-    return _serialize(c)
+    return _serialize(c, workspace)
 
 
 @router.get("/{cap_id}")
@@ -123,7 +147,9 @@ async def get_capability(
     ).first()
     if not c:
         raise HTTPException(404, "Capability not found")
-    return _serialize(c)
+    if not capability_is_visible(c, workspace):
+        raise HTTPException(404, "Capability not found")
+    return _serialize(c, workspace)
 
 
 @router.patch("/{cap_id}")
@@ -142,4 +168,4 @@ async def update_capability(
         setattr(c, k, v)
     db.commit()
     db.refresh(c)
-    return _serialize(c)
+    return _serialize(c, workspace)

@@ -17,6 +17,7 @@ from app.models.capability import Capability
 from app.models.run import Run
 from app.models.system import System
 from app.models.workspace import Workspace
+from app.services.catalog_visibility import visible_capabilities, workspace_catalog_policy
 
 router = APIRouter()
 
@@ -96,6 +97,8 @@ async def by_capability(
         .filter((Capability.workspace_id == workspace.id) | (Capability.workspace_id.is_(None)))
         .all()
     )
+    policy = workspace_catalog_policy(workspace)
+    caps = visible_capabilities(caps, workspace, policy)
     rows = []
     for c in caps:
         agg = _aggregate(db, workspace.id, capability_id=c.id, period=period)
