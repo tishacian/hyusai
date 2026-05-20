@@ -81,6 +81,10 @@ interface SuggestionCard {
   icon: string;
   label: string;
   prompt: string;
+  scope_key?: string;
+  knowledge_scope?: string;
+  source_key?: string;
+  context_mode?: SessionDocsMode | 'any';
 }
 
 interface AssistantProfile {
@@ -94,6 +98,7 @@ interface AssistantProfile {
   tone?: string;
   prompt_pack?: SuggestionCard[];
   hidden_controls?: string[];
+  chat?: WorkspaceChatConfig;
 }
 
 interface KnowledgeScopeOption {
@@ -106,6 +111,16 @@ interface KnowledgeScopeOption {
 
 type SourceSelection = 'auto' | 'workspace_default' | string;
 type SessionDocsMode = 'replace' | 'combine';
+
+interface WorkspaceChatConfig {
+  title?: string;
+  subtitle?: string;
+  placeholder?: string;
+  prompt_pack?: SuggestionCard[];
+  prompt_pack_by_scope?: Record<string, SuggestionCard[]>;
+  session_doc_prompt_pack?: SuggestionCard[];
+  use_assistant_profile_prompt_pack?: boolean;
+}
 
 function isSentinelShowcaseProfile(profile: AssistantProfile | null): boolean {
   if (!profile) return false;
@@ -1548,6 +1563,15 @@ export class ChatPanelComponent {
 
   readonly executiveMode = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
   readonly assistantLabel = computed(() => this.activeAssistantProfile()?.label || 'Agentium');
+  readonly workspaceChatConfig = computed<WorkspaceChatConfig>(() => {
+    const settings = this.workspace.current()?.settings;
+    const workspaceConfig = settings?.['chat'];
+    const profileConfig = this.activeAssistantProfile()?.chat;
+    return {
+      ...(this.isRecord(workspaceConfig) ? workspaceConfig : {}),
+      ...(this.isRecord(profileConfig) ? profileConfig : {}),
+    } as WorkspaceChatConfig;
+  });
   readonly selectedSource = signal<SourceSelection>('auto');
   readonly sessionDocsMode = signal<SessionDocsMode>('replace');
   readonly knowledgeScopeOptions = computed<KnowledgeScopeOption[]>(() => {
@@ -1598,37 +1622,54 @@ export class ChatPanelComponent {
   });
 
   readonly activeSuggestions = computed<SuggestionCard[]>(() => {
-    const pack = this.activeAssistantProfile()?.prompt_pack;
-    return Array.isArray(pack) && pack.length > 0 ? pack : this.suggestions;
+    if (this.executiveMode()) {
+      const pack = this.sanitizePromptPack(this.activeAssistantProfile()?.prompt_pack);
+      if (pack.length) return pack;
+    }
+    const configured = this.configuredPromptPack();
+    if (configured.length) return configured;
+    if (this.contextId()) return this.sessionDocSuggestions();
+    if (this.activeKnowledgeScope()) return this.knowledgeSourceSuggestions();
+    return this.workspaceSuggestions();
   });
 
   readonly emptyTitle = computed(() => {
+    const configured = this.workspaceChatConfig().title;
+    if (configured) return configured;
     if (this.executiveMode()) return `Interroger ${this.assistantLabel()}`;
     if (this.activeAssistantProfile()) return `Ask ${this.assistantLabel()}`;
     return 'Start a conversation';
   });
-  readonly emptySubtitle = computed(() =>
-    this.executiveMode()
-      ? 'Posez une question sur les signaux, projets, sources et décisions attendues.'
-      : this.contextId() && this.sessionDocsMode() === 'replace'
-        ? 'Ask a question grounded only in the documents uploaded for this session.'
-      : this.contextId() && this.sessionDocsMode() === 'combine'
-        ? 'Ask a question grounded in session documents plus the selected Knowledge source.'
-      : this.activeKnowledgeScope()
-        ? 'Ask a question grounded in the selected workspace knowledge scope.'
-        : 'Try one of these prompts or ask anything about your corpus.',
-  );
-  readonly inputPlaceholder = computed(() =>
-    this.executiveMode()
-      ? `Interroger ${this.assistantLabel()} sur les sources du workspace...`
-      : this.contextId() && this.sessionDocsMode() === 'replace'
-        ? 'Ask about the uploaded session documents...'
-      : this.contextId() && this.sessionDocsMode() === 'combine'
-        ? 'Ask across uploaded documents and the selected Knowledge source...'
-      : this.activeKnowledgeScope()
-        ? `Ask ${this.assistantLabel()} about the selected knowledge scope...`
-        : 'Ask anything… (Shift+Enter for newline)',
-  );
+  readonly emptySubtitle = computed(() => {
+    const configured = this.workspaceChatConfig().subtitle;
+    if (configured) return configured;
+    if (this.executiveMode()) return 'Posez une question sur les signaux, projets, sources et décisions attendues.';
+    if (this.contextId() && this.sessionDocsMode() === 'replace') {
+      return 'Ask a sourced question grounded only in the documents uploaded for this session.';
+    }
+    if (this.contextId() && this.sessionDocsMode() === 'combine') {
+      return `Ask a sourced question across session documents and ${this.scopeLabel(this.activeKnowledgeScope())}.`;
+    }
+    if (this.activeKnowledgeScope()) {
+      return `Ask a sourced question using ${this.scopeLabel(this.activeKnowledgeScope())}.`;
+    }
+    return 'Ask a workspace question, or choose a Knowledge source before sending.';
+  });
+  readonly inputPlaceholder = computed(() => {
+    const configured = this.workspaceChatConfig().placeholder;
+    if (configured) return configured;
+    if (this.executiveMode()) return `Interroger ${this.assistantLabel()} sur les sources du workspace...`;
+    if (this.contextId() && this.sessionDocsMode() === 'replace') {
+      return 'Ask about the uploaded session documents...';
+    }
+    if (this.contextId() && this.sessionDocsMode() === 'combine') {
+      return `Ask across session documents and ${this.scopeLabel(this.activeKnowledgeScope())}...`;
+    }
+    if (this.activeKnowledgeScope()) {
+      return `Ask a sourced question using ${this.scopeLabel(this.activeKnowledgeScope())}...`;
+    }
+    return 'Ask a workspace question…';
+  });
   readonly sendLabel = computed(() => this.executiveMode() ? 'Interroger' : 'Send');
 
   readonly ragModeHint = computed(() => {
@@ -1763,29 +1804,6 @@ export class ChatPanelComponent {
    */
   readonly ttsSpeaking = signal(false);
   readonly ttsPaused = signal(false);
-
-  readonly suggestions: SuggestionCard[] = [
-    {
-      icon: 'file-search',
-      label: 'Summarize corpus',
-      prompt: 'Summarize the most important findings across my indexed documents.',
-    },
-    {
-      icon: 'compass',
-      label: 'Explore entities',
-      prompt: 'What are the key people, organizations and topics mentioned recently?',
-    },
-    {
-      icon: 'binary',
-      label: 'Cite sources',
-      prompt: 'Answer with exact quotes and cite the source documents you used.',
-    },
-    {
-      icon: 'shield-check',
-      label: 'Policy check',
-      prompt: 'Is there any compliance risk in my recent knowledge base updates?',
-    },
-  ];
 
   private initialPromptApplied = false;
 
@@ -2257,6 +2275,150 @@ export class ChatPanelComponent {
   useSuggestion(s: SuggestionCard): void {
     this.userInput = s.prompt;
     this.send();
+  }
+
+  private configuredPromptPack(): SuggestionCard[] {
+    const config = this.workspaceChatConfig();
+    const activeScope = this.activeKnowledgeScope();
+    const byScope = this.isRecord(config.prompt_pack_by_scope) && activeScope
+      ? this.sanitizePromptPack(config.prompt_pack_by_scope[activeScope])
+      : [];
+    if (byScope.length) return byScope;
+
+    if (this.contextId()) {
+      const sessionPack = this.sanitizePromptPack(config.session_doc_prompt_pack);
+      if (sessionPack.length) return sessionPack;
+    }
+
+    const workspacePack = this.sanitizePromptPack(config.prompt_pack);
+    if (workspacePack.length) return this.filterPromptPack(workspacePack);
+
+    if (config.use_assistant_profile_prompt_pack === true) {
+      return this.filterPromptPack(this.sanitizePromptPack(this.activeAssistantProfile()?.prompt_pack));
+    }
+
+    return [];
+  }
+
+  private filterPromptPack(pack: SuggestionCard[]): SuggestionCard[] {
+    const activeScope = this.activeKnowledgeScope();
+    const docsMode = this.contextId() ? this.sessionDocsMode() : null;
+    return pack.filter((card) => {
+      const cardScope = card.scope_key || card.knowledge_scope || card.source_key;
+      if (cardScope && cardScope !== activeScope) return false;
+      if (card.context_mode && card.context_mode !== 'any' && card.context_mode !== docsMode) return false;
+      return true;
+    });
+  }
+
+  private sanitizePromptPack(value: unknown): SuggestionCard[] {
+    if (!Array.isArray(value)) return [];
+    return value
+      .flatMap((item): SuggestionCard[] => {
+        if (!this.isRecord(item)) return [];
+        const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
+        const prompt = typeof item['prompt'] === 'string' ? item['prompt'].trim() : '';
+        if (!label || !prompt) return [];
+        const contextMode = item['context_mode'];
+        const card: SuggestionCard = {
+          icon: typeof item['icon'] === 'string' && item['icon'].trim() ? item['icon'].trim() : 'sparkles',
+          label,
+          prompt,
+        };
+        if (typeof item['scope_key'] === 'string') card.scope_key = item['scope_key'];
+        if (typeof item['knowledge_scope'] === 'string') card.knowledge_scope = item['knowledge_scope'];
+        if (typeof item['source_key'] === 'string') card.source_key = item['source_key'];
+        if (contextMode === 'replace' || contextMode === 'combine' || contextMode === 'any') {
+          card.context_mode = contextMode;
+        }
+        return [card];
+      });
+  }
+
+  private workspaceSuggestions(): SuggestionCard[] {
+    return [
+      {
+        icon: 'file-search',
+        label: 'Find evidence',
+        prompt: 'Find the most relevant workspace sources for this question and cite the documents used.',
+      },
+      {
+        icon: 'binary',
+        label: 'Answer with sources',
+        prompt: 'Answer using only indexed workspace knowledge, then list the exact sources that support the answer.',
+      },
+      {
+        icon: 'compass',
+        label: 'Compare sources',
+        prompt: 'Compare the available sources on this topic and highlight any mismatch or missing evidence.',
+      },
+      {
+        icon: 'shield-check',
+        label: 'Check confidence',
+        prompt: 'State what is confirmed by the sources, what is uncertain, and what should be verified next.',
+      },
+    ];
+  }
+
+  private knowledgeSourceSuggestions(): SuggestionCard[] {
+    const sourceLabel = this.scopeLabel(this.activeKnowledgeScope());
+    return [
+      {
+        icon: 'file-search',
+        label: 'Find a value',
+        prompt: `In ${sourceLabel}, find the value of a business parameter and cite the file, page/sheet, and row or section used.`,
+      },
+      {
+        icon: 'binary',
+        label: 'Cited answer',
+        prompt: `Answer using ${sourceLabel} only, with citations for every factual claim.`,
+      },
+      {
+        icon: 'layers',
+        label: 'Locate the table',
+        prompt: `Find the table or section in ${sourceLabel} that defines a parameter, then explain how to read it.`,
+      },
+      {
+        icon: 'shield-check',
+        label: 'Evidence gap',
+        prompt: `Check whether ${sourceLabel} contains enough evidence to answer the question, and say what is missing if it does not.`,
+      },
+    ];
+  }
+
+  private sessionDocSuggestions(): SuggestionCard[] {
+    const mode = this.sessionDocsMode();
+    const sourceLabel = this.scopeLabel(this.activeKnowledgeScope());
+    return [
+      {
+        icon: 'file-search',
+        label: 'Summarize upload',
+        prompt: mode === 'combine'
+          ? `Summarize the uploaded documents and compare them with ${sourceLabel}, citing both when used.`
+          : 'Summarize the uploaded documents and cite the exact file names used.',
+      },
+      {
+        icon: 'binary',
+        label: 'Extract facts',
+        prompt: 'Extract the key facts from the uploaded documents and include source references for each fact.',
+      },
+      {
+        icon: 'compass',
+        label: 'Find mismatch',
+        prompt: mode === 'combine'
+          ? `Identify any mismatch between the uploaded documents and ${sourceLabel}.`
+          : 'Identify contradictions, missing values, or uncertainty inside the uploaded documents.',
+      },
+      {
+        icon: 'shield-check',
+        label: 'Ready for Knowledge',
+        prompt: 'Assess whether the uploaded documents contain reviewable knowledge that should be promoted or captured.',
+      },
+    ];
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
   scopeLabel(scopeKey: string | null | undefined): string {
