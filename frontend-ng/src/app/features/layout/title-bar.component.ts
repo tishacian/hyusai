@@ -235,6 +235,28 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
               </button>
             }
             <div class="ck-hairline-h" [style.margin]="'6px 4px'"></div>
+            @if (workspaceService.current(); as cur) {
+              <button
+                type="button"
+                (click)="navigate(['/workspace', cur.slug, 'settings'])"
+                [style.display]="'flex'"
+                [style.alignItems]="'center'"
+                [style.gap.px]="6"
+                [style.width]="'100%'"
+                [style.padding]="'6px 8px'"
+                [style.background]="'transparent'"
+                [style.border]="'none'"
+                [style.color]="'var(--ck-fg-2)'"
+                [style.fontSize.px]="11"
+                [style.cursor]="'pointer'"
+                [style.textAlign]="'left'"
+              >
+                <ck-glyph name="sliders" [size]="12" />
+                <span class="ck-mono" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">
+                  Workspace settings
+                </span>
+              </button>
+            }
             @if (!showCreateForm()) {
               <button
                 type="button"
@@ -338,9 +360,6 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
             <button type="button" (click)="navigate('/account/profile')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('account.profile') }}</button>
             <button type="button" (click)="navigate('/account/security')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('account.security') }}</button>
             <button type="button" (click)="navigate('/settings')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('nav.settings') }}</button>
-            @if (workspaceService.current(); as cur) {
-              <button type="button" (click)="navigate(['/workspace', cur.slug, 'settings'])" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('titlebar.workspace') }} · {{ i18n.t('nav.settings') }}</button>
-            }
             <div class="ck-hairline-h" [style.margin]="'4px 4px'"></div>
             <!-- Locale switcher (Vague D / D3). Live swap, no reload. -->
             <div [style.padding]="'6px 8px 4px'">

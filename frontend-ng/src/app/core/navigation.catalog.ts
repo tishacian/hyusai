@@ -428,6 +428,7 @@ export type CockpitSectionKey =
   | 'contexts'
   | 'review'
   | 'audit'
+  | 'workspace'
   | 'apps'
   | 'resources'
   | 'connectors'
@@ -515,6 +516,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     matches: ['/governance', '/apps', '/resources', '/connectors', '/presets', '/settings', '/workspace', '/account'],
     sections: [
       { key: 'audit', label: 'Governance', glyph: 'shield', route: '/governance', scopeType: 'system' },
+      { key: 'workspace', label: 'Workspace settings', glyph: 'sliders', route: '/workspace', scopeType: 'system' },
       { key: 'apps', label: 'Apps', glyph: 'bolt', route: '/apps', scopeType: 'app' },
       { key: 'resources', label: 'Resources', glyph: 'orbit', route: '/resources', scopeType: 'system' },
       { key: 'connectors', label: 'Connectors', glyph: 'layers', route: '/connectors', matches: ['/connectors'], scopeType: 'connector' },
