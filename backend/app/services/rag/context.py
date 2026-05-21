@@ -17,6 +17,8 @@ from typing import Any
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
+from app.db.base import SessionLocal
+from app.services.knowledge_guides import effective_guides, guide_context_entries, guide_query_hint
 from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
 from app.services.rag.mode_selector import resolve_retrieval_mode
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
@@ -170,8 +172,52 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         "knowledge_scope": scope.get("key"),
         "scope_label": scope.get("label"),
         "vector_db": vector_db_type,
+        "workspace_id": request.get("workspace_id"),
         "workspace_slug": request.get("workspace_slug"),
     }
+
+
+def _effective_guides_for_profile(profile: dict[str, Any]) -> list[Any]:
+    workspace_id = profile.get("workspace_id")
+    if not workspace_id:
+        return []
+    db = SessionLocal()
+    try:
+        return effective_guides(
+            db,
+            workspace_id=str(workspace_id),
+            scope_key=profile.get("knowledge_scope"),
+            collection_slugs=list(profile.get("collections") or []),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rag_context: failed to load knowledge guides", error=str(exc))
+        return []
+    finally:
+        db.close()
+
+
+def _query_with_guide_hints(query: str, guides: list[Any]) -> str:
+    hint = guide_query_hint(guides)
+    if not hint:
+        return query
+    return f"{query}\n\nKnowledge guide hints:\n{hint}"
+
+
+def _prepend_guide_context(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    guides: list[Any],
+) -> tuple[list[str], list[float], list[dict[str, Any]], int]:
+    guide_chunks, guide_scores, guide_metas = guide_context_entries(guides)
+    if not guide_chunks:
+        return chunks, scores, metadatas, 0
+    return (
+        guide_chunks + chunks,
+        guide_scores + scores,
+        guide_metas + metadatas,
+        len(guide_chunks),
+    )
 
 
 def build_document_service(request: dict[str, Any]):
@@ -312,6 +358,8 @@ async def retrieve_rag_context(
     started = time.time()
     profile = get_retrieval_profile(request)
     query = profile["query"]
+    guides = _effective_guides_for_profile(profile)
+    retrieval_query = _query_with_guide_hints(query, guides)
     collections = profile.get("collections") or [profile["collection"]]
     metrics: dict[str, Any] = {
         "duration_ms": 0,
@@ -325,6 +373,8 @@ async def retrieve_rag_context(
         "top_k": profile["top_k"],
         "fallback": bool(fallback_reason),
         "fallback_reason": fallback_reason,
+        "knowledge_guides": len(guides),
+        "query_expanded_with_guides": bool(guides),
     }
 
     if len(collections) > 1 and doc_svc is None:
@@ -334,6 +384,8 @@ async def retrieve_rag_context(
             started=started,
             metrics=metrics,
             fallback_reason=fallback_reason,
+            guides=guides,
+            retrieval_query=retrieval_query,
         )
 
     try:
@@ -348,10 +400,13 @@ async def retrieve_rag_context(
                 "fallback_reason": fallback_reason or "document_service_unavailable",
             }
         )
+        guide_chunks, guide_scores, guide_metas = guide_context_entries(guides)
+        metrics["chunks_retrieved"] = len(guide_chunks)
+        metrics["no_context"] = len(guide_chunks) == 0
         return {
-            "chunks": [],
-            "scores": [],
-            "metadatas": [],
+            "chunks": guide_chunks,
+            "scores": guide_scores,
+            "metadatas": guide_metas,
             "pipeline": "fallback_hybrid",
             "label": "none",
             "reason": "DocumentService unavailable",
@@ -360,6 +415,7 @@ async def retrieve_rag_context(
             "mode_reason": "DocumentService unavailable",
             "use_hybrid": True,
             "query": query,
+            "retrieval_query": retrieval_query,
             "metrics": _jsonable(metrics),
             "collections_touched": [],
             "collection_errors": [{"collection": profile["collection"], "error": str(exc)}],
@@ -367,12 +423,12 @@ async def retrieve_rag_context(
 
     use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
         doc_svc,
-        query,
+        retrieval_query,
         profile["rag_mode"],
     )
     result = await retrieve_for_mode(
         doc_svc,
-        query,
+        retrieval_query,
         profile["rag_mode"],
         top_k=profile["top_k"],
         use_hybrid=use_hybrid,
@@ -392,12 +448,21 @@ async def retrieve_rag_context(
         result.scores,
         metadatas,
     )
+    document_chunk_count = len(chunks)
+    chunks, scores, metadatas, guide_count = _prepend_guide_context(
+        chunks,
+        scores,
+        metadatas,
+        guides,
+    )
     metrics.update(
         {
             "duration_ms": duration_ms,
             "chunks_retrieved": len(chunks),
+            "document_chunks_retrieved": document_chunk_count,
             "raw_chunks_retrieved": raw_chunk_count,
             "duplicates_removed": duplicates_removed,
+            "knowledge_guides": guide_count,
             "pipeline": result.pipeline,
             "mode_label": mode_label,
             "no_context": len(chunks) == 0,
@@ -417,6 +482,7 @@ async def retrieve_rag_context(
             "use_hybrid": use_hybrid,
             "top_k": profile["top_k"],
             "query": query,
+            "retrieval_query": retrieval_query,
             "collection": profile["collection"],
             "collections": collections,
             "knowledge_scope": profile.get("knowledge_scope"),
@@ -481,6 +547,8 @@ async def _retrieve_multi_collection_context(
     started: float,
     metrics: dict[str, Any],
     fallback_reason: str | None,
+    guides: list[Any],
+    retrieval_query: str,
 ) -> dict[str, Any]:
     query = profile["query"]
     collection_results: list[dict[str, Any]] = []
@@ -491,12 +559,12 @@ async def _retrieve_multi_collection_context(
             doc_svc = _document_service_for_profile(profile, collection)
             use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
                 doc_svc,
-                query,
+                retrieval_query,
                 profile["rag_mode"],
             )
             result = await retrieve_for_mode(
                 doc_svc,
-                query,
+                retrieval_query,
                 profile["rag_mode"],
                 top_k=profile["top_k"],
                 use_hybrid=use_hybrid,
@@ -540,14 +608,23 @@ async def _retrieve_multi_collection_context(
         scores,
         metadatas,
     )
+    document_chunk_count = len(chunks)
+    chunks, scores, metadatas, guide_count = _prepend_guide_context(
+        chunks,
+        scores,
+        metadatas,
+        guides,
+    )
     duration_ms = int((time.time() - started) * 1000)
     touched = [item["collection"] for item in collection_results]
     metrics.update(
         {
             "duration_ms": duration_ms,
             "chunks_retrieved": len(chunks),
+            "document_chunks_retrieved": document_chunk_count,
             "raw_chunks_retrieved": raw_chunk_count,
             "duplicates_removed": duplicates_removed,
+            "knowledge_guides": guide_count,
             "pipeline": f"multi_{profile['rag_mode'] or 'auto'}",
             "mode_label": "multi_collection",
             "no_context": len(chunks) == 0,
@@ -571,6 +648,7 @@ async def _retrieve_multi_collection_context(
             "use_hybrid": True,
             "top_k": profile["top_k"],
             "query": query,
+            "retrieval_query": retrieval_query,
             "collection": profile["collection"],
             "collections": profile.get("collections") or [],
             "knowledge_scope": profile.get("knowledge_scope"),

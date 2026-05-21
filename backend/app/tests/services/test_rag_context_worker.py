@@ -141,6 +141,18 @@ class FakeSpreadsheetProtocolFirstService:
         ][:top_k]
 
 
+class FakeEmptyRecordingService:
+    def __init__(self):
+        self.queries: list[str] = []
+
+    async def get_document_count(self) -> int:
+        return 1
+
+    async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid=None):  # noqa: ARG002
+        self.queries.append(query)
+        return []
+
+
 async def test_retrieve_rag_context_returns_serialisable_contract():
     result = await retrieve_rag_context(
         {
@@ -162,6 +174,37 @@ async def test_retrieve_rag_context_returns_serialisable_contract():
     assert result["metrics"]["vector_db"] == "faiss"
     assert result["collections_touched"] == ["documents"]
     assert result["collection_errors"] == []
+
+
+async def test_retrieve_rag_context_uses_published_guides_as_hint_and_source(monkeypatch):
+    guide = SimpleNamespace(
+        title="Excel data dictionary",
+        markdown="Column A contains labels. Column B contains numeric values. Def strips maps B to 85.",
+        guide_key="guide-1",
+        version=2,
+        target_type="scope",
+        target_ref="excel_pilot",
+    )
+    monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _profile: [guide])
+    doc_svc = FakeEmptyRecordingService()
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Quel est le diamètre B ?",
+            "rag_pipeline_mode": "naive",
+            "top_k": 3,
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+            "knowledge_scope": "excel_pilot",
+        },
+        doc_svc=doc_svc,
+    )
+
+    assert any("Knowledge guide hints" in query for query in doc_svc.queries)
+    assert result["chunks"][0].startswith("Knowledge guide: Excel data dictionary")
+    assert result["metadatas"][0]["source_type"] == "knowledge_guide"
+    assert result["metadatas"][0]["guide_version"] == 2
+    assert result["metrics"]["knowledge_guides"] == 1
 
 
 async def test_retrieve_rag_context_dedupes_repeated_spreadsheet_boilerplate():

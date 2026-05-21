@@ -461,6 +461,9 @@ class OmniRAGAgent(BaseAgent):
         # otherwise). This helps the LLM attribute quotes back to the right
         # source and lets follow-up questions reference by name.
         def _display_title(meta: dict[str, Any]) -> str:
+            title = (meta.get("title") or "").strip()
+            if title:
+                return title
             title = (meta.get("document_title") or "").strip()
             if title:
                 return title
@@ -474,6 +477,8 @@ class OmniRAGAgent(BaseAgent):
                 title = _display_title(meta)
                 page = meta.get("page")
                 header = f"[{idx + 1}] {title}"
+                if meta.get("source_type") == "knowledge_guide":
+                    header = f"{header} (Knowledge guide v{meta.get('guide_version') or 1})"
                 if page is not None:
                     header = f"{header} (p. {page})"
                 context_blocks.append(f"{header}\n{chunk}")
@@ -553,13 +558,20 @@ Answer the user's question using the context above. Cite sources by their
         sources: list[dict[str, Any]] = []
         for i, c in enumerate(filtered_chunks[:5]):
             meta = filtered_metadatas[i] if i < len(filtered_metadatas) else {}
+            source_type = str(meta.get("source_type") or meta.get("type") or "document")
             source_entry: dict[str, Any] = {
                 "id": f"chunk-{i}",
-                "type": "document",
+                "type": source_type,
                 "title": _display_title(meta),
                 "snippet": c[:200],
                 "relevance_score": filtered_scores[i] if i < len(filtered_scores) else 0.0,
             }
+            guide_key = meta.get("guide_key")
+            if guide_key:
+                source_entry["guide_key"] = guide_key
+                source_entry["guide_version"] = meta.get("guide_version")
+                source_entry["target_type"] = meta.get("target_type")
+                source_entry["target_ref"] = meta.get("target_ref")
             document_id = meta.get("document_id")
             if document_id:
                 source_entry["document_id"] = document_id

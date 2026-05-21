@@ -3,14 +3,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.knowledge_collection import KnowledgeCollection
+from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.knowledge_guides import (
+    create_guide,
+    effective_guides,
+    list_guides,
+    serialize_guide,
+    update_guide,
+)
 from app.services.rag.knowledge_scopes import (
     normalize_knowledge_scopes,
     sanitize_scope,
@@ -31,6 +39,22 @@ class KnowledgeScopePayload(BaseModel):
 
 class KnowledgeScopesPatch(BaseModel):
     scopes: list[KnowledgeScopePayload]
+
+
+class KnowledgeGuideCreate(BaseModel):
+    target_type: str = Field(..., description="collection or scope")
+    target_ref: str = Field(..., description="Collection slug or Knowledge Scope key")
+    title: str
+    markdown: str
+    status: str = "draft"
+
+
+class KnowledgeGuidePatch(BaseModel):
+    target_type: str | None = None
+    target_ref: str | None = None
+    title: str | None = None
+    markdown: str | None = None
+    status: str | None = None
 
 
 def _collection_stats(db: Session, workspace_id: str) -> dict[str, dict[str, Any]]:
@@ -89,6 +113,88 @@ def list_knowledge_scopes(
     return _serialize_scopes(workspace=workspace, db=db)
 
 
+@router.get("/guides")
+def list_knowledge_guides(
+    target_type: str | None = Query(default=None),
+    target_ref: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    current_only: bool = Query(default=True),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    guides = list_guides(
+        db,
+        workspace,
+        target_type=target_type,
+        target_ref=target_ref,
+        status=status,
+        current_only=current_only,
+    )
+    return {
+        "workspace_id": workspace.id,
+        "workspace_slug": workspace.slug,
+        "items": [serialize_guide(guide) for guide in guides],
+    }
+
+
+@router.get("/guides/effective")
+def list_effective_knowledge_guides(
+    knowledge_scope: str | None = Query(default=None),
+    collection_slug: list[str] | None = Query(default=None),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    guides = effective_guides(
+        db,
+        workspace_id=workspace.id,
+        scope_key=knowledge_scope,
+        collection_slugs=collection_slug or [],
+    )
+    return {
+        "workspace_id": workspace.id,
+        "workspace_slug": workspace.slug,
+        "items": [serialize_guide(guide) for guide in guides],
+    }
+
+
+@router.post("/guides")
+def create_knowledge_guide(
+    payload: KnowledgeGuideCreate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    guide = create_guide(
+        db,
+        workspace,
+        target_type=payload.target_type,
+        target_ref=payload.target_ref,
+        title=payload.title,
+        markdown=payload.markdown,
+        status=payload.status,
+        user=user,
+    )
+    return serialize_guide(guide)
+
+
+@router.patch("/guides/{guide_key}")
+def patch_knowledge_guide(
+    guide_key: str,
+    payload: KnowledgeGuidePatch,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    guide = update_guide(
+        db,
+        workspace,
+        guide_key,
+        patch=payload.model_dump(exclude_unset=True),
+        user=user,
+    )
+    return serialize_guide(guide)
+
+
 @router.patch("/scopes")
 def patch_knowledge_scopes(
     payload: KnowledgeScopesPatch,
@@ -111,4 +217,3 @@ def patch_knowledge_scopes(
     db.commit()
     db.refresh(workspace)
     return _serialize_scopes(workspace=workspace, db=db)
-

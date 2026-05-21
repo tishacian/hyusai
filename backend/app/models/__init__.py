@@ -15,6 +15,7 @@ from app.models.sharepoint_sync_job import SharePointSyncJob
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.expert_capture import ExpertCaptureEvent, ExpertCaptureSession, KnowledgeUpdateProposal
 from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.knowledge_guide import KnowledgeGuide
 from app.models.calendar import WorkspaceCalendarEvent
 from app.models.action_plan import WorkspaceActionItem
 from app.models.workspace_job import WorkspaceJob
@@ -43,6 +44,7 @@ __all__ = [
     "SharePointSyncJob", "ExpertCaptureSession", "KnowledgeUpdateProposal",
     "DepositAccessLink", "DepositFile",
     "KnowledgeCollection", "WorkerJob",
+    "KnowledgeGuide",
     "WorkspaceCalendarEvent", "WorkspaceActionItem", "WorkspaceJob",
     "WorkspaceMap", "WorkspaceMapLayer", "WorkspaceMapZone", "WorkspaceMapSignal", "WorkspaceMapScore",
     "WorkspaceVisualSource", "WorkspaceVisualCapture", "WorkspaceVisualObservation",

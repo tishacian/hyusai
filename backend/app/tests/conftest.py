@@ -72,6 +72,7 @@ def db_session():
         "workspace_visual_captures",
         "workspace_visual_sources",
         "worker_jobs",
+        "knowledge_guides",
         "knowledge_collections",
         "workspace_map_scores",
         "workspace_map_signals",
