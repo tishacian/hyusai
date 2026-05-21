@@ -75,7 +75,14 @@ _DOCX_EXTENSIONS = {"docx"}
 _DOCX_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
 _DOCX_PREVIEW_MAX_CHARS = 200_000
 _ARCHIVE_PROMOTION_EXTENSIONS = {"csv", "html", "htm", "md", "pdf", "txt"}
-_BULK_SPREADSHEET_PROMOTION_MAX_FILES = 50
+_WORKER_PROMOTION_EXTENSIONS = (
+    _ARCHIVE_PROMOTION_EXTENSIONS
+    | _SPREADSHEET_EXTENSIONS
+    | _TEXT_EXTENSIONS
+    | {"log", "markdown", "rst"}
+)
+_BULK_PROMOTION_MAX_FILES = 50
+_BULK_PROMOTION_MAX_DOCUMENTS = 200
 
 
 def enabled_workspace_slugs() -> set[str]:
@@ -1104,7 +1111,7 @@ def _promote_single_worker_file_to_collection(
     return deposit_file
 
 
-def promote_spreadsheet_files_to_collection(
+def promote_files_to_collection_batch(
     db: DBSession,
     *,
     deposit_files: list[DepositFile],
@@ -1112,62 +1119,112 @@ def promote_spreadsheet_files_to_collection(
     user: User,
     collection_slug: str,
 ) -> dict[str, Any]:
-    """Promote several modern spreadsheet deposit files with one worker job.
+    """Promote several Knowledge-supported deposit files with one worker job.
 
-    A single ``document_ingest_index`` job is important here: the worker indexes
-    the full collection snapshot, so dispatching one job per file would re-ingest
-    the same growing collection repeatedly.
+    Qdrant itself supports incremental upserts. The single-job constraint comes
+    from Agentium's current canonical worker: ``document_ingest_index`` reloads
+    ``collection.document_names`` and ingests that full collection snapshot.
+    Dispatching one job per deposit file would therefore re-ingest the same
+    growing collection repeatedly.
     """
-    if len(deposit_files) > _BULK_SPREADSHEET_PROMOTION_MAX_FILES:
+    if len(deposit_files) > _BULK_PROMOTION_MAX_FILES:
         raise HTTPException(
             status_code=422,
-            detail=f"Bulk spreadsheet promotion is limited to {_BULK_SPREADSHEET_PROMOTION_MAX_FILES} files",
+            detail=f"Bulk promotion is limited to {_BULK_PROMOTION_MAX_FILES} files",
         )
 
     default_collection_slug = f"{workspace.slug}-secure-deposit"
     collection_slug = (collection_slug or default_collection_slug).strip() or default_collection_slug
-    selected: list[tuple[DepositFile, str, str]] = []
+    selected: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
     seen_ids: set[str] = set()
+    document_total = 0
 
     for deposit_file in deposit_files:
         if deposit_file.id in seen_ids:
             continue
         seen_ids.add(deposit_file.id)
         reason = ""
+        extension = extension_for(deposit_file.filename or "")
+        source_path: Path | None = None
         if deposit_file.workspace_id != workspace.id:
             reason = "wrong_workspace"
         elif deposit_file.status != "received":
             reason = f"status_{deposit_file.status}"
         else:
-            extension = extension_for(deposit_file.filename or "")
+            source_path = staged_file_path(deposit_file)
             if extension in _LEGACY_SPREADSHEET_EXTENSIONS:
                 reason = "legacy_xls_unsupported"
-            elif extension not in _SPREADSHEET_EXTENSIONS:
-                reason = "not_modern_spreadsheet"
+            elif extension != "zip" and extension not in _WORKER_PROMOTION_EXTENSIONS:
+                reason = "unsupported_for_knowledge_bulk"
             else:
-                source_path = staged_file_path(deposit_file)
                 if not source_path.exists():
                     reason = "staged_file_missing"
                 elif (deposit_file.size_bytes or 0) <= 0:
                     reason = "empty_file"
-                elif not zipfile.is_zipfile(source_path):
+                elif extension in _SPREADSHEET_EXTENSIONS and not zipfile.is_zipfile(source_path):
                     reason = "invalid_office_spreadsheet"
 
         if reason:
             skipped.append({"file_id": deposit_file.id, "filename": deposit_file.filename or "", "reason": reason})
             continue
 
-        selected.append((deposit_file, _single_document_name(deposit_file), extension_for(deposit_file.filename or "")))
+        if source_path is None:
+            source_path = staged_file_path(deposit_file)
+
+        if extension == "zip":
+            try:
+                archive_documents = _read_supported_archive_documents(source_path)
+            except HTTPException as exc:
+                skipped.append(
+                    {
+                        "file_id": deposit_file.id,
+                        "filename": deposit_file.filename or "",
+                        "reason": f"archive_{exc.detail}",
+                    }
+                )
+                continue
+            document_total += len(archive_documents)
+            selected.append(
+                {
+                    "deposit_file": deposit_file,
+                    "mode": "archive",
+                    "extension": extension,
+                    "documents": archive_documents,
+                }
+            )
+        else:
+            document_total += 1
+            selected.append(
+                {
+                    "deposit_file": deposit_file,
+                    "mode": "document",
+                    "extension": extension,
+                    "documents": [
+                        {
+                            "filename": _single_document_name(deposit_file),
+                            "extension": extension,
+                            "size_bytes": int(deposit_file.size_bytes or 0),
+                            "source_path": source_path,
+                        }
+                    ],
+                }
+            )
+
+        if document_total > _BULK_PROMOTION_MAX_DOCUMENTS:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Bulk promotion is limited to {_BULK_PROMOTION_MAX_DOCUMENTS} extracted documents",
+            )
 
     if not selected:
-        raise HTTPException(status_code=422, detail={"message": "No promotable modern spreadsheets found", "skipped": skipped})
+        raise HTTPException(status_code=422, detail={"message": "No promotable Knowledge documents found", "skipped": skipped})
 
     collection = create_or_get_collection(
         db,
         workspace=workspace,
         name=collection_slug,
-        description=f"Secure Deposit spreadsheet bulk promotion ({len(selected)} files)",
+        description=f"Secure Deposit bulk promotion ({len(selected)} files)",
         created_by_user_id=user.id,
         slug=collection_slug,
     )
@@ -1176,19 +1233,34 @@ def promote_spreadsheet_files_to_collection(
     document_name_set = set(document_names)
 
     promoted_payload: list[dict[str, Any]] = []
-    for deposit_file, document_name, extension in selected:
-        source_path = staged_file_path(deposit_file)
-        store.write_bytes(original_key(collection, document_name), source_path.read_bytes())
-        if document_name not in document_name_set:
-            document_names.append(document_name)
-            document_name_set.add(document_name)
+    for item in selected:
+        deposit_file: DepositFile = item["deposit_file"]
+        item_documents: list[dict[str, Any]] = []
+        for document in item["documents"]:
+            document_name = str(document["filename"])
+            if "content" in document:
+                store.write_bytes(original_key(collection, document_name), document["content"])
+            else:
+                store.write_bytes(original_key(collection, document_name), Path(document["source_path"]).read_bytes())
+            if document_name not in document_name_set:
+                document_names.append(document_name)
+                document_name_set.add(document_name)
+            item_documents.append(
+                {
+                    "document_name": document_name,
+                    "archive_path": document.get("archive_path"),
+                    "extension": document.get("extension") or item["extension"],
+                    "size_bytes": int(document.get("size_bytes") or deposit_file.size_bytes or 0),
+                }
+            )
         promoted_payload.append(
             {
                 "file_id": deposit_file.id,
                 "filename": deposit_file.filename,
-                "document_name": document_name,
-                "extension": extension,
+                "mode": item["mode"],
+                "extension": item["extension"],
                 "size_bytes": deposit_file.size_bytes,
+                "documents": item_documents,
             }
         )
 
@@ -1216,25 +1288,23 @@ def promote_spreadsheet_files_to_collection(
 
     result = {
         "status": "queued",
-        "mode": "spreadsheet_bulk",
+        "mode": "document_bulk",
         "collection_id": collection.id,
         "collection_slug": collection.slug,
         "job_id": job.id,
         "celery_task_id": job.celery_task_id or celery_task_id,
         "promoted_count": len(selected),
+        "document_count": document_total,
         "skipped": skipped,
-        "spreadsheets": promoted_payload,
+        "files": promoted_payload,
     }
 
-    for deposit_file, document_name, extension in selected:
+    for item in selected:
+        deposit_file: DepositFile = item["deposit_file"]
+        file_payload = next((payload for payload in promoted_payload if payload["file_id"] == deposit_file.id), {})
         file_result = {
             **result,
-            "spreadsheet": {
-                "filename": deposit_file.filename,
-                "document_name": document_name,
-                "extension": extension,
-                "size_bytes": deposit_file.size_bytes,
-            },
+            "file": file_payload,
         }
         deposit_file.status = "promoted"
         deposit_file.promoted_at = datetime.utcnow()
@@ -1252,7 +1322,7 @@ def promote_spreadsheet_files_to_collection(
                 "filename": deposit_file.filename,
                 "collection_slug": collection.slug,
                 "worker_job_id": job.id,
-                "mode": "spreadsheet_bulk",
+                "mode": "document_bulk",
                 "result": file_result,
             },
         )
@@ -1266,6 +1336,7 @@ def promote_spreadsheet_files_to_collection(
             "collection_slug": collection.slug,
             "worker_job_id": job.id,
             "promoted_count": len(selected),
+            "document_count": document_total,
             "skipped_count": len(skipped),
         },
     )
@@ -1273,10 +1344,28 @@ def promote_spreadsheet_files_to_collection(
     return {
         "collection": collection,
         "job": job,
-        "promoted_files": [row for row, _, _ in selected],
+        "promoted_files": [item["deposit_file"] for item in selected],
         "skipped": skipped,
         "result": result,
     }
+
+
+def promote_spreadsheet_files_to_collection(
+    db: DBSession,
+    *,
+    deposit_files: list[DepositFile],
+    workspace: Workspace,
+    user: User,
+    collection_slug: str,
+) -> dict[str, Any]:
+    """Backward-compatible wrapper for older callers/tests."""
+    return promote_files_to_collection_batch(
+        db,
+        deposit_files=deposit_files,
+        workspace=workspace,
+        user=user,
+        collection_slug=collection_slug,
+    )
 
 
 def _promote_archive_file_to_collection(

@@ -25,8 +25,8 @@ from app.services.secure_deposit import (
     default_allowed_extensions,
     get_link_by_access_id,
     is_workspace_enabled,
+    promote_files_to_collection_batch,
     promote_file_to_collection,
-    promote_spreadsheet_files_to_collection,
     preview_deposit_file,
     receive_file,
     revoke_link,
@@ -539,7 +539,7 @@ def promote_deposit_files_bulk(
     if missing:
         raise HTTPException(status_code=404, detail={"message": "Some deposit files were not found", "file_ids": missing})
 
-    payload = promote_spreadsheet_files_to_collection(
+    payload = promote_files_to_collection_batch(
         db,
         deposit_files=[rows_by_id[file_id] for file_id in file_ids],
         workspace=workspace,

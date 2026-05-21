@@ -136,7 +136,7 @@ def test_promote_deposit_spreadsheet_returns_queued_worker_payload(db_session, m
     assert body["promotion_result"]["celery_task_id"] == "task-excel"
 
 
-def test_bulk_promote_spreadsheets_uses_one_worker_job(db_session, monkeypatch, tmp_path):
+def test_bulk_promote_supported_documents_uses_one_worker_job(db_session, monkeypatch, tmp_path):
     openpyxl = pytest.importorskip("openpyxl")
     monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
     monkeypatch.setattr(settings, "object_store_backend", "local")
@@ -151,7 +151,7 @@ def test_bulk_promote_spreadsheets_uses_one_worker_job(db_session, monkeypatch, 
         db_session,
         workspace=workspace,
         user=user,
-        label="Excel upload",
+        label="Knowledge upload",
         expires_at=None,
         max_file_size_mb=30 * 1024,
         allowed_extensions=[],
@@ -175,8 +175,22 @@ def test_bulk_promote_spreadsheets_uses_one_worker_job(db_session, monkeypatch, 
                 content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 actor=f"sftp:{link.access_id}",
                 transport="sftp",
-            )
         )
+    )
+
+    pdf = tmp_path / "manual.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n% sample")
+    rows.append(
+        record_staged_file_from_path(
+            db_session,
+            link=link,
+            source_path=pdf,
+            filename="1-NON-WOVENS/FRANCE/GEOTEX/manual.pdf",
+            content_type="application/pdf",
+            actor=f"sftp:{link.access_id}",
+            transport="sftp",
+        )
+    )
 
     legacy = tmp_path / "legacy.xls"
     legacy.write_bytes(b"legacy")
@@ -207,8 +221,8 @@ def test_bulk_promote_spreadsheets_uses_one_worker_job(db_session, monkeypatch, 
     db_session.commit()
 
     def fake_dispatch(db, job):
-        job.celery_task_id = "task-excel-bulk"
-        return "task-excel-bulk"
+        job.celery_task_id = "task-document-bulk"
+        return "task-document-bulk"
 
     monkeypatch.setattr("app.services.secure_deposit.dispatch_worker_job", fake_dispatch)
 
@@ -222,10 +236,12 @@ def test_bulk_promote_spreadsheets_uses_one_worker_job(db_session, monkeypatch, 
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body["files"]) == 2
+    assert len(body["files"]) == 3
     skipped_reasons = {item["reason"] for item in body["skipped"]}
     assert skipped_reasons == {"legacy_xls_unsupported", "invalid_office_spreadsheet"}
-    assert body["result"]["mode"] == "spreadsheet_bulk"
-    assert body["result"]["promoted_count"] == 2
-    assert body["result"]["celery_task_id"] == "task-excel-bulk"
+    assert body["result"]["mode"] == "document_bulk"
+    assert body["result"]["promoted_count"] == 3
+    assert body["result"]["document_count"] == 3
+    assert body["result"]["celery_task_id"] == "task-document-bulk"
+    assert {item["extension"] for item in body["result"]["files"]} == {"xlsx", "pdf"}
     assert len({file["worker_job_id"] for file in body["files"]}) == 1

@@ -274,11 +274,11 @@ const BULK_PROMOTE_LIMIT = 25;
                 type="button"
                 class="inline-flex w-full items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40 sm:w-auto"
                 [disabled]="bulkEligibleFiles().length === 0 || bulkPromoting() || saving()"
-                (click)="promoteExcelBatch()"
-                title="Promote up to 25 received modern Excel files from the current folder or search view."
+                (click)="promoteBatch()"
+                title="Promote up to 25 received Knowledge-supported files from the current folder or search view."
               >
                 <app-icon name="archive-restore" [size]="13" />
-                {{ bulkPromoting() ? 'Promoting batch' : 'Promote Excel batch' }}
+                {{ bulkPromoting() ? 'Promoting batch' : 'Promote batch' }}
                 @if (bulkEligibleFiles().length > 0) {
                   <span class="rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[10px]">{{ bulkEligibleFiles().length }}</span>
                 }
@@ -622,7 +622,7 @@ export class SftpConnectorComponent implements OnInit {
       .map((item) => item.file)
       .filter((file): file is DepositFile => {
         if (!file) return false;
-        return file.status === 'received' && this.isModernSpreadsheet(file);
+        return file.status === 'received' && this.isKnowledgePromotable(file);
       })
       .slice(0, BULK_PROMOTE_LIMIT),
   );
@@ -755,15 +755,15 @@ export class SftpConnectorComponent implements OnInit {
       });
   }
 
-  promoteExcelBatch(): void {
+  promoteBatch(): void {
     const files = this.bulkEligibleFiles();
     if (!files.length) {
-      this.toast.info('No received modern Excel files in the current view.', 'Secure Deposit');
+      this.toast.info('No received Knowledge-supported files in the current view.', 'Secure Deposit');
       return;
     }
     const collection = this.collectionSlug || this.defaultCollectionSlug();
     const accepted = window.confirm(
-      `Promote ${files.length} Excel files from the current view to "${collection}"?\n\nA single Knowledge worker job will index the batch. Legacy .xls files are excluded.`,
+      `Promote ${files.length} Knowledge-supported files from the current view to "${collection}"?\n\nA single Knowledge worker job will index the batch. Unsupported files such as legacy .xls remain in staging.`,
     );
     if (!accepted) return;
 
@@ -779,12 +779,12 @@ export class SftpConnectorComponent implements OnInit {
       .subscribe({
         next: (res) => {
           const skipped = res.skipped?.length ? `, ${res.skipped.length} skipped` : '';
-          this.toast.success(`${res.files?.length || files.length} Excel files queued${skipped}`, 'Secure Deposit');
+          this.toast.success(`${res.files?.length || files.length} files queued${skipped}`, 'Secure Deposit');
           this.bulkPromoting.set(false);
           this.load();
         },
         error: (err) => {
-          this.toast.error(this.errorMessage(err, 'Unable to promote Excel batch'), 'Secure Deposit');
+          this.toast.error(this.errorMessage(err, 'Unable to promote batch'), 'Secure Deposit');
           this.bulkPromoting.set(false);
         },
       });
@@ -1127,8 +1127,27 @@ export class SftpConnectorComponent implements OnInit {
     return (file.filename || 'upload').replace(/\\/g, '/').split('/').filter(Boolean).join('/');
   }
 
-  private isModernSpreadsheet(file: DepositFile): boolean {
-    return ['xlsx', 'xlsm', 'xltx', 'xltm'].includes(this.extension(file.filename));
+  private isKnowledgePromotable(file: DepositFile): boolean {
+    return [
+      'csv',
+      'html',
+      'htm',
+      'json',
+      'log',
+      'markdown',
+      'md',
+      'pdf',
+      'rst',
+      'txt',
+      'xml',
+      'xlsx',
+      'xlsm',
+      'xltm',
+      'xltx',
+      'yaml',
+      'yml',
+      'zip',
+    ].includes(this.extension(file.filename));
   }
 
   private extension(path: string): string {
