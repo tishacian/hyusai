@@ -86,8 +86,14 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     class FakeDocumentService:
         def __init__(self, *args, **kwargs):
             self.vector_db = object()
+            self.cleared = False
+
+        async def clear_all_documents(self):
+            self.cleared = True
+            return True
 
         async def ingest_documents_batch(self, paths):
+            assert self.cleared is True
             return {
                 "total": len(paths),
                 "successful": len(paths),

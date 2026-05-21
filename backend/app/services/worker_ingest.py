@@ -100,6 +100,10 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             vector_db_type=db_type,
             workspace_slug=workspace.slug,
         )
+        # Worker jobs ingest the full collection snapshot. Clear stale vectors
+        # first so a reindex cannot accumulate duplicate chunks with fresh temp
+        # file-derived IDs.
+        await doc_service.clear_all_documents()
         ingest_result = await doc_service.ingest_documents_batch(local_paths)
         chunk_count = await doc_service.get_document_count()
         documents = await doc_service.list_documents()
