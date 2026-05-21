@@ -112,6 +112,35 @@ class FakeSpreadsheetLabelService:
         ][:top_k]
 
 
+class FakeSpreadsheetProtocolFirstService:
+    async def get_document_count(self) -> int:
+        return 26
+
+    async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid=None):  # noqa: ARG002
+        return [
+            {
+                "content": (
+                    "Spreadsheet sheet: Protocole essais Row 1: A1=Customer | B1=GEOTEX "
+                    "Row 4: A4=trials N° | J4=3B | K4=3C Row 100: A100=I51 | B100=Strip"
+                ),
+                "score": 0.98,
+                "metadata": {"document_id": "protocol", "document_filename": "GEOTEX-SPL-Y25.05.22-PIL.xlsx"},
+            },
+            {
+                "content": (
+                    "Spreadsheet sheet: Def strips Row 1: A1=A | B1=80 | A = 80 "
+                    "Row 2: A2=B | B2=85 | B = 85 Row 3: A3=C | B3=90 | C = 90"
+                ),
+                "score": 0.84,
+                "metadata": {
+                    "document_id": "def-strips",
+                    "document_filename": "GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+                    "sheet_name": "Def strips",
+                },
+            },
+        ][:top_k]
+
+
 async def test_retrieve_rag_context_returns_serialisable_contract():
     result = await retrieve_rag_context(
         {
@@ -172,6 +201,21 @@ async def test_retrieve_rag_context_expands_spreadsheet_label_queries():
     assert any("B =" in query for query in doc_svc.queries)
     assert any("B = 85" in chunk for chunk in result["chunks"])
     assert result["pipeline"] == "chah_backend"
+
+
+async def test_retrieve_rag_context_prioritises_exact_spreadsheet_label_value():
+    result = await retrieve_rag_context(
+        {
+            "query": "dans les non tissés quel est le diamètre B ?",
+            "rag_pipeline_mode": "chah",
+            "top_k": 2,
+            "workspace_slug": "andritz",
+        },
+        doc_svc=FakeSpreadsheetProtocolFirstService(),
+    )
+
+    assert "Spreadsheet sheet: Def strips" in result["chunks"][0]
+    assert "B = 85" in result["chunks"][0]
 
 
 async def test_retrieve_rag_context_exposes_multi_collection_metadata(monkeypatch):

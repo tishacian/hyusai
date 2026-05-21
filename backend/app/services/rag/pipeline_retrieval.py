@@ -253,6 +253,25 @@ def _spreadsheet_label_query_variants(question: str) -> list[str]:
     if not question or not _SPREADSHEET_LABEL_TRIGGERS_RE.search(question):
         return []
 
+    labels = _spreadsheet_label_targets(question)
+
+    variants: list[str] = []
+    for label in labels[:4]:
+        variants.extend(
+            [
+                f"Spreadsheet sheet Def strips {label} =",
+                f"Def strips label {label} value {label} =",
+                f"Row A={label} B= value strip diameter label {label}",
+                f"A2={label} B2 {label} =",
+            ]
+        )
+    return variants
+
+
+def _spreadsheet_label_targets(question: str) -> list[str]:
+    if not question or not _SPREADSHEET_LABEL_TRIGGERS_RE.search(question):
+        return []
+
     labels: list[str] = []
     for match in _SPREADSHEET_LABEL_RE.finditer(question):
         label = match.group(1).upper()
@@ -266,18 +285,50 @@ def _spreadsheet_label_query_variants(question: str) -> list[str]:
         label = match.group(1).upper()
         if label not in labels:
             labels.append(label)
+    return labels
 
-    variants: list[str] = []
-    for label in labels[:4]:
-        variants.extend(
-            [
-                f"Spreadsheet sheet Def strips {label} =",
-                f"Def strips label {label} value {label} =",
-                f"Row A={label} B= value strip diameter label {label}",
-                f"A2={label} B2 {label} =",
-            ]
-        )
-    return variants
+
+def _spreadsheet_label_match_score(content: str, labels: list[str]) -> int:
+    """Prioritise exact label→value table hits after broad spreadsheet retrieval.
+
+    Dense/BM25 retrieval can prefer large protocol sheets because they contain
+    many business terms. For a query such as "diamètre B", a small definition
+    table containing ``B = 85`` is more useful than broad context. This is a
+    lightweight lexical rerank, not an Andritz-specific value rule.
+    """
+    if not labels:
+        return 0
+    text = str(content or "")
+    if "spreadsheet sheet:" not in text.lower():
+        return 0
+
+    score = 0
+    for label in labels:
+        if re.search(rf"\b{re.escape(label)}\s*=\s*[-+]?\d", text):
+            score += 8
+        if re.search(rf"\b[A-Z]+\d+\s*=\s*{re.escape(label)}\b", text) and re.search(
+            r"\b[A-Z]+\d+\s*=\s*[-+]?\d",
+            text,
+        ):
+            score += 3
+    if re.search(r"\bdef\s+strips?\b", text, re.IGNORECASE):
+        score += 4
+    return score
+
+
+def _prioritise_spreadsheet_label_matches(
+    results: list[dict[str, Any]],
+    question: str,
+) -> list[dict[str, Any]]:
+    labels = _spreadsheet_label_targets(question)
+    if not labels:
+        return results
+    ranked: list[tuple[int, int, dict[str, Any]]] = []
+    for index, row in enumerate(results):
+        content, _ = _result_content_score(row)
+        ranked.append((_spreadsheet_label_match_score(content, labels), -index, row))
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [row for _, _, row in ranked]
 
 
 async def retrieve_chah_like(
@@ -305,7 +356,10 @@ async def retrieve_chah_like(
     variants = _query_variants(q)
     searches = [doc_svc.search(v, top_k=min(12, top_k + 7), use_hybrid=True) for v in variants]
     lists = await asyncio.gather(*searches)
-    merged = _merge_rrf(list(lists), top_k=top_k)
+    merged = _prioritise_spreadsheet_label_matches(
+        _merge_rrf(list(lists), top_k=top_k),
+        q,
+    )
     chunks, scores, metas = _results_to_chunks_scores_metas(merged)
     v_preview = repr(variants)[:200]
     detail = (
