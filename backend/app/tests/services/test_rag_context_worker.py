@@ -336,6 +336,43 @@ def test_retrieval_profile_uses_workspace_knowledge_scope(monkeypatch):
     assert profile["top_k"] == 8
 
 
+def test_retrieval_profile_treats_ui_auto_as_unset(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "get_resolved_settings",
+        lambda **_kwargs: {
+            "ragCollectionName": "documents",
+            "ragVectorDBType": "qdrant",
+            "ragTopK": 5,
+            "ragPipelineMode": "hybrid",
+        },
+    )
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "andritz_non_wovens_france_excel_pilot",
+            "label": "NON-WOVENS France Excel pilot",
+            "collection_slugs": ["andritz-non-wovens-france-excel-pilot"],
+            "default_mode": "chah",
+            "top_k": 5,
+        },
+    )
+
+    profile = get_retrieval_profile(
+        {
+            "query": "dans les non tissés quel est le diamètre B ?",
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+            "knowledge_scope": "andritz_non_wovens_france_excel_pilot",
+            "rag_pipeline_mode": "auto",
+            "agent_preferences": {"rag_pipeline_mode": "auto"},
+        }
+    )
+
+    assert profile["rag_mode"] == "chah"
+
+
 def test_retrieval_profile_combines_scope_and_session_context(monkeypatch):
     monkeypatch.setattr(
         rag_context,

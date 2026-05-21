@@ -38,6 +38,14 @@ def _int_or_default(value: Any, default: int) -> int:
         return default
 
 
+def _explicit_mode(value: Any) -> str | None:
+    """Return a real retrieval-mode override, treating UI ``Auto`` as unset."""
+    mode = str(value or "").strip().lower()
+    if not mode or mode == "auto":
+        return None
+    return mode
+
+
 def _jsonable(value: Any) -> Any:
     """Return a Celery JSON-serialisable copy of nested metadata."""
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -88,9 +96,14 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
     scope_default_mode = scope.get("default_mode")
     if scope_default_mode == "auto":
         scope_default_mode = None
-    rag_mode = request.get("rag_pipeline_mode") or (
-        request.get("agent_preferences") or {}
-    ).get("rag_pipeline_mode") or scope_default_mode or app_settings.get("ragPipelineMode") or app_settings.get("mode")
+    agent_preferences = request.get("agent_preferences") or {}
+    rag_mode = (
+        _explicit_mode(request.get("rag_pipeline_mode"))
+        or _explicit_mode(agent_preferences.get("rag_pipeline_mode"))
+        or scope_default_mode
+        or app_settings.get("ragPipelineMode")
+        or app_settings.get("mode")
+    )
     top_k = _int_or_default(
         request.get("top_k") or scope.get("top_k") or app_settings.get("ragTopK"),
         5,
