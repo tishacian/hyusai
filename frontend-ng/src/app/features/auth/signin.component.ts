@@ -659,9 +659,27 @@ export class SigninComponent implements OnDestroy {
       role: 'user',
     });
     this.authBootstrap.markValid();
-    this.workspaceService.loadWorkspaces().subscribe();
-    const redirect = this.route.snapshot.queryParams['redirectURL'] || '/';
-    this.router.navigateByUrl(redirect);
+    this.workspaceService.loadWorkspaces().subscribe({
+      next: () => {
+        const redirect = this.normalizeRedirect(this.route.snapshot.queryParams['redirectURL']);
+        this.router.navigateByUrl(redirect).then(
+          () => this.loading.set(false),
+          () => {
+            this.loading.set(false);
+            this.error.set('Signed in, but navigation could not complete. Please retry from the workspace switcher.');
+          },
+        );
+      },
+      error: (err) => {
+        this.loading.set(false);
+        this.error.set(err.error?.detail || 'Signed in, but workspace loading failed. Please retry.');
+      },
+    });
+  }
+
+  private normalizeRedirect(value: unknown): string {
+    const redirect = typeof value === 'string' && value.startsWith('/') ? value : '/';
+    return redirect.startsWith('/auth') ? '/' : redirect;
   }
 
   resetToLogin(): void {
