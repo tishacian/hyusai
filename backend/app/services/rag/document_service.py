@@ -425,22 +425,23 @@ class DocumentService:
                         # Get all documents from collection to build BM25 index
                         all_ids = await self.vector_db.get_all_ids()
                         if all_ids:
+                            bm25_warmup_cap = 10_000
                             loop = asyncio.get_event_loop()
                             
                             def _get_all():
                                 # Handle ChromaDB, FAISS, and Qdrant
                                 if hasattr(self.vector_db, 'collection'):
                                     # ChromaDB
-                                    return self.vector_db.collection.get(ids=all_ids[:1000], include=['metadatas'])
+                                    return self.vector_db.collection.get(ids=all_ids[:bm25_warmup_cap], include=['metadatas'])
                                 elif hasattr(self.vector_db, 'metadatas'):
                                     # FAISS - get metadatas directly
                                     metadatas = []
-                                    for vec_id in all_ids[:1000]:
+                                    for vec_id in all_ids[:bm25_warmup_cap]:
                                         if vec_id in self.vector_db.metadatas:
                                             metadatas.append(self.vector_db.metadatas[vec_id])
                                     return {'metadatas': metadatas}
                                 elif hasattr(self.vector_db, 'get_metadatas_for_chunk_ids'):
-                                    metadatas = self.vector_db.get_metadatas_for_chunk_ids(all_ids[:1000])
+                                    metadatas = self.vector_db.get_metadatas_for_chunk_ids(all_ids[:bm25_warmup_cap])
                                     return {'metadatas': metadatas}
                                 return None
                             
@@ -661,6 +662,82 @@ class DocumentService:
             normalized["chunks_count"] = chunk_count
             normalized_documents.append(normalized)
         return normalized_documents
+
+    async def list_table_facts(
+        self,
+        *,
+        semantic_type: Optional[str] = None,
+        sheet_name: Optional[str] = None,
+        query: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict]:
+        """List spreadsheet-oriented payloads for diagnostics and UI browsing."""
+        filters: Dict[str, str] = {}
+        if semantic_type:
+            filters["semantic_type"] = semantic_type
+        fetch_limit = min(max(limit * 4, limit), 500) if (sheet_name or query) else limit
+        if filters:
+            payloads = await self.vector_db.list_payloads(
+                filters=filters,
+                limit=fetch_limit,
+                offset=offset,
+            )
+        else:
+            payloads = []
+            preferred_types = [
+                "spreadsheet_cell_fact",
+                "spreadsheet_table_fact",
+                "spreadsheet_semantic_sentence",
+                "spreadsheet_schema",
+                "spreadsheet_row",
+            ]
+            for stype in preferred_types:
+                payloads.extend(
+                    await self.vector_db.list_payloads(
+                        filters={"semantic_type": stype},
+                        limit=fetch_limit,
+                        offset=0,
+                    )
+                )
+                if len(payloads) >= fetch_limit:
+                    break
+
+        semantic_prefixes = (
+            "spreadsheet_",
+            "knowledge_guide",
+        )
+        q = (query or "").strip().lower()
+        sheet = (sheet_name or "").strip().lower()
+        out: List[Dict] = []
+        for payload in payloads:
+            stype = str(payload.get("semantic_type") or "")
+            if stype and not stype.startswith(semantic_prefixes):
+                continue
+            if not stype and "Spreadsheet" not in str(payload.get("content") or ""):
+                continue
+            if sheet and str(payload.get("sheet_name") or "").lower() != sheet:
+                continue
+            searchable = " ".join(
+                str(payload.get(key) or "")
+                for key in (
+                    "content",
+                    "document_filename",
+                    "sheet_name",
+                    "cell_ref",
+                    "cell_range",
+                    "row_label",
+                    "column_header",
+                    "unit",
+                    "semantic_type",
+                )
+            ).lower()
+            if q and q not in searchable:
+                continue
+            out.append(dict(payload))
+            if len(out) >= limit:
+                break
+        return out
 
     async def get_document_metadata(self, document_id: str) -> Dict:
         """Return docmeta-enriched metadata for a single document.

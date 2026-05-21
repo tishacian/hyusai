@@ -308,11 +308,15 @@ def guide_context_entries(guides: list[KnowledgeGuide]) -> tuple[list[str], list
         if not markdown:
             continue
         chunks.append(f"Knowledge guide: {guide.title}\n\n{markdown}")
-        scores.append(1.0)
+        # Guides are advisory context, not raw evidence. Keep their retrieval
+        # score intentionally low so factual spreadsheet/PDF chunks stay ahead
+        # in source lists and citation ranking.
+        scores.append(0.01)
         metadatas.append(
             {
                 "source_type": "knowledge_guide",
                 "type": "knowledge_guide",
+                "retrieval_role": "advisory_context",
                 "title": guide.title,
                 "document_title": guide.title,
                 "guide_key": guide.guide_key,

@@ -3265,6 +3265,8 @@ export class ChatPanelComponent {
       // Stop any playing audio and drop queued chunks so the user isn't
       // surprised by lagging TTS coming through after they muted.
       this.resetTtsPipeline();
+    } else if (!this.streaming() && !this.ttsSpeaking()) {
+      this.speakLastAssistantAnswer();
     }
   }
 
@@ -3722,6 +3724,15 @@ export class ChatPanelComponent {
 
   private lastAssistantMessage(): ChatMessage | undefined {
     return [...this.messages()].reverse().find((msg) => msg.role === 'assistant');
+  }
+
+  private speakLastAssistantAnswer(): void {
+    const last = this.lastAssistantMessage();
+    const text = last?.content?.trim();
+    if (!text) return;
+    this.resetTtsPipeline();
+    this.beginTtsStream();
+    this.flushTrailingTts(text);
   }
 
   private transcribe(blob: Blob): void {

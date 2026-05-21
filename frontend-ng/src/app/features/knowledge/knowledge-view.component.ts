@@ -21,6 +21,8 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { LensService } from '@app/core/lens';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
+import { ApiService, KnowledgeGuide, TableFactItem } from '@app/core/api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 /**
  * `KnowledgeViewComponent` — detail page for a single Knowledge Base
@@ -58,7 +60,19 @@ interface CollectionsPayload {
   default?: string | null;
 }
 
-type KbTabId = 'overview' | 'sources' | 'chunks' | 'bindings';
+interface KnowledgeScopeApi {
+  key: string;
+  label?: string | null;
+  collection_slugs?: string[];
+}
+
+interface KnowledgeGuideRow {
+  guide: KnowledgeGuide;
+  binding_label: string;
+  binding_kind: 'collection' | 'scope';
+}
+
+type KbTabId = 'overview' | 'sources' | 'chunks' | 'table-facts' | 'guides' | 'bindings';
 
 @Component({
   selector: 'app-knowledge-view',
@@ -215,6 +229,239 @@ type KbTabId = 'overview' | 'sources' | 'chunks' | 'bindings';
         </section>
       </ck-tab>
 
+      <ck-tab id="table-facts" label="Table facts">
+        <section class="t-card rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+                Spreadsheet intelligence
+              </div>
+              <h3 class="mt-1 text-base font-semibold text-white">Structured table facts</h3>
+              <p class="mt-1 text-xs text-gray-400 max-w-2xl">
+                Browse the indexed workbook facts used by chat: schema, row chunks,
+                cell facts, table facts and semantic sentences with sheet/cell metadata.
+              </p>
+            </div>
+            <button
+              type="button"
+              (click)="loadTableFacts()"
+              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+            >
+              <app-icon name="refresh-cw" [size]="13" /> Refresh facts
+            </button>
+          </div>
+          <div class="px-5 py-4 border-b border-white/5 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
+            <label class="block">
+              <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Search</span>
+              <input
+                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                type="search"
+                placeholder="Sheet, label, cell, value…"
+                [value]="tableFactQuery()"
+                (input)="tableFactQuery.set($any($event.target).value)"
+                (keydown.enter)="loadTableFacts()"
+              />
+            </label>
+            <label class="block">
+              <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Type</span>
+              <select
+                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                [value]="tableFactType()"
+                (change)="tableFactType.set($any($event.target).value); loadTableFacts()"
+              >
+                <option value="">All table views</option>
+                <option value="spreadsheet_cell_fact">Cell facts</option>
+                <option value="spreadsheet_table_fact">Table facts</option>
+                <option value="spreadsheet_semantic_sentence">Semantic sentences</option>
+                <option value="spreadsheet_schema">Schema</option>
+                <option value="spreadsheet_row">Rows</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Sheet</span>
+              <input
+                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                type="search"
+                placeholder="Def strips"
+                [value]="tableFactSheet()"
+                (input)="tableFactSheet.set($any($event.target).value)"
+                (keydown.enter)="loadTableFacts()"
+              />
+            </label>
+          </div>
+          @if (loadingTableFacts()) {
+            <div class="p-5 text-sm text-gray-400">
+              <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
+              Loading table facts…
+            </div>
+          } @else if (tableFacts().length === 0) {
+            <app-empty-state
+              icon="table"
+              title="No table facts found"
+              description="Re-index spreadsheet sources with Table Intelligence enabled, then refresh this tab."
+            />
+          } @else {
+            <div class="divide-y divide-white/5">
+              @for (fact of tableFacts(); track factKey(fact, $index)) {
+                <article class="px-5 py-4 hover:bg-white/[0.03] transition">
+                  <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                    <span class="ck-mono rounded bg-brand-500/10 px-2 py-1 text-brand-300 ring-1 ring-brand-500/20">
+                      {{ fact.semantic_type || 'spreadsheet' }}
+                    </span>
+                    @if (fact.sheet_name) {
+                      <span>Sheet: <span class="text-gray-300">{{ fact.sheet_name }}</span></span>
+                    }
+                    @if (fact.cell_ref || fact.cell_range) {
+                      <span>Cell: <span class="font-mono text-gray-300">{{ fact.cell_ref || fact.cell_range }}</span></span>
+                    }
+                    @if (fact.unit) {
+                      <span>Unit: <span class="text-gray-300">{{ fact.unit }}</span></span>
+                    }
+                  </div>
+                  <h4 class="mt-2 text-sm font-medium text-white truncate">
+                    {{ fact.document_filename || 'Spreadsheet source' }}
+                  </h4>
+                  <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                    @if (fact.row_label) {
+                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">row: {{ fact.row_label }}</span>
+                    }
+                    @if (fact.column_header) {
+                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">column: {{ fact.column_header }}</span>
+                    }
+                    @if (fact.table_region_id) {
+                      <span class="rounded bg-white/5 px-2 py-1 text-gray-500">region: {{ fact.table_region_id }}</span>
+                    }
+                  </div>
+                  <p class="mt-3 text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">
+                    {{ fact.content }}
+                  </p>
+                  @if (fact.interpretation_note) {
+                    <p class="mt-2 text-[11px] text-amber-200/80">{{ fact.interpretation_note }}</p>
+                  }
+                </article>
+              }
+            </div>
+          }
+        </section>
+      </ck-tab>
+
+      <ck-tab id="guides" label="Guides">
+        <section class="t-card rounded-md overflow-hidden mb-4">
+          <div class="px-5 py-4 border-b border-white/5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+                Collection guide
+              </div>
+              <h3 class="mt-1 text-base font-semibold text-white">Markdown interpretation guide</h3>
+              <p class="mt-1 text-xs text-gray-400 max-w-2xl">
+                Explain how to read this collection. Guides help query expansion
+                and prompting, but raw table/document facts remain the proof.
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                (click)="saveCollectionGuide('draft')"
+                [disabled]="savingGuide()"
+                class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-50"
+              >
+                <app-icon name="save" [size]="13" /> Save draft
+              </button>
+              <button
+                type="button"
+                (click)="saveCollectionGuide('published')"
+                [disabled]="savingGuide()"
+                class="inline-flex items-center gap-1.5 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-black hover:bg-brand-400 disabled:opacity-50"
+              >
+                <app-icon name="check" [size]="13" /> Publish
+              </button>
+            </div>
+          </div>
+          <div class="grid gap-0 lg:grid-cols-2">
+            <div class="p-5 border-b border-white/5 lg:border-b-0 lg:border-r">
+              <label class="block">
+                <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Title</span>
+                <input
+                  class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                  [value]="guideTitle()"
+                  (input)="guideTitle.set($any($event.target).value)"
+                />
+              </label>
+              <label class="block mt-3">
+                <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Markdown</span>
+                <textarea
+                  class="min-h-[28rem] w-full rounded bg-black/25 border border-white/10 px-3 py-2 font-mono text-xs leading-relaxed text-gray-200 outline-none focus:border-brand-400"
+                  [value]="guideMarkdown()"
+                  (input)="guideMarkdown.set($any($event.target).value)"
+                ></textarea>
+              </label>
+              @if (guideError()) {
+                <p class="mt-2 text-xs text-red-300">{{ guideError() }}</p>
+              }
+            </div>
+            <div class="p-5">
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-2">Preview</div>
+              <pre class="min-h-[28rem] max-h-[36rem] overflow-auto whitespace-pre-wrap rounded bg-black/25 p-4 text-xs leading-relaxed text-gray-300">{{ guideMarkdown() || 'No Markdown yet.' }}</pre>
+              <div class="mt-4">
+                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-2">Versions</div>
+                @if (collectionGuideVersions().length === 0) {
+                  <p class="text-xs text-gray-500">No saved versions yet.</p>
+                } @else {
+                  <div class="space-y-2">
+                    @for (guide of collectionGuideVersions(); track guide.id) {
+                      <button
+                        type="button"
+                        (click)="loadGuideIntoEditor(guide)"
+                        class="w-full rounded border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10"
+                      >
+                        <div class="flex items-center justify-between gap-2">
+                          <span class="text-xs font-medium text-white">v{{ guide.version }} · {{ guide.status }}</span>
+                          <span class="text-[11px] text-gray-500">{{ guide.created_at ? (guide.created_at | slice:0:10) : '—' }}</span>
+                        </div>
+                        <p class="mt-1 truncate text-[11px] text-gray-500">{{ guide.title }}</p>
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        </section>
+
+        @if (guideRows().length === 0) {
+          <app-empty-state
+            icon="book-open"
+            title="No Knowledge Guide"
+            description="Attach a Markdown guide from Workspace > Chat & Knowledge when this collection needs vocabulary, interpretation rules or query hints."
+          />
+        } @else {
+          <section class="space-y-3">
+            @for (row of guideRows(); track row.guide.id) {
+              <article class="t-card rounded-md overflow-hidden">
+                <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+                      {{ row.binding_kind === 'scope' ? 'Scope guide' : 'Collection guide' }} · {{ row.binding_label }}
+                    </div>
+                    <h3 class="mt-1 text-base font-semibold text-white truncate">{{ row.guide.title }}</h3>
+                    <p class="mt-1 text-xs text-gray-500">
+                      v{{ row.guide.version }} · {{ row.guide.status }} @if (row.guide.published_at) { · published {{ row.guide.published_at | slice:0:10 }} }
+                    </p>
+                  </div>
+                  <a
+                    [routerLink]="['/workspace', workspaceSlug(), 'chat-knowledge']"
+                    class="inline-flex shrink-0 items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                  >
+                    <app-icon name="pencil" [size]="13" /> Edit in settings
+                  </a>
+                </div>
+                <pre class="max-h-[34rem] overflow-auto whitespace-pre-wrap bg-black/20 p-5 text-xs leading-relaxed text-gray-300">{{ row.guide.markdown || row.guide.snippet || 'No Markdown content.' }}</pre>
+              </article>
+            }
+          </section>
+        }
+      </ck-tab>
+
       <ck-tab id="bindings" label="Bindings">
         @if (loadingBindings()) {
           <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
@@ -290,6 +537,8 @@ export class KnowledgeViewComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly http = inject(HttpClient);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly api = inject(ApiService);
+  private readonly workspace = inject(WorkspaceService);
   readonly lensService = inject(LensService);
 
   private readonly base = '/api/v1/documents';
@@ -302,6 +551,9 @@ export class KnowledgeViewComponent implements OnInit {
   readonly loading = signal(true);
   readonly loadingSources = signal(true);
   readonly loadingBindings = signal(true);
+  readonly loadingTableFacts = signal(false);
+  readonly savingGuide = signal(false);
+  readonly guideError = signal<string | null>(null);
 
   readonly docCount = signal(0);
   readonly chunkCount = signal(0);
@@ -310,6 +562,15 @@ export class KnowledgeViewComponent implements OnInit {
 
   readonly sources = signal<DocRow[]>([]);
   readonly bindings = signal<System[]>([]);
+  readonly knowledgeGuides = signal<KnowledgeGuide[]>([]);
+  readonly knowledgeScopes = signal<KnowledgeScopeApi[]>([]);
+  readonly tableFacts = signal<TableFactItem[]>([]);
+  readonly tableFactQuery = signal('');
+  readonly tableFactType = signal('');
+  readonly tableFactSheet = signal('');
+  readonly guideTitle = signal('');
+  readonly guideMarkdown = signal('');
+  readonly editingGuideKey = signal<string | null>(null);
 
   readonly lens = this.lensService.lens;
 
@@ -354,6 +615,41 @@ export class KnowledgeViewComponent implements OnInit {
     return sorted.slice(0, 10);
   });
 
+  readonly guideRows = computed<KnowledgeGuideRow[]>(() => {
+    const scopeLabels = new Map(
+      this.knowledgeScopes().map((scope) => [scope.key, scope.label || scope.key] as const),
+    );
+    const scopesForCollection = new Set(
+      this.knowledgeScopes()
+        .filter((scope) => (scope.collection_slugs || []).includes(this.kbId))
+        .map((scope) => scope.key),
+    );
+    return this.knowledgeGuides()
+      .filter((guide) => guide.is_current)
+      .flatMap((guide): KnowledgeGuideRow[] => {
+        if (guide.target_type === 'collection' && guide.target_ref === this.kbId) {
+          return [{ guide, binding_kind: 'collection', binding_label: this.kbId }];
+        }
+        if (guide.target_type === 'scope' && scopesForCollection.has(guide.target_ref)) {
+          return [{
+            guide,
+            binding_kind: 'scope',
+            binding_label: scopeLabels.get(guide.target_ref) || guide.target_ref,
+          }];
+        }
+        return [];
+      })
+      .sort((a, b) => a.binding_label.localeCompare(b.binding_label) || b.guide.version - a.guide.version);
+  });
+
+  readonly collectionGuideVersions = computed(() =>
+    this.knowledgeGuides()
+      .filter((guide) => guide.target_type === 'collection' && guide.target_ref === this.kbId)
+      .sort((a, b) => b.version - a.version),
+  );
+
+  readonly workspaceSlug = computed(() => this.workspace.currentSlug() || this.workspace.current()?.slug || 'current');
+
   ngOnInit(): void {
     this.kbId = this.route.snapshot.paramMap.get('kbId') ?? '';
     this.title.set(this.kbId || 'Knowledge base');
@@ -362,6 +658,9 @@ export class KnowledgeViewComponent implements OnInit {
 
   onTabChange(id: string): void {
     this.activeTab.set(id as KbTabId);
+    if (id === 'table-facts' && this.tableFacts().length === 0) {
+      this.loadTableFacts();
+    }
   }
 
   distributionPct(n: number | undefined): number {
@@ -391,7 +690,13 @@ export class KnowledgeViewComponent implements OnInit {
       meta: this.http
         .get<CollectionsPayload>(`${this.base}/collections`)
         .pipe(catchError(() => of<CollectionsPayload>({}))),
-    }).subscribe(({ stats, list, meta }) => {
+      guides: this.api
+        .listKnowledgeGuides({ current_only: false })
+        .pipe(catchError(() => of({ items: [] }))),
+      scopes: this.api
+        .get<{ scopes: KnowledgeScopeApi[] }>('/knowledge/scopes')
+        .pipe(catchError(() => of({ scopes: [] }))),
+    }).subscribe(({ stats, list, meta, guides, scopes }) => {
       this.chunkCount.set(stats.total_chunks ?? 0);
       this.vectorDim.set(stats.vector_dim ?? null);
       this.vectorDbType.set(meta.vector_db_type ?? '');
@@ -403,6 +708,9 @@ export class KnowledgeViewComponent implements OnInit {
       this.docCount.set(list.total ?? (list.documents?.length ?? 0));
       this.loading.set(false);
       this.loadingSources.set(false);
+      this.knowledgeGuides.set(guides.items || []);
+      this.knowledgeScopes.set(scopes.scopes || []);
+      this.hydrateGuideEditor();
     });
 
     this.canonical.listSystems().subscribe({
@@ -421,5 +729,94 @@ export class KnowledgeViewComponent implements OnInit {
         this.loadingBindings.set(false);
       },
     });
+  }
+
+  loadTableFacts(): void {
+    if (!this.kbId) return;
+    this.loadingTableFacts.set(true);
+    this.api
+      .listTableFacts({
+        collection_name: this.kbId,
+        semantic_type: this.tableFactType() || undefined,
+        sheet_name: this.tableFactSheet() || undefined,
+        q: this.tableFactQuery() || undefined,
+        limit: 120,
+      })
+      .pipe(catchError(() => of({ items: [] } as any)))
+      .subscribe((payload) => {
+        this.tableFacts.set(payload.items || []);
+        this.loadingTableFacts.set(false);
+      });
+  }
+
+  factKey(fact: TableFactItem, index: number): string {
+    return `${fact.document_id || 'doc'}:${fact.chunk_index ?? index}:${fact.cell_ref || fact.cell_range || index}`;
+  }
+
+  loadGuideIntoEditor(guide: KnowledgeGuide): void {
+    this.editingGuideKey.set(guide.guide_key);
+    this.guideTitle.set(guide.title || this.defaultGuideTitle());
+    this.guideMarkdown.set(guide.markdown || guide.snippet || '');
+    this.guideError.set(null);
+  }
+
+  saveCollectionGuide(status: 'draft' | 'published'): void {
+    if (!this.kbId) return;
+    const title = this.guideTitle().trim() || this.defaultGuideTitle();
+    const markdown = this.guideMarkdown().trim();
+    if (!markdown) {
+      this.guideError.set('Markdown content is required before saving a guide.');
+      return;
+    }
+    this.savingGuide.set(true);
+    this.guideError.set(null);
+    const existingKey = this.editingGuideKey() || this.collectionGuideVersions()[0]?.guide_key || null;
+    const request = existingKey
+      ? this.api.updateKnowledgeGuide(existingKey, {
+          target_type: 'collection',
+          target_ref: this.kbId,
+          title,
+          markdown,
+          status,
+        })
+      : this.api.createKnowledgeGuide({
+          target_type: 'collection',
+          target_ref: this.kbId,
+          title,
+          markdown,
+          status,
+        });
+
+    request.subscribe({
+      next: (guide) => {
+        this.savingGuide.set(false);
+        this.editingGuideKey.set(guide.guide_key);
+        this.api
+          .listKnowledgeGuides({ current_only: false })
+          .pipe(catchError(() => of({ items: this.knowledgeGuides() })))
+          .subscribe((payload) => {
+            this.knowledgeGuides.set(payload.items || []);
+          });
+      },
+      error: () => {
+        this.savingGuide.set(false);
+        this.guideError.set('Unable to save this Knowledge Guide.');
+      },
+    });
+  }
+
+  private hydrateGuideEditor(): void {
+    const current = this.collectionGuideVersions().find((guide) => guide.is_current);
+    if (current) {
+      this.loadGuideIntoEditor(current);
+      return;
+    }
+    this.editingGuideKey.set(null);
+    this.guideTitle.set(this.defaultGuideTitle());
+    this.guideMarkdown.set('');
+  }
+
+  private defaultGuideTitle(): string {
+    return `${this.kbId || 'Collection'} Knowledge Guide`;
   }
 }

@@ -37,3 +37,15 @@ class VectorDBBase(ABC):
         """Get total number of vectors"""
         pass
 
+    async def list_payloads(
+        self,
+        filters: Optional[Dict] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict]:
+        """List payload metadata without vector search.
+
+        Implementations may override this for diagnostic/admin UIs. The
+        default keeps legacy vector stores compatible.
+        """
+        return []

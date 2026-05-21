@@ -410,11 +410,22 @@ class OmniRAGAgent(BaseAgent):
         preserve_retrieval_order = str(retrieval_context.get("pipeline") or "").startswith(
             ("chah_", "hah_", "multi_")
         )
-        if n_chunks > 0 and scores:
+        if preserve_retrieval_order:
+            # HAH/C-HAH and multi-collection paths use RRF-like scores. Those
+            # values are rank-combination weights, not similarity scores, and
+            # can legitimately sit below the dense-search threshold. Filtering
+            # them was dropping exact spreadsheet evidence while keeping only
+            # high-scored advisory Knowledge Guides.
+            before = after = n_chunks
+        elif n_chunks > 0 and scores:
             threshold = 0.1
             before = n_chunks
             triples = list(zip(retrieval_context["chunks"], scores, filtered_metadatas))
-            triples = [(c, s, m) for c, s, m in triples if s >= threshold]
+            triples = [
+                (c, s, m)
+                for c, s, m in triples
+                if s >= threshold or str(m.get("source_type") or m.get("type") or "") == "knowledge_guide"
+            ]
             if not preserve_retrieval_order:
                 triples.sort(key=lambda x: x[1], reverse=True)
             if triples:

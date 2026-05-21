@@ -273,6 +273,36 @@ class FAISSVectorDB(VectorDBBase):
 
         return list(seen_docs.values())
 
+    async def list_payloads(
+        self,
+        filters: Optional[dict] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """List stored metadata payloads for diagnostics/table-fact browsing."""
+        limit = max(1, min(int(limit or 100), 500))
+        offset_count = max(0, int(offset or 0))
+        out: list[dict] = []
+        seen = 0
+        for vec_id in self.ids:
+            metadata = dict(self.metadatas.get(vec_id, {}))
+            if filters:
+                matched = True
+                for key, value in filters.items():
+                    if metadata.get(key) != value:
+                        matched = False
+                        break
+                if not matched:
+                    continue
+            if seen < offset_count:
+                seen += 1
+                continue
+            metadata.setdefault("chunk_id", vec_id)
+            out.append(metadata)
+            if len(out) >= limit:
+                break
+        return out
+
     async def clear_collection(self):
         """Clear all vectors from the collection"""
         import asyncio

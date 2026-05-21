@@ -283,6 +283,50 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _scroll_first)
 
+    async def list_payloads(
+        self,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List payloads for diagnostics/table-fact browsing."""
+        if self.client is None or not self.client.collection_exists(self.collection_name):
+            return []
+        limit = max(1, min(int(limit or 100), 500))
+        offset_count = max(0, int(offset or 0))
+        qf = self._filters_to_qdrant(filters)
+        loop = asyncio.get_event_loop()
+
+        def _scroll_payloads():
+            out: List[Dict[str, Any]] = []
+            seen = 0
+            next_off = None
+            while len(out) < limit:
+                records, next_off = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=qf,
+                    limit=256,
+                    offset=next_off,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                if not records:
+                    break
+                for record in records:
+                    if seen < offset_count:
+                        seen += 1
+                        continue
+                    payload = dict(record.payload or {})
+                    payload.setdefault("point_id", str(record.id))
+                    out.append(payload)
+                    if len(out) >= limit:
+                        break
+                if next_off is None:
+                    break
+            return out
+
+        return await loop.run_in_executor(None, _scroll_payloads)
+
     async def list_documents(self) -> List[dict]:
         if self.client is None or not self.client.collection_exists(self.collection_name):
             return []

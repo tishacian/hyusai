@@ -34,7 +34,8 @@ _FOLLOW_UP_RE = re.compile(
     r"\b("
     r"diff[ée]rentes?|plusieurs|autres?|reste|documents?|valeurs?|"
     r"ce|ces|celle|celui|cela|ça|m[êe]me|ailleurs|compare|compar[ée]r|"
-    r"different|multiple|other|same|those|these|it|them|compare"
+    r"globalement|partout|tous|toutes|ensemble|connais|connues?|"
+    r"different|multiple|other|same|those|these|it|them|compare|globally|all|known"
     r")\b",
     re.IGNORECASE,
 )
@@ -205,10 +206,14 @@ def _prepend_guide_context(
     guide_chunks, guide_scores, guide_metas = guide_context_entries(guides)
     if not guide_chunks:
         return chunks, scores, metadatas, 0
+    # Knowledge Guides explain how to read a collection. They must not outrank
+    # the raw chunks that carry the actual evidence, otherwise broad guide
+    # cautions can hide exact spreadsheet hits such as "Def strips / B = 85".
+    # Keep them in the prompt as advisory context, but after document evidence.
     return (
-        guide_chunks + chunks,
-        guide_scores + scores,
-        guide_metas + metadatas,
+        chunks + guide_chunks,
+        scores + guide_scores,
+        metadatas + guide_metas,
         len(guide_chunks),
     )
 

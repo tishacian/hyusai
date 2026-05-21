@@ -356,6 +356,65 @@ async def search_documents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/table-facts")
+async def list_table_facts(
+    collection_name: str = Query("documents"),
+    semantic_type: Optional[str] = Query(None),
+    sheet_name: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """List spreadsheet facts/chunks for Knowledge diagnostics."""
+    try:
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
+        rows = await doc_service.list_table_facts(
+            semantic_type=semantic_type,
+            sheet_name=sheet_name,
+            query=q,
+            limit=limit,
+            offset=offset,
+        )
+        items = [
+            {
+                "content": row.get("content"),
+                "semantic_type": row.get("semantic_type"),
+                "document_id": row.get("document_id"),
+                "document_filename": row.get("document_filename"),
+                "sheet_name": row.get("sheet_name"),
+                "cell_ref": row.get("cell_ref"),
+                "cell_range": row.get("cell_range"),
+                "row_start": row.get("row_start"),
+                "row_end": row.get("row_end"),
+                "row_label": row.get("row_label"),
+                "column_header": row.get("column_header"),
+                "unit": row.get("unit"),
+                "table_region_id": row.get("table_region_id"),
+                "interpretation_note": row.get("interpretation_note"),
+                "chunk_index": row.get("chunk_index"),
+            }
+            for row in rows
+        ]
+        return {
+            "collection_name": collection_name,
+            "vector_db_type": db_type,
+            "items": items,
+            "total_returned": len(items),
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        logger.error(f"Error listing table facts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def _find_original_file(document_id: str, filename: str) -> Optional[str]:
     """Find the original file in uploads/ or sample_data/."""
     # 1) Check uploads/ (persisted uploaded files)

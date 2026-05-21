@@ -4,7 +4,7 @@ import { ActivatedRoute } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { forkJoin, map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
-import { ApiService } from '@app/core/api.service';
+import { ApiService, KnowledgeGuide, KnowledgeGuideStatus } from '@app/core/api.service';
 import { WorkspaceDetail, WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -30,6 +30,16 @@ interface KnowledgeScopeDraft {
   default_mode: RagMode;
   top_k: number | null;
   is_default: boolean;
+}
+
+interface KnowledgeGuideEditorDraft {
+  scope_key: string;
+  guide_key?: string;
+  mode: 'create' | 'edit' | 'restore';
+  title: string;
+  markdown: string;
+  status: KnowledgeGuideStatus;
+  source_version?: number;
 }
 
 interface PromptCardDraft {
@@ -222,6 +232,206 @@ interface AssistantProfileDraft {
                     placeholder="collection-a, collection-b"
                   />
                 </label>
+
+                <div class="knowledge-guide-panel mt-5">
+                  <div class="knowledge-guide-header">
+                    <div>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Knowledge guide</p>
+                      <h4 class="text-sm font-semibold text-white mt-1">Markdown context for this scope</h4>
+                      <p class="text-xs text-gray-500 mt-1 leading-relaxed">
+                        Published guides are injected into retrieval, query expansion and the answer prompt as a source distinct from raw documents.
+                      </p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      @if (currentGuideForScope(scope.key); as guide) {
+                        <span class="guide-badge" [class.guide-badge-published]="guide.status === 'published'">
+                          v{{ guide.version }} · {{ guide.status }}
+                        </span>
+                        <button
+                          type="button"
+                          class="guide-button"
+                          (click)="openGuideEditor(scope.key, guide)"
+                        >
+                          <app-icon name="pencil" [size]="13" /> Edit
+                        </button>
+                      } @else {
+                        <button
+                          type="button"
+                          class="guide-button"
+                          [disabled]="!canEdit()"
+                          (click)="openGuideEditor(scope.key)"
+                        >
+                          <app-icon name="plus" [size]="13" /> Add guide
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="guide-button"
+                        [disabled]="guideVersionsForScope(scope.key).length === 0"
+                        (click)="toggleGuideHistory(scope.key)"
+                      >
+                        <app-icon name="history" [size]="13" /> History
+                      </button>
+                    </div>
+                  </div>
+
+                  @if (currentGuideForScope(scope.key); as guide) {
+                    <div class="knowledge-guide-current">
+                      <div class="min-w-0">
+                        <p class="text-sm font-semibold text-gray-100 truncate">{{ guide.title }}</p>
+                        <p class="mt-1 text-xs leading-relaxed text-gray-500 line-clamp-2">{{ guide.snippet || guide.markdown || 'No markdown yet.' }}</p>
+                      </div>
+                      <div class="guide-current-actions">
+                        @if (guide.status !== 'published') {
+                          <button type="button" class="guide-button guide-button-good" [disabled]="!canEdit()" (click)="publishGuide(guide)">
+                            <app-icon name="send" [size]="13" /> Publish
+                          </button>
+                        }
+                        @if (guide.status !== 'archived') {
+                          <button type="button" class="guide-button guide-button-danger" [disabled]="!canEdit()" (click)="archiveGuide(guide)">
+                            <app-icon name="archive" [size]="13" /> Archive
+                          </button>
+                        }
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="knowledge-guide-empty">
+                      No guide attached to this scope yet. Add one when users need domain vocabulary, abbreviations or interpretation rules that should travel with retrieval.
+                    </div>
+                  }
+
+                  @if (guideHistoryScope() === scope.key) {
+                    <div class="guide-history">
+                      @for (version of guideVersionsForScope(scope.key); track version.id) {
+                        <div class="guide-history-row">
+                          <div class="min-w-0">
+                            <p class="text-xs font-semibold text-gray-100 truncate">
+                              v{{ version.version }} · {{ version.status }} · {{ version.title }}
+                            </p>
+                            <p class="mt-1 text-[11px] text-gray-500">
+                              {{ formatDate(version.created_at) }} @if (version.published_at) { · published {{ formatDate(version.published_at) }} }
+                            </p>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <button type="button" class="guide-button" (click)="openGuideEditor(scope.key, version, 'restore')">
+                              <app-icon name="rotate-ccw" [size]="13" /> Restore
+                            </button>
+                            <button type="button" class="guide-button" (click)="openGuideEditor(scope.key, version)">
+                              <app-icon name="eye" [size]="13" /> View
+                            </button>
+                          </div>
+                        </div>
+                      } @empty {
+                        <p class="px-3 py-2 text-xs text-gray-500">No version history yet.</p>
+                      }
+                    </div>
+                  }
+
+                  @if (guideEditor()?.scope_key === scope.key) {
+                    @if (guideEditor(); as editor) {
+                      <div class="guide-editor">
+                        <div class="guide-editor-bar">
+                          <div>
+                            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">
+                              {{ editor.mode === 'create' ? 'New guide' : editor.mode === 'restore' ? 'Restore version' : 'Edit guide' }}
+                            </p>
+                            <h5 class="text-sm font-semibold text-white mt-1">
+                              {{ editor.mode === 'restore' ? 'Create a new current version from v' + editor.source_version : 'Versioned Markdown editor' }}
+                            </h5>
+                          </div>
+                          <button type="button" class="guide-button" (click)="closeGuideEditor()">
+                            <app-icon name="x" [size]="13" /> Close
+                          </button>
+                        </div>
+
+                        <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_160px]">
+                          <label class="block">
+                            <span class="field-label">Title</span>
+                            <input
+                              class="ag-field"
+                              [ngModel]="editor.title"
+                              [disabled]="!canEdit()"
+                              (ngModelChange)="updateGuideEditor('title', $event)"
+                            />
+                          </label>
+                          <label class="block">
+                            <span class="field-label">Status</span>
+                            <span class="ag-select-wrap">
+                              <select
+                                class="ag-select"
+                                [ngModel]="editor.status"
+                                [disabled]="!canEdit()"
+                                (ngModelChange)="updateGuideEditor('status', $event)"
+                              >
+                                <option value="draft">draft</option>
+                                <option value="published">published</option>
+                                <option value="archived">archived</option>
+                              </select>
+                              <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                            </span>
+                          </label>
+                        </div>
+
+                        <div class="guide-editor-grid">
+                          <label class="block">
+                            <span class="field-label">Markdown</span>
+                            <textarea
+                              class="ag-field guide-markdown-field"
+                              [ngModel]="editor.markdown"
+                              [disabled]="!canEdit()"
+                              spellcheck="false"
+                              (ngModelChange)="updateGuideEditor('markdown', $event)"
+                            ></textarea>
+                          </label>
+                          <div class="guide-preview">
+                            <span class="field-label">Preview</span>
+                            <div class="guide-preview-body">
+                              @for (line of markdownPreviewLines(editor.markdown); track $index) {
+                                @if (markdownLineKind(line) === 'h1') {
+                                  <h1>{{ cleanMarkdownLine(line) }}</h1>
+                                } @else if (markdownLineKind(line) === 'h2') {
+                                  <h2>{{ cleanMarkdownLine(line) }}</h2>
+                                } @else if (markdownLineKind(line) === 'h3') {
+                                  <h3>{{ cleanMarkdownLine(line) }}</h3>
+                                } @else if (markdownLineKind(line) === 'li') {
+                                  <p class="guide-preview-li">{{ cleanMarkdownLine(line) }}</p>
+                                } @else if (cleanMarkdownLine(line)) {
+                                  <p>{{ cleanMarkdownLine(line) }}</p>
+                                } @else {
+                                  <div class="h-2"></div>
+                                }
+                              }
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="guide-editor-actions">
+                          <p class="text-xs text-gray-500">
+                            Saving creates a new auditable version. Published versions are used by chat retrieval immediately.
+                          </p>
+                          <div class="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              class="guide-button"
+                              [disabled]="guideSaving() || !canEdit()"
+                              (click)="saveGuide('draft')"
+                            >
+                              <app-icon name="save" [size]="13" /> Save draft
+                            </button>
+                            <button
+                              type="button"
+                              class="guide-button guide-button-good"
+                              [disabled]="guideSaving() || !canEdit()"
+                              (click)="saveGuide('published')"
+                            >
+                              <app-icon name="send" [size]="13" /> Publish
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    }
+                  }
+                </div>
               </article>
             }
           </div>
@@ -1004,8 +1214,191 @@ interface AssistantProfileDraft {
       line-height: 1.35;
       color: rgb(156 163 175);
     }
+    .knowledge-guide-panel {
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid rgba(34,211,238,0.18);
+      background:
+        linear-gradient(180deg, rgba(34,211,238,0.045), rgba(255,255,255,0.015)),
+        rgba(0,0,0,0.12);
+    }
+    .knowledge-guide-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .guide-badge {
+      display: inline-flex;
+      align-items: center;
+      height: 2rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.045);
+      padding: 0 0.75rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgb(209 213 219);
+    }
+    .guide-badge-published {
+      border-color: rgba(52,211,153,0.28);
+      background: rgba(16,185,129,0.10);
+      color: rgb(167 243 208);
+    }
+    .guide-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      min-height: 2rem;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.045);
+      padding: 0.45rem 0.7rem;
+      color: rgb(229 231 235);
+      font-size: 0.75rem;
+      font-weight: 600;
+      transition: border-color 120ms, background 120ms, color 120ms;
+    }
+    .guide-button:hover:not(:disabled) {
+      border-color: rgba(34,211,238,0.35);
+      background: rgba(34,211,238,0.08);
+      color: white;
+    }
+    .guide-button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .guide-button-good {
+      border-color: rgba(52,211,153,0.22);
+      background: rgba(16,185,129,0.10);
+      color: rgb(187 247 208);
+    }
+    .guide-button-danger {
+      border-color: rgba(248,113,113,0.22);
+      background: rgba(239,68,68,0.08);
+      color: rgb(254 202 202);
+    }
+    .knowledge-guide-current {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem;
+    }
+    .guide-current-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      flex: 0 0 auto;
+    }
+    .knowledge-guide-empty {
+      padding: 1rem;
+      color: rgb(107 114 128);
+      font-size: 0.8rem;
+      line-height: 1.55;
+    }
+    .guide-history {
+      border-top: 1px solid rgba(255,255,255,0.06);
+      background: rgba(0,0,0,0.14);
+    }
+    .guide-history-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .guide-history-row:first-child {
+      border-top: 0;
+    }
+    .guide-editor {
+      padding: 1rem;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      background: rgba(0,0,0,0.18);
+    }
+    .guide-editor-bar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .guide-editor-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .guide-markdown-field {
+      min-height: 24rem;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 0.78rem;
+      line-height: 1.55;
+    }
+    .guide-preview-body {
+      min-height: 24rem;
+      max-height: 38rem;
+      overflow: auto;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(0,0,0,0.24);
+      padding: 1rem;
+      color: rgb(209 213 219);
+    }
+    .guide-preview-body h1 {
+      margin: 0 0 0.75rem;
+      color: white;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .guide-preview-body h2 {
+      margin: 1rem 0 0.5rem;
+      color: rgb(165 243 252);
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+    .guide-preview-body h3 {
+      margin: 0.75rem 0 0.35rem;
+      color: rgb(224 242 254);
+      font-size: 0.84rem;
+      font-weight: 700;
+    }
+    .guide-preview-body p {
+      margin: 0.35rem 0;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: rgb(156 163 175);
+    }
+    .guide-preview-li {
+      padding-left: 0.4rem;
+    }
+    .guide-editor-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
     @media (max-width: 900px) {
       .voice-mode-grid {
+        grid-template-columns: 1fr;
+      }
+      .knowledge-guide-header,
+      .knowledge-guide-current,
+      .guide-history-row,
+      .guide-editor-actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .guide-editor-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -1025,6 +1418,10 @@ export class ChatKnowledgeSettingsComponent {
   readonly detail = signal<WorkspaceDetail | null>(null);
   readonly collections = signal<string[]>([]);
   readonly scopes = signal<KnowledgeScopeDraft[]>([]);
+  readonly knowledgeGuides = signal<KnowledgeGuide[]>([]);
+  readonly guideEditor = signal<KnowledgeGuideEditorDraft | null>(null);
+  readonly guideHistoryScope = signal<string | null>(null);
+  readonly guideSaving = signal(false);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly selectedAssistantProfileIndex = signal(0);
@@ -1152,13 +1549,15 @@ export class ChatKnowledgeSettingsComponent {
       workspace: this.workspace.getWorkspace(slug),
       scopes: this.api.get<{ scopes: KnowledgeScopeApi[] }>('/knowledge/scopes'),
       collections: this.api.get<{ collections: string[] }>('/documents/collections'),
+      guides: this.api.listKnowledgeGuides({ current_only: false }),
     }).subscribe({
-      next: ({ workspace, scopes, collections }) => {
+      next: ({ workspace, scopes, collections, guides }) => {
         this.detail.set(workspace);
         this.hydrateSettings(workspace);
         this.scopes.set((scopes.scopes || []).map((scope) => this.scopeToDraft(scope)));
         if (this.scopes().length === 0) this.addScope();
         this.collections.set([...(collections.collections || [])].sort((a, b) => a.localeCompare(b)));
+        this.knowledgeGuides.set(guides.items || []);
       },
       error: () => this.error.set('Unable to load workspace chat and Knowledge settings.'),
     });
@@ -1212,6 +1611,135 @@ export class ChatKnowledgeSettingsComponent {
   copyCollection(collection: string): void {
     void navigator.clipboard?.writeText(collection);
     this.toastr.info(collection, 'Collection slug copied');
+  }
+
+  currentGuideForScope(scopeKey: string): KnowledgeGuide | null {
+    return this.guideVersionsForScope(scopeKey).find((guide) => guide.is_current) ?? null;
+  }
+
+  guideVersionsForScope(scopeKey: string): KnowledgeGuide[] {
+    return this.knowledgeGuides()
+      .filter((guide) => guide.target_type === 'scope' && guide.target_ref === scopeKey)
+      .sort((a, b) => (b.version || 0) - (a.version || 0));
+  }
+
+  toggleGuideHistory(scopeKey: string): void {
+    this.guideHistoryScope.set(this.guideHistoryScope() === scopeKey ? null : scopeKey);
+  }
+
+  openGuideEditor(scopeKey: string, guide?: KnowledgeGuide, mode: 'create' | 'edit' | 'restore' = 'edit'): void {
+    const scope = this.scopes().find((item) => item.key === scopeKey);
+    const label = scope?.label || scopeKey;
+    if (guide) {
+      this.guideEditor.set({
+        scope_key: scopeKey,
+        guide_key: guide.guide_key,
+        mode,
+        title: guide.title || `${label} Knowledge Guide`,
+        markdown: guide.markdown || '',
+        status: guide.status || 'draft',
+        source_version: mode === 'restore' ? guide.version : undefined,
+      });
+      return;
+    }
+
+    this.guideEditor.set({
+      scope_key: scopeKey,
+      mode: 'create',
+      title: `${label} Knowledge Guide`,
+      markdown: this.defaultGuideMarkdown(label),
+      status: 'draft',
+    });
+  }
+
+  closeGuideEditor(): void {
+    this.guideEditor.set(null);
+  }
+
+  updateGuideEditor(field: 'title' | 'markdown' | 'status', value: string): void {
+    const editor = this.guideEditor();
+    if (!editor) return;
+    const next: KnowledgeGuideEditorDraft = { ...editor };
+    if (field === 'status') {
+      next.status = value === 'published' || value === 'archived' ? value : 'draft';
+    } else {
+      next[field] = value;
+    }
+    this.guideEditor.set(next);
+  }
+
+  saveGuide(status?: KnowledgeGuideStatus): void {
+    const editor = this.guideEditor();
+    if (!editor || !this.canEdit()) return;
+    const title = editor.title.trim();
+    const markdown = editor.markdown.trim();
+    if (!title || !markdown) {
+      this.error.set('Knowledge guide needs a title and Markdown content.');
+      return;
+    }
+    const payload = {
+      target_type: 'scope' as const,
+      target_ref: editor.scope_key,
+      title,
+      markdown,
+      status: status || editor.status,
+    };
+    this.guideSaving.set(true);
+    this.error.set(null);
+    const request = editor.guide_key
+      ? this.api.updateKnowledgeGuide(editor.guide_key, payload)
+      : this.api.createKnowledgeGuide(payload);
+    request.subscribe({
+      next: () => {
+        this.guideSaving.set(false);
+        this.guideEditor.set(null);
+        this.toastr.success(payload.status === 'published' ? 'Guide published' : 'Guide saved', 'Knowledge guide');
+        this.loadKnowledgeGuides();
+      },
+      error: (err) => {
+        this.guideSaving.set(false);
+        this.error.set(err?.error?.detail || 'Unable to save Knowledge guide.');
+      },
+    });
+  }
+
+  publishGuide(guide: KnowledgeGuide): void {
+    if (!this.canEdit()) return;
+    this.patchGuideStatus(guide, 'published');
+  }
+
+  archiveGuide(guide: KnowledgeGuide): void {
+    if (!this.canEdit()) return;
+    this.patchGuideStatus(guide, 'archived');
+  }
+
+  formatDate(value?: string | null): string {
+    if (!value) return 'no date';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  markdownPreviewLines(markdown: string): string[] {
+    return (markdown || '').split('\n').slice(0, 80);
+  }
+
+  markdownLineKind(line: string): 'h1' | 'h2' | 'h3' | 'li' | 'p' {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('# ')) return 'h1';
+    if (trimmed.startsWith('## ')) return 'h2';
+    if (trimmed.startsWith('### ')) return 'h3';
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) return 'li';
+    return 'p';
+  }
+
+  cleanMarkdownLine(line: string): string {
+    return line
+      .trim()
+      .replace(/^###\s+/, '')
+      .replace(/^##\s+/, '')
+      .replace(/^#\s+/, '')
+      .replace(/^[-*]\s+/, '• ');
   }
 
   addAssistantProfile(): void {
@@ -1352,6 +1880,55 @@ export class ChatKnowledgeSettingsComponent {
         this.error.set(err?.error?.detail || 'Unable to save Knowledge scopes.');
       },
     });
+  }
+
+  private loadKnowledgeGuides(): void {
+    this.api.listKnowledgeGuides({ current_only: false }).subscribe({
+      next: (guides) => this.knowledgeGuides.set(guides.items || []),
+      error: () => this.toastr.warning('Knowledge guides could not be refreshed.', 'Workspace'),
+    });
+  }
+
+  private patchGuideStatus(guide: KnowledgeGuide, status: KnowledgeGuideStatus): void {
+    this.guideSaving.set(true);
+    this.error.set(null);
+    this.api.updateKnowledgeGuide(guide.guide_key, {
+      target_type: guide.target_type,
+      target_ref: guide.target_ref,
+      title: guide.title,
+      markdown: guide.markdown || '',
+      status,
+    }).subscribe({
+      next: () => {
+        this.guideSaving.set(false);
+        this.toastr.success(status === 'published' ? 'Guide published' : 'Guide archived', 'Knowledge guide');
+        this.loadKnowledgeGuides();
+      },
+      error: (err) => {
+        this.guideSaving.set(false);
+        this.error.set(err?.error?.detail || 'Unable to update Knowledge guide.');
+      },
+    });
+  }
+
+  private defaultGuideMarkdown(label: string): string {
+    return [
+      `# ${label} Knowledge Guide`,
+      '',
+      '## Purpose',
+      'Describe how this Knowledge scope should be interpreted during retrieval and answer generation.',
+      '',
+      '## Vocabulary and aliases',
+      '- Add domain terms, abbreviations and common synonyms that help query expansion.',
+      '',
+      '## Interpretation rules',
+      '- Explain how to read recurring tables, labels, units or business conventions.',
+      '- Keep uncertain conventions explicit; do not invent values that are absent from source documents.',
+      '',
+      '## Evidence policy',
+      '- Prefer answers with citations to raw documents.',
+      '- If the guide clarifies vocabulary but the source document lacks a value, report the evidence gap.',
+    ].join('\n');
   }
 
   private hydrateSettings(workspace: WorkspaceDetail): void {

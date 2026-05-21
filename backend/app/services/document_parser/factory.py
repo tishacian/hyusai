@@ -32,7 +32,7 @@ class DocumentParserFactory:
             except ImportError:
                 logger.debug("Advanced PDF parser not available, using basic parser")
                 parser_class = cls._parsers.get(doc_type)
-        if doc_type == DocumentType.SPREADSHEET:
+        if doc_type in (DocumentType.SPREADSHEET, DocumentType.CSV):
             from app.services.document_parser.parsers.spreadsheet_parser import SpreadsheetParser
 
             return SpreadsheetParser()

@@ -71,6 +71,60 @@ export interface VoiceRuntimeCatalog {
   decision_rule?: string;
 }
 
+export type KnowledgeGuideTargetType = 'collection' | 'scope';
+export type KnowledgeGuideStatus = 'draft' | 'published' | 'archived';
+
+export interface KnowledgeGuide {
+  id: string;
+  guide_key: string;
+  workspace_id: string;
+  target_type: KnowledgeGuideTargetType;
+  target_ref: string;
+  title: string;
+  status: KnowledgeGuideStatus;
+  version: number;
+  is_current: boolean;
+  supersedes_id?: string | null;
+  created_by_user_id?: string | null;
+  created_at?: string | null;
+  published_at?: string | null;
+  snippet?: string | null;
+  markdown?: string | null;
+}
+
+export interface KnowledgeGuideList {
+  workspace_id: string;
+  workspace_slug: string;
+  items: KnowledgeGuide[];
+}
+
+export interface TableFactItem {
+  content?: string | null;
+  semantic_type?: string | null;
+  document_id?: string | null;
+  document_filename?: string | null;
+  sheet_name?: string | null;
+  cell_ref?: string | null;
+  cell_range?: string | null;
+  row_start?: number | null;
+  row_end?: number | null;
+  row_label?: string | null;
+  column_header?: string | null;
+  unit?: string | null;
+  table_region_id?: string | null;
+  interpretation_note?: string | null;
+  chunk_index?: number | null;
+}
+
+export interface TableFactList {
+  collection_name: string;
+  vector_db_type: string;
+  items: TableFactItem[];
+  total_returned: number;
+  limit: number;
+  offset: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -143,6 +197,62 @@ export class ApiService {
 
   listVoiceRuntimes(): Observable<VoiceRuntimeCatalog> {
     return this.get<VoiceRuntimeCatalog>('/voice/runtimes');
+  }
+
+  listKnowledgeGuides(params?: {
+    target_type?: KnowledgeGuideTargetType;
+    target_ref?: string;
+    status?: KnowledgeGuideStatus;
+    current_only?: boolean;
+  }): Observable<KnowledgeGuideList> {
+    const query: Record<string, string> = {};
+    if (params?.target_type) query['target_type'] = params.target_type;
+    if (params?.target_ref) query['target_ref'] = params.target_ref;
+    if (params?.status) query['status'] = params.status;
+    if (params?.current_only !== undefined) query['current_only'] = String(params.current_only);
+    return this.get<KnowledgeGuideList>('/knowledge/guides', query);
+  }
+
+  createKnowledgeGuide(body: {
+    target_type: KnowledgeGuideTargetType;
+    target_ref: string;
+    title: string;
+    markdown: string;
+    status?: KnowledgeGuideStatus;
+  }): Observable<KnowledgeGuide> {
+    return this.post<KnowledgeGuide>('/knowledge/guides', body);
+  }
+
+  updateKnowledgeGuide(
+    guideKey: string,
+    body: Partial<{
+      target_type: KnowledgeGuideTargetType;
+      target_ref: string;
+      title: string;
+      markdown: string;
+      status: KnowledgeGuideStatus;
+    }>,
+  ): Observable<KnowledgeGuide> {
+    return this.patch<KnowledgeGuide>(`/knowledge/guides/${guideKey}`, body);
+  }
+
+  listTableFacts(params: {
+    collection_name: string;
+    semantic_type?: string;
+    sheet_name?: string;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }): Observable<TableFactList> {
+    const query: Record<string, string> = {
+      collection_name: params.collection_name,
+      limit: String(params.limit ?? 100),
+      offset: String(params.offset ?? 0),
+    };
+    if (params.semantic_type) query['semantic_type'] = params.semantic_type;
+    if (params.sheet_name) query['sheet_name'] = params.sheet_name;
+    if (params.q) query['q'] = params.q;
+    return this.get<TableFactList>('/documents/table-facts', query);
   }
 
   createCapturePlan(body: CapturePlanRequest): Observable<unknown> {

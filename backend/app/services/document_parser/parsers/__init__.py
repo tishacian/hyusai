@@ -10,6 +10,7 @@ DocumentParserFactory.register_parser(DocumentType.TEXT, TextParser)
 DocumentParserFactory.register_parser(DocumentType.MARKDOWN, MarkdownParser)
 DocumentParserFactory.register_parser(DocumentType.LOG, TextParser)  # Logs use text parser
 DocumentParserFactory.register_parser(DocumentType.SPREADSHEET, SpreadsheetParser)
+DocumentParserFactory.register_parser(DocumentType.CSV, SpreadsheetParser)
 
 # Register PDF parsers if available
 try:

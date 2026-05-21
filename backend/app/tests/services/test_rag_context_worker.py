@@ -176,7 +176,7 @@ async def test_retrieve_rag_context_returns_serialisable_contract():
     assert result["collection_errors"] == []
 
 
-async def test_retrieve_rag_context_uses_published_guides_as_hint_and_source(monkeypatch):
+async def test_retrieve_rag_context_uses_published_guides_as_hint_and_advisory_source(monkeypatch):
     guide = SimpleNamespace(
         title="Excel data dictionary",
         markdown="Column A contains labels. Column B contains numeric values. Def strips maps B to 85.",
@@ -201,9 +201,11 @@ async def test_retrieve_rag_context_uses_published_guides_as_hint_and_source(mon
     )
 
     assert any("Knowledge guide hints" in query for query in doc_svc.queries)
-    assert result["chunks"][0].startswith("Knowledge guide: Excel data dictionary")
-    assert result["metadatas"][0]["source_type"] == "knowledge_guide"
-    assert result["metadatas"][0]["guide_version"] == 2
+    assert result["chunks"][-1].startswith("Knowledge guide: Excel data dictionary")
+    assert result["scores"][-1] < 0.1
+    assert result["metadatas"][-1]["source_type"] == "knowledge_guide"
+    assert result["metadatas"][-1]["retrieval_role"] == "advisory_context"
+    assert result["metadatas"][-1]["guide_version"] == 2
     assert result["metrics"]["knowledge_guides"] == 1
 
 
@@ -221,9 +223,9 @@ async def test_retrieve_rag_context_dedupes_repeated_spreadsheet_boilerplate():
     assert len(result["chunks"]) == 2
     assert result["metrics"]["raw_chunks_retrieved"] == 3
     assert result["metrics"]["duplicates_removed"] == 1
-    assert "Spreadsheet sheet: test 2" in result["chunks"][0]
+    assert "B = 85" in result["chunks"][0]
     assert "Spreadsheet sheet: test 1" not in "\n".join(result["chunks"])
-    assert "B = 85" in result["chunks"][1]
+    assert "Spreadsheet sheet: test 2" in result["chunks"][1]
     assert len(result["scores"]) == len(result["chunks"]) == len(result["metadatas"])
 
 

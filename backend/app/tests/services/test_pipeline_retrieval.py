@@ -8,6 +8,7 @@ import pytest
 
 from app.services.rag.pipeline_retrieval import (
     _merge_rrf,
+    _prioritise_spreadsheet_label_matches,
     _query_variants,
     retrieve_chah_like,
     retrieve_for_mode,
@@ -61,8 +62,128 @@ def test_query_variants_keep_guide_hints_separate_from_label_targets():
 
     assert any("Knowledge guide hints" in variant for variant in variants)
     assert any("Def strips label B value B =" in variant for variant in variants)
+    assert any("Spreadsheet cell fact Def strips" in variant for variant in variants)
     assert not any("Def strips label A value A =" in variant for variant in variants)
     assert not any("Def strips label C value C =" in variant for variant in variants)
+
+
+def test_query_variants_add_protocol_matrix_hints():
+    variants = _query_variants(
+        "Sur le test 2A du 21/05/2025 pour GEOTEX, quelle était la valeur du poids ?"
+    )
+
+    assert any("Protocole essais trials N° 2A" in variant for variant in variants)
+    assert any("Spreadsheet sheet test 2 Weight Poids" in variant for variant in variants)
+    assert any("2025-05-21" in variant for variant in variants)
+    assert any("Poids Weight" in variant for variant in variants)
+    assert any("Customer GEOTEX" in variant for variant in variants)
+
+
+def test_spreadsheet_protocol_rerank_prioritises_trial_matrix():
+    query = "Sur le test 2A du 21/05/2025 pour GEOTEX, quelle était la valeur du poids ?"
+    rows = [
+        _mk_result(
+            "Spreadsheet sheet: Sheet1 Row 1: A1=Poids | B1=random unrelated weight table",
+            0.9,
+            0,
+        ),
+        _mk_result(
+            "Spreadsheet sheet: Protocole essais Row 1: A1=Customer | B1=GEOTEX | C1=DATE | "
+            "D1=2025-05-21 00:00:00 Row 4: A4=trials N° | I4=2A | J4=3B "
+            "Row 12: A12=Poids | I12=42.5",
+            0.2,
+            1,
+        ),
+    ]
+
+    reranked = _prioritise_spreadsheet_label_matches(rows, query)
+
+    assert reranked[0]["content"].startswith("Spreadsheet sheet: Protocole essais")
+
+
+def test_spreadsheet_protocol_rerank_prioritises_numbered_test_sheet():
+    query = "Sur le test 2A du 21/05/2025 pour GEOTEX, quelle était la valeur du poids ?"
+    rows = [
+        _mk_result(
+            "Spreadsheet sheet: Sheet1 Row 1: A1=Poids | B1=random unrelated weight table",
+            0.9,
+            0,
+        ),
+        _mk_result(
+            "Spreadsheet sheet: test 2 Row 14: B14=Weight (g/m²) | I14=#DIV/0! "
+            "Row 26: B26=Weight (g/m²) | D26=#DIV/0!",
+            0.2,
+            1,
+        ),
+    ]
+
+    reranked = _prioritise_spreadsheet_label_matches(rows, query)
+
+    assert reranked[0]["content"].startswith("Spreadsheet sheet: test 2")
+
+
+def test_spreadsheet_protocol_rerank_prioritises_hemp_strip_sheet():
+    query = "Quel est le strip standard utilisé pour la production de chanvre ?"
+    rows = [
+        _mk_result(
+            "Spreadsheet sheet: Sheet1 Row 2: B2=Production | C2=generic run summary",
+            0.9,
+            0,
+        ),
+        _mk_result(
+            "Spreadsheet sheet: STRIP GB434 100% CHANVRE Row 1: A1=Strip GB434 100% CHANVRE "
+            "550g/m² Row 2: B2=Résistance en traction",
+            0.2,
+            1,
+        ),
+    ]
+
+    reranked = _prioritise_spreadsheet_label_matches(rows, query)
+
+    assert "CHANVRE" in reranked[0]["content"]
+
+
+def test_spreadsheet_rerank_prioritises_interpreted_cell_facts():
+    query = "Sur le test 2A du 21/05/2025 pour GEOTEX, quelle était la valeur du poids ?"
+    rows = [
+        _mk_result(
+            "Spreadsheet sheet: Sheet1 Row 1: A1=Poids | B1=random unrelated weight table",
+            0.9,
+            0,
+        ),
+        _mk_result(
+            'Spreadsheet interpreted cells: sheet="Protocole essais" row=12 | '
+            'cell=I12 value="42.5" row_label="Poids" metric="Poids" parameter="Poids" '
+            'column_header="2A" trial_or_sample="2A"',
+            0.2,
+            1,
+        ),
+    ]
+
+    reranked = _prioritise_spreadsheet_label_matches(rows, query)
+
+    assert reranked[0]["content"].startswith("Spreadsheet interpreted cells")
+
+
+def test_spreadsheet_label_rerank_prioritises_label_value_facts():
+    query = "Peux-tu retrouver le diamètre labellisé par la lettre B ?"
+    rows = [
+        _mk_result(
+            "Spreadsheet sheet: generic Row 1: A1=B | B1=unrelated text",
+            0.9,
+            0,
+        ),
+        _mk_result(
+            'Spreadsheet label-value fact: sheet="Def strips" row=2 '
+            'label="B" value="85" label_cell=A2 value_cell=B2 | B = 85',
+            0.2,
+            1,
+        ),
+    ]
+
+    reranked = _prioritise_spreadsheet_label_matches(rows, query)
+
+    assert reranked[0]["content"].startswith("Spreadsheet label-value fact")
 
 
 @pytest.mark.asyncio
@@ -89,6 +210,31 @@ async def test_retrieve_chah_like_parallel():
     assert out.pipeline == "chah_backend"
     assert doc.search.called
     assert len(out.chunks) >= 1
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chah_like_reranks_protocol_candidate_pool():
+    doc = MagicMock()
+    protocol = _mk_result(
+        "Spreadsheet sheet: Protocole essais Row 1: A1=Customer | B1=GEOTEX | C1=DATE | "
+        "D1=2025-05-21 00:00:00 Row 4: A4=trials N° | I4=2A "
+        "Row 12: A12=Poids | I12=42.5",
+        0.2,
+        9,
+    )
+    noisy_results = [
+        _mk_result(f"generic spreadsheet result {i} with enough text", 0.9 - i / 100, i)
+        for i in range(8)
+    ] + [protocol]
+    doc.search = AsyncMock(return_value=noisy_results)
+
+    out = await retrieve_chah_like(
+        doc,
+        "Sur le test 2A du 21/05/2025 pour GEOTEX, quelle était la valeur du poids ?",
+        top_k=3,
+    )
+
+    assert out.chunks[0].startswith("Spreadsheet sheet: Protocole essais")
 
 
 @pytest.mark.asyncio
