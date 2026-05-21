@@ -417,6 +417,52 @@ def test_retrieval_profile_treats_ui_auto_as_unset(monkeypatch):
     assert profile["rag_mode"] == "chah"
 
 
+def test_retrieval_profile_augments_spreadsheet_follow_up_from_history(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "get_resolved_settings",
+        lambda **_kwargs: {
+            "ragCollectionName": "documents",
+            "ragVectorDBType": "qdrant",
+            "ragTopK": 5,
+            "ragPipelineMode": "hybrid",
+        },
+    )
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "andritz_non_wovens_france_excel_pilot",
+            "label": "NON-WOVENS France Excel pilot",
+            "collection_slugs": ["andritz-non-wovens-france-excel-pilot"],
+            "default_mode": "chah",
+            "top_k": 5,
+        },
+    )
+
+    profile = get_retrieval_profile(
+        {
+            "query": "ok et vois tu des valeurs différentes dans plusieurs documents ?",
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+            "knowledge_scope": "andritz_non_wovens_france_excel_pilot",
+            "context": {
+                "conversation_history": [
+                    {
+                        "role": "user",
+                        "content": "dans la feuille def strips vois tu la valeur du label B ?",
+                    },
+                    {"role": "assistant", "content": "Le label B vaut 85."},
+                ]
+            },
+        }
+    )
+
+    assert "valeurs différentes" in profile["query"]
+    assert "def strips" in profile["query"]
+    assert "label B" in profile["query"]
+
+
 def test_retrieval_profile_combines_scope_and_session_context(monkeypatch):
     monkeypatch.setattr(
         rag_context,

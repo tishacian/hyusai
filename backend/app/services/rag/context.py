@@ -28,6 +28,21 @@ _SPREADSHEET_SHEET_PREFIX_RE = re.compile(
     r"\bspreadsheet\s+sheet:\s*.*?(?=\s+row\s+\d+:)",
     re.IGNORECASE,
 )
+_FOLLOW_UP_RE = re.compile(
+    r"\b("
+    r"diff[ée]rentes?|plusieurs|autres?|reste|documents?|valeurs?|"
+    r"ce|ces|celle|celui|cela|ça|m[êe]me|ailleurs|compare|compar[ée]r|"
+    r"different|multiple|other|same|those|these|it|them|compare"
+    r")\b",
+    re.IGNORECASE,
+)
+_SPREADSHEET_SIGNAL_RE = re.compile(
+    r"\b("
+    r"diam[eè]tre|diameter|label|lettre|letter|def\s+strips?|strip|strips|"
+    r"table|valeur|value|sheet|feuille"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 def _int_or_default(value: Any, default: int) -> int:
@@ -44,6 +59,42 @@ def _explicit_mode(value: Any) -> str | None:
     if not mode or mode == "auto":
         return None
     return mode
+
+
+def _conversation_history(request: dict[str, Any]) -> list[dict[str, Any]]:
+    context = request.get("context") if isinstance(request.get("context"), Mapping) else {}
+    history = context.get("conversation_history") if isinstance(context, Mapping) else None
+    return [item for item in history if isinstance(item, Mapping)] if isinstance(history, list) else []
+
+
+def _history_augmented_query(request: dict[str, Any]) -> str:
+    """Keep follow-up retrieval grounded in the previous user turn.
+
+    The LLM prompt already receives conversation history, but retrieval used to
+    search only the latest short follow-up ("des valeurs différentes ?"). For
+    tabular lookups, that drops the label/sheet anchor from the prior turn and
+    the vector search falls back to noisy spreadsheet headers. We only augment
+    follow-ups when the current turn is referential/comparative and a recent
+    user turn contains spreadsheet/table signals.
+    """
+    query = str(request.get("rewritten_query") or request.get("query") or "").strip()
+    if not query or not _FOLLOW_UP_RE.search(query):
+        return query
+
+    recent_user_messages: list[str] = []
+    for item in reversed(_conversation_history(request)):
+        if str(item.get("role") or "").lower() != "user":
+            continue
+        content = str(item.get("content") or "").strip()
+        if content and content not in recent_user_messages:
+            recent_user_messages.append(content)
+        if len(recent_user_messages) >= 3:
+            break
+
+    anchors = [msg for msg in recent_user_messages if _SPREADSHEET_SIGNAL_RE.search(msg)]
+    if not anchors:
+        return query
+    return " | ".join([query, "Previous user context:", *reversed(anchors[:2])])
 
 
 def _jsonable(value: Any) -> Any:
@@ -111,7 +162,7 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
     collections = scope.get("collection_slugs") or [fallback_collection]
     vector_db_type = resolve_vector_db_type(app_settings)
     return {
-        "query": request.get("rewritten_query") or request.get("query") or "",
+        "query": _history_augmented_query(request),
         "rag_mode": rag_mode,
         "top_k": top_k,
         "collection": collections[0],

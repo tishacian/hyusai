@@ -407,12 +407,16 @@ class OmniRAGAgent(BaseAgent):
             filtered_metadatas = filtered_metadatas + [{}] * (
                 len(filtered_chunks) - len(filtered_metadatas)
             )
+        preserve_retrieval_order = str(retrieval_context.get("pipeline") or "").startswith(
+            ("chah_", "hah_", "multi_")
+        )
         if n_chunks > 0 and scores:
             threshold = 0.1
             before = n_chunks
             triples = list(zip(retrieval_context["chunks"], scores, filtered_metadatas))
             triples = [(c, s, m) for c, s, m in triples if s >= threshold]
-            triples.sort(key=lambda x: x[1], reverse=True)
+            if not preserve_retrieval_order:
+                triples.sort(key=lambda x: x[1], reverse=True)
             if triples:
                 filtered_chunks = [c for c, _, _ in triples]
                 filtered_scores = [s for _, s, _ in triples]
