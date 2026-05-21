@@ -75,6 +75,7 @@ _DOCX_EXTENSIONS = {"docx"}
 _DOCX_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
 _DOCX_PREVIEW_MAX_CHARS = 200_000
 _ARCHIVE_PROMOTION_EXTENSIONS = {"csv", "html", "htm", "md", "pdf", "txt"}
+_BULK_SPREADSHEET_PROMOTION_MAX_FILES = 50
 
 
 def enabled_workspace_slugs() -> set[str]:
@@ -1101,6 +1102,173 @@ def _promote_single_worker_file_to_collection(
         },
     )
     return deposit_file
+
+
+def promote_spreadsheet_files_to_collection(
+    db: DBSession,
+    *,
+    deposit_files: list[DepositFile],
+    workspace: Workspace,
+    user: User,
+    collection_slug: str,
+) -> dict[str, Any]:
+    """Promote several modern spreadsheet deposit files with one worker job.
+
+    A single ``document_ingest_index`` job is important here: the worker indexes
+    the full collection snapshot, so dispatching one job per file would re-ingest
+    the same growing collection repeatedly.
+    """
+    if len(deposit_files) > _BULK_SPREADSHEET_PROMOTION_MAX_FILES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Bulk spreadsheet promotion is limited to {_BULK_SPREADSHEET_PROMOTION_MAX_FILES} files",
+        )
+
+    default_collection_slug = f"{workspace.slug}-secure-deposit"
+    collection_slug = (collection_slug or default_collection_slug).strip() or default_collection_slug
+    selected: list[tuple[DepositFile, str, str]] = []
+    skipped: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+
+    for deposit_file in deposit_files:
+        if deposit_file.id in seen_ids:
+            continue
+        seen_ids.add(deposit_file.id)
+        reason = ""
+        if deposit_file.workspace_id != workspace.id:
+            reason = "wrong_workspace"
+        elif deposit_file.status != "received":
+            reason = f"status_{deposit_file.status}"
+        else:
+            extension = extension_for(deposit_file.filename or "")
+            if extension in _LEGACY_SPREADSHEET_EXTENSIONS:
+                reason = "legacy_xls_unsupported"
+            elif extension not in _SPREADSHEET_EXTENSIONS:
+                reason = "not_modern_spreadsheet"
+
+        if reason:
+            skipped.append({"file_id": deposit_file.id, "filename": deposit_file.filename or "", "reason": reason})
+            continue
+
+        selected.append((deposit_file, _single_document_name(deposit_file), extension_for(deposit_file.filename or "")))
+
+    if not selected:
+        raise HTTPException(status_code=422, detail={"message": "No promotable modern spreadsheets found", "skipped": skipped})
+
+    collection = create_or_get_collection(
+        db,
+        workspace=workspace,
+        name=collection_slug,
+        description=f"Secure Deposit spreadsheet bulk promotion ({len(selected)} files)",
+        created_by_user_id=user.id,
+        slug=collection_slug,
+    )
+    store = get_object_store()
+    document_names = list(collection.document_names or [])
+    document_name_set = set(document_names)
+
+    promoted_payload: list[dict[str, Any]] = []
+    for deposit_file, document_name, extension in selected:
+        source_path = staged_file_path(deposit_file)
+        store.write_bytes(original_key(collection, document_name), source_path.read_bytes())
+        if document_name not in document_name_set:
+            document_names.append(document_name)
+            document_name_set.add(document_name)
+        promoted_payload.append(
+            {
+                "file_id": deposit_file.id,
+                "filename": deposit_file.filename,
+                "document_name": document_name,
+                "extension": extension,
+                "size_bytes": deposit_file.size_bytes,
+            }
+        )
+
+    update_collection_status(
+        db,
+        collection.id,
+        status="queued",
+        document_names=document_names,
+        document_count=len(document_names),
+    )
+    job = create_worker_job(
+        db,
+        workspace_id=workspace.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    db.commit()
+    db.refresh(job)
+    db.refresh(collection)
+
+    celery_task_id = dispatch_worker_job(db, job)
+    db.commit()
+    db.refresh(job)
+    db.refresh(collection)
+
+    result = {
+        "status": "queued",
+        "mode": "spreadsheet_bulk",
+        "collection_id": collection.id,
+        "collection_slug": collection.slug,
+        "job_id": job.id,
+        "celery_task_id": job.celery_task_id or celery_task_id,
+        "promoted_count": len(selected),
+        "skipped": skipped,
+        "spreadsheets": promoted_payload,
+    }
+
+    for deposit_file, document_name, extension in selected:
+        file_result = {
+            **result,
+            "spreadsheet": {
+                "filename": deposit_file.filename,
+                "document_name": document_name,
+                "extension": extension,
+                "size_bytes": deposit_file.size_bytes,
+            },
+        }
+        deposit_file.status = "promoted"
+        deposit_file.promoted_at = datetime.utcnow()
+        deposit_file.promoted_by_user_id = user.id
+        deposit_file.promoted_collection_slug = collection.slug
+        deposit_file.worker_job_id = job.id
+        deposit_file.promotion_result = file_result
+        emit_audit_event(
+            db=db,
+            workspace_id=workspace.id,
+            event_type="deposit.file.promoted",
+            actor=user.email or user.username or user.id,
+            details={
+                "file_id": deposit_file.id,
+                "filename": deposit_file.filename,
+                "collection_slug": collection.slug,
+                "worker_job_id": job.id,
+                "mode": "spreadsheet_bulk",
+                "result": file_result,
+            },
+        )
+
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="deposit.bulk_promote.created",
+        actor=user.email or user.username or user.id,
+        details={
+            "collection_slug": collection.slug,
+            "worker_job_id": job.id,
+            "promoted_count": len(selected),
+            "skipped_count": len(skipped),
+        },
+    )
+    db.flush()
+    return {
+        "collection": collection,
+        "job": job,
+        "promoted_files": [row for row, _, _ in selected],
+        "skipped": skipped,
+        "result": result,
+    }
 
 
 def _promote_archive_file_to_collection(

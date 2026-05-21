@@ -134,3 +134,84 @@ def test_promote_deposit_spreadsheet_returns_queued_worker_payload(db_session, m
     assert body["promotion_result"]["mode"] == "spreadsheet"
     assert body["promotion_result"]["spreadsheet"]["extension"] == "xlsx"
     assert body["promotion_result"]["celery_task_id"] == "task-excel"
+
+
+def test_bulk_promote_spreadsheets_uses_one_worker_job(db_session, monkeypatch, tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Excel upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+
+    rows = []
+    for label in ("sample-a", "sample-b"):
+        source = tmp_path / f"{label}.xlsx"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Def strips"
+        sheet.append(["A", 80])
+        sheet.append(["B", 85])
+        workbook.save(source)
+        rows.append(
+            record_staged_file_from_path(
+                db_session,
+                link=link,
+                source_path=source,
+                filename=f"1-NON-WOVENS/FRANCE/GEOTEX/{label}.xlsx",
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                actor=f"sftp:{link.access_id}",
+                transport="sftp",
+            )
+        )
+
+    legacy = tmp_path / "legacy.xls"
+    legacy.write_bytes(b"legacy")
+    rows.append(
+        record_staged_file_from_path(
+            db_session,
+            link=link,
+            source_path=legacy,
+            filename="1-NON-WOVENS/FRANCE/LEMOINE/legacy.xls",
+            content_type="application/vnd.ms-excel",
+            actor=f"sftp:{link.access_id}",
+            transport="sftp",
+        )
+    )
+    db_session.commit()
+
+    def fake_dispatch(db, job):
+        job.celery_task_id = "task-excel-bulk"
+        return "task-excel-bulk"
+
+    monkeypatch.setattr("app.services.secure_deposit.dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, workspace, user).post(
+        "/sftp/deposits/promote-bulk",
+        json={
+            "collection_slug": "andritz-non-wovens-france-excel-pilot",
+            "file_ids": [row.id for row in rows],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["files"]) == 2
+    assert body["skipped"][0]["reason"] == "legacy_xls_unsupported"
+    assert body["result"]["mode"] == "spreadsheet_bulk"
+    assert body["result"]["promoted_count"] == 2
+    assert body["result"]["celery_task_id"] == "task-excel-bulk"
+    assert len({file["worker_job_id"] for file in body["files"]}) == 1

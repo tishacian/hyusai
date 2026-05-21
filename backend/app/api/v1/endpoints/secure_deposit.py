@@ -26,6 +26,7 @@ from app.services.secure_deposit import (
     get_link_by_access_id,
     is_workspace_enabled,
     promote_file_to_collection,
+    promote_spreadsheet_files_to_collection,
     preview_deposit_file,
     receive_file,
     revoke_link,
@@ -68,6 +69,11 @@ class DepositLinkPatchRequest(BaseModel):
 
 class DepositPromoteRequest(BaseModel):
     collection_slug: Optional[str] = Field(default=None, max_length=120)
+
+
+class DepositBulkPromoteRequest(BaseModel):
+    collection_slug: Optional[str] = Field(default=None, max_length=120)
+    file_ids: list[str] = Field(default_factory=list)
 
 
 def _bearer_token(authorization: str | None) -> str:
@@ -507,3 +513,44 @@ async def promote_deposit_file(
     db.commit()
     db.refresh(row)
     return {"file": serialize_file(row)}
+
+
+@internal_router.post("/deposits/promote-bulk")
+def promote_deposit_files_bulk(
+    body: DepositBulkPromoteRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    _enforce(db, user=user, workspace=workspace, resource_kind="deposit_file", action="promote")
+    file_ids = [file_id for file_id in body.file_ids if file_id]
+    if not file_ids:
+        raise HTTPException(status_code=422, detail="file_ids is required")
+    if len(file_ids) > 50:
+        raise HTTPException(status_code=422, detail="Bulk promotion is limited to 50 files")
+
+    rows = (
+        db.query(DepositFile)
+        .filter(DepositFile.workspace_id == workspace.id, DepositFile.id.in_(file_ids))
+        .all()
+    )
+    rows_by_id = {row.id: row for row in rows}
+    missing = [file_id for file_id in file_ids if file_id not in rows_by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail={"message": "Some deposit files were not found", "file_ids": missing})
+
+    payload = promote_spreadsheet_files_to_collection(
+        db,
+        deposit_files=[rows_by_id[file_id] for file_id in file_ids],
+        workspace=workspace,
+        user=user,
+        collection_slug=body.collection_slug or "",
+    )
+    db.commit()
+    for row in payload["promoted_files"]:
+        db.refresh(row)
+    return {
+        "files": [serialize_file(row) for row in payload["promoted_files"]],
+        "skipped": payload["skipped"],
+        "result": payload["result"],
+    }

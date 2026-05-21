@@ -77,6 +77,7 @@ interface SecureDepositHealth {
 type QueueStatusFilter = 'received' | 'rejected' | 'promoted' | 'all';
 
 const DEFAULT_QUEUE_PAGE_SIZE = 100;
+const BULK_PROMOTE_LIMIT = 25;
 
 @Component({
   selector: 'app-sftp-connector',
@@ -269,6 +270,19 @@ const DEFAULT_QUEUE_PAGE_SIZE = 100;
               <p class="mt-1 text-xs text-gray-500">Files from all visible deposit links stay here until manual promotion.</p>
             </div>
             <div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+              <button
+                type="button"
+                class="inline-flex w-full items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40 sm:w-auto"
+                [disabled]="bulkEligibleFiles().length === 0 || bulkPromoting() || saving()"
+                (click)="promoteExcelBatch()"
+                title="Promote up to 25 received modern Excel files from the current folder or search view."
+              >
+                <app-icon name="archive-restore" [size]="13" />
+                {{ bulkPromoting() ? 'Promoting batch' : 'Promote Excel batch' }}
+                @if (bulkEligibleFiles().length > 0) {
+                  <span class="rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[10px]">{{ bulkEligibleFiles().length }}</span>
+                }
+              </button>
               <button
                 type="button"
                 class="inline-flex w-full items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 sm:w-auto"
@@ -568,6 +582,7 @@ export class SftpConnectorComponent implements OnInit {
   readonly secretLink = signal<DepositLink | null>(null);
   readonly loading = signal(false);
   readonly saving = signal(false);
+  readonly bulkPromoting = signal(false);
   readonly downloading = signal(false);
   readonly downloadingFileId = signal<string | null>(null);
   readonly error = signal<string | null>(null);
@@ -602,6 +617,15 @@ export class SftpConnectorComponent implements OnInit {
     const start = (this.currentQueuePage() - 1) * this.queuePageSize();
     return this.queueItems().slice(start, start + this.queuePageSize());
   });
+  readonly bulkEligibleFiles = computed(() =>
+    this.queueItems()
+      .map((item) => item.file)
+      .filter((file): file is DepositFile => {
+        if (!file) return false;
+        return file.status === 'received' && this.isModernSpreadsheet(file);
+      })
+      .slice(0, BULK_PROMOTE_LIMIT),
+  );
   readonly queueRangeLabel = computed(() => {
     const total = this.queueItems().length;
     if (total === 0) return '0 rows';
@@ -727,6 +751,41 @@ export class SftpConnectorComponent implements OnInit {
         error: (err) => {
           this.toast.error(this.errorMessage(err, 'Unable to promote file'), 'Secure Deposit');
           this.saving.set(false);
+        },
+      });
+  }
+
+  promoteExcelBatch(): void {
+    const files = this.bulkEligibleFiles();
+    if (!files.length) {
+      this.toast.info('No received modern Excel files in the current view.', 'Secure Deposit');
+      return;
+    }
+    const collection = this.collectionSlug || this.defaultCollectionSlug();
+    const accepted = window.confirm(
+      `Promote ${files.length} Excel files from the current view to "${collection}"?\n\nA single Knowledge worker job will index the batch. Legacy .xls files are excluded.`,
+    );
+    if (!accepted) return;
+
+    this.bulkPromoting.set(true);
+    this.api
+      .post<{ files: DepositFile[]; skipped: { file_id: string; filename: string; reason: string }[]; result: { job_id?: string } }>(
+        '/sftp/deposits/promote-bulk',
+        {
+          collection_slug: collection,
+          file_ids: files.map((file) => file.id),
+        },
+      )
+      .subscribe({
+        next: (res) => {
+          const skipped = res.skipped?.length ? `, ${res.skipped.length} skipped` : '';
+          this.toast.success(`${res.files?.length || files.length} Excel files queued${skipped}`, 'Secure Deposit');
+          this.bulkPromoting.set(false);
+          this.load();
+        },
+        error: (err) => {
+          this.toast.error(this.errorMessage(err, 'Unable to promote Excel batch'), 'Secure Deposit');
+          this.bulkPromoting.set(false);
         },
       });
   }
@@ -1066,6 +1125,16 @@ export class SftpConnectorComponent implements OnInit {
 
   private filePath(file: DepositFile): string {
     return (file.filename || 'upload').replace(/\\/g, '/').split('/').filter(Boolean).join('/');
+  }
+
+  private isModernSpreadsheet(file: DepositFile): boolean {
+    return ['xlsx', 'xlsm', 'xltx', 'xltm'].includes(this.extension(file.filename));
+  }
+
+  private extension(path: string): string {
+    const name = this.basename(path).toLowerCase();
+    const index = name.lastIndexOf('.');
+    return index > -1 ? name.slice(index + 1) : '';
   }
 
   private errorMessage(err: unknown, fallback: string): string {
