@@ -29,6 +29,21 @@ HAH_SECOND_PASS_CAP = 20
 CHAH_QUERY_TRUNC = 120
 CHAH_MAX_WORDS_HEAD = 12
 RRF_K = 60
+_SPREADSHEET_LABEL_TRIGGERS_RE = re.compile(
+    r"\b("
+    r"diam[eè]tre|diameter|label|labell?is[ée]e?|lettre|letter|strip|strips|"
+    r"trou|trous|hole|holes|def\s+strips?"
+    r")\b",
+    re.IGNORECASE,
+)
+_SPREADSHEET_LABEL_RE = re.compile(
+    r"(?:\b(?:label|lettre|letter|diam[eè]tre|diameter|strip|trou|hole)\s+"
+    r"(?:labell?is[ée]e?\s+)?(?:par\s+la\s+lettre\s+|sous\s+le\s+label\s+|"
+    r"du\s+label\s+|de\s+la\s+lettre\s+)?)"
+    r"([A-Z])\b",
+    re.IGNORECASE,
+)
+_UPPERCASE_LABEL_TOKEN_RE = re.compile(r"\b([A-Z])\b")
 
 
 @dataclass
@@ -214,6 +229,7 @@ def _query_variants(question: str) -> list[str]:
     words = re.split(r"\s+", q)
     if len(words) > 5:
         variants.append(" ".join(words[:CHAH_MAX_WORDS_HEAD]))
+    variants.extend(_spreadsheet_label_query_variants(q))
     # dedupe while preserving order
     seen: set[str] = set()
     out: list[str] = []
@@ -222,6 +238,46 @@ def _query_variants(question: str) -> list[str]:
             seen.add(v)
             out.append(v)
     return out
+
+
+def _spreadsheet_label_query_variants(question: str) -> list[str]:
+    """Add exact-ish Excel label variants for small tabular business lookups.
+
+    A query like "diamètre B" is semantically tiny: once a collection contains
+    many spreadsheets, dense retrieval often prefers unrelated sheets that also
+    contain "B" or "diameter-like" headers. The spreadsheet parser renders
+    two-column definitions as ``A2=B | B2=85 | B = 85``. These variants give
+    C-HAH/BM25 a chance to find that explicit table without hardcoding any
+    Andritz collection or value.
+    """
+    if not question or not _SPREADSHEET_LABEL_TRIGGERS_RE.search(question):
+        return []
+
+    labels: list[str] = []
+    for match in _SPREADSHEET_LABEL_RE.finditer(question):
+        label = match.group(1).upper()
+        if label not in labels:
+            labels.append(label)
+    # French voice queries often end as "diamètre B ?" where the trigger and
+    # the target are separate tokens. Only fall back to single-letter tokens
+    # when the query has a spreadsheet/table trigger to avoid polluting normal
+    # prose searches.
+    for match in _UPPERCASE_LABEL_TOKEN_RE.finditer(question):
+        label = match.group(1).upper()
+        if label not in labels:
+            labels.append(label)
+
+    variants: list[str] = []
+    for label in labels[:4]:
+        variants.extend(
+            [
+                f"Spreadsheet sheet Def strips {label} =",
+                f"Def strips label {label} value {label} =",
+                f"Row A={label} B= value strip diameter label {label}",
+                f"A2={label} B2 {label} =",
+            ]
+        )
+    return variants
 
 
 async def retrieve_chah_like(

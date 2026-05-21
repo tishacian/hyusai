@@ -66,6 +66,52 @@ class FakeSpreadsheetDuplicateService:
         ][:top_k]
 
 
+class FakeSpreadsheetLabelService:
+    def __init__(self):
+        self.queries: list[str] = []
+
+    async def get_document_count(self) -> int:
+        return 26
+
+    async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid=None):  # noqa: ARG002
+        self.queries.append(query)
+        if "Def strips" in query or "B =" in query:
+            return [
+                {
+                    "content": (
+                        "Spreadsheet sheet: Def strips Row 1: A1=A | B1=80 | A = 80 "
+                        "Row 2: A2=B | B2=85 | B = 85 Row 3: A3=C | B3=90 | C = 90"
+                    ),
+                    "score": 0.96,
+                    "metadata": {
+                        "document_id": "geotex-def-strips",
+                        "document_filename": "GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+                        "sheet_name": "Def strips",
+                        "row_start": 1,
+                        "row_end": 3,
+                    },
+                }
+            ][:top_k]
+        return [
+            {
+                "content": (
+                    "Spreadsheet sheet: CD N et % Row 3: C3=1 | D3=2 | E3=3 | "
+                    "Row 4: B4=CD (N/50 mm) | C4=250.41"
+                ),
+                "score": 0.91,
+                "metadata": {"document_id": "noise-1", "document_filename": "analyse voile.xlsx"},
+            },
+            {
+                "content": (
+                    "Spreadsheet sheet: MD N et % Row 3: C3=1 | D3=2 | E3=3 | "
+                    "Row 4: B4=MD (N/50 mm) | C4=333.251"
+                ),
+                "score": 0.9,
+                "metadata": {"document_id": "noise-2", "document_filename": "analyse voile.xlsx"},
+            },
+        ][:top_k]
+
+
 async def test_retrieve_rag_context_returns_serialisable_contract():
     result = await retrieve_rag_context(
         {
@@ -107,6 +153,25 @@ async def test_retrieve_rag_context_dedupes_repeated_spreadsheet_boilerplate():
     assert "Spreadsheet sheet: test 1" not in "\n".join(result["chunks"])
     assert "B = 85" in result["chunks"][1]
     assert len(result["scores"]) == len(result["chunks"]) == len(result["metadatas"])
+
+
+async def test_retrieve_rag_context_expands_spreadsheet_label_queries():
+    doc_svc = FakeSpreadsheetLabelService()
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Quel est le diamètre B ?",
+            "rag_pipeline_mode": "chah",
+            "top_k": 3,
+            "workspace_slug": "andritz",
+        },
+        doc_svc=doc_svc,
+    )
+
+    assert any("Def strips" in query for query in doc_svc.queries)
+    assert any("B =" in query for query in doc_svc.queries)
+    assert any("B = 85" in chunk for chunk in result["chunks"])
+    assert result["pipeline"] == "chah_backend"
 
 
 async def test_retrieve_rag_context_exposes_multi_collection_metadata(monkeypatch):
