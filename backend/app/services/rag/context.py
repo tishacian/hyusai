@@ -196,13 +196,6 @@ def _effective_guides_for_profile(profile: dict[str, Any]) -> list[Any]:
         db.close()
 
 
-def _query_with_guide_hints(query: str, guides: list[Any]) -> str:
-    hint = guide_query_hint(guides)
-    if not hint:
-        return query
-    return f"{query}\n\nKnowledge guide hints:\n{hint}"
-
-
 def _prepend_guide_context(
     chunks: list[str],
     scores: list[float],
@@ -359,7 +352,8 @@ async def retrieve_rag_context(
     profile = get_retrieval_profile(request)
     query = profile["query"]
     guides = _effective_guides_for_profile(profile)
-    retrieval_query = _query_with_guide_hints(query, guides)
+    guide_hint = guide_query_hint(guides)
+    retrieval_query = query
     collections = profile.get("collections") or [profile["collection"]]
     metrics: dict[str, Any] = {
         "duration_ms": 0,
@@ -375,6 +369,7 @@ async def retrieve_rag_context(
         "fallback_reason": fallback_reason,
         "knowledge_guides": len(guides),
         "query_expanded_with_guides": bool(guides),
+        "knowledge_guide_hint_chars": len(guide_hint),
     }
 
     if len(collections) > 1 and doc_svc is None:
@@ -386,6 +381,7 @@ async def retrieve_rag_context(
             fallback_reason=fallback_reason,
             guides=guides,
             retrieval_query=retrieval_query,
+            guide_hint=guide_hint,
         )
 
     try:
@@ -433,6 +429,7 @@ async def retrieve_rag_context(
         top_k=profile["top_k"],
         use_hybrid=use_hybrid,
         hah_chah_enabled=settings.rag_hah_chah_enabled,
+        query_hints=guide_hint,
     )
 
     duration_ms = int((time.time() - started) * 1000)
@@ -549,6 +546,7 @@ async def _retrieve_multi_collection_context(
     fallback_reason: str | None,
     guides: list[Any],
     retrieval_query: str,
+    guide_hint: str,
 ) -> dict[str, Any]:
     query = profile["query"]
     collection_results: list[dict[str, Any]] = []
@@ -569,6 +567,7 @@ async def _retrieve_multi_collection_context(
                 top_k=profile["top_k"],
                 use_hybrid=use_hybrid,
                 hah_chah_enabled=settings.rag_hah_chah_enabled,
+                query_hints=guide_hint,
             )
             metadatas = []
             for meta in result.metadatas or []:

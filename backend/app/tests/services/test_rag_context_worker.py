@@ -191,7 +191,7 @@ async def test_retrieve_rag_context_uses_published_guides_as_hint_and_source(mon
     result = await retrieve_rag_context(
         {
             "query": "Quel est le diamètre B ?",
-            "rag_pipeline_mode": "naive",
+            "rag_pipeline_mode": "chah",
             "top_k": 3,
             "workspace_id": "workspace-andritz",
             "workspace_slug": "andritz",

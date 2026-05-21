@@ -221,7 +221,7 @@ async def retrieve_hah_like(
     )
 
 
-def _query_variants(question: str) -> list[str]:
+def _query_variants(question: str, query_hints: str | None = None) -> list[str]:
     q = question.strip()
     variants = [q]
     if len(q) > CHAH_QUERY_TRUNC:
@@ -230,6 +230,9 @@ def _query_variants(question: str) -> list[str]:
     if len(words) > 5:
         variants.append(" ".join(words[:CHAH_MAX_WORDS_HEAD]))
     variants.extend(_spreadsheet_label_query_variants(q))
+    hint = str(query_hints or "").strip()
+    if hint:
+        variants.append(f"{q}\n\nKnowledge guide hints:\n{hint[:900]}")
     # dedupe while preserving order
     seen: set[str] = set()
     out: list[str] = []
@@ -335,6 +338,7 @@ async def retrieve_chah_like(
     doc_svc: "DocumentService",
     query: str,
     top_k: int = 5,
+    query_hints: str | None = None,
 ) -> RetrievalPipelineResult:
     """Parallel retrieval over query variants + RRF merge (C-HAH-like).
 
@@ -353,7 +357,7 @@ async def retrieve_chah_like(
             metadatas=[],
         )
 
-    variants = _query_variants(q)
+    variants = _query_variants(q, query_hints=query_hints)
     searches = [doc_svc.search(v, top_k=min(12, top_k + 7), use_hybrid=True) for v in variants]
     lists = await asyncio.gather(*searches)
     merged = _prioritise_spreadsheet_label_matches(
@@ -390,6 +394,7 @@ async def retrieve_for_mode(
     top_k: int = 5,
     use_hybrid: bool = True,
     hah_chah_enabled: bool = True,
+    query_hints: str | None = None,
 ) -> RetrievalPipelineResult:
     """
     Single entry for RAG retrieval by pipeline mode.
@@ -413,9 +418,12 @@ async def retrieve_for_mode(
     if hah_chah_enabled and m in ("hah", "hah_rag", "hah rag"):
         return await retrieve_hah_like(doc_svc, query, top_k=top_k)
     if hah_chah_enabled and m in ("chah", "c-hah", "c_hah", "hahcomposite", "hah_composite"):
-        return await retrieve_chah_like(doc_svc, query, top_k=top_k)
+        return await retrieve_chah_like(doc_svc, query, top_k=top_k, query_hints=query_hints)
 
-    results = await doc_svc.search(query, top_k=top_k, use_hybrid=use_hybrid)
+    search_query = query
+    if query_hints:
+        search_query = f"{query}\n\nKnowledge guide hints:\n{str(query_hints)[:900]}"
+    results = await doc_svc.search(search_query, top_k=top_k, use_hybrid=use_hybrid)
     chunks, scores, metas = _results_to_chunks_scores_metas(results)
     pipe: Literal["naive", "hybrid"] = "hybrid" if use_hybrid else "naive"
     return RetrievalPipelineResult(

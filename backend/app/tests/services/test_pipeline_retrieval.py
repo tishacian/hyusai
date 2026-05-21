@@ -53,6 +53,18 @@ def test_query_variants_long_splits():
     assert v[0] == long_q.strip()
 
 
+def test_query_variants_keep_guide_hints_separate_from_label_targets():
+    variants = _query_variants(
+        "Quel est le diamètre B ?",
+        query_hints="Column A contains labels A, B, C. Column B contains values.",
+    )
+
+    assert any("Knowledge guide hints" in variant for variant in variants)
+    assert any("Def strips label B value B =" in variant for variant in variants)
+    assert not any("Def strips label A value A =" in variant for variant in variants)
+    assert not any("Def strips label C value C =" in variant for variant in variants)
+
+
 @pytest.mark.asyncio
 async def test_retrieve_hah_like_two_passes():
     doc = MagicMock()
