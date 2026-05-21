@@ -1145,6 +1145,14 @@ def promote_spreadsheet_files_to_collection(
                 reason = "legacy_xls_unsupported"
             elif extension not in _SPREADSHEET_EXTENSIONS:
                 reason = "not_modern_spreadsheet"
+            else:
+                source_path = staged_file_path(deposit_file)
+                if not source_path.exists():
+                    reason = "staged_file_missing"
+                elif (deposit_file.size_bytes or 0) <= 0:
+                    reason = "empty_file"
+                elif not zipfile.is_zipfile(source_path):
+                    reason = "invalid_office_spreadsheet"
 
         if reason:
             skipped.append({"file_id": deposit_file.id, "filename": deposit_file.filename or "", "reason": reason})

@@ -191,6 +191,19 @@ def test_bulk_promote_spreadsheets_uses_one_worker_job(db_session, monkeypatch, 
             transport="sftp",
         )
     )
+    invalid_modern = tmp_path / "invalid.xlsx"
+    invalid_modern.write_bytes(b"not a workbook")
+    rows.append(
+        record_staged_file_from_path(
+            db_session,
+            link=link,
+            source_path=invalid_modern,
+            filename="1-NON-WOVENS/FRANCE/AHLSTROM/invalid.xlsx",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            actor=f"sftp:{link.access_id}",
+            transport="sftp",
+        )
+    )
     db_session.commit()
 
     def fake_dispatch(db, job):
@@ -210,7 +223,8 @@ def test_bulk_promote_spreadsheets_uses_one_worker_job(db_session, monkeypatch, 
     assert response.status_code == 200
     body = response.json()
     assert len(body["files"]) == 2
-    assert body["skipped"][0]["reason"] == "legacy_xls_unsupported"
+    skipped_reasons = {item["reason"] for item in body["skipped"]}
+    assert skipped_reasons == {"legacy_xls_unsupported", "invalid_office_spreadsheet"}
     assert body["result"]["mode"] == "spreadsheet_bulk"
     assert body["result"]["promoted_count"] == 2
     assert body["result"]["celery_task_id"] == "task-excel-bulk"
