@@ -21,6 +21,7 @@ interface KnowledgeScopeApi {
   top_k?: number | null;
   is_default?: boolean;
   table_profile_key?: string | null;
+  document_profile_key?: string | null;
 }
 
 interface KnowledgeScopeDraft {
@@ -32,6 +33,7 @@ interface KnowledgeScopeDraft {
   top_k: number | null;
   is_default: boolean;
   table_profile_key: string;
+  document_profile_key: string;
 }
 
 interface KnowledgeGuideEditorDraft {
@@ -111,6 +113,41 @@ interface TableProfileDraft {
 interface TableIntelligenceSettingsDraft {
   default_profile: string;
   profiles: TableProfileDraft[];
+}
+
+interface DocumentProfileDraft {
+  key: string;
+  label: string;
+  description: string;
+  synonyms_text: string;
+  max_candidate_facts: number;
+  max_evidence_rows: number;
+}
+
+interface OcrSettingsDraft {
+  enabled: boolean;
+  provider_priority_text: string;
+  languages_text: string;
+  required: boolean;
+  force_ocr: boolean;
+  scan_detection: boolean;
+  min_native_pdf_chars: number;
+  min_confidence: number;
+  timeout_seconds: number;
+  retries: number;
+  ppocr_endpoint_url: string;
+  openai_vision_enabled: boolean;
+  openai_model: string;
+  openai_detail: 'low' | 'high' | 'auto';
+  openai_max_image_bytes: number;
+  openai_enrich_min_chars: number;
+  openai_enrich_min_confidence: number;
+}
+
+interface DocumentIntelligenceSettingsDraft {
+  default_profile: string;
+  profiles: DocumentProfileDraft[];
+  ocr: OcrSettingsDraft;
 }
 
 interface AssistantProfileDraft {
@@ -221,7 +258,7 @@ interface AssistantProfileDraft {
                   </label>
                 </div>
 
-                <div class="grid gap-4 mt-4 md:grid-cols-[minmax(180px,260px)_minmax(120px,160px)_minmax(220px,1fr)]">
+                <div class="grid gap-4 mt-4 md:grid-cols-2 xl:grid-cols-[minmax(160px,220px)_minmax(110px,140px)_minmax(200px,1fr)_minmax(200px,1fr)]">
                   <label class="block">
                     <span class="field-label">Retrieval mode</span>
                     <span class="ag-select-wrap">
@@ -243,6 +280,18 @@ interface AssistantProfileDraft {
                       <select class="ag-select" [(ngModel)]="scope.table_profile_key" [disabled]="!canEdit()">
                         <option value="">Workspace default</option>
                         @for (profile of tableProfileOptions(); track profile.key) {
+                          <option [ngValue]="profile.key">{{ profile.label || profile.key }}</option>
+                        }
+                      </select>
+                      <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                    </span>
+                  </label>
+                  <label class="block">
+                    <span class="field-label">Document profile</span>
+                    <span class="ag-select-wrap">
+                      <select class="ag-select" [(ngModel)]="scope.document_profile_key" [disabled]="!canEdit()">
+                        <option value="">Workspace default</option>
+                        @for (profile of documentProfileOptions(); track profile.key) {
                           <option [ngValue]="profile.key">{{ profile.label || profile.key }}</option>
                         }
                       </select>
@@ -624,6 +673,213 @@ interface AssistantProfileDraft {
                 </div>
               }
             </div>
+          </div>
+        </section>
+
+        <section class="t-card t-elevated rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
+            <div>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Document & OCR Intelligence</p>
+              <h3 class="text-base font-semibold text-white mt-1">Manuals, scans and visual evidence</h3>
+              <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
+                Document profiles guide procedure, warning and parameter lookup. OCR settings control how scans,
+                images and low-text PDFs become searchable evidence.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-sm font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+              [disabled]="!canEdit()"
+              (click)="addDocumentProfile()"
+            >
+              <app-icon name="plus" [size]="14" /> Add profile
+            </button>
+          </div>
+
+          <div class="p-5 space-y-5">
+            <div class="grid gap-4 lg:grid-cols-[minmax(260px,360px)_1fr]">
+              <label class="block">
+                <span class="field-label">Workspace default document profile</span>
+                <span class="ag-select-wrap">
+                  <select class="ag-select" [(ngModel)]="documentIntelligenceDraft.default_profile" [disabled]="!canEdit()">
+                    <option value="">Generic default</option>
+                    @for (profile of documentIntelligenceDraft.profiles; track profile.key) {
+                      <option [ngValue]="profile.key">{{ profile.label || profile.key }}</option>
+                    }
+                  </select>
+                  <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                </span>
+              </label>
+              <div class="rounded border border-cyan-400/20 bg-cyan-500/5 px-4 py-3 text-xs leading-relaxed text-cyan-50/80">
+                V1 extracts structure and document facts. V1.5 exposes OCR evidence in the UI. V2 adds provider gating,
+                OpenAI Vision enrichment and service-first OCR without locking Agentium to one provider.
+              </div>
+            </div>
+
+            <div class="space-y-4">
+              @for (profile of documentIntelligenceDraft.profiles; track profile; let i = $index) {
+                <article class="table-profile-card">
+                  <div class="table-profile-head">
+                    <div>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Document profile {{ i + 1 }}</p>
+                      <h4 class="text-sm font-semibold text-white mt-1">{{ profile.label || profile.key || 'Untitled profile' }}</h4>
+                    </div>
+                    <button
+                      type="button"
+                      class="guide-button guide-button-danger"
+                      [disabled]="!canEdit()"
+                      (click)="removeDocumentProfile(i)"
+                    >
+                      <app-icon name="trash-2" [size]="13" /> Remove
+                    </button>
+                  </div>
+
+                  <div class="grid gap-4 md:grid-cols-[minmax(160px,0.8fr)_minmax(220px,1fr)]">
+                    <label class="block">
+                      <span class="field-label">Key</span>
+                      <input class="ag-field font-mono" [(ngModel)]="profile.key" [disabled]="!canEdit()" placeholder="manuals_generic" />
+                    </label>
+                    <label class="block">
+                      <span class="field-label">Label</span>
+                      <input class="ag-field" [(ngModel)]="profile.label" [disabled]="!canEdit()" placeholder="Manuals and procedures" />
+                    </label>
+                  </div>
+
+                  <label class="block mt-4">
+                    <span class="field-label">Description</span>
+                    <input class="ag-field" [(ngModel)]="profile.description" [disabled]="!canEdit()" placeholder="How this profile should interpret manuals and OCR facts." />
+                  </label>
+
+                  <div class="grid gap-4 mt-4 lg:grid-cols-[minmax(0,1fr)_180px_180px]">
+                    <label class="block">
+                      <span class="field-label">Synonyms</span>
+                      <textarea
+                        class="ag-field table-map-field"
+                        [(ngModel)]="profile.synonyms_text"
+                        [disabled]="!canEdit()"
+                        spellcheck="false"
+                        placeholder="warning: attention, danger&#10;procedure: procédure, consigne"
+                      ></textarea>
+                    </label>
+                    <label class="block">
+                      <span class="field-label">Max candidate facts</span>
+                      <input class="ag-field" type="number" min="100" max="20000" [(ngModel)]="profile.max_candidate_facts" [disabled]="!canEdit()" />
+                    </label>
+                    <label class="block">
+                      <span class="field-label">Max evidence rows</span>
+                      <input class="ag-field" type="number" min="3" max="100" [(ngModel)]="profile.max_evidence_rows" [disabled]="!canEdit()" />
+                    </label>
+                  </div>
+                </article>
+              } @empty {
+                <div class="rounded-md border border-white/10 bg-black/10 px-4 py-5 text-sm text-gray-500">
+                  No custom document profile. Agentium will use its generic provider-neutral document interpretation profile.
+                </div>
+              }
+            </div>
+
+            <article class="table-profile-card">
+              <div class="table-profile-head">
+                <div>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">OCR providers</p>
+                  <h4 class="text-sm font-semibold text-white mt-1">Visual document ingestion</h4>
+                  <p class="mt-1 text-xs text-gray-500">
+                    Provider order is tried left-to-right. OpenAI Vision is opt-in and only used when enabled.
+                  </p>
+                </div>
+              </div>
+
+              <div class="grid gap-3 lg:grid-cols-3">
+                <label class="voice-toggle-row voice-toggle-compact">
+                  <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.enabled" [disabled]="!canEdit()" />
+                  <span><strong>OCR enabled</strong><small>Allow image and scanned-PDF text extraction.</small></span>
+                </label>
+                <label class="voice-toggle-row voice-toggle-compact">
+                  <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.scan_detection" [disabled]="!canEdit()" />
+                  <span><strong>Auto scan detection</strong><small>Run OCR when native PDF text is weak.</small></span>
+                </label>
+                <label class="voice-toggle-row voice-toggle-compact">
+                  <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.required" [disabled]="!canEdit()" />
+                  <span><strong>Required</strong><small>Fail ingestion if no OCR provider can return text.</small></span>
+                </label>
+              </div>
+
+              <div class="grid gap-4 mt-4 lg:grid-cols-2">
+                <label class="block">
+                  <span class="field-label">Provider priority</span>
+                  <input class="ag-field font-mono" [(ngModel)]="documentIntelligenceDraft.ocr.provider_priority_text" [disabled]="!canEdit()" placeholder="ppocr_service, tesseract_local, openai_vision" />
+                </label>
+                <label class="block">
+                  <span class="field-label">Languages</span>
+                  <input class="ag-field font-mono" [(ngModel)]="documentIntelligenceDraft.ocr.languages_text" [disabled]="!canEdit()" placeholder="eng, fra" />
+                </label>
+              </div>
+
+              <div class="grid gap-4 mt-4 md:grid-cols-2 xl:grid-cols-4">
+                <label class="block">
+                  <span class="field-label">Min native PDF chars</span>
+                  <input class="ag-field" type="number" min="0" max="5000" [(ngModel)]="documentIntelligenceDraft.ocr.min_native_pdf_chars" [disabled]="!canEdit()" />
+                </label>
+                <label class="block">
+                  <span class="field-label">Min confidence</span>
+                  <input class="ag-field" type="number" min="0" max="1" step="0.05" [(ngModel)]="documentIntelligenceDraft.ocr.min_confidence" [disabled]="!canEdit()" />
+                </label>
+                <label class="block">
+                  <span class="field-label">Timeout seconds</span>
+                  <input class="ag-field" type="number" min="1" max="180" [(ngModel)]="documentIntelligenceDraft.ocr.timeout_seconds" [disabled]="!canEdit()" />
+                </label>
+                <label class="block">
+                  <span class="field-label">Retries</span>
+                  <input class="ag-field" type="number" min="0" max="5" [(ngModel)]="documentIntelligenceDraft.ocr.retries" [disabled]="!canEdit()" />
+                </label>
+              </div>
+
+              <label class="block mt-4">
+                <span class="field-label">PP-OCR endpoint URL</span>
+                <input class="ag-field font-mono" [(ngModel)]="documentIntelligenceDraft.ocr.ppocr_endpoint_url" [disabled]="!canEdit()" placeholder="http://ocr-service:8000" />
+              </label>
+
+              <div class="grid gap-3 mt-4 lg:grid-cols-3">
+                <label class="voice-toggle-row voice-toggle-compact">
+                  <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.force_ocr" [disabled]="!canEdit()" />
+                  <span><strong>Force OCR</strong><small>OCR every PDF page even if native text exists.</small></span>
+                </label>
+                <label class="voice-toggle-row voice-toggle-compact">
+                  <input type="checkbox" [(ngModel)]="documentIntelligenceDraft.ocr.openai_vision_enabled" [disabled]="!canEdit()" />
+                  <span><strong>OpenAI Vision fallback</strong><small>Use only when listed in priority and deterministic OCR is weak.</small></span>
+                </label>
+                <label class="block">
+                  <span class="field-label">OpenAI detail</span>
+                  <span class="ag-select-wrap">
+                    <select class="ag-select" [(ngModel)]="documentIntelligenceDraft.ocr.openai_detail" [disabled]="!canEdit()">
+                      <option value="low">low</option>
+                      <option value="auto">auto</option>
+                      <option value="high">high</option>
+                    </select>
+                    <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                  </span>
+                </label>
+              </div>
+
+              <div class="grid gap-4 mt-4 md:grid-cols-2 xl:grid-cols-4">
+                <label class="block">
+                  <span class="field-label">OpenAI model</span>
+                  <input class="ag-field font-mono" [(ngModel)]="documentIntelligenceDraft.ocr.openai_model" [disabled]="!canEdit()" />
+                </label>
+                <label class="block">
+                  <span class="field-label">Max image bytes</span>
+                  <input class="ag-field" type="number" min="100000" max="50000000" [(ngModel)]="documentIntelligenceDraft.ocr.openai_max_image_bytes" [disabled]="!canEdit()" />
+                </label>
+                <label class="block">
+                  <span class="field-label">Enrich min chars</span>
+                  <input class="ag-field" type="number" min="0" max="1000" [(ngModel)]="documentIntelligenceDraft.ocr.openai_enrich_min_chars" [disabled]="!canEdit()" />
+                </label>
+                <label class="block">
+                  <span class="field-label">Enrich confidence</span>
+                  <input class="ag-field" type="number" min="0" max="1" step="0.05" [(ngModel)]="documentIntelligenceDraft.ocr.openai_enrich_min_confidence" [disabled]="!canEdit()" />
+                </label>
+              </div>
+            </article>
           </div>
         </section>
 
@@ -1657,6 +1913,7 @@ export class ChatKnowledgeSettingsComponent {
   voiceOutputDraft: VoiceOutputSettingsDraft = this.defaultVoiceOutputDraft();
   actionSettingsDraft: WorkspaceActionSettingsDraft = this.defaultActionSettingsDraft();
   tableIntelligenceDraft: TableIntelligenceSettingsDraft = this.defaultTableIntelligenceDraft();
+  documentIntelligenceDraft: DocumentIntelligenceSettingsDraft = this.defaultDocumentIntelligenceDraft();
 
   readonly canEdit = computed(() => {
     const role = this.detail()?.role;
@@ -1699,6 +1956,10 @@ export class ChatKnowledgeSettingsComponent {
 
   tableProfileOptions(): TableProfileDraft[] {
     return this.tableIntelligenceDraft.profiles.filter((profile) => profile.key.trim());
+  }
+
+  documentProfileOptions(): DocumentProfileDraft[] {
+    return this.documentIntelligenceDraft.profiles.filter((profile) => profile.key.trim());
   }
 
   readonly activeProfileChatOverrides = computed(() => {
@@ -1792,6 +2053,7 @@ export class ChatKnowledgeSettingsComponent {
       top_k: 5,
       is_default: next.length === 0,
       table_profile_key: '',
+      document_profile_key: '',
     });
     this.scopes.set(next);
   }
@@ -2076,6 +2338,9 @@ export class ChatKnowledgeSettingsComponent {
     const tableIntelligence = this.cleanTableIntelligenceSettings();
     if (!tableIntelligence) return;
     settings['table_intelligence'] = tableIntelligence;
+    const documentIntelligence = this.cleanDocumentIntelligenceSettings();
+    if (!documentIntelligence) return;
+    settings['document_intelligence'] = documentIntelligence;
     settings['assistant_profile_default'] = this.assistantProfileDefault || null;
     settings['assistant_profiles'] = assistantProfiles;
 
@@ -2166,6 +2431,7 @@ export class ChatKnowledgeSettingsComponent {
     this.voiceOutputDraft = this.voiceOutputToDraft(settings['voice_output']);
     this.actionSettingsDraft = this.actionSettingsToDraft(settings['actions']);
     this.tableIntelligenceDraft = this.tableIntelligenceToDraft(settings['table_intelligence']);
+    this.documentIntelligenceDraft = this.documentIntelligenceToDraft(settings['document_intelligence']);
     this.assistantProfileDefault = this.str(settings['assistant_profile_default']);
     this.assistantProfilesJson = JSON.stringify(Array.isArray(settings['assistant_profiles']) ? settings['assistant_profiles'] : [], null, 2);
     this.selectedAssistantProfileIndex.set(0);
@@ -2181,6 +2447,7 @@ export class ChatKnowledgeSettingsComponent {
       top_k: scope.top_k || null,
       is_default: !!scope.is_default,
       table_profile_key: scope.table_profile_key || '',
+      document_profile_key: scope.document_profile_key || '',
     };
   }
 
@@ -2199,6 +2466,7 @@ export class ChatKnowledgeSettingsComponent {
         top_k: scope.top_k ? Number(scope.top_k) : null,
         is_default: !!scope.is_default,
         table_profile_key: scope.table_profile_key?.trim() || null,
+        document_profile_key: scope.document_profile_key?.trim() || null,
       };
     });
 
@@ -2264,6 +2532,51 @@ export class ChatKnowledgeSettingsComponent {
     return {
       default_profile: defaultProfile || null,
       profiles,
+    };
+  }
+
+  private cleanDocumentIntelligenceSettings(): Record<string, unknown> | null {
+    const profiles = this.documentIntelligenceDraft.profiles.map((profile) => ({
+      key: profile.key.trim(),
+      label: profile.label.trim() || profile.key.trim(),
+      description: profile.description.trim(),
+      synonyms: this.mapTextToRecord(profile.synonyms_text),
+      max_candidate_facts: this.clampNumber(profile.max_candidate_facts, 5000, 100, 20000),
+      max_evidence_rows: this.clampNumber(profile.max_evidence_rows, 24, 3, 100),
+    })).filter((profile) => profile.key);
+
+    if (new Set(profiles.map((profile) => profile.key)).size !== profiles.length) {
+      this.error.set('Document Intelligence profile keys must be unique.');
+      return null;
+    }
+    const defaultProfile = this.documentIntelligenceDraft.default_profile.trim();
+    if (defaultProfile && !profiles.some((profile) => profile.key === defaultProfile)) {
+      this.error.set('The default Document Intelligence profile must exist in the profile list.');
+      return null;
+    }
+    const ocr = this.documentIntelligenceDraft.ocr;
+    return {
+      default_profile: defaultProfile || null,
+      profiles,
+      ocr: {
+        enabled: !!ocr.enabled,
+        provider_priority: this.csvToList(ocr.provider_priority_text),
+        ppocr_endpoint_url: ocr.ppocr_endpoint_url.trim() || null,
+        languages: this.csvToList(ocr.languages_text),
+        scan_detection: !!ocr.scan_detection,
+        force_ocr: !!ocr.force_ocr,
+        min_text_chars_for_native_pdf: this.clampNumber(ocr.min_native_pdf_chars, 80, 0, 5000),
+        min_confidence: this.clampFloat(ocr.min_confidence, 0, 0, 1),
+        timeout_seconds: this.clampNumber(ocr.timeout_seconds, 30, 1, 180),
+        retries: this.clampNumber(ocr.retries, 2, 0, 5),
+        required: !!ocr.required,
+        openai_vision_enabled: !!ocr.openai_vision_enabled,
+        openai_model: ocr.openai_model.trim() || 'gpt-4o-mini',
+        openai_detail: ocr.openai_detail || 'low',
+        openai_max_image_bytes: this.clampNumber(ocr.openai_max_image_bytes, 5_000_000, 100_000, 50_000_000),
+        openai_enrich_min_chars: this.clampNumber(ocr.openai_enrich_min_chars, 24, 0, 1000),
+        openai_enrich_min_confidence: this.clampFloat(ocr.openai_enrich_min_confidence, 0.45, 0, 1),
+      },
     };
   }
 
@@ -2410,6 +2723,32 @@ export class ChatKnowledgeSettingsComponent {
     };
   }
 
+  private defaultDocumentIntelligenceDraft(): DocumentIntelligenceSettingsDraft {
+    return {
+      default_profile: '',
+      profiles: [],
+      ocr: {
+        enabled: true,
+        provider_priority_text: 'ppocr_service, tesseract_local',
+        languages_text: 'eng, fra',
+        required: false,
+        force_ocr: false,
+        scan_detection: true,
+        min_native_pdf_chars: 80,
+        min_confidence: 0,
+        timeout_seconds: 30,
+        retries: 2,
+        ppocr_endpoint_url: '',
+        openai_vision_enabled: false,
+        openai_model: 'gpt-4o-mini',
+        openai_detail: 'low',
+        openai_max_image_bytes: 5000000,
+        openai_enrich_min_chars: 24,
+        openai_enrich_min_confidence: 0.45,
+      },
+    };
+  }
+
   private tableIntelligenceToDraft(value: unknown): TableIntelligenceSettingsDraft {
     const config = this.asRecord(value);
     const profilesRaw = Array.isArray(config['profiles']) ? config['profiles'] : [];
@@ -2437,6 +2776,55 @@ export class ChatKnowledgeSettingsComponent {
       ambiguity_policy: this.str(raw['ambiguity_policy']) || 'ask_when_metric_unclear',
       require_cell_citations: evidence['require_cell_citations'] !== false,
       show_excluded_values: evidence['show_excluded_values'] !== false,
+    };
+  }
+
+  private documentIntelligenceToDraft(value: unknown): DocumentIntelligenceSettingsDraft {
+    const config = this.asRecord(value);
+    const profilesRaw = Array.isArray(config['profiles']) ? config['profiles'] : [];
+    const profiles = profilesRaw
+      .map((raw) => this.documentProfileToDraft(this.asRecord(raw)))
+      .filter((profile) => profile.key || profile.label);
+    return {
+      default_profile: this.str(config['default_profile']),
+      profiles,
+      ocr: this.ocrSettingsToDraft(config['ocr']),
+    };
+  }
+
+  private documentProfileToDraft(raw: Record<string, unknown>): DocumentProfileDraft {
+    return {
+      key: this.str(raw['key']),
+      label: this.str(raw['label']),
+      description: this.str(raw['description']),
+      synonyms_text: this.recordToMapText(raw['synonyms']),
+      max_candidate_facts: this.num(raw['max_candidate_facts'], 5000),
+      max_evidence_rows: this.num(raw['max_evidence_rows'], 24),
+    };
+  }
+
+  private ocrSettingsToDraft(value: unknown): OcrSettingsDraft {
+    const config = this.asRecord(value);
+    const fallback = this.defaultDocumentIntelligenceDraft().ocr;
+    const detail = this.str(config['openai_detail']);
+    return {
+      enabled: config['enabled'] !== false,
+      provider_priority_text: this.listToCsv(config['provider_priority']) || this.str(config['provider_priority']) || fallback.provider_priority_text,
+      languages_text: this.listToCsv(config['languages']) || this.str(config['languages']) || fallback.languages_text,
+      required: config['required'] === true,
+      force_ocr: config['force_ocr'] === true,
+      scan_detection: config['scan_detection'] !== false,
+      min_native_pdf_chars: this.num(config['min_text_chars_for_native_pdf'], this.num(config['min_native_pdf_chars'], 80)),
+      min_confidence: this.num(config['min_confidence'], 0),
+      timeout_seconds: this.num(config['timeout_seconds'], 30),
+      retries: this.num(config['retries'], 2),
+      ppocr_endpoint_url: this.str(config['ppocr_endpoint_url']),
+      openai_vision_enabled: config['openai_vision_enabled'] === true,
+      openai_model: this.str(config['openai_model']) || fallback.openai_model,
+      openai_detail: detail === 'high' || detail === 'auto' ? detail : 'low',
+      openai_max_image_bytes: this.num(config['openai_max_image_bytes'], fallback.openai_max_image_bytes),
+      openai_enrich_min_chars: this.num(config['openai_enrich_min_chars'], fallback.openai_enrich_min_chars),
+      openai_enrich_min_confidence: this.num(config['openai_enrich_min_confidence'], fallback.openai_enrich_min_confidence),
     };
   }
 
@@ -2469,6 +2857,33 @@ export class ChatKnowledgeSettingsComponent {
       profiles,
     };
     this.scopes.set(this.scopes().map((scope) => scope.table_profile_key === removed ? { ...scope, table_profile_key: '' } : scope));
+  }
+
+  addDocumentProfile(): void {
+    const next = [...this.documentIntelligenceDraft.profiles];
+    next.push({
+      key: `document_profile_${next.length + 1}`,
+      label: `Document profile ${next.length + 1}`,
+      description: '',
+      synonyms_text: '',
+      max_candidate_facts: 5000,
+      max_evidence_rows: 24,
+    });
+    this.documentIntelligenceDraft = {
+      ...this.documentIntelligenceDraft,
+      profiles: next,
+    };
+  }
+
+  removeDocumentProfile(index: number): void {
+    const removed = this.documentIntelligenceDraft.profiles[index]?.key;
+    const profiles = this.documentIntelligenceDraft.profiles.filter((_, i) => i !== index);
+    this.documentIntelligenceDraft = {
+      ...this.documentIntelligenceDraft,
+      default_profile: this.documentIntelligenceDraft.default_profile === removed ? '' : this.documentIntelligenceDraft.default_profile,
+      profiles,
+    };
+    this.scopes.set(this.scopes().map((scope) => scope.document_profile_key === removed ? { ...scope, document_profile_key: '' } : scope));
   }
 
   private actionSettingsToDraft(value: unknown): WorkspaceActionSettingsDraft {
@@ -2540,6 +2955,11 @@ export class ChatKnowledgeSettingsComponent {
   private clampNumber(value: unknown, fallback: number, min: number, max: number): number {
     const n = this.num(value, fallback);
     return Math.min(max, Math.max(min, Math.round(n)));
+  }
+
+  private clampFloat(value: unknown, fallback: number, min: number, max: number): number {
+    const n = this.num(value, fallback);
+    return Math.min(max, Math.max(min, n));
   }
 
   private promptPackDraft(value: unknown): PromptCardDraft[] {

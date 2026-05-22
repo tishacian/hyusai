@@ -10,7 +10,7 @@ import { HttpClient } from '@angular/common/http';
 import { SlicePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, map } from 'rxjs/operators';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -80,6 +80,7 @@ type KbTabId =
   | 'chunks'
   | 'structure'
   | 'facts'
+  | 'ocr'
   | 'table-facts'
   | 'guides'
   | 'diagnostics'
@@ -411,6 +412,115 @@ type KbTabId =
                     }
                   </div>
                   <p class="mt-3 text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">{{ fact.content }}</p>
+                </article>
+              }
+            </div>
+          }
+        </section>
+      </ck-tab>
+
+      <ck-tab id="ocr" label="OCR">
+        <section class="t-card rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+                Visual document intelligence
+              </div>
+              <h3 class="mt-1 text-base font-semibold text-white">OCR / visual evidence</h3>
+              <p class="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
+                Inspect text extracted from scanned PDFs and images. V1 stores OCR blocks as
+                document facts, V1.5 exposes them here, and V2 can route/enrich through
+                service providers such as PP-OCR, Tesseract or vision fallback.
+              </p>
+            </div>
+            <button
+              type="button"
+              (click)="loadOcrFacts()"
+              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+            >
+              <app-icon name="refresh-cw" [size]="13" /> Refresh OCR
+            </button>
+          </div>
+          <div class="grid gap-3 border-b border-white/5 px-5 py-4 md:grid-cols-[minmax(0,1fr)_220px]">
+            <label class="block">
+              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Search OCR text</span>
+              <input
+                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                type="search"
+                placeholder="Text, warning, label, OCR block…"
+                [value]="ocrFactQuery()"
+                (input)="ocrFactQuery.set($any($event.target).value)"
+                (keydown.enter)="loadOcrFacts()"
+              />
+            </label>
+            <label class="block">
+              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Visual type</span>
+              <select
+                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                [value]="ocrFactType()"
+                (change)="ocrFactType.set($any($event.target).value); loadOcrFacts()"
+              >
+                <option value="">All OCR evidence</option>
+                <option value="document_ocr_text">OCR pages</option>
+                <option value="visual_text_block">Text blocks</option>
+                <option value="visual_parameter">Visual parameters</option>
+                <option value="visual_warning">Visual warnings</option>
+              </select>
+            </label>
+          </div>
+          @if (loadingOcrFacts()) {
+            <div class="p-5 text-sm text-gray-400">
+              <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
+              Loading OCR evidence…
+            </div>
+          } @else if (ocrFacts().length === 0) {
+            <app-empty-state
+              icon="scan-text"
+              title="No OCR evidence found"
+              description="Ingest scanned PDFs or image files with OCR enabled, then refresh this tab. Native text PDFs do not need OCR unless force OCR is enabled."
+            />
+          } @else {
+            <div class="grid gap-4 p-5 md:grid-cols-4">
+              @for (row of ocrSummaryRows(); track row.label) {
+                <article class="rounded border border-white/10 bg-black/20 p-3">
+                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ row.label }}</div>
+                  <div class="mt-1 text-xl font-semibold text-white tabular-nums">{{ row.value }}</div>
+                  <p class="mt-1 text-[11px] text-gray-500">{{ row.hint }}</p>
+                </article>
+              }
+            </div>
+            <div class="divide-y divide-white/5 border-t border-white/5">
+              @for (fact of ocrFacts(); track ocrFactKey(fact, $index)) {
+                <article class="px-5 py-4 hover:bg-white/[0.03] transition">
+                  <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                    <span class="ck-mono rounded bg-brand-500/10 px-2 py-1 text-brand-300 ring-1 ring-brand-500/20">
+                      {{ fact.semantic_type || 'ocr' }}
+                    </span>
+                    @if (fact.page) {
+                      <span>Page {{ fact.page }}</span>
+                    }
+                    @if (ocrProviderLabel(fact)) {
+                      <span>Provider: <span class="text-gray-300">{{ ocrProviderLabel(fact) }}</span></span>
+                    }
+                    @if (ocrConfidenceLabel(fact)) {
+                      <span>Confidence: <span class="text-gray-300">{{ ocrConfidenceLabel(fact) }}</span></span>
+                    }
+                    @if (ocrBoxLabel(fact)) {
+                      <span>Box: <span class="font-mono text-gray-300">{{ ocrBoxLabel(fact) }}</span></span>
+                    }
+                  </div>
+                  <h4 class="mt-2 text-sm font-medium text-white truncate">
+                    {{ fact.document_filename || 'Visual source' }}
+                  </h4>
+                  @if (fact.section_path) {
+                    <p class="mt-1 text-[11px] text-gray-500 truncate">{{ fact.section_path }}</p>
+                  }
+                  <p class="mt-3 text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">{{ fact.content || fact.value_raw }}</p>
+                  @if (ocrWarningLabel(fact)) {
+                    <p class="mt-2 rounded border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-100">
+                      {{ ocrWarningLabel(fact) }}
+                    </p>
+                  }
                 </article>
               }
             </div>
@@ -778,6 +888,7 @@ export class KnowledgeViewComponent implements OnInit {
   readonly loadingBindings = signal(true);
   readonly loadingTableFacts = signal(false);
   readonly loadingDocumentFacts = signal(false);
+  readonly loadingOcrFacts = signal(false);
   readonly savingGuide = signal(false);
   readonly guideError = signal<string | null>(null);
 
@@ -792,11 +903,14 @@ export class KnowledgeViewComponent implements OnInit {
   readonly knowledgeScopes = signal<KnowledgeScopeApi[]>([]);
   readonly tableFacts = signal<TableFactItem[]>([]);
   readonly documentFacts = signal<DocumentFactItem[]>([]);
+  readonly ocrFacts = signal<DocumentFactItem[]>([]);
   readonly tableFactQuery = signal('');
   readonly tableFactType = signal('');
   readonly tableFactSheet = signal('');
   readonly documentFactQuery = signal('');
   readonly documentFactType = signal('');
+  readonly ocrFactQuery = signal('');
+  readonly ocrFactType = signal('');
   readonly guideTitle = signal('');
   readonly guideMarkdown = signal('');
   readonly editingGuideKey = signal<string | null>(null);
@@ -949,6 +1063,11 @@ export class KnowledgeViewComponent implements OnInit {
       hint: 'Loaded sample of structured manual/procedure facts.',
     },
     {
+      label: 'OCR evidence',
+      value: this.loadingOcrFacts() ? '…' : String(this.ocrFacts().length),
+      hint: 'Loaded sample of visual text evidence from scanned PDFs or images.',
+    },
+    {
       label: 'Guides',
       value: String(this.guideRows().length),
       hint: 'Current collection or scope interpretation guides.',
@@ -959,6 +1078,39 @@ export class KnowledgeViewComponent implements OnInit {
       hint: 'Systems using this collection.',
     },
   ]);
+
+  readonly ocrSummaryRows = computed(() => {
+    const facts = this.ocrFacts();
+    const confidenceValues = facts
+      .map((fact) => this.ocrConfidenceValue(fact))
+      .filter((value): value is number => value !== null);
+    const avgConfidence = confidenceValues.length
+      ? `${Math.round((confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length) * 100)}%`
+      : '—';
+    const providers = new Set(facts.map((fact) => this.ocrProviderLabel(fact)).filter(Boolean));
+    return [
+      {
+        label: 'Evidence',
+        value: String(facts.length),
+        hint: 'OCR pages, blocks and visual facts currently loaded.',
+      },
+      {
+        label: 'Pages',
+        value: String(new Set(facts.map((fact) => `${fact.document_id || ''}:${fact.page ?? ''}`).filter(Boolean)).size),
+        hint: 'Distinct document pages/images represented in this sample.',
+      },
+      {
+        label: 'Providers',
+        value: providers.size ? String(providers.size) : '—',
+        hint: providers.size ? Array.from(providers).slice(0, 3).join(', ') : 'No provider metadata loaded.',
+      },
+      {
+        label: 'Avg confidence',
+        value: avgConfidence,
+        hint: 'Average OCR confidence when provided by the extractor.',
+      },
+    ];
+  });
 
   readonly workspaceSlug = computed(() => this.workspace.currentSlug() || this.workspace.current()?.slug || 'current');
 
@@ -976,8 +1128,14 @@ export class KnowledgeViewComponent implements OnInit {
     if ((id === 'structure' || id === 'facts' || id === 'diagnostics') && this.documentFacts().length === 0) {
       this.loadDocumentFacts();
     }
+    if (id === 'ocr' && this.ocrFacts().length === 0) {
+      this.loadOcrFacts();
+    }
     if (id === 'diagnostics' && this.tableFacts().length === 0) {
       this.loadTableFacts();
+    }
+    if (id === 'diagnostics' && this.ocrFacts().length === 0) {
+      this.loadOcrFacts();
     }
   }
 
@@ -1084,6 +1242,57 @@ export class KnowledgeViewComponent implements OnInit {
       });
   }
 
+  loadOcrFacts(): void {
+    if (!this.kbId) return;
+    this.loadingOcrFacts.set(true);
+    const type = this.ocrFactType();
+    const query = this.ocrFactQuery() || undefined;
+    const request = type
+      ? this.api.listDocumentFacts({
+          collection_name: this.kbId,
+          semantic_type: type,
+          q: query,
+          limit: 200,
+        })
+      : forkJoin([
+          this.api.listDocumentFacts({
+            collection_name: this.kbId,
+            semantic_type: 'document_ocr_text',
+            q: query,
+            limit: 120,
+          }),
+          this.api.listDocumentFacts({
+            collection_name: this.kbId,
+            semantic_type: 'visual_text_block',
+            q: query,
+            limit: 120,
+          }),
+          this.api.listDocumentFacts({
+            collection_name: this.kbId,
+            semantic_type: 'visual_parameter',
+            q: query,
+            limit: 80,
+          }),
+          this.api.listDocumentFacts({
+            collection_name: this.kbId,
+            semantic_type: 'visual_warning',
+            q: query,
+            limit: 80,
+          }),
+        ]).pipe(
+          map((payloads) => ({
+            items: payloads.flatMap((payload) => payload.items || []),
+          })),
+        );
+
+    request
+      .pipe(catchError(() => of({ items: [] } as any)))
+      .subscribe((payload) => {
+        this.ocrFacts.set(this.dedupeOcrFacts(payload.items || []));
+        this.loadingOcrFacts.set(false);
+      });
+  }
+
   factKey(fact: TableFactItem, index: number): string {
     return `${fact.document_id || 'doc'}:${fact.chunk_index ?? index}:${fact.cell_ref || fact.cell_range || index}`;
   }
@@ -1098,6 +1307,85 @@ export class KnowledgeViewComponent implements OnInit {
       fact.subject || '',
       index,
     ].join(':');
+  }
+
+  ocrFactKey(fact: DocumentFactItem, index: number): string {
+    return [
+      fact.document_id || 'doc',
+      fact.semantic_type || 'ocr',
+      fact.page ?? '',
+      this.ocrBoxLabel(fact),
+      fact.content || fact.value_raw || '',
+      index,
+    ].join(':');
+  }
+
+  ocrProviderLabel(fact: DocumentFactItem): string {
+    const qualifiers = this.asRecord(fact.qualifiers);
+    const locator = this.asRecord(fact.evidence_locator);
+    return this.toDisplayString(qualifiers['provider'] || qualifiers['model'] || locator['provider'] || locator['model']);
+  }
+
+  ocrConfidenceLabel(fact: DocumentFactItem): string {
+    const value = this.ocrConfidenceValue(fact);
+    return value === null ? '' : `${Math.round(value * 100)}%`;
+  }
+
+  ocrBoxLabel(fact: DocumentFactItem): string {
+    const qualifiers = this.asRecord(fact.qualifiers);
+    const locator = this.asRecord(fact.evidence_locator);
+    const bbox = qualifiers['bbox'] || qualifiers['box'] || locator['bbox'] || locator['box'];
+    if (Array.isArray(bbox)) {
+      return bbox.map((value) => String(value)).join(', ');
+    }
+    return this.toDisplayString(bbox);
+  }
+
+  ocrWarningLabel(fact: DocumentFactItem): string {
+    const qualifiers = this.asRecord(fact.qualifiers);
+    const warning = qualifiers['warning'] || qualifiers['warnings'] || qualifiers['ocr_warning'];
+    if (Array.isArray(warning)) return warning.map((item) => String(item)).join(' · ');
+    return this.toDisplayString(warning);
+  }
+
+  private ocrConfidenceValue(fact: DocumentFactItem): number | null {
+    const qualifiers = this.asRecord(fact.qualifiers);
+    const locator = this.asRecord(fact.evidence_locator);
+    const raw = fact.confidence ?? qualifiers['confidence'] ?? qualifiers['ocr_confidence'] ?? locator['confidence'];
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;
+    return value > 1 ? Math.max(0, Math.min(1, value / 100)) : Math.max(0, Math.min(1, value));
+  }
+
+  private dedupeOcrFacts(items: DocumentFactItem[]): DocumentFactItem[] {
+    const seen = new Set<string>();
+    const out: DocumentFactItem[] = [];
+    for (const fact of items) {
+      const key = [
+        fact.document_id || '',
+        fact.semantic_type || '',
+        fact.page ?? '',
+        this.ocrBoxLabel(fact),
+        (fact.content || fact.value_raw || '').slice(0, 120),
+      ].join(':');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(fact);
+    }
+    return out;
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  }
+
+  private toDisplayString(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return '';
   }
 
   loadGuideIntoEditor(guide: KnowledgeGuide): void {
