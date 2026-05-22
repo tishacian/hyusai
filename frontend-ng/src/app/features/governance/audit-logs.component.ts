@@ -74,7 +74,7 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
       <select
         [ngModel]="actorFilter()"
         (ngModelChange)="actorFilter.set($event)"
-        class="px-3 py-1.5 rounded bg-black/20 border border-white/10 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500"
+        class="audit-select"
         title="Filter by actor"
       >
         <option value="">All actors</option>
@@ -85,7 +85,7 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
       <select
         [ngModel]="kindFilter()"
         (ngModelChange)="kindFilter.set($event)"
-        class="px-3 py-1.5 rounded bg-black/20 border border-white/10 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500"
+        class="audit-select"
         title="Filter by event kind"
       >
         <option value="">All kinds</option>
@@ -186,6 +186,34 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
       }
     </section>
   `,
+  styles: [`
+    .audit-select {
+      appearance: none;
+      min-height: 2rem;
+      min-width: 9rem;
+      border-radius: 0.375rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background-color: rgba(2, 6, 23, 0.68);
+      background-image:
+        linear-gradient(45deg, transparent 50%, rgba(148, 163, 184, 0.9) 50%),
+        linear-gradient(135deg, rgba(148, 163, 184, 0.9) 50%, transparent 50%);
+      background-position:
+        calc(100% - 14px) 50%,
+        calc(100% - 9px) 50%;
+      background-size: 5px 5px, 5px 5px;
+      background-repeat: no-repeat;
+      color: #e5e7eb;
+      font-size: 0.75rem;
+      line-height: 1rem;
+      padding: 0.375rem 2rem 0.375rem 0.75rem;
+    }
+
+    .audit-select:focus {
+      outline: none;
+      border-color: rgba(103, 232, 249, 0.42);
+      box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.24);
+    }
+  `],
 })
 export class AuditLogsComponent implements OnInit {
   private readonly api = inject(ApiService);

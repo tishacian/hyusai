@@ -123,7 +123,7 @@ interface SearchResult {
       />
       <div class="flex items-center justify-center gap-4">
         <div
-          class="w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br from-brand-500/15 to-violet-500/15 ring-1 ring-brand-500/30 text-brand-400 shadow-glow-sm group-hover:scale-105 transition-transform shrink-0"
+          class="w-12 h-12 rounded-md flex items-center justify-center bg-white/[0.04] ring-1 ring-brand-400/25 text-brand-300 group-hover:bg-white/[0.06] transition shrink-0"
         >
           <app-icon name="cloud-upload" [size]="22" />
         </div>
@@ -133,7 +133,7 @@ interface SearchResult {
             <span class="text-brand-400">click to browse</span>
             <span class="text-gray-500 ml-2">→ target: </span>
             <select
-              class="bg-black/40 ring-1 ring-white/10 rounded px-2 py-0.5 text-xs text-white ml-1"
+              class="knowledge-select knowledge-select-inline ml-1"
               [(ngModel)]="uploadTarget"
               (click)="$event.stopPropagation()"
             >
@@ -207,7 +207,7 @@ interface SearchResult {
           <div class="t-card t-elevated rounded-md p-5 group">
             <div class="flex items-start gap-3 mb-4">
               <div
-                class="w-10 h-10 rounded-md flex items-center justify-center bg-gradient-to-br from-brand-500/20 to-violet-500/20 ring-1 ring-brand-500/30 text-brand-400 shrink-0"
+                class="w-10 h-10 rounded-md flex items-center justify-center bg-white/[0.04] ring-1 ring-brand-400/25 text-brand-300 shrink-0"
               >
                 <app-icon name="folder" [size]="18" />
               </div>
@@ -277,7 +277,7 @@ interface SearchResult {
           <select
             [(ngModel)]="searchCollectionDraft"
             name="scoll"
-            class="bg-white/5 ring-1 ring-white/10 rounded px-2 py-2 text-xs text-white focus:outline-none focus:ring-brand-400"
+            class="knowledge-select"
           >
             <option value="">All</option>
             @for (c of collections(); track c.name) {
@@ -498,6 +498,40 @@ interface SearchResult {
       (cancel)="deleteDocTarget.set(null)"
     />
   `,
+  styles: [`
+    .knowledge-select {
+      appearance: none;
+      min-height: 2rem;
+      border-radius: 0.375rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background-color: rgba(2, 6, 23, 0.72);
+      background-image:
+        linear-gradient(45deg, transparent 50%, rgba(148, 163, 184, 0.9) 50%),
+        linear-gradient(135deg, rgba(148, 163, 184, 0.9) 50%, transparent 50%);
+      background-position:
+        calc(100% - 14px) 50%,
+        calc(100% - 9px) 50%;
+      background-size: 5px 5px, 5px 5px;
+      background-repeat: no-repeat;
+      color: #e5e7eb;
+      font-size: 0.75rem;
+      line-height: 1rem;
+      padding: 0.5rem 2rem 0.5rem 0.625rem;
+    }
+
+    .knowledge-select-inline {
+      min-height: 1.5rem;
+      padding-top: 0.125rem;
+      padding-bottom: 0.125rem;
+      font-size: 0.6875rem;
+    }
+
+    .knowledge-select:focus {
+      outline: none;
+      border-color: rgba(103, 232, 249, 0.42);
+      box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.24);
+    }
+  `],
 })
 export class KnowledgeBaseComponent implements OnInit {
   private readonly http = inject(HttpClient);

@@ -42,7 +42,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             </div>
             <a
               [routerLink]="accessRoute()"
-              class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition shadow-glow-sm"
+              class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-400 text-white transition"
             >
               <app-icon name="sliders-horizontal" [size]="14" />
               Open IAM console
@@ -74,7 +74,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             <select
               [(ngModel)]="inviteRole"
               name="role"
-              class="px-3 py-2 rounded bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-brand-500/60"
+              class="workspace-select"
             >
               <option value="member">Member</option>
               <option value="admin">Admin</option>
@@ -82,7 +82,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             <button
               type="submit"
               [disabled]="!inviteEmail.trim() || inviting()"
-              class="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white rounded text-sm font-medium transition shadow-glow-sm inline-flex items-center gap-1.5"
+              class="px-4 py-2 bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-white rounded text-sm font-medium transition inline-flex items-center gap-1.5"
             >
               <app-icon name="send" [size]="14" />
               {{ inviting() ? 'Inviting…' : 'Invite' }}
@@ -112,7 +112,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             @for (m of members(); track m.user_id) {
               <div class="px-6 py-4 flex items-center gap-4">
                 <div
-                  class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 text-white bg-gradient-to-br from-brand-500 to-violet-500"
+                  class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 text-brand-100 bg-white/[0.04] ring-1 ring-brand-400/30"
                 >
                   {{ initial(m) }}
                 </div>
@@ -144,7 +144,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                       [value]="m.role"
                       (change)="changeRole(m, $event)"
                       [disabled]="savingMember() === m.user_id"
-                      class="px-2 py-1 rounded bg-black/20 border border-white/10 text-white text-sm"
+                      class="workspace-select workspace-select-sm"
                     >
                       <option value="admin">Admin</option>
                       <option value="member">Member</option>
@@ -195,6 +195,40 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
       (confirm)="confirmRemove()"
     />
   `,
+  styles: [`
+    .workspace-select {
+      min-height: 40px;
+      appearance: none;
+      -webkit-appearance: none;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background-color: rgba(0, 0, 0, 0.26);
+      color: rgb(243 244 246);
+      padding: 0.5rem 2rem 0.5rem 0.75rem;
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+      color-scheme: dark;
+      background-image:
+        linear-gradient(45deg, transparent 50%, rgb(148 163 184) 50%),
+        linear-gradient(135deg, rgb(148 163 184) 50%, transparent 50%);
+      background-position:
+        calc(100% - 15px) calc(50% - 2px),
+        calc(100% - 10px) calc(50% - 2px);
+      background-size: 5px 5px, 5px 5px;
+      background-repeat: no-repeat;
+    }
+    .workspace-select-sm {
+      min-height: 32px;
+      padding-top: 0.25rem;
+      padding-bottom: 0.25rem;
+      font-size: 0.8125rem;
+    }
+    .workspace-select:focus {
+      outline: none;
+      border-color: rgba(56, 189, 248, 0.65);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.16);
+    }
+  `],
 })
 export class WorkspaceMembersComponent {
   protected readonly workspaceService = inject(WorkspaceService);

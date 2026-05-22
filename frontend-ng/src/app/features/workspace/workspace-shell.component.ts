@@ -47,9 +47,9 @@ interface TabItem {
           @for (tab of visibleTabs(); track tab.path) {
             <a
               [routerLink]="tab.path"
-              routerLinkActive="bg-brand-500/10 text-white ring-1 ring-brand-500/30 shadow-glow-sm"
+              routerLinkActive="bg-white/[0.04] text-white ring-1 ring-brand-400/35"
               [routerLinkActiveOptions]="{ exact: false }"
-              class="block px-3 py-2.5 rounded-md border border-transparent text-sm text-gray-400 hover:text-white hover:bg-white/5 transition"
+              class="block px-3 py-2.5 rounded-md border border-transparent text-sm text-gray-400 hover:text-white hover:bg-white/[0.03] transition"
             >
               <div class="flex items-center gap-2.5">
                 <app-icon [name]="tab.icon" [size]="16" class="text-brand-400" />

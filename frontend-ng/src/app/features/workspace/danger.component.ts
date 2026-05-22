@@ -66,7 +66,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               type="button"
               (click)="restore()"
               [disabled]="restoring()"
-              class="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded text-sm font-medium transition disabled:opacity-40 shadow-glow-sm"
+              class="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-500 hover:bg-brand-400 text-white rounded text-sm font-medium transition disabled:opacity-40"
             >
               <app-icon name="archive-restore" [size]="14" />
               {{ restoring() ? 'Restoring…' : 'Restore workspace' }}

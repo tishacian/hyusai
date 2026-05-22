@@ -310,7 +310,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   name="queueStatusFilter"
                   [ngModel]="statusFilter()"
                   (ngModelChange)="setStatusFilter($event)"
-                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                  class="sftp-select w-full"
                 >
                   <option value="received">Received</option>
                   <option value="rejected">Rejected</option>
@@ -324,7 +324,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   name="queueFilter"
                   [ngModel]="selectedLinkId()"
                   (ngModelChange)="setSelectedLink($event)"
-                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                  class="sftp-select w-full"
                 >
                   <option value="">All deposit links</option>
                   @for (link of links(); track link.id) {
@@ -376,7 +376,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   name="queuePageSize"
                   [ngModel]="queuePageSize()"
                   (ngModelChange)="setQueuePageSize($event)"
-                  class="rounded bg-black/30 border border-white/10 px-2 py-1 text-[11px] text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                  class="sftp-select sftp-select-sm"
                 >
                   @for (size of pageSizeOptions; track size) {
                     <option [value]="size">{{ size }} / page</option>
@@ -565,6 +565,39 @@ const BULK_PROMOTE_LIMIT = 25;
       }
     </app-drawer>
   `,
+  styles: [`
+    .sftp-select {
+      appearance: none;
+      min-height: 2.25rem;
+      border-radius: 0.375rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background-color: rgba(2, 6, 23, 0.72);
+      background-image:
+        linear-gradient(45deg, transparent 50%, rgba(148, 163, 184, 0.9) 50%),
+        linear-gradient(135deg, rgba(148, 163, 184, 0.9) 50%, transparent 50%);
+      background-position:
+        calc(100% - 15px) 50%,
+        calc(100% - 10px) 50%;
+      background-size: 5px 5px, 5px 5px;
+      background-repeat: no-repeat;
+      color: #e5e7eb;
+      font-size: 0.75rem;
+      line-height: 1rem;
+      padding: 0.5rem 2rem 0.5rem 0.75rem;
+    }
+
+    .sftp-select-sm {
+      min-height: 1.75rem;
+      padding: 0.25rem 1.75rem 0.25rem 0.625rem;
+      font-size: 0.6875rem;
+    }
+
+    .sftp-select:focus {
+      outline: none;
+      border-color: rgba(103, 232, 249, 0.42);
+      box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.24);
+    }
+  `],
 })
 export class SftpConnectorComponent implements OnInit {
   private readonly api = inject(ApiService);

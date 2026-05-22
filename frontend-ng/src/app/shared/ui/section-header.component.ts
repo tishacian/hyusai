@@ -2,8 +2,11 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { IconComponent } from './icon.component';
 
 /**
- * Page-level section header. Applies the gradient title treatment and an
- * animated underline so every page feels consistent with the legacy chrome.
+ * Page-level section header for generic Agentium surfaces.
+ *
+ * Keep this aligned with the lean cockpit chrome used by Systems and
+ * Capabilities: small cyan eyebrow, white title, restrained icon treatment.
+ * Workspace-specific showcase surfaces such as Sentinel-CI own their chrome.
  */
 @Component({
   selector: 'app-section-header',
@@ -11,16 +14,16 @@ import { IconComponent } from './icon.component';
   imports: [IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <header class="header-underline pb-5 mb-6 flex flex-wrap items-start justify-between gap-4">
+    <header class="ck-section-header pb-5 mb-6 flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0 flex-1">
         @if (breadcrumb) {
-          <div class="text-[10px] uppercase tracking-[0.16em] text-brand-400/80 mb-1.5 font-semibold">
+          <div class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300 mb-1.5 font-semibold">
             {{ breadcrumb }}
           </div>
         }
-        <h1 class="gradient-title text-2xl md:text-[28px] font-semibold tracking-tight leading-tight flex items-center gap-3">
+        <h1 class="text-2xl md:text-[28px] font-medium tracking-tight leading-tight text-white flex items-center gap-3">
           @if (icon) {
-            <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500/20 to-violet-500/20 text-brand-400 ring-1 ring-brand-500/30 shadow-glow-sm">
+            <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-white/[0.03] text-brand-300 ring-1 ring-white/10">
               <app-icon [name]="icon" [size]="20" />
             </span>
           }
@@ -40,6 +43,11 @@ import { IconComponent } from './icon.component';
       </div>
     </header>
   `,
+  styles: [`
+    .ck-section-header {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+  `],
 })
 export class SectionHeaderComponent {
   @Input({ required: true }) title!: string;

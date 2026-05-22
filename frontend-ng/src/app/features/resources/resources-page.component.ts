@@ -115,7 +115,7 @@ type Tab = 'models' | 'connectors';
           (click)="tab.set(t.id)"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition"
           [ngClass]="tab() === t.id
-            ? 'bg-brand-500 text-white shadow-glow-sm'
+            ? 'bg-white/[0.06] text-white ring-1 ring-brand-400/35'
             : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'"
         >
           <app-icon [name]="t.icon" [size]="12" />
@@ -174,7 +174,7 @@ type Tab = 'models' | 'connectors';
             @for (m of models(); track modelKey(m)) {
               <li class="px-5 py-3 grid grid-cols-12 gap-3 items-center text-sm" [title]="usageLabel(m)">
                 <div class="col-span-6 min-w-0 flex items-center gap-2">
-                  <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 bg-gradient-to-br from-brand-500/20 to-violet-500/20 ring-1 ring-brand-500/30 text-brand-400">
+                  <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 bg-white/[0.04] ring-1 ring-brand-400/25 text-brand-300">
                     {{ providerInitial(m) }}
                   </div>
                   <div class="min-w-0">
@@ -355,7 +355,7 @@ type Tab = 'models' | 'connectors';
             <div class="flex items-center gap-2 pt-2">
               <button
                 type="submit"
-                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium shadow-glow-sm transition"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-white text-sm font-medium transition"
               >
                 <app-icon name="save" [size]="14" /> Save
               </button>

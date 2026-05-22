@@ -56,7 +56,7 @@ import {
                   <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px_minmax(220px,1fr)_96px] lg:items-end">
                     <div class="min-w-0">
                       <div class="flex items-center gap-2">
-                        <div class="h-8 w-8 shrink-0 rounded-full bg-gradient-to-br from-brand-500 to-violet-500 flex items-center justify-center text-xs font-semibold text-white">
+                        <div class="h-8 w-8 shrink-0 rounded-full bg-white/[0.04] ring-1 ring-brand-400/30 flex items-center justify-center text-xs font-semibold text-brand-200">
                           {{ initial(member) }}
                         </div>
                         <div class="min-w-0">
@@ -361,7 +361,7 @@ export class AccessRolesComponent implements OnInit {
     const base = 'inline-flex h-10 w-full items-center gap-1.5 rounded border px-3 text-sm font-medium';
     if (role === 'workspace_owner') return `${base} border-amber-500/30 bg-amber-500/10 text-amber-200`;
     if (role === 'workspace_admin') return `${base} border-brand-400/30 bg-brand-500/10 text-brand-100`;
-    if (role === 'workspace_reviewer') return `${base} border-violet-400/30 bg-violet-500/10 text-violet-100`;
+    if (role === 'workspace_reviewer') return `${base} border-sky-400/25 bg-sky-500/10 text-sky-100`;
     return `${base} border-white/10 bg-white/[0.03] text-gray-300`;
   }
 

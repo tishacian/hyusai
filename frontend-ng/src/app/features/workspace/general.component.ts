@@ -51,7 +51,7 @@ const FIELD =
                   type="button"
                   (click)="saveName()"
                   [disabled]="!dirty() || saving() || !canEdit()"
-                  class="px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-sm font-medium transition shadow-glow-sm inline-flex items-center gap-1.5"
+                  class="px-4 py-2 bg-brand-500 hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-sm font-medium transition inline-flex items-center gap-1.5"
                 >
                   <app-icon name="save" [size]="14" />
                   {{ saving() ? 'Saving…' : 'Save' }}
