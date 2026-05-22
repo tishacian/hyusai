@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     document_ocr_retries: int = 2
     document_ocr_retry_backoff_ms: int = 250
     document_ocr_required: bool = False
+    document_ocr_openai_vision_enabled: bool = False
+    document_ocr_openai_model: str = "gpt-4o-mini"
+    document_ocr_openai_detail: str = "low"
+    document_ocr_openai_max_image_bytes: int = 5_000_000
+    document_ocr_openai_enrich_min_chars: int = 24
+    document_ocr_openai_enrich_min_confidence: float = 0.45
 
     # Embeddings
     embedding_provider: str = "openai"

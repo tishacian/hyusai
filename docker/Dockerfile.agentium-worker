@@ -8,6 +8,8 @@ RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         build-essential \
         tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-fra \
     && rm -rf /var/lib/apt/lists/*
 
 ARG PIP_INDEX_URL

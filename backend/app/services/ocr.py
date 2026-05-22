@@ -7,6 +7,8 @@ instead of breaking ingestion unless OCR is marked required.
 """
 from __future__ import annotations
 
+import base64
+import mimetypes
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +31,12 @@ class OcrConfig:
     retries: int = 2
     retry_backoff_ms: int = 250
     required: bool = False
+    openai_vision_enabled: bool = False
+    openai_model: str = "gpt-4o-mini"
+    openai_detail: str = "low"
+    openai_max_image_bytes: int = 5_000_000
+    openai_enrich_min_chars: int = 24
+    openai_enrich_min_confidence: float = 0.45
 
 
 def build_ocr_config(overrides: dict[str, Any] | None = None) -> OcrConfig:
@@ -54,6 +62,16 @@ def build_ocr_config(overrides: dict[str, Any] | None = None) -> OcrConfig:
         retries=int(overrides.get("retries", settings.document_ocr_retries) or 0),
         retry_backoff_ms=int(overrides.get("retry_backoff_ms", settings.document_ocr_retry_backoff_ms) or 0),
         required=bool(overrides.get("required", settings.document_ocr_required)),
+        openai_vision_enabled=bool(overrides.get("openai_vision_enabled", settings.document_ocr_openai_vision_enabled)),
+        openai_model=str(overrides.get("openai_model", settings.document_ocr_openai_model) or "gpt-4o-mini"),
+        openai_detail=str(overrides.get("openai_detail", settings.document_ocr_openai_detail) or "low"),
+        openai_max_image_bytes=int(overrides.get("openai_max_image_bytes", settings.document_ocr_openai_max_image_bytes) or 0),
+        openai_enrich_min_chars=int(
+            overrides.get("openai_enrich_min_chars", settings.document_ocr_openai_enrich_min_chars) or 0
+        ),
+        openai_enrich_min_confidence=float(
+            overrides.get("openai_enrich_min_confidence", settings.document_ocr_openai_enrich_min_confidence) or 0.0
+        ),
     )
 
 
@@ -113,12 +131,16 @@ def extract_ocr_for_image(
         return {**base, "warnings": ["ocr_disabled"]}
 
     warnings: list[str] = []
-    for provider in resolved.provider_priority:
+    fallback_result: dict[str, Any] | None = None
+    providers = list(resolved.provider_priority)
+    for provider_index, provider in enumerate(providers):
         try:
             if provider == "ppocr_service":
                 result = _extract_ppocr_service(path, resolved)
             elif provider == "tesseract_local":
                 result = _extract_tesseract_local(path, resolved)
+            elif provider == "openai_vision":
+                result = _extract_openai_vision(path, resolved, prior_text=(fallback_result or {}).get("text"))
             else:
                 warnings.append(f"ocr_provider_unknown:{provider}")
                 continue
@@ -134,13 +156,28 @@ def extract_ocr_for_image(
         if not text:
             warnings.append(f"{provider}_empty")
             continue
-        return {
+        candidate = {
             **base,
             "provider": provider,
             "model": result.get("model"),
             "text": text,
             "blocks": blocks,
             "warnings": warnings + list(result.get("warnings") or []),
+        }
+        if (
+            provider != "openai_vision"
+            and "openai_vision" in providers[provider_index + 1 :]
+            and _should_try_openai_enrichment(candidate, resolved)
+        ):
+            fallback_result = candidate
+            warnings.append(f"{provider}_low_confidence_try_openai_vision")
+            continue
+        return candidate
+
+    if fallback_result is not None:
+        return {
+            **fallback_result,
+            "warnings": list(fallback_result.get("warnings") or []) + warnings + ["ocr_low_confidence_openai_unavailable"],
         }
 
     if resolved.required:
@@ -241,6 +278,72 @@ def _extract_tesseract_local(path: str, config: OcrConfig) -> dict[str, Any] | N
     return {"text": _blocks_to_text(blocks), "blocks": blocks, "model": f"tesseract:{lang}"}
 
 
+def _extract_openai_vision(path: str, config: OcrConfig, *, prior_text: str | None = None) -> dict[str, Any] | None:
+    """Use OpenAI vision as an optional premium OCR/enrichment lane.
+
+    This provider is intentionally opt-in because it sends image content to an
+    external model and can create variable costs. It is best used after
+    deterministic OCR fails or returns weak evidence.
+    """
+    if not config.openai_vision_enabled:
+        return None
+    if not settings.openai_api_key:
+        return None
+    image_bytes = Path(path).read_bytes()
+    if config.openai_max_image_bytes and len(image_bytes) > config.openai_max_image_bytes:
+        return {
+            "text": "",
+            "blocks": [],
+            "model": config.openai_model,
+            "warnings": [f"openai_vision_image_too_large:{len(image_bytes)}"],
+        }
+    try:
+        from openai import OpenAI
+    except Exception:
+        return None
+
+    mime_type = mimetypes.guess_type(path)[0] or "image/png"
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    prior_hint = f"\nExisting weak OCR text, use only as a hint:\n{prior_text[:1600]}" if prior_text else ""
+    prompt = (
+        "Extract all visible text from this industrial/document image. "
+        "Preserve table-like line breaks, labels, numbers and units. "
+        "Do not infer hidden values and do not translate. "
+        "Return only the extracted text, no commentary."
+        f"{prior_hint}"
+    )
+    client = OpenAI(api_key=settings.openai_api_key, timeout=max(1.0, config.timeout_seconds))
+    response = client.chat.completions.create(
+        model=config.openai_model,
+        temperature=0,
+        max_tokens=1600,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{image_b64}",
+                            "detail": config.openai_detail,
+                        },
+                    },
+                ],
+            }
+        ],
+    )
+    text = (response.choices[0].message.content or "").strip()
+    if not text:
+        return {"text": "", "blocks": [], "model": getattr(response, "model", config.openai_model)}
+    return {
+        "text": text,
+        "blocks": [{"id": "openai_vision_text", "text": text, "bbox": {}, "confidence": None}],
+        "model": getattr(response, "model", config.openai_model),
+        "warnings": ["openai_vision_no_bounding_boxes"],
+    }
+
+
 def _normalize_blocks(blocks: Any, min_confidence: float, page_number: int | None) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for idx, block in enumerate(blocks or []):
@@ -283,3 +386,27 @@ def _to_number(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _should_try_openai_enrichment(candidate: dict[str, Any], config: OcrConfig) -> bool:
+    if not config.openai_vision_enabled:
+        return False
+    text = str(candidate.get("text") or "").strip()
+    if len(text) < max(0, config.openai_enrich_min_chars):
+        return True
+    confidence = _average_normalized_confidence(candidate.get("blocks") or [])
+    if confidence is None:
+        return False
+    return confidence < max(0.0, config.openai_enrich_min_confidence)
+
+
+def _average_normalized_confidence(blocks: list[dict[str, Any]]) -> float | None:
+    values: list[float] = []
+    for block in blocks:
+        confidence = _to_number(block.get("confidence") if isinstance(block, dict) else None)
+        if confidence is None:
+            continue
+        values.append(confidence / 100.0 if confidence > 1 else confidence)
+    if not values:
+        return None
+    return sum(values) / len(values)

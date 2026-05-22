@@ -8,7 +8,7 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.workspace import Workspace
 from app.services.document_intelligence import ensure_document_artifacts, replace_document_facts
 from app.services.document_parser.parsers.image_parser import ImageParser
-from app.services.ocr import build_ocr_config, resolve_ocr_config_for_workspace
+from app.services.ocr import build_ocr_config, extract_ocr_for_image, resolve_ocr_config_for_workspace
 
 
 @pytest.mark.asyncio
@@ -105,6 +105,8 @@ def test_workspace_ocr_config_overrides_global_defaults(db_session):
                     "provider_priority": ["ppocr_service"],
                     "ppocr_endpoint_url": "http://ocr.local",
                     "languages": ["fra"],
+                    "openai_vision_enabled": True,
+                    "openai_model": "gpt-4o-mini",
                     "required": True,
                 }
             }
@@ -119,4 +121,73 @@ def test_workspace_ocr_config_overrides_global_defaults(db_session):
     assert config.provider_priority == ("ppocr_service",)
     assert config.ppocr_endpoint_url == "http://ocr.local"
     assert config.languages == ("fra",)
+    assert config.openai_vision_enabled is True
+    assert config.openai_model == "gpt-4o-mini"
     assert config.required is True
+
+
+def test_openai_vision_enriches_low_confidence_ocr(tmp_path, monkeypatch):
+    image_path = tmp_path / "scan.png"
+    image_path.write_bytes(b"fake image")
+
+    def fake_tesseract(path, config):
+        return {
+            "text": "??",
+            "blocks": [{"id": "1", "text": "??", "bbox": {}, "confidence": 0.1}],
+            "model": "tesseract:eng",
+        }
+
+    def fake_openai(path, config, *, prior_text=None):
+        return {
+            "text": "Serial number ABC123\nPressure = 12 bar",
+            "blocks": [{"id": "openai", "text": "Serial number ABC123\nPressure = 12 bar", "bbox": {}, "confidence": None}],
+            "model": "gpt-4o-mini",
+        }
+
+    monkeypatch.setattr("app.services.ocr._extract_ppocr_service", lambda path, config: None)
+    monkeypatch.setattr("app.services.ocr._extract_tesseract_local", fake_tesseract)
+    monkeypatch.setattr("app.services.ocr._extract_openai_vision", fake_openai)
+
+    result = extract_ocr_for_image(
+        image_path,
+        config={
+            "provider_priority": ["ppocr_service", "tesseract_local", "openai_vision"],
+            "openai_vision_enabled": True,
+            "openai_enrich_min_chars": 24,
+            "openai_enrich_min_confidence": 0.45,
+        },
+    )
+
+    assert result["provider"] == "openai_vision"
+    assert "Pressure = 12 bar" in result["text"]
+    assert "tesseract_local_low_confidence_try_openai_vision" in result["warnings"]
+
+
+def test_openai_vision_is_opt_in_even_when_listed(tmp_path, monkeypatch):
+    image_path = tmp_path / "scan.png"
+    image_path.write_bytes(b"fake image")
+
+    def fake_tesseract(path, config):
+        return {
+            "text": "weak",
+            "blocks": [{"id": "1", "text": "weak", "bbox": {}, "confidence": 0.1}],
+            "model": "tesseract:eng",
+        }
+
+    def fail_openai(path, config, *, prior_text=None):
+        raise AssertionError("openai vision should not run when disabled")
+
+    monkeypatch.setattr("app.services.ocr._extract_ppocr_service", lambda path, config: None)
+    monkeypatch.setattr("app.services.ocr._extract_tesseract_local", fake_tesseract)
+    monkeypatch.setattr("app.services.ocr._extract_openai_vision", fail_openai)
+
+    result = extract_ocr_for_image(
+        image_path,
+        config={
+            "provider_priority": ["tesseract_local", "openai_vision"],
+            "openai_vision_enabled": False,
+        },
+    )
+
+    assert result["provider"] == "tesseract_local"
+    assert result["text"] == "weak"
