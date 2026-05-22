@@ -22,6 +22,7 @@ from app.services.knowledge_collections import (
 from app.services.object_store import get_object_store
 from app.services.rag.bm25_store import rebuild_bm25_artifact
 from app.services.rag.document_service import DocumentService
+from app.services.table_intelligence import clear_collection_table_facts
 
 logger = get_logger(__name__)
 
@@ -104,7 +105,14 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         # first so a reindex cannot accumulate duplicate chunks with fresh temp
         # file-derived IDs.
         await doc_service.clear_all_documents()
-        ingest_result = await doc_service.ingest_documents_batch(local_paths)
+        clear_collection_table_facts(db, workspace_id=workspace.id, collection_id=collection.id)
+        db.commit()
+        ingest_result = await doc_service.ingest_documents_batch(
+            local_paths,
+            workspace_id=workspace.id,
+            collection_id=collection.id,
+            collection_slug=collection.slug,
+        )
         chunk_count = await doc_service.get_document_count()
         documents = await doc_service.list_documents()
         bm25 = await rebuild_bm25_artifact(

@@ -26,6 +26,7 @@ class System(Base):
     # Composition
     skill_ids = Column(JSON, default=list)         # list[str] — refs Skill.id
     flow_definition = Column(JSON, default=dict)   # drawflow-style JSON for the Flow
+    settings = Column(JSON, nullable=False, default=dict)
 
     # Execution — canonical modes: real_time_decision | batch_processing |
     # event_driven_automation | continuous_monitoring | human_augmented.

@@ -21,7 +21,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { LensService } from '@app/core/lens';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
-import { ApiService, KnowledgeGuide, TableFactItem } from '@app/core/api.service';
+import { ApiService, DocumentFactItem, KnowledgeGuide, TableFactItem } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 
 /**
@@ -64,6 +64,8 @@ interface KnowledgeScopeApi {
   key: string;
   label?: string | null;
   collection_slugs?: string[];
+  table_profile_key?: string | null;
+  document_profile_key?: string | null;
 }
 
 interface KnowledgeGuideRow {
@@ -72,7 +74,16 @@ interface KnowledgeGuideRow {
   binding_kind: 'collection' | 'scope';
 }
 
-type KbTabId = 'overview' | 'sources' | 'chunks' | 'table-facts' | 'guides' | 'bindings';
+type KbTabId =
+  | 'overview'
+  | 'sources'
+  | 'chunks'
+  | 'structure'
+  | 'facts'
+  | 'table-facts'
+  | 'guides'
+  | 'diagnostics'
+  | 'bindings';
 
 @Component({
   selector: 'app-knowledge-view',
@@ -224,6 +235,184 @@ type KbTabId = 'overview' | 'sources' | 'chunks' | 'table-facts' | 'guides' | 'b
                   </div>
                 }
               </div>
+            </div>
+          }
+        </section>
+      </ck-tab>
+
+      <ck-tab id="structure" label="Structure">
+        <section class="t-card rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
+            <div>
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+                Document intelligence
+              </div>
+              <h3 class="mt-1 text-base font-semibold text-white">Extracted document structure</h3>
+              <p class="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
+                Headings, procedures, warnings and tables are extracted from PDF, DOCX,
+                Markdown and HTML manuals so retrieval can cite pages and sections, not only chunks.
+              </p>
+            </div>
+            <button
+              type="button"
+              (click)="loadDocumentFacts()"
+              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+            >
+              <app-icon name="refresh-cw" [size]="13" /> Refresh
+            </button>
+          </div>
+
+          @if (loadingDocumentFacts()) {
+            <div class="p-5 text-sm text-gray-400">
+              <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
+              Loading document structure…
+            </div>
+          } @else if (documentFacts().length === 0) {
+            <app-empty-state
+              icon="file-search"
+              title="No document structure yet"
+              description="Re-index PDF, DOCX, Markdown or HTML sources to populate structure and facts."
+            />
+          } @else {
+            <div class="grid gap-4 p-5 lg:grid-cols-3">
+              @for (group of documentStructureGroups(); track group.type) {
+                <article class="rounded border border-white/10 bg-black/20 p-4">
+                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ group.type }}</div>
+                  <div class="mt-1 text-2xl font-semibold text-white tabular-nums">{{ group.count }}</div>
+                  <p class="mt-2 text-xs text-gray-500">{{ group.hint }}</p>
+                </article>
+              }
+            </div>
+            <div class="divide-y divide-white/5 border-t border-white/5">
+              @for (fact of structurePreviewFacts(); track documentFactKey(fact, $index)) {
+                <article class="px-5 py-4 hover:bg-white/[0.03] transition">
+                  <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                    <span class="ck-mono rounded bg-brand-500/10 px-2 py-1 text-brand-300 ring-1 ring-brand-500/20">
+                      {{ fact.semantic_type || 'document_fact' }}
+                    </span>
+                    @if (fact.page) {
+                      <span>Page {{ fact.page }}</span>
+                    }
+                    @if (fact.section_path) {
+                      <span class="truncate">Section: <span class="text-gray-300">{{ fact.section_path }}</span></span>
+                    }
+                  </div>
+                  <h4 class="mt-2 text-sm font-medium text-white truncate">
+                    {{ fact.document_filename || 'Document source' }}
+                  </h4>
+                  <p class="mt-2 text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">{{ fact.content }}</p>
+                </article>
+              }
+            </div>
+          }
+        </section>
+      </ck-tab>
+
+      <ck-tab id="facts" label="Facts">
+        <section class="t-card rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+                Generic fact layer
+              </div>
+              <h3 class="mt-1 text-base font-semibold text-white">Document facts</h3>
+              <p class="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
+                Browse extracted procedures, warnings, parameters, definitions and evidence locators.
+                These facts complement table facts and vector chunks.
+              </p>
+            </div>
+            <button
+              type="button"
+              (click)="loadDocumentFacts()"
+              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+            >
+              <app-icon name="refresh-cw" [size]="13" /> Refresh facts
+            </button>
+          </div>
+          <div class="grid gap-3 border-b border-white/5 px-5 py-4 md:grid-cols-[minmax(0,1fr)_240px]">
+            <label class="block">
+              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Search</span>
+              <input
+                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                type="search"
+                placeholder="Procedure, warning, parameter, section…"
+                [value]="documentFactQuery()"
+                (input)="documentFactQuery.set($any($event.target).value)"
+                (keydown.enter)="loadDocumentFacts()"
+              />
+            </label>
+            <label class="block">
+              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Type</span>
+              <select
+                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                [value]="documentFactType()"
+                (change)="documentFactType.set($any($event.target).value); loadDocumentFacts()"
+              >
+                <option value="">All document facts</option>
+                <option value="document_heading">Headings</option>
+                <option value="document_procedure_step">Procedure steps</option>
+                <option value="document_warning">Warnings</option>
+                <option value="document_parameter">Parameters</option>
+                <option value="document_definition">Definitions</option>
+                <option value="document_table">Tables</option>
+              </select>
+            </label>
+          </div>
+          @if (loadingDocumentFacts()) {
+            <div class="p-5 text-sm text-gray-400">
+              <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
+              Loading document facts…
+            </div>
+          } @else if (documentFacts().length === 0) {
+            <app-empty-state
+              icon="file-search"
+              title="No document facts found"
+              description="Re-index manual/procedure sources with Document Intelligence enabled, then refresh this tab."
+            />
+          } @else {
+            <div class="divide-y divide-white/5">
+              @for (fact of documentFacts(); track documentFactKey(fact, $index)) {
+                <article class="px-5 py-4 hover:bg-white/[0.03] transition">
+                  <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                    <span class="ck-mono rounded bg-brand-500/10 px-2 py-1 text-brand-300 ring-1 ring-brand-500/20">
+                      {{ fact.semantic_type || 'document_fact' }}
+                    </span>
+                    @if (fact.document_type) {
+                      <span>{{ fact.document_type }}</span>
+                    }
+                    @if (fact.page) {
+                      <span>Page {{ fact.page }}</span>
+                    }
+                    @if (fact.paragraph_index !== null && fact.paragraph_index !== undefined) {
+                      <span>Paragraph {{ fact.paragraph_index }}</span>
+                    }
+                    @if (fact.table_index !== null && fact.table_index !== undefined) {
+                      <span>Table {{ fact.table_index }}</span>
+                    }
+                  </div>
+                  <h4 class="mt-2 text-sm font-medium text-white truncate">
+                    {{ fact.document_filename || 'Document source' }}
+                  </h4>
+                  @if (fact.section_path) {
+                    <p class="mt-1 text-[11px] text-gray-500 truncate">{{ fact.section_path }}</p>
+                  }
+                  <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                    @if (fact.subject) {
+                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">subject: {{ fact.subject }}</span>
+                    }
+                    @if (fact.predicate) {
+                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">predicate: {{ fact.predicate }}</span>
+                    }
+                    @if (fact.value_raw) {
+                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">value: {{ fact.value_raw }}</span>
+                    }
+                    @if (fact.unit) {
+                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">unit: {{ fact.unit }}</span>
+                    }
+                  </div>
+                  <p class="mt-3 text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">{{ fact.content }}</p>
+                </article>
+              }
             </div>
           }
         </section>
@@ -462,6 +651,42 @@ type KbTabId = 'overview' | 'sources' | 'chunks' | 'table-facts' | 'guides' | 'b
         }
       </ck-tab>
 
+      <ck-tab id="diagnostics" label="Diagnostics">
+        <section class="grid gap-4 lg:grid-cols-2">
+          <article class="t-card rounded-md p-5">
+            <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Index health</div>
+            <h3 class="mt-1 text-base font-semibold text-white">Collection diagnostics</h3>
+            <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+              @for (row of diagnosticRows(); track row.label) {
+                <div class="rounded border border-white/10 bg-black/20 p-3">
+                  <dt class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ row.label }}</dt>
+                  <dd class="mt-1 text-lg font-semibold text-white tabular-nums">{{ row.value }}</dd>
+                  <p class="mt-1 text-[11px] text-gray-500">{{ row.hint }}</p>
+                </div>
+              }
+            </dl>
+          </article>
+          <article class="t-card rounded-md p-5">
+            <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Retrieval layers</div>
+            <h3 class="mt-1 text-base font-semibold text-white">How this collection is queried</h3>
+            <div class="mt-4 space-y-3 text-xs leading-relaxed text-gray-400">
+              <p>
+                Vector chunks remain the broad semantic locator. Table facts support
+                cell-level lookup and calculations. Document facts support page,
+                section, warning, procedure and parameter evidence.
+              </p>
+              <p>
+                Knowledge Guides are injected as interpretation context and query hints,
+                but raw document/table facts stay the proof layer for cited answers.
+              </p>
+              <p class="rounded border border-white/10 bg-black/20 p-3 font-mono text-[11px] text-gray-300">
+                collection={{ kbId }} · vector={{ vectorDbType() || 'unknown' }} · docs={{ docCount() }} · chunks={{ chunkCount() }}
+              </p>
+            </div>
+          </article>
+        </section>
+      </ck-tab>
+
       <ck-tab id="bindings" label="Bindings">
         @if (loadingBindings()) {
           <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
@@ -552,6 +777,7 @@ export class KnowledgeViewComponent implements OnInit {
   readonly loadingSources = signal(true);
   readonly loadingBindings = signal(true);
   readonly loadingTableFacts = signal(false);
+  readonly loadingDocumentFacts = signal(false);
   readonly savingGuide = signal(false);
   readonly guideError = signal<string | null>(null);
 
@@ -565,9 +791,12 @@ export class KnowledgeViewComponent implements OnInit {
   readonly knowledgeGuides = signal<KnowledgeGuide[]>([]);
   readonly knowledgeScopes = signal<KnowledgeScopeApi[]>([]);
   readonly tableFacts = signal<TableFactItem[]>([]);
+  readonly documentFacts = signal<DocumentFactItem[]>([]);
   readonly tableFactQuery = signal('');
   readonly tableFactType = signal('');
   readonly tableFactSheet = signal('');
+  readonly documentFactQuery = signal('');
+  readonly documentFactType = signal('');
   readonly guideTitle = signal('');
   readonly guideMarkdown = signal('');
   readonly editingGuideKey = signal<string | null>(null);
@@ -648,6 +877,89 @@ export class KnowledgeViewComponent implements OnInit {
       .sort((a, b) => b.version - a.version),
   );
 
+  readonly documentStructureGroups = computed(() => {
+    const facts = this.documentFacts();
+    const count = (type: string) => facts.filter((fact) => fact.semantic_type === type).length;
+    return [
+      {
+        type: 'Headings',
+        count: count('document_heading'),
+        hint: 'Section anchors used for page and section citations.',
+      },
+      {
+        type: 'Procedures',
+        count: count('document_procedure_step'),
+        hint: 'Steps and procedural clauses extracted from manuals.',
+      },
+      {
+        type: 'Warnings',
+        count: count('document_warning'),
+        hint: 'Safety, caution and warning statements.',
+      },
+      {
+        type: 'Parameters',
+        count: count('document_parameter'),
+        hint: 'Explicit name/value or parameter statements.',
+      },
+      {
+        type: 'Definitions',
+        count: count('document_definition'),
+        hint: 'Terminology and “is/means/refers to” statements.',
+      },
+      {
+        type: 'Tables',
+        count: count('document_table'),
+        hint: 'Document tables extracted from DOCX/Markdown/HTML when available.',
+      },
+    ];
+  });
+
+  readonly structurePreviewFacts = computed(() => {
+    const priority = new Set([
+      'document_heading',
+      'document_procedure_step',
+      'document_warning',
+      'document_parameter',
+      'document_table',
+    ]);
+    return this.documentFacts()
+      .filter((fact) => priority.has(fact.semantic_type || ''))
+      .slice(0, 20);
+  });
+
+  readonly diagnosticRows = computed(() => [
+    {
+      label: 'Documents',
+      value: this.loading() ? '…' : String(this.docCount()),
+      hint: 'Source files tracked in this collection.',
+    },
+    {
+      label: 'Chunks',
+      value: this.loading() ? '…' : String(this.chunkCount()),
+      hint: 'Semantic chunks available to vector retrieval.',
+    },
+    {
+      label: 'Table facts',
+      value: this.loadingTableFacts() ? '…' : String(this.tableFacts().length),
+      hint: 'Loaded sample of structured spreadsheet facts.',
+    },
+    {
+      label: 'Document facts',
+      value: this.loadingDocumentFacts() ? '…' : String(this.documentFacts().length),
+      hint: 'Loaded sample of structured manual/procedure facts.',
+    },
+    {
+      label: 'Guides',
+      value: String(this.guideRows().length),
+      hint: 'Current collection or scope interpretation guides.',
+    },
+    {
+      label: 'Bindings',
+      value: this.loadingBindings() ? '…' : String(this.bindings().length),
+      hint: 'Systems using this collection.',
+    },
+  ]);
+
   readonly workspaceSlug = computed(() => this.workspace.currentSlug() || this.workspace.current()?.slug || 'current');
 
   ngOnInit(): void {
@@ -659,6 +971,12 @@ export class KnowledgeViewComponent implements OnInit {
   onTabChange(id: string): void {
     this.activeTab.set(id as KbTabId);
     if (id === 'table-facts' && this.tableFacts().length === 0) {
+      this.loadTableFacts();
+    }
+    if ((id === 'structure' || id === 'facts' || id === 'diagnostics') && this.documentFacts().length === 0) {
+      this.loadDocumentFacts();
+    }
+    if (id === 'diagnostics' && this.tableFacts().length === 0) {
       this.loadTableFacts();
     }
   }
@@ -749,8 +1067,37 @@ export class KnowledgeViewComponent implements OnInit {
       });
   }
 
+  loadDocumentFacts(): void {
+    if (!this.kbId) return;
+    this.loadingDocumentFacts.set(true);
+    this.api
+      .listDocumentFacts({
+        collection_name: this.kbId,
+        semantic_type: this.documentFactType() || undefined,
+        q: this.documentFactQuery() || undefined,
+        limit: 160,
+      })
+      .pipe(catchError(() => of({ items: [] } as any)))
+      .subscribe((payload) => {
+        this.documentFacts.set(payload.items || []);
+        this.loadingDocumentFacts.set(false);
+      });
+  }
+
   factKey(fact: TableFactItem, index: number): string {
     return `${fact.document_id || 'doc'}:${fact.chunk_index ?? index}:${fact.cell_ref || fact.cell_range || index}`;
+  }
+
+  documentFactKey(fact: DocumentFactItem, index: number): string {
+    return [
+      fact.document_id || 'doc',
+      fact.semantic_type || 'fact',
+      fact.page ?? '',
+      fact.paragraph_index ?? '',
+      fact.table_index ?? '',
+      fact.subject || '',
+      index,
+    ].join(':');
   }
 
   loadGuideIntoEditor(guide: KnowledgeGuide): void {

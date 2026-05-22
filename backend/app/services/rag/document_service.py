@@ -39,6 +39,85 @@ def _chunk_extra_metadata(chunk: Dict) -> Dict:
     }
 
 
+def _persist_table_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
+    """Persist structured table facts when ingestion knows its workspace ledger.
+
+    DocumentService is also used for ad-hoc/session docs, which do not belong
+    to a KnowledgeCollection. Those paths keep the existing vector-only
+    behavior. Worker-backed collections pass the identifiers required here.
+    """
+    workspace_id = kwargs.get("workspace_id")
+    collection_id = kwargs.get("collection_id")
+    if not workspace_id or not collection_id:
+        return 0
+    try:
+        from app.db.base import SessionLocal
+        from app.models.knowledge_collection import KnowledgeCollection
+        from app.models.workspace import Workspace
+        from app.services.table_intelligence import replace_document_table_facts
+
+        db = SessionLocal()
+        try:
+            workspace = db.query(Workspace).filter(Workspace.id == str(workspace_id)).first()
+            collection = (
+                db.query(KnowledgeCollection)
+                .filter(KnowledgeCollection.id == str(collection_id), KnowledgeCollection.workspace_id == str(workspace_id))
+                .first()
+            )
+            if not workspace or not collection:
+                return 0
+            rows = replace_document_table_facts(
+                db,
+                workspace=workspace,
+                collection=collection,
+                parsed_doc=parsed_doc,
+            )
+            db.commit()
+            return len(rows)
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not persist table facts", filename=getattr(parsed_doc, "filename", None), error=str(exc))
+        return 0
+
+
+def _persist_document_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
+    """Persist generic document facts when ingestion knows its workspace ledger."""
+    workspace_id = kwargs.get("workspace_id")
+    collection_id = kwargs.get("collection_id")
+    if not workspace_id or not collection_id:
+        return 0
+    try:
+        from app.db.base import SessionLocal
+        from app.models.knowledge_collection import KnowledgeCollection
+        from app.models.workspace import Workspace
+        from app.services.document_intelligence import replace_document_facts
+
+        db = SessionLocal()
+        try:
+            workspace = db.query(Workspace).filter(Workspace.id == str(workspace_id)).first()
+            collection = (
+                db.query(KnowledgeCollection)
+                .filter(KnowledgeCollection.id == str(collection_id), KnowledgeCollection.workspace_id == str(workspace_id))
+                .first()
+            )
+            if not workspace or not collection:
+                return 0
+            rows = replace_document_facts(
+                db,
+                workspace=workspace,
+                collection=collection,
+                parsed_doc=parsed_doc,
+            )
+            db.commit()
+            return len(rows)
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not persist document facts", filename=getattr(parsed_doc, "filename", None), error=str(exc))
+        return 0
+
+
 class DocumentService:
     """Service for ingesting and indexing documents"""
     
@@ -119,6 +198,12 @@ class DocumentService:
             parse_step = tracer.add_step(trace.id, TraceStepType.DOCUMENT_PARSE)
             parser = DocumentParserFactory.get_parser(file_path)
             parsed_doc = await parser.parse(file_path, **kwargs)
+            try:
+                from app.services.document_intelligence import ensure_document_artifacts
+
+                ensure_document_artifacts(parsed_doc)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not enrich document artifacts", filename=getattr(parsed_doc, "filename", None), error=str(exc))
             parse_step.complete({
                 "filename": parsed_doc.filename,
                 "document_type": parsed_doc.document_type.value,
@@ -199,6 +284,8 @@ class DocumentService:
             await self.vector_db.create_index(self.embedding_dimension)
             await self.vector_db.add_vectors(embeddings_array, chunk_metadatas, chunk_ids)
             indexing_step.complete({"vectors_indexed": len(chunk_ids)})
+            table_facts_count = _persist_table_facts_if_configured(parsed_doc, kwargs)
+            document_facts_count = _persist_document_facts_if_configured(parsed_doc, kwargs)
             
             # Update BM25 cache if using hybrid retrieval
             if self.use_hybrid:
@@ -222,6 +309,8 @@ class DocumentService:
                 "status": "success",
                 "chunks_processed": len(parsed_doc.chunks),
                 "filename": parsed_doc.filename,
+                "table_facts_processed": table_facts_count,
+                "document_facts_processed": document_facts_count,
                 "trace_id": trace.id,
             }
         
@@ -259,6 +348,12 @@ class DocumentService:
                 # Step 1: Parse document (async)
                 parser = DocumentParserFactory.get_parser(file_path)
                 parsed_doc = await parser.parse(file_path, **kwargs)
+                try:
+                    from app.services.document_intelligence import ensure_document_artifacts
+
+                    ensure_document_artifacts(parsed_doc)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Could not enrich document artifacts", filename=getattr(parsed_doc, "filename", None), error=str(exc))
                 
                 if not parsed_doc.chunks:
                     return {
@@ -307,6 +402,8 @@ class DocumentService:
                 embeddings_array = np.array(embeddings)
                 await self.vector_db.create_index(self.embedding_dimension)
                 await self.vector_db.add_vectors(embeddings_array, chunk_metadatas, chunk_ids)
+                table_facts_count = _persist_table_facts_if_configured(parsed_doc, kwargs)
+                document_facts_count = _persist_document_facts_if_configured(parsed_doc, kwargs)
                 
                 # Update BM25 cache (will be rebuilt after all documents are processed)
                 if self.use_hybrid:
@@ -325,6 +422,8 @@ class DocumentService:
                     "document_id": parsed_doc.id,
                     "status": "success",
                     "chunks_processed": len(parsed_doc.chunks),
+                    "table_facts_processed": table_facts_count,
+                    "document_facts_processed": document_facts_count,
                     "filename": parsed_doc.filename,
                 }
             except Exception as e:

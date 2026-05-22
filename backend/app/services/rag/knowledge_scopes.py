@@ -67,6 +67,8 @@ def sanitize_scope(raw: Any) -> dict[str, Any] | None:
         "default_mode": default_mode,
         "top_k": top_k if top_k > 0 else None,
         "is_default": bool(data.get("is_default")),
+        "table_profile_key": _safe_key(data.get("table_profile_key")) or None,
+        "document_profile_key": _safe_key(data.get("document_profile_key")) or None,
     }
 
 
@@ -89,6 +91,8 @@ def fallback_scope(collection_slug: str, *, key: str = "workspace_default") -> d
         "default_mode": "auto",
         "top_k": None,
         "is_default": True,
+        "table_profile_key": None,
+        "document_profile_key": None,
     }
 
 
@@ -134,4 +138,3 @@ def resolve_knowledge_scope(
     finally:
         if should_close:
             session.close()
-

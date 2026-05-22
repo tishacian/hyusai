@@ -51,6 +51,7 @@ class DocumentParserFactory:
         
         type_map = {
             '.pdf': DocumentType.PDF,
+            '.docx': DocumentType.DOCX,
             '.md': DocumentType.MARKDOWN,
             '.markdown': DocumentType.MARKDOWN,
             '.txt': DocumentType.TEXT,

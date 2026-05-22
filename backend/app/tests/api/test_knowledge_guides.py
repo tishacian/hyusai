@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.api.v1.endpoints import knowledge
 from app.models.audit import AuditLog
 from app.models.knowledge_collection import KnowledgeCollection
+from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.user import User
 from app.models.workspace import Workspace
 
@@ -126,3 +127,42 @@ def test_knowledge_guide_scope_target_requires_existing_scope(db_session):
         },
     )
     assert missing.status_code == 404
+
+
+def test_table_query_endpoint_returns_cell_evidence(db_session):
+    workspace, user, collection = _seed_workspace(db_session)
+    db_session.add(
+        KnowledgeTableFact(
+            id="fact-b",
+            workspace_id=workspace.id,
+            collection_id=collection.id,
+            collection_slug=collection.slug,
+            document_id="doc-xlsx",
+            document_filename="labels.xlsx",
+            sheet_name="Def strips",
+            semantic_type="spreadsheet_cell_fact",
+            row_index=2,
+            cell_ref="B2",
+            row_label="B",
+            subject="B",
+            measure="B",
+            value_raw="85",
+            value_numeric=85,
+            content="sheet=Def strips | row_label=B | cell=B2 | value=85 | B = 85",
+            confidence=0.8,
+        )
+    )
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    response = client.post(
+        "/knowledge/table-query",
+        json={"collection_or_scope": "excel_pilot", "question": "Quelle est la valeur du label B ?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent"] == "lookup"
+    assert body["answer_payload"]["value"] == "85"
+    assert body["evidence_rows"][0]["sheet_name"] == "Def strips"
+    assert body["evidence_rows"][0]["cell_ref"] == "B2"

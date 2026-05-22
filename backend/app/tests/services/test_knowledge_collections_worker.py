@@ -92,7 +92,7 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
             self.cleared = True
             return True
 
-        async def ingest_documents_batch(self, paths):
+        async def ingest_documents_batch(self, paths, **_kwargs):
             assert self.cleared is True
             return {
                 "total": len(paths),

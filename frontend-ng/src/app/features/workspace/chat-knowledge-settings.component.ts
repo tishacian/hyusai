@@ -20,6 +20,7 @@ interface KnowledgeScopeApi {
   default_mode?: RagMode | null;
   top_k?: number | null;
   is_default?: boolean;
+  table_profile_key?: string | null;
 }
 
 interface KnowledgeScopeDraft {
@@ -30,6 +31,7 @@ interface KnowledgeScopeDraft {
   default_mode: RagMode;
   top_k: number | null;
   is_default: boolean;
+  table_profile_key: string;
 }
 
 interface KnowledgeGuideEditorDraft {
@@ -90,6 +92,25 @@ interface WorkspaceActionSettingsDraft {
   hidden_packs_text: string;
   enabled_actions_text: string;
   hidden_actions_text: string;
+}
+
+interface TableProfileDraft {
+  key: string;
+  label: string;
+  description: string;
+  synonyms_text: string;
+  metric_aliases_text: string;
+  allow_mean: boolean;
+  require_compatible_units: boolean;
+  exclude_non_numeric: boolean;
+  ambiguity_policy: string;
+  require_cell_citations: boolean;
+  show_excluded_values: boolean;
+}
+
+interface TableIntelligenceSettingsDraft {
+  default_profile: string;
+  profiles: TableProfileDraft[];
 }
 
 interface AssistantProfileDraft {
@@ -200,7 +221,7 @@ interface AssistantProfileDraft {
                   </label>
                 </div>
 
-                <div class="grid gap-4 mt-4 md:grid-cols-[minmax(180px,260px)_minmax(120px,160px)]">
+                <div class="grid gap-4 mt-4 md:grid-cols-[minmax(180px,260px)_minmax(120px,160px)_minmax(220px,1fr)]">
                   <label class="block">
                     <span class="field-label">Retrieval mode</span>
                     <span class="ag-select-wrap">
@@ -215,6 +236,18 @@ interface AssistantProfileDraft {
                   <label class="block">
                     <span class="field-label">Top-K</span>
                     <input class="ag-field" type="number" min="1" max="50" [(ngModel)]="scope.top_k" [disabled]="!canEdit()" />
+                  </label>
+                  <label class="block">
+                    <span class="field-label">Table profile</span>
+                    <span class="ag-select-wrap">
+                      <select class="ag-select" [(ngModel)]="scope.table_profile_key" [disabled]="!canEdit()">
+                        <option value="">Workspace default</option>
+                        @for (profile of tableProfileOptions(); track profile.key) {
+                          <option [ngValue]="profile.key">{{ profile.label || profile.key }}</option>
+                        }
+                      </select>
+                      <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                    </span>
                   </label>
                 </div>
 
@@ -434,6 +467,163 @@ interface AssistantProfileDraft {
                 </div>
               </article>
             }
+          </div>
+        </section>
+
+        <section class="t-card t-elevated rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
+            <div>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Table Intelligence</p>
+              <h3 class="text-base font-semibold text-white mt-1">Analytical spreadsheet profiles</h3>
+              <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
+                Profiles tell Agentium how to interpret table facts for lookup, comparison and calculation. They guide
+                query expansion and aggregation, while raw cells remain the proof source.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-sm font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+              [disabled]="!canEdit()"
+              (click)="addTableProfile()"
+            >
+              <app-icon name="plus" [size]="14" /> Add profile
+            </button>
+          </div>
+
+          <div class="p-5 space-y-5">
+            <label class="block max-w-md">
+              <span class="field-label">Workspace default profile</span>
+              <span class="ag-select-wrap">
+                <select class="ag-select" [(ngModel)]="tableIntelligenceDraft.default_profile" [disabled]="!canEdit()">
+                  <option value="">Generic default</option>
+                  @for (profile of tableIntelligenceDraft.profiles; track profile.key) {
+                    <option [ngValue]="profile.key">{{ profile.label || profile.key }}</option>
+                  }
+                </select>
+                <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+              </span>
+            </label>
+
+            <div class="space-y-4">
+              @for (profile of tableIntelligenceDraft.profiles; track profile; let i = $index) {
+                <article class="table-profile-card">
+                  <div class="table-profile-head">
+                    <div>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Profile {{ i + 1 }}</p>
+                      <h4 class="text-sm font-semibold text-white mt-1">{{ profile.label || profile.key || 'Untitled profile' }}</h4>
+                    </div>
+                    <button
+                      type="button"
+                      class="guide-button guide-button-danger"
+                      [disabled]="!canEdit()"
+                      (click)="removeTableProfile(i)"
+                    >
+                      <app-icon name="trash-2" [size]="13" /> Remove
+                    </button>
+                  </div>
+
+                  <div class="grid gap-4 md:grid-cols-[minmax(160px,0.8fr)_minmax(220px,1fr)]">
+                    <label class="block">
+                      <span class="field-label">Key</span>
+                      <input class="ag-field font-mono" [(ngModel)]="profile.key" [disabled]="!canEdit()" placeholder="generic_industrial_tests" />
+                    </label>
+                    <label class="block">
+                      <span class="field-label">Label</span>
+                      <input class="ag-field" [(ngModel)]="profile.label" [disabled]="!canEdit()" placeholder="Industrial test tables" />
+                    </label>
+                  </div>
+
+                  <label class="block mt-4">
+                    <span class="field-label">Description</span>
+                    <input
+                      class="ag-field"
+                      [(ngModel)]="profile.description"
+                      [disabled]="!canEdit()"
+                      placeholder="How this profile should interpret spreadsheet facts."
+                    />
+                  </label>
+
+                  <div class="grid gap-4 mt-4 lg:grid-cols-2">
+                    <label class="block">
+                      <span class="field-label">Synonyms</span>
+                      <textarea
+                        class="ag-field table-map-field"
+                        [(ngModel)]="profile.synonyms_text"
+                        [disabled]="!canEdit()"
+                        spellcheck="false"
+                        placeholder="dimension: diameter, length, thickness&#10;hemp: chanvre"
+                      ></textarea>
+                    </label>
+                    <label class="block">
+                      <span class="field-label">Metric aliases</span>
+                      <textarea
+                        class="ag-field table-map-field"
+                        [(ngModel)]="profile.metric_aliases_text"
+                        [disabled]="!canEdit()"
+                        spellcheck="false"
+                        placeholder="weight: poids, mass&#10;dimension: diamètre, épaisseur"
+                      ></textarea>
+                    </label>
+                  </div>
+
+                  <div class="grid gap-3 mt-4 lg:grid-cols-3">
+                    <label class="voice-toggle-row voice-toggle-compact">
+                      <input type="checkbox" [(ngModel)]="profile.allow_mean" [disabled]="!canEdit()" />
+                      <span>
+                        <strong>Allow mean</strong>
+                        <small>Permit average calculations when evidence is compatible.</small>
+                      </span>
+                    </label>
+                    <label class="voice-toggle-row voice-toggle-compact">
+                      <input type="checkbox" [(ngModel)]="profile.require_compatible_units" [disabled]="!canEdit()" />
+                      <span>
+                        <strong>Require compatible units</strong>
+                        <small>Block aggregate answers when units cannot be reconciled.</small>
+                      </span>
+                    </label>
+                    <label class="voice-toggle-row voice-toggle-compact">
+                      <input type="checkbox" [(ngModel)]="profile.exclude_non_numeric" [disabled]="!canEdit()" />
+                      <span>
+                        <strong>Exclude non numeric</strong>
+                        <small>Keep textual or empty values visible as exclusions.</small>
+                      </span>
+                    </label>
+                  </div>
+
+                  <div class="grid gap-4 mt-4 md:grid-cols-3">
+                    <label class="block">
+                      <span class="field-label">Ambiguity policy</span>
+                      <span class="ag-select-wrap">
+                        <select class="ag-select" [(ngModel)]="profile.ambiguity_policy" [disabled]="!canEdit()">
+                          <option value="ask_when_metric_unclear">Ask when metric unclear</option>
+                          <option value="answer_with_assumptions">Answer with assumptions</option>
+                          <option value="evidence_gap">Evidence gap first</option>
+                        </select>
+                        <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
+                      </span>
+                    </label>
+                    <label class="voice-toggle-row voice-toggle-compact">
+                      <input type="checkbox" [(ngModel)]="profile.require_cell_citations" [disabled]="!canEdit()" />
+                      <span>
+                        <strong>Cell citations</strong>
+                        <small>Require file, sheet and cell evidence.</small>
+                      </span>
+                    </label>
+                    <label class="voice-toggle-row voice-toggle-compact">
+                      <input type="checkbox" [(ngModel)]="profile.show_excluded_values" [disabled]="!canEdit()" />
+                      <span>
+                        <strong>Show exclusions</strong>
+                        <small>Expose rows skipped by calculation.</small>
+                      </span>
+                    </label>
+                  </div>
+                </article>
+              } @empty {
+                <div class="rounded-md border border-white/10 bg-black/10 px-4 py-5 text-sm text-gray-500">
+                  No custom table profile. Agentium will use its generic provider-agnostic table interpretation profile.
+                </div>
+              }
+            </div>
           </div>
         </section>
 
@@ -1387,6 +1577,28 @@ interface AssistantProfileDraft {
       gap: 1rem;
       margin-top: 1rem;
     }
+    .table-profile-card {
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background:
+        linear-gradient(180deg, rgba(34,211,238,0.035), rgba(255,255,255,0.015)),
+        rgba(0,0,0,0.12);
+      padding: 1rem;
+    }
+    .table-profile-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .table-map-field {
+      min-height: 7.5rem;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 0.78rem;
+      line-height: 1.5;
+    }
     @media (max-width: 900px) {
       .voice-mode-grid {
         grid-template-columns: 1fr;
@@ -1394,6 +1606,7 @@ interface AssistantProfileDraft {
       .knowledge-guide-header,
       .knowledge-guide-current,
       .guide-history-row,
+      .table-profile-head,
       .guide-editor-actions {
         flex-direction: column;
         align-items: stretch;
@@ -1443,6 +1656,7 @@ export class ChatKnowledgeSettingsComponent {
   voiceLoopDraft: VoiceLoopSettingsDraft = this.defaultVoiceLoopDraft();
   voiceOutputDraft: VoiceOutputSettingsDraft = this.defaultVoiceOutputDraft();
   actionSettingsDraft: WorkspaceActionSettingsDraft = this.defaultActionSettingsDraft();
+  tableIntelligenceDraft: TableIntelligenceSettingsDraft = this.defaultTableIntelligenceDraft();
 
   readonly canEdit = computed(() => {
     const role = this.detail()?.role;
@@ -1482,6 +1696,10 @@ export class ChatKnowledgeSettingsComponent {
   );
 
   readonly effectiveScopeLabel = computed(() => this.scopeLabel(this.effectiveScopeKey()));
+
+  tableProfileOptions(): TableProfileDraft[] {
+    return this.tableIntelligenceDraft.profiles.filter((profile) => profile.key.trim());
+  }
 
   readonly activeProfileChatOverrides = computed(() => {
     const profile = this.activeAssistantProfile();
@@ -1573,6 +1791,7 @@ export class ChatKnowledgeSettingsComponent {
       default_mode: 'chah',
       top_k: 5,
       is_default: next.length === 0,
+      table_profile_key: '',
     });
     this.scopes.set(next);
   }
@@ -1854,6 +2073,9 @@ export class ChatKnowledgeSettingsComponent {
     settings['voice_loop'] = this.cleanVoiceLoopSettings();
     settings['voice_output'] = this.cleanVoiceOutputSettings();
     settings['actions'] = this.cleanActionSettings();
+    const tableIntelligence = this.cleanTableIntelligenceSettings();
+    if (!tableIntelligence) return;
+    settings['table_intelligence'] = tableIntelligence;
     settings['assistant_profile_default'] = this.assistantProfileDefault || null;
     settings['assistant_profiles'] = assistantProfiles;
 
@@ -1943,6 +2165,7 @@ export class ChatKnowledgeSettingsComponent {
     this.voiceLoopDraft = this.voiceLoopToDraft(settings['voice_loop']);
     this.voiceOutputDraft = this.voiceOutputToDraft(settings['voice_output']);
     this.actionSettingsDraft = this.actionSettingsToDraft(settings['actions']);
+    this.tableIntelligenceDraft = this.tableIntelligenceToDraft(settings['table_intelligence']);
     this.assistantProfileDefault = this.str(settings['assistant_profile_default']);
     this.assistantProfilesJson = JSON.stringify(Array.isArray(settings['assistant_profiles']) ? settings['assistant_profiles'] : [], null, 2);
     this.selectedAssistantProfileIndex.set(0);
@@ -1957,6 +2180,7 @@ export class ChatKnowledgeSettingsComponent {
       default_mode: scope.default_mode || 'auto',
       top_k: scope.top_k || null,
       is_default: !!scope.is_default,
+      table_profile_key: scope.table_profile_key || '',
     };
   }
 
@@ -1974,6 +2198,7 @@ export class ChatKnowledgeSettingsComponent {
         default_mode: scope.default_mode || 'auto',
         top_k: scope.top_k ? Number(scope.top_k) : null,
         is_default: !!scope.is_default,
+        table_profile_key: scope.table_profile_key?.trim() || null,
       };
     });
 
@@ -2006,6 +2231,40 @@ export class ChatKnowledgeSettingsComponent {
     if (prompts.length) chat['prompt_pack'] = prompts;
     else delete chat['prompt_pack'];
     return chat;
+  }
+
+  private cleanTableIntelligenceSettings(): Record<string, unknown> | null {
+    const profiles = this.tableIntelligenceDraft.profiles.map((profile) => ({
+      key: profile.key.trim(),
+      label: profile.label.trim() || profile.key.trim(),
+      description: profile.description.trim(),
+      synonyms: this.mapTextToRecord(profile.synonyms_text),
+      metric_aliases: this.mapTextToRecord(profile.metric_aliases_text),
+      aggregation_policy: {
+        allow_mean: !!profile.allow_mean,
+        require_compatible_units: !!profile.require_compatible_units,
+        exclude_non_numeric: !!profile.exclude_non_numeric,
+      },
+      ambiguity_policy: profile.ambiguity_policy || 'ask_when_metric_unclear',
+      evidence_policy: {
+        require_cell_citations: !!profile.require_cell_citations,
+        show_excluded_values: !!profile.show_excluded_values,
+      },
+    })).filter((profile) => profile.key);
+
+    if (new Set(profiles.map((profile) => profile.key)).size !== profiles.length) {
+      this.error.set('Table Intelligence profile keys must be unique.');
+      return null;
+    }
+    const defaultProfile = this.tableIntelligenceDraft.default_profile.trim();
+    if (defaultProfile && !profiles.some((profile) => profile.key === defaultProfile)) {
+      this.error.set('The default Table Intelligence profile must exist in the profile list.');
+      return null;
+    }
+    return {
+      default_profile: defaultProfile || null,
+      profiles,
+    };
   }
 
   private cleanVoiceLoopSettings(): Record<string, unknown> {
@@ -2144,6 +2403,74 @@ export class ChatKnowledgeSettingsComponent {
     };
   }
 
+  private defaultTableIntelligenceDraft(): TableIntelligenceSettingsDraft {
+    return {
+      default_profile: '',
+      profiles: [],
+    };
+  }
+
+  private tableIntelligenceToDraft(value: unknown): TableIntelligenceSettingsDraft {
+    const config = this.asRecord(value);
+    const profilesRaw = Array.isArray(config['profiles']) ? config['profiles'] : [];
+    const profiles = profilesRaw
+      .map((raw) => this.tableProfileToDraft(this.asRecord(raw)))
+      .filter((profile) => profile.key || profile.label);
+    return {
+      default_profile: this.str(config['default_profile']),
+      profiles,
+    };
+  }
+
+  private tableProfileToDraft(raw: Record<string, unknown>): TableProfileDraft {
+    const aggregation = this.asRecord(raw['aggregation_policy']);
+    const evidence = this.asRecord(raw['evidence_policy']);
+    return {
+      key: this.str(raw['key']),
+      label: this.str(raw['label']),
+      description: this.str(raw['description']),
+      synonyms_text: this.recordToMapText(raw['synonyms']),
+      metric_aliases_text: this.recordToMapText(raw['metric_aliases']),
+      allow_mean: aggregation['allow_mean'] !== false,
+      require_compatible_units: aggregation['require_compatible_units'] !== false,
+      exclude_non_numeric: aggregation['exclude_non_numeric'] !== false,
+      ambiguity_policy: this.str(raw['ambiguity_policy']) || 'ask_when_metric_unclear',
+      require_cell_citations: evidence['require_cell_citations'] !== false,
+      show_excluded_values: evidence['show_excluded_values'] !== false,
+    };
+  }
+
+  addTableProfile(): void {
+    const next = [...this.tableIntelligenceDraft.profiles];
+    next.push({
+      key: `table_profile_${next.length + 1}`,
+      label: `Table profile ${next.length + 1}`,
+      description: '',
+      synonyms_text: '',
+      metric_aliases_text: '',
+      allow_mean: true,
+      require_compatible_units: true,
+      exclude_non_numeric: true,
+      ambiguity_policy: 'ask_when_metric_unclear',
+      require_cell_citations: true,
+      show_excluded_values: true,
+    });
+    this.tableIntelligenceDraft = {
+      ...this.tableIntelligenceDraft,
+      profiles: next,
+    };
+  }
+
+  removeTableProfile(index: number): void {
+    const removed = this.tableIntelligenceDraft.profiles[index]?.key;
+    const profiles = this.tableIntelligenceDraft.profiles.filter((_, i) => i !== index);
+    this.tableIntelligenceDraft = {
+      default_profile: this.tableIntelligenceDraft.default_profile === removed ? '' : this.tableIntelligenceDraft.default_profile,
+      profiles,
+    };
+    this.scopes.set(this.scopes().map((scope) => scope.table_profile_key === removed ? { ...scope, table_profile_key: '' } : scope));
+  }
+
   private actionSettingsToDraft(value: unknown): WorkspaceActionSettingsDraft {
     const config = this.asRecord(value);
     return {
@@ -2172,6 +2499,37 @@ export class ChatKnowledgeSettingsComponent {
 
   private listToCsv(value: unknown): string {
     return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean).join(', ') : '';
+  }
+
+  private recordToMapText(value: unknown): string {
+    const record = this.asRecord(value);
+    return Object.entries(record)
+      .map(([key, raw]) => {
+        const items = Array.isArray(raw) ? raw.map((item) => String(item).trim()).filter(Boolean) : [];
+        return items.length ? `${key}: ${items.join(', ')}` : '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  private mapTextToRecord(value: string): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    value
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const separator = line.indexOf(':');
+        const key = (separator >= 0 ? line.slice(0, separator) : line).trim();
+        if (!key) return;
+        const rawItems = separator >= 0 ? line.slice(separator + 1) : '';
+        const items = rawItems
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean);
+        if (items.length) out[key] = items;
+      });
+    return out;
   }
 
   private num(value: unknown, fallback: number): number {

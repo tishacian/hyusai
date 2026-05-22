@@ -19,10 +19,13 @@ from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import SessionLocal
 from app.services.knowledge_guides import effective_guides, guide_context_entries, guide_query_hint
+from app.services.document_intelligence import DocumentQueryEngine, should_run_document_analysis
 from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
 from app.services.rag.mode_selector import resolve_retrieval_mode
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
 from app.services.rag.vector_store_config import resolve_vector_db_type
+from app.services.table_intelligence import TableQueryEngine, should_run_table_analysis
+from app.models.workspace import Workspace
 
 logger = get_logger(__name__)
 
@@ -218,6 +221,160 @@ def _prepend_guide_context(
     )
 
 
+def _table_analysis_for_profile(request: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any] | None:
+    question = str(profile.get("query") or request.get("query") or "")
+    workspace_id = profile.get("workspace_id")
+    if not workspace_id or not should_run_table_analysis(question):
+        return None
+    db = SessionLocal()
+    try:
+        workspace = db.query(Workspace).filter(Workspace.id == str(workspace_id)).first()
+        if not workspace:
+            return None
+        return TableQueryEngine(db).query(
+            workspace=workspace,
+            question=question,
+            collection_or_scope=profile.get("knowledge_scope") or profile.get("collection"),
+            mode="auto",
+            system_id=request.get("system_id"),
+            include_evidence=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rag_context: table analysis failed", error=str(exc))
+        return {"warnings": [f"table_analysis_failed: {exc}"], "evidence_rows": []}
+    finally:
+        db.close()
+
+
+def _document_analysis_for_profile(request: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any] | None:
+    question = str(profile.get("query") or request.get("query") or "")
+    workspace_id = profile.get("workspace_id")
+    if not workspace_id or not should_run_document_analysis(question):
+        return None
+    db = SessionLocal()
+    try:
+        workspace = db.query(Workspace).filter(Workspace.id == str(workspace_id)).first()
+        if not workspace:
+            return None
+        return DocumentQueryEngine(db).query(
+            workspace=workspace,
+            question=question,
+            collection_or_scope=profile.get("knowledge_scope") or profile.get("collection"),
+            mode="auto",
+            system_id=request.get("system_id"),
+            include_evidence=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("rag_context: document analysis failed", error=str(exc))
+        return {"warnings": [f"document_analysis_failed: {exc}"], "evidence_rows": []}
+    finally:
+        db.close()
+
+
+def _prepend_table_analysis_context(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    table_analysis: dict[str, Any] | None,
+) -> tuple[list[str], list[float], list[dict[str, Any]], int]:
+    if not table_analysis:
+        return chunks, scores, metadatas, 0
+    evidence = table_analysis.get("evidence_rows") or []
+    if not evidence:
+        return chunks, scores, metadatas, 0
+    evidence_chunks: list[str] = []
+    evidence_scores: list[float] = []
+    evidence_metas: list[dict[str, Any]] = []
+    for index, row in enumerate(evidence[:8], start=1):
+        if not isinstance(row, Mapping):
+            continue
+        value = row.get("value_raw")
+        unit = f" {row.get('unit')}" if row.get("unit") else ""
+        label = row.get("measure") or row.get("row_label") or row.get("column_header") or "value"
+        content = (
+            "Table analysis evidence: "
+            f'{label} = {value}{unit}; '
+            f'file="{row.get("document_filename")}", '
+            f'sheet="{row.get("sheet_name")}", cell="{row.get("cell_ref")}". '
+            f'{row.get("content") or ""}'
+        )
+        evidence_chunks.append(content)
+        evidence_scores.append(1.2 - (index * 0.01))
+        evidence_metas.append(
+            {
+                "source_type": "table_analysis",
+                "semantic_type": "table_analysis_evidence",
+                "collection": row.get("collection_slug"),
+                "collection_name": row.get("collection_slug"),
+                "document_id": row.get("document_id"),
+                "document_filename": row.get("document_filename"),
+                "sheet_name": row.get("sheet_name"),
+                "cell_ref": row.get("cell_ref"),
+                "cell_range": row.get("cell_range"),
+                "row_label": row.get("row_label"),
+                "column_header": row.get("column_header"),
+                "value_raw": row.get("value_raw"),
+                "value_numeric": row.get("value_numeric"),
+                "unit": row.get("unit"),
+                "citation_label": f"{row.get('document_filename') or 'table'} · {row.get('sheet_name') or 'sheet'} · {row.get('cell_ref') or 'cell'}",
+            }
+        )
+    return evidence_chunks + chunks, evidence_scores + scores, evidence_metas + metadatas, len(evidence_chunks)
+
+
+def _prepend_document_analysis_context(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    document_analysis: dict[str, Any] | None,
+) -> tuple[list[str], list[float], list[dict[str, Any]], int]:
+    if not document_analysis:
+        return chunks, scores, metadatas, 0
+    evidence = document_analysis.get("evidence_rows") or []
+    if not evidence:
+        return chunks, scores, metadatas, 0
+    evidence_chunks: list[str] = []
+    evidence_scores: list[float] = []
+    evidence_metas: list[dict[str, Any]] = []
+    for index, row in enumerate(evidence[:8], start=1):
+        if not isinstance(row, Mapping):
+            continue
+        locator = []
+        if row.get("page"):
+            locator.append(f"page {row.get('page')}")
+        if row.get("section_path"):
+            locator.append(str(row.get("section_path")))
+        content = (
+            "Document analysis evidence: "
+            f'{row.get("semantic_type") or "fact"}; '
+            f'file="{row.get("document_filename")}", '
+            f'locator="{", ".join(locator) or "document"}". '
+            f'{row.get("content") or row.get("value_raw") or ""}'
+        )
+        evidence_chunks.append(content)
+        evidence_scores.append(1.15 - (index * 0.01))
+        evidence_metas.append(
+            {
+                "source_type": "document_analysis",
+                "semantic_type": "document_analysis_evidence",
+                "collection": row.get("collection_slug"),
+                "collection_name": row.get("collection_slug"),
+                "document_id": row.get("document_id"),
+                "document_filename": row.get("document_filename"),
+                "document_type": row.get("document_type"),
+                "page": row.get("page"),
+                "section_path": row.get("section_path"),
+                "paragraph_index": row.get("paragraph_index"),
+                "subject": row.get("subject"),
+                "predicate": row.get("predicate"),
+                "value_raw": row.get("value_raw"),
+                "unit": row.get("unit"),
+                "citation_label": f"{row.get('document_filename') or 'document'} · {', '.join(locator) or 'source'}",
+            }
+        )
+    return evidence_chunks + chunks, evidence_scores + scores, evidence_metas + metadatas, len(evidence_chunks)
+
+
 def build_document_service(request: dict[str, Any]):
     """Create a request-scoped DocumentService for worker-side retrieval."""
     from app.services.rag.document_service import DocumentService
@@ -358,6 +515,8 @@ async def retrieve_rag_context(
     query = profile["query"]
     guides = _effective_guides_for_profile(profile)
     guide_hint = guide_query_hint(guides)
+    table_analysis = _table_analysis_for_profile(request, profile)
+    document_analysis = _document_analysis_for_profile(request, profile)
     retrieval_query = query
     collections = profile.get("collections") or [profile["collection"]]
     metrics: dict[str, Any] = {
@@ -385,6 +544,8 @@ async def retrieve_rag_context(
             metrics=metrics,
             fallback_reason=fallback_reason,
             guides=guides,
+            table_analysis=table_analysis,
+            document_analysis=document_analysis,
             retrieval_query=retrieval_query,
             guide_hint=guide_hint,
         )
@@ -451,6 +612,18 @@ async def retrieve_rag_context(
         metadatas,
     )
     document_chunk_count = len(chunks)
+    chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
+        chunks,
+        scores,
+        metadatas,
+        table_analysis,
+    )
+    chunks, scores, metadatas, document_evidence_count = _prepend_document_analysis_context(
+        chunks,
+        scores,
+        metadatas,
+        document_analysis,
+    )
     chunks, scores, metadatas, guide_count = _prepend_guide_context(
         chunks,
         scores,
@@ -465,6 +638,8 @@ async def retrieve_rag_context(
             "raw_chunks_retrieved": raw_chunk_count,
             "duplicates_removed": duplicates_removed,
             "knowledge_guides": guide_count,
+            "table_analysis_evidence": table_evidence_count,
+            "document_analysis_evidence": document_evidence_count,
             "pipeline": result.pipeline,
             "mode_label": mode_label,
             "no_context": len(chunks) == 0,
@@ -488,6 +663,8 @@ async def retrieve_rag_context(
             "collection": profile["collection"],
             "collections": collections,
             "knowledge_scope": profile.get("knowledge_scope"),
+            "table_analysis": table_analysis,
+            "document_analysis": document_analysis,
             "scope_label": profile.get("scope_label"),
             "vector_db": profile["vector_db"],
             "workspace_slug": profile["workspace_slug"],
@@ -550,6 +727,8 @@ async def _retrieve_multi_collection_context(
     metrics: dict[str, Any],
     fallback_reason: str | None,
     guides: list[Any],
+    table_analysis: dict[str, Any] | None,
+    document_analysis: dict[str, Any] | None,
     retrieval_query: str,
     guide_hint: str,
 ) -> dict[str, Any]:
@@ -613,6 +792,18 @@ async def _retrieve_multi_collection_context(
         metadatas,
     )
     document_chunk_count = len(chunks)
+    chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
+        chunks,
+        scores,
+        metadatas,
+        table_analysis,
+    )
+    chunks, scores, metadatas, document_evidence_count = _prepend_document_analysis_context(
+        chunks,
+        scores,
+        metadatas,
+        document_analysis,
+    )
     chunks, scores, metadatas, guide_count = _prepend_guide_context(
         chunks,
         scores,
@@ -629,6 +820,8 @@ async def _retrieve_multi_collection_context(
             "raw_chunks_retrieved": raw_chunk_count,
             "duplicates_removed": duplicates_removed,
             "knowledge_guides": guide_count,
+            "table_analysis_evidence": table_evidence_count,
+            "document_analysis_evidence": document_evidence_count,
             "pipeline": f"multi_{profile['rag_mode'] or 'auto'}",
             "mode_label": "multi_collection",
             "no_context": len(chunks) == 0,
@@ -656,6 +849,8 @@ async def _retrieve_multi_collection_context(
             "collection": profile["collection"],
             "collections": profile.get("collections") or [],
             "knowledge_scope": profile.get("knowledge_scope"),
+            "table_analysis": table_analysis,
+            "document_analysis": document_analysis,
             "scope_label": profile.get("scope_label"),
             "vector_db": profile["vector_db"],
             "workspace_slug": profile["workspace_slug"],

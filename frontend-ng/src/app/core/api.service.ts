@@ -114,6 +114,10 @@ export interface TableFactItem {
   table_region_id?: string | null;
   interpretation_note?: string | null;
   chunk_index?: number | null;
+  subject?: string | null;
+  measure?: string | null;
+  value_raw?: string | null;
+  value_numeric?: number | null;
 }
 
 export interface TableFactList {
@@ -123,6 +127,55 @@ export interface TableFactList {
   total_returned: number;
   limit: number;
   offset: number;
+}
+
+export interface TableQueryResponse {
+  intent: string;
+  plan: Record<string, unknown>;
+  answer_payload: Record<string, unknown>;
+  evidence_rows: Record<string, unknown>[];
+  excluded_rows: Record<string, unknown>[];
+  warnings: string[];
+  effective_profile: Record<string, unknown>;
+}
+
+export interface DocumentFactItem {
+  content?: string | null;
+  semantic_type?: string | null;
+  document_id?: string | null;
+  document_filename?: string | null;
+  document_type?: string | null;
+  source_path?: string | null;
+  subject?: string | null;
+  predicate?: string | null;
+  value_raw?: string | null;
+  value_numeric?: number | null;
+  unit?: string | null;
+  page?: number | null;
+  section_path?: string | null;
+  paragraph_index?: number | null;
+  table_index?: number | null;
+  evidence_locator?: Record<string, unknown> | null;
+  qualifiers?: Record<string, unknown> | null;
+  semantic_tags?: string[] | null;
+  confidence?: number | null;
+}
+
+export interface DocumentFactList {
+  collection_name: string;
+  items: DocumentFactItem[];
+  total_returned: number;
+  limit: number;
+  offset: number;
+}
+
+export interface DocumentQueryResponse {
+  intent: string;
+  plan: Record<string, unknown>;
+  answer_payload: Record<string, unknown>;
+  evidence_rows: Record<string, unknown>[];
+  warnings: string[];
+  effective_profile: Record<string, unknown>;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -253,6 +306,47 @@ export class ApiService {
     if (params.sheet_name) query['sheet_name'] = params.sheet_name;
     if (params.q) query['q'] = params.q;
     return this.get<TableFactList>('/documents/table-facts', query);
+  }
+
+  queryKnowledgeTable(body: {
+    collection_or_scope?: string | null;
+    question: string;
+    mode?: string;
+    filters?: Record<string, unknown>;
+    system_id?: string | null;
+    table_profile_key?: string | null;
+    include_evidence?: boolean;
+  }): Observable<TableQueryResponse> {
+    return this.post<TableQueryResponse>('/knowledge/table-query', body);
+  }
+
+  listDocumentFacts(params: {
+    collection_name: string;
+    semantic_type?: string;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }): Observable<DocumentFactList> {
+    const query: Record<string, string> = {
+      collection_name: params.collection_name,
+      limit: String(params.limit ?? 100),
+      offset: String(params.offset ?? 0),
+    };
+    if (params.semantic_type) query['semantic_type'] = params.semantic_type;
+    if (params.q) query['q'] = params.q;
+    return this.get<DocumentFactList>('/documents/document-facts', query);
+  }
+
+  queryKnowledgeDocument(body: {
+    collection_or_scope?: string | null;
+    question: string;
+    mode?: string;
+    filters?: Record<string, unknown>;
+    system_id?: string | null;
+    document_profile_key?: string | null;
+    include_evidence?: boolean;
+  }): Observable<DocumentQueryResponse> {
+    return this.post<DocumentQueryResponse>('/knowledge/document-query', body);
   }
 
   createCapturePlan(body: CapturePlanRequest): Observable<unknown> {

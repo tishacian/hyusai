@@ -23,6 +23,8 @@ from app.services.rag.knowledge_scopes import (
     normalize_knowledge_scopes,
     sanitize_scope,
 )
+from app.services.table_intelligence import TableQueryEngine
+from app.services.document_intelligence import DocumentQueryEngine
 
 router = APIRouter()
 
@@ -35,6 +37,8 @@ class KnowledgeScopePayload(BaseModel):
     default_mode: str | None = None
     top_k: int | None = None
     is_default: bool = False
+    table_profile_key: str | None = None
+    document_profile_key: str | None = None
 
 
 class KnowledgeScopesPatch(BaseModel):
@@ -55,6 +59,26 @@ class KnowledgeGuidePatch(BaseModel):
     title: str | None = None
     markdown: str | None = None
     status: str | None = None
+
+
+class TableQueryRequest(BaseModel):
+    collection_or_scope: str | None = None
+    question: str
+    mode: str = "auto"
+    filters: dict[str, Any] = Field(default_factory=dict)
+    system_id: str | None = None
+    table_profile_key: str | None = None
+    include_evidence: bool = True
+
+
+class DocumentQueryRequest(BaseModel):
+    collection_or_scope: str | None = None
+    question: str
+    mode: str = "auto"
+    filters: dict[str, Any] = Field(default_factory=dict)
+    system_id: str | None = None
+    document_profile_key: str | None = None
+    include_evidence: bool = True
 
 
 def _collection_stats(db: Session, workspace_id: str) -> dict[str, dict[str, Any]]:
@@ -217,3 +241,47 @@ def patch_knowledge_scopes(
     db.commit()
     db.refresh(workspace)
     return _serialize_scopes(workspace=workspace, db=db)
+
+
+@router.post("/table-query")
+def query_table_knowledge(
+    payload: TableQueryRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Run analytic lookup/aggregation over structured table facts."""
+    if not payload.question.strip():
+        raise HTTPException(status_code=422, detail="question is required")
+    engine = TableQueryEngine(db)
+    return engine.query(
+        workspace=workspace,
+        question=payload.question,
+        collection_or_scope=payload.collection_or_scope,
+        mode=payload.mode,
+        filters=payload.filters,
+        system_id=payload.system_id,
+        table_profile_key=payload.table_profile_key,
+        include_evidence=payload.include_evidence,
+    )
+
+
+@router.post("/document-query")
+def query_document_knowledge(
+    payload: DocumentQueryRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: Session = Depends(get_db),
+):
+    """Run structured lookup over document facts from manuals/procedures."""
+    if not payload.question.strip():
+        raise HTTPException(status_code=422, detail="question is required")
+    engine = DocumentQueryEngine(db)
+    return engine.query(
+        workspace=workspace,
+        question=payload.question,
+        collection_or_scope=payload.collection_or_scope,
+        mode=payload.mode,
+        filters=payload.filters,
+        system_id=payload.system_id,
+        document_profile_key=payload.document_profile_key,
+        include_evidence=payload.include_evidence,
+    )

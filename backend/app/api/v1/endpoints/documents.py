@@ -16,6 +16,7 @@ from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
 from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import (
@@ -413,6 +414,68 @@ async def list_table_facts(
     except Exception as e:
         logger.error(f"Error listing table facts: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/document-facts")
+def list_document_facts(
+    collection_name: str = Query("documents"),
+    semantic_type: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """List structured document facts for Knowledge diagnostics."""
+    query = db.query(KnowledgeDocumentFact).filter(
+        KnowledgeDocumentFact.workspace_id == workspace.id,
+        KnowledgeDocumentFact.collection_slug == collection_name,
+    )
+    if semantic_type:
+        query = query.filter(KnowledgeDocumentFact.semantic_type == semantic_type)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            KnowledgeDocumentFact.content.ilike(like)
+            | KnowledgeDocumentFact.document_filename.ilike(like)
+            | KnowledgeDocumentFact.subject.ilike(like)
+            | KnowledgeDocumentFact.value_raw.ilike(like)
+            | KnowledgeDocumentFact.section_path.ilike(like)
+        )
+    rows = (
+        query.order_by(KnowledgeDocumentFact.document_filename, KnowledgeDocumentFact.page, KnowledgeDocumentFact.paragraph_index)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return {
+        "collection_name": collection_name,
+        "items": [
+            {
+                "id": row.id,
+                "content": row.content,
+                "semantic_type": row.semantic_type,
+                "document_id": row.document_id,
+                "document_filename": row.document_filename,
+                "document_type": row.document_type,
+                "subject": row.subject,
+                "predicate": row.predicate,
+                "value_raw": row.value_raw,
+                "value_numeric": row.value_numeric,
+                "unit": row.unit,
+                "page": row.page,
+                "section_path": row.section_path,
+                "paragraph_index": row.paragraph_index,
+                "table_index": row.table_index,
+                "evidence_locator": row.evidence_locator or {},
+                "confidence": row.confidence,
+            }
+            for row in rows
+        ],
+        "total_returned": len(rows),
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 def _find_original_file(document_id: str, filename: str) -> Optional[str]:
