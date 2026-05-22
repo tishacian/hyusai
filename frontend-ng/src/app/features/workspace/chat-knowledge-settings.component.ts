@@ -1,6 +1,6 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { forkJoin, map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
@@ -167,7 +167,7 @@ interface AssistantProfileDraft {
 @Component({
   selector: 'app-chat-knowledge-settings',
   standalone: true,
-  imports: [FormsModule, IconComponent, SectionHeaderComponent],
+  imports: [FormsModule, RouterLink, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
       breadcrumb="Workspace · Defaults"
@@ -1259,19 +1259,34 @@ interface AssistantProfileDraft {
       <aside class="space-y-5">
         <section class="t-card t-elevated rounded-md p-5">
           <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Available collections</p>
-          <h3 class="text-sm font-semibold text-white mt-1">Workspace Knowledge</h3>
+          <h3 class="text-sm font-semibold text-white mt-1">Indexed collections</h3>
           <p class="text-xs text-gray-500 mt-2">
-            Copy slugs into a Knowledge scope. A scope may combine several collections.
+            Collections are raw indexed stores. Add one to the Workspace default scope so Chat can use it, or open the
+            collection for diagnostics. Copying the slug is only for manual edits.
           </p>
           <div class="mt-4 max-h-72 overflow-y-auto space-y-2 pr-1">
             @for (collection of collections(); track collection) {
-              <button
-                type="button"
-                class="w-full text-left rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-mono text-gray-300 hover:bg-white/[0.06]"
-                (click)="copyCollection(collection)"
-              >
-                {{ collection }}
-              </button>
+              <article class="collection-option" [class.collection-option-attached]="collectionInDefaultScope(collection)">
+                <button
+                  type="button"
+                  class="collection-option-main"
+                  [disabled]="!canEdit() || collectionInDefaultScope(collection)"
+                  (click)="addCollectionToDefaultScope(collection)"
+                >
+                  <span class="font-mono">{{ collection }}</span>
+                  <small>
+                    {{ collectionInDefaultScope(collection) ? 'In Workspace default' : 'Add to Workspace default' }}
+                  </small>
+                </button>
+                <div class="collection-option-actions">
+                  <a class="guide-button" [routerLink]="['/knowledge', collection]">
+                    <app-icon name="external-link" [size]="13" /> Open
+                  </a>
+                  <button type="button" class="guide-button" (click)="copyCollection(collection)">
+                    <app-icon name="copy" [size]="13" /> Copy
+                  </button>
+                </div>
+              </article>
             } @empty {
               <p class="text-sm text-gray-500">No indexed collection reported yet.</p>
             }
@@ -1284,6 +1299,11 @@ interface AssistantProfileDraft {
           <p class="mt-2 text-xs text-gray-500 leading-relaxed">
             The default assistant may set the automatic Knowledge source and, when configured, the visible Quick ask surface.
           </p>
+          <div class="effective-source-note mt-4">
+            <span class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Effective Quick ask source</span>
+            <strong>{{ effectiveScopeLabel() }}</strong>
+            <small>{{ effectiveScopeOrigin() }}</small>
+          </div>
           <label class="block mt-4">
             <span class="field-label">assistant_profile_default</span>
             <span class="ag-select-wrap">
@@ -1833,6 +1853,69 @@ interface AssistantProfileDraft {
       gap: 1rem;
       margin-top: 1rem;
     }
+    .collection-option {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: stretch;
+      gap: 0.5rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.025);
+      padding: 0.5rem;
+    }
+    .collection-option-attached {
+      border-color: rgba(34,211,238,0.24);
+      background: rgba(34,211,238,0.06);
+    }
+    .collection-option-main {
+      min-width: 0;
+      text-align: left;
+      color: rgb(229 231 235);
+    }
+    .collection-option-main span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 0.78rem;
+    }
+    .collection-option-main small {
+      display: block;
+      margin-top: 0.2rem;
+      color: rgb(107 114 128);
+      font-size: 0.68rem;
+    }
+    .collection-option-main:hover:not(:disabled) span {
+      color: white;
+    }
+    .collection-option-main:disabled {
+      cursor: default;
+      opacity: 0.78;
+    }
+    .collection-option-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .effective-source-note {
+      border-radius: 8px;
+      border: 1px solid rgba(34,211,238,0.18);
+      background: rgba(34,211,238,0.055);
+      padding: 0.75rem;
+    }
+    .effective-source-note strong {
+      display: block;
+      margin-top: 0.35rem;
+      color: white;
+      font-size: 0.875rem;
+    }
+    .effective-source-note small {
+      display: block;
+      margin-top: 0.2rem;
+      color: rgb(148 163 184);
+      font-size: 0.72rem;
+      line-height: 1.35;
+    }
     .table-profile-card {
       border-radius: 8px;
       border: 1px solid rgba(255,255,255,0.10);
@@ -1948,11 +2031,24 @@ export class ChatKnowledgeSettingsComponent {
     this.scopes().find((scope) => scope.is_default)?.key || this.scopes()[0]?.key || null,
   );
 
+  readonly workspaceDefaultScopeDraft = computed(() =>
+    this.scopes().find((scope) => scope.is_default) || this.scopes()[0] || null,
+  );
+
   readonly effectiveScopeKey = computed(() =>
     this.activeAssistantProfile()?.default_knowledge_scope || this.workspaceDefaultScope(),
   );
 
   readonly effectiveScopeLabel = computed(() => this.scopeLabel(this.effectiveScopeKey()));
+
+  readonly effectiveScopeOrigin = computed(() => {
+    const profile = this.activeAssistantProfile();
+    if (profile?.default_knowledge_scope) {
+      const label = profile.label || profile.key || 'default assistant profile';
+      return `Selected by assistant profile "${label}", overriding Workspace default.`;
+    }
+    return 'Selected from the Workspace default scope.';
+  });
 
   tableProfileOptions(): TableProfileDraft[] {
     return this.tableIntelligenceDraft.profiles.filter((profile) => profile.key.trim());
@@ -2092,6 +2188,42 @@ export class ChatKnowledgeSettingsComponent {
   copyCollection(collection: string): void {
     void navigator.clipboard?.writeText(collection);
     this.toastr.info(collection, 'Collection slug copied');
+  }
+
+  addCollectionToDefaultScope(collection: string): void {
+    const slug = collection.trim();
+    if (!slug || !this.canEdit()) return;
+    const next = [...this.scopes()];
+    let index = next.findIndex((scope) => scope.is_default);
+    if (index < 0) index = 0;
+    if (index < 0) {
+      next.push({
+        key: 'workspace_default',
+        label: 'Workspace default',
+        description: '',
+        collection_slugs_text: slug,
+        default_mode: 'chah',
+        top_k: 5,
+        is_default: true,
+        table_profile_key: '',
+        document_profile_key: '',
+      });
+    } else {
+      const current = next[index];
+      const slugs = this.collectionSlugs(current);
+      if (slugs.includes(slug)) {
+        this.toastr.info(slug, 'Already in Workspace default');
+        return;
+      }
+      next[index] = { ...current, collection_slugs_text: [...slugs, slug].join(', ') };
+    }
+    this.scopes.set(next);
+    this.toastr.success('Save defaults to apply this routing change.', 'Added to Workspace default');
+  }
+
+  collectionInDefaultScope(collection: string): boolean {
+    const scope = this.workspaceDefaultScopeDraft();
+    return !!scope && this.collectionSlugs(scope).includes(collection.trim());
   }
 
   currentGuideForScope(scopeKey: string): KnowledgeGuide | null {
@@ -3052,5 +3184,12 @@ export class ChatKnowledgeSettingsComponent {
     if (!scopeKey) return 'workspace';
     const scope = this.scopes().find((item) => item.key === scopeKey);
     return scope?.label || scopeKey;
+  }
+
+  private collectionSlugs(scope: KnowledgeScopeDraft): string[] {
+    return scope.collection_slugs_text
+      .split(',')
+      .map((slug) => slug.trim())
+      .filter(Boolean);
   }
 }
