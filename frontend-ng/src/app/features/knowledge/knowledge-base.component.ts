@@ -119,7 +119,7 @@ interface SearchResult {
         multiple
         class="hidden"
         (change)="onFileSelect($event)"
-        accept=".pdf,.txt,.md,.docx,.csv,.json"
+        accept=".pdf,.txt,.md,.docx,.csv,.json,.png,.jpg,.jpeg,.tif,.tiff,.webp"
       />
       <div class="flex items-center justify-center gap-4">
         <div

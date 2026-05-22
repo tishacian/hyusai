@@ -87,8 +87,7 @@ class DocumentParserFactory:
         
         # Image detection
         image_extensions = {
-            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp',
-            '.svg', '.ico', '.heic', '.heif'
+            '.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'
         }
         if ext in image_extensions:
             return DocumentType.IMAGE

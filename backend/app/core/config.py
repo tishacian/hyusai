@@ -67,6 +67,22 @@ class Settings(BaseSettings):
     visual_analysis_timeout_seconds: float = 20.0
     visual_analysis_endpoint_url: Optional[str] = None
 
+    # OCR / Visual Document Intelligence. OCR providers are optional and
+    # service-first: PP-OCR-compatible HTTP service in production, local
+    # Tesseract only when available or explicitly installed.
+    document_ocr_enabled: bool = True
+    document_ocr_provider_priority: str = "ppocr_service,tesseract_local"
+    document_ocr_ppocr_endpoint_url: Optional[str] = None
+    document_ocr_languages: str = "eng,fra"
+    document_ocr_scan_detection: bool = True
+    document_ocr_force_ocr: bool = False
+    document_ocr_min_text_chars_for_native_pdf: int = 80
+    document_ocr_min_confidence: float = 0.0
+    document_ocr_timeout_seconds: float = 30.0
+    document_ocr_retries: int = 2
+    document_ocr_retry_backoff_ms: int = 250
+    document_ocr_required: bool = False
+
     # Embeddings
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
@@ -167,7 +183,7 @@ class Settings(BaseSettings):
     secure_deposit_session_secret: str = ""
     secure_deposit_session_ttl_seconds: int = 7200
     secure_deposit_default_max_file_size_mb: int = 100
-    secure_deposit_allowed_extensions: str = "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,png,jpg,jpeg"
+    secure_deposit_allowed_extensions: str = "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,png,jpg,jpeg,tif,tiff,webp"
     secure_deposit_storage_dir: str = "./data/secure_deposit"
     secure_deposit_archive_promotion_max_files: int = 50
     secure_deposit_sftp_host: str = "0.0.0.0"

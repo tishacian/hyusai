@@ -118,6 +118,23 @@ def _persist_document_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
         return 0
 
 
+def _kwargs_with_ocr_config(kwargs: Dict) -> Dict:
+    if kwargs.get("ocr_config"):
+        return kwargs
+    try:
+        from app.services.ocr import resolve_ocr_config_for_workspace
+
+        out = dict(kwargs)
+        out["ocr_config"] = resolve_ocr_config_for_workspace(
+            workspace_id=out.get("workspace_id"),
+            overrides=out.get("document_ocr") if isinstance(out.get("document_ocr"), dict) else None,
+        )
+        return out
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not prepare OCR config", error=str(exc))
+        return kwargs
+
+
 class DocumentService:
     """Service for ingesting and indexing documents"""
     
@@ -197,7 +214,8 @@ class DocumentService:
             # Step 1: Parse document
             parse_step = tracer.add_step(trace.id, TraceStepType.DOCUMENT_PARSE)
             parser = DocumentParserFactory.get_parser(file_path)
-            parsed_doc = await parser.parse(file_path, **kwargs)
+            parse_kwargs = _kwargs_with_ocr_config(kwargs)
+            parsed_doc = await parser.parse(file_path, **parse_kwargs)
             try:
                 from app.services.document_intelligence import ensure_document_artifacts
 
@@ -347,7 +365,8 @@ class DocumentService:
             try:
                 # Step 1: Parse document (async)
                 parser = DocumentParserFactory.get_parser(file_path)
-                parsed_doc = await parser.parse(file_path, **kwargs)
+                parse_kwargs = _kwargs_with_ocr_config(kwargs)
+                parsed_doc = await parser.parse(file_path, **parse_kwargs)
                 try:
                     from app.services.document_intelligence import ensure_document_artifacts
 

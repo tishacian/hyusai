@@ -2,11 +2,13 @@
 import asyncio
 import os
 import tempfile
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
+from app.core.config import settings
 from app.services.document_parser.base import BaseDocumentParser, ParsedDocument, DocumentType
 from app.services.document_parser.text_processor import TextProcessor
 from app.services.document_parser.chunker import DocumentChunker, ChunkingMethod
 from app.core.logging import get_logger
+from app.services.ocr import extract_ocr_for_image
 
 logger = get_logger(__name__)
 
@@ -35,16 +37,21 @@ class AdvancedPDFParser(BaseDocumentParser):
         # indexed with ``page=1`` and shown as indistinguishable duplicates in
         # the Chat UI sources panel.
         pages_data: List[Dict] = []
+        ocr_artifacts: List[Dict[str, Any]] = []
         try:
             if use_markdown_converter:
                 pages_data = await self._extract_with_markdown_converter(file_path)
+                if self._should_run_ocr(pages_data, use_ocr=use_ocr):
+                    ocr_pages, ocr_artifacts = await self._extract_with_ocr(file_path, kwargs.get("ocr_config"))
+                    if ocr_pages:
+                        pages_data = ocr_pages
             else:
-                pages_data = await self._extract_with_ocr(file_path)
+                pages_data, ocr_artifacts = await self._extract_with_ocr(file_path, kwargs.get("ocr_config"))
         except Exception as e:
             logger.warning(f"Primary extraction method failed: {e}, trying fallback")
             if use_markdown_converter:
                 try:
-                    pages_data = await self._extract_with_ocr(file_path)
+                    pages_data, ocr_artifacts = await self._extract_with_ocr(file_path, kwargs.get("ocr_config"))
                 except Exception as fallback_error:
                     logger.error(f"Both extraction methods failed: {fallback_error}")
                     pages_data = await self._extract_basic(file_path)
@@ -92,6 +99,8 @@ class AdvancedPDFParser(BaseDocumentParser):
                 "pages": metadata.get("pages", len(pages_data) or 1),
                 "chunks_count": len(processed_chunks),
                 "total_chars": len(cleaned_content),
+                "ocr_artifacts": ocr_artifacts,
+                "ocr_block_count": sum(len(item.get("blocks") or []) for item in ocr_artifacts),
             },
             metadata=metadata,
             chunks=processed_chunks,
@@ -175,39 +184,59 @@ class AdvancedPDFParser(BaseDocumentParser):
             logger.error(f"Markdown converter extraction failed: {e}")
             raise
 
-    async def _extract_with_ocr(self, file_path: str) -> List[Dict]:
+    def _should_run_ocr(self, pages_data: List[Dict], *, use_ocr: bool) -> bool:
+        if use_ocr or settings.document_ocr_force_ocr:
+            return True
+        if not settings.document_ocr_enabled or not settings.document_ocr_scan_detection:
+            return False
+        total_chars = sum(len(str(page.get("text") or "").strip()) for page in pages_data)
+        return total_chars < max(0, int(settings.document_ocr_min_text_chars_for_native_pdf or 0))
+
+    async def _extract_with_ocr(self, file_path: str, ocr_config: dict | None = None) -> Tuple[List[Dict], List[Dict]]:
         """Extract text using OCR (for scanned PDFs)"""
         try:
-            import pytesseract
             import pymupdf
             from PIL import Image
 
             loop = asyncio.get_event_loop()
 
-            def _extract() -> List[Dict]:
+            def _extract() -> Tuple[List[Dict], List[Dict]]:
                 pages: List[Dict] = []
+                artifacts: List[Dict] = []
                 doc = pymupdf.open(file_path)
                 try:
                     for idx in range(len(doc)):
                         page = doc[idx]
                         page_num = idx + 1
                         text = page.get_text("text")
-                        if text and text.strip():
+                        if text and text.strip() and not settings.document_ocr_force_ocr:
                             pages.append({"page_number": page_num, "text": text})
                             continue
                         pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
                         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                        ocr_text = pytesseract.image_to_string(img)
-                        if ocr_text and ocr_text.strip():
-                            pages.append({"page_number": page_num, "text": ocr_text})
+                        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                            tmp_path = tmp.name
+                        try:
+                            img.save(tmp_path)
+                            artifact = extract_ocr_for_image(tmp_path, config=ocr_config, page_number=page_num)
+                            artifact["source_pdf"] = file_path
+                            artifacts.append(artifact)
+                            ocr_text = str(artifact.get("text") or "").strip()
+                            if ocr_text:
+                                pages.append({"page_number": page_num, "text": ocr_text, "extraction_method": "ocr"})
+                        finally:
+                            try:
+                                os.unlink(tmp_path)
+                            except OSError:
+                                pass
                 finally:
                     doc.close()
-                return pages
+                return pages, artifacts
 
             return await loop.run_in_executor(None, _extract)
         except ImportError:
             logger.warning("OCR dependencies not available, falling back to basic extraction")
-            return await self._extract_basic(file_path)
+            return await self._extract_basic(file_path), []
         except Exception as e:
             logger.error(f"OCR extraction failed: {e}")
             raise
@@ -248,4 +277,3 @@ class AdvancedPDFParser(BaseDocumentParser):
     def supports(self, file_path: str) -> bool:
         """Check if file is a PDF"""
         return file_path.lower().endswith('.pdf')
-

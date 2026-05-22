@@ -198,6 +198,80 @@ def ensure_document_artifacts(parsed_doc: Any) -> dict[str, Any]:
             }
         )
 
+    for artifact_index, ocr_artifact in enumerate(_as_list(structured.get("ocr_artifacts"))):
+        if not isinstance(ocr_artifact, dict):
+            continue
+        page = ocr_artifact.get("page") if isinstance(ocr_artifact.get("page"), int) else None
+        provider = _safe_text(ocr_artifact.get("provider")) or None
+        model = _safe_text(ocr_artifact.get("model")) or None
+        artifact_text = _safe_text(ocr_artifact.get("text"))
+        blocks = [block for block in _as_list(ocr_artifact.get("blocks")) if isinstance(block, dict)]
+        structure.append(
+            {
+                "artifact_type": "ocr_page" if page else "ocr_image",
+                "page": page,
+                "provider": provider,
+                "model": model,
+                "block_count": len(blocks),
+                "warnings": _as_list(ocr_artifact.get("warnings")),
+            }
+        )
+        if artifact_text:
+            facts.append(
+                {
+                    "semantic_type": "document_ocr_text",
+                    "subject": getattr(parsed_doc, "filename", None),
+                    "predicate": "ocr_text",
+                    "value_raw": artifact_text[:4000],
+                    "page": page,
+                    "content": f"OCR text: {artifact_text[:4000]}",
+                    "evidence_locator": {
+                        "page": page,
+                        "artifact_index": artifact_index,
+                        "provider": provider,
+                        "model": model,
+                    },
+                    "qualifiers": {
+                        "provider": provider,
+                        "model": model,
+                        "warnings": _as_list(ocr_artifact.get("warnings")),
+                    },
+                    "semantic_tags": ["ocr", "visual"],
+                    "confidence": _ocr_confidence(blocks, default=0.55),
+                }
+            )
+        for block_index, block in enumerate(blocks[:1000]):
+            text = _safe_text(block.get("text"))
+            if not text:
+                continue
+            facts.append(
+                {
+                    "semantic_type": "visual_text_block",
+                    "subject": getattr(parsed_doc, "filename", None),
+                    "predicate": "visual_text",
+                    "value_raw": text,
+                    "page": page,
+                    "content": f"OCR block: {text}",
+                    "evidence_locator": {
+                        "page": page,
+                        "artifact_index": artifact_index,
+                        "block_index": block_index,
+                        "bbox": _as_dict(block.get("bbox")),
+                        "provider": provider,
+                        "model": model,
+                    },
+                    "qualifiers": {
+                        "provider": provider,
+                        "model": model,
+                        "bbox": _as_dict(block.get("bbox")),
+                    },
+                    "semantic_tags": ["ocr", "visual", "block"],
+                    "confidence": float(block.get("confidence") or 0.55) if isinstance(block.get("confidence"), (int, float)) else 0.55,
+                }
+            )
+            if len(facts) >= 1000:
+                break
+
     paragraphs = _paragraphs_from_document(parsed_doc)
     current_section = headings[0].get("text") if headings and isinstance(headings[0], dict) else None
     for paragraph in paragraphs[:2500]:
@@ -360,6 +434,13 @@ def _paragraphs_from_document(parsed_doc: Any) -> list[dict[str, Any]]:
     ]
 
 
+def _ocr_confidence(blocks: list[dict[str, Any]], *, default: float = 0.55) -> float:
+    values = [float(block["confidence"]) for block in blocks if isinstance(block.get("confidence"), (int, float))]
+    if not values:
+        return default
+    return round(sum(values) / len(values), 4)
+
+
 def replace_document_facts(
     db: Session,
     *,
@@ -384,6 +465,17 @@ def replace_document_facts(
     db.add_all(rows)
     _write_document_fact_jsonl(collection, parsed_doc, rows)
     return rows
+
+
+def clear_collection_document_facts(db: Session, *, workspace_id: str, collection_id: str) -> int:
+    return int(
+        db.query(KnowledgeDocumentFact)
+        .filter(
+            KnowledgeDocumentFact.workspace_id == workspace_id,
+            KnowledgeDocumentFact.collection_id == collection_id,
+        )
+        .delete(synchronize_session=False)
+    )
 
 
 def _fact_row(

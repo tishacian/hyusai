@@ -72,13 +72,16 @@ _TEXT_EXTENSIONS = {
 _SPREADSHEET_EXTENSIONS = {"xlsx", "xlsm", "xltx", "xltm"}
 _LEGACY_SPREADSHEET_EXTENSIONS = {"xls"}
 _DOCX_EXTENSIONS = {"docx"}
+_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"}
 _DOCX_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
 _DOCX_PREVIEW_MAX_CHARS = 200_000
-_ARCHIVE_PROMOTION_EXTENSIONS = {"csv", "html", "htm", "md", "pdf", "txt"}
+_ARCHIVE_PROMOTION_EXTENSIONS = {"csv", "html", "htm", "md", "pdf", "txt"} | _DOCX_EXTENSIONS | _IMAGE_EXTENSIONS
 _WORKER_PROMOTION_EXTENSIONS = (
     _ARCHIVE_PROMOTION_EXTENSIONS
     | _SPREADSHEET_EXTENSIONS
     | _TEXT_EXTENSIONS
+    | _DOCX_EXTENSIONS
+    | _IMAGE_EXTENSIONS
     | {"log", "markdown", "rst"}
 )
 _BULK_PROMOTION_MAX_FILES = 50

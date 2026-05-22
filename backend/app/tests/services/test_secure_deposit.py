@@ -498,7 +498,7 @@ async def test_promote_zip_queues_collection_ingest(db_session, monkeypatch, tmp
         entries={
             "Manual_BBA120/Declaration/Declaration.pdf": b"%PDF declaration",
             "Manual_BBA120/Operator manual/Chapter 01.pdf": b"%PDF chapter",
-            "Manual_BBA120/image.png": b"ignored",
+            "Manual_BBA120/image.png": b"ocr image",
         },
     )
 
@@ -525,16 +525,17 @@ async def test_promote_zip_queues_collection_ingest(db_session, monkeypatch, tmp
 
     assert promoted.status == "promoted"
     assert promoted.promoted_collection_slug == "andritz-manuals-bba120-pilot"
-    assert promoted.promotion_result["archive"]["extracted_count"] == 2
+    assert promoted.promotion_result["archive"]["extracted_count"] == 3
     assert promoted.promotion_result["celery_task_id"] == "task-bba120"
     assert collection.status == "queued"
-    assert collection.document_count == 2
+    assert collection.document_count == 3
     assert job.status == "queued"
     assert job.celery_task_id == "task-bba120"
     stored_names = sorted(collection.document_names)
     assert stored_names == [
         "Manual_BBA120__Declaration__Declaration.pdf",
         "Manual_BBA120__Operator manual__Chapter 01.pdf",
+        "Manual_BBA120__image.png",
     ]
     assert (
         tmp_path

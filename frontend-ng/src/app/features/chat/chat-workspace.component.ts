@@ -177,7 +177,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 multiple
                 class="t-file-input"
                 (change)="onFileSelect($event)"
-                accept=".pdf,.txt,.md,.docx,.csv,.json,.xlsx,.xlsm,.xltx,.xltm"
+                accept=".pdf,.txt,.md,.docx,.csv,.json,.xlsx,.xlsm,.xltx,.xltm,.png,.jpg,.jpeg,.tif,.tiff,.webp"
               />
               <div class="t-drop-icon">
                 <app-icon name="cloud-upload" [size]="18" />

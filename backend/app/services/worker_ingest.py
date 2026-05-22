@@ -23,6 +23,8 @@ from app.services.object_store import get_object_store
 from app.services.rag.bm25_store import rebuild_bm25_artifact
 from app.services.rag.document_service import DocumentService
 from app.services.table_intelligence import clear_collection_table_facts
+from app.services.document_intelligence import clear_collection_document_facts
+from app.services.ocr import resolve_ocr_config_for_workspace
 
 logger = get_logger(__name__)
 
@@ -31,9 +33,13 @@ async def _materialize_ingested_text(
     *,
     collection: KnowledgeCollection,
     local_path: Path,
+    workspace_id: str | None = None,
 ) -> None:
     parser = DocumentParserFactory.get_parser(str(local_path))
-    parsed = await parser.parse(str(local_path))
+    try:
+        parsed = await parser.parse(str(local_path), ocr_config=resolve_ocr_config_for_workspace(workspace_id))
+    except TypeError:
+        parsed = await parser.parse(str(local_path))
     text = "\n\n".join(str(chunk.get("content", "")) for chunk in parsed.chunks if chunk.get("content"))
     get_object_store().write_text(ingested_key(collection, local_path.name), text)
 
@@ -82,7 +88,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         db.commit()
 
         for path in local_paths:
-            await _materialize_ingested_text(collection=collection, local_path=Path(path))
+            await _materialize_ingested_text(collection=collection, local_path=Path(path), workspace_id=workspace.id)
 
         app_settings = get_resolved_settings(workspace_id=workspace.id)
         collection.embedding_model = settings.embedding_model
@@ -106,6 +112,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         # file-derived IDs.
         await doc_service.clear_all_documents()
         clear_collection_table_facts(db, workspace_id=workspace.id, collection_id=collection.id)
+        clear_collection_document_facts(db, workspace_id=workspace.id, collection_id=collection.id)
         db.commit()
         ingest_result = await doc_service.ingest_documents_batch(
             local_paths,
