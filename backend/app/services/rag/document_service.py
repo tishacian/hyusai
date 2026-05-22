@@ -75,7 +75,7 @@ class DocumentService:
         self.contextual_retriever: Optional[ContextualCompressionRetriever] = None
         
         # Initialize reranker if enabled
-        if use_reranker:
+        if use_reranker and FlashReranker is not None and RerankerConfig is not None:
             try:
                 self.reranker = FlashReranker(RerankerConfig())
             except Exception as e:
@@ -84,6 +84,9 @@ class DocumentService:
                 self.use_reranker = False
         else:
             self.reranker = None
+            self.use_reranker = False
+            if use_reranker:
+                logger.info("Reranker dependencies unavailable; continuing without reranking.")
     
     async def ingest_document(self, file_path: str, **kwargs) -> Dict:
         """Ingest a single document"""
