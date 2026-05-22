@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.services.vector_db.base import VectorDBBase
 
@@ -28,6 +29,14 @@ def _sanitize_payload(metadata: Dict[str, Any]) -> Dict[str, Any]:
         else:
             out[str(k)] = str(v)
     return out
+
+
+def _batch_size() -> int:
+    try:
+        size = int(settings.qdrant_upsert_batch_size)
+    except (TypeError, ValueError):
+        return 128
+    return max(1, size)
 
 
 class QdrantVectorDB(VectorDBBase):
@@ -107,7 +116,14 @@ class QdrantVectorDB(VectorDBBase):
                 points.append(
                     PointStruct(id=pid, vector=normalized[i].tolist(), payload=payload)
                 )
-            self.client.upsert(collection_name=self.collection_name, wait=True, points=points)
+            batch_size = _batch_size()
+            for start in range(0, len(points), batch_size):
+                batch = points[start : start + batch_size]
+                self.client.upsert(
+                    collection_name=self.collection_name,
+                    wait=True,
+                    points=batch,
+                )
 
         await loop.run_in_executor(None, _add)
         logger.debug(f"Qdrant upserted {len(ids)} points into '{self.collection_name}'")

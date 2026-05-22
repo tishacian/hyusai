@@ -29,6 +29,7 @@ _MAX_SHEET_COLS = 80
 _MAX_FACT_LINES_PER_CHUNK = 60
 _MAX_FACT_CHUNKS_PER_SHEET = 800
 _MAX_STRUCTURED_FACTS = 2_000
+_MAX_CHUNK_CHARS = 6_000
 
 
 class SpreadsheetParser(BaseDocumentParser):
@@ -598,6 +599,12 @@ class SpreadsheetParser(BaseDocumentParser):
 
 
 def _chunk(content: str, start_char: int, chunk_index: int, **metadata: Any) -> dict[str, Any]:
+    if len(content) > _MAX_CHUNK_CHARS:
+        content = (
+            content[: _MAX_CHUNK_CHARS - 160].rstrip()
+            + "\nSpreadsheet interpretation note: chunk text truncated for embedding/upsert safety; "
+            "cell-level facts remain indexed separately when available."
+        )
     return {
         "content": content,
         "start_char": start_char,

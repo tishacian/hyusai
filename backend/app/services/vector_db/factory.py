@@ -77,6 +77,7 @@ class VectorDBFactory:
                         port=settings.qdrant_port,
                         api_key=settings.qdrant_api_key or None,
                         https=settings.qdrant_https,
+                        timeout=settings.qdrant_timeout_seconds,
                     )
                     logger.debug(
                         "Created Qdrant client",
@@ -153,6 +154,7 @@ class VectorDBFactory:
                         port=settings.qdrant_port,
                         api_key=settings.qdrant_api_key or None,
                         https=settings.qdrant_https,
+                        timeout=settings.qdrant_timeout_seconds,
                     )
                 client = cls._qdrant_clients[qkey]
                 cols = client.get_collections().collections

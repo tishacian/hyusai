@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     qdrant_port: int = 6333
     qdrant_api_key: Optional[str] = None
     qdrant_https: bool = False
+    qdrant_timeout_seconds: float = 60.0
+    qdrant_upsert_batch_size: int = 128
 
     # Async execution plane. Existing endpoints stay synchronous unless this
     # is explicitly enabled; the canonical collection upload endpoint always

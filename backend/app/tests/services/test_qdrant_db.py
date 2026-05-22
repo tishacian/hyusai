@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from app.core.config import settings
 from app.services.vector_db.qdrant_db import QdrantVectorDB
 
 
@@ -57,6 +58,23 @@ async def test_add_vectors_upserts_normalized_points():
     assert points[0].vector == pytest.approx([0.6, 0.8], rel=1e-5)
     assert points[0].payload["chunk_id"] == "id1"
     assert points[0].payload["content"] == "a"
+
+
+@pytest.mark.asyncio
+async def test_add_vectors_batches_large_upserts(monkeypatch):
+    monkeypatch.setattr(settings, "qdrant_upsert_batch_size", 2)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    db = QdrantVectorDB(collection_name="col", client=client)
+    vectors = np.ones((5, 2), dtype=np.float32)
+    metadatas = [{"content": f"chunk {index}"} for index in range(5)]
+    ids = [f"id{index}" for index in range(5)]
+
+    await db.add_vectors(vectors, metadatas, ids)
+
+    assert client.upsert.call_count == 3
+    sizes = [len(call.kwargs["points"]) for call in client.upsert.call_args_list]
+    assert sizes == [2, 2, 1]
 
 
 @pytest.mark.asyncio
