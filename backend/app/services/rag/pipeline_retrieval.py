@@ -88,6 +88,8 @@ class TableQueryPlan:
 
     is_table_query: bool
     labels: list[str] = field(default_factory=list)
+    sheet_names: list[str] = field(default_factory=list)
+    metric_terms: list[str] = field(default_factory=list)
     trial_codes: list[str] = field(default_factory=list)
     dates: list[str] = field(default_factory=list)
     wants_comparison: bool = False
@@ -104,6 +106,8 @@ class TableQueryPlanner:
     def plan(self, question: str, query_hints: str | None = None) -> TableQueryPlan:
         q = (question or "").strip()
         labels = _spreadsheet_label_targets(q)
+        sheet_names = _spreadsheet_sheet_targets(q)
+        metric_terms = _spreadsheet_metric_targets(q)
         trial_codes = _trial_code_targets(q)
         dates = _date_query_variants(q)
         variants = _spreadsheet_label_query_variants(q) + _spreadsheet_protocol_query_variants(q)
@@ -113,8 +117,17 @@ class TableQueryPlanner:
             re.search(r"\b(tous|toutes|global|globalement|plusieurs|different|diff[ée]rent|compare)\b", q, re.IGNORECASE)
         )
         return TableQueryPlan(
-            is_table_query=bool(labels or trial_codes or dates or _SPREADSHEET_PROTOCOL_TRIGGERS_RE.search(q or "")),
+            is_table_query=bool(
+                labels
+                or sheet_names
+                or metric_terms
+                or trial_codes
+                or dates
+                or _SPREADSHEET_PROTOCOL_TRIGGERS_RE.search(q or "")
+            ),
             labels=labels,
+            sheet_names=sheet_names,
+            metric_terms=metric_terms,
             trial_codes=trial_codes,
             dates=dates,
             wants_comparison=wants_comparison,
@@ -425,6 +438,41 @@ def _spreadsheet_label_targets(question: str) -> list[str]:
     return labels
 
 
+def _spreadsheet_sheet_targets(question: str) -> list[str]:
+    """Extract explicit spreadsheet sheet hints from user language.
+
+    Keep this conservative: explicit sheets are strong constraints and should
+    not be inferred from arbitrary prose. Common speech-to-text variants of
+    "Def strips" are normalized because they are table names, not values.
+    """
+    q = question or ""
+    targets: list[str] = []
+    if re.search(r"\b(?:def|dev)\s*strips?\b", q, re.IGNORECASE):
+        targets.append("Def strips")
+    if re.search(r"\bprotocole\s+essais\b|\bprotocol\b", q, re.IGNORECASE):
+        targets.append("Protocole essais")
+    for test_number in {_trial_code_number(code) for code in _trial_code_targets(q)}:
+        if test_number:
+            targets.append(f"test {test_number}")
+    return list(dict.fromkeys(targets))
+
+
+def _spreadsheet_metric_targets(question: str) -> list[str]:
+    q = question or ""
+    targets: list[str] = []
+    metric_patterns = [
+        (r"\bpoids\b|\bweight\b", ["Poids", "Weight"]),
+        (r"\bgrammage\b|\bgsm\b", ["Grammage", "Weight"]),
+        (r"\bstrip|strips\b", ["Strip", "strips"]),
+        (r"\bvitesse\b|\bspeed\b", ["Speed", "Vitesse"]),
+        (r"\bpression\b|\bpressure\b", ["Pressure", "Pression"]),
+    ]
+    for pattern, values in metric_patterns:
+        if re.search(pattern, q, re.IGNORECASE):
+            targets.extend(values)
+    return list(dict.fromkeys(targets))
+
+
 def _spreadsheet_label_match_score(content: str, labels: list[str]) -> int:
     """Prioritise exact label→value table hits after broad spreadsheet retrieval.
 
@@ -531,6 +579,191 @@ def _spreadsheet_protocol_match_score(content: str, question: str) -> int:
     return score
 
 
+def _norm_token(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _payload_to_result(payload: dict[str, Any], *, score: float) -> dict[str, Any]:
+    content = str(payload.get("content") or "").strip()
+    if not content:
+        sheet = payload.get("sheet_name") or "unknown"
+        row_label = payload.get("row_label") or ""
+        column_header = payload.get("column_header") or ""
+        value = payload.get("value") or ""
+        cell_ref = payload.get("cell_ref") or payload.get("cell_range") or ""
+        content = (
+            f'Spreadsheet table fact: sheet="{sheet}" '
+            f'cell={cell_ref} value="{value}"'
+            + (f' row_label="{row_label}"' if row_label else "")
+            + (f' column_header="{column_header}"' if column_header else "")
+        )
+    return {
+        "id": str(payload.get("chunk_id") or payload.get("point_id") or _content_key(content)),
+        "content": content,
+        "score": score,
+        "combined_score": score,
+        "metadata": dict(payload),
+        "table_exact_match": True,
+    }
+
+
+def _score_table_payload(payload: dict[str, Any], question: str, plan: TableQueryPlan) -> int:
+    content = str(payload.get("content") or "")
+    score = 50
+    stype = _norm_token(payload.get("semantic_type"))
+    sheet = _norm_token(payload.get("sheet_name"))
+    row_label = _norm_token(payload.get("row_label"))
+    column_header = _norm_token(payload.get("column_header"))
+
+    if stype == "spreadsheet_cell_fact":
+        score += 18
+    elif stype == "spreadsheet_semantic_sentence":
+        score += 16
+    elif stype == "spreadsheet_table_fact":
+        score += 12
+    elif stype == "spreadsheet_row":
+        score += 4
+
+    sheet_targets = [_norm_token(s) for s in plan.sheet_names]
+    if sheet_targets:
+        if sheet in sheet_targets:
+            score += 60
+        else:
+            score -= 20
+    elif plan.labels and sheet == "def strips":
+        score += 45
+
+    for label in plan.labels:
+        label_norm = _norm_token(label)
+        if row_label == label_norm:
+            score += 45
+        if re.search(rf'\blabel="{re.escape(label)}"\s+value="[-+]?\d', content, re.IGNORECASE):
+            score += 30
+        if re.search(rf"\b{re.escape(label)}\s*=\s*[-+]?\d", content):
+            score += 24
+
+    for code in plan.trial_codes:
+        code_norm = _norm_token(code)
+        if column_header == code_norm:
+            score += 55
+        if re.search(rf"\b{re.escape(code)}\b", content, re.IGNORECASE):
+            score += 12
+
+    for metric in plan.metric_terms:
+        metric_norm = _norm_token(metric)
+        if row_label == metric_norm:
+            score += 35
+        if metric_norm and metric_norm in _norm_token(content):
+            score += 8
+
+    for date in plan.dates:
+        if date in content:
+            score += 8
+
+    if re.search(r"\bgeotex\b", question, re.IGNORECASE) and "geotex" in _norm_token(content):
+        score += 8
+    if re.search(r"\bchanvre|hemp\b", question, re.IGNORECASE) and re.search(
+        r"\bchanvre|hemp\b",
+        content,
+        re.IGNORECASE,
+    ):
+        score += 12
+
+    # A query for the label "N" often collides with force-unit sheets such as
+    # "N/50 mm". If an explicit Def-strips-like label lookup exists, keep
+    # those unit tables behind real label-value facts.
+    if plan.labels and any(label == "N" for label in plan.labels):
+        if "n/50" in _norm_token(content) and sheet != "def strips":
+            score -= 25
+    return score
+
+
+async def _exact_table_fact_candidates(
+    doc_svc: "DocumentService",
+    query: str,
+    plan: TableQueryPlan,
+    *,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    """Fetch exact table facts by payload before dense/BM25 ranking.
+
+    Vector search is intentionally broad; for spreadsheet lookups we often
+    already know the structured keys (sheet, row label, trial column). Qdrant
+    payload filtering gives those facts a deterministic path into the context.
+    """
+    if not plan.is_table_query or not hasattr(doc_svc, "list_table_facts"):
+        return []
+
+    payloads: list[dict[str, Any]] = []
+
+    async def collect(**kwargs: Any) -> None:
+        try:
+            rows = await doc_svc.list_table_facts(limit=120, **kwargs)
+        except TypeError:
+            # Older/fake services in tests may not accept newly added filters.
+            return
+        except Exception as exc:  # pragma: no cover - defensive production guard
+            logger.debug("Exact table fact lookup failed", error=str(exc), filters=kwargs)
+            return
+        payloads.extend(dict(row) for row in rows)
+
+    fact_types = (
+        "spreadsheet_cell_fact",
+        "spreadsheet_semantic_sentence",
+        "spreadsheet_table_fact",
+        "spreadsheet_row",
+    )
+
+    label_sheets = plan.sheet_names
+    if plan.labels and not label_sheets and _SPREADSHEET_LABEL_TRIGGERS_RE.search(query or ""):
+        # Business label lookups usually live in dedicated definition sheets.
+        # This is a structural hint, not a value rule: if no such sheet exists,
+        # the row_label fallback below still works.
+        label_sheets = ["Def strips"]
+
+    for label in plan.labels[:4]:
+        for sheet in label_sheets:
+            for stype in fact_types:
+                await collect(semantic_type=stype, sheet_name=sheet, row_label=label)
+        for stype in fact_types[:3]:
+            await collect(semantic_type=stype, row_label=label)
+
+    for code in plan.trial_codes[:4]:
+        for stype in ("spreadsheet_table_fact", "spreadsheet_row"):
+            await collect(semantic_type=stype, column_header=code)
+        test_number = _trial_code_number(code)
+        if test_number:
+            await collect(semantic_type="spreadsheet_row", sheet_name=f"test {test_number}")
+            for metric in plan.metric_terms[:4]:
+                await collect(
+                    semantic_type="spreadsheet_table_fact",
+                    sheet_name=f"test {test_number}",
+                    row_label=metric,
+                )
+
+    for sheet in plan.sheet_names[:3]:
+        if not plan.labels:
+            await collect(semantic_type="spreadsheet_row", sheet_name=sheet, query=query[:80])
+
+    scored: list[tuple[int, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for payload in payloads:
+        content = str(payload.get("content") or "")
+        if not content:
+            continue
+        key = str(payload.get("chunk_id") or payload.get("point_id") or _content_key(content))
+        if key in seen:
+            continue
+        seen.add(key)
+        score = _score_table_payload(payload, query, plan)
+        if score <= 35:
+            continue
+        scored.append((score, _payload_to_result(payload, score=min(0.999, score / 160.0))))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [row for _, row in scored[: max(top_k * 2, top_k + 4)]]
+
+
 def _is_spreadsheet_evidence(content: str) -> bool:
     lower = str(content or "").lower()
     return (
@@ -549,18 +782,42 @@ def _prioritise_spreadsheet_label_matches(
     results: list[dict[str, Any]],
     question: str,
 ) -> list[dict[str, Any]]:
-    labels = _spreadsheet_label_targets(question)
-    has_protocol_signal = bool(_SPREADSHEET_PROTOCOL_TRIGGERS_RE.search(question or ""))
-    if not labels and not has_protocol_signal:
+    plan = TableQueryPlanner().plan(question)
+    if not plan.is_table_query:
         return results
     ranked: list[tuple[int, int, dict[str, Any]]] = []
     for index, row in enumerate(results):
         content, _ = _result_content_score(row)
-        score = _spreadsheet_label_match_score(content, labels)
+        score = _spreadsheet_label_match_score(content, plan.labels)
         score += _spreadsheet_protocol_match_score(content, question)
+        metadata = row.get("metadata") or {}
+        if metadata:
+            score += _score_table_payload(metadata, question, plan) - 50
+        if row.get("table_exact_match"):
+            score += 60
         ranked.append((score, -index, row))
     ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return [row for _, _, row in ranked]
+
+
+def _prepend_exact_table_candidates(
+    exact_rows: list[dict[str, Any]],
+    ranked_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not exact_rows:
+        return ranked_rows
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in [*exact_rows, *ranked_rows]:
+        content, _ = _result_content_score(row)
+        if not content:
+            continue
+        key = str((row.get("metadata") or {}).get("chunk_id") or row.get("id") or _content_key(content))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
 
 
 async def retrieve_chah_like(
@@ -586,6 +843,8 @@ async def retrieve_chah_like(
             metadatas=[],
         )
 
+    table_plan = TableQueryPlanner().plan(q, query_hints=query_hints)
+    exact_rows = await _exact_table_fact_candidates(doc_svc, q, table_plan, top_k=top_k)
     variants = _query_variants(q, query_hints=query_hints)
     searches = [doc_svc.search(v, top_k=min(12, top_k + 7), use_hybrid=True) for v in variants]
     lists = await asyncio.gather(*searches)
@@ -593,12 +852,14 @@ async def retrieve_chah_like(
     merged = _prioritise_spreadsheet_label_matches(
         _merge_rrf(list(lists), top_k=candidate_k),
         q,
-    )[:top_k]
+    )
+    merged = _prepend_exact_table_candidates(exact_rows, merged)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(merged)
     v_preview = repr(variants)[:200]
     detail = (
         f"Parallel hybrid searches: {len(variants)} query variant(s); "
-        f"RRF candidate merge top_{candidate_k} → {len(chunks)} chunks. Variants: {v_preview}"
+        f"RRF candidate merge top_{candidate_k}; exact_table_hits={len(exact_rows)} "
+        f"→ {len(chunks)} chunks. Variants: {v_preview}"
     )
     logger.info("C-HAH-like retrieval complete", variants=len(variants), merged=len(chunks))
     return RetrievalPipelineResult(
@@ -650,14 +911,17 @@ async def retrieve_for_mode(
     if hah_chah_enabled and m in ("chah", "c-hah", "c_hah", "hahcomposite", "hah_composite"):
         return await retrieve_chah_like(doc_svc, query, top_k=top_k, query_hints=query_hints)
 
+    table_plan = TableQueryPlanner().plan(query, query_hints=query_hints)
+    exact_rows = await _exact_table_fact_candidates(doc_svc, query, table_plan, top_k=top_k)
     search_query = query
     if query_hints:
         search_query = f"{query}\n\nKnowledge guide hints:\n{str(query_hints)[:900]}"
     candidate_k = top_k
-    if _spreadsheet_label_targets(query) or _SPREADSHEET_PROTOCOL_TRIGGERS_RE.search(query or ""):
+    if table_plan.is_table_query:
         candidate_k = min(max(top_k * 4, top_k + 10), 30)
     results = await doc_svc.search(search_query, top_k=candidate_k, use_hybrid=use_hybrid)
-    results = _prioritise_spreadsheet_label_matches(results, query)[:top_k]
+    results = _prioritise_spreadsheet_label_matches(results, query)
+    results = _prepend_exact_table_candidates(exact_rows, results)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(results)
     pipe: Literal["naive", "hybrid"] = "hybrid" if use_hybrid else "naive"
     return RetrievalPipelineResult(
@@ -666,6 +930,9 @@ async def retrieve_for_mode(
         pipeline=pipe,
         label="vector_only" if not use_hybrid else "hybrid_rrf",
         reason="Standard DocumentService.search",
-        detail=f"use_hybrid={use_hybrid} top_k={top_k} candidate_k={candidate_k}",
+        detail=(
+            f"use_hybrid={use_hybrid} top_k={top_k} candidate_k={candidate_k} "
+            f"exact_table_hits={len(exact_rows)}"
+        ),
         metadatas=metas,
     )

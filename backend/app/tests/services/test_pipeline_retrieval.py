@@ -26,6 +26,58 @@ def _mk_result(content: str, score: float, rank: int = 0) -> dict:
     }
 
 
+class ExactTableFactService:
+    async def list_table_facts(self, **kwargs):
+        if kwargs.get("sheet_name") == "Def strips" and kwargs.get("row_label") == "B":
+            return [
+                {
+                    "chunk_id": "def-b",
+                    "semantic_type": "spreadsheet_cell_fact",
+                    "document_filename": "GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+                    "sheet_name": "Def strips",
+                    "row_index": 2,
+                    "cell_ref": "B2",
+                    "row_label": "B",
+                    "value": "85",
+                    "content": (
+                        'Spreadsheet cell fact: sheet="Def strips" row=2 '
+                        'label="B" value="85" label_cell=A2 value_cell=B2 '
+                        'cell=B2 row_label="B" | B = 85'
+                    ),
+                }
+            ]
+        if kwargs.get("row_label") == "B":
+            return [
+                {
+                    "chunk_id": "noise-b",
+                    "semantic_type": "spreadsheet_cell_fact",
+                    "document_filename": "other.xlsx",
+                    "sheet_name": "Sheet1",
+                    "row_label": "B",
+                    "value": "7.8",
+                    "content": (
+                        'Spreadsheet cell fact: sheet="Sheet1" row=9 label="B" '
+                        'value="7.8" cell=G9 row_label="B" | B = 7.8'
+                    ),
+                }
+            ]
+        return []
+
+    async def search(self, query: str, top_k: int = 10, use_hybrid: bool = True):  # noqa: ARG002
+        return [
+            _mk_result(
+                "Spreadsheet sheet: Sheet1 Row 9: F9=B | G9=7.8 | B = 7.8",
+                0.98,
+                0,
+            ),
+            _mk_result(
+                "Spreadsheet sheet: unrelated Row 4: B4=CD (N/50 mm) | C4=250",
+                0.95,
+                1,
+            ),
+        ][:top_k]
+
+
 def test_merge_rrf_dedupes_and_orders():
     a = [
         _mk_result("chunk a unique longer text", 0.9, 0),
@@ -184,6 +236,22 @@ def test_spreadsheet_label_rerank_prioritises_label_value_facts():
     reranked = _prioritise_spreadsheet_label_matches(rows, query)
 
     assert reranked[0]["content"].startswith("Spreadsheet label-value fact")
+
+
+@pytest.mark.asyncio
+async def test_retrieve_for_mode_prepends_exact_table_payload_before_noisy_search():
+    out = await retrieve_for_mode(
+        ExactTableFactService(),
+        "Peux-tu me dire quel est le diamètre B ?",
+        "auto",
+        top_k=3,
+    )
+
+    assert out.chunks[0].startswith("Spreadsheet cell fact")
+    assert "sheet=\"Def strips\"" in out.chunks[0]
+    assert "B = 85" in out.chunks[0]
+    assert out.metadatas[0]["cell_ref"] == "B2"
+    assert "exact_table_hits=" in out.detail
 
 
 @pytest.mark.asyncio

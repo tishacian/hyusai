@@ -668,6 +668,8 @@ class DocumentService:
         *,
         semantic_type: Optional[str] = None,
         sheet_name: Optional[str] = None,
+        row_label: Optional[str] = None,
+        column_header: Optional[str] = None,
         query: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
@@ -676,6 +678,12 @@ class DocumentService:
         filters: Dict[str, str] = {}
         if semantic_type:
             filters["semantic_type"] = semantic_type
+        if sheet_name:
+            filters["sheet_name"] = sheet_name
+        if row_label:
+            filters["row_label"] = row_label
+        if column_header:
+            filters["column_header"] = column_header
         fetch_limit = min(max(limit * 4, limit), 500) if (sheet_name or query) else limit
         if filters:
             payloads = await self.vector_db.list_payloads(
@@ -717,6 +725,10 @@ class DocumentService:
             if not stype and "Spreadsheet" not in str(payload.get("content") or ""):
                 continue
             if sheet and str(payload.get("sheet_name") or "").lower() != sheet:
+                continue
+            if row_label and str(payload.get("row_label") or "").strip().lower() != row_label.strip().lower():
+                continue
+            if column_header and str(payload.get("column_header") or "").strip().lower() != column_header.strip().lower():
                 continue
             searchable = " ".join(
                 str(payload.get(key) or "")
