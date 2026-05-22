@@ -110,6 +110,22 @@ type KbTabId =
       <button
         actions
         type="button"
+        (click)="onTabChange('guides')"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500/10 hover:bg-brand-500/15 ring-1 ring-brand-500/25 text-brand-200 transition"
+      >
+        <app-icon name="book-open" [size]="14" /> Guide
+      </button>
+      <button
+        actions
+        type="button"
+        (click)="onTabChange('table-facts')"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+      >
+        <app-icon name="table" [size]="14" /> Table facts
+      </button>
+      <button
+        actions
+        type="button"
         (click)="bindingsPanelOpen.set(true)"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
       >
@@ -126,6 +142,7 @@ type KbTabId =
 
     <ck-tabs
       [active]="activeTab()"
+      [maxVisible]="8"
       (activeChange)="onTabChange($event)"
       ariaLabel="Knowledge facets"
     >
