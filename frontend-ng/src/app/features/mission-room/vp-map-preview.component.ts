@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { WorkspaceMapComponent } from './workspace-map.component';
-import type { VpMapPreviewContext } from './vp-cockpit.types';
+import type { VpMapPreviewContext, VpZoneScore } from './vp-cockpit.types';
 
 @Component({
   selector: 'app-vp-map-preview',
@@ -11,10 +11,10 @@ import type { VpMapPreviewContext } from './vp-cockpit.types';
   imports: [CommonModule, RouterLink, GlyphComponent, WorkspaceMapComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <article class="map-preview-panel content-panel">
+    <article class="map-preview-panel">
       <div class="panel-heading-row">
         <div>
-          <span class="eyebrow">{{ context.label || 'Carte fusionnee' }}</span>
+          <span class="eyebrow">{{ context.label || 'Carte fusionnée' }}</span>
           <h2>Territoire et signaux</h2>
         </div>
         <a
@@ -28,7 +28,12 @@ import type { VpMapPreviewContext } from './vp-cockpit.types';
         </a>
       </div>
       <div class="map-layout">
-        <div class="map-canvas-wrap">
+        <button
+          type="button"
+          class="map-canvas-wrap"
+          aria-label="Ouvrir la carte fusionnée"
+          (click)="openMap.emit()"
+        >
           <app-workspace-map
             [compact]="true"
             [previewMode]="true"
@@ -38,59 +43,105 @@ import type { VpMapPreviewContext } from './vp-cockpit.types';
             [mapSystem]="context.mapSystem"
             [selectedZoneId]="context.topZoneId"
           />
-        </div>
+        </button>
         <aside class="zone-scores" aria-label="Scores par zone">
-          @for (zone of context.geoPreview.zone_scores; track zone.name) {
-            <article [class]="toneClass(zone.tone)">
-              <span>{{ zone.name }}</span>
+          @if (!context.geoPreview.zone_scores.length) {
+            <div class="zone-empty" role="status">
+              <small>Scores en cours de collecte…</small>
+            </div>
+          }
+          @for (zone of context.geoPreview.zone_scores; track zone.id || zone.name) {
+            <button
+              type="button"
+              class="zone-score"
+              [class]="toneClass(zone.tone)"
+              (click)="zoneSelected.emit(zone)"
+            >
+              <span class="zone-name">{{ zone.name }}</span>
               <strong>{{ zone.score }}%</strong>
               @if (zone.trend) {
                 <small>{{ zone.trend }}</small>
               }
-            </article>
+            </button>
           }
         </aside>
       </div>
+      <footer class="map-legend" aria-label="Légende carte">
+        <span class="legend-item critical"><span class="legend-dot"></span>Tendu</span>
+        <span class="legend-item elevated"><span class="legend-dot"></span>Surveillance</span>
+        <span class="legend-item stable"><span class="legend-dot"></span>Stable</span>
+      </footer>
     </article>
   `,
   styles: [
     `
-      :host { display: block; min-width: 0; }
+      :host { display: block; min-width: 0; height: 100%; }
       .map-preview-panel {
         min-width: 0;
         height: 100%;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: var(--mission-space-3);
+        padding: var(--mission-space-4);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-lg);
+        background: linear-gradient(180deg, rgba(8, 14, 20, 0.62), rgba(4, 8, 13, 0.42));
+        box-shadow: var(--mission-shadow-soft);
       }
       .panel-heading-row {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 10px;
+        gap: var(--mission-space-3);
       }
       .eyebrow {
         display: block;
-        color: var(--mission-text-muted);
-        font-family: var(--ck-font-mono);
-        font-size: 9px;
-        letter-spacing: 0.14em;
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
         text-transform: uppercase;
       }
       h2 {
-        margin: 4px 0 0;
-        font-size: 16px;
+        margin: var(--mission-space-1) 0 0;
+        font-size: var(--mission-text-md);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        line-height: var(--mission-lh-tight);
+        color: var(--mission-text-primary);
       }
       .map-layout {
+        min-height: 0;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 132px;
-        gap: 10px;
+        grid-template-columns: minmax(0, 1fr) 144px;
+        gap: var(--mission-space-3);
         align-items: stretch;
       }
       .map-canvas-wrap {
         min-height: 280px;
-        height: 280px;
+        height: 100%;
         border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius);
+        border-radius: var(--mission-radius-md);
         overflow: hidden;
+        padding: 0;
+        width: 100%;
+        background: var(--mission-inset);
+        appearance: none;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition:
+          border-color var(--mission-dur-fast) var(--mission-ease-out),
+          box-shadow var(--mission-dur-fast) var(--mission-ease-out);
+      }
+      .map-canvas-wrap:hover {
+        border-color: var(--sentinel-accent-muted);
+        box-shadow: 0 0 0 1px rgba(101, 214, 110, 0.18);
+      }
+      .map-canvas-wrap:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
       }
       .map-canvas-wrap app-workspace-map {
         display: block;
@@ -98,53 +149,118 @@ import type { VpMapPreviewContext } from './vp-cockpit.types';
       }
       .zone-scores {
         display: grid;
-        gap: 8px;
+        gap: var(--mission-space-2);
         align-content: start;
       }
-      .zone-scores article {
-        padding: 9px 10px;
+      .zone-empty {
+        padding: var(--mission-space-3);
+        border: 1px dashed var(--mission-border);
+        border-radius: var(--mission-radius-sm);
+        color: var(--mission-text-tertiary);
+        font-size: var(--mission-text-xs);
+        text-align: center;
+      }
+      .zone-score {
+        padding: var(--mission-space-3);
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius-sm);
         background: rgba(4, 8, 13, 0.58);
+        width: 100%;
+        color: inherit;
+        text-align: left;
+        appearance: none;
+        font: inherit;
+        cursor: pointer;
+        transition:
+          border-color var(--mission-dur-fast) var(--mission-ease-out),
+          background var(--mission-dur-fast) var(--mission-ease-out);
       }
-      .zone-scores article.critical {
+      .zone-score:hover {
+        border-color: var(--sentinel-accent-muted);
+        background: rgba(101, 214, 110, 0.04);
+      }
+      .zone-score:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
+      }
+      .zone-score.critical {
         border-color: rgba(240, 100, 118, 0.34);
-        background: linear-gradient(135deg, var(--mission-danger-wash), rgba(4, 8, 13, 0.62));
+        background: linear-gradient(135deg, var(--mission-critical-soft), rgba(4, 8, 13, 0.62));
       }
-      .zone-scores article span {
+      .zone-score.elevated {
+        border-color: rgba(241, 180, 90, 0.32);
+      }
+      .zone-name {
         display: block;
-        color: var(--mission-text-muted);
-        font-family: var(--ck-font-mono);
-        font-size: 9px;
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
         letter-spacing: 0.1em;
         text-transform: uppercase;
       }
-      .zone-scores strong {
+      .zone-score strong {
         display: block;
-        margin-top: 4px;
-        font-size: 22px;
+        margin-top: var(--mission-space-1);
+        font-family: var(--mission-font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: var(--mission-text-lg);
+        font-weight: 600;
         line-height: 1;
+        color: var(--mission-text-primary);
       }
-      .zone-scores small {
+      .zone-score small {
         display: block;
-        margin-top: 4px;
-        color: var(--mission-trust);
-        font-family: var(--ck-font-mono);
+        margin-top: var(--mission-space-1);
+        color: var(--mission-success);
+        font-family: var(--mission-font-mono);
         font-size: 10px;
       }
+      .zone-score.critical small { color: var(--mission-critical); }
+      .zone-score.elevated small { color: var(--mission-warning); }
       .action-button {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 7px 10px;
+        padding: 7px 11px;
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius-sm);
         background: var(--mission-inset);
-        color: var(--mission-text);
-        font-size: 12px;
+        color: var(--mission-text-primary);
+        font-size: var(--mission-text-xs);
         text-decoration: none;
         cursor: pointer;
+        transition: border-color var(--mission-dur-fast) var(--mission-ease-out);
       }
+      .action-button:hover { border-color: var(--sentinel-accent-muted); }
+      .action-button:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
+      }
+      .map-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--mission-space-3);
+        padding-top: var(--mission-space-1);
+        border-top: 1px dashed var(--mission-border);
+      }
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--mission-text-tertiary);
+      }
+      .legend-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--mission-success);
+      }
+      .legend-item.elevated .legend-dot { background: var(--mission-warning); }
+      .legend-item.critical .legend-dot { background: var(--mission-critical); }
       @media (max-width: 900px) {
         .map-layout { grid-template-columns: 1fr; }
         .zone-scores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -163,6 +279,7 @@ export class VpMapPreviewComponent {
     topZoneId: null,
   };
   @Output() openMap = new EventEmitter<void>();
+  @Output() zoneSelected = new EventEmitter<VpZoneScore>();
 
   toneClass(tone?: string): string {
     const normalized = (tone || '').toLowerCase();

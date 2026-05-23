@@ -68,6 +68,8 @@ def db_session():
         "feed_sources",
         "semantic_targets",
         "safety_filters",
+        "meeting_decisions",
+        "workspace_macro_indicators",
         "workspace_visual_observations",
         "workspace_visual_captures",
         "workspace_visual_sources",

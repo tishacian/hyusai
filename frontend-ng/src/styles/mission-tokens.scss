@@ -1,0 +1,234 @@
+/* ============================================================================
+   SENTINEL-CI / MISSION ROOM — Design Tokens
+   --------------------------------------------------------------------------
+   Centralises the `--mission-*`, `--sentinel-*` and `--agentium-*` tokens
+   used by the Vice-Presidence cockpit. Loads AFTER cockpit-tokens so the
+   --ck-* palette stays the deep foundation while these tokens layer a
+   sovereign vert-ivoire / orange-stratégique chrome on top.
+
+   Rationale:
+   * Keep tokens **in one place** instead of duplicated inline `:host`
+     declarations in each mission-room component (they used to drift).
+   * Allow standalone components (chat drawer, signin variants, etc.) to
+     reuse the sovereign palette without depending on mission-room being
+     mounted as the parent.
+   * Preserve backward-compat: legacy aliases (`--mission-bg`, `--mission-text`,
+     `--mission-warn`, …) remain available for components already in flight.
+   ============================================================================ */
+
+:root {
+  /* ---- Surfaces (sovereign cockpit black with a faint green tint) ------- */
+  --mission-bg-base:    #05080c;
+  --mission-bg-grid:    rgba(101, 214, 110, 0.035);
+  --mission-bg:         var(--mission-bg-base);              /* legacy alias */
+  --mission-surface-1:  rgba(15, 24, 28, 0.94);              /* panels      */
+  --mission-surface-2:  rgba(18, 31, 28, 0.92);              /* raised      */
+  --mission-surface-3:  rgba(28, 44, 38, 0.92);              /* hovered     */
+  --mission-inset:      rgba(4, 8, 13, 0.84);
+  --mission-rail-bg:    linear-gradient(180deg, #05080c 0%, #06100a 100%);
+  --mission-panel:      linear-gradient(180deg, var(--mission-surface-1) 0%, rgba(10, 16, 19, 0.98) 100%);
+  --mission-panel-hi:   var(--mission-surface-2);
+
+  /* ---- Borders / strokes ----------------------------------------------- */
+  --mission-border-subtle: rgba(156, 184, 212, 0.10);
+  --mission-border:        rgba(156, 184, 212, 0.14);        /* default     */
+  --mission-border-strong: rgba(101, 214, 110, 0.30);
+
+  /* ---- Text ------------------------------------------------------------ */
+  --mission-text-primary:   #f4f7fb;
+  --mission-text-secondary: #c4ceda;
+  --mission-text-tertiary:  #8996a8;
+  --mission-text-disabled:  #596678;
+  /* legacy aliases (kept so existing inline styles keep working) */
+  --mission-text:        var(--mission-text-primary);
+  --mission-text-soft:   var(--mission-text-secondary);
+  --mission-text-muted:  var(--mission-text-tertiary);
+  --mission-text-faint:  var(--mission-text-disabled);
+
+  /* ---- SENTINEL palette (vert-ivoire institutionnel) ------------------- */
+  --sentinel-accent:        #65d66e;
+  --sentinel-accent-strong: #93ef74;
+  --sentinel-accent-soft:   rgba(101, 214, 110, 0.095);
+  --sentinel-accent-muted:  rgba(101, 214, 110, 0.38);
+  /* legacy aliases */
+  --mission-accent:         var(--sentinel-accent);
+  --mission-accent-strong:  var(--sentinel-accent-strong);
+  --mission-accent-wash:    var(--sentinel-accent-soft);
+  --mission-accent-muted:   var(--sentinel-accent-muted);
+
+  /* ---- Semantic signals + soft variants -------------------------------- */
+  --mission-success:        #3fd18d;
+  --mission-success-soft:   rgba(63, 209, 141, 0.10);
+  --mission-warning:        #f1b45a;
+  --mission-warning-soft:   rgba(241, 180, 90, 0.12);
+  --mission-critical:       #f06476;
+  --mission-critical-soft:  rgba(240, 100, 118, 0.12);
+  --mission-info:           #7dd3fc;
+  --mission-info-soft:      rgba(125, 211, 252, 0.10);
+  /* legacy aliases */
+  --mission-trust:          var(--mission-success);
+  --mission-trust-wash:     var(--mission-success-soft);
+  --mission-warn:           var(--mission-warning);
+  --mission-warn-wash:      var(--mission-warning-soft);
+  --mission-danger:         var(--mission-critical);
+  --mission-danger-wash:    var(--mission-critical-soft);
+
+  /* ---- SENTINEL orange-stratégique (alerts, "maintenant" markers) ------ */
+  --mission-orange:         #f28c38;
+  --mission-orange-soft:    rgba(242, 140, 56, 0.12);
+  --mission-orange-wash:    var(--mission-orange-soft);      /* legacy      */
+  --mission-gold:           #e3c681;
+
+  /* ---- AGENTIUM AYA (assistant signature) ------------------------------ */
+  --agentium-aya:           #f28c38;                         /* same hue as
+                                                                 orange so
+                                                                 AYA reads
+                                                                 as state actor
+                                                                 + assistant. */
+  --agentium-aya-soft:      rgba(242, 140, 56, 0.10);
+  --agentium-aya-halo:      0 0 0 4px rgba(242, 140, 56, 0.18);
+
+  /* ---- Typography ------------------------------------------------------ */
+  /* Reuse the cockpit stacks so the cockpit chrome and the mission room
+     keep the same letterforms — no extra font request, no FOUT. */
+  --mission-font-display: var(--ck-font-sans);
+  --mission-font-body:    var(--ck-font-sans);
+  --mission-font-mono:    var(--ck-font-mono);
+
+  /* Mission type scale (12px base, generous LH). Kept independent of the
+     legacy `--text-*` tokens so consumers can pick `--mission-text-md`
+     without trampling Tailwind utilities. */
+  --mission-text-xs:   11px;
+  --mission-text-sm:   13px;
+  --mission-text-base: 14px;
+  --mission-text-md:   16px;
+  --mission-text-lg:   20px;
+  --mission-text-xl:   28px;
+  --mission-text-2xl:  36px;
+  --mission-lh-body:   1.5;
+  --mission-lh-tight:  1.2;
+  --mission-tracking-tight: -0.01em;
+  --mission-tracking-micro: 0.14em;
+
+  /* ---- Spacing scale (4px base) ---------------------------------------- */
+  --mission-space-1:  4px;
+  --mission-space-2:  8px;
+  --mission-space-3:  12px;
+  --mission-space-4:  16px;
+  --mission-space-5:  20px;
+  --mission-space-6:  24px;
+  --mission-space-8:  32px;
+  --mission-space-10: 40px;
+  --mission-space-12: 48px;
+
+  /* ---- Radii ----------------------------------------------------------- */
+  --mission-radius-sm: 4px;
+  --mission-radius-md: 8px;
+  --mission-radius-lg: 12px;
+  --mission-radius-xl: 16px;
+  /* legacy aliases — many components still spell --mission-radius */
+  --mission-radius:    var(--mission-radius-md);
+
+  /* ---- Shadows --------------------------------------------------------- */
+  --mission-shadow-soft:     0 4px 14px rgba(0, 0, 0, 0.22);
+  --mission-shadow-elevated: 0 12px 30px rgba(0, 0, 0, 0.32);
+  --mission-shadow-floating: 0 24px 60px rgba(0, 0, 0, 0.46);
+  --mission-shadow-card:     var(--mission-shadow-soft);      /* legacy     */
+
+  /* ---- Motion ---------------------------------------------------------- */
+  --mission-ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --mission-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --mission-dur-fast:    120ms;
+  --mission-dur-base:    200ms;
+  --mission-dur-slow:    420ms;
+}
+
+/* ============================================================================
+   Reusable mission-room primitives
+   --------------------------------------------------------------------------
+   These classes are opt-in. Components that already author their own SCSS
+   keep working unchanged; new markup can lean on these helpers to stay
+   consistent without re-declaring borders/paddings every time.
+   ============================================================================ */
+
+/* Focus ring used across the cockpit (WCAG-friendly, sovereign tone). */
+.mission-focus-ring:focus-visible,
+.mission-focus-ring:focus {
+  outline: 2px solid var(--sentinel-accent);
+  outline-offset: 2px;
+}
+
+/* Clickable surface — neutral idle, accent-tinted hover, ring on focus. */
+.mission-surface-button {
+  cursor: pointer;
+  background: var(--mission-surface-2);
+  border: 1px solid var(--mission-border);
+  border-radius: var(--mission-radius-md);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  appearance: none;
+  transition:
+    border-color var(--mission-dur-fast) var(--mission-ease-out),
+    background var(--mission-dur-fast) var(--mission-ease-out),
+    box-shadow var(--mission-dur-fast) var(--mission-ease-out);
+}
+.mission-surface-button:hover {
+  border-color: var(--sentinel-accent-muted);
+  background: var(--mission-surface-3);
+}
+.mission-surface-button:focus-visible {
+  outline: 2px solid var(--sentinel-accent);
+  outline-offset: 2px;
+}
+
+/* Skeleton loader (deferred animation respects prefers-reduced-motion). */
+.mission-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(156, 184, 212, 0.06) 0%,
+    rgba(156, 184, 212, 0.16) 50%,
+    rgba(156, 184, 212, 0.06) 100%
+  );
+  background-size: 400px 100%;
+  animation: mission-shimmer 1.5s linear infinite;
+  border-radius: var(--mission-radius-sm);
+}
+@keyframes mission-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
+}
+
+/* Critical chip pulse — used on Zone Nord status chip. Subtle enough that
+   COMEX viewers don't perceive it as marketing flicker. */
+@keyframes mission-pulse-critical {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 100, 118, 0.45); }
+  50%      { box-shadow: 0 0 0 6px rgba(240, 100, 118, 0); }
+}
+.mission-pulse-critical {
+  animation: mission-pulse-critical 2.4s ease-in-out infinite;
+}
+
+/* AYA assistant accent — used as a left-border on AYA-authored surfaces. */
+.mission-aya-strip {
+  position: relative;
+}
+.mission-aya-strip::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--agentium-aya), rgba(242, 140, 56, 0.18));
+}
+
+/* Reduced-motion: kill the cockpit pulses and shimmer so demo VPs with
+   vestibular preferences aren't distracted by the live chrome. */
+@media (prefers-reduced-motion: reduce) {
+  .mission-skeleton,
+  .mission-pulse-critical {
+    animation: none !important;
+  }
+}

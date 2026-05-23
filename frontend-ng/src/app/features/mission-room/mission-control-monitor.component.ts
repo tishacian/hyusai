@@ -1,13 +1,9 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
-import { Subscription } from 'rxjs';
-import { ApiService } from '@app/core/api.service';
-import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { WorkspaceMapComponent } from './workspace-map.component';
 
-type VoiceState = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking' | 'error';
 type TerrainMode = 'webcams' | 'maritime';
 
 @Component({
@@ -19,9 +15,7 @@ type TerrainMode = 'webcams' | 'maritime';
   styleUrls: ['./mission-control-monitor.component.scss'],
 })
 export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDestroy {
-  private readonly api = inject(ApiService);
   private readonly sanitizer = inject(DomSanitizer);
-  private readonly voiceSession = inject(VoiceSessionService);
 
   @Input() monitor: any | null = null;
   @Input() missionMap: any | null = null;
@@ -33,6 +27,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   @Output() zoneSelected = new EventEmitter<any>();
   @Output() visualCapture = new EventEmitter<any>();
   @Output() assistantPrompt = new EventEmitter<string>();
+  @Output() voiceRequest = new EventEmitter<void>();
 
   readonly abidjanClock = signal('');
   readonly visualSnapshotTick = signal(Date.now());
@@ -43,23 +38,9 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   readonly visualPreviewFailures = signal<Record<string, true>>({});
   readonly selectedTerrainMode = signal<TerrainMode>('webcams');
   readonly decisionBannerOpen = signal(false);
-  readonly voiceState = signal<VoiceState>('idle');
-  readonly voiceTranscript = signal('');
-  readonly voiceAnswer = signal('');
-  readonly voiceNotice = signal('Pret pour consigne vocale');
 
   private readonly trustedVisualEmbeds = new Map<string, SafeResourceUrl>();
   private clockTimer: ReturnType<typeof setInterval> | null = null;
-  private voiceConnection: VoiceSessionConnection | null = null;
-  private voiceSubscription: Subscription | null = null;
-  private mediaRecorder: MediaRecorder | null = null;
-  private mediaStream: MediaStream | null = null;
-  private voiceTurnId: string | null = null;
-  private pendingVoiceFrames: Promise<void>[] = [];
-  private activeAudio: HTMLAudioElement | null = null;
-  private activeAudioUrl: string | null = null;
-  private speechSubscription: Subscription | null = null;
-  private voiceFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   ngOnInit(): void {
     this.refreshClock();
@@ -75,7 +56,6 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
 
   ngOnDestroy(): void {
     if (this.clockTimer) clearInterval(this.clockTimer);
-    this.stopVoiceSession();
   }
 
   scenario(): any {
@@ -513,20 +493,17 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     const evidence = this.activeEvidence();
     const prompt = evidence?.aya_context?.prompt
       || `AYA, explique cette preuve active : ${evidence?.title || 'signal prioritaire'}.`;
-    this.voiceAnswer.set(`${evidence?.title || 'Preuve active'} : ${evidence?.observation || ''} Action : ${evidence?.recommended_action || 'Qualifier puis arbitrer.'}`);
     this.assistantPrompt.emit(prompt);
   }
 
   prepareActiveEvidenceArbitrage(): void {
     const evidence = this.activeEvidence();
     const prompt = `AYA, prepare un arbitrage VP pour ${evidence?.title || 'la preuve active'} avec option recommandee et deadline.`;
-    this.voiceAnswer.set(`Arbitrage prepare : ${evidence?.recommended_action || 'Qualifier la preuve, proposer deux options et fixer un responsable.'}`);
     this.assistantPrompt.emit(prompt);
   }
 
   activateDecisionPackage(pack: any): void {
     if (!pack) return;
-    this.voiceAnswer.set(`${pack.decision} Option recommandee : ${pack.recommended_option}. Echeance : ${pack.deadline}.`);
     this.assistantPrompt.emit(`AYA, prepare le dossier de decision suivant : ${pack.title}. ${pack.decision}`);
   }
 
@@ -536,9 +513,6 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     this.mapVisualFocus.set(null);
     if (zone) this.zoneSelected.emit(zone);
     this.activeEvidenceOverride.set(this.buildSignalEvidence(signal));
-    if (signal?.summary) {
-      this.voiceAnswer.set(`${signal.label || 'Signal prioritaire'} : ${signal.summary}`);
-    }
   }
 
   handleZoneSelected(zone: any): void {
@@ -580,16 +554,8 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     if (zone) this.activateZoneEvidence(zone);
   }
 
-  async toggleVoice(): Promise<void> {
-    if (this.voiceState() === 'listening') {
-      await this.finishVoiceTurn();
-      return;
-    }
-    if (this.voiceState() === 'connecting' || this.voiceState() === 'thinking' || this.voiceState() === 'speaking') {
-      this.stopVoiceSession();
-      return;
-    }
-    await this.startVoiceSession();
+  requestVoice(): void {
+    this.voiceRequest.emit();
   }
 
   private refreshClock(): void {
@@ -764,290 +730,5 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     } catch {
       return null;
     }
-  }
-
-  private async startVoiceSession(): Promise<void> {
-    this.voiceState.set('connecting');
-    this.voiceNotice.set('Ouverture du canal voix AYA');
-    this.voiceTranscript.set('');
-    try {
-      const sessionId = `sentinel-ci-mission-control-${Date.now()}`;
-      this.voiceTurnId = crypto.randomUUID?.() || sessionId;
-      this.voiceConnection = this.voiceSession.open(sessionId);
-      this.voiceSubscription = this.voiceConnection.events$.subscribe((event) => this.handleVoiceEvent(event));
-      this.voiceConnection.start({
-        runtime: 'cascade_openai',
-        provider: 'cascade_openai',
-        transport: 'backend_ws',
-        language: 'fr',
-        output_language: 'fr',
-        capability: 'voice2voice_interaction',
-        context_id: this.monitor?.workspace?.id || 'sentinel-ci',
-        mode: 'conversation_only',
-        codec: { input: 'webm', channels: 1 },
-        tandem_oracle: true,
-      });
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = this.preferredMimeType();
-      this.mediaRecorder = mimeType
-        ? new MediaRecorder(this.mediaStream, { mimeType })
-        : new MediaRecorder(this.mediaStream);
-      this.mediaRecorder.ondataavailable = (event) => {
-        if (!event.data?.size || !this.voiceConnection) return;
-        const send = this.voiceConnection.sendAudioFrame(event.data, {
-          turn_id: this.voiceTurnId,
-          content_type: event.data.type || mimeType || 'audio/webm',
-        }).catch(() => {
-          this.voiceNotice.set("Une trame audio n'a pas ete envoyee ; nouvelle tentative possible.");
-        });
-        this.pendingVoiceFrames.push(send);
-        void send.finally(() => {
-          this.pendingVoiceFrames = this.pendingVoiceFrames.filter((item) => item !== send);
-        });
-      };
-      this.mediaRecorder.start(1000);
-      this.voiceState.set('listening');
-      this.voiceNotice.set('AYA ecoute la Mission Control Room. Cliquez pour envoyer.');
-    } catch {
-      this.voiceState.set('error');
-      this.voiceNotice.set('Micro ou canal voix indisponible. Bascule texte ouverte.');
-      this.stopVoiceSession();
-      this.assistantPrompt.emit('AYA, donne-moi la synthese du scenario croise.');
-    }
-  }
-
-  private async finishVoiceTurn(): Promise<void> {
-    this.voiceState.set('thinking');
-    this.voiceNotice.set('AYA analyse et prepare une reponse vocale');
-    await this.flushRecorder();
-    await Promise.allSettled(this.pendingVoiceFrames);
-    this.pendingVoiceFrames = [];
-    this.stopMediaTracks();
-    if (this.voiceConnection && this.voiceTurnId) {
-      this.voiceConnection.endpoint({ turn_id: this.voiceTurnId });
-      this.armVoiceFallback();
-    } else {
-      this.voiceState.set('error');
-      this.voiceNotice.set('Canal voix indisponible. Bascule texte ouverte.');
-      this.assistantPrompt.emit('AYA, quelle est la situation prioritaire maintenant ?');
-    }
-  }
-
-  private flushRecorder(): Promise<void> {
-    const recorder = this.mediaRecorder;
-    this.mediaRecorder = null;
-    if (!recorder || recorder.state === 'inactive') return Promise.resolve();
-    return new Promise((resolve) => {
-      recorder.addEventListener('stop', () => resolve(), { once: true });
-      try {
-        recorder.requestData();
-      } catch {
-        // Some browsers do not support requestData after rapid start/stop.
-      }
-      recorder.stop();
-    });
-  }
-
-  private stopMediaTracks(): void {
-    this.mediaStream?.getTracks().forEach((track) => track.stop());
-    this.mediaStream = null;
-  }
-
-  private stopVoiceSession(): void {
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      this.mediaRecorder.stop();
-    }
-    this.mediaRecorder = null;
-    this.stopMediaTracks();
-    this.stopSpeech();
-    this.clearVoiceFallback();
-    this.voiceConnection?.close();
-    this.voiceConnection = null;
-    this.voiceSubscription?.unsubscribe();
-    this.voiceSubscription = null;
-    this.voiceTurnId = null;
-    this.pendingVoiceFrames = [];
-    if (this.voiceState() !== 'error') {
-      this.voiceState.set('idle');
-      this.voiceNotice.set('Pret pour consigne vocale');
-    }
-  }
-
-  private handleVoiceEvent(event: VoiceSessionEvent): void {
-    const payload = event.payload || {};
-    if (event.type === 'session.ready') {
-      this.voiceNotice.set('Canal voix pret');
-      return;
-    }
-    if (event.type === 'text.partial' || event.type === 'text.final') {
-      const text = String(payload['text'] || '').trim();
-      if (text) this.voiceTranscript.set(text);
-      if (event.type === 'text.final' && text) {
-        this.clearVoiceFallback();
-        this.applyVoiceCommand(text);
-        this.speakSovereignAnswer(this.sovereignVoiceAnswer(text));
-      }
-      return;
-    }
-    if (event.type === 'prompt.next') {
-      const text = String(payload['text'] || '').trim();
-      if (text) this.voiceAnswer.set(text);
-      return;
-    }
-    if (event.type === 'audio.out') {
-      this.playAudioPayload(payload);
-      return;
-    }
-    if (event.type === 'oracle.action') {
-      const text = String(payload['prompt'] || payload['text'] || '').trim();
-      if (text) this.applyVoiceCommand(text);
-      return;
-    }
-    if (event.type === 'session.error') {
-      if (this.voiceState() === 'thinking') {
-        this.speakSovereignAnswer(this.sovereignVoiceAnswer(this.voiceTranscript() || 'situation nord'));
-      } else {
-        this.voiceState.set('error');
-        this.voiceNotice.set(String(payload['message'] || 'Canal voix indisponible'));
-      }
-    }
-  }
-
-  private applyVoiceCommand(text: string): void {
-    const lower = text.toLowerCase();
-    if (lower.includes('maritime') || lower.includes('port') || lower.includes('douane') || lower.includes('douanes') || lower.includes('trafic maritime')) {
-      this.focusMaritimeEvidence();
-    }
-    if (lower.includes('pont') || lower.includes('camera') || lower.includes('webcam')) {
-      const source = this.visualSources().find((item) => String(item.name || '').toLowerCase().includes('pont'))
-        || this.visualSources()[0];
-      if (source) this.selectVisualSource(source);
-    }
-    if (lower.includes('abidjan') || lower.includes('carte')) this.focusAbidjan();
-  }
-
-  private sovereignVoiceAnswer(text: string): string {
-    const lower = text.toLowerCase();
-    const demoAnswer = String(this.monitor?.voice_demo_script?.answer || this.monitor?.voice_context?.demo_script?.answer || '');
-    if (lower.includes('nord') && demoAnswer) return demoAnswer;
-    if (lower.includes('preuve') || lower.includes('webcam') || lower.includes('camera') || lower.includes('visuel')) {
-      const evidence = this.activeEvidence();
-      return `${evidence?.title || 'Preuve active'}. Situation : ${evidence?.observation || 'lecture en cours'}. Preuve : ${evidence?.source_quality || 'sources qualifiees'}. Option recommandee : ${evidence?.recommended_action || 'qualifier puis arbitrer'}. Deadline : ${evidence?.decision_deadline || "aujourd'hui"}.`;
-    }
-    if (lower.includes('maritime') || lower.includes('port') || lower.includes('douane') || lower.includes('douanes') || lower.includes('trafic maritime')) {
-      const evidence = this.maritimeEvidence();
-      return `${evidence.title}. Situation : ${evidence.observation}. Preuve : ${evidence.source_quality}. Option recommandee : ${evidence.recommended_action}. Deadline : ${evidence.decision_deadline}. Confiance : ${this.confidencePct(evidence.aya_context?.confidence || 0.66)}.`;
-    }
-    if (lower.includes('ambassadeur') || lower.includes('france')) {
-      return "Le dejeuner avec l'Ambassadeur de France est dans 1 heure 44. La fiche est prete : cooperation France Cote d'Ivoire, perception presse et suivi des projets frontaliers. Je recommande de valider la position publique avant le dejeuner.";
-    }
-    if (lower.includes('rumeur') || lower.includes('origine')) {
-      const rumor = this.rumorTrace();
-      return `${rumor?.headline || 'Rumeur prioritaire sous verification'}. Origine : ${rumor?.origin || 'canaux publics et signalements terrain'}. ${rumor?.aya_sentence || rumor?.recommended_action || 'Verifier la source primaire, preparer un message de compassion et coordonner une presence institutionnelle.'}`;
-    }
-    if (lower.includes('dossier') || lower.includes('decision') || lower.includes('décision') || lower.includes('arbitrage')) {
-      const pack = this.primaryDecisionPackage();
-      if (pack) return `${pack.title}. ${pack.decision} Je recommande : ${pack.recommended_option}. Echeance : ${pack.deadline}, responsable : ${pack.owner}.`;
-    }
-    if (lower.includes('que dois-je faire') || lower.includes('priorite') || lower.includes('priorité')) {
-      return `${this.decisionSentence().text} Trois actions sont prêtes : réponse presse avant 14 heures, arbitrage Zone Nord avant 15 heures, fiche Ambassadeur France ouverte pour le déjeuner.`;
-    }
-    return `${this.decisionSentence().text} Je filtre le reste : un article exige votre attention, la Zone Nord attend arbitrage, et la fiche Ambassadeur France est prête.`;
-  }
-
-  private speakSovereignAnswer(text: string): void {
-    if (!text) return;
-    this.clearVoiceFallback();
-    this.voiceAnswer.set(text);
-    this.voiceState.set('speaking');
-    this.voiceNotice.set('AYA repond');
-    this.speechSubscription?.unsubscribe();
-    this.speechSubscription = this.api.synthesizeSpeech(text.slice(0, 600), 'nova', 'cascade_openai').subscribe({
-      next: (blob) => this.playAudioBlob(blob),
-      error: () => {
-        this.voiceState.set('error');
-        this.voiceNotice.set('Synthese vocale indisponible. Reponse ouverte en texte.');
-        this.assistantPrompt.emit(text);
-        this.stopVoiceSession();
-      },
-    });
-  }
-
-  private playAudioPayload(payload: Record<string, any>): void {
-    const audioBase64 = String(payload['audio_base64'] || '');
-    if (!audioBase64) return;
-    const binary = atob(audioBase64);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-    this.playAudioBlob(new Blob([bytes], { type: String(payload['content_type'] || 'audio/mpeg') }));
-  }
-
-  private playAudioBlob(blob: Blob): void {
-    this.stopSpeech();
-    const url = URL.createObjectURL(blob);
-    this.activeAudioUrl = url;
-    const audio = new Audio(url);
-    this.activeAudio = audio;
-    audio.onended = () => {
-      this.voiceState.set('idle');
-      this.voiceNotice.set('Pret pour consigne vocale');
-      this.closeVoiceTransport();
-      this.stopSpeech();
-    };
-    audio.onerror = () => {
-      this.voiceState.set('error');
-      this.voiceNotice.set('Lecture audio bloquee par le navigateur. Reponse ouverte en texte.');
-      this.assistantPrompt.emit(this.voiceAnswer());
-      this.closeVoiceTransport();
-      this.stopSpeech();
-    };
-    void audio.play().catch(() => {
-      this.voiceState.set('error');
-      this.voiceNotice.set('Lecture audio bloquee par le navigateur. Reponse ouverte en texte.');
-      this.assistantPrompt.emit(this.voiceAnswer());
-      this.closeVoiceTransport();
-      this.stopSpeech();
-    });
-  }
-
-  private stopSpeech(): void {
-    this.speechSubscription?.unsubscribe();
-    this.speechSubscription = null;
-    this.activeAudio?.pause();
-    this.activeAudio = null;
-    if (this.activeAudioUrl) URL.revokeObjectURL(this.activeAudioUrl);
-    this.activeAudioUrl = null;
-  }
-
-  private closeVoiceTransport(): void {
-    this.clearVoiceFallback();
-    this.voiceConnection?.close();
-    this.voiceConnection = null;
-    this.voiceSubscription?.unsubscribe();
-    this.voiceSubscription = null;
-    this.voiceTurnId = null;
-  }
-
-  private preferredMimeType(): string {
-    for (const candidate of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
-      if (MediaRecorder.isTypeSupported(candidate)) return candidate;
-    }
-    return '';
-  }
-
-  private armVoiceFallback(): void {
-    this.clearVoiceFallback();
-    const targetLatency = Number(this.monitor?.voice_demo_script?.target_latency_s || this.monitor?.voice_context?.demo_script?.target_latency_s || 6);
-    const delayMs = Math.max(4, Math.min(targetLatency, 8)) * 1000;
-    this.voiceFallbackTimer = setTimeout(() => {
-      if (this.voiceState() !== 'thinking') return;
-      this.speakSovereignAnswer(this.sovereignVoiceAnswer(this.voiceTranscript() || 'situation nord'));
-    }, delayMs);
-  }
-
-  private clearVoiceFallback(): void {
-    if (!this.voiceFallbackTimer) return;
-    clearTimeout(this.voiceFallbackTimer);
-    this.voiceFallbackTimer = null;
   }
 }

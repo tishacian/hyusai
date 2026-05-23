@@ -59,20 +59,16 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert navigation.json()["items"][0]["route"] == "/hypervisor/mission-room/cockpit"
     assert [item["key"] for item in navigation.json()["items"]] == [
         "cockpit",
-        "monitor",
         "strategie",
-        "briefing",
         "agenda",
         "presse",
         "decisions",
     ]
     assert [item["label"] for item in navigation.json()["items"]] == [
         "Cockpit",
-        "Situation live",
-        "Carte fusionnee",
-        "Aide a la decision",
+        "Carte",
         "Agenda",
-        "Renseignement",
+        "Presse",
         "Arbitrages",
     ]
     assert cockpit.status_code == 200
@@ -282,6 +278,7 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     assert timeline.json()["attention_required"][1]["id"] == "attention-zone-nord"
     assert timeline.json()["calendar"]["connector"]["id"] == "institutional_calendar"
     assert timeline.json()["agenda"][0]["title"] == "Conseil Defense restreint"
+    assert timeline.json()["calendar"]["next_event"]["title"] == "Rencontre Prefet de la region de Nawa"
     assert len(timeline.json()["action_items"]) >= 1
     assert len(timeline.json()["messages"]) >= 1
     assert decisions.status_code == 200
@@ -319,7 +316,7 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert len(body["attention_required"]) == 3
     assert body["attention_required"][0]["deadline"] == "14:00"
     assert body["voice_demo_script"]["target_latency_s"] == 6
-    assert len(body["executive_decision_packages"]) == 3
+    assert len(body["executive_decision_packages"]) == 4
     assert body["executive_decision_packages"][0]["recommended_option"].startswith("Coordination CEDEAO")
     assert body["rumor_trace"]["recommended_action"].startswith("Verifier source primaire")
     assert body["demo_value_metrics"][0]["value"] == "80 -> 3"

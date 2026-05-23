@@ -239,7 +239,7 @@ def test_chat_stream_vigie_cockpit_60s_uses_deterministic_reply(db_session, monk
     )
 
     assert response.status_code == 200
-    assert "Lecture 60 secondes" in response.text
+    assert "lecture 60 secondes" in response.text.lower()
     assert "Zone Nord" in response.text
     assert "L'Inter" in response.text
     assert "data: [DONE]" in response.text
@@ -294,4 +294,105 @@ def test_chat_stream_vigie_abidjan_port_has_text_reply_without_map_command(db_se
     assert "Port d'Abidjan" in response.text
     assert '"chunk_type": "map_command"' not in response.text
     assert '"chunk_type": "retrieval"' not in response.text
+    assert "data: [DONE]" in response.text
+
+
+def test_chat_stream_registry_priority_summary(db_session, monkeypatch):
+    workspace = Workspace(
+        id="ws-sentinel-priority",
+        name="SENTINEL-CI",
+        slug="sentinel-ci",
+        mode="demo",
+        settings={"actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Aya, fais moi un résumé des sujets prioritaires",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "prioritaires" in response.text.lower()
+    assert '"chunk_type": "action_result"' in response.text
+    assert '"chunk_type": "retrieval"' not in response.text
+    assert "data: [DONE]" in response.text
+
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.trigger == "action_registry"
+
+
+def test_chat_stream_registry_maritime_then_oui_draft(db_session, monkeypatch):
+    workspace = Workspace(
+        id="ws-sentinel-maritime",
+        name="SENTINEL-CI",
+        slug="sentinel-ci",
+        mode="demo",
+        settings={"actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    ensure_workspace_map_seed(db_session, workspace)
+    db_session.commit()
+    client = _client(db_session, workspace, HappyOrchestrator(), monkeypatch)
+
+    maritime = client.post(
+        "/chat/stream",
+        json={
+            "query": "Montre moi le trafic maritime à destination d'Abidjan",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+    assert maritime.status_code == 200
+    assert '"effect": "assistant-propose"' in maritime.text
+    assert "data: [DONE]" in maritime.text
+
+    confirm = client.post(
+        "/chat/stream",
+        json={
+            "query": "oui",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+    assert confirm.status_code == 200
+    assert '"effect": "assistant-draft-open"' in confirm.text
+    assert "dedouanement" in confirm.text.lower()
+    assert "data: [DONE]" in confirm.text
+
+
+def test_chat_stream_registry_next_meeting_navigates_agenda(db_session, monkeypatch):
+    from app.services.workspace_calendar import ensure_calendar_seed
+
+    workspace = Workspace(
+        id="ws-sentinel-next",
+        name="SENTINEL-CI",
+        slug="sentinel-ci",
+        mode="demo",
+        settings={"actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]}},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    ensure_calendar_seed(db_session, workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "OK Aya, quel est mon prochain RDV ?",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Nawa" in response.text
+    assert '"effect": "assistant-navigate"' in response.text
+    assert "/hypervisor/mission-room/agenda" in response.text
     assert "data: [DONE]" in response.text

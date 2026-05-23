@@ -22,3 +22,12 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_default_queue=settings.celery_task_default_queue,
 )
+
+
+celery_app.conf.beat_schedule = {
+    "refresh-macro-indicators-24h": {
+        "task": "agentium.refresh_macro_indicators",
+        "schedule": 24 * 60 * 60,
+        "args": ("sentinel-ci", False),
+    },
+}

@@ -229,6 +229,43 @@ MARITIME_PORTS = [
 
 MARITIME_EVENTS = [
     {
+        "id": "cargo-abidjan-supply-001",
+        "title": "Cargo composants drones Napié — attente dedouanement Abidjan",
+        "location": "Port d'Abidjan / Vridi",
+        "longitude": -4.02,
+        "latitude": 5.24,
+        "score": 74,
+        "severity": "watch",
+        "domain": "customs",
+        "status": "awaiting_customs",
+        "vessel_name": "MV Atlantic Trader",
+        "vessel_id": "mv-atlantic-trader",
+        "imo": "9876543",
+        "mmsi": "627012345",
+        "cargo": (
+            "Composants drones AerostarDynamics — hangars formation, "
+            "terrains apprentissage, labos cartographie (Centre Napié)"
+        ),
+        "origin": "USA East Coast",
+        "destination": "Napié via Port autonome d'Abidjan",
+        "project_ref": "proj-drone-centre-napie",
+        "project_ref_aliases": ["proj-public-north-supply"],
+        "customs_record_ref": "customs-record-non-conformite-2026-05",
+        "summary": (
+            "Cargaison de composants drones Aerostar Dynamics destinée au Centre "
+            "International de Formation aux Métiers des Drones de Napié bloquée à "
+            "Vridi par effet collatéral du PV douanes du 18 mai."
+        ),
+        "recommended_action": "Preparer courrier de derogation chef des douanes pour distinguer le cargo drones Napié du lot non conforme.",
+        "decision_deadline": "12:00",
+        "source_refs": [
+            "src-maritime-paa-001",
+            "src-marinetraffic-context-001",
+            "src-cabinet-brief-001",
+            "src-abidjan-net-drone-napie-2025-07-16",
+        ],
+    },
+    {
         "id": "vessel-density-abidjan",
         "title": "Densite navires · Abidjan",
         "location": "Rade d'Abidjan",

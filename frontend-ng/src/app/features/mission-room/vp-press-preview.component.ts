@@ -10,128 +10,225 @@ import type { VpPressPreviewItem } from './vp-cockpit.types';
   template: `
     <section class="press-preview" aria-label="Alertes presse">
       @if (morningHighlight && !morningDismissed) {
-        <div class="morning-banner">
+        <div class="morning-banner" role="region" aria-label="Brief presse du matin">
           <p>{{ morningHighlight }}</p>
           <div class="morning-actions">
             <button type="button" (click)="morningView.emit()">Voir</button>
             <button type="button" (click)="morningLater.emit()">Plus tard</button>
-            <button type="button" (click)="morningVoice.emit()">Parler a AYA</button>
+            <button type="button" (click)="morningVoice.emit()">Parler à AYA</button>
           </div>
         </div>
       }
-      <div class="press-cards">
-        @for (item of items; track item.id) {
-          <button
-            type="button"
-            class="press-card"
-            [class.highlighted]="highlightId === item.id"
-            [class.critical]="toneClass(item.tone || item.risk) === 'critical'"
-            [class.elevated]="toneClass(item.tone || item.risk) === 'elevated'"
-            (click)="itemSelected.emit(item)"
-          >
-            <span class="risk-pill" [class]="toneClass(item.tone || item.risk)">
-              {{ item.risk_label || item.risk }}
-            </span>
-            <strong>{{ item.title }}</strong>
-            @if (item.summary) {
-              <p>{{ item.summary }}</p>
-            }
-            <small>{{ item.source }}</small>
-          </button>
-        }
-      </div>
+
+      @if (!items.length) {
+        <div class="press-empty" role="status">
+          <span class="press-empty-icon" aria-hidden="true">◇</span>
+          <strong>Aucune alerte presse hero</strong>
+          <small>Les signaux du jour seront poussés ici dès qu'AYA les flagge.</small>
+        </div>
+      } @else {
+        <div class="press-cards" [class.is-hero]="items.length === 1">
+          @for (item of items; track item.id) {
+            <button
+              type="button"
+              class="press-card"
+              [class.highlighted]="highlightId === item.id"
+              [class.critical]="toneClass(item.tone || item.risk) === 'critical'"
+              [class.elevated]="toneClass(item.tone || item.risk) === 'elevated'"
+              (click)="itemSelected.emit(item)"
+            >
+              <span class="press-card-meta">
+                <span class="risk-pill" [class]="toneClass(item.tone || item.risk)">
+                  {{ item.risk_label || item.risk }}
+                </span>
+                @if (highlightId === item.id) {
+                  <span class="aya-flag" aria-label="Flaggé par AYA">AYA flag</span>
+                }
+              </span>
+              <strong>{{ item.title }}</strong>
+              @if (item.summary) {
+                <p>{{ item.summary }}</p>
+              }
+              <small>{{ item.source }}</small>
+            </button>
+          }
+        </div>
+      }
     </section>
   `,
   styles: [
     `
       :host { display: block; }
       .morning-banner {
-        margin-bottom: 10px;
-        padding: 10px 12px;
+        margin-bottom: var(--mission-space-3);
+        padding: var(--mission-space-3) var(--mission-space-4);
         border: 1px solid rgba(242, 140, 56, 0.28);
-        border-radius: var(--mission-radius);
-        background: rgba(242, 140, 56, 0.08);
+        border-radius: var(--mission-radius-md);
+        background: var(--agentium-aya-soft);
       }
       .morning-banner p {
-        margin: 0 0 8px;
-        color: var(--mission-text-soft);
-        font-size: 12px;
-        line-height: 1.45;
+        margin: 0 0 var(--mission-space-2);
+        color: var(--mission-text-secondary);
+        font-size: var(--mission-text-sm);
+        line-height: var(--mission-lh-body);
       }
       .morning-actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: var(--mission-space-2);
       }
       .morning-actions button {
-        padding: 5px 9px;
+        padding: var(--mission-space-1) var(--mission-space-3);
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius-sm);
         background: var(--mission-inset);
-        color: var(--mission-text);
+        color: var(--mission-text-primary);
         font: inherit;
-        font-size: 11px;
+        font-size: var(--mission-text-xs);
         cursor: pointer;
+        transition: border-color var(--mission-dur-fast) var(--mission-ease-out);
+      }
+      .morning-actions button:hover {
+        border-color: var(--sentinel-accent-muted);
+      }
+      .morning-actions button:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
+      }
+      .press-empty {
+        display: grid;
+        place-items: center;
+        gap: var(--mission-space-2);
+        padding: var(--mission-space-6) var(--mission-space-4);
+        border: 1px dashed var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: rgba(4, 8, 13, 0.42);
+        color: var(--mission-text-secondary);
+        text-align: center;
+      }
+      .press-empty-icon {
+        color: var(--mission-text-tertiary);
+        font-size: 28px;
+        line-height: 1;
+      }
+      .press-empty strong {
+        font-size: var(--mission-text-base);
+        color: var(--mission-text-primary);
+      }
+      .press-empty small {
+        color: var(--mission-text-tertiary);
+        font-size: var(--mission-text-xs);
+        max-width: 360px;
       }
       .press-cards {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
+        gap: var(--mission-space-3);
+      }
+      .press-cards.is-hero {
+        grid-template-columns: 1fr;
       }
       .press-card {
         min-width: 0;
-        padding: 12px;
+        padding: var(--mission-space-4);
         border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius);
+        border-radius: var(--mission-radius-md);
         background: rgba(4, 8, 13, 0.58);
         color: inherit;
         text-align: left;
         cursor: pointer;
         appearance: none;
         font: inherit;
-        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        transition:
+          border-color var(--mission-dur-fast) var(--mission-ease-out),
+          background var(--mission-dur-fast) var(--mission-ease-out),
+          box-shadow var(--mission-dur-fast) var(--mission-ease-out);
+      }
+      .press-cards.is-hero .press-card {
+        padding: var(--mission-space-5) var(--mission-space-5);
+      }
+      .press-card:hover {
+        border-color: var(--sentinel-accent-muted);
+        background: rgba(101, 214, 110, 0.05);
+      }
+      .press-card:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
       }
       .press-card.highlighted {
-        border-color: rgba(242, 140, 56, 0.55);
+        border-color: var(--agentium-aya);
         box-shadow: 0 0 0 1px rgba(242, 140, 56, 0.18), 0 0 24px rgba(242, 140, 56, 0.08);
       }
-      .press-card.critical { border-left: 4px solid var(--mission-danger); }
-      .press-card.elevated { border-left: 4px solid var(--mission-warn); }
+      .press-card.critical { border-left: 4px solid var(--mission-critical); }
+      .press-card.elevated { border-left: 4px solid var(--mission-warning); }
+      .press-card-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--mission-space-2);
+      }
       .risk-pill {
         display: inline-flex;
-        padding: 2px 7px;
+        padding: 2px 8px;
         border-radius: 999px;
         border: 1px solid var(--mission-border);
-        font-family: var(--ck-font-mono);
+        font-family: var(--mission-font-mono);
         font-size: 9px;
-        letter-spacing: 0.08em;
+        letter-spacing: var(--mission-tracking-micro);
         text-transform: uppercase;
+        color: var(--mission-text-secondary);
       }
       .risk-pill.critical {
         border-color: rgba(240, 100, 118, 0.34);
-        color: var(--mission-danger);
+        background: var(--mission-critical-soft);
+        color: var(--mission-critical);
       }
       .risk-pill.elevated {
         border-color: rgba(241, 180, 90, 0.32);
-        color: var(--mission-warn);
+        background: var(--mission-warning-soft);
+        color: var(--mission-warning);
+      }
+      .aya-flag {
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(242, 140, 56, 0.38);
+        background: var(--agentium-aya-soft);
+        color: var(--agentium-aya);
+        font-family: var(--mission-font-mono);
+        font-size: 9px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
       }
       .press-card strong {
         display: block;
-        margin-top: 8px;
-        font-size: 13px;
+        margin-top: var(--mission-space-2);
+        font-size: var(--mission-text-base);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
         line-height: 1.3;
       }
+      .press-cards.is-hero .press-card strong {
+        font-size: var(--mission-text-lg);
+      }
       .press-card p {
-        margin: 6px 0 0;
-        color: var(--mission-text-muted);
-        font-size: 11px;
-        line-height: 1.35;
+        margin: var(--mission-space-2) 0 0;
+        color: var(--mission-text-secondary);
+        font-size: var(--mission-text-sm);
+        line-height: var(--mission-lh-body);
+        /* keep press summary aerated but capped (~3 lines) so the hero card
+           does not balloon when the wire copy runs long. */
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
       }
       .press-card small {
         display: block;
-        margin-top: 8px;
-        color: var(--mission-text-faint);
+        margin-top: var(--mission-space-2);
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
         font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
       }
       @media (max-width: 1100px) {
         .press-cards { grid-template-columns: 1fr; }

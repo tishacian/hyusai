@@ -47,9 +47,9 @@ interface ResolvedVoiceOutputConfig {
 const DEFAULT_VOICE_OUTPUT: ResolvedVoiceOutputConfig = {
   latency_profile: 'fast',
   voice: 'nova',
-  flush_first_chars: 24,
-  flush_next_chars: 80,
-  flush_timeout_ms: 900,
+  flush_first_chars: 18,
+  flush_next_chars: 56,
+  flush_timeout_ms: 450,
   interrupt_on_user_speech: true,
 };
 
@@ -105,7 +105,7 @@ export class VoiceTtsPlaybackController {
   appendBuffer(buffer: string): void {
     if (this.aborted) return;
     this.buffer = buffer || '';
-    this.scheduleFirstFlushTimer();
+    this.scheduleFlushTimer();
     this.considerFlush(false);
   }
 
@@ -210,8 +210,8 @@ export class VoiceTtsPlaybackController {
     return Math.max(min, Math.min(max, Math.round(num)));
   }
 
-  private scheduleFirstFlushTimer(): void {
-    if (this.firstFlushDone || this.flushTimer || this.flushedIdx >= this.buffer.length) return;
+  private scheduleFlushTimer(): void {
+    if (this.flushTimer || this.flushedIdx >= this.buffer.length) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       this.considerFlush(true);
@@ -235,14 +235,19 @@ export class VoiceTtsPlaybackController {
       }
       return;
     }
+    const timedMin = Math.min(32, this.config.flush_next_chars);
+    if (timerFired && pending.trim().length >= timedMin) {
+      this.flushPending(false, timedMin, false, true);
+      return;
+    }
     if (pending.trim().length < this.config.flush_next_chars) return;
     this.flushPending(false, this.config.flush_next_chars, false);
   }
 
-  private flushPending(force: boolean, minChars = 0, first = false): void {
+  private flushPending(force: boolean, minChars = 0, first = false, softFallback = false): void {
     const pending = this.buffer.slice(this.flushedIdx);
     if (!pending.trim()) return;
-    let length = force ? pending.length : this.findFlushLength(pending, minChars, first);
+    let length = force ? pending.length : this.findFlushLength(pending, minChars, first, softFallback);
     if (length <= 0) return;
     length = Math.min(length, pending.length);
     const raw = pending.slice(0, length);
@@ -251,15 +256,15 @@ export class VoiceTtsPlaybackController {
     if (!text) return;
     this.firstFlushDone = true;
     this.queueChunk(text);
-    if (!force) this.scheduleFirstFlushTimer();
+    if (!force) this.scheduleFlushTimer();
   }
 
-  private findFlushLength(pending: string, minChars: number, first: boolean): number {
+  private findFlushLength(pending: string, minChars: number, first: boolean, softFallback = false): number {
     const min = Math.max(1, minChars);
     if (pending.length < min) return 0;
     const boundary = first ? this.findWeakBoundary(pending, min) : this.findSentenceBoundary(pending, min);
     if (boundary > 0) return boundary;
-    if (!first && pending.length < this.config.flush_next_chars * 2) return 0;
+    if (!first && !softFallback && pending.length < this.config.flush_next_chars * 2) return 0;
     const target = first ? Math.min(pending.length, Math.max(min, 96)) : Math.min(pending.length, this.config.flush_next_chars);
     return this.wordBoundary(pending, target);
   }

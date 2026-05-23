@@ -1,0 +1,65 @@
+{
+  "country_code": "CIV",
+  "country_label": "Cote d'Ivoire",
+  "source": "World Bank Open Data (baseline cache)",
+  "fetched_at": "2026-05-23",
+  "indicators": [
+    {
+      "key": "unemployment",
+      "world_bank_code": "SL.UEM.TOTL.ZS",
+      "label": "Chomage",
+      "unit": "%",
+      "series": [
+        {"year": 2014, "value": 3.4},
+        {"year": 2015, "value": 3.4},
+        {"year": 2016, "value": 3.3},
+        {"year": 2017, "value": 3.3},
+        {"year": 2018, "value": 3.3},
+        {"year": 2019, "value": 3.2},
+        {"year": 2020, "value": 3.5},
+        {"year": 2021, "value": 3.4},
+        {"year": 2022, "value": 3.3},
+        {"year": 2023, "value": 3.4},
+        {"year": 2024, "value": 3.4}
+      ]
+    },
+    {
+      "key": "inflation",
+      "world_bank_code": "FP.CPI.TOTL.ZG",
+      "label": "Inflation (IPC, annuel)",
+      "unit": "%",
+      "series": [
+        {"year": 2014, "value": 0.5},
+        {"year": 2015, "value": 1.3},
+        {"year": 2016, "value": 0.7},
+        {"year": 2017, "value": 0.6},
+        {"year": 2018, "value": 0.4},
+        {"year": 2019, "value": 0.8},
+        {"year": 2020, "value": 2.4},
+        {"year": 2021, "value": 4.2},
+        {"year": 2022, "value": 5.2},
+        {"year": 2023, "value": 4.4},
+        {"year": 2024, "value": 3.8}
+      ]
+    },
+    {
+      "key": "gdp_growth",
+      "world_bank_code": "NY.GDP.MKTP.KD.ZG",
+      "label": "Croissance PIB",
+      "unit": "%",
+      "series": [
+        {"year": 2014, "value": 8.5},
+        {"year": 2015, "value": 8.8},
+        {"year": 2016, "value": 7.2},
+        {"year": 2017, "value": 7.4},
+        {"year": 2018, "value": 6.9},
+        {"year": 2019, "value": 6.5},
+        {"year": 2020, "value": 2.0},
+        {"year": 2021, "value": 7.4},
+        {"year": 2022, "value": 6.7},
+        {"year": 2023, "value": 6.5},
+        {"year": 2024, "value": 6.4}
+      ]
+    }
+  ]
+}

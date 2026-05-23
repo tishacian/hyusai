@@ -40,61 +40,65 @@ import type { VpAgendaTimeline, VpAgendaTimelineEvent, VpArbitrationCard } from 
   styles: [
     `
       :host { display: block; }
-      header { margin-bottom: 10px; }
+      header { margin-bottom: var(--mission-space-3); }
       .eyebrow {
         display: block;
-        color: var(--mission-text-muted);
-        font-family: var(--ck-font-mono);
-        font-size: 9px;
-        letter-spacing: 0.14em;
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
         text-transform: uppercase;
       }
       h2 {
-        margin: 5px 0 0;
-        font-size: 16px;
+        margin: var(--mission-space-1) 0 0;
+        font-size: var(--mission-text-md);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        color: var(--mission-text-primary);
       }
       header small {
         display: block;
-        margin-top: 4px;
-        color: var(--mission-text-faint);
-        font-size: 10px;
+        margin-top: var(--mission-space-1);
+        color: var(--mission-text-tertiary);
+        font-size: var(--mission-text-xs);
       }
       .timeline-track {
         display: grid;
         gap: 0;
-        border-left: 2px solid rgba(148, 163, 184, 0.18);
-        margin-left: 8px;
-        padding-left: 14px;
+        border-left: 2px solid var(--mission-border);
+        margin-left: var(--mission-space-2);
+        padding-left: var(--mission-space-4);
       }
       .now-marker {
         display: flex;
         align-items: center;
-        gap: 10px;
-        margin: 4px 0 8px -23px;
+        gap: var(--mission-space-2);
+        margin: var(--mission-space-1) 0 var(--mission-space-2) calc(-1 * var(--mission-space-6) - 1px);
       }
       .now-marker span {
-        padding: 3px 8px;
+        padding: 3px 9px;
         border-radius: 999px;
-        border: 1px solid rgba(242, 140, 56, 0.38);
-        background: rgba(242, 140, 56, 0.12);
+        border: 1px solid rgba(242, 140, 56, 0.42);
+        background: var(--agentium-aya-soft);
         color: var(--mission-orange);
-        font-family: var(--ck-font-mono);
-        font-size: 9px;
-        font-weight: 800;
-        letter-spacing: 0.12em;
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: var(--mission-tracking-micro);
       }
       .now-marker em {
-        color: var(--mission-text-muted);
+        color: var(--mission-text-tertiary);
         font-style: normal;
-        font-size: 11px;
+        font-family: var(--mission-font-mono);
+        font-size: var(--mission-text-xs);
       }
       .timeline-event {
         position: relative;
         display: grid;
-        gap: 3px;
+        gap: var(--mission-space-1);
         width: 100%;
-        margin-bottom: 10px;
-        padding: 9px 10px;
+        margin-bottom: var(--mission-space-2);
+        padding: var(--mission-space-2) var(--mission-space-3);
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius-sm);
         background: rgba(4, 8, 13, 0.52);
@@ -103,31 +107,48 @@ import type { VpAgendaTimeline, VpAgendaTimelineEvent, VpArbitrationCard } from 
         cursor: pointer;
         appearance: none;
         font: inherit;
+        transition:
+          border-color var(--mission-dur-fast) var(--mission-ease-out),
+          background var(--mission-dur-fast) var(--mission-ease-out);
       }
       .timeline-event::before {
         content: "";
         position: absolute;
-        left: -21px;
+        left: calc(-1 * var(--mission-space-5) - 1px);
         top: 14px;
-        width: 8px;
-        height: 8px;
+        width: 9px;
+        height: 9px;
         border-radius: 999px;
-        background: var(--mission-accent);
-        box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.12);
+        background: var(--sentinel-accent);
+        box-shadow: 0 0 0 3px rgba(101, 214, 110, 0.14);
       }
-      .timeline-event.critical::before { background: var(--mission-danger); }
-      .timeline-event.elevated::before { background: var(--mission-warn); }
+      .timeline-event:hover {
+        border-color: var(--sentinel-accent-muted);
+        background: rgba(101, 214, 110, 0.04);
+      }
+      .timeline-event:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
+      }
+      .timeline-event.elevated::before { background: var(--mission-warning); box-shadow: 0 0 0 3px rgba(241, 180, 90, 0.14); }
+      .timeline-event.critical::before { background: var(--mission-critical); box-shadow: 0 0 0 3px rgba(240, 100, 118, 0.14); }
+      .timeline-event.critical { border-left: 2px solid var(--mission-critical); }
+      .timeline-event.elevated { border-left: 2px solid var(--mission-warning); }
       time {
-        color: var(--mission-text-muted);
-        font-family: var(--ck-font-mono);
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
         font-size: 10px;
+        letter-spacing: 0.04em;
       }
       strong {
-        font-size: 13px;
-        line-height: 1.25;
+        font-size: var(--mission-text-sm);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        line-height: 1.3;
+        color: var(--mission-text-primary);
       }
       small {
-        color: var(--mission-text-faint);
+        color: var(--mission-text-tertiary);
         font-size: 10px;
       }
     `,

@@ -31,6 +31,7 @@ import {
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import { RuntimeStatusBadgeComponent } from '@app/shared/cockpit';
 import {
   SharedVoiceOracleStep,
@@ -557,6 +558,27 @@ const STEP_ICONS: Record<string, string> = {
         (autoSendChange)="voiceAutoSend.set($event)"
         (autoEndpointChange)="voiceAutoEndpoint.set($event)"
       />
+
+      @if (isDemoMode() && !demoVoiceChipsDismissed() && demoVoiceChips().length) {
+        <div class="demo-voice-chips">
+          <div class="demo-voice-chips-head">
+            <span>Phrases demo (fallback voix)</span>
+            <button type="button" class="demo-voice-dismiss" (click)="demoVoiceChipsDismissed.set(true)">Masquer</button>
+          </div>
+          <div class="demo-voice-chip-row">
+            @for (chip of demoVoiceChips(); track chip.action_id) {
+              <button
+                type="button"
+                class="action-chip demo-voice-chip"
+                [title]="chip.description || chip.label"
+                (click)="stageActionPrompt(chip)"
+              >
+                {{ chip.phrases?.[0] || chip.label }}
+              </button>
+            }
+          </div>
+        </div>
+      }
       }
 
       @if ((!executiveMode() || traceOpen()) && effectiveChatActions().length) {
@@ -1525,6 +1547,41 @@ const STEP_ICONS: Record<string, string> = {
       background: rgba(255, 255, 255, 0.03);
       color: rgba(232, 239, 250, 0.88);
     }
+    .demo-voice-chips {
+      margin: 0 12px 10px;
+      padding: 10px 12px;
+      border: 1px dashed rgba(125, 211, 252, 0.18);
+      border-radius: 10px;
+      background: rgba(125, 211, 252, 0.04);
+    }
+    .demo-voice-chips-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: rgba(148, 197, 229, 0.78);
+      font: 750 10px/1 var(--ck-font-mono, ui-monospace, monospace);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .demo-voice-dismiss {
+      border: 0;
+      background: transparent;
+      color: rgba(148, 197, 229, 0.72);
+      font: inherit;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .demo-voice-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .demo-voice-chip {
+      opacity: 0.88;
+      font-size: 11px;
+    }
     .voice-control-bar {
       display: flex;
       align-items: center;
@@ -1859,6 +1916,7 @@ export class ChatPanelComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly workspace = inject(WorkspaceService);
+  private readonly assistantEffects = inject(AssistantEffectsService);
   readonly settings = inject(SettingsService);
 
   messages = signal<ChatMessage[]>([]);
@@ -1877,6 +1935,8 @@ export class ChatPanelComponent {
   readonly reasoningTemplates = signal<ReasoningTemplate[]>([]);
   readonly voiceRuntimes = signal<VoiceRuntimeCatalog | null>(null);
   readonly effectiveChatActions = signal<ActionManifest[]>([]);
+  readonly demoVoiceChips = signal<ActionManifest[]>([]);
+  readonly demoVoiceChipsDismissed = signal(false);
   readonly voiceProvider = signal('cascade_openai');
 	  readonly voiceTransport = signal<VoiceTransportChoice>('batch_http');
 	  readonly voiceAutoSend = signal(false);
@@ -1934,9 +1994,9 @@ export class ChatPanelComponent {
     return {
       latency_profile: 'fast',
       voice: 'nova',
-      flush_first_chars: 24,
-      flush_next_chars: 80,
-      flush_timeout_ms: 900,
+      flush_first_chars: 18,
+      flush_next_chars: 56,
+      flush_timeout_ms: 450,
       interrupt_on_user_speech: true,
       ...(this.isRecord(workspaceConfig) ? workspaceConfig : {}),
       ...(this.isRecord(profileConfig) ? profileConfig : {}),
@@ -2277,6 +2337,7 @@ export class ChatPanelComponent {
       const systemId = this.systemId() || '';
       if (!workspaceSlug) return;
       this.loadEffectiveChatActions(profileKey, systemId);
+      this.loadDemoVoiceActions(profileKey, systemId);
     });
     this.settings.refresh();
     this.health.load().subscribe();
@@ -2328,6 +2389,29 @@ export class ChatPanelComponent {
     this.api.get<{ actions: ActionManifest[] }>('/actions/effective', params).subscribe({
       next: (res) => this.effectiveChatActions.set((res?.actions || []).filter((action) => !action.action_id.startsWith('voice.')).slice(0, 8)),
       error: () => this.effectiveChatActions.set([]),
+    });
+  }
+
+  private loadDemoVoiceActions(assistantProfile: string, systemId: string): void {
+    if (!this.isDemoMode()) {
+      this.demoVoiceChips.set([]);
+      return;
+    }
+    const params: Record<string, string> = { surface: 'voice' };
+    if (assistantProfile) params['assistant_profile'] = assistantProfile;
+    if (systemId) params['system_id'] = systemId;
+    this.api.get<{ actions: ActionManifest[] }>('/actions/effective', params).subscribe({
+      next: (res) => {
+        const chips = (res?.actions || [])
+          .filter((action) => Array.isArray(action.phrases) && action.phrases.length > 0)
+          .slice(0, 3)
+          .map((action) => ({
+            ...action,
+            label: action.phrases?.[0] || action.label,
+          }));
+        this.demoVoiceChips.set(chips);
+      },
+      error: () => this.demoVoiceChips.set([]),
     });
   }
 
@@ -3189,6 +3273,9 @@ export class ChatPanelComponent {
           } else if (chunk.chunk_type === 'map_command') {
             mapCommand = (chunk as Record<string, unknown>)['map_command'] as Record<string, unknown>;
             window.dispatchEvent(new CustomEvent('agentium:map-command', { detail: mapCommand }));
+          } else if (chunk.chunk_type === 'action_effect') {
+            const effect = ((chunk as Record<string, unknown>)['effect'] || chunk) as Record<string, unknown>;
+            this.assistantEffects.handleActionEffect(effect);
           } else if (chunk.chunk_type === 'map_state_updated') {
             window.dispatchEvent(new CustomEvent('agentium:map-state-updated', { detail: chunk }));
           } else if (chunk.chunk_type === 'eval_pending' && chunk.run_id) {

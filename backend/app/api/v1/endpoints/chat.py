@@ -36,7 +36,7 @@ from app.services.evaluation.canonical_answer_service import (
     record_hit,
 )
 from app.services.action_plans import action_context_for_chat
-from app.services.actions import handle_transverse_chat_action
+from app.services.actions import handle_registry_chat_action, handle_transverse_chat_action
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
@@ -424,11 +424,11 @@ def _vigie_executive_quick_reply(
         for item in attention[:3]:
             refs.extend(item.get("source_refs") or item.get("sources") or [])
         lines = [
-            "Lecture 60 secondes :",
+            "M. le Vice Président, lecture 60 secondes :",
             "1. Zone Nord : arbitrage avant le Conseil de 15h00. C'est la priorité du matin.",
             "2. Article L'Inter : réponse presse recommandée avant 14h00, brouillon prêt pour validation.",
             "3. Déjeuner Ambassadeur de France : fiche de préparation prête avant 13h00.",
-            "Action immédiate : ouvrir le dossier Zone Nord, puis valider la réponse communication si le cabinet confirme la ligne.",
+            "Action immédiate : ouvrir le dossier Zone Nord. Puis valider la réponse communication si le cabinet confirme la ligne.",
         ]
         return {
             "content": "\n".join(lines),
@@ -439,7 +439,7 @@ def _vigie_executive_quick_reply(
     if is_north:
         north = _attention_by_id("attention-zone-nord")
         lines = [
-            "Zone Nord — niveau critique depuis ce matin 06h14.",
+            "M. le Vice Président, Zone Nord : niveau critique depuis 06h14.",
             "Le Général Konaté signale des mouvements à 40 kilomètres de la frontière Burkina. Deux options sont ouvertes : renforcement préventif ou coordination CEDEAO.",
             "AYA recommande une coordination CEDEAO avec présence institutionnelle sobre, avec arbitrage avant 15h00.",
         ]
@@ -452,7 +452,7 @@ def _vigie_executive_quick_reply(
     if is_press_response:
         press = _attention_by_id("attention-inter-budget")
         lines = [
-            "Réponse presse recommandée avant 14h00.",
+            "M. le Vice Président, réponse presse recommandée avant 14h00.",
             "Objet : clarification sur le budget défense et la continuité des priorités nationales.",
             "Projet : rappeler la maîtrise budgétaire, la transparence des arbitrages et l'absence de rupture dans les engagements de sécurité et de service public.",
             "Statut : brouillon uniquement, validation humaine requise avant tout envoi.",
@@ -473,7 +473,7 @@ def _vigie_executive_quick_reply(
             location = item.get("location") or item.get("place") or ""
             agenda_lines.append(f"- {time_value} · {title}" + (f" · {location}" if location else ""))
         lines = [
-            "Agenda du jour :",
+            "M. le Vice Président, agenda du jour :",
             *(agenda_lines or ["- 08:30 · Conseil Défense restreint", "- 11:00 · Point presse hebdomadaire", "- 13:00 · Déjeuner Ambassadeur de France"]),
             "Fenêtre utile : 10:00-10:45 pour cadrer la réponse presse et préparer l'arbitrage Zone Nord.",
         ]
@@ -488,7 +488,7 @@ def _vigie_executive_quick_reply(
         action = latest_maritime.get("recommended_action") or "Demander confirmation Port + Douanes avant prise de parole économique."
         deadline = latest_maritime.get("decision_deadline") or "12:00"
         lines = [
-            "Port d'Abidjan — vigilance maritime et douanière.",
+            "M. le Vice Président, Port d'Abidjan : vigilance maritime et douanière.",
             summary,
             f"Action recommandée : {action}",
             f"Échéance de qualification : {deadline}.",
@@ -499,7 +499,7 @@ def _vigie_executive_quick_reply(
             "details": {"handler": "abidjan_port", "deadline": deadline, "advisory_only": True},
         }
 
-    lines = ["Voici les signaux qui méritent une attention cabinet aujourd'hui :"]
+    lines = ["M. le Vice Président, trois signaux méritent une attention cabinet aujourd'hui :"]
     if alerts:
         for idx, alert in enumerate(alerts, start=1):
             title = alert.get("title") or "Signal à qualifier"
@@ -547,6 +547,27 @@ def _vigie_executive_quick_reply(
             "alert_count": len(alerts),
         },
     }
+
+
+async def _try_registry_chat_action(
+    db: Session,
+    workspace: Workspace,
+    user: Optional[User],
+    *,
+    query: str,
+    assistant_profile: Optional[str],
+    session_id: Optional[str] = None,
+    knowledge_scope: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    return await handle_registry_chat_action(
+        db,
+        workspace,
+        user,
+        query=query,
+        assistant_profile=assistant_profile,
+        session_id=session_id,
+        knowledge_scope=knowledge_scope,
+    )
 
 
 @router.post("/completion")
@@ -641,6 +662,47 @@ async def chat_completion(
                 "canonical_answer_hit": True,
                 "canonical_answer_id": canonical_answer.id,
                 "canonical_answer_score": match_score,
+            }
+
+        registry_action = await _try_registry_chat_action(
+            db,
+            workspace,
+            user,
+            query=validated_query,
+            assistant_profile=request.assistant_profile,
+            session_id=request.session_id,
+            knowledge_scope=request.knowledge_scope,
+        )
+        if registry_action:
+            content = registry_action["content"]
+            run_completed_at = datetime.utcnow()
+            run_id = _persist_chat_run(
+                db,
+                workspace_id=workspace.id,
+                system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                query=validated_query,
+                response_text=content,
+                sources=registry_action.get("sources") or [],
+                reasoning_trace=None,
+                started_at=run_completed_at,
+                completed_at=run_completed_at,
+                duration_ms=0.0,
+                trigger="action_registry",
+                extra_output={
+                    "registry_action": registry_action,
+                    "action_effects": registry_action.get("action_effects") or [],
+                    "assistant_profile": request.assistant_profile,
+                    "knowledge_scope": request.knowledge_scope,
+                    "session_id": request.session_id,
+                },
+            )
+            db.commit()
+            return {
+                "run_id": run_id,
+                "content": content,
+                "sources": registry_action.get("sources") or [],
+                "status": "completed",
+                "registry_action": registry_action,
             }
 
         calendar_action = handle_calendar_chat_action(
@@ -1145,6 +1207,83 @@ async def chat_stream(
                         "canonical_answer_hit": True,
                         "canonical_answer_id": canonical_answer.id,
                         "canonical_answer_score": match_score,
+                        "run_id": run_id,
+                        "is_final": True,
+                    }
+                )
+                yield _sse_done()
+                return
+
+            registry_action = await _try_registry_chat_action(
+                db,
+                workspace,
+                user,
+                query=validated_query,
+                assistant_profile=request.assistant_profile,
+                session_id=request.session_id,
+                knowledge_scope=request.knowledge_scope,
+            )
+            if registry_action:
+                content = registry_action["content"]
+                if request.session_id:
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="user",
+                            content=request.query,
+                            meta_data={},
+                        )
+                    )
+                    db.add(
+                        Message(
+                            id=str(uuid.uuid4()),
+                            session_id=request.session_id,
+                            role="assistant",
+                            content=content,
+                            meta_data={"registry_action": registry_action},
+                        )
+                    )
+                now = datetime.utcnow()
+                run_id = _persist_chat_run(
+                    db,
+                    workspace_id=workspace.id,
+                    system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+                    query=validated_query,
+                    response_text=content,
+                    sources=registry_action.get("sources") or [],
+                    reasoning_trace=None,
+                    started_at=now,
+                    completed_at=now,
+                    duration_ms=0.0,
+                    trigger="action_registry",
+                    schedule=False,
+                    extra_output={
+                        "registry_action": registry_action,
+                        "action_effects": registry_action.get("action_effects") or [],
+                        "assistant_profile": request.assistant_profile,
+                        "knowledge_scope": request.knowledge_scope,
+                        "session_id": request.session_id,
+                    },
+                )
+                db.commit()
+                for effect in registry_action.get("action_effects") or []:
+                    yield _sse_data({**effect, "run_id": run_id, "is_final": False})
+                yield _sse_data(
+                    {
+                        "chunk_type": "action_result",
+                        "action": registry_action.get("action"),
+                        "applied": registry_action.get("applied"),
+                        "registry_action": registry_action,
+                        "run_id": run_id,
+                        "is_final": False,
+                    }
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": content,
+                        "sources": registry_action.get("sources") or [],
                         "run_id": run_id,
                         "is_final": True,
                     }

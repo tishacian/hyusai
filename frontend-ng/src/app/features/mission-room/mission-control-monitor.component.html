@@ -14,19 +14,9 @@
       <span>Africa/Abidjan</span>
       <strong>{{ abidjanClock() }}</strong>
     </div>
-    <button type="button" class="aya-voice" [class.listening]="voiceState() === 'listening'" (click)="toggleVoice()">
+    <button type="button" class="aya-voice" (click)="requestVoice()">
       <ck-glyph name="bolt" [size]="14" />
-      <span>
-        @if (voiceState() === 'listening') {
-          Envoyer la question
-        } @else if (voiceState() === 'thinking') {
-          {{ assistantName }} analyse
-        } @else if (voiceState() === 'speaking') {
-          {{ assistantName }} repond
-        } @else {
-          Parler a {{ assistantName }}
-        }
-      </span>
+      <span>Parler a {{ assistantName }}</span>
     </button>
   </header>
 
@@ -163,38 +153,6 @@
       <div class="driver-list">
         @for (driver of posture().drivers || []; track driver.kind) {
           <span>{{ driver.label }} · {{ driver.score }}</span>
-        }
-      </div>
-    </section>
-
-    <section class="insight-panel aya-panel">
-      <div class="panel-title">
-        <span>{{ assistantName }}</span>
-        <b>voice-first</b>
-      </div>
-      <p>{{ voiceNotice() }}</p>
-      @if (voiceTranscript()) {
-        <blockquote>{{ voiceTranscript() }}</blockquote>
-      }
-      @if (voiceAnswer()) {
-        <blockquote class="answer">{{ voiceAnswer() }}</blockquote>
-      }
-      @if (rumorTrace(); as rumor) {
-        <div class="rumor-trace">
-          <span>{{ rumor.headline }}</span>
-          <p>{{ rumor.summary }}</p>
-          @for (step of rumor.spread || []; track step.channel) {
-            <article>
-              <b>{{ step.time }}</b>
-              <strong>{{ step.channel }}</strong>
-              <small>{{ step.signal }}</small>
-            </article>
-          }
-        </div>
-      }
-      <div class="prompt-stack">
-        @for (prompt of voicePrompts(); track prompt) {
-          <button type="button" (click)="activatePrompt(prompt)">{{ prompt }}</button>
         }
       </div>
     </section>

@@ -48,6 +48,7 @@ class CalendarEventPatch(BaseModel):
     category: Optional[str] = None
     priority: Optional[str] = None
     status: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class CalendarCancelRequest(BaseModel):

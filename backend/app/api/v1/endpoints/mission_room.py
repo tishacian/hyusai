@@ -6,9 +6,11 @@ workspace and fixtures.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
@@ -23,6 +25,7 @@ from app.services.mission_room import (
     decisions_payload,
     draft_instruction_payload,
     evidence_graph_payload,
+    evidence_graph_trace,
     library_payload,
     map_payload,
     monitor_payload,
@@ -33,6 +36,7 @@ from app.services.mission_room import (
     search_payload,
     timeline_payload,
 )
+from app.services.macro_indicators import macro_indicators_payload
 
 router = APIRouter()
 
@@ -283,6 +287,115 @@ def evidence_graph(
             "edges": len(payload.get("edges") or []),
             "clusters": len(payload.get("clusters") or []),
             "collection_slug": (payload.get("knowledge") or {}).get("collection_slug"),
+        },
+    )
+    return payload
+
+
+@router.get("/evidence-graph/trace")
+def evidence_graph_trace_route(
+    from_: str = Query(..., alias="from", min_length=1, max_length=160),
+    relation: str = Query("caused_by", max_length=64),
+    depth: int = Query(4, ge=1, le=8),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = evidence_graph_trace(workspace, from_node=from_, relation=relation, depth=depth, db=db)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.evidence_graph.trace",
+        details={
+            "from": from_,
+            "relation": relation,
+            "depth": depth,
+            "path_len": len(payload.get("path") or []),
+        },
+    )
+    return payload
+
+
+@router.get("/customs-records/{document_id}.pdf")
+def customs_record_pdf(
+    document_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Serve a customs PV PDF (Phase D). Workspace-scoped + audit-logged."""
+    if "/" in document_id or "\\" in document_id or ".." in document_id:
+        raise HTTPException(status_code=400, detail="invalid_document_id")
+    pdf_root = Path(__file__).resolve().parents[3] / "resources" / "sentinel_ci_customs"
+    pdf_path = pdf_root / f"{document_id}.pdf"
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="customs_record_not_found")
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.customs_record.downloaded",
+        details={"document_id": document_id, "size_bytes": pdf_path.stat().st_size},
+    )
+    return Response(
+        content=pdf_path.read_bytes(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{document_id}.pdf"'},
+    )
+
+
+@router.get("/reports/{workspace_slug}/{report_id}.pdf")
+def report_pdf(
+    workspace_slug: str,
+    report_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Serve a strategic report PDF (Phase F + G) via the object store."""
+    from app.services.object_store import get_object_store
+    from app.services.sentinel_ci_reports import STRATEGIC_REPORTS_PREFIX
+
+    if workspace.slug != workspace_slug:
+        raise HTTPException(status_code=403, detail="workspace_mismatch")
+    if "/" in report_id or "\\" in report_id or ".." in report_id:
+        raise HTTPException(status_code=400, detail="invalid_report_id")
+    object_key = f"{STRATEGIC_REPORTS_PREFIX}/{workspace.id}/{report_id}"
+    store = get_object_store()
+    if not store.exists(object_key):
+        raise HTTPException(status_code=404, detail="report_not_found")
+    body = store.read_bytes(object_key)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.report.downloaded",
+        details={"object_key": object_key, "size_bytes": len(body)},
+    )
+    return Response(
+        content=body,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{report_id}"'},
+    )
+
+
+@router.get("/macro-indicators")
+def macro_indicators(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = macro_indicators_payload(db, workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.macro_indicators.viewed",
+        details={
+            "indicators": len(payload.get("indicators") or []),
+            "source": payload.get("source"),
+            "fetched_at": payload.get("fetched_at"),
         },
     )
     return payload

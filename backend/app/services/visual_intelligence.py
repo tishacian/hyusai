@@ -125,6 +125,24 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "priority": 8,
         "default_vigilance_score": 34,
     },
+    {
+        # Phase C - webcam APM Apapa (Lagos) utilisee comme reference visuelle
+        # demo pour le port d'Abidjan. Demo disclaimer affiche cote UI.
+        "name": "APM Terminals - Apapa (demo Abidjan)",
+        "description": "Flux live public APM Terminals Apapa (Lagos) utilise comme reference visuelle port.",
+        "source_url": "https://www.apmterminals.com/en/apapa/about/our-terminal",
+        "source_page": "https://www.apmterminals.com/en/apapa",
+        "embed_url": "https://www.apmterminals.com/en/apapa/about/our-terminal",
+        "region": "Demo : Apapa (Lagos)",
+        "map_location": {"label": "Port d'Abidjan - Vridi (vue demo Apapa)", "longitude": -4.018, "latitude": 5.244, "zone_id": "zone-sud", "zoom": 12.0},
+        "priority": 9,
+        "default_vigilance_score": 41,
+        "label_disclaimer": "Demo : Apapa (Lagos)",
+        "stream_kind": "stream_embed",
+        "best_use": "port_traffic_observation",
+        "evidence_grade": "demo_reference",
+        "attribution": "APM Terminals",
+    },
 )
 DEFAULT_SOURCE_NAME = ABIDJAN_NET_VISUAL_SOURCES[0]["name"]
 DEFAULT_SOURCE_URL = ABIDJAN_NET_VISUAL_SOURCES[0]["source_url"]
@@ -875,7 +893,8 @@ def _webcam_metadata(spec: dict[str, Any]) -> dict[str, Any]:
         "attribution": "Abidjan.net Trafic routier & Meteo, image publique avec fallback hors embed Nest",
         "timelapse_policy": "public_snapshot_refreshed_without_continuous_recording",
         "priority": spec["priority"],
-        "nest_public_token": spec["nest_token"],
+        "nest_public_token": spec.get("nest_token"),
+        "label_disclaimer": spec.get("label_disclaimer"),
     }
 
 

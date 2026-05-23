@@ -1,9 +1,11 @@
-export type VpDrillDownView = 'briefing' | 'presse' | 'decisions' | 'agenda' | 'strategie';
+export type VpDrillDownView = 'briefing' | 'presse' | 'decisions' | 'agenda' | 'strategie' | 'monitor';
 
 export interface VpDrillDown {
   view: VpDrillDownView;
   route?: string;
   anchor?: string;
+  zone?: string;
+  layers?: string;
 }
 
 export interface VpStatusBarItem {
@@ -12,6 +14,7 @@ export interface VpStatusBarItem {
   value: string;
   detail?: string;
   tone?: string;
+  drill_down?: VpDrillDown;
 }
 
 export interface VpArbitrationCard {
@@ -40,9 +43,11 @@ export interface VpIntelligenceFeed {
   confidence: number;
   freshness_at?: string;
   tone?: string;
+  drill_down?: VpDrillDown;
 }
 
 export interface VpZoneScore {
+  id?: string;
   name: string;
   score: number;
   trend?: string;
@@ -77,6 +82,7 @@ export interface VpAgendaTimelineEvent {
   is_now?: boolean;
   countdown?: string;
   status?: string;
+  drill_down?: VpDrillDown;
 }
 
 export interface VpAgendaTimeline {
@@ -94,6 +100,7 @@ export interface VpSovereignIndicator {
   confidence?: string;
   trend?: string;
   tone?: string;
+  drill_down?: VpDrillDown;
 }
 
 export interface VpDirectiveOfDay {

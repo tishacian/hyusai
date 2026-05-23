@@ -53,9 +53,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["mission_room"]["label"] == "AYA"
     assert [item["key"] for item in workspace.settings["mission_room"]["navigation"]] == [
         "cockpit",
-        "monitor",
         "strategie",
-        "briefing",
         "agenda",
         "presse",
         "decisions",
@@ -67,10 +65,16 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["action_planner"]["write_policy"] == "direct"
     assert workspace.settings["actions"]["enabled_packs"] == ["global_voice_v1", "sentinel_ci_aya_v1"]
     assert workspace.settings["voice_loop"]["default_mode"] == "session_loop"
+    assert workspace.settings["voice_loop"]["enabled_default"] is False
+    assert workspace.settings["voice_loop"]["manual_start_required"] is True
     assert workspace.settings["voice_loop"]["commands_enabled"] is True
+    assert workspace.settings["voice_output"]["latency_profile"] == "fast"
+    assert workspace.settings["voice_output"]["flush_first_chars"] == 18
+    assert workspace.settings["voice_output"]["flush_next_chars"] == 56
+    assert workspace.settings["voice_output"]["flush_timeout_ms"] == 450
     assert workspace.settings["document_intelligence"]["default_profile"] == "sentinel_ci_ministerial"
     assert workspace.settings["document_intelligence"]["ocr"]["enabled"] is True
-    assert workspace.settings["demo_time_context"]["current_date"] == "2026-04-15"
+    assert workspace.settings["demo_time_context"]["current_date"] == "2026-05-23"
     assert workspace.settings["connectors"]["institutional_calendar"]["enabled"] is True
     assert workspace.settings["connectors"]["visual_streams"]["enabled"] is True
     assert workspace.settings["visual_intelligence"]["enabled"] is True
@@ -111,6 +115,10 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert "trace_rumor_origin" in workspace.settings["assistant_profiles"][0]["allowed_actions"]
     assert workspace.settings["assistant_profiles"][0]["actions"]["enabled_packs"] == ["global_voice_v1", "sentinel_ci_aya_v1"]
     assert workspace.settings["assistant_profiles"][0]["voice_loop"]["default_mode"] == "session_loop"
+    assert workspace.settings["assistant_profiles"][0]["voice_loop"]["enabled_default"] is False
+    assert workspace.settings["assistant_profiles"][0]["voice_loop"]["manual_start_required"] is True
+    assert workspace.settings["assistant_profiles"][0]["voice_output"]["flush_timeout_ms"] == 450
+    assert workspace.settings["assistant_profiles"][0]["response_style"]["address_as"] == "M. le Vice Président"
     guides = db_session.query(KnowledgeGuide).filter_by(workspace_id=workspace.id, is_current=True).all()
     assert {guide.guide_key for guide in guides} >= {
         "sentinel-ci-aya-mission-room-v1",

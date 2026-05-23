@@ -40,6 +40,7 @@ from app.services.visual_intelligence import (
     dashboard_payload as visual_dashboard_payload,
     ensure_visual_intelligence_seed,
 )
+from app.services.demo_time_context import demo_time_context_defaults, resolve_demo_date
 from app.services.workspace_maps import (
     IVORY_COAST_BOUNDS,
     ensure_workspace_map_seed,
@@ -65,10 +66,12 @@ SENTINEL_KNOWLEDGE_GUIDES = (
         "title": "Guide AYA - Mission Room SENTINEL-CI",
         "markdown": """# Guide AYA - Mission Room SENTINEL-CI
 
-AYA agit comme adjoint souverain du Vice-President. Elle doit repondre en priorisant : quoi faire, quand agir, pourquoi cette action est justifiee, et quelles sources brutes ou consolidees soutiennent la recommandation.
+AYA agit comme adjoint souverain du Vice-Président. Elle s'adresse a l'utilisateur par "M. le Vice Président" et repond en priorisant : quoi faire, quand agir, pourquoi cette action est justifiee, et quelles sources brutes ou consolidees soutiennent la recommandation.
 
 Principes d'interpretation :
 - Distinguer les trois strates : Monitoring, Information & alerting, Decision & action.
+- Ton attendu : formel, direct, phrases courtes, style briefing gouvernemental.
+- Commencer les reponses de synthese par "M. le Vice Président," quand la formulation reste naturelle.
 - Ne jamais traiter un guide comme une preuve brute : citer les articles, evenements agenda, zones, observations visuelles, projets ou actions sources.
 - Les actions avec effet de bord restent advisory-only tant qu'elles ne sont pas confirmees.
 - Les rumeurs doivent etre qualifiees par origine, propagation, zone, confiance et action recommandee.
@@ -129,16 +132,30 @@ Regles :
 - Si OCR est absent ou faible, le signaler clairement plutot que combler.
 """,
     },
+    {
+        "guide_key": "sentinel-ci-cacao-diversification-v1",
+        "target_type": "scope",
+        "target_ref": "vigie",
+        "title": "Guide de lecture - Filiere cacao et diversification Nawa",
+        "markdown": """# Guide de lecture - Filiere cacao et diversification Nawa
+
+Ce guide explique comment lire la filiere cacao en region Nawa (Soubre). Il ne remplace pas les briefs ministeriels ni le rapport prefet du 10 mai.
+
+Regles :
+- Commencer par le rapport prefet Nawa (sent_at 2026-05-10) pour les faits terrain.
+- Distinguer production brute, transformation locale, prix FCFA et besoins d'infrastructure.
+- Les chiffrages d'investissement restent des ordres de grandeur publics ; toujours citer la section source.
+- Relier les preconisations aux arbitrages cabinet (package-cacao-diversification) avant tout engagement.
+""",
+    },
 )
 
 
 NAVIGATION_ITEMS = [
     {"key": "cockpit", "label": "Cockpit", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
-    {"key": "monitor", "label": "Situation live", "glyph": "crosshair", "variant": "scenario_fusion_monitor", "object": "Workbench"},
-    {"key": "strategie", "label": "Carte fusionnee", "glyph": "sliders", "variant": "territorial_action_map", "object": "Workbench"},
-    {"key": "briefing", "label": "Aide a la decision", "glyph": "ledger", "variant": "ministerial_daily_briefing", "object": "Workbench"},
+    {"key": "strategie", "label": "Carte", "glyph": "sliders", "variant": "territorial_action_map", "object": "Workbench"},
     {"key": "agenda", "label": "Agenda", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
-    {"key": "presse", "label": "Renseignement", "glyph": "pulse", "variant": "intelligence", "object": "Run"},
+    {"key": "presse", "label": "Presse", "glyph": "pulse", "variant": "intelligence", "object": "Run"},
     {"key": "decisions", "label": "Arbitrages", "glyph": "check", "variant": "executive_instruction_drafting", "object": "Review Queue"},
 ]
 
@@ -221,6 +238,27 @@ SOURCES = [
         "confidence": 0.64,
         "age": "source externe",
     },
+    {
+        "id": "src-prefet-nawa-report-001",
+        "label": "Rapport Prefet Nawa - 10 mai 2026",
+        "kind": "ministerial_brief",
+        "confidence": 0.91,
+        "age": "13 jours",
+    },
+    {
+        "id": "src-abidjan-net-drone-napie-2025-07-16",
+        "label": "Abidjan.net — Lancement Centre Formation Drones Napié",
+        "kind": "rss_news_ci",
+        "url": (
+            "https://news.abidjan.net/articles/743173/"
+            "cote-divoire-lancement-des-travaux-de-construction-du-centre-international-"
+            "de-formation-aux-metiers-des-drones-a-napie"
+        ),
+        "publisher": "Abidjan.net",
+        "published_at": "2025-07-16",
+        "confidence": 0.83,
+        "age": "publié 2025-07-16",
+    },
 ]
 
 AGENDA = [
@@ -229,6 +267,14 @@ AGENDA = [
         "title": "Conseil Defense restreint",
         "location": "Salle du Conseil - Plateau",
         "tone": "urgent",
+    },
+    {
+        "id": "evt-prefet-nawa",
+        "time": "11:00",
+        "title": "Rencontre Prefet de la region de Nawa",
+        "location": "Soubre (capitale regionale)",
+        "tone": "watch",
+        "context_ref": "report-prefet-nawa-2026-05-10",
     },
     {
         "time": "11:00",
@@ -445,6 +491,40 @@ MARITIME_PORTS = [
 
 MARITIME_EVENTS = [
     {
+        "id": "cargo-abidjan-supply-001",
+        "title": "Cargo composants drones Napié — attente dedouanement Abidjan",
+        "location": "Port autonome d'Abidjan / zone Vridi",
+        "longitude": -4.02,
+        "latitude": 5.24,
+        "score": 74,
+        "severity": "elevated",
+        "domain": "customs",
+        "status": "awaiting_customs",
+        "vessel_name": "MV Atlantic Trader",
+        "cargo": (
+            "Composants drones AerostarDynamics — hangars formation, "
+            "terrains apprentissage, labos cartographie (Centre Napié)"
+        ),
+        "origin": "USA East Coast",
+        "destination": "Napié via Port autonome d'Abidjan",
+        "project_ref": "proj-drone-centre-napie",
+        "project_ref_aliases": ["proj-public-north-supply"],
+        "summary": (
+            "Cargaison de composants drones Aerostar Dynamics destinée au Centre "
+            "International de Formation aux Métiers des Drones de Napié bloquée à "
+            "Vridi par effet collatéral du PV douanes du 18 mai."
+        ),
+        "recommended_action": "Preparer courrier de priorisation douanes et port avant arbitrage cabinet.",
+        "decision_deadline": "12:00",
+        "source_type": "ais+fixture",
+        "source_refs": [
+            "src-maritime-paa-001",
+            "src-marinetraffic-context-001",
+            "src-cabinet-brief-001",
+            "src-abidjan-net-drone-napie-2025-07-16",
+        ],
+    },
+    {
         "id": "maritime-abidjan-customs-watch",
         "title": "Point d'attention Port d'Abidjan / douanes",
         "location": "Port autonome d'Abidjan",
@@ -607,9 +687,10 @@ TERRITORIAL_LIVE_STATUS = [
 VOICE_DEMO_SCRIPT = {
     "prompt": "AYA, quelle est la situation au nord en ce moment ?",
     "answer": (
-        "Zone nord — niveau critique depuis ce matin 06h14. Le General Konate signale des mouvements "
-        "a 40 kilometres de la frontiere Burkina. Deux options sont sur la table : renforcement preventif "
-        "ou coordination CEDEAO. Le General attend votre arbitrage avant 15 heures."
+        "M. le Vice Président, Zone Nord : niveau critique depuis 06h14. "
+        "Le Général Konaté signale des mouvements à 40 kilomètres de la frontière Burkina. "
+        "Deux options : renforcement préventif ou coordination CEDEAO. "
+        "AYA recommande la coordination CEDEAO, avec arbitrage avant 15 heures."
     ),
     "target_latency_s": 6,
 }
@@ -659,6 +740,22 @@ EXECUTIVE_DECISION_PACKAGES = [
         "tone": "watch",
         "sources": ["Agenda", "Presse internationale", "Brief ministeriel"],
         "cta": "Ouvrir la fiche de preparation",
+    },
+    {
+        "id": "package-cacao-diversification",
+        "label": "Diversification agricole",
+        "title": "Diversification cacao — RDV Ministere Economie",
+        "decision": "Arbitrer petite industrie transformation vs cooperative renforcee vs PPP sechoirs.",
+        "recommended_option": "Petite industrie transformation + diversification cultures",
+        "why_now": "Le rapport prefet Nawa (10 mai) chiffre les besoins ; fenetre avant saison export.",
+        "deadline": "semaine",
+        "owner": "Direction filieres agricoles",
+        "confidence": 0.76,
+        "status": "pending_arbitration",
+        "tone": "watch",
+        "sources": ["Rapport Prefet Nawa", "Guide cacao", "News Lab ICCO"],
+        "cta": "Caler le RDV ministre Economie",
+        "project_ref": "proj-cacao-transformation-nawa",
     },
 ]
 
@@ -746,6 +843,49 @@ PROJECTS = [
         "sources": ["src-project-sante-042", "src-cabinet-brief-001"],
     },
     {
+        "id": "proj-drone-centre-napie",
+        "aliases": ["proj-public-north-supply"],
+        "name": "Centre International de Formation aux Métiers des Drones — Napié",
+        "region": "Poro / Nord",
+        "location": "Napié",
+        "status": "critical",
+        "weather": "red",
+        "progress": 41,
+        "expected": 78,
+        "delay_days": 120,
+        "owner": "Agence de Développement Régional du Poro",
+        "zone_id": "zone-nord",
+        "cause": (
+            "Cargaison de composants drones importés (Aerostar Dynamics, USA) "
+            "bloquée au port d'Abidjan — équipements hangars de vol, terrains "
+            "d'apprentissage, laboratoires cartographie."
+        ),
+        "risk": (
+            "Décalage de l'ouverture du centre (cible : démarrage formations début 2026) "
+            "et perception d'enlisement d'un investissement souverain de 100 M USD."
+        ),
+        "investment_label": "100 M USD / 60 Mds FCFA",
+        "partners": [
+            "Agence Développement Régional Poro",
+            "Aerostar Dynamics (USA)",
+            "CEPICI",
+        ],
+        "strategic_alignment": "Côte d'Ivoire Innovation 2030",
+        "cargo_ref": "cargo-abidjan-supply-001",
+        "source_refs": ["src-abidjan-net-drone-napie-2025-07-16"],
+        "options": [
+            "Priorisation dedouanement",
+            "Relance douanes + port",
+            "Replanification livraison",
+        ],
+        "sources": [
+            "src-abidjan-net-drone-napie-2025-07-16",
+            "src-cabinet-brief-001",
+            "src-maritime-paa-001",
+            "src-marinetraffic-context-001",
+        ],
+    },
+    {
         "id": "proj-civic-radio",
         "name": "Communication civique regionale",
         "weather": "orange",
@@ -770,6 +910,25 @@ PROJECTS = [
         "risk": "Surveillance a maintenir sur deux corridors.",
         "options": ["Maintien surveillance", "Brief hebdomadaire", "Suivi carte"],
         "sources": ["src-cabinet-brief-001"],
+    },
+    {
+        "id": "proj-cacao-transformation-nawa",
+        "name": "Transformation locale cacao — region Nawa",
+        "weather": "orange",
+        "progress": 22,
+        "expected": 45,
+        "delay_days": 120,
+        "owner": "Direction filieres agricoles",
+        "zone_id": "zone-ouest",
+        "cause": "Besoin chiffre de sechoirs, routes secondaires et electrifiation issu du rapport prefet Nawa (10 mai).",
+        "risk": "Dependance export brute et volatilite prix sans diversification.",
+        "investment_estimate_fcfa": "4,2 a 6,8 milliards FCFA (ordre de grandeur public)",
+        "options": [
+            "Petite industrie transformation + diversification cultures",
+            "Cooperative regionale renforcee",
+            "PPP infrastructure sechoirs",
+        ],
+        "sources": ["src-prefet-nawa-report-001"],
     },
 ]
 
@@ -1104,7 +1263,7 @@ def _maritime_intelligence_payload(feed_rows: list[dict[str, Any]], signals: lis
         "prompts": [
             "AYA, quel est le risque autour du port d'Abidjan ?",
             "AYA, relie cette actualite douanes au trafic maritime.",
-            "AYA, prepare une note pour le Vice-President avant le point economie.",
+            "AYA, prepare une note pour M. le Vice Président avant le point economie.",
         ],
     }
 
@@ -1557,7 +1716,7 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
     return {
         "workspace": _workspace_meta(workspace),
         "title": "Bonjour, M. le Vice-Président.",
-        "date_label": "Mercredi 15 Avril 2026",
+        "date_label": demo_time_context_defaults()["label"],
         "mode": "demo",
         "briefing_status": "ready",
         "decision_sentence": _clone(DECISION_SENTENCE),
@@ -2549,11 +2708,106 @@ def evidence_graph_payload(workspace: Workspace, db: Optional[DBSession] = None)
         _add_graph_edge(edges, source=channel_id, target=rumor_id, relation="propagates")
     _add_graph_edge(edges, source=rumor_id, target="package-rumeur-emoi", relation="requires_action")
 
+    # ------------------------------------------------------------------
+    # Phase A — chaine causale "Pourquoi -> pourquoi" (S1)
+    #
+    # Relations explicites typees `caused_by` qui relient la tension
+    # Zone Nord au projet public en retard, puis au cargo bloque,
+    # puis au PV douanes non-conformite et a l'email derogation.
+    # Chaque noeud porte ses `evidence_refs` pour permettre au skill
+    # `causal_drill_v1` de citer des sources lors du drill AYA.
+    # ------------------------------------------------------------------
+    _add_graph_node(
+        nodes,
+        node_id="proj-drone-centre-napie",
+        label="Centre International Formation Drones - Napié (Poro)",
+        kind="project",
+        status="delayed",
+        aliases=["proj-public-north-supply"],
+        evidence_refs=[
+            "src-abidjan-net-drone-napie-2025-07-16",
+            "src-cabinet-brief-001",
+        ],
+        narrative_short=(
+            "Composants drones Aerostar Dynamics (USA) bloqués à Vridi : retard estimé "
+            "à 120 jours sur le chantier du Centre Napié (100 M USD / Côte d'Ivoire Innovation 2030)."
+        ),
+        next_surface={
+            "route": "/hypervisor/mission-room/strategie",
+            "queryParams": {"focus": "zone-nord"},
+            "highlight": "proj-drone-centre-napie",
+            "panel": "projects",
+        },
+    )
+    _add_graph_node(
+        nodes,
+        node_id="cargo-abidjan-supply-001",
+        label="Cargo MV Atlantic Trader - composants drones Napié",
+        kind="cargo",
+        vessel_name="MV Atlantic Trader",
+        imo="9876543",
+        mmsi="627012345",
+        status="awaiting_customs",
+        origin="USA East Coast",
+        destination="Napié via Abidjan",
+        linked_project="proj-drone-centre-napie",
+        evidence_refs=[
+            "src-maritime-paa-001",
+            "src-marinetraffic-context-001",
+            "src-abidjan-net-drone-napie-2025-07-16",
+        ],
+        narrative_short="Cargaison bloquee a Vridi par effet collateral du PV douanes du 18 mai.",
+        next_surface={
+            "route": "/hypervisor/mission-room/strategie",
+            "queryParams": {"mode": "live", "panel": "maritime", "vessel": "mv-atlantic-trader"},
+            "highlight": "cargo-abidjan-supply-001",
+            "panel": "maritime",
+        },
+    )
+    _add_graph_node(
+        nodes,
+        node_id="customs-record-non-conformite-2026-05",
+        label="PV douanes - non conformite declarative (18 mai)",
+        kind="customs_record",
+        record_kind="customs_pv",
+        record_date="2026-05-18",
+        document_id="proces-verbal-douanes-non-conformite-2026-05-18",
+        cited_page=2,
+        affected_cargo_ids=["cargo-abidjan-supply-001"],
+        evidence_refs=["sentinel-ci-customs-records"],
+        narrative_short="PV douanes constate une non conformite sur un autre cargo, gelant le couloir d'entree port.",
+        next_surface={
+            "route": "/hypervisor/mission-room/strategie",
+            "queryParams": {"panel": "maritime", "document": "proces-verbal-douanes-2026-05-18"},
+            "highlight": "customs-record-non-conformite-2026-05",
+            "panel": "document_preview",
+        },
+    )
+    _add_graph_node(
+        nodes,
+        node_id="action-email-derogation-douanes",
+        label="Brouillon email derogation Chef Douanes",
+        kind="action_proposal",
+        action_id="aya.draft_customs_email",
+        evidence_refs=["proj-drone-centre-napie", "cargo-abidjan-supply-001", "customs-record-non-conformite-2026-05"],
+        narrative_short="Proposition de courrier de priorisation pour distinguer le cargo Nord du cargo non conforme.",
+        next_surface={
+            "route": "/hypervisor/mission-room/decisions",
+            "queryParams": {"focus": "action-email-derogation-douanes"},
+            "panel": "draft_email",
+        },
+    )
+    # Edges typed causal chain.
+    _add_graph_edge(edges, source="zone-nord", target="proj-drone-centre-napie", relation="caused_by", weight=0.92, explanation="Retard du Centre Drones Napié nourrit la tension territoriale dans la région du Poro / Nord.")
+    _add_graph_edge(edges, source="proj-drone-centre-napie", target="cargo-abidjan-supply-001", relation="caused_by", weight=0.88, explanation="Composants drones Aerostar Dynamics du projet Napié bloqués sur le cargo MV Atlantic Trader.")
+    _add_graph_edge(edges, source="cargo-abidjan-supply-001", target="customs-record-non-conformite-2026-05", relation="caused_by", weight=0.84, explanation="Le PV douanes du 18 mai sur un autre cargo gele le couloir d'entree port.")
+    _add_graph_edge(edges, source="customs-record-non-conformite-2026-05", target="action-email-derogation-douanes", relation="mitigated_by", weight=0.78, explanation="Email derogation chef douanes pour distinguer le cargo Nord du cargo non conforme.")
+
     clusters = [
-        {"key": "territory", "label": "Territoire", "node_kinds": ["location", "project", "action"]},
+        {"key": "territory", "label": "Territoire", "node_kinds": ["location", "project", "action", "zone"]},
         {"key": "osint", "label": "Presse / rumeurs", "node_kinds": ["source", "event", "rumor", "rumor_trace", "channel"]},
-        {"key": "economy", "label": "Maritime / douanes", "node_kinds": ["port", "maritime"]},
-        {"key": "decision", "label": "Décision", "node_kinds": ["assistant", "agenda", "action"]},
+        {"key": "economy", "label": "Maritime / douanes", "node_kinds": ["port", "maritime", "cargo", "customs_record"]},
+        {"key": "decision", "label": "Décision", "node_kinds": ["assistant", "agenda", "action", "action_proposal"]},
     ]
     return {
         "workspace": _workspace_meta(workspace),
@@ -2591,6 +2845,69 @@ def evidence_graph_payload(workspace: Workspace, db: Optional[DBSession] = None)
             "AYA, relie le risque portuaire au point douanes.",
             "AYA, quelles sources soutiennent l'arbitrage Zone Nord ?",
         ],
+    }
+
+
+def evidence_graph_trace(
+    workspace: Workspace,
+    *,
+    from_node: str,
+    relation: str = "caused_by",
+    depth: int = 4,
+    db: Optional[DBSession] = None,
+) -> dict[str, Any]:
+    """Return the causal trace from ``from_node`` following ``relation``.
+
+    Used by AYA's `aya.explain_why` action (skill ``causal_drill_v1``) to
+    chain "pourquoi -> pourquoi" answers across screens. The trace
+    surfaces, for each step, the next surface AYA should navigate to and
+    the short narrative + evidence refs to cite.
+    """
+    graph = evidence_graph_payload(workspace, db=db)
+    nodes_by_id = {node.get("id"): node for node in graph.get("nodes") or []}
+    edges = graph.get("edges") or []
+    out_edges_by_source: dict[str, list[dict[str, Any]]] = {}
+    for edge in edges:
+        if edge.get("relation") != relation:
+            continue
+        out_edges_by_source.setdefault(str(edge.get("source")), []).append(edge)
+
+    depth_cap = max(1, min(int(depth or 4), 8))
+    path: list[dict[str, Any]] = []
+    visited: set[str] = set()
+    current = from_node
+    while current and current not in visited and len(path) < depth_cap:
+        visited.add(current)
+        node = nodes_by_id.get(current)
+        if not node:
+            break
+        outgoing = out_edges_by_source.get(current, [])
+        outgoing_sorted = sorted(outgoing, key=lambda e: float(e.get("weight") or 0.0), reverse=True)
+        next_edge = outgoing_sorted[0] if outgoing_sorted else None
+        path.append(
+            {
+                "node": node,
+                "edge": next_edge,
+                "next_node_id": (next_edge or {}).get("target"),
+            }
+        )
+        current = (next_edge or {}).get("target")
+
+    tail_node = nodes_by_id.get(current) if current else None
+    if tail_node and tail_node.get("id") not in {step["node"].get("id") for step in path}:
+        path.append({"node": tail_node, "edge": None, "next_node_id": None})
+
+    return {
+        "workspace": _workspace_meta(workspace),
+        "from_node": from_node,
+        "relation": relation,
+        "depth": depth_cap,
+        "path": path,
+        "terminal_node": (path[-1]["node"] if path else None),
+        "knowledge": {
+            "scope": "vigie",
+            "collection_slug": SENTINEL_EVIDENCE_GRAPH_COLLECTION,
+        },
     }
 
 
@@ -4342,12 +4659,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "write_policy": "direct",
                 "timezone": "Africa/Abidjan",
             },
-            "demo_time_context": {
-                "mode": "fixed",
-                "current_date": "2026-04-15",
-                "label": "Mercredi 15 Avril 2026",
-                "timezone": "Africa/Abidjan",
-            },
+            "demo_time_context": demo_time_context_defaults(),
             "action_planner": {
                 "write_policy": "direct",
                 "default_owner": "Cabinet",
@@ -4360,7 +4672,8 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             },
             "voice_loop": {
                 "default_mode": "session_loop",
-                "enabled_default": True,
+                "enabled_default": False,
+                "manual_start_required": True,
                 "auto_send_final_transcript": True,
                 "auto_endpoint": True,
                 "auto_rearm_after_tts": True,
@@ -4373,6 +4686,14 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "min_speech_ms": 320,
                 "max_turn_ms": 45000,
                 "cooldown_ms": 450,
+            },
+            "voice_output": {
+                "latency_profile": "fast",
+                "voice": "nova",
+                "flush_first_chars": 18,
+                "flush_next_chars": 56,
+                "flush_timeout_ms": 450,
+                "interrupt_on_user_speech": True,
             },
             "document_intelligence": {
                 "enabled": True,
@@ -4467,13 +4788,28 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                     },
                     "voice_loop": {
                         "default_mode": "session_loop",
-                        "enabled_default": True,
+                        "enabled_default": False,
+                        "manual_start_required": True,
                         "auto_send_final_transcript": True,
                         "auto_endpoint": True,
                         "auto_rearm_after_tts": True,
                         "barge_in": True,
                         "commands_enabled": True,
                         "command_packs": ["global_voice_v1", "sentinel_ci_aya_v1"],
+                    },
+                    "voice_output": {
+                        "latency_profile": "fast",
+                        "voice": "nova",
+                        "flush_first_chars": 18,
+                        "flush_next_chars": 56,
+                        "flush_timeout_ms": 450,
+                        "interrupt_on_user_speech": True,
+                    },
+                    "response_style": {
+                        "address_as": "M. le Vice Président",
+                        "tone": "formel",
+                        "format": "brief_gouvernemental_court",
+                        "max_bullets": 4,
                     },
                     "allowed_actions": [
                         "cite_sources",

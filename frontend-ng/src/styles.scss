@@ -6,6 +6,9 @@
    so namespacing has no functional impact on the cascade. */
 @use 'styles/cockpit-tokens';
 @use 'styles/cockpit-utilities';
+/* mission-tokens MUST load after cockpit-tokens so its --mission-* aliases
+   can lean on --ck-* fonts/easings declared above. */
+@use 'styles/mission-tokens';
 
 @tailwind base;
 @tailwind components;

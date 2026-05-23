@@ -13,6 +13,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.calendar_intelligence import analyze_calendar
+from app.services.demo_time_context import resolve_demo_date, resolve_demo_time
 
 
 DEFAULT_TIMEZONE = "Africa/Abidjan"
@@ -21,77 +22,95 @@ DEFAULT_SOURCE_LABEL = "Agenda institutionnel"
 
 SENTINEL_CALENDAR_SEED = [
     {
+        "id": "evt-conseil-defense",
         "title": "Conseil Defense restreint",
         "description": "Point de coordination securitaire et arbitrages cabinet.",
-        "start_at": "2026-04-15T08:30:00",
-        "end_at": "2026-04-15T09:30:00",
+        "start_at": "2026-05-23T08:30:00",
+        "end_at": "2026-05-23T09:30:00",
         "location": "Salle du Conseil - Plateau",
         "participants": ["Ministre", "Directeur de cabinet", "Conseiller securite"],
         "category": "cabinet",
         "priority": "critical",
     },
     {
+        "id": "evt-prefet-nawa",
+        "title": "Rencontre Prefet de la region de Nawa",
+        "description": "Suite au rapport du 10 mai : filiere cacao, infrastructures et diversification regionale.",
+        "start_at": "2026-05-23T11:00:00",
+        "end_at": "2026-05-23T12:00:00",
+        "location": "Soubre (capitale regionale)",
+        "participants": ["VP", "Prefet de Nawa", "AYA"],
+        "category": "territorial",
+        "priority": "high",
+        "context_ref": "report-prefet-nawa-2026-05-10",
+    },
+    {
+        "id": "evt-point-presse",
         "title": "Point presse hebdomadaire",
         "description": "Preparation des elements de langage et suivi image publique.",
-        "start_at": "2026-04-15T11:00:00",
-        "end_at": "2026-04-15T11:45:00",
+        "start_at": "2026-05-23T11:45:00",
+        "end_at": "2026-05-23T12:30:00",
         "location": "Salle presse ministere",
         "participants": ["Ministre", "Communication", "Porte-parole"],
         "category": "press",
         "priority": "high",
     },
     {
+        "id": "evt-dejeuner-france",
         "title": "Dejeuner Ambassadeur de France",
         "description": "Cooperation FR-CI, perception publique et projets frontaliers.",
-        "start_at": "2026-04-15T13:00:00",
-        "end_at": "2026-04-15T14:15:00",
+        "start_at": "2026-05-23T13:00:00",
+        "end_at": "2026-05-23T14:15:00",
         "location": "Residence officielle",
         "participants": ["Ministre", "Ambassadeur de France", "Conseiller cooperation"],
         "category": "diplomacy",
         "priority": "medium",
     },
     {
+        "id": "evt-revue-sahel",
         "title": "Revue operations Sahel",
         "description": "Synthese signaux regionaux et implications non militaires.",
-        "start_at": "2026-04-15T15:00:00",
-        "end_at": "2026-04-15T16:00:00",
+        "start_at": "2026-05-23T15:00:00",
+        "end_at": "2026-05-23T16:00:00",
         "location": "Centre de commandement",
         "participants": ["Ministre", "Cellule veille", "Strategie"],
         "category": "strategy",
         "priority": "high",
     },
     {
+        "id": "evt-audience-parlement",
         "title": "Audience parlementaire",
         "description": "Reponses institutionnelles et suivi des questions sensibles.",
-        "start_at": "2026-04-15T17:40:00",
-        "end_at": "2026-04-15T18:30:00",
+        "start_at": "2026-05-23T17:40:00",
+        "end_at": "2026-05-23T18:30:00",
         "location": "Assemblee Nationale",
         "participants": ["Ministre", "Cabinet parlementaire"],
         "category": "institutional",
         "priority": "medium",
     },
     {
+        "id": "evt-comite-nord",
         "title": "Comite projets sociaux Nord",
         "description": "Arbitrage des retards terrain et communication preventive.",
-        "start_at": "2026-04-16T09:00:00",
-        "end_at": "2026-04-16T10:00:00",
+        "start_at": "2026-05-24T09:00:00",
+        "end_at": "2026-05-24T10:00:00",
         "location": "Salon cabinet",
         "participants": ["Ministre", "Dircab", "Pilotage projets"],
         "category": "projects",
         "priority": "critical",
     },
     {
+        "id": "evt-brief-ao",
         "title": "Brief veille Afrique de l'Ouest",
         "description": "Lecture des signaux faibles presse et diplomatie regionale.",
-        "start_at": "2026-04-16T14:00:00",
-        "end_at": "2026-04-16T14:45:00",
+        "start_at": "2026-05-24T14:00:00",
+        "end_at": "2026-05-24T14:45:00",
         "location": "Bureau Ministre",
         "participants": ["M. le Vice-President", "AYA", "Cellule veille"],
         "category": "intelligence",
         "priority": "high",
     },
 ]
-
 
 def _actor(user: Optional[User]) -> str:
     if not user:
@@ -119,6 +138,13 @@ def ensure_calendar_seed(db: DBSession, workspace: Workspace) -> int:
         return 0
     added = 0
     for item in SENTINEL_CALENDAR_SEED:
+        seed_meta = {
+            "seed": "sentinel-ci",
+            "connector_id": "institutional_calendar",
+            "seed_id": item.get("id"),
+        }
+        if item.get("context_ref"):
+            seed_meta["context_ref"] = item["context_ref"]
         event = WorkspaceCalendarEvent(
             id=str(uuid4()),
             workspace_id=workspace.id,
@@ -134,7 +160,7 @@ def ensure_calendar_seed(db: DBSession, workspace: Workspace) -> int:
             status="scheduled",
             source_kind="internal_shared",
             source_label=DEFAULT_SOURCE_LABEL,
-            meta_data={"seed": "sentinel-ci", "connector_id": "institutional_calendar"},
+            meta_data=seed_meta,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -263,11 +289,69 @@ def update_event(
         event.end_at = _parse_dt(updates["end_at"])
     if event.end_at <= event.start_at:
         raise ValueError("end_at must be after start_at")
+    metadata_changes: dict[str, Any] | None = None
+    if "metadata" in updates and isinstance(updates["metadata"], dict):
+        metadata_changes = _apply_metadata_update(event, updates["metadata"], user)
     event.updated_by_user_id = user.id if user else None
     event.updated_at = datetime.utcnow()
     db.flush()
-    _audit(db, workspace, user, "calendar.event.updated", event, details={"updates": sorted(updates.keys())})
+    audit_details = {"updates": sorted(updates.keys())}
+    if metadata_changes:
+        audit_details["metadata_changes"] = metadata_changes
+    _audit(db, workspace, user, "calendar.event.updated", event, details=audit_details)
     return event
+
+
+def _apply_metadata_update(
+    event: WorkspaceCalendarEvent,
+    metadata_patch: dict[str, Any],
+    user: Optional[User],
+) -> dict[str, Any]:
+    """Merge ``metadata_patch`` into ``event.meta_data`` with versioning.
+
+    Phase H: agenda items merged with a stable ``id`` key and the prior
+    version pushed into ``meta_data['history']`` for an auditable trail.
+    """
+    current = dict(event.meta_data or {})
+    history = list(current.get("history") or [])
+    changes: dict[str, Any] = {}
+
+    if "agenda_items" in metadata_patch:
+        prior_items = list(current.get("agenda_items") or [])
+        incoming_items = list(metadata_patch.get("agenda_items") or [])
+        merged: list[dict[str, Any]] = list(prior_items)
+        by_id = {str(item.get("id")): idx for idx, item in enumerate(merged) if isinstance(item, dict) and item.get("id")}
+        for item in incoming_items:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("id") or "")
+            if key and key in by_id:
+                merged[by_id[key]] = {**merged[by_id[key]], **item}
+            else:
+                merged.append(item)
+                if key:
+                    by_id[key] = len(merged) - 1
+        history.append(
+            {
+                "kind": "agenda_items",
+                "applied_at": datetime.utcnow().isoformat(),
+                "applied_by": (user.email or user.username or user.id) if user else "system",
+                "previous": prior_items,
+                "next": merged,
+            }
+        )
+        current["agenda_items"] = merged
+        changes["agenda_items"] = {"added_or_updated": len(incoming_items)}
+
+    for key, value in metadata_patch.items():
+        if key in {"agenda_items", "history"}:
+            continue
+        current[key] = value
+        changes[key] = True
+
+    current["history"] = history[-25:]
+    event.meta_data = current
+    return changes
 
 
 def cancel_event(db: DBSession, workspace: Workspace, user: Optional[User], event_id: str, reason: str = "") -> WorkspaceCalendarEvent:
@@ -296,7 +380,7 @@ def _get_event(db: DBSession, workspace: Workspace, event_id: str) -> WorkspaceC
 
 
 def summary_payload(db: DBSession, workspace: Workspace, *, day: Optional[date] = None) -> dict[str, Any]:
-    day = day or date(2026, 4, 15)
+    day = day or resolve_demo_date(workspace)
     start = datetime.combine(day, time(0, 0))
     end = start + timedelta(days=1)
     events = list_events(db, workspace, start=start, end=end)
@@ -309,7 +393,8 @@ def summary_payload(db: DBSession, workspace: Workspace, *, day: Optional[date] 
         action_items = []
     analysis = analyze_calendar(active, action_items=action_items, day=day)
     conflicts = analysis["conflicts"]
-    next_event = next((event for event in active if event.start_at.time() >= time(8, 0)), active[0] if active else None)
+    now_time = resolve_demo_time(workspace)
+    next_event = next((event for event in active if event.start_at.time() >= now_time), active[0] if active else None)
     payload = {
         "date": day.isoformat(),
         "connector": {

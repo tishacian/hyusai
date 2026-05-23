@@ -10,6 +10,7 @@ import { CommandBarComponent } from './command-bar.component';
 import { CommandPaletteComponent } from './command-palette.component';
 import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
 import { ChatOverlayComponent } from '@app/features/chat/chat-overlay.component';
+import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draft-drawer.component';
 
 /**
  * Cockpit shell — assembles the title bar, side rail and command bar
@@ -29,6 +30,7 @@ import { ChatOverlayComponent } from '@app/features/chat/chat-overlay.component'
     CommandPaletteComponent,
     CkPanelHostComponent,
     ChatOverlayComponent,
+    AssistantDraftDrawerComponent,
   ],
   template: `
     <div
@@ -65,6 +67,7 @@ import { ChatOverlayComponent } from '@app/features/chat/chat-overlay.component'
       <app-command-palette></app-command-palette>
       <app-panel-host></app-panel-host>
       <app-chat-overlay></app-chat-overlay>
+      <app-assistant-draft-drawer></app-assistant-draft-drawer>
     </div>
   `,
 })

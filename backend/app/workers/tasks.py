@@ -26,3 +26,22 @@ def rag_retrieve_context(payload: dict) -> dict:
 @celery_app.task(name="agentium.visual_snapshot_capture")
 def visual_snapshot_capture(job_id: str) -> dict:
     return run_visual_capture_job(job_id)
+
+
+@celery_app.task(name="agentium.refresh_macro_indicators")
+def refresh_macro_indicators_task(workspace_slug: str = "sentinel-ci", force: bool = False) -> dict:
+    """Periodic refresh (24h) of the macro indicators cache.
+
+    Defaults to the SENTINEL-CI workspace so the demo cockpit always has
+    fresh data; can be parameterised by Celery beat for other workspaces.
+    """
+    from app.db.base import SessionLocal
+    from app.models.workspace import Workspace
+    from app.services.macro_indicators import fetch_civ_indicators
+
+    with SessionLocal() as db:
+        workspace = db.query(Workspace).filter(Workspace.slug == workspace_slug).first()
+        if not workspace:
+            return {"status": "skipped", "reason": "workspace_not_found", "workspace_slug": workspace_slug}
+        result = fetch_civ_indicators(db, workspace, force=bool(force))
+    return {"status": "ok", **result}

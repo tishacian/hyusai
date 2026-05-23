@@ -7,6 +7,7 @@ import {
   OnInit,
   Output,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -19,18 +20,23 @@ import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+import { AssistantEffectsService, type AssistantNavigateEffect, type AssistantProposeEffect } from '@app/core/assistant-effects.service';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { MissionControlMonitorComponent } from './mission-control-monitor.component';
 import { WorkspaceMapComponent } from './workspace-map.component';
 import { VpCockpitComponent } from './vp-cockpit.component';
 import type {
   VpAgendaTimeline,
+  VpAgendaTimelineEvent,
   VpArbitrationCard,
   VpDrillDown,
   VpIntelligenceFeed,
   VpMapPreviewContext,
   VpOptionCompare,
   VpPressPreviewItem,
+  VpSovereignIndicator,
+  VpStatusBarItem,
+  VpZoneScore,
 } from './vp-cockpit.types';
 
 type MissionView =
@@ -116,6 +122,18 @@ interface AttentionRequiredItem {
   draft_recipient?: string;
 }
 
+interface AgendaSubItem {
+  id?: string;
+  title: string;
+  order?: number;
+  priority?: string;
+  owner_proposer?: string;
+  source?: string;
+  source_label?: string;
+  decision_required?: boolean;
+  notes?: string;
+}
+
 interface AgendaItem {
   id?: string;
   date?: string;
@@ -130,6 +148,11 @@ interface AgendaItem {
   status?: string;
   category?: string;
   source_label?: string;
+  metadata?: {
+    agenda_items?: AgendaSubItem[];
+    workspace?: string;
+    [key: string]: unknown;
+  };
 }
 
 interface MessageItem {
@@ -792,6 +815,32 @@ interface DraftInstruction {
   control: Record<string, unknown>;
 }
 
+interface MeetingDecisionLogEntry {
+  id: string;
+  title: string;
+  chosen_option: string;
+  rationale?: string;
+  decided_at?: string;
+  decided_at_label?: string;
+  event_id?: string;
+  event_title?: string;
+}
+
+interface MeetingDecisionsLogResponse {
+  decisions?: Array<{
+    id?: string;
+    agenda_item_ref?: string;
+    agenda_item_title?: string;
+    title?: string;
+    chosen_option?: string;
+    rationale?: string;
+    decided_at?: string;
+    calendar_event_id?: string;
+    event_id?: string;
+    event_title?: string;
+  }>;
+}
+
 @Component({
   selector: 'app-mission-metric-card',
   standalone: true,
@@ -1033,11 +1082,6 @@ export class MissionSourcePillComponent {
 
       <div class="rail-spacer"></div>
 
-      <div class="rail-summary">
-        <span>Ce matin</span>
-        <strong>3 arbitrages</strong>
-        <small>16 alertes presse qualifiees</small>
-      </div>
       <div class="rail-clock">
         <strong>{{ abidjanClockTime() }}</strong>
         <span>{{ abidjanClockDate() }} · Abidjan UTC+0</span>
@@ -1108,9 +1152,9 @@ export class MissionSourcePillComponent {
       .assistant-badge {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 14px;
         width: 100%;
-        padding: 12px 11px;
+        padding: 14px 12px;
         border: 1px solid rgba(242, 140, 56, 0.24);
         border-radius: var(--mission-radius, 8px);
         background:
@@ -1131,9 +1175,9 @@ export class MissionSourcePillComponent {
         box-shadow: inset 3px 0 0 var(--mission-orange, #f28c38);
       }
       .assistant-avatar {
-        width: 44px;
-        height: 44px;
-        border-radius: 14px;
+        width: 52px;
+        height: 52px;
+        border-radius: 16px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -1313,18 +1357,15 @@ export class MissionRailComponent {
   private clockTimer: number | null = null;
   private readonly primaryRailKeys: MissionView[] = [
     'cockpit',
-    'monitor',
     'strategie',
-    'briefing',
     'agenda',
     'presse',
     'decisions',
   ];
   private readonly railLabelOverrides: Partial<Record<MissionView, string>> = {
     cockpit: 'Cockpit',
-    strategie: 'Carte fusionnee',
-    briefing: 'Aide a la decision',
-    presse: 'Renseignement',
+    strategie: 'Carte',
+    presse: 'Presse',
     decisions: 'Arbitrages',
   };
   private readonly timeFormatter = new Intl.DateTimeFormat('fr-FR', {
@@ -1399,7 +1440,7 @@ export class MissionRailComponent {
         [ayaState]="ayaRailState()"
         [ayaStateLabel]="ayaRailStateLabel()"
         [alertBadges]="railAlertBadges()"
-        (assistantRequest)="openAssistantVoice('AYA, prepare le cockpit 60 secondes pour le Vice-President.')"
+        (assistantRequest)="openAssistant()"
       />
 
       <main class="mission-main ck-scroll">
@@ -1409,47 +1450,40 @@ export class MissionRailComponent {
             <strong>Chargement de la Mission Room SENTINEL-CI</strong>
           </div>
         } @else {
-          <header class="mission-hero">
-            <div class="hero-copy">
-              <div class="hero-meta">
-                <span class="eyebrow">Mission Room · Vice-Presidence</span>
-                <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
+          @if (currentView() === 'cockpit') {
+            <header class="mission-hero">
+              <div class="hero-copy">
+                <div class="hero-meta">
+                  <span class="eyebrow">Mission Room · Vice-Presidence</span>
+                  <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
+                </div>
+                <h1>{{ cockpit()?.title || 'Bonjour, M. le Vice-Président.' }}</h1>
+                <p>
+                  <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
+                  <span class="hero-dot"></span>
+                  <span>Vision executive consolidee</span>
+                </p>
               </div>
-              <h1>{{ cockpit()?.title || 'Bonjour, M. le Vice-Président.' }}</h1>
-              <p>
-                <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
-                <span class="hero-dot"></span>
-                <span>Vision executive consolidee</span>
-              </p>
-            </div>
-            <div class="hero-actions">
-              <a routerLink="/hypervisor/mission-room/briefing" class="action-button primary">
-                <ck-glyph name="ledger" [size]="15" />
-                <span>Briefing</span>
-              </a>
-              <button type="button" class="action-button" (click)="openAssistantVoice()">
-                <ck-glyph name="crosshair" [size]="15" />
-                <span>{{ assistantName() }}</span>
-              </button>
-            </div>
-          </header>
+              <div class="hero-actions">
+                <button type="button" class="action-button primary" (click)="openDrillDownView('decisions', 'package-zone-nord')">
+                  <ck-glyph name="ledger" [size]="15" />
+                  <span>Arbitrages</span>
+                </button>
+                <button type="button" class="action-button" (click)="openAssistant()">
+                  <ck-glyph name="crosshair" [size]="15" />
+                  <span>{{ assistantName() }}</span>
+                </button>
+              </div>
+            </header>
+          }
 
           @switch (currentView()) {
             @case ('cockpit') { <ng-container *ngTemplateOutlet="cockpitView"></ng-container> }
-            @case ('monitor') { <ng-container *ngTemplateOutlet="monitorView"></ng-container> }
-            @case ('briefing') { <ng-container *ngTemplateOutlet="briefingView"></ng-container> }
-            @case ('pilotage') { <ng-container *ngTemplateOutlet="projectsView"></ng-container> }
             @case ('agenda') { <ng-container *ngTemplateOutlet="timelineView"></ng-container> }
-            @case ('messages') { <ng-container *ngTemplateOutlet="messagesView"></ng-container> }
-            @case ('bibliotheque') { <ng-container *ngTemplateOutlet="libraryView"></ng-container> }
-            @case ('projets') { <ng-container *ngTemplateOutlet="projectsView"></ng-container> }
             @case ('presse') { <ng-container *ngTemplateOutlet="newsView"></ng-container> }
-            @case ('reputation') { <ng-container *ngTemplateOutlet="reputationView"></ng-container> }
-            @case ('veille') { <ng-container *ngTemplateOutlet="watchView"></ng-container> }
             @case ('decisions') { <ng-container *ngTemplateOutlet="decisionsView"></ng-container> }
             @case ('strategie') { <ng-container *ngTemplateOutlet="mapView"></ng-container> }
             @case ('recherche') { <ng-container *ngTemplateOutlet="searchView"></ng-container> }
-            @case ('assistant') { <ng-container *ngTemplateOutlet="assistantView"></ng-container> }
             @default { <ng-container *ngTemplateOutlet="cockpitView"></ng-container> }
           }
         }
@@ -1461,29 +1495,19 @@ export class MissionRailComponent {
         [assistantName]="assistantName()"
         [statusBar]="vpStatusBar()"
         [mapPreview]="vpMapPreviewContext()"
-        [sovereignIndicators]="sovereignIndicators()"
-        [intelligenceFeeds]="intelligenceFeeds()"
-        [agendaTimeline]="agendaTimeline()"
         [directive]="directiveOfDay()"
         [ayaRecommendation]="ayaRecommendation()"
         [arbitrationCards]="arbitrationCards()"
         [pressPreview]="pressPreview()"
         [pressHighlightId]="pressHighlightId()"
-        [morningHighlight]="morningHighlightMessage()"
-        [morningDismissed]="morningHighlightDismissed()"
-        [decisionTeaser]="decisionTeaser()"
-        [scenarioModes]="scenarioModes()"
         (openMap)="openDrillDownView('strategie', vpMapPreviewContext().geoPreview.top_zone_id || undefined)"
-        (arbitrationSelected)="openDrillDown($event)"
+        (mapZoneSelected)="openMapZoneDrillDown($event)"
+        (statusBarSelected)="openStatusBarDrillDown($event)"
+        (arbitrationSelected)="selectArbitrationCard($event)"
         (pressSelected)="openPressPreviewItem($event)"
-        (agendaEvent)="openDrillDownView('agenda', $event.id)"
         (voiceRequest)="openAssistantVoice($event)"
         (voiceListen)="openAssistantVoice('AYA, lis le briefing souverain en 60 secondes.')"
-        (briefingRequest)="openDrillDownView('briefing', 'package-zone-nord')"
-        (morningView)="openMorningPressHighlight()"
-        (morningLater)="dismissMorningHighlight()"
-        (morningVoice)="openAssistantVoice('AYA, un signal presse ressort de la nuit — prepare le projet de reponse.')"
-        (scenarioMode)="openAssistant('AYA, active le mode ' + $event.label + ' pour le cockpit du Vice-President.')"
+        (briefingRequest)="openDrillDownView('decisions', 'package-zone-nord', undefined, undefined, 'brief')"
       />
     </ng-template>
 
@@ -1753,6 +1777,46 @@ export class MissionRailComponent {
               <div><dt>Priorite</dt><dd>{{ event.priority || 'medium' }}</dd></div>
               <div><dt>Participants</dt><dd>{{ (event.participants || ['Cabinet']).join(', ') }}</dd></div>
             </dl>
+
+            <section class="agenda-odj">
+              <div class="agenda-odj-head">
+                <span class="eyebrow">Ordre du jour</span>
+                <button type="button" class="ghost-link" (click)="addAgendaSubItem()">+ Point</button>
+              </div>
+              @if (agendaSubItems(event).length) {
+                <ol class="agenda-odj-list">
+                  @for (item of agendaSubItems(event); track item.id || item.title; let idx = $index) {
+                    <li>
+                      <input
+                        type="text"
+                        [value]="item.title"
+                        (change)="updateAgendaSubItem(idx, $any($event.target).value)"
+                        aria-label="Intitulé du point"
+                      />
+                      <span class="agenda-odj-meta">
+                        <small class="agenda-source-badge" [class]="agendaSubItemSourceClass(item)">
+                          {{ agendaSubItemSourceLabel(item) }}
+                        </small>
+                        @if (item.decision_required) {
+                          <small class="agenda-decision-pill">décision requise</small>
+                        }
+                      </span>
+                      <button
+                        type="button"
+                        class="ghost-icon"
+                        (click)="removeAgendaSubItem(idx)"
+                        aria-label="Supprimer le point"
+                      >
+                        ×
+                      </button>
+                    </li>
+                  }
+                </ol>
+              } @else {
+                <p class="empty-line">Aucun point structuré. Ajoutez un point ou demandez à AYA de pré-remplir l'ordre du jour.</p>
+              }
+            </section>
+
             <div class="agenda-actions">
               <button type="button" (click)="moveSelectedAgendaEvent(-15)">
                 <ck-glyph name="arrow-down" [size]="13" />
@@ -1767,6 +1831,16 @@ export class MissionRailComponent {
                 <span>Annuler</span>
               </button>
             </div>
+
+            <button
+              type="button"
+              class="action-button wide primary meeting-cta"
+              [disabled]="!event.id"
+              (click)="startMeeting(event)"
+            >
+              <ck-glyph name="bolt" [size]="14" />
+              <span>Démarrer la réunion</span>
+            </button>
           }
 
           <div class="agenda-form">
@@ -1832,150 +1906,9 @@ export class MissionRailComponent {
     <ng-template #newsView>
       <section class="ministerial-news">
         <article class="content-panel span-2 news-brief-hero">
-          <span class="eyebrow">Brief presse & signaux faibles</span>
-          <div class="panel-heading-row">
-            <h2>{{ news()?.briefing_note?.headline || 'Synthese executive' }}</h2>
-            <a
-              class="action-button compact"
-              [routerLink]="systemRouteFor('presse') || '/intelligence'"
-              [queryParams]="{ facet: 'intelligence' }"
-            >
-              <ck-glyph name="pulse" [size]="14" />
-              <span>Inspecter l'atelier de veille</span>
-            </a>
-          </div>
+          <span class="eyebrow">Alerte presse</span>
+          <h2>{{ news()?.briefing_note?.headline || 'Synthese executive' }}</h2>
           <p>{{ news()?.summary }}</p>
-          <div class="brief-meta">
-            <span>{{ news()?.source_health?.coverage_label || 'Sources qualifiees' }}</span>
-            <span>{{ intelligenceStatusLabel(news()?.source_health?.last_run_status) }}</span>
-            <span>{{ news()?.source_health?.high_risk || 0 }} signaux prioritaires</span>
-          </div>
-        </article>
-
-        <article class="content-panel now-panel">
-          <span class="eyebrow">A retenir maintenant</span>
-          <ul>
-            @for (bullet of news()?.briefing_note?.bullets || []; track bullet) {
-              <li>{{ bullet }}</li>
-            }
-          </ul>
-        </article>
-
-        <article class="content-panel source-health-panel">
-          <span class="eyebrow">Couverture de veille</span>
-          <div class="health-grid">
-            <article>
-              <strong>{{ news()?.source_health?.active_feeds || 0 }}</strong>
-              <span>sources actives</span>
-            </article>
-            <article>
-              <strong>{{ news()?.source_health?.analyzed || 0 }}</strong>
-              <span>articles analyses</span>
-            </article>
-            <article>
-              <strong>{{ news()?.source_health?.high_risk || 0 }}</strong>
-              <span>prioritaires</span>
-            </article>
-          </div>
-          <p>La Mission Room restitue les signaux utiles au pilotage. L'atelier conserve le diagnostic detaille et les sources brutes.</p>
-        </article>
-
-        <article class="content-panel span-2 maritime-news-panel">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">Maritime / Douanes</span>
-              <h2>{{ maritimeIntelligence()?.latest_observation?.['title'] || 'Port d’Abidjan · flux economiques' }}</h2>
-            </div>
-            <button type="button" class="action-button compact" (click)="openMaritimeMonitor()">
-              <ck-glyph name="crosshair" [size]="14" />
-              <span>Voir sur Situation live</span>
-            </button>
-          </div>
-          <p>{{ maritimeIntelligence()?.briefing_value || maritimeIntelligence()?.latest_observation?.['briefing_value'] }}</p>
-          <div class="brief-meta">
-            <span>{{ maritimeIntelligence()?.focus_area || 'Port d’Abidjan / San-Pedro / Golfe de Guinee' }}</span>
-            <span>{{ maritimeIntelligence()?.provider || 'RSS maritime + AIS API-ready' }}</span>
-            <span>{{ maritimeIntelligence()?.latest_observation?.['decision_deadline'] || 'deadline a confirmer' }}</span>
-          </div>
-          <div class="maritime-news-grid">
-            @for (feed of maritimeIntelligence()?.feeds || []; track feed.url) {
-              <a [href]="feed.url" target="_blank" rel="noopener">
-                <strong>{{ feed.name }}</strong>
-                <small>{{ feed.source_type }} · {{ feed.category }}</small>
-              </a>
-            }
-            @for (event of maritimeIntelligence()?.vessel_events || []; track event.id) {
-              <article>
-                <strong>{{ event.title }}</strong>
-                <small>{{ event.location }} · {{ event.domain }} · {{ event.decision_deadline }}</small>
-                <p>{{ event.summary }}</p>
-              </article>
-            }
-          </div>
-          <div class="panel-heading-row compact-row">
-            <small>{{ maritimeIntelligence()?.source_quality?.limitations }}</small>
-            <button type="button" class="action-button compact" (click)="openAssistant('AYA, relie cette actualite douanes au trafic maritime autour du port d Abidjan.')">
-              <ck-glyph name="bolt" [size]="14" />
-              <span>Demander a {{ assistantName() }}</span>
-            </button>
-          </div>
-        </article>
-
-        <article class="content-panel">
-          <span class="eyebrow">Priorite geographique</span>
-          <h2>CI → CEDEAO → Afrique → Monde</h2>
-          <div class="library-list">
-            @for (item of news()?.geographic_priority || []; track item.key) {
-              <article>
-                <strong>{{ item.priority }}. {{ item.label }}</strong>
-                <small>{{ item.feed_count }} sources · {{ item.signal_count }} signaux</small>
-                <p>{{ item.description }}</p>
-              </article>
-            }
-          </div>
-        </article>
-
-        <article class="content-panel">
-          <span class="eyebrow">Double lecture politique</span>
-          <h2>Interieur ivoirien / international</h2>
-          <div class="library-list">
-            @for (viewpoint of news()?.viewpoints || []; track viewpoint.key) {
-              <article>
-                <strong>{{ viewpoint.label }}</strong>
-                <small>{{ viewpoint.feed_count }} sources · {{ viewpoint.signal_count }} signaux</small>
-                <p>{{ viewpoint.brief }}</p>
-              </article>
-            }
-          </div>
-        </article>
-
-        <article class="content-panel span-2">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">Rumeurs + origines</span>
-              <h2>Canaux sociaux publics et signalements terrain</h2>
-            </div>
-            <button type="button" class="action-button compact" (click)="openAssistant('AYA, donne origine rumeur prioritaire et action recommandee.')">
-              <ck-glyph name="bolt" [size]="14" />
-              <span>Demander a {{ assistantName() }}</span>
-            </button>
-          </div>
-          <p>{{ news()?.social_listening?.policy }}</p>
-          <div class="brief-meta">
-            @for (channel of news()?.social_listening?.channels || []; track channel.key) {
-              <span>{{ channel.label }} · {{ channel.coverage }}%</span>
-            }
-          </div>
-          <div class="library-list">
-            @for (rumor of news()?.social_listening?.rumor_origins || []; track rumor.label) {
-              <article>
-                <strong>{{ rumor.label }}</strong>
-                <small>{{ rumor.zone }} · confiance {{ confidencePct(rumor.confidence) }}</small>
-                <p>{{ rumor.origin }}</p>
-                <small>{{ rumor.recommended_action }}</small>
-              </article>
-            }
-          </div>
         </article>
 
         <div class="news-geo-tabs span-2">
@@ -1987,51 +1920,19 @@ export class MissionRailComponent {
           }
         </div>
 
-        <div class="executive-alert-grid span-2">
+        <div class="executive-alert-grid span-2 compact-news-list">
           @for (signal of filteredNewsAlerts(); track signal.id) {
             <article
-              class="content-panel executive-alert-card"
+              class="content-panel executive-alert-card compact"
               [class.highlighted]="highlightTarget() === signal.id || highlightTarget() === 'attention-inter-budget'"
               [attr.id]="signal.id"
             >
               <div class="panel-heading-row">
                 <span class="status-pill" [class]="signal.risk_level">{{ ministerialRisk(signal.risk_level) }}</span>
-                <small>{{ signal.viewpoint || signal.zone || signal.source }} · {{ signal.velocity || 'veille' }} · confiance {{ confidencePct(signal.confidence) }}</small>
-              </div>
-              <div class="badge-row">
-                @for (badge of newsBadges(signal); track badge) {
-                  <span>{{ badge }}</span>
-                }
+                <small>{{ signal.viewpoint || signal.zone || signal.source }}</small>
               </div>
               <h3>{{ signal.title }}</h3>
               <p>{{ signal.briefing_value || signal.impact_ci || signal.summary }}</p>
-              <dl>
-                <div>
-                  <dt>Origine</dt>
-                  <dd>{{ signal.rumor_origin || signal.origin || signal.source_name || signal.source }}</dd>
-                </div>
-                <div>
-                  <dt>Impact interieur</dt>
-                  <dd>{{ signal.impact_ci || signal.summary }}</dd>
-                </div>
-                <div>
-                  <dt>Impact international</dt>
-                  <dd>{{ signal.impact_international || 'A surveiller si amplification regionale ou partenaire.' }}</dd>
-                </div>
-                <div>
-                  <dt>Pourquoi c'est sensible</dt>
-                  <dd>{{ signal.why_it_matters || signal.summary }}</dd>
-                </div>
-                <div>
-                  <dt>Action proposee</dt>
-                  <dd>{{ signal.recommended_action || 'Qualifier les sources avant diffusion cabinet.' }}</dd>
-                </div>
-              </dl>
-              <div class="source-row">
-                @for (source of signal.sources; track source) {
-                  <app-mission-source-pill [label]="sourceLabel(source)" (click)="showSource(source)" />
-                }
-              </div>
             </article>
           }
         </div>
@@ -2045,19 +1946,6 @@ export class MissionRailComponent {
             }
           </ul>
         </article>
-
-        <article class="content-panel">
-          <span class="eyebrow">Decisions attendues</span>
-          <h2>Arbitrages cabinet</h2>
-          <div class="decision-list">
-            @for (item of news()?.briefing_note?.decisions_expected || []; track item) {
-              <button type="button" (click)="createDraft('decision-press-lines', 'decision')">
-                <strong>{{ item }}</strong>
-                <small>Validation humaine requise avant diffusion.</small>
-              </button>
-            }
-          </div>
-          </article>
       </section>
     </ng-template>
 
@@ -2128,7 +2016,7 @@ export class MissionRailComponent {
     </ng-template>
 
     <ng-template #decisionsView>
-      <section class="two-column">
+      <section class="decisions-split-layout">
         <article class="content-panel span-2 arbitration-layout-panel">
           <div class="panel-heading-row">
             <div>
@@ -2141,10 +2029,11 @@ export class MissionRailComponent {
               <button
                 type="button"
                 class="decision-arbitration-card"
+                [class.active]="selectedArbitrationCard()?.id === card.id"
                 [class.highlighted]="highlightTarget() === card.id"
                 [class.critical]="monitorTone(card.tone) === 'critical'"
                 [class.elevated]="monitorTone(card.tone) === 'elevated'"
-                (click)="openDrillDown(card)"
+                (click)="selectArbitrationCard(card)"
               >
                 <span>{{ card.rank }} · {{ card.domain_label }}</span>
                 <strong>{{ card.title }}</strong>
@@ -2157,183 +2046,159 @@ export class MissionRailComponent {
             }
           </div>
         </article>
-        <article class="content-panel">
-          <span class="eyebrow">Decisions</span>
-          <h2>Validation humaine requise</h2>
-          <p>Les recommandations preparent l'arbitrage ; chaque instruction reste soumise a validation.</p>
-          <div class="decision-kpis">
-            <article>
-              <strong>{{ decisions()?.action_summary?.active || 0 }}</strong>
-              <span>actions actives</span>
-            </article>
-            <article>
-              <strong>{{ decisions()?.action_summary?.critical || 0 }}</strong>
-              <span>prioritaires</span>
-            </article>
-            <article>
-              <strong>{{ decisions()?.action_summary?.completed || 0 }}</strong>
-              <span>terminees</span>
-            </article>
-          </div>
-          <div class="decision-list">
-            @for (decision of decisions()?.decisions || []; track decision.id) {
-              <button type="button" (click)="createDraft(decision.target_id, decision.target_type)">
-                <span class="status-pill" [class]="decision.risk">{{ decision.status }}</span>
-                <strong>{{ decision.title }}</strong>
-                <small>{{ decision.recommendation }}</small>
-              </button>
-            }
-          </div>
-        </article>
+
         <article class="content-panel selected-detail">
-          <span class="eyebrow">Actions cabinet</span>
-          <h2>Suivi operationnel</h2>
-          <div class="action-item-list">
-            @for (item of decisions()?.action_items || []; track item.id) {
-              <article [class]="item.priority" [class.done]="item.status === 'completed'" [class.cancelled]="item.status === 'cancelled'">
-                <div>
-                  <span class="status-pill" [class]="item.priority">{{ item.priority }}</span>
-                  <strong>{{ item.title }}</strong>
-                  <small>{{ item.owner_label }} · {{ item.due_label || 'a planifier' }} · {{ item.status }}</small>
-                  @if (item.description) { <p>{{ item.description }}</p> }
-                </div>
-                <div class="action-row">
-                  <button type="button" (click)="completeAction(item)" [disabled]="item.status === 'completed' || item.status === 'cancelled'">Terminer</button>
-                  <button type="button" class="danger" (click)="cancelAction(item)" [disabled]="item.status === 'completed' || item.status === 'cancelled'">Annuler</button>
-                </div>
-              </article>
-            }
-          </div>
-          <div class="project-risk-list">
-            <span class="eyebrow">Projets integres</span>
-            @for (project of projectDecisionRisks(); track project.id) {
-              <button type="button" (click)="draftForProject(project)">
-                <strong>{{ project.name }}</strong>
-                <small>{{ project.risk }}</small>
+          @if (selectedArbitrationCard(); as card) {
+            <span class="eyebrow">Detail arbitrage</span>
+            <h2>{{ card.title }}</h2>
+            <p>{{ card.summary }}</p>
+            <div class="card-actions">
+              <button type="button" class="inline-action" (click)="openAssistant('AYA, explique les options pour ' + card.title)">
+                Demander a {{ assistantName() }}
               </button>
-            }
-          </div>
+              <button type="button" class="inline-action" (click)="createDraft(card.id, 'decision')">
+                Generer brouillon
+              </button>
+            </div>
+          } @else {
+            <span class="eyebrow">Detail arbitrage</span>
+            <h2>Selectionnez un sujet</h2>
+            <p>Choisissez une carte pour afficher le detail et preparer la validation advisory.</p>
+          }
         </article>
-        <article class="content-panel selected-detail span-2">
+
+        @if (zoneNorthOptionCompare(); as compare) {
+          <article class="content-panel span-2 option-compare-panel" [attr.id]="compareAnchor()">
+            <div class="panel-heading-row">
+              <div>
+                <span class="eyebrow">Zone Nord · arbitrage</span>
+                <h3>{{ compare.title }}</h3>
+                @if (compare.subtitle) {
+                  <p>{{ compare.subtitle }}</p>
+                }
+              </div>
+              <span class="status-pill elevated">Comparaison A/B</span>
+            </div>
+            <div class="option-compare-head">
+              <span>{{ compare.option_a_label }}</span>
+              <span>{{ compare.option_b_label }}</span>
+            </div>
+            @for (metric of compare.metrics; track metric.key) {
+              <div class="option-compare-row">
+                <label>{{ metric.label }}</label>
+                <div class="compare-bars">
+                  <i [style.width.%]="metric.option_a" [class.recommended]="compare.recommended === 'a'"></i>
+                  <i [style.width.%]="metric.option_b" [class.recommended]="compare.recommended === 'b'"></i>
+                </div>
+                <small>{{ metric.option_a }} / {{ metric.option_b }}</small>
+              </div>
+            }
+            <div class="card-actions">
+              <button type="button" class="inline-action" (click)="openAssistant('AYA, explique pourquoi l option B est recommandee pour la Zone Nord.')">
+                Expliquer l option recommandee
+              </button>
+              <button type="button" class="inline-action" (click)="createDraft('package-zone-nord', 'decision')">
+                Valider option B (audit)
+              </button>
+            </div>
+          </article>
+        }
+
+        <aside class="content-panel draft-sidebar">
           @if (draft(); as draftValue) {
-            <span class="eyebrow">Brouillon</span>
+            <span class="eyebrow">Brouillon advisory</span>
             <h2>{{ draftValue.title }}</h2>
             <p>{{ draftValue.body }}</p>
             <dl>
               <div><dt>Destinataire</dt><dd>{{ draftValue.recipient }}</dd></div>
               <div><dt>Statut</dt><dd>{{ draftValue.status }}</dd></div>
-              <div><dt>Validation</dt><dd>{{ draftValue.requires_validation ? 'requise' : 'non requise' }}</dd></div>
             </dl>
           } @else {
-            <span class="eyebrow">Audit trail</span>
-            <h2>Aucune instruction selectionnee</h2>
-            <p>Selectionnez une recommandation pour generer un draft sous controle humain.</p>
+            <span class="eyebrow">Brouillon advisory</span>
+            <h2>Aucun brouillon ouvert</h2>
+            <p>Generez un brouillon depuis une carte ou la comparaison Zone Nord.</p>
+          }
+        </aside>
+
+        <article class="content-panel span-2 meeting-decisions-panel">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Décisions de réunion</span>
+              <h2>Arbitrages loggés en mode meeting</h2>
+            </div>
+            <small class="meeting-decisions-source">source : journal /meetings · advisory</small>
+          </div>
+          @if (meetingDecisionsLog().length) {
+            <div class="meeting-decisions-list">
+              @for (entry of meetingDecisionsLog(); track entry.id) {
+                <article class="meeting-decision-card">
+                  <header>
+                    <strong>{{ entry.title }}</strong>
+                    <small>{{ entry.decided_at_label }}</small>
+                  </header>
+                  <p class="meeting-decision-choice">
+                    Option <em>{{ entry.chosen_option }}</em> retenue
+                    @if (entry.event_title) {
+                      · {{ entry.event_title }}
+                    }
+                  </p>
+                  @if (entry.rationale) {
+                    <p class="meeting-decision-rationale">« {{ entry.rationale }} »</p>
+                  }
+                </article>
+              }
+            </div>
+          } @else {
+            <p class="empty-line">Aucune décision loggée. Démarrez une réunion depuis l'agenda pour enregistrer les arbitrages.</p>
           }
         </article>
       </section>
     </ng-template>
 
     <ng-template #mapView>
-      <section class="two-column map-layout">
-        <article class="content-panel map-panel">
-          <span class="eyebrow">Carte strategique</span>
-          <h2>{{ missionMap()?.question }}</h2>
-          <div class="map-system-strip">
-            <span>{{ missionMap()?.map_system?.name || 'Systeme cartographique workspace' }}</span>
-            <small>{{ missionMap()?.score_summary?.critical || 0 }} critiques · {{ missionMap()?.score_summary?.watch || 0 }} en veille</small>
-          </div>
-          <app-workspace-map
-            class="strategy-map-canvas"
-            style="display:block;height:clamp(760px,78vh,1040px)"
-            [zones]="missionMap()?.zones || []"
-            [map]="missionMap()?.map || null"
-            [mapSystem]="missionMap()?.map_system || null"
-            [mapState]="mapCommandState()"
-            [selectedZoneId]="selectedZone()?.id || null"
-            (zoneSelected)="selectZone($event)"
-            (evidenceAction)="handleMapEvidenceAction($event)"
-          />
-        </article>
-        <article class="content-panel selected-detail">
-          @if (selectedZone(); as zone) {
-            <span class="eyebrow">Zone selectionnee</span>
-            <h2>{{ zone.name }} · {{ zone.level }}%</h2>
-            @if (zone.drivers?.length) {
-              <div class="driver-list">
-                @for (driver of zone.drivers || []; track driver) {
-                  <span>{{ driver }}</span>
-                }
-              </div>
-            }
-            <div class="library-list">
-              @for (signal of zone.signals; track signal) {
-                <article><strong>{{ signal }}</strong></article>
-              }
-            </div>
-            @if (zone.scenario_options?.length) {
-              <h3>Options conseillees</h3>
-              <div class="scenario-grid compact">
-                @for (option of zone.scenario_options || []; track option.id) {
-                  <article [class.recommended]="option.recommended">
-                    <strong>{{ option.label }}</strong>
-                    <span>{{ option.decision_score || confidencePct(option.confidence) }}</span>
-                    <p>{{ option.summary }}</p>
-                  </article>
-                }
-              </div>
-            }
-            <h3>Actions preventives non militaires</h3>
-            <div class="option-list">
-              @for (recommendation of zone.recommendations; track recommendation) {
-                <span>{{ recommendation }}</span>
-              }
-            </div>
-            @if (zone.recommended_windows?.length) {
-              <h3>Fenetres recommandees</h3>
-              <div class="window-list">
-                @for (window of zone.recommended_windows || []; track window.label) {
-                  <article>
-                    <time>{{ window.start }}-{{ window.end }}</time>
-                    <div>
-                      <strong>{{ window.label }}</strong>
-                      <small>{{ window.why }}</small>
-                    </div>
-                  </article>
-                }
-              </div>
-            }
-            @if (zone.active_action) {
-              <div class="action-linked">
-                <span>Action active</span>
-                <strong>{{ zone.active_action.title }}</strong>
-                <small>{{ zone.active_action.owner_label }} · {{ zone.active_action.due_label }}</small>
-              </div>
-            }
-            <button type="button" class="action-button wide" (click)="draftForZone(zone)">
-              <ck-glyph name="ledger" [size]="15" />
-              <span>Creer instruction preventive</span>
-            </button>
-            <button type="button" class="action-button wide" (click)="createActionForZone(zone)">
-              <ck-glyph name="check" [size]="15" />
-              <span>Ajouter action territoriale</span>
-            </button>
-          }
-        </article>
-      </section>
-    </ng-template>
+      <section class="map-mode-shell">
+        <div class="map-mode-tabs">
+          <button type="button" [class.active]="mapViewMode() === 'territory'" (click)="setMapViewMode('territory')">
+            Territoire
+          </button>
+          <button type="button" [class.active]="mapViewMode() === 'live'" (click)="setMapViewMode('live')">
+            Live
+          </button>
+        </div>
 
-    <ng-template #monitorView>
-      <app-mission-control-monitor
-        [monitor]="monitor()"
-        [missionMap]="missionMap()"
-        [selectedZone]="selectedZone()"
-        [mapCommandState]="mapCommandState()"
-        [assistantName]="assistantName()"
-        [captureImages]="visualCaptureImages()"
-        (zoneSelected)="selectZone($event)"
-        (visualCapture)="captureVisualSource($event)"
-        (assistantPrompt)="openAssistant($event)"
-      />
+        @if (mapViewMode() === 'live') {
+          <app-mission-control-monitor
+            [monitor]="monitor()"
+            [missionMap]="missionMap()"
+            [selectedZone]="selectedZone()"
+            [mapCommandState]="mapCommandState()"
+            [assistantName]="assistantName()"
+            [captureImages]="visualCaptureImages()"
+            (zoneSelected)="selectZone($event)"
+            (visualCapture)="captureVisualSource($event)"
+            (assistantPrompt)="openAssistant($event)"
+            (voiceRequest)="openAssistantVoice()"
+          />
+        } @else {
+          <section class="two-column map-layout">
+            <article class="content-panel map-panel span-2">
+              <span class="eyebrow">Carte strategique</span>
+              <h2>{{ missionMap()?.question }}</h2>
+              <app-workspace-map
+                class="strategy-map-canvas"
+                style="display:block;height:clamp(760px,78vh,1040px)"
+                [zones]="missionMap()?.zones || []"
+                [map]="missionMap()?.map || null"
+                [mapSystem]="missionMap()?.map_system || null"
+                [mapState]="mapCommandState()"
+                [selectedZoneId]="selectedZone()?.id || null"
+                (zoneSelected)="selectZone($event)"
+                (evidenceAction)="handleMapEvidenceAction($event)"
+              />
+            </article>
+          </section>
+        }
+      </section>
     </ng-template>
 
     <ng-template #searchView>
@@ -2368,7 +2233,7 @@ export class MissionRailComponent {
           <span class="eyebrow">{{ assistantName() }}</span>
           <h2>Assistant transversal Chat / V2V</h2>
           <p>L'assistant combine conversation, recherche sourcee et oracle de contexte pour preparer l'action.</p>
-          <button type="button" class="action-button wide" (click)="openAssistantVoice()">
+          <button type="button" class="action-button wide" (click)="openAssistant()">
             <ck-glyph name="crosshair" [size]="15" />
             <span>Ouvrir {{ assistantName() }}</span>
           </button>
@@ -2391,39 +2256,12 @@ export class MissionRailComponent {
   styles: [
     `
       :host {
-        --mission-bg: #05080c;
-        --mission-bg-grid: rgba(101, 214, 110, 0.035);
-        --mission-rail-bg: linear-gradient(180deg, #05080c 0%, #06100a 100%);
-        --mission-panel: linear-gradient(180deg, rgba(15, 24, 28, 0.96) 0%, rgba(10, 16, 19, 0.98) 100%);
-        --mission-panel-hi: rgba(18, 31, 28, 0.92);
-        --mission-inset: rgba(4, 8, 13, 0.84);
-        --mission-border: rgba(156, 184, 212, 0.14);
-        --mission-border-strong: rgba(101, 214, 110, 0.30);
-        --mission-text: #f4f7fb;
-        --mission-text-soft: #c4ceda;
-        --mission-text-muted: #8996a8;
-        --mission-text-faint: #596678;
-        --mission-accent: #65d66e;
-        --mission-accent-strong: #93ef74;
-        --mission-accent-muted: rgba(101, 214, 110, 0.38);
-        --mission-accent-wash: rgba(101, 214, 110, 0.095);
-        --mission-trust: #3fd18d;
-        --mission-trust-wash: rgba(63, 209, 141, 0.10);
-        --mission-warn: #f1b45a;
-        --mission-warn-wash: rgba(241, 180, 90, 0.12);
-        --mission-orange: #f28c38;
-        --mission-orange-wash: rgba(242, 140, 56, 0.12);
-        --mission-gold: #e3c681;
-        --mission-danger: #f06476;
-        --mission-danger-wash: rgba(240, 100, 118, 0.12);
-        --mission-radius-sm: 6px;
-        --mission-radius: 8px;
-        --mission-shadow-card: 0 16px 42px rgba(0, 0, 0, 0.22);
         display: block;
         height: 100vh;
         overflow: hidden;
         background: var(--mission-bg);
-        font-family: var(--ck-font-sans);
+        color: var(--mission-text-primary);
+        font-family: var(--mission-font-body);
         font-feature-settings: "tnum", "zero";
       }
       .mission-shell {
@@ -3370,6 +3208,173 @@ export class MissionRailComponent {
         color: var(--mission-danger);
         background: var(--mission-danger-wash);
       }
+      .agenda-odj {
+        margin: 14px 0 6px;
+        padding: 12px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: rgba(4, 8, 13, 0.42);
+      }
+      .agenda-odj-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .agenda-odj .eyebrow {
+        color: var(--mission-text-muted);
+        font-family: var(--ck-font-mono);
+        font-size: 9px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .agenda-odj-list {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+      }
+      .agenda-odj-list li {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 8px;
+        align-items: center;
+        padding: 6px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-sm);
+        background: var(--mission-panel-hi, rgba(4, 8, 13, 0.32));
+      }
+      .agenda-odj-list input[type="text"] {
+        min-height: 30px;
+        padding: 0 8px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-size: 12px;
+        min-width: 0;
+      }
+      .agenda-odj-list input[type="text"]:focus {
+        outline: none;
+        border-color: rgba(125, 211, 252, 0.35);
+        background: rgba(4, 8, 13, 0.6);
+        border-radius: var(--mission-radius-sm);
+      }
+      .agenda-odj-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .agenda-source-badge {
+        padding: 2px 6px;
+        border-radius: 999px;
+        border: 1px solid var(--mission-border);
+        font-family: var(--ck-font-mono);
+        font-size: 9px;
+        letter-spacing: 0.06em;
+        color: var(--mission-text-muted);
+      }
+      .agenda-source-badge.source-aya {
+        border-color: rgba(101, 214, 110, 0.32);
+        color: var(--mission-trust);
+        background: var(--mission-trust-wash);
+      }
+      .agenda-source-badge.source-brief {
+        border-color: rgba(241, 180, 90, 0.32);
+        color: var(--mission-warn);
+        background: rgba(241, 180, 90, 0.08);
+      }
+      .agenda-source-badge.source-vp {
+        border-color: rgba(125, 211, 252, 0.28);
+        color: var(--mission-accent);
+        background: rgba(125, 211, 252, 0.08);
+      }
+      .agenda-decision-pill {
+        padding: 2px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(241, 180, 90, 0.32);
+        color: var(--mission-warn);
+        font-size: 10px;
+      }
+      .ghost-icon {
+        width: 24px;
+        height: 24px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-sm);
+        background: transparent;
+        color: var(--mission-text-muted);
+        cursor: pointer;
+        font: inherit;
+        line-height: 1;
+      }
+      .ghost-link {
+        padding: 4px 9px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-sm);
+        background: transparent;
+        color: var(--mission-text);
+        font: inherit;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .empty-line {
+        margin: 6px 0 0;
+        color: var(--mission-text-faint);
+        font-size: 12px;
+      }
+      .meeting-cta {
+        margin-top: 8px;
+      }
+      .meeting-decisions-panel .meeting-decisions-source {
+        color: var(--mission-text-faint);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+      }
+      .meeting-decisions-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .meeting-decision-card {
+        padding: 10px 12px;
+        border: 1px solid var(--mission-border);
+        border-left: 3px solid var(--mission-trust);
+        border-radius: var(--mission-radius);
+        background: rgba(4, 8, 13, 0.42);
+      }
+      .meeting-decision-card header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .meeting-decision-card strong {
+        font-size: 13px;
+      }
+      .meeting-decision-card small {
+        color: var(--mission-text-faint);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+      }
+      .meeting-decision-choice {
+        margin: 6px 0 0;
+        color: var(--mission-text-soft, var(--mission-text));
+        font-size: 12px;
+      }
+      .meeting-decision-choice em {
+        font-style: normal;
+        color: var(--mission-trust);
+        font-family: var(--ck-font-mono);
+      }
+      .meeting-decision-rationale {
+        margin: 4px 0 0;
+        color: var(--mission-text-muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
       .agenda-form {
         margin-top: 18px;
         padding-top: 16px;
@@ -4060,6 +4065,41 @@ export class MissionRailComponent {
         border-radius: var(--mission-radius);
         padding: 0 12px;
       }
+      .map-mode-shell { display: grid; gap: 12px; }
+      .map-mode-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .map-mode-tabs button {
+        min-height: 34px;
+        padding: 8px 12px;
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        background: rgba(4, 8, 13, 0.58);
+        color: var(--mission-text-soft);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .map-mode-tabs button.active {
+        border-color: rgba(125, 211, 252, 0.42);
+        color: var(--mission-accent);
+        background: rgba(125, 211, 252, 0.08);
+      }
+      .decisions-split-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.85fr);
+        gap: 12px;
+        align-items: start;
+      }
+      .decision-arbitration-card.active {
+        border-color: rgba(125, 211, 252, 0.42);
+        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.12);
+      }
+      .draft-sidebar { position: sticky; top: 12px; }
+      .compact-news-list { grid-template-columns: 1fr !important; }
+      .executive-alert-card.compact p { margin-bottom: 0; }
       @media (max-width: 1200px) {
         .mission-shell { grid-template-columns: 200px minmax(0, 1fr); }
         .mission-main { padding: 24px; }
@@ -4102,6 +4142,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly chat = inject(ChatOverlayService);
+  private readonly assistantEffects = inject(AssistantEffectsService);
   protected readonly workspace = inject(WorkspaceService);
 
   private readonly routeView = toSignal(
@@ -4123,9 +4164,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly search = signal<MissionSearch | null>(null);
   readonly selectedProject = signal<Project | null>(null);
   readonly selectedZone = signal<MapZone | null>(null);
+  readonly selectedArbitrationCard = signal<VpArbitrationCard | null>(null);
   readonly selectedSource = signal<SourceRef | null>(null);
   readonly selectedAgendaEvent = signal<AgendaItem | null>(null);
   readonly draft = signal<DraftInstruction | null>(null);
+  readonly meetingDecisionsLog = signal<MeetingDecisionLogEntry[]>([]);
   readonly mapCommandState = signal<Record<string, unknown> | null>(null);
   readonly visualCaptureImages = signal<Record<string, string>>({});
   readonly activeNewsGeoTier = signal<'ci' | 'cedeao' | 'africa' | 'world'>('ci');
@@ -4142,6 +4185,14 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.route.queryParamMap.pipe(map((params) => params.get('zone'))),
     { initialValue: null as string | null },
   );
+  private readonly modeQuery = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('mode'))),
+    { initialValue: null as string | null },
+  );
+  private readonly focusQuery = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('focus'))),
+    { initialValue: null as string | null },
+  );
 
   searchQueryValue = '';
   newAgendaTitle = '';
@@ -4156,16 +4207,25 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const zone = [...(this.missionMap()?.zones || []), ...(this.monitor()?.zones || [])].find((item) => item.id === target);
     if (zone) this.selectedZone.set(zone);
     this.mapCommandState.set((detail['map_state'] as Record<string, unknown>) || null);
-    if (target || detail['map_state']) this.router.navigateByUrl('/hypervisor/mission-room/strategie');
+    if (target || detail['map_state']) this.router.navigate(['/hypervisor/mission-room/strategie'], { queryParams: { mode: 'territory', zone: target || undefined } });
+  };
+  private readonly assistantNavigateListener = (event: Event) => {
+    const detail = (event as CustomEvent<AssistantNavigateEffect>).detail;
+    if (!detail?.route) return;
+    this.assistantEffects.navigate(detail);
+    this.applyAssistantFocus(detail);
+  };
+  private readonly assistantProposeListener = (event: Event) => {
+    const detail = (event as CustomEvent<AssistantProposeEffect>).detail;
+    if (!detail?.prompt) return;
+    this.openAssistant(detail.prompt);
   };
 
   readonly fallbackNav: MissionNavigationItem[] = [
     { key: 'cockpit', label: 'Cockpit', glyph: 'ledger', route: '/hypervisor/mission-room/cockpit', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'monitor', label: 'Situation live', glyph: 'crosshair', route: '/hypervisor/mission-room/monitor', api: '/api/v1/mission-room/monitor', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'strategie', label: 'Carte fusionnee', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'briefing', label: 'Aide a la decision', glyph: 'ledger', route: '/hypervisor/mission-room/briefing', api: '/api/v1/mission-room/briefing', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'strategie', label: 'Carte', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
     { key: 'agenda', label: 'Agenda', glyph: 'ledger', route: '/hypervisor/mission-room/agenda', api: '/api/v1/mission-room/timeline', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'presse', label: 'Renseignement', glyph: 'pulse', route: '/hypervisor/mission-room/presse', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
+    { key: 'presse', label: 'Presse', glyph: 'pulse', route: '/hypervisor/mission-room/presse', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
     { key: 'decisions', label: 'Arbitrages', glyph: 'check', route: '/hypervisor/mission-room/decisions', api: '/api/v1/mission-room/decisions', object: 'Review Queue', workbench: 'Review Queue' },
   ];
 
@@ -4177,6 +4237,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly adminRoute = computed(() => `/workspace/${this.workspace.currentSlug() || 'sentinel-ci'}`);
   readonly assistantName = computed(() => this.navigation()?.app?.assistant_label || 'AYA');
   readonly highlightTarget = computed(() => this.highlightQuery());
+  readonly mapViewMode = computed<'territory' | 'live'>(() => {
+    const mode = (this.modeQuery() || 'territory').toLowerCase();
+    return mode === 'live' || mode === 'maritime' ? 'live' : 'territory';
+  });
   readonly pressHighlightId = computed(() => {
     if (this.morningHighlightDismissed()) return null;
     return this.pressPreview()[0]?.id || 'attention-inter-budget';
@@ -4213,25 +4277,43 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     'cockpit',
     'monitor',
     'briefing',
-    'pilotage',
     'agenda',
-    'messages',
-    'bibliotheque',
-    'projets',
     'presse',
-    'reputation',
-    'veille',
     'decisions',
     'strategie',
     'recherche',
-    'assistant',
   ]);
+
+  constructor() {
+    effect(() => {
+      const view = this.routeView();
+      if (view === 'briefing') {
+        void this.router.navigate(['/hypervisor/mission-room/decisions'], {
+          queryParams: { focus: 'brief', highlight: this.highlightQuery() || 'package-zone-nord' },
+          replaceUrl: true,
+        });
+        return;
+      }
+      if (view === 'monitor') {
+        void this.router.navigate(['/hypervisor/mission-room/strategie'], {
+          queryParams: { mode: 'live', zone: this.zoneQuery() || undefined, highlight: this.highlightQuery() || undefined },
+          replaceUrl: true,
+        });
+        return;
+      }
+      if (['pilotage', 'projets', 'messages', 'bibliotheque', 'reputation', 'veille', 'assistant'].includes(view)) {
+        void this.router.navigate(['/hypervisor/mission-room/cockpit'], { replaceUrl: true });
+      }
+    });
+  }
 
   ngOnInit(): void {
     window.addEventListener('agentium:calendar-updated', this.calendarUpdateListener);
     window.addEventListener('agentium:action-plan-updated', this.workspaceActionUpdateListener);
     window.addEventListener('agentium:visual-intelligence-updated', this.workspaceActionUpdateListener);
     window.addEventListener('agentium:map-command', this.mapCommandListener);
+    window.addEventListener('agentium:assistant-navigate', this.assistantNavigateListener);
+    window.addEventListener('agentium:assistant-propose', this.assistantProposeListener);
     this.loadAll();
     setTimeout(() => this.scrollToHighlight(), 120);
     this.applyMapQueryState();
@@ -4242,6 +4324,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     window.removeEventListener('agentium:action-plan-updated', this.workspaceActionUpdateListener);
     window.removeEventListener('agentium:visual-intelligence-updated', this.workspaceActionUpdateListener);
     window.removeEventListener('agentium:map-command', this.mapCommandListener);
+    window.removeEventListener('agentium:assistant-navigate', this.assistantNavigateListener);
+    window.removeEventListener('agentium:assistant-propose', this.assistantProposeListener);
     this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     this.visualObjectUrls.length = 0;
   }
@@ -4304,6 +4388,48 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       if (library) this.library.set(library);
       if (search) this.search.set(search);
     });
+    this.loadMeetingDecisionsLog();
+  }
+
+  private loadMeetingDecisionsLog(): void {
+    const workspaceSlug = this.workspace.currentSlug() || 'sentinel-ci';
+    this.api
+      .get<MeetingDecisionsLogResponse>('/meetings/decisions-log', { workspace: workspaceSlug })
+      .pipe(catchError(() => of<MeetingDecisionsLogResponse | null>(null)))
+      .subscribe((payload) => {
+        const items = payload?.decisions || [];
+        if (!items.length) {
+          this.meetingDecisionsLog.set([]);
+          return;
+        }
+        const entries: MeetingDecisionLogEntry[] = items
+          .map((entry) => {
+            const decidedAt = entry.decided_at;
+            let decidedAtLabel = '';
+            if (decidedAt) {
+              try {
+                decidedAtLabel = new Intl.DateTimeFormat('fr-FR', {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }).format(new Date(decidedAt));
+              } catch {
+                decidedAtLabel = decidedAt;
+              }
+            }
+            return {
+              id: entry.id || `${entry.calendar_event_id || entry.event_id || 'meeting'}-${entry.agenda_item_ref || entry.title || 'item'}`,
+              title: entry.agenda_item_title || entry.title || entry.agenda_item_ref || 'Point d ordre du jour',
+              chosen_option: entry.chosen_option || '—',
+              rationale: entry.rationale,
+              decided_at: decidedAt,
+              decided_at_label: decidedAtLabel,
+              event_id: entry.calendar_event_id || entry.event_id,
+              event_title: entry.event_title,
+            };
+          })
+          .slice(0, 12);
+        this.meetingDecisionsLog.set(entries);
+      });
   }
 
   kpi(key: string): number | string {
@@ -4343,7 +4469,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
         tone: 'maritime',
       },
     });
-    this.router.navigateByUrl('/hypervisor/mission-room/monitor');
+    void this.router.navigate(['/hypervisor/mission-room/strategie'], { queryParams: { mode: 'live' } });
   }
 
   newsGeoTabs(): { key: 'ci' | 'cedeao' | 'africa' | 'world'; label: string; count: number }[] {
@@ -4390,7 +4516,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   decisionSentence60(): NonNullable<MissionCockpit['decision_sentence']> {
     return this.cockpit()?.decision_sentence || {
       label: 'Sentence du jour',
-      text: 'M. le Vice-President, votre priorite absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
+      text: 'M. le Vice Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
       deadline: 'avant Conseil 15h00',
       generated_by: this.assistantName(),
     };
@@ -4398,22 +4524,32 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   vpStatusBar(): NonNullable<MissionCockpit['vp_status_bar']> {
     const direct = this.cockpit()?.vp_status_bar;
-    if (direct?.length) return direct;
-    return [
+    const items = direct?.length
+      ? direct
+      : [
+      { key: 'tension-nord', label: 'Zone Nord', value: 'Tendue', detail: 'projet public bloque · cargo affecte', tone: 'critical' },
       { key: 'posture', label: 'Posture nationale', value: this.postureLabel(this.cockpit()?.strategic_posture), detail: 'consolidation sources', tone: this.cockpit()?.strategic_posture?.label || 'monitoring' },
       { key: 'decisions', label: 'Decisions', value: '3', detail: 'avant 15h00', tone: 'elevated' },
       { key: 'press', label: 'Presse', value: String(this.kpiNumber('press_alerts') || 16), detail: 'alertes qualifiees', tone: 'critical' },
       { key: 'agenda', label: 'Agenda', value: this.kpi('next_meeting_in') === '-' ? '1h46' : String(this.kpi('next_meeting_in')), detail: 'prochaine sequence', tone: 'stable' },
       { key: 'flux', label: 'Flux', value: String(this.kpiNumber('analyzed_articles') || 80), detail: 'articles analyses', tone: 'monitoring' },
     ];
+    return items.slice(0, 3);
   }
 
   directiveOfDay(): NonNullable<MissionCockpit['directive_of_day']> {
     const direct = this.cockpit()?.directive_of_day;
-    if (direct?.text) return direct;
+    if (direct?.text) {
+      return {
+        ...direct,
+        text: direct.text || 'Tension Zone Nord requiert votre attention prioritaire.',
+      };
+    }
+    const sentence = this.decisionSentence60();
     return {
-      ...this.decisionSentence60(),
-      window: this.decisionSentence60().deadline || 'avant Conseil 15h00',
+      ...sentence,
+      text: sentence.text || 'Tension Zone Nord requiert votre attention prioritaire.',
+      window: sentence.deadline || 'avant Conseil 15h00',
       primary_cta: 'Ouvrir le dossier Zone Nord',
       voice_cta: 'Ecouter le briefing AYA',
     };
@@ -4671,7 +4807,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   pressPreview(): VpPressPreviewItem[] {
     const direct = this.cockpit()?.press_preview;
-    if (direct?.length) return direct.slice(0, 3);
+    if (direct?.length) return direct.slice(0, 3).map((item) => this.normalizePressPreviewItem(item));
     const alerts = this.newsAlerts().slice(0, 3);
     if (alerts.length) {
       return alerts.map((signal) => ({
@@ -4801,26 +4937,166 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   openDrillDown(card: Pick<VpArbitrationCard, 'id' | 'drill_down'>): void {
-    const drill = card.drill_down;
-    this.openDrillDownView(drill.view, drill.anchor || card.id, drill.route);
+    this.navigateDrillDown(card.drill_down, card.id);
   }
 
-  openDrillDownView(view: VpDrillDown['view'], anchor?: string, route?: string): void {
-    const target = route || `/hypervisor/mission-room/${view}`;
+  navigateDrillDown(drill: VpDrillDown, fallbackAnchor?: string): void {
+    this.openDrillDownView(
+      drill.view,
+      drill.anchor || fallbackAnchor,
+      drill.route,
+      { zone: drill.zone, layers: drill.layers },
+    );
+  }
+
+  openDrillDownView(
+    view: VpDrillDown['view'],
+    anchor?: string,
+    route?: string,
+    options?: Pick<VpDrillDown, 'zone' | 'layers'>,
+    focus?: string,
+  ): void {
+    const normalizedView = view === 'briefing' ? 'decisions' : view === 'monitor' ? 'strategie' : view;
+    const target = route || `/hypervisor/mission-room/${normalizedView}`;
     const queryParams: Record<string, string> = {};
     if (anchor) queryParams['highlight'] = anchor;
-    if (view === 'strategie') {
-      const layers = this.vpMapPreviewContext().geoPreview.active_layers;
-      if (layers?.length) queryParams['layers'] = layers.join(',');
-      const zone = this.vpMapPreviewContext().geoPreview.top_zone_id;
-      if (zone) queryParams['zone'] = zone;
-    }
+    if (focus) queryParams['focus'] = focus;
+    const zone =
+      options?.zone
+      || (normalizedView === 'strategie' ? this.vpMapPreviewContext().geoPreview.top_zone_id || undefined : undefined);
+    const layers =
+      options?.layers
+      || (normalizedView === 'strategie'
+        ? this.vpMapPreviewContext().geoPreview.active_layers?.join(',')
+        : undefined);
+    if (zone) queryParams['zone'] = zone;
+    if (layers) queryParams['layers'] = layers;
+    if (normalizedView === 'strategie' && view === 'monitor') queryParams['mode'] = 'live';
     this.router.navigate([target], { queryParams }).then(() => this.scrollToHighlight());
   }
 
+  selectArbitrationCard(card: VpArbitrationCard): void {
+    this.selectedArbitrationCard.set(card);
+    this.navigateDrillDown(card.drill_down || { view: 'decisions', anchor: card.id }, card.id);
+  }
+
+  setMapViewMode(mode: 'territory' | 'live'): void {
+    const queryParams: Record<string, string | undefined> = {
+      mode,
+      zone: this.zoneQuery() || undefined,
+      highlight: this.highlightQuery() || undefined,
+      layers: this.layersQuery() || undefined,
+    };
+    void this.router.navigate(['/hypervisor/mission-room/strategie'], { queryParams });
+  }
+
   openPressPreviewItem(item: VpPressPreviewItem): void {
-    const drill = item.drill_down || { view: 'presse' as const, anchor: item.id };
-    this.openDrillDownView(drill.view, drill.anchor || item.id, drill.route);
+    const drill = this.resolvePressPreviewDrillDown(item);
+    this.navigateDrillDown(drill, item.id);
+  }
+
+  openStatusBarDrillDown(item: VpStatusBarItem): void {
+    this.navigateDrillDown(this.statusBarDrillDown(item));
+  }
+
+  openSovereignGaugeDrillDown(indicator: VpSovereignIndicator): void {
+    this.navigateDrillDown(this.sovereignGaugeDrillDown(indicator));
+  }
+
+  openIntelligenceFeedDrillDown(feed: VpIntelligenceFeed): void {
+    this.navigateDrillDown(this.intelligenceFeedDrillDown(feed));
+  }
+
+  openMapZoneDrillDown(zone: VpZoneScore): void {
+    const zoneId = zone.id || this.resolveZoneId(zone.name);
+    const layers = this.vpMapPreviewContext().geoPreview.active_layers?.join(',') || 'threat,press';
+    this.openDrillDownView('strategie', undefined, undefined, { zone: zoneId, layers });
+  }
+
+  openAgendaEventDrillDown(event: VpAgendaTimelineEvent): void {
+    const drill = event.drill_down || { view: 'agenda' as const, anchor: event.id };
+    this.navigateDrillDown(drill, event.id);
+  }
+
+  private resolvePressPreviewDrillDown(item: VpPressPreviewItem & { route?: string; risk_level?: string }): VpDrillDown {
+    if (item.drill_down) return item.drill_down;
+    const route = item.route;
+    if (route) {
+      const highlight = route.match(/highlight=([^&]+)/)?.[1];
+      const view = route.includes('/decisions')
+          ? 'decisions'
+          : route.includes('/agenda')
+            ? 'agenda'
+            : route.includes('/monitor')
+              ? 'strategie'
+              : route.includes('/briefing')
+                ? 'decisions'
+                : route.includes('/strategie')
+                  ? 'strategie'
+                  : 'presse';
+      return { view, anchor: highlight || item.id, route };
+    }
+    return { view: 'presse', anchor: item.id };
+  }
+
+  private statusBarDrillDown(item: VpStatusBarItem): VpDrillDown {
+    if (item.drill_down) return item.drill_down;
+    const defaults: Record<string, VpDrillDown> = {
+      posture: { view: 'strategie', layers: 'territorial-risk,open-intelligence' },
+      deadline: { view: 'decisions', anchor: 'package-zone-nord' },
+      decisions: { view: 'decisions' },
+      arbitrages: { view: 'decisions' },
+      presse: { view: 'presse' },
+      agenda: { view: 'agenda' },
+      flux: { view: 'strategie', layers: 'open-intelligence,visual-streams' },
+    };
+    return defaults[item.key] || { view: 'strategie' };
+  }
+
+  private sovereignGaugeDrillDown(indicator: VpSovereignIndicator): VpDrillDown {
+    if (indicator.drill_down) return indicator.drill_down;
+    const label = indicator.label.toLowerCase();
+    if (label.includes('menace')) {
+      return { view: 'strategie', zone: 'zone-nord', layers: 'threat,press' };
+    }
+    if (label.includes('reputation')) return { view: 'presse' };
+    if (label.includes('stabilite')) return { view: 'decisions', anchor: 'package-zone-nord' };
+    if (label.includes('maritime')) return { view: 'strategie', layers: 'maritime-traffic' };
+    if (label.includes('arbitrage')) return { view: 'decisions' };
+    if (label.includes('agenda')) return { view: 'agenda' };
+    return { view: 'strategie' };
+  }
+
+  private intelligenceFeedDrillDown(feed: VpIntelligenceFeed): VpDrillDown {
+    if (feed.drill_down) return feed.drill_down;
+    const defaults: Record<string, VpDrillDown> = {
+      satellite: { view: 'strategie', zone: 'zone-nord', layers: 'threat' },
+      'maritime-ais': { view: 'strategie', layers: 'maritime-traffic' },
+      maritime: { view: 'strategie', layers: 'maritime-traffic' },
+      'ads-b': { view: 'strategie', layers: 'visual-streams' },
+      adsb: { view: 'strategie', layers: 'visual-streams' },
+      osint: { view: 'presse' },
+      'mobile-signal': { view: 'strategie', zone: 'zone-nord' },
+      mobile: { view: 'strategie', zone: 'zone-nord' },
+      economy: { view: 'strategie', layers: 'open-intelligence' },
+      'terrain-sensors': { view: 'strategie', layers: 'visual-streams' },
+      terrain: { view: 'strategie', layers: 'visual-streams' },
+      cyber: { view: 'strategie', layers: 'open-intelligence' },
+    };
+    return defaults[feed.key] || { view: 'strategie' };
+  }
+
+  private resolveZoneId(name: string): string {
+    const normalized = name.toLowerCase();
+    const match = (this.missionMap()?.zones || this.fusedMapPreview().zones || []).find(
+      (zone) => zone.id === normalized || zone.name.toLowerCase() === normalized,
+    );
+    if (match?.id) return match.id;
+    if (normalized.includes('nord')) return 'zone-nord';
+    if (normalized.includes('ouest')) return 'zone-ouest';
+    if (normalized.includes('centre')) return 'zone-centre';
+    if (normalized.includes('sud')) return 'zone-sud';
+    return normalized.replace(/\s+/g, '-');
   }
 
   openMorningPressHighlight(): void {
@@ -4870,6 +5146,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return {
       active_layers: ['threat', 'press', 'maritime'],
       zone_scores: zones.slice(0, 4).map((zone) => ({
+        id: zone.id,
         name: zone.name,
         score: zone.level,
         trend: zone.tone === 'critical' ? '+12/24h' : zone.tone === 'watch' ? '+4/24h' : 'stable',
@@ -4877,6 +5154,66 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       })),
       top_zone_id: preview.top_zone?.id || zones[0]?.id || 'zone-nord',
     };
+  }
+
+  private normalizePressPreviewItem(
+    item: VpPressPreviewItem & { route?: string; risk_level?: string },
+  ): VpPressPreviewItem {
+    const risk = item.risk || item.risk_level || 'medium';
+    if (item.drill_down) return { ...item, risk };
+    return {
+      ...item,
+      risk,
+      drill_down: this.resolvePressPreviewDrillDown(item),
+    };
+  }
+
+  private applyAssistantFocus(effect: AssistantNavigateEffect): void {
+    const focusNode =
+      effect.metadata?.last_focus
+      || effect.metadata?.focus_node_id
+      || effect.highlight
+      || effect.queryParams?.['focus_node']
+      || effect.queryParams?.['highlight'];
+    if (!focusNode) return;
+    const focusType = (effect.metadata?.focus_node_type || '').toLowerCase();
+    const normalized = String(focusNode).toLowerCase();
+    const zones = [
+      ...((this.missionMap()?.zones || []) as MapZone[]),
+      ...((this.monitor()?.zones || []) as MapZone[]),
+    ];
+    const zoneMatch = zones.find(
+      (zone) =>
+        zone.id === focusNode
+        || zone.id?.toLowerCase() === normalized
+        || zone.name?.toLowerCase() === normalized
+        || (normalized.includes('nord') && zone.id === 'zone-nord')
+        || (normalized.includes(zone.id?.toLowerCase() || '__never__')),
+    );
+    if (zoneMatch && (!focusType || focusType === 'zone' || focusType === 'territory')) {
+      this.selectedZone.set(zoneMatch);
+      this.mapCommandState.set({
+        ...(this.mapCommandState() || {}),
+        preset: 'zone',
+        zone: zoneMatch.id,
+        zoom: 'territory',
+        highlight: true,
+      });
+    }
+    const projects = this.projects()?.projects || [];
+    const projectMatch = projects.find(
+      (project) => project.id === focusNode || project.id.toLowerCase() === normalized,
+    );
+    if (projectMatch && (!focusType || focusType === 'project')) {
+      this.selectedProject.set(projectMatch);
+    }
+    const arbitrationMatch = this.arbitrationCards().find(
+      (card) => card.id === focusNode || card.id.toLowerCase() === normalized,
+    );
+    if (arbitrationMatch && (!focusType || focusType === 'arbitration' || focusType === 'decision')) {
+      this.selectedArbitrationCard.set(arbitrationMatch);
+    }
+    setTimeout(() => this.scrollToHighlight(), 160);
   }
 
   private scrollToHighlight(): void {
@@ -4893,11 +5230,14 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private applyMapQueryState(): void {
     const layers = this.layersQuery();
     const zone = this.zoneQuery();
-    if (!layers && !zone) return;
+    const mode = this.modeQuery();
+    if (!layers && !zone && !mode) return;
     const active_layers = layers ? layers.split(',').map((item) => item.trim()).filter(Boolean) : undefined;
     this.mapCommandState.set({
       ...(this.mapCommandState() || {}),
-      active_layers,
+      active_layers: mode === 'maritime'
+        ? ['territorial-risk', 'open-intelligence', 'visual-streams', 'maritime-traffic']
+        : active_layers,
       selected_zone: zone || undefined,
       preset: zone ? 'zone' : undefined,
       zone,
@@ -5054,11 +5394,13 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     if (zone) this.selectedZone.set(zone);
     this.mapCommandState.set({
       preset: 'zone',
-      zone: name,
+      zone: zone?.id || name,
       zoom: 'territory',
       highlight: true,
     });
-    this.router.navigateByUrl('/hypervisor/mission-room/monitor');
+    void this.router.navigate(['/hypervisor/mission-room/strategie'], {
+      queryParams: { mode: 'territory', zone: zone?.id || undefined },
+    });
   }
 
   selectProject(project: Project): void {
@@ -5114,7 +5456,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   openAssistantVoice(prompt?: string): void {
-    this.openAssistant(prompt || 'AYA, quelle est la situation prioritaire maintenant ?', { voiceLoop: true });
+    this.openAssistant(prompt, { voiceLoop: true });
   }
 
   handleMapEvidenceAction(event: { action: string; zone: any }): void {
@@ -5125,10 +5467,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       return;
     }
     if (event?.action === 'maritime') {
-      this.openAssistantVoice(`AYA, explique le risque portuaire autour de ${title} et les actions recommandées.`);
+      this.openAssistant(`AYA, explique le risque portuaire autour de ${title} et les actions recommandées.`);
       return;
     }
-    this.openAssistantVoice(`AYA, donne-moi le brief opérationnel pour ${title} avec sources et action recommandée.`);
+    this.openAssistant(`AYA, donne-moi le brief opérationnel pour ${title} avec sources et action recommandée.`);
   }
 
   draftForProject(project: Project): void {
@@ -5284,6 +5626,81 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
         this.selectedAgendaEvent.set(cancelled);
         this.loadAll();
       });
+  }
+
+  agendaSubItems(event: AgendaItem): AgendaSubItem[] {
+    const items = event.metadata?.agenda_items;
+    if (Array.isArray(items)) return items;
+    return [];
+  }
+
+  agendaSubItemSourceLabel(item: AgendaSubItem): string {
+    const raw = (item.source_label || item.source || '').trim().toLowerCase();
+    if (!raw) return 'Ajouté par VP';
+    if (raw.includes('aya') || raw.includes('assistant')) return 'Ajouté par AYA';
+    if (raw.includes('brief') || raw.includes('prefet') || raw.includes('préfet')) return 'Importé du brief préfet';
+    if (raw.includes('vp') || raw.includes('cabinet')) return 'Ajouté par VP';
+    return item.source_label || item.source || 'Ajouté par VP';
+  }
+
+  agendaSubItemSourceClass(item: AgendaSubItem): string {
+    const raw = (item.source_label || item.source || '').toLowerCase();
+    if (raw.includes('aya')) return 'source-aya';
+    if (raw.includes('brief') || raw.includes('prefet') || raw.includes('préfet')) return 'source-brief';
+    return 'source-vp';
+  }
+
+  addAgendaSubItem(): void {
+    const event = this.selectedAgendaEvent();
+    if (!event) return;
+    const existing = this.agendaSubItems(event);
+    const next: AgendaSubItem = {
+      id: `odj-${Date.now()}`,
+      title: 'Nouveau point',
+      order: existing.length + 1,
+      source: 'vp',
+      source_label: 'Ajouté par VP',
+    };
+    this.patchAgendaSubItems(event, [...existing, next]);
+  }
+
+  updateAgendaSubItem(index: number, title: string): void {
+    const event = this.selectedAgendaEvent();
+    if (!event) return;
+    const existing = this.agendaSubItems(event).slice();
+    if (!existing[index]) return;
+    existing[index] = { ...existing[index], title };
+    this.patchAgendaSubItems(event, existing);
+  }
+
+  removeAgendaSubItem(index: number): void {
+    const event = this.selectedAgendaEvent();
+    if (!event) return;
+    const existing = this.agendaSubItems(event).slice();
+    if (!existing[index]) return;
+    existing.splice(index, 1);
+    this.patchAgendaSubItems(event, existing);
+  }
+
+  private patchAgendaSubItems(event: AgendaItem, items: AgendaSubItem[]): void {
+    const nextEvent: AgendaItem = {
+      ...event,
+      metadata: { ...(event.metadata || {}), agenda_items: items },
+    };
+    this.selectedAgendaEvent.set(nextEvent);
+    if (!event.id) return;
+    const nextMetadata = nextEvent.metadata || {};
+    this.api
+      .patch<AgendaItem>(`/calendar/events/${event.id}`, { metadata: nextMetadata })
+      .pipe(catchError(() => of(null)))
+      .subscribe((updated) => {
+        if (updated) this.selectedAgendaEvent.set(updated);
+      });
+  }
+
+  startMeeting(event: AgendaItem): void {
+    if (!event.id) return;
+    void this.router.navigate(['/hypervisor/mission-room/agenda/meeting', event.id]);
   }
 
   createDraft(targetId: string, targetType: string): void {

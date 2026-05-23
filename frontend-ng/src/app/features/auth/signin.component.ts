@@ -31,10 +31,26 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
   imports: [FormsModule, RouterLink, IconComponent],
   template: `
     @if (!mfaChallenge()) {
+      @if (sentinelCiLogin()) {
+        <div class="ck-auth-security-band" role="note">
+          Validation conformite Athea — chiffrement bout en bout, hebergement souverain Cote d'Ivoire
+        </div>
+      }
       <header class="ck-auth-head">
-        <span class="ck-auth-eyebrow">COCKPIT ACCESS</span>
-        <h2 class="ck-auth-title">Sign in</h2>
-        <p class="ck-auth-sub">Operator authentication · single workspace session.</p>
+        <span class="ck-auth-eyebrow">{{ sentinelCiLogin() ? 'ACCES SOUVERAIN' : 'COCKPIT ACCESS' }}</span>
+        <h2 class="ck-auth-title">{{ sentinelCiLogin() ? 'Hyperviseur souverain SENTINEL-CI' : 'Sign in' }}</h2>
+        <p class="ck-auth-sub">
+          @if (sentinelCiLogin()) {
+            Authentification executive · session workspace sentinel-ci.
+          } @else {
+            Operator authentication · single workspace session.
+          }
+        </p>
+        @if (sentinelCiLogin()) {
+          <p class="ck-auth-sovereign-tag" aria-label="Mention souveraine">
+            Cockpit souverain · République de Côte d'Ivoire
+          </p>
+        }
       </header>
 
       <form (ngSubmit)="onSubmit()" class="ck-auth-form">
@@ -99,7 +115,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
             <span class="ck-btn-spinner" aria-hidden="true"></span>
             <span>SIGNING IN…</span>
           } @else {
-            <span>SIGN IN</span>
+            <span>{{ sentinelCiLogin() ? 'CONNEXION VP' : 'SIGN IN' }}</span>
             <span class="ck-btn-chevron" aria-hidden="true">→</span>
           }
         </button>
@@ -185,6 +201,17 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
     `
       :host { display: block; color: var(--ck-fg-1); font-family: var(--ck-font-sans); }
 
+      .ck-auth-security-band {
+        margin-bottom: 14px;
+        padding: 10px 12px;
+        border: 1px solid rgba(101, 214, 110, 0.24);
+        border-radius: var(--ck-radius-md);
+        background: rgba(101, 214, 110, 0.08);
+        color: rgba(207, 239, 255, 0.88);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
       .ck-auth-head { margin-bottom: 20px; }
       .ck-auth-head-mfa { text-align: center; }
       .ck-auth-mfa-icon {
@@ -224,6 +251,19 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
         margin: 0;
       }
       .ck-auth-sub-strong { color: var(--ck-fg-1); font-weight: 500; }
+      .ck-auth-sovereign-tag {
+        margin: 12px 0 0;
+        padding: 6px 10px;
+        display: inline-block;
+        border: 1px solid rgba(101, 214, 110, 0.32);
+        border-radius: var(--ck-radius-sm);
+        background: rgba(101, 214, 110, 0.08);
+        color: var(--sentinel-accent, #65d66e);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
 
       .ck-auth-form {
         display: flex;
@@ -531,7 +571,15 @@ export class SigninComponent implements OnDestroy {
 
   otpInputs = viewChildren<ElementRef<HTMLInputElement>>('otpInput');
 
+  readonly sentinelCiLogin = signal(false);
+
   constructor() {
+    const workspace = this.route.snapshot.queryParamMap.get('workspace');
+    const demo = this.route.snapshot.queryParamMap.get('demo');
+    this.sentinelCiLogin.set(workspace === 'sentinel-ci');
+    if (demo === 'true') {
+      this.email = 'vp.demo@sentinel-ci.local';
+    }
     effect(() => {
       const digits = this.otpDigits();
       if (digits.join('').length === 6 && this.mfaChallenge() && !this.loading() && this.secondsLeft() > 0) {

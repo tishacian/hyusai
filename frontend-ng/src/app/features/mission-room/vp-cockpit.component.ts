@@ -1,26 +1,18 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
-import { GlyphComponent } from '@app/shared/cockpit';
 import { VpMapPreviewComponent } from './vp-map-preview.component';
-import { VpSovereignGaugesComponent } from './vp-sovereign-gauges.component';
-import { VpIntelligenceGridComponent } from './vp-intelligence-grid.component';
 import { VpArbitrationStripComponent } from './vp-arbitration-strip.component';
-import { VpAgendaTimelineComponent } from './vp-agenda-timeline.component';
 import { VpAyaPriorityBannerComponent } from './vp-aya-priority-banner.component';
 import { VpPressPreviewComponent } from './vp-press-preview.component';
+import { VpMacroIndicatorsComponent } from './vp-macro-indicators.component';
 import type {
-  VpAgendaTimeline,
-  VpAgendaTimelineEvent,
   VpArbitrationCard,
   VpAyaRecommendation,
   VpDirectiveOfDay,
-  VpIntelligenceFeed,
   VpMapPreviewContext,
   VpPressPreviewItem,
-  VpScenarioMode,
-  VpSovereignIndicator,
   VpStatusBarItem,
+  VpZoneScore,
 } from './vp-cockpit.types';
 
 @Component({
@@ -28,43 +20,48 @@ import type {
   standalone: true,
   imports: [
     CommonModule,
-    RouterLink,
-    GlyphComponent,
     VpMapPreviewComponent,
-    VpSovereignGaugesComponent,
-    VpIntelligenceGridComponent,
     VpArbitrationStripComponent,
-    VpAgendaTimelineComponent,
     VpAyaPriorityBannerComponent,
     VpPressPreviewComponent,
+    VpMacroIndicatorsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="vp-cockpit" aria-label="Cockpit Vice-Presidence">
-      <section class="vp-stratum vp-stratum-monitoring" aria-label="Monitoring">
-        <section class="vp-status-bar" aria-label="Posture nationale">
-          @for (item of statusBar; track item.key) {
-            <article [class]="toneClass(item.tone)">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-              @if (item.detail) {
-                <small>{{ item.detail }}</small>
+    <div class="vp-cockpit" aria-label="Cockpit Vice-Présidence">
+      <section class="vp-block vp-block-status" aria-label="Posture nationale">
+        <header class="vp-block-head">
+          <span class="vp-block-eyebrow">Posture nationale</span>
+          <h2 class="vp-block-title">État du jour</h2>
+        </header>
+        <div class="vp-status-bar">
+          @for (item of orderedStatusBar(); track item.key) {
+            <button
+              type="button"
+              class="status-chip"
+              [class]="toneClass(item.tone)"
+              [class.prominent]="isProminent(item)"
+              [attr.aria-label]="item.label + ' : ' + item.value + (item.detail ? ' — ' + item.detail : '')"
+              (click)="statusBarSelected.emit(item)"
+            >
+              @if (isProminent(item)) {
+                <span class="status-chip-pulse" aria-hidden="true"></span>
               }
-            </article>
+              <span class="status-chip-label">{{ item.label }}</span>
+              <strong class="status-chip-value">{{ item.value }}</strong>
+              @if (item.detail) {
+                <small class="status-chip-detail">{{ item.detail }}</small>
+              }
+            </button>
           }
-        </section>
-
-        <div class="monitoring-row">
-          <app-vp-map-preview [context]="mapPreview" (openMap)="openMap.emit()" />
-          <app-vp-sovereign-gauges [indicators]="sovereignIndicators" />
         </div>
-
-        <app-vp-intelligence-grid [feeds]="intelligenceFeeds" />
-
-        <app-vp-agenda-timeline [timeline]="agendaTimeline" (eventSelected)="agendaEvent.emit($event)" />
       </section>
 
-      <section class="vp-stratum vp-stratum-alerting" aria-label="Alerting">
+      <section class="vp-block vp-block-macro" aria-label="Indicateurs macro">
+        <app-vp-macro-indicators />
+      </section>
+
+      <section class="vp-block vp-block-aya" aria-label="Priorité AYA">
         <app-vp-aya-priority-banner
           [assistantName]="assistantName"
           [directive]="directive"
@@ -73,207 +70,176 @@ import type {
           (voiceListen)="voiceListen.emit()"
           (briefingRequest)="briefingRequest.emit()"
         />
-
-        <app-vp-arbitration-strip [cards]="arbitrationCards" (cardSelected)="arbitrationSelected.emit($event)" />
-
-        <app-vp-press-preview
-          [items]="pressPreview"
-          [highlightId]="pressHighlightId"
-          [morningHighlight]="morningHighlight"
-          [morningDismissed]="morningDismissed"
-          (itemSelected)="pressSelected.emit($event)"
-          (morningView)="morningView.emit()"
-          (morningLater)="morningLater.emit()"
-          (morningVoice)="morningVoice.emit()"
-        />
       </section>
 
-      <section class="vp-stratum vp-stratum-decision" aria-label="Decision">
-        @if (decisionTeaser; as teaser) {
-          <article class="decision-teaser content-panel">
-            <span class="eyebrow">Option AYA recommandee</span>
-            <strong>{{ teaser.recommended_option }}</strong>
-            <p>{{ teaser.title }} · {{ teaser.deadline || 'avant Conseil 15h00' }}</p>
-            <button type="button" class="inline-link" (click)="briefingRequest.emit()">Comparer les options</button>
-          </article>
-        }
+      <section class="vp-block vp-block-terrain" aria-label="Carte et arbitrages">
+        <app-vp-map-preview
+          [context]="mapPreview"
+          (openMap)="openMap.emit()"
+          (zoneSelected)="mapZoneSelected.emit($event)"
+        />
+        <app-vp-arbitration-strip [cards]="arbitrationCards" (cardSelected)="arbitrationSelected.emit($event)" />
+      </section>
 
-        <article class="decision-cta content-panel">
-          <div class="cta-copy">
-            <span class="eyebrow">{{ assistantName }} · Action VP</span>
-            <p>Preparer l'arbitrage sous validation humaine — vocal ou brouillon advisory.</p>
-          </div>
-          <div class="cta-actions">
-            <button type="button" class="action-button primary" (click)="voiceRequest.emit(ayaRecommendation?.prompt)">
-              <ck-glyph name="bolt" [size]="14" />
-              <span>Parler a {{ assistantName }}</span>
-            </button>
-            <button type="button" class="action-button compact" (click)="voiceListen.emit()">
-              <ck-glyph name="pulse" [size]="14" />
-              <span>Ecouter le briefing</span>
-            </button>
-          </div>
-        </article>
-
-        <footer class="explorer-footer">
-          @for (mode of scenarioModes; track mode.key) {
-            <button type="button" (click)="scenarioMode.emit(mode)">
-              <strong>{{ mode.label }}</strong>
-              <small>{{ mode.goal }}</small>
-            </button>
-          }
-        </footer>
+      <section class="vp-block vp-block-press" aria-label="Alerte presse">
+        <header class="vp-block-head">
+          <span class="vp-block-eyebrow">Signal presse</span>
+          <h2 class="vp-block-title">Alerte hero du matin</h2>
+        </header>
+        <app-vp-press-preview
+          [items]="pressPreview.slice(0, 1)"
+          [highlightId]="pressHighlightId"
+          (itemSelected)="pressSelected.emit($event)"
+        />
       </section>
     </div>
   `,
   styles: [
     `
       :host { display: block; min-width: 0; }
-      .vp-cockpit { display: grid; gap: 14px; }
-      .vp-stratum {
+      .vp-cockpit {
         display: grid;
-        gap: 12px;
-        padding: 14px;
-        border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius);
-        background: rgba(4, 8, 13, 0.42);
+        gap: var(--mission-space-5);
+        padding: var(--mission-space-1) 0;
       }
-      .vp-stratum-monitoring { min-height: 50vh; }
-      .vp-stratum-alerting { min-height: 22vh; }
-      .vp-stratum-decision { min-height: 18vh; }
+      .vp-block {
+        padding: var(--mission-space-5);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-lg);
+        background: linear-gradient(180deg, rgba(8, 14, 20, 0.62), rgba(4, 8, 13, 0.42));
+        box-shadow: var(--mission-shadow-soft);
+      }
+      .vp-block-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--mission-space-3);
+        margin-bottom: var(--mission-space-4);
+      }
+      .vp-block-eyebrow {
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+        color: var(--mission-text-tertiary);
+      }
+      .vp-block-title {
+        margin: 0;
+        font-size: var(--mission-text-md);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        color: var(--mission-text-primary);
+      }
       .vp-status-bar {
         display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-        gap: 8px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--mission-space-3);
       }
-      .vp-status-bar article {
-        padding: 10px 11px;
+      .status-chip {
+        position: relative;
+        padding: var(--mission-space-3) var(--mission-space-4);
         border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius-sm);
+        border-radius: var(--mission-radius-md);
         background: rgba(4, 8, 13, 0.58);
-      }
-      .vp-status-bar article.critical { border-color: rgba(240, 100, 118, 0.34); }
-      .vp-status-bar article.elevated { border-color: rgba(241, 180, 90, 0.32); }
-      .vp-status-bar article.stable { border-color: rgba(63, 209, 141, 0.28); }
-      .vp-status-bar span {
-        display: block;
-        color: var(--mission-text-muted);
-        font-family: var(--ck-font-mono);
-        font-size: 9px;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-      }
-      .vp-status-bar strong {
-        display: block;
-        margin-top: 4px;
-        font-size: 18px;
-        line-height: 1;
-      }
-      .vp-status-bar small {
-        display: block;
-        margin-top: 4px;
-        color: var(--mission-text-faint);
-        font-size: 10px;
-      }
-      .monitoring-row {
-        display: grid;
-        grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
-        gap: 12px;
-        align-items: stretch;
-      }
-      .content-panel {
-        padding: 12px 14px;
-        border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius);
-        background: rgba(4, 8, 13, 0.58);
-      }
-      .eyebrow {
-        display: block;
-        color: var(--mission-text-muted);
-        font-family: var(--ck-font-mono);
-        font-size: 9px;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-      }
-      .decision-teaser strong {
-        display: block;
-        margin-top: 6px;
-        font-size: 16px;
-        line-height: 1.25;
-      }
-      .decision-teaser p {
-        margin: 6px 0 0;
-        color: var(--mission-text-muted);
-        font-size: 12px;
-      }
-      .decision-cta {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        flex-wrap: wrap;
-      }
-      .cta-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-      .action-button {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 8px 11px;
-        border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius-sm);
-        background: var(--mission-inset);
-        color: var(--mission-text);
-        font: inherit;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      .action-button.primary {
-        border-color: rgba(101, 214, 110, 0.28);
-        background: var(--mission-trust-wash);
-      }
-      .inline-link {
-        display: inline-flex;
-        margin-top: 8px;
-        padding: 0;
-        border: 0;
-        background: transparent;
-        color: var(--mission-accent);
-        font-family: var(--ck-font-mono);
-        font-size: 11px;
-        cursor: pointer;
-      }
-      .explorer-footer {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        align-items: center;
-      }
-      .explorer-footer button {
-        min-width: 140px;
-        padding: 8px 10px;
-        border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius-sm);
-        background: rgba(4, 8, 13, 0.52);
+        width: 100%;
         color: inherit;
         text-align: left;
-        cursor: pointer;
         appearance: none;
         font: inherit;
+        cursor: pointer;
+        transition:
+          border-color var(--mission-dur-fast) var(--mission-ease-out),
+          background var(--mission-dur-fast) var(--mission-ease-out),
+          transform var(--mission-dur-fast) var(--mission-ease-out);
       }
-      .explorer-footer strong { display: block; font-size: 12px; }
-      .explorer-footer small {
+      .status-chip:hover {
+        border-color: var(--sentinel-accent-muted);
+        background: rgba(101, 214, 110, 0.04);
+      }
+      .status-chip:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
+      }
+      .status-chip:active { transform: translateY(1px); }
+      .status-chip.critical { border-color: rgba(240, 100, 118, 0.34); }
+      .status-chip.elevated { border-color: rgba(241, 180, 90, 0.32); }
+      .status-chip.stable { border-color: rgba(63, 209, 141, 0.28); }
+      .status-chip.prominent {
+        background: linear-gradient(135deg, var(--mission-critical-soft), rgba(4, 8, 13, 0.62));
+        border-color: rgba(240, 100, 118, 0.55);
+        box-shadow: 0 0 0 1px rgba(240, 100, 118, 0.20), 0 0 18px rgba(240, 100, 118, 0.08);
+      }
+      .status-chip.prominent .status-chip-value { color: var(--mission-critical); }
+      .status-chip-pulse {
+        position: absolute;
+        top: var(--mission-space-3);
+        right: var(--mission-space-3);
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--mission-critical);
+        box-shadow: 0 0 0 0 rgba(240, 100, 118, 0.55);
+        animation: vp-pulse-critical 2.4s ease-in-out infinite;
+      }
+      @keyframes vp-pulse-critical {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(240, 100, 118, 0.55); }
+        50%      { box-shadow: 0 0 0 7px rgba(240, 100, 118, 0); }
+      }
+      .status-chip-label {
         display: block;
-        margin-top: 3px;
-        color: var(--mission-text-faint);
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
         font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+      }
+      .status-chip-value {
+        display: block;
+        margin-top: var(--mission-space-1);
+        font-size: var(--mission-text-lg);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        line-height: 1.05;
+        color: var(--mission-text-primary);
+      }
+      .status-chip-detail {
+        display: block;
+        margin-top: var(--mission-space-1);
+        color: var(--mission-text-tertiary);
+        font-size: var(--mission-text-xs);
         line-height: 1.35;
       }
-      @media (max-width: 1200px) {
-        .vp-status-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-        .monitoring-row { grid-template-columns: 1fr; }
+      .vp-block-terrain {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, 1fr);
+        gap: var(--mission-space-4);
+        align-items: stretch;
+        padding: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
       }
-      @media (max-width: 840px) {
-        .vp-status-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .vp-block-terrain > * {
+        min-width: 0;
+      }
+      .vp-block-aya {
+        padding: var(--mission-space-1);
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+      }
+      .vp-block-macro,
+      .vp-block-press {
+        padding: var(--mission-space-5);
+      }
+      @media (max-width: 1100px) {
+        .vp-status-bar,
+        .vp-block-terrain {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .status-chip-pulse { animation: none; }
       }
     `,
   ],
@@ -290,36 +256,20 @@ export class VpCockpitComponent {
     geoPreview: { zone_scores: [] },
     topZoneId: null,
   };
-  @Input() sovereignIndicators: VpSovereignIndicator[] = [];
-  @Input() intelligenceFeeds: VpIntelligenceFeed[] = [];
-  @Input() agendaTimeline: VpAgendaTimeline = { events: [] };
   @Input() directive: VpDirectiveOfDay = { text: '' };
   @Input() ayaRecommendation: VpAyaRecommendation | null = null;
   @Input() arbitrationCards: VpArbitrationCard[] = [];
   @Input() pressPreview: VpPressPreviewItem[] = [];
   @Input() pressHighlightId: string | null = null;
-  @Input() morningHighlight: string | null = null;
-  @Input() morningDismissed = false;
-  @Input() decisionTeaser: {
-    id: string;
-    title: string;
-    recommended_option: string;
-    deadline?: string;
-    confidence?: number;
-  } | null = null;
-  @Input() scenarioModes: VpScenarioMode[] = [];
 
   @Output() openMap = new EventEmitter<void>();
+  @Output() mapZoneSelected = new EventEmitter<VpZoneScore>();
+  @Output() statusBarSelected = new EventEmitter<VpStatusBarItem>();
   @Output() arbitrationSelected = new EventEmitter<VpArbitrationCard>();
   @Output() pressSelected = new EventEmitter<VpPressPreviewItem>();
-  @Output() agendaEvent = new EventEmitter<VpAgendaTimelineEvent>();
   @Output() voiceRequest = new EventEmitter<string | undefined>();
   @Output() voiceListen = new EventEmitter<void>();
   @Output() briefingRequest = new EventEmitter<void>();
-  @Output() morningView = new EventEmitter<void>();
-  @Output() morningLater = new EventEmitter<void>();
-  @Output() morningVoice = new EventEmitter<void>();
-  @Output() scenarioMode = new EventEmitter<VpScenarioMode>();
 
   toneClass(tone?: string): string {
     const normalized = (tone || '').toLowerCase();
@@ -327,5 +277,32 @@ export class VpCockpitComponent {
     if (normalized === 'elevated' || normalized === 'watch') return 'elevated';
     if (normalized === 'stable') return 'stable';
     return 'monitoring';
+  }
+
+  isProminent(item: VpStatusBarItem): boolean {
+    const normalized = `${item.key} ${item.label} ${item.value} ${item.detail || ''}`.toLowerCase();
+    if (normalized.includes('zone nord') || normalized.includes('tension nord')) return true;
+    if (normalized.includes('nord') && this.toneClass(item.tone) === 'critical') return true;
+    return false;
+  }
+
+  orderedStatusBar(): VpStatusBarItem[] {
+    const items = (this.statusBar || []).slice();
+    const prominentIndex = items.findIndex((item) => this.isProminent(item));
+    if (prominentIndex > 0) {
+      const [prominent] = items.splice(prominentIndex, 1);
+      items.unshift(prominent);
+    }
+    if (!items.some((item) => this.isProminent(item))) {
+      items.unshift({
+        key: 'tension-nord',
+        label: 'Zone Nord',
+        value: 'Tendue',
+        detail: 'tension projet · cargo bloqué',
+        tone: 'critical',
+        drill_down: { view: 'strategie', zone: 'zone-nord', layers: 'threat,press' },
+      } as VpStatusBarItem);
+    }
+    return items.slice(0, 3);
   }
 }

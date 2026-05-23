@@ -43,6 +43,8 @@ from app.api.v1.endpoints import (
     workspace_jobs,
     maps,
     visual_intelligence,
+    meetings,
+    reports,
 )
 
 api_router = APIRouter()
@@ -92,3 +94,5 @@ api_router.include_router(actions.router, prefix="/actions", tags=["actions"])
 api_router.include_router(workspace_jobs.router, prefix="/workspace-jobs", tags=["workspace-jobs"])
 api_router.include_router(maps.router, prefix="/maps", tags=["maps"])
 api_router.include_router(visual_intelligence.router, prefix="/visual-intelligence", tags=["visual-intelligence"])
+api_router.include_router(meetings.router, prefix="/meetings", tags=["meetings"])
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])

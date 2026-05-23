@@ -540,20 +540,422 @@ async def _action_plan_cancel_v1(payload: Dict[str, Any], ctx: Optional[Dict[str
 
 
 async def _time_context_set_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.demo_time_context import demo_time_context_defaults
+
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
         settings = dict(workspace.settings or {})
+        defaults = demo_time_context_defaults(workspace)
         settings["demo_time_context"] = {
-            "mode": str(payload.get("mode") or "fixed"),
-            "current_date": str(payload.get("current_date") or payload.get("date") or "2026-04-15"),
-            "label": str(payload.get("label") or "Contexte temporel ministeriel"),
-            "timezone": str(payload.get("timezone") or "Africa/Abidjan"),
+            "mode": str(payload.get("mode") or defaults["mode"]),
+            "current_date": str(payload.get("current_date") or payload.get("date") or defaults["current_date"]),
+            "current_time": str(payload.get("current_time") or defaults.get("current_time") or "10:30:00"),
+            "label": str(payload.get("label") or defaults["label"]),
+            "timezone": str(payload.get("timezone") or defaults["timezone"]),
         }
         workspace.settings = settings
         db.add(workspace)
         db.commit()
         return {"status": "applied", "applied": True, "demo_time_context": settings["demo_time_context"]}
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _briefing_priorities_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.mission_room import ATTENTION_REQUIRED, cockpit_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        cockpit = cockpit_payload(workspace, db=db)
+        priorities = []
+        for item in (cockpit.get("attention_required") or ATTENTION_REQUIRED)[:3]:
+            priorities.append(
+                {
+                    "id": item.get("id"),
+                    "title": item.get("title"),
+                    "summary": item.get("sentence") or item.get("summary"),
+                    "deadline": item.get("deadline"),
+                    "tone": item.get("tone"),
+                    "sources": item.get("source_refs") or item.get("sources") or [],
+                }
+            )
+        return {"status": "ready", "priorities": priorities, "cockpit": {"decision_sentence": cockpit.get("decision_sentence")}}
+    finally:
+        if owns_db:
+            db.close()
+
+
+def _load_prefet_report_text() -> str:
+    from pathlib import Path
+
+    candidates = [
+        Path(__file__).resolve().parents[3] / "docs" / "demo-data" / "sentinel-ci-kb" / "rapport-prefet-nawa-2026-05-10.md",
+        Path(__file__).resolve().parents[2] / ".." / "docs" / "demo-data" / "sentinel-ci-kb" / "rapport-prefet-nawa-2026-05-10.md",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+    return ""
+
+
+async def _summarize_long_document_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    document_id = str(payload.get("document_id") or "report-prefet-nawa-2026-05-10")
+    focus_topics = list(payload.get("focus_topics") or ["cacao", "diversification", "infrastructures"])
+    report_text = _load_prefet_report_text()
+    citations = [
+        {
+            "source_id": "src-prefet-nawa-report-001",
+            "document_id": document_id,
+            "title": "Rapport Prefet Nawa — 10 mai 2026",
+            "sent_at": "2026-05-10",
+            "pages": 70,
+        }
+    ]
+    key_topics = [topic for topic in focus_topics if topic.lower() in report_text.lower()] or focus_topics
+    summary_lines = [
+        "M. le Vice President, synthese des derniers echanges avec le Prefet de Nawa (rapport du 10 mai, ~70 pages) :",
+        "- Contexte : region Nawa / Soubre, filiere cacao dominante, pression sur prix FCFA et infrastructures.",
+        "- Points saillants : besoin de sechoirs, routes secondaires, electrifiation et diversification cultures.",
+        "- Risques : volatilite prix export, dependance monoculture, fenetre climatique.",
+        "- Recommandations prefet : transformation locale a court terme, montee en charge cooperative, financement mixte.",
+    ]
+    if "cacao" in report_text.lower():
+        summary_lines.append("- Emergence cacao : sections filiere et chiffrage publics confirment un gap transformation ~4,2-6,8 Mds FCFA.")
+    return {
+        "status": "ready",
+        "summary_markdown": "\n".join(summary_lines),
+        "key_topics": key_topics,
+        "citations": citations,
+        "document_id": document_id,
+    }
+
+
+async def _generate_recommendations_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    topic = str(payload.get("topic") or "cacao_diversification")
+    chiffrage = bool(payload.get("chiffrage", True))
+    options = [
+        {
+            "label": "Petite industrie transformation + diversification cultures",
+            "summary": "Unité locale de transformation cacao + ananas/culture de couverture ; impact emploi Soubre.",
+            "cost_estimate": "4,2 Mds FCFA" if chiffrage else None,
+            "infra_required": ["Sechoirs", "Mini-usine", "Routes secondaires"],
+            "confidence": 0.78,
+        },
+        {
+            "label": "Cooperative regionale renforcee",
+            "summary": "Montee en charge cooperative existante, formation qualite export et tracabilite.",
+            "cost_estimate": "1,6 Mds FCFA" if chiffrage else None,
+            "infra_required": ["Centres de collecte", "Formation"],
+            "confidence": 0.71,
+        },
+        {
+            "label": "PPP infrastructure sechoirs",
+            "summary": "Partenariat public-prive sur sechoirs solaires ; partage risque prix.",
+            "cost_estimate": "6,8 Mds FCFA" if chiffrage else None,
+            "infra_required": ["Sechoirs solaires", "Electrification"],
+            "confidence": 0.66,
+        },
+    ]
+    return {
+        "status": "ready",
+        "topic": topic,
+        "options": options,
+        "sources": [{"source_id": "src-prefet-nawa-report-001", "document_id": "report-prefet-nawa-2026-05-10"}],
+        "human_validation_required": True,
+    }
+
+
+async def _draft_email_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    template_kind = str(payload.get("template_kind") or "customs_priority")
+    target_id = str(payload.get("target_id") or "")
+    context_refs = list(payload.get("context_refs") or [])
+    if template_kind == "customs_priority":
+        return {
+            "status": "draft",
+            "template_kind": template_kind,
+            "subject": (
+                "Priorisation dedouanement — composants drones Aerostar Dynamics, "
+                "Centre Formation Drones Napié (cargo-abidjan-supply-001)"
+            ),
+            "recipient": "Direction generale des Douanes — Cellule Port Abidjan",
+            "body_markdown": (
+                "Monsieur le Directeur,\n\n"
+                "Je vous prie de bien vouloir accorder une priorisation de traitement a la cargaison "
+                "**MV ATLANTIC TRADER** (ref. cargo-abidjan-supply-001, IMO 9876543) : composants drones "
+                "Aerostar Dynamics importes depuis la cote Est des Etats-Unis (hangars de formation, "
+                "terrains d'apprentissage, laboratoires de cartographie) destines au "
+                "**Centre International de Formation aux Métiers des Drones de Napié** "
+                "(ref. proj-drone-centre-napie, region Poro / Nord ; investissement 100 M USD / 60 Mds FCFA ; "
+                "alignement Côte d'Ivoire Innovation 2030).\n\n"
+                "Le retard actuel (de l'ordre de 120 jours sur la sequence ouverture du centre) impacte le "
+                "calendrier de demarrage des formations FAA et la perception institutionnelle du projet sur zone.\n\n"
+                "Merci de me confirmer la fenetre de dedouanement envisagee.\n\n"
+                "Bien cordialement,\nCabinet Vice-Presidence"
+            ),
+            "sources": [
+                {"source_id": "src-maritime-paa-001"},
+                {"source_id": "src-cabinet-brief-001", "project_id": "proj-drone-centre-napie"},
+                {
+                    "source_id": "src-abidjan-net-drone-napie-2025-07-16",
+                    "title": "Abidjan.net — Lancement Centre Formation Drones Napié (16/07/2025)",
+                    "kind": "rss_news_ci",
+                },
+            ],
+            "requires_validation": True,
+        }
+    if template_kind == "customs_derogation":
+        return {
+            "status": "draft",
+            "template_kind": template_kind,
+            "subject": (
+                "Demande de derogation operationnelle — cargaison composants drones "
+                "Centre Formation Napié (MV Atlantic Trader)"
+            ),
+            "recipient": "Direction generale des Douanes — Chef de la cellule portuaire Abidjan",
+            "body_markdown": (
+                "Monsieur le Chef de la cellule douaniere,\n\n"
+                "Faisant suite au proces-verbal de non-conformite declarative du 18 mai 2026 "
+                "(ref. DGD-CI/CPA/PV-2026-05-018, page 2), je vous saisis pour solliciter une "
+                "**derogation operationnelle ciblee** au benefice du cargo MV ATLANTIC TRADER "
+                "(IMO 9876543, MMSI 627012345, ref. cargo-abidjan-supply-001).\n\n"
+                "**Le cargo MV Atlantic Trader est distinct du lot non conforme** (LOT-INTRA-IMP-2026-05-018). "
+                "Sa cargaison — composants drones AerostarDynamics (hangars de formation, terrains "
+                "d'apprentissage, laboratoires de cartographie), importes depuis la cote Est des Etats-Unis — "
+                "est exclusivement destinee au **Centre International de Formation aux Métiers des Drones "
+                "de Napié** (ref. proj-drone-centre-napie, region Poro / Nord ; partenariat Agence de "
+                "Developpement Regional du Poro, Aerostar Dynamics et CEPICI ; alignement Côte d'Ivoire "
+                "Innovation 2030 ; investissement 100 M USD / 60 Mds FCFA ; cf. Abidjan.net, "
+                "16 juillet 2025).\n\n"
+                "Le gel temporaire du couloir d'entree Vridi, motive par la non-conformite d'un **autre** lot, "
+                "affecte par effet collateral la cargaison drones Napié sans qu'aucune anomalie declarative "
+                "n'ait ete relevee a son encontre.\n\n"
+                "Au vu :\n"
+                "- de la distinction documentaire claire entre les deux lots ;\n"
+                "- du calendrier de livraison engageant l'ouverture du Centre Formation Drones de Napié "
+                "(retard cumule de l'ordre de 120 jours en Q2 2026) ;\n"
+                "- et de l'absence totale de non-conformite sur le lot drones Napié,\n\n"
+                "je sollicite votre accord pour une derogation operationnelle permettant le dedouanement "
+                "anticipe du cargo MV Atlantic Trader sous reserve des controles physiques habituels.\n\n"
+                "Demande advisory soumise a validation Cabinet et a confirmation du ministere de l'Economie "
+                "avant transmission officielle.\n\n"
+                "Bien cordialement,\nCabinet Vice-Presidence"
+            ),
+            "sources": [
+                {
+                    "source_id": "customs-record-non-conformite-2026-05",
+                    "title": "PV douanes - non conformite declarative (18 mai)",
+                    "kind": "customs_pv",
+                    "page": 2,
+                },
+                {"source_id": "src-maritime-paa-001"},
+                {"source_id": "src-cabinet-brief-001", "project_id": "proj-drone-centre-napie"},
+                {
+                    "source_id": "src-abidjan-net-drone-napie-2025-07-16",
+                    "title": "Abidjan.net — Lancement Centre Formation Drones Napié (16/07/2025)",
+                    "kind": "rss_news_ci",
+                },
+            ],
+            "context_refs": context_refs,
+            "requires_validation": True,
+            "advisory_only": True,
+            "target_id": target_id or "cargo-abidjan-supply-001",
+        }
+    if template_kind == "strategic_report_long":
+        return {
+            "status": "draft",
+            "template_kind": template_kind,
+            "subject": "Rapport strategique - Diversification cacao region Nawa (anacarde transformee)",
+            "recipient": "Cabinet Vice-Presidence + Ministere Economie + Ministere Agriculture",
+            "body_markdown": (
+                "# Rapport strategique - Diversification cacao region Nawa\n\n"
+                "## Synthese executive\n"
+                "L'option **anacarde transformee** ressort prioritaire (note Banque mondiale 2024, "
+                "Reuters 2025, EUDR). Chiffrage indicatif : 4,2 - 6,8 Mds FCFA.\n\n"
+                "## Classement des 7 cultures evaluees\n"
+                "1. Anacarde transformee (prioritaire)\n"
+                "2. Cooperative cacao tracable (court terme)\n"
+                "3. Hevea (complement)\n"
+                "4. Banane premium (niche)\n"
+                "5. PPP sechoirs solaires (infrastructure)\n"
+                "6. Palmier a huile RSPO (risque EUDR)\n"
+                "7. Statu quo (non recommande)\n\n"
+                "## Citations\n"
+                "- Banque mondiale - Note climat-developpement 2024\n"
+                "- Reglement europeen anti-deforestation (EUDR)\n"
+                "- Reuters 2025 - filiere cajou Cote d'Ivoire\n"
+                "- Rapport Prefet Nawa - 10 mai 2026 (pp. 42-58)\n\n"
+                "Document **advisory-only** soumis a validation Conseil des Ministres."
+            ),
+            "sources": [
+                {"source_id": "report-prefet-nawa-2026-05-10"},
+                {"source_id": "sentinel-ci-anacarde-diversification-v1"},
+                {"source_id": "src-banque-mondiale-2024"},
+                {"source_id": "src-eudr-2023"},
+                {"source_id": "src-reuters-cajou-2025"},
+            ],
+            "context_refs": context_refs,
+            "requires_validation": True,
+            "advisory_only": True,
+            "target_id": target_id,
+        }
+    return {
+        "status": "draft",
+        "template_kind": template_kind,
+        "subject": "Rapport de diversification cacao — region Nawa (arbitrage cabinet)",
+        "recipient": "Ministere de l'Economie — Direction filieres",
+        "body_markdown": (
+            "# Rapport de diversification cacao — Nawa\n\n"
+            "## Contexte\nSuite au rapport Prefet Nawa (10 mai) et aux echanges a Soubre.\n\n"
+            "## Option recommandee\nPetite industrie de transformation + diversification cultures.\n\n"
+            "## Chiffrage indicatif\n4,2 a 6,8 milliards FCFA (ordres de grandeur publics).\n\n"
+            "## Prochaines etapes\nArbitrage cabinet, puis RDV ministere de l'Economie."
+        ),
+        "sources": [{"source_id": "src-prefet-nawa-report-001", "document_id": "report-prefet-nawa-2026-05-10"}],
+        "requires_validation": True,
+        "target_id": target_id,
+    }
+
+
+async def _causal_drill_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Drill the evidence graph following ``caused_by`` from ``last_focus``.
+
+    Used by ``aya.explain_why`` (Phase A). Returns a path with citations
+    so the chat answer can chain "pourquoi -> pourquoi" with sources.
+    """
+    from app.models.workspace import Workspace
+    from app.services.mission_room import evidence_graph_trace
+
+    ctx = ctx or {}
+    db = ctx.get("db")
+    workspace_id = ctx.get("workspace_id")
+    from_node = str(payload.get("from_node") or payload.get("last_focus") or "zone-nord")
+    relation = str(payload.get("relation") or "caused_by")
+    depth = int(payload.get("depth") or 4)
+
+    if not db or not workspace_id:
+        return {"status": "error", "reason": "missing_workspace_context", "path": []}
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        return {"status": "error", "reason": "workspace_not_found", "path": []}
+
+    trace = evidence_graph_trace(workspace, from_node=from_node, relation=relation, depth=depth, db=db)
+    path = trace.get("path") or []
+    next_step = path[1] if len(path) > 1 else None
+    next_node = (next_step or {}).get("node") or {}
+    first_edge = ((path[0] if path else {}) or {}).get("edge") or {}
+    return {
+        "status": "ready",
+        "from_node": from_node,
+        "relation": relation,
+        "depth": depth,
+        "path": path,
+        "next_focus": next_node.get("id") or from_node,
+        "next_surface": next_node.get("next_surface") or {},
+        "explanation": first_edge.get("explanation"),
+        "narrative_short": next_node.get("narrative_short"),
+        "citations": [
+            {"source_id": str(ref), "kind": "evidence_ref"}
+            for ref in (next_node.get("evidence_refs") or [])
+        ],
+    }
+
+
+async def _update_meeting_agenda_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Propose adding agenda items to a workspace calendar event.
+
+    Phase H: produces a confirmation-drawer payload first (no DB write).
+    Actual write happens through the calendar PATCH endpoint after the
+    Vice-President confirms.
+    """
+    from app.models.workspace import Workspace
+    from app.services.workspace_calendar import list_events, serialize_event
+
+    ctx = ctx or {}
+    db = ctx.get("db")
+    workspace_id = ctx.get("workspace_id")
+    if not db or not workspace_id:
+        return {"status": "error", "reason": "missing_workspace_context"}
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        return {"status": "error", "reason": "workspace_not_found"}
+
+    event_id = payload.get("event_id")
+    agenda_items = list(payload.get("agenda_items") or [])
+    if not agenda_items:
+        agenda_items = [
+            {
+                "id": "agenda-cacao-diversification",
+                "title": "Point cacao - diversification anacarde (proposition AYA)",
+                "order": 99,
+                "priority": "high",
+                "owner_proposer": "AYA",
+                "decision_required": True,
+                "source_refs": [
+                    "report-prefet-nawa-2026-05-10",
+                    "sentinel-ci-anacarde-diversification-v1",
+                ],
+            }
+        ]
+
+    event = None
+    if event_id:
+        event = next((row for row in list_events(db, workspace) if row.id == event_id), None)
+    if event is None:
+        for row in list_events(db, workspace, status="scheduled"):
+            meta = row.meta_data or {}
+            if meta.get("seed_id") == "evt-prefet-nawa" or meta.get("context_ref") == "report-prefet-nawa-2026-05-10":
+                event = row
+                break
+        if event is None:
+            events = list_events(db, workspace, status="scheduled")
+            event = events[0] if events else None
+
+    if event is None:
+        return {"status": "error", "reason": "no_event_found"}
+
+    return {
+        "status": "proposal",
+        "applied": False,
+        "requires_validation": True,
+        "event_id": event.id,
+        "event_title": event.title,
+        "event_summary": serialize_event(event),
+        "metadata": {"agenda_items": agenda_items},
+        "audit_event": "calendar.event.agenda_items.proposed",
+    }
+
+
+async def _schedule_meeting_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.demo_time_context import resolve_demo_date
+    from app.services.workspace_calendar import summary_payload
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        day = resolve_demo_date(workspace)
+        cal = summary_payload(db, workspace, day=day)
+        windows = cal.get("free_slots") or cal.get("available_windows") or []
+        slot = windows[0] if windows else {"start": f"{day.isoformat()}T16:30:00", "end": f"{day.isoformat()}T17:15:00"}
+        draft_id = f"draft-{uuid.uuid4().hex[:12]}"
+        proposed = {
+            "date": day.isoformat(),
+            "time": str(slot.get("start", "")).split("T")[-1][:5] if isinstance(slot.get("start"), str) else "16:30",
+            "location": "Ministere de l'Economie — Plateau",
+            "duration_min": int(payload.get("duration_min") or 45),
+            "participants": ["VP", "Ministre de l'Economie", "AYA"],
+            "topic": payload.get("topic") or "Diversification cacao",
+        }
+        return {
+            "status": "proposal",
+            "applied": False,
+            "requires_validation": True,
+            "proposed_slot": proposed,
+            "calendar_event_draft_id": draft_id,
+            "proposal": proposed,
+        }
     finally:
         if owns_db:
             db.close()
@@ -1388,7 +1790,14 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "action_plan_reschedule_v1": (_action_plan_reschedule_v1, "app.services.action_plans",         "bound"),
     "action_plan_status_v1":    (_action_plan_status_v1,    "app.services.action_plans",           "bound"),
     "action_plan_cancel_v1":    (_action_plan_cancel_v1,    "app.services.action_plans",           "bound"),
-    "time_context_set_v1":      (_time_context_set_v1,      "app.services.mission_room",           "bound"),
+    "time_context_set_v1":      (_time_context_set_v1,      "app.services.demo_time_context",    "bound"),
+    "briefing_priorities_v1":     (_briefing_priorities_v1,     "app.services.mission_room",           "bound"),
+    "summarize_long_document_v1": (_summarize_long_document_v1, "app.services.mission_room",           "bound"),
+    "generate_recommendations_v1": (_generate_recommendations_v1, "app.services.mission_room",          "bound"),
+    "draft_email_v1":           (_draft_email_v1,           "app.services.mission_room",             "bound"),
+    "causal_drill_v1":          (_causal_drill_v1,          "app.services.mission_room",             "bound"),
+    "update_meeting_agenda_v1": (_update_meeting_agenda_v1, "app.services.workspace_calendar",       "bound"),
+    "schedule_meeting_v1":      (_schedule_meeting_v1,      "app.services.workspace_calendar",     "bound"),
     "territorial_action_window_v1": (_territorial_action_window_v1, "app.services.mission_room",   "bound"),
     "map_layer_read_v1":        (_map_layer_read_v1,        "app.services.workspace_maps",          "bound"),
     "map_zone_score_v1":        (_map_zone_score_v1,        "app.services.workspace_maps",          "bound"),

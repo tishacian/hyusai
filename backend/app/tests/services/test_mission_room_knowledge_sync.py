@@ -72,6 +72,9 @@ async def test_mission_room_fixture_sync_indexes_all_vigie_scope_collections(db_
         "sentinel-ci-projects",
         "sentinel-ci-territorial-map",
         "sentinel-ci-territorial-intelligence",
+        "sentinel-ci-maritime-intelligence",
+        "sentinel-ci-evidence-graph",
+        "sentinel-ci-customs-records",
     }
     assert {instance.workspace_slug for instance in _FakeDocumentService.instances} == {"sentinel-ci"}
 

@@ -32,6 +32,9 @@ from app.services.visual_intelligence import VISUAL_COLLECTION_SLUG, _observatio
 logger = get_logger(__name__)
 
 
+SENTINEL_CUSTOMS_RECORDS_COLLECTION = "sentinel-ci-customs-records"
+
+
 COLLECTION_DEFS: dict[str, dict[str, str]] = {
     "sentinel-ci-ministerial-briefs": {
         "name": "SENTINEL-CI Ministerial Briefs",
@@ -60,6 +63,10 @@ COLLECTION_DEFS: dict[str, dict[str, str]] = {
     mission_room.SENTINEL_EVIDENCE_GRAPH_COLLECTION: {
         "name": "SENTINEL-CI Evidence Graph",
         "description": "Entities, rumors, sources, locations, projects and decisions connected for AYA.",
+    },
+    SENTINEL_CUSTOMS_RECORDS_COLLECTION: {
+        "name": "SENTINEL-CI Customs Records",
+        "description": "OCR-extracted customs procès-verbaux and supporting documents used by AYA show_customs_record.",
     },
 }
 
@@ -224,6 +231,35 @@ def _source_markdown() -> str:
     return "\n".join(lines)
 
 
+def _external_demo_documents() -> dict[str, dict[str, str]]:
+    repo_root = Path(__file__).resolve().parents[3]
+    backend_root = Path(__file__).resolve().parents[2]
+    docs: dict[str, dict[str, str]] = {
+        "sentinel-ci-ministerial-briefs": {},
+        "sentinel-ci-projects": {},
+        SENTINEL_CUSTOMS_RECORDS_COLLECTION: {},
+    }
+    report_path = repo_root / "docs" / "demo-data" / "sentinel-ci-kb" / "rapport-prefet-nawa-2026-05-10.md"
+    if report_path.exists():
+        docs["sentinel-ci-ministerial-briefs"]["rapport-prefet-nawa-2026-05-10.md"] = report_path.read_text(encoding="utf-8")
+    anacarde_path = backend_root / "resources" / "sentinel_ci_guides" / "sentinel-ci-anacarde-diversification-v1.md"
+    if anacarde_path.exists():
+        docs["sentinel-ci-ministerial-briefs"]["sentinel-ci-anacarde-diversification-v1.md"] = anacarde_path.read_text(encoding="utf-8")
+    customs_md_path = repo_root / "docs" / "demo-data" / "sentinel-ci-kb" / "proces-verbal-douanes-non-conformite-2026-05-18.md"
+    if customs_md_path.exists():
+        docs[SENTINEL_CUSTOMS_RECORDS_COLLECTION]["proces-verbal-douanes-non-conformite-2026-05-18.md"] = customs_md_path.read_text(encoding="utf-8")
+    drone_napie_path = (
+        repo_root
+        / "docs"
+        / "demo-data"
+        / "sentinel-ci-kb"
+        / "abidjan-net-drone-centre-napie-2025-07-16.md"
+    )
+    if drone_napie_path.exists():
+        docs["sentinel-ci-projects"]["abidjan-net-drone-centre-napie-2025-07-16.md"] = drone_napie_path.read_text(encoding="utf-8")
+    return docs
+
+
 def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[str, str]]:
     briefing = mission_room.briefing_payload(workspace)
     projects = mission_room.projects_payload(workspace, db=db)
@@ -260,10 +296,12 @@ def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[st
             "agenda-et-echeances.md": _payload_markdown("Agenda ministeriel et echeances", timeline),
             "decisions-cabinet.md": _payload_markdown("Decisions et actions cabinet", decisions),
             "sources-qualifiees.md": _source_markdown(),
+            **(_external_demo_documents().get("sentinel-ci-ministerial-briefs") or {}),
         },
         "sentinel-ci-projects": {
             "synthese-projets.md": _payload_markdown("Synthese des projets strategiques", projects),
             **project_docs,
+            **(_external_demo_documents().get("sentinel-ci-projects") or {}),
         },
         "sentinel-ci-territorial-map": {
             "carte-strategique.md": _payload_markdown("Carte strategique executive", map_payload),
@@ -310,6 +348,9 @@ def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[st
                     "suggested_questions": evidence_graph.get("suggested_questions") or [],
                 },
             ),
+        },
+        SENTINEL_CUSTOMS_RECORDS_COLLECTION: {
+            **(_external_demo_documents().get(SENTINEL_CUSTOMS_RECORDS_COLLECTION) or {}),
         },
     }
 
