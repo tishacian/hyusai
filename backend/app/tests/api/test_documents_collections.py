@@ -9,7 +9,7 @@ from app.api.v1.endpoints import documents
 from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.models.workspace import Workspace
-from app.services.knowledge_collections import create_collection
+from app.services.knowledge_collections import create_collection, create_worker_job
 from app.services.object_store import get_object_store
 
 
@@ -79,6 +79,56 @@ def test_collection_document_upload_creates_worker_job_and_stores_original(
     assert (
         tmp_path / "objects" / collection.artifact_prefix / "original" / "manual.txt"
     ).read_bytes() == b"hello"
+
+
+def test_collection_detail_exposes_storage_vector_and_bm25_diagnostics(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    monkeypatch.setattr(settings, "default_vector_db_type", "qdrant")
+    ws = Workspace(id="ws-detail", name="Detail", slug="detail")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    bm25_job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="bm25_rebuild",
+    )
+    bm25_job.status = "completed"
+    bm25_job.progress = 100
+    bm25_job.result = {"bm25": {"status": "ready", "chunk_count": 7}, "stage": "bm25_ready"}
+    db_session.commit()
+
+    store = get_object_store()
+    store.write_bytes(f"{collection.artifact_prefix}/original/manual.txt", b"hello")
+    store.write_bytes(f"{collection.artifact_prefix}/ingested/manual.txt", b"hello text")
+    store.write_bytes(f"{collection.artifact_prefix}/derived/bm25_retriever.pkl", b"bm25")
+
+    class FakeVectorDB:
+        async def get_count(self):
+            return 7
+
+    monkeypatch.setattr(
+        "app.services.vector_db.factory.VectorDBFactory.get_db",
+        classmethod(lambda cls, *args, **kwargs: FakeVectorDB()),
+    )
+
+    response = _client(db_session, ws).get(f"/documents/collections/{collection.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["storage"]["original_bytes"] == 5
+    assert body["storage"]["ingested_bytes"] == 10
+    assert body["storage"]["derived_bytes"] == 4
+    assert body["vector_metrics"]["points"] == 7
+    assert body["bm25"]["status"] == "ready"
+    assert body["bm25"]["job"]["id"] == bm25_job.id
+    assert body["latest_job"]["kind"] == "bm25_rebuild"
 
 
 def test_delete_collection_removes_ledger_and_store(

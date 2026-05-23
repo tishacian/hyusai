@@ -174,6 +174,7 @@ def health_live_check():
 @app.get("/health/ready")
 def health_ready_check():
     checks = {
+        "runtime": metrics_collector.get_runtime_health(),
         "database": _ready_database_check(),
         "qdrant": _ready_qdrant_check(),
     }

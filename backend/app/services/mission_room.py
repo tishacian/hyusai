@@ -52,6 +52,7 @@ SENTINEL_EVIDENCE_GRAPH_COLLECTION = "sentinel-ci-evidence-graph"
 SENTINEL_MARITIME_INTELLIGENCE_COLLECTION = "sentinel-ci-maritime-intelligence"
 MISSION_ROOM_ROOT = "/hypervisor/mission-room"
 MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
+VP_SCENARIO_ID = "sentinel-ci-vp-morning-zone-nord-v1"
 
 
 SENTINEL_KNOWLEDGE_GUIDES = (
@@ -1298,14 +1299,14 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
         "sources": source_index(),
     }
     if not db:
-        return fallback
+        return _attach_vp_story(fallback)
 
     try:
         from app.services.intelligence.batch import get_dashboard_data
 
         dashboard = get_dashboard_data(db, workspace_id=workspace.id)
     except Exception:
-        return fallback
+        return _attach_vp_story(fallback)
 
     latest_run = _latest_intelligence_run(db, workspace)
     kpis = dashboard.get("kpis") or {}
@@ -1330,7 +1331,7 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
                 "last_run_status": latest_run.status if latest_run else "standby",
             }
         )
-        return fallback
+        return _attach_vp_story(fallback)
 
     dynamic_sources: list[dict[str, Any]] = []
     alerts: list[dict[str, Any]] = []
@@ -1446,7 +1447,7 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
         },
         "sources": [*source_index(), *dynamic_sources],
     }
-    return payload
+    return _attach_vp_story(payload)
 
 
 def _system_map(db: DBSession, workspace: Workspace) -> dict[str, System]:
@@ -1741,6 +1742,26 @@ def _agenda_day(overview: dict[str, Any], calendar_summary: Optional[dict[str, A
     }
 
 
+def _directive_of_day_payload() -> dict[str, Any]:
+    return {
+        **_clone(DECISION_SENTENCE),
+        "window": "avant Conseil des ministres · 15h00",
+        "primary_cta": "Ouvrir le dossier Zone Nord",
+        "voice_cta": "Ecouter le briefing AYA",
+    }
+
+
+def _decision_queue_payload() -> list[dict[str, Any]]:
+    return [
+        {
+            **_clone(package),
+            "email_draft_ready": package["id"] in {"package-rumeur-emoi", "package-zone-nord"},
+            "validation_required": True,
+        }
+        for package in EXECUTIVE_DECISION_PACKAGES
+    ]
+
+
 def _geographic_signal_tiers(news: dict[str, Any]) -> list[dict[str, Any]]:
     sections = news.get("geo_sections") or []
     if sections:
@@ -1760,6 +1781,52 @@ def _geographic_signal_tiers(news: dict[str, Any]) -> list[dict[str, Any]]:
         {"key": "africa", "label": "Afrique", "count": 0, "top_signal": None, "signals": []},
         {"key": "world", "label": "Monde", "count": 0, "top_signal": None, "signals": []},
     ]
+
+
+def _vp_story_context(
+    *,
+    agenda_day: Optional[dict[str, Any]] = None,
+    news: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Single VP scenario shared by cockpit, agenda, briefing and press views."""
+    news_context = news or {"geo_sections": _news_geo_sections(_clone(NEWS_SIGNALS))}
+    return {
+        "scenario_id": VP_SCENARIO_ID,
+        "assistant": SENTINEL_ASSISTANT_NAME,
+        "narrative": "Explorer les signaux, comprendre les sources, decider quoi faire et quand.",
+        "anchors": {
+            "priority_zone": "Zone Nord",
+            "press_signal": "Article L'Inter - critique personnelle sur budget defense",
+            "agenda_signal": "Ambassadeur France - dejeuner dans 1h44",
+            "rumor_signal": "Emoi public - rumeur a contenir",
+            "maritime_signal": "Port d'Abidjan - douanes et flux economiques",
+        },
+        "directive_of_day": _directive_of_day_payload(),
+        "attention_required": _clone(ATTENTION_REQUIRED),
+        "agenda_day": agenda_day
+        or {
+            "label": "Agenda ministeriel",
+            "next_event": _clone(AGENDA[0]),
+            "events": _clone(AGENDA[:4]),
+            "available_window": {
+                "label": "Fenetre utile",
+                "time": "10:00-10:45",
+                "reason": "Dernier creneau avant expression publique et amplification potentielle.",
+            },
+            "separate_from_actions": True,
+        },
+        "decision_queue": _decision_queue_payload(),
+        "geographic_signal_tiers": _geographic_signal_tiers(news_context),
+        "voice_demo_script": _clone(VOICE_DEMO_SCRIPT),
+        "rumor_trace": _clone(RUMOR_TRACE),
+        "executive_decision_packages": _clone(EXECUTIVE_DECISION_PACKAGES),
+        "continuity_rule": "Toute information affichée doit mener à comprendre, ouvrir un dossier, préparer une réponse ou arbitrer.",
+    }
+
+
+def _attach_vp_story(payload: dict[str, Any], *, agenda_day: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    payload["vp_story"] = _vp_story_context(agenda_day=agenda_day, news=payload)
+    return payload
 
 
 def _source_freshness_payload(news: dict[str, Any], visual: dict[str, Any], mapped: dict[str, Any]) -> dict[str, Any]:
@@ -2156,28 +2223,18 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         "cta_secondary": "Parler a AYA",
         "decision_package": _clone(EXECUTIVE_DECISION_PACKAGES[0]),
     }
-    decision_queue = [
-        {
-            **_clone(package),
-            "email_draft_ready": package["id"] in {"package-rumeur-emoi", "package-zone-nord"},
-            "validation_required": True,
-        }
-        for package in EXECUTIVE_DECISION_PACKAGES
-    ]
+    decision_queue = _decision_queue_payload()
+    vp_story = _vp_story_context(agenda_day=agenda_day, news=news)
     return {
         **overview,
         "vp_status_bar": _vp_status_bar(overview, posture),
-        "directive_of_day": {
-            **_clone(DECISION_SENTENCE),
-            "window": "avant Conseil des ministres · 15h00",
-            "primary_cta": "Ouvrir le dossier Zone Nord",
-            "voice_cta": "Ecouter le briefing AYA",
-        },
+        "directive_of_day": vp_story["directive_of_day"],
         "fused_map_preview": fused_map_preview,
         "agenda_day": agenda_day,
         "aya_recommendation": aya_recommendation,
         "decision_queue": decision_queue,
-        "geographic_signal_tiers": _geographic_signal_tiers(news),
+        "geographic_signal_tiers": vp_story["geographic_signal_tiers"],
+        "vp_story": vp_story,
         "sovereign_indicators": _sovereign_indicators(overview, posture),
         "decision_posture": decision_posture,
         "source_freshness": source_freshness,
@@ -2210,6 +2267,8 @@ def briefing_payload(workspace: Workspace, db: Optional[DBSession] = None) -> di
     visual = _visual_payload(workspace, db)
     maritime = news.get("maritime_intelligence") or _maritime_intelligence_payload(_feed_rows(db, workspace), news.get("executive_alerts") or news.get("signals") or [])
     calendar_summary = calendar_summary_payload(db, workspace) if db else None
+    agenda_day = _agenda_day({"agenda": _agenda_items_from_calendar(workspace, db)}, calendar_summary)
+    vp_story = _vp_story_context(agenda_day=agenda_day, news=news)
     visual_brief = _visual_intelligence_brief(
         visual,
         news,
@@ -2264,6 +2323,11 @@ def briefing_payload(workspace: Workspace, db: Optional[DBSession] = None) -> di
         "title": "Briefing quotidien vice-présidence",
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "sections": sections,
+        "vp_story": vp_story,
+        "directive_of_day": vp_story["directive_of_day"],
+        "attention_required": vp_story["attention_required"],
+        "agenda_day": agenda_day,
+        "decision_queue": vp_story["decision_queue"],
         "visual_intelligence_brief": visual_brief,
         "maritime_intelligence": maritime,
         "actions": [
@@ -2342,6 +2406,7 @@ def map_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[st
             "workspace": _workspace_meta(workspace),
             "question": "Quelles zones necessitent une action preventive non militaire ce mois-ci ?",
             **mapped,
+            "vp_story": _vp_story_context(),
             "sources": source_index(),
         }
     zones = _clone(MAP_ZONES)
@@ -2365,6 +2430,7 @@ def map_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[st
             {"zone": zone["name"], "target_id": zone["id"], **(zone["recommended_windows"][0] if zone.get("recommended_windows") else {})}
             for zone in zones
         ],
+        "vp_story": _vp_story_context(),
         "sources": source_index(),
     }
 
@@ -2375,6 +2441,9 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     visual = _visual_payload(workspace, db)
     maritime = news.get("maritime_intelligence") or _maritime_intelligence_payload(_feed_rows(db, workspace), news.get("executive_alerts") or news.get("signals") or [])
     calendar_summary = calendar_summary_payload(db, workspace) if db else None
+    agenda_items = _agenda_items_from_calendar(workspace, db)
+    agenda_day = _agenda_day({"agenda": agenda_items}, calendar_summary)
+    vp_story = _vp_story_context(agenda_day=agenda_day, news=news)
     action_rows = list_action_items(db, workspace, include_cancelled=False) if db else []
     action_items = [serialize_action_item(row) for row in action_rows[:6]]
     action_summary = action_plan_summary_payload(db, workspace) if db else {}
@@ -2432,12 +2501,14 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         "workspace": _workspace_meta(workspace),
         "title": "Mission Control Room",
         "summary": posture["summary"],
+        "vp_story": vp_story,
         "worldmonitor_principles": _worldmonitor_principles_payload(),
         "decision_sentence": _clone(DECISION_SENTENCE),
-        "attention_required": _clone(ATTENTION_REQUIRED),
+        "directive_of_day": vp_story["directive_of_day"],
+        "attention_required": vp_story["attention_required"],
         "sixty_second_cockpit": {
-            "urgences": _clone(ATTENTION_REQUIRED),
-            "agenda_focus": _agenda_items_from_calendar(workspace, db)[:1],
+            "urgences": vp_story["attention_required"],
+            "agenda_focus": agenda_items[:1],
             "menace": {"label": "Zone Nord", "score": 85, "tone": "critical", "deadline": "15:00"},
             "reputation": {"score": 63, "delta": 5, "sentence": "Un article necessite votre attention ; les autres signaux sont gerables."},
         },
@@ -2462,7 +2533,8 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         "top_zones": top_zones,
         "visual": visual,
         "visual_observations": visual_observations,
-        "agenda": _agenda_items_from_calendar(workspace, db)[:6],
+        "agenda": agenda_items[:6],
+        "agenda_day": agenda_day,
         "calendar": calendar_summary,
         "action_items": action_items,
         "action_summary": action_summary,
@@ -3222,9 +3294,16 @@ def _aya_voice_context(
 def timeline_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
     calendar_summary = calendar_summary_payload(db, workspace) if db else None
     action_items = [serialize_action_item(row) for row in list_action_items(db, workspace, include_cancelled=False)[:6]] if db else []
+    agenda_items = _agenda_items_from_calendar(workspace, db)
+    agenda_day = _agenda_day({"agenda": agenda_items}, calendar_summary)
+    vp_story = _vp_story_context(agenda_day=agenda_day)
     return {
         "workspace": _workspace_meta(workspace),
-        "agenda": _agenda_items_from_calendar(workspace, db),
+        "agenda": agenda_items,
+        "agenda_day": agenda_day,
+        "vp_story": vp_story,
+        "attention_required": vp_story["attention_required"],
+        "decision_queue": vp_story["decision_queue"],
         "action_items": action_items,
         "messages": _clone(MESSAGES),
         "summary": (calendar_summary or {}).get("summary")

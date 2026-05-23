@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.models.workspace import Workspace
 from app.services.object_store import ObjectStore, get_object_store
+from app.services.rag.bm25_store import bm25_artifact_key
 from app.services.vector_db.factory import VectorDBFactory
 
 
@@ -151,6 +152,7 @@ def update_job(
     progress: int | None = None,
     error: str | None = None,
     result: dict[str, Any] | None = None,
+    stage: str | None = None,
 ) -> WorkerJob | None:
     job = db.query(WorkerJob).filter(WorkerJob.id == job_id).first()
     if not job:
@@ -168,6 +170,10 @@ def update_job(
         job.error = error
     if result is not None:
         job.result = result
+    if stage is not None:
+        merged = dict(job.result or {})
+        merged["stage"] = stage
+        job.result = merged
     job.updated_at = now
     return job
 
@@ -208,6 +214,7 @@ def ingested_key(collection: KnowledgeCollection, filename: str) -> str:
 
 
 def serialize_job(job: WorkerJob) -> dict[str, Any]:
+    result = job.result or {}
     return {
         "id": job.id,
         "workspace_id": job.workspace_id,
@@ -217,7 +224,8 @@ def serialize_job(job: WorkerJob) -> dict[str, Any]:
         "status": job.status,
         "progress": job.progress,
         "error": job.error,
-        "result": job.result or {},
+        "stage": result.get("stage"),
+        "result": result,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
@@ -256,8 +264,29 @@ async def serialize_collection(
     }
     if include_metrics:
         store = store or get_object_store()
-        payload["uploaded_docs_size"] = store.size(store.key(collection.artifact_prefix, "original"))
-        payload["ingested_docs_size"] = store.size(store.key(collection.artifact_prefix, "ingested"))
+        original_key_prefix = store.key(collection.artifact_prefix, "original")
+        ingested_key_prefix = store.key(collection.artifact_prefix, "ingested")
+        derived_key_prefix = store.key(collection.artifact_prefix, "derived")
+        original_size = store.size(original_key_prefix)
+        ingested_size = store.size(ingested_key_prefix)
+        derived_size = store.size(derived_key_prefix)
+        payload["uploaded_docs_size"] = original_size
+        payload["original_docs_size"] = original_size
+        payload["ingested_docs_size"] = ingested_size
+        payload["derived_docs_size"] = derived_size
+        payload["storage"] = {
+            "original_bytes": original_size,
+            "ingested_bytes": ingested_size,
+            "derived_bytes": derived_size,
+        }
+        bm25_key = bm25_artifact_key(collection, store=store)
+        bm25_size = store.size(bm25_key)
+        payload["bm25"] = {
+            "status": "ready" if bm25_size is not None else "missing",
+            "path": bm25_key if bm25_size is not None else None,
+            "size_bytes": bm25_size,
+            "inline_threshold": settings.bm25_rebuild_inline_max_chunks,
+        }
         try:
             vector_db = VectorDBFactory.get_db(
                 collection.slug,
@@ -266,7 +295,17 @@ async def serialize_collection(
             )
             payload["nb_chunks"] = await vector_db.get_count()
             payload["qdrant_collection_size"] = payload["nb_chunks"] if vector_db_type == "qdrant" else None
+            payload["vector_metrics"] = {
+                "type": vector_db_type,
+                "collection": collection.vector_collection_name,
+                "points": payload["nb_chunks"],
+            }
         except Exception:
             payload["nb_chunks"] = None
             payload["qdrant_collection_size"] = None
+            payload["vector_metrics"] = {
+                "type": vector_db_type,
+                "collection": collection.vector_collection_name,
+                "points": None,
+            }
     return payload

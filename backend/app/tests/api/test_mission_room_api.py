@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -76,6 +78,16 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert cockpit.status_code == 200
     assert cockpit.json()["layout"]["variant"] == "vp_decision_cockpit"
     assert cockpit.json()["decision_sentence"]["text"].startswith("M. le Vice-Président")
+    assert cockpit.json()["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
+    assert cockpit.json()["vp_story"]["assistant"] == "AYA"
+    assert cockpit.json()["vp_story"]["anchors"]["priority_zone"] == "Zone Nord"
+    assert cockpit.json()["vp_story"]["directive_of_day"]["text"] == cockpit.json()["directive_of_day"]["text"]
+    assert cockpit.json()["vp_story"]["agenda_day"]["label"] == cockpit.json()["agenda_day"]["label"]
+    assert [item["id"] for item in cockpit.json()["vp_story"]["attention_required"]] == [
+        "attention-inter-budget",
+        "attention-zone-nord",
+        "attention-ambassadeur-france",
+    ]
     assert cockpit.json()["directive_of_day"]["primary_cta"] == "Ouvrir le dossier Zone Nord"
     assert cockpit.json()["vp_status_bar"][0]["key"] == "posture"
     assert cockpit.json()["agenda_day"]["label"] == "Agenda ministeriel"
@@ -165,6 +177,9 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     assert news.status_code == 200
     news_body = news.json()
     assert news_body["source_health"]["live_news_used"] is True
+    assert news_body["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
+    assert news_body["vp_story"]["anchors"]["press_signal"] == "Article L'Inter - critique personnelle sur budget defense"
+    assert news_body["vp_story"]["attention_required"][0]["id"] == "attention-inter-budget"
     assert news_body["source_health"]["last_run_id"] == run.id
     assert news_body["source_health"]["high_risk"] == 1
     assert news_body["source_health"]["geography_order"] == ["ci", "cedeao", "africa", "world"]
@@ -212,6 +227,10 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
 
     assert timeline.status_code == 200
     assert timeline.json()["workspace"]["slug"] == workspace.slug
+    assert timeline.json()["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
+    assert timeline.json()["vp_story"]["anchors"]["agenda_signal"] == "Ambassadeur France - dejeuner dans 1h44"
+    assert timeline.json()["agenda_day"]["label"] == "Agenda ministeriel"
+    assert timeline.json()["attention_required"][1]["id"] == "attention-zone-nord"
     assert timeline.json()["calendar"]["connector"]["id"] == "institutional_calendar"
     assert timeline.json()["agenda"][0]["title"] == "Conseil Defense restreint"
     assert len(timeline.json()["action_items"]) >= 1
@@ -241,6 +260,9 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert response.status_code == 200
     body = response.json()
     assert body["workspace"]["slug"] == "sentinel-ci"
+    assert body["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
+    assert body["vp_story"]["directive_of_day"]["text"] == body["directive_of_day"]["text"]
+    assert body["agenda_day"]["label"] == "Agenda ministeriel"
     assert body["posture"]["label"] in {"stable", "monitoring", "elevated", "critical"}
     assert body["scenario"]["id"] == "scenario-crise-nationale"
     assert body["scenario"]["title"] == "Crise nationale"
@@ -288,6 +310,80 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     audit = db_session.query(AuditLog).filter_by(event_type="mission_room.monitor.viewed").one()
     assert audit.workspace_id == workspace.id
     assert audit.details["posture"] == body["posture"]["label"]
+
+
+def test_mission_room_vp_story_is_consistent_across_core_surfaces(db_session):
+    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    ensure_calendar_seed(db_session, workspace)
+    ensure_action_plan_seed(db_session, workspace)
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    surfaces = {
+        "cockpit": client.get("/api/v1/mission-room/cockpit").json(),
+        "briefing": client.get("/api/v1/mission-room/briefing").json(),
+        "timeline": client.get("/api/v1/mission-room/timeline").json(),
+        "news": client.get("/api/v1/mission-room/news").json(),
+        "map": client.get("/api/v1/mission-room/map").json(),
+        "monitor": client.get("/api/v1/mission-room/monitor").json(),
+    }
+
+    stories = {name: body["vp_story"] for name, body in surfaces.items()}
+    assert {story["scenario_id"] for story in stories.values()} == {"sentinel-ci-vp-morning-zone-nord-v1"}
+    directive = stories["cockpit"]["directive_of_day"]["text"]
+    assert all(story["directive_of_day"]["text"] == directive for story in stories.values())
+    assert all(story["anchors"]["priority_zone"] == "Zone Nord" for story in stories.values())
+    assert all(story["anchors"]["rumor_signal"] == "Emoi public - rumeur a contenir" for story in stories.values())
+    assert all(story["anchors"]["maritime_signal"] == "Port d'Abidjan - douanes et flux economiques" for story in stories.values())
+    assert all(story["attention_required"][0]["id"] == "attention-inter-budget" for story in stories.values())
+    assert all(story["attention_required"][1]["deadline"] == "15:00" for story in stories.values())
+    assert all(story["decision_queue"][0]["id"] == "package-zone-nord" for story in stories.values())
+    assert all(story["agenda_day"]["label"] == "Agenda ministeriel" for story in stories.values())
+    assert surfaces["cockpit"]["directive_of_day"]["text"] == directive
+    assert surfaces["briefing"]["directive_of_day"]["text"] == directive
+    assert surfaces["monitor"]["directive_of_day"]["text"] == directive
+
+
+def test_mission_room_core_routes_are_non_empty_and_demo_clean(db_session):
+    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    ensure_calendar_seed(db_session, workspace)
+    ensure_action_plan_seed(db_session, workspace)
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    routes = [
+        "/api/v1/mission-room/overview",
+        "/api/v1/mission-room/navigation",
+        "/api/v1/mission-room/cockpit",
+        "/api/v1/mission-room/briefing",
+        "/api/v1/mission-room/timeline",
+        "/api/v1/mission-room/projects",
+        "/api/v1/mission-room/decisions",
+        "/api/v1/mission-room/library",
+        "/api/v1/mission-room/search?q=Nord",
+        "/api/v1/mission-room/map",
+        "/api/v1/mission-room/monitor",
+        "/api/v1/mission-room/evidence-graph",
+        "/api/v1/mission-room/news",
+    ]
+
+    for route in routes:
+        response = client.get(route)
+        assert response.status_code == 200, route
+        payload = response.json()
+        serialized = json.dumps(payload, ensure_ascii=False)
+        assert len(serialized) > 200, route
+        assert "Andritz" not in serialized
+        assert "agenda QA" not in serialized
+        assert "qa wiring" not in serialized.lower()
+        assert "transfert-aborted" not in serialized
+        assert "SFTP / Secure Deposit" not in serialized
 
 
 def test_draft_action_is_advisory_and_audited(db_session):

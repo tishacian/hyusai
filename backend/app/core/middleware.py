@@ -1,12 +1,14 @@
 """Custom middleware for error handling and monitoring"""
+import time
+import uuid
+
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.errors import BaseAppError, ErrorCategory
 from app.core.logging import get_logger
-from app.core.monitoring import metrics_collector
-import time
+from app.core.monitoring import metrics_collector, normalize_endpoint
 
 logger = get_logger(__name__)
 SLOW_REQUEST_MS = 2500.0
@@ -15,8 +17,10 @@ SLOW_REQUEST_MS = 2500.0
 async def error_handler_middleware(request: Request, call_next):
     """Global error handler middleware"""
     start_time = time.time()
-    path = request.url.path
-    metrics_collector.start_request(path)
+    path = normalize_endpoint(request.url.path)
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    metrics_collector.start_request(path, request_id=request_id, method=request.method)
     
     try:
         response = await call_next(request)
@@ -28,13 +32,24 @@ async def error_handler_middleware(request: Request, call_next):
         # Record metrics
         metrics_collector.record_latency(path, duration_ms)
         metrics_collector.record_request(path, response.status_code)
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Response-Time-Ms"] = str(round(duration_ms, 2))
         if duration_ms >= SLOW_REQUEST_MS:
+            metrics_collector.record_slow_request(
+                method=request.method,
+                endpoint=path,
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+                request_id=request_id,
+            )
             logger.warning(
                 "Slow request completed",
                 method=request.method,
                 path=path,
                 status_code=response.status_code,
                 duration_ms=duration_ms,
+                request_id=request_id,
+                pending_requests=metrics_collector.get_runtime_snapshot()["pending_requests"]["total"],
             )
         
         logger.info(
@@ -42,7 +57,8 @@ async def error_handler_middleware(request: Request, call_next):
             method=request.method,
             path=path,
             status_code=response.status_code,
-            duration_ms=duration_ms
+            duration_ms=duration_ms,
+            request_id=request_id,
         )
         
         return response
@@ -71,10 +87,12 @@ async def error_handler_middleware(request: Request, call_next):
             details=e.details,
             duration_ms=duration_ms,
             status_code=status_code,
+            request_id=request_id,
         )
         
         return JSONResponse(
             status_code=status_code,
+            headers={"X-Request-ID": request_id, "X-Response-Time-Ms": str(round(duration_ms, 2))},
             content={
                 "error": {
                     "type": e.category.value,
@@ -94,11 +112,13 @@ async def error_handler_middleware(request: Request, call_next):
         logger.warning(
             "Validation error",
             errors=e.errors(),
-            duration_ms=duration_ms
+            duration_ms=duration_ms,
+            request_id=request_id,
         )
         
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            headers={"X-Request-ID": request_id, "X-Response-Time-Ms": str(round(duration_ms, 2))},
             content={
                 "error": {
                     "type": "validation_error",
@@ -118,11 +138,13 @@ async def error_handler_middleware(request: Request, call_next):
             "HTTP exception",
             status_code=e.status_code,
             detail=e.detail,
-            duration_ms=duration_ms
+            duration_ms=duration_ms,
+            request_id=request_id,
         )
         
         return JSONResponse(
             status_code=e.status_code,
+            headers={"X-Request-ID": request_id, "X-Response-Time-Ms": str(round(duration_ms, 2))},
             content={
                 "error": {
                     "type": "http_error",
@@ -141,11 +163,13 @@ async def error_handler_middleware(request: Request, call_next):
             "Unhandled exception",
             error_type=type(e).__name__,
             error=str(e),
-            duration_ms=duration_ms
+            duration_ms=duration_ms,
+            request_id=request_id,
         )
         
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            headers={"X-Request-ID": request_id, "X-Response-Time-Ms": str(round(duration_ms, 2))},
             content={
                 "error": {
                     "type": "internal_error",
@@ -155,4 +179,4 @@ async def error_handler_middleware(request: Request, call_next):
             }
         )
     finally:
-        metrics_collector.finish_request(path)
+        metrics_collector.finish_request(path, request_id=request_id)

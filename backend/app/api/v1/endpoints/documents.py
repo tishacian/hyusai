@@ -84,6 +84,30 @@ def _resolve_document_vector_db_type(
     )
 
 
+def _attach_collection_job_diagnostics(payload: dict, jobs: list[WorkerJob]) -> dict:
+    serialized_jobs = [serialize_job(job) for job in jobs]
+    payload["jobs"] = serialized_jobs
+    payload["latest_job"] = serialized_jobs[0] if serialized_jobs else None
+    latest_bm25 = next((job for job in jobs if job.kind == "bm25_rebuild"), None)
+    if latest_bm25:
+        bm25_payload = payload.setdefault("bm25", {})
+        bm25_payload["job"] = serialize_job(latest_bm25)
+        if latest_bm25.status in ("queued", "running"):
+            bm25_payload["status"] = latest_bm25.status
+        elif latest_bm25.status == "failed":
+            bm25_payload["status"] = "error"
+        elif latest_bm25.status == "completed":
+            result_status = ((latest_bm25.result or {}).get("bm25") or {}).get("status")
+            bm25_payload["status"] = result_status or bm25_payload.get("status") or "ready"
+    payload["job_summary"] = {
+        "total": len(jobs),
+        "running": sum(1 for job in jobs if job.status == "running"),
+        "queued": sum(1 for job in jobs if job.status == "queued"),
+        "failed": sum(1 for job in jobs if job.status == "failed"),
+    }
+    return payload
+
+
 async def _queue_collection_ingest(
     *,
     db: DBSession,
@@ -927,8 +951,7 @@ async def get_collection_detail(
         workspace_slug=workspace.slug,
         include_metrics=True,
     )
-    payload["jobs"] = [serialize_job(job) for job in jobs]
-    return payload
+    return _attach_collection_job_diagnostics(payload, jobs)
 
 
 @router.patch("/collections/{collection_id}")

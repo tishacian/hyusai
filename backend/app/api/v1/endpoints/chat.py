@@ -1009,6 +1009,16 @@ async def chat_stream(
     from fastapi.responses import StreamingResponse
 
     async def generate():
+        stream_status = "completed"
+        stream_id = metrics_collector.start_stream(
+            "/api/v1/chat/stream",
+            stream_type="sse",
+            metadata={
+                "workspace_slug": workspace.slug,
+                "assistant_profile": request.assistant_profile,
+                "knowledge_scope": request.knowledge_scope,
+            },
+        )
         try:
             if not _chat_session_belongs_to_scope(
                 db,
@@ -1604,6 +1614,7 @@ async def chat_stream(
                         yield _sse_data(chunk)
             except TimeoutError as exc:
                 metrics_collector.record_timeout("/api/v1/chat/stream", "chat_stream")
+                stream_status = "timeout"
                 stream_error = _error_chunk(
                     "CHAT_STREAM_TIMEOUT",
                     f"Chat stream exceeded {settings.chat_stream_timeout_seconds:.0f}s",
@@ -1612,6 +1623,7 @@ async def chat_stream(
                 )
                 logger.warning("Chat stream timed out", error=str(exc))
             except Exception as exc:  # noqa: BLE001
+                stream_status = "error"
                 stream_error = _error_chunk(
                     "CHAT_STREAM_ERROR",
                     str(exc),
@@ -1703,10 +1715,14 @@ async def chat_stream(
 
             yield _sse_done()
         except asyncio.CancelledError:
+            stream_status = "cancelled"
             raise
         except Exception as e:
+            stream_status = "error"
             logger.error("Streaming error", error=str(e))
             yield _sse_data(_error_chunk("CHAT_STREAM_ERROR", str(e), recoverable=True))
             yield _sse_done()
+        finally:
+            metrics_collector.finish_stream(stream_id, status=stream_status)
     
     return StreamingResponse(generate(), media_type="text/event-stream")

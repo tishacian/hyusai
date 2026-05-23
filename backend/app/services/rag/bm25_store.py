@@ -16,6 +16,7 @@ async def rebuild_bm25_artifact(
     collection: KnowledgeCollection,
     vector_db: Any,
     store: ObjectStore | None = None,
+    force: bool = False,
 ) -> dict:
     """Build and persist a BM25 artifact from the vector DB payloads.
 
@@ -27,7 +28,7 @@ async def rebuild_bm25_artifact(
     count = await vector_db.get_count()
     if count <= 0:
         return {"status": "skipped", "reason": "empty_collection", "chunk_count": 0}
-    if count > settings.bm25_rebuild_inline_max_chunks:
+    if count > settings.bm25_rebuild_inline_max_chunks and not force:
         return {
             "status": "deferred",
             "reason": "collection_too_large",
@@ -61,11 +62,25 @@ async def rebuild_bm25_artifact(
     buf = BytesIO()
     pickle.dump(retriever, buf)
 
-    key = store.key(collection.artifact_prefix, "derived", "bm25_retriever.pkl")
+    key = bm25_artifact_key(collection, store=store)
     store.write_bytes(key, buf.getvalue())
     return {
         "status": "ready",
         "path": key,
         "chunk_count": count,
         "documents_indexed": len(texts),
+        "forced": force,
     }
+
+
+def bm25_artifact_key(
+    collection: KnowledgeCollection,
+    *,
+    store: ObjectStore | None = None,
+) -> str:
+    """Return the canonical BM25 sidecar key for a collection."""
+    return (store or get_object_store()).key(
+        collection.artifact_prefix,
+        "derived",
+        "bm25_retriever.pkl",
+    )

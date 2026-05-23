@@ -14,6 +14,7 @@ from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.models.workspace import Workspace
 from app.services.document_parser.factory import DocumentParserFactory
 from app.services.knowledge_collections import (
+    create_worker_job,
     ingested_key,
     original_key,
     update_collection_status,
@@ -48,7 +49,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
     db = SessionLocal()
     temp_dir = Path(tempfile.mkdtemp(prefix="agentium-ingest-"))
     try:
-        job = update_job(db, job_id, status="running", progress=5)
+        job = update_job(db, job_id, status="running", progress=5, stage="copy_originals")
         if not job or not job.collection_id:
             db.commit()
             raise ValueError(f"Worker job {job_id!r} not found or not linked to a collection")
@@ -84,7 +85,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             store.copy_to_local(original_key(collection, name), dest)
             local_paths.append(str(dest))
 
-        update_job(db, job_id, progress=25)
+        update_job(db, job_id, progress=20, stage="parsing")
         db.commit()
 
         for path in local_paths:
@@ -98,7 +99,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             "chunk_overlap": app_settings.get("ragChunkOverlap", 200),
         }
         update_collection_status(db, collection.id, status="embedding")
-        update_job(db, job_id, progress=45)
+        update_job(db, job_id, progress=45, stage="embedding")
         db.commit()
 
         db_type = app_settings.get("ragVectorDBType") or settings.default_vector_db_type or "faiss"
@@ -114,6 +115,8 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         clear_collection_table_facts(db, workspace_id=workspace.id, collection_id=collection.id)
         clear_collection_document_facts(db, workspace_id=workspace.id, collection_id=collection.id)
         db.commit()
+        update_job(db, job_id, progress=60, stage="indexing")
+        db.commit()
         ingest_result = await doc_service.ingest_documents_batch(
             local_paths,
             workspace_id=workspace.id,
@@ -122,11 +125,49 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         )
         chunk_count = await doc_service.get_document_count()
         documents = await doc_service.list_documents()
+        update_job(db, job_id, progress=85, stage="bm25")
+        db.commit()
         bm25 = await rebuild_bm25_artifact(
             collection=collection,
             vector_db=doc_service.vector_db,
             store=store,
         )
+        if bm25.get("status") == "deferred":
+            bm25_job = create_worker_job(
+                db,
+                workspace_id=workspace.id,
+                collection_id=collection.id,
+                kind="bm25_rebuild",
+            )
+            db.commit()
+            try:
+                from app.services.worker_dispatch import dispatch_worker_job
+
+                task_id = dispatch_worker_job(db, bm25_job)
+                bm25 = {
+                    **bm25,
+                    "status": "queued",
+                    "deferred": True,
+                    "worker_job_id": bm25_job.id,
+                    "celery_task_id": task_id,
+                }
+            except Exception as exc:
+                update_job(
+                    db,
+                    bm25_job.id,
+                    status="failed",
+                    progress=100,
+                    error=str(exc),
+                    stage="bm25_dispatch_failed",
+                )
+                bm25 = {
+                    **bm25,
+                    "status": "failed",
+                    "deferred": True,
+                    "worker_job_id": bm25_job.id,
+                    "error": str(exc),
+                }
+            db.commit()
 
         result = {
             "ingest": ingest_result,
@@ -144,7 +185,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             chunk_count=chunk_count,
             document_names=file_names,
         )
-        update_job(db, job_id, status="completed", progress=100, result=result)
+        update_job(db, job_id, status="completed", progress=100, result=result, stage="ready")
         db.commit()
         return result
     except Exception as exc:

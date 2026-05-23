@@ -2294,7 +2294,7 @@ export class MissionRailComponent {
           </div>
           <app-workspace-map
             class="strategy-map-canvas"
-            style="display:block;height:clamp(660px,72vh,920px)"
+            style="display:block;height:clamp(760px,78vh,1040px)"
             [zones]="missionMap()?.zones || []"
             [map]="missionMap()?.map || null"
             [mapSystem]="missionMap()?.map_system || null"

@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.monitoring import metrics_collector
 from app.db.base import SessionLocal
 
 logger = get_logger(__name__)
@@ -35,6 +36,7 @@ def health_live():
 def health_ready():
     started = time.perf_counter()
     checks: dict[str, Any] = {
+        "runtime": metrics_collector.get_runtime_health(),
         "database": _check_database(),
         "qdrant": _check_qdrant(),
         "object_store": _check_object_store(),

@@ -126,7 +126,9 @@ type BasemapOption = {
           <button type="button" aria-label="Zoom arrière" (click)="zoomOut()">−</button>
           <button type="button" aria-label="Vue pays" (click)="resetCountry()">⌂</button>
         </div>
-        <button type="button" class="map-legend-toggle" [class.active]="legendOpen" (click)="toggleLegend(); $event.stopPropagation()">Niveaux</button>
+        @if (!legendOpen) {
+          <button type="button" class="map-legend-toggle" (click)="toggleLegend(); $event.stopPropagation()">Niveaux</button>
+        }
         @if (legendOpen) {
           <div class="map-legend">
             <strong>Niveaux</strong>
@@ -134,6 +136,15 @@ type BasemapOption = {
             <span><i class="monitoring"></i>surveillance</span>
             <span><i class="elevated"></i>élevé</span>
             <span><i class="critical"></i>critique</span>
+          </div>
+        }
+        @if (isLayerActive('maritime-traffic')) {
+          <div class="map-maritime-legend">
+            <strong>Maritime</strong>
+            <span><i class="corridor"></i>corridor</span>
+            <span><i class="port"></i>ports</span>
+            <span><i class="density"></i>densité</span>
+            <span><i class="alert"></i>alerte</span>
           </div>
         }
         @if (briefOpen && selectedBriefZone(); as zone) {
@@ -259,6 +270,7 @@ type BasemapOption = {
       .workspace-map.compact .map-control-panel,
       .workspace-map.compact .map-reset,
       .workspace-map.compact .map-legend,
+      .workspace-map.compact .map-maritime-legend,
       .workspace-map.compact .map-compass {
         display: none;
       }
@@ -283,19 +295,19 @@ type BasemapOption = {
       }
 
       .workspace-map.basemap-administrative .maplibre-canvas {
-        filter: contrast(1.08) saturate(0.82) brightness(0.98);
+        filter: contrast(1.02) saturate(0.92) brightness(0.99);
       }
 
       .workspace-map.basemap-command .maplibre-canvas {
-        filter: contrast(1.28) saturate(0.94) brightness(1.08);
+        filter: contrast(1.12) brightness(0.96) saturate(0.86);
       }
 
       .workspace-map.basemap-dark .maplibre-canvas {
-        filter: contrast(1.05) saturate(1.02);
+        filter: none;
       }
 
       .workspace-map.basemap-contours .maplibre-canvas {
-        filter: contrast(1.03) saturate(0.92);
+        filter: contrast(1.01) saturate(0.86) brightness(0.98);
       }
 
       .map-frame-overlay {
@@ -327,13 +339,13 @@ type BasemapOption = {
 
       .map-control-panel {
         position: absolute;
-        left: 14px;
-        top: 14px;
+        left: 16px;
+        top: 16px;
         width: min(286px, calc(100% - 92px));
         display: grid;
         gap: 9px;
         padding: 11px;
-        border: 1px solid rgba(101, 214, 110, 0.24);
+        border: 1px solid rgba(148, 197, 229, 0.22);
         border-radius: 14px;
         background: rgba(2, 5, 8, 0.92);
         box-shadow: 0 18px 42px rgba(0, 0, 0, 0.40), inset 0 0 0 1px rgba(255,255,255,0.035);
@@ -377,7 +389,7 @@ type BasemapOption = {
       }
 
       .map-control-toggle:hover {
-        background: rgba(101, 214, 110, 0.08);
+        background: rgba(148, 197, 229, 0.08);
       }
 
       .map-control-heading strong {
@@ -416,7 +428,7 @@ type BasemapOption = {
         min-height: 31px;
         padding: 7px 10px;
         border-radius: 999px;
-        border: 1px solid rgba(101, 214, 110, 0.15);
+        border: 1px solid rgba(148, 197, 229, 0.18);
         background: rgba(11, 20, 31, 0.88);
         color: rgba(207, 239, 255, 0.70);
         font: 750 9px/1 var(--mission-mono, monospace);
@@ -428,15 +440,15 @@ type BasemapOption = {
 
       .basemap-switch button.active,
       .map-reset:hover {
-        border-color: rgba(101, 214, 110, 0.42);
+        border-color: rgba(148, 197, 229, 0.54);
         background: rgba(10, 34, 49, 0.82);
         color: rgba(232, 247, 255, 0.92);
-        box-shadow: 0 0 18px rgba(101, 214, 110, 0.12);
+        box-shadow: 0 0 18px rgba(79, 178, 229, 0.13);
       }
 
       .basemap-switch button:hover,
       .layer-toggle:hover {
-        border-color: rgba(101, 214, 110, 0.52);
+        border-color: rgba(148, 197, 229, 0.56);
         color: rgba(245, 251, 255, 0.95);
       }
 
@@ -457,7 +469,7 @@ type BasemapOption = {
       .layer-search input {
         width: 100%;
         min-height: 34px;
-        border: 1px solid rgba(101, 214, 110, 0.16);
+        border: 1px solid rgba(148, 197, 229, 0.18);
         border-radius: 10px;
         background: rgba(6, 12, 19, 0.92);
         color: rgba(245, 251, 255, 0.90);
@@ -467,8 +479,8 @@ type BasemapOption = {
       }
 
       .layer-search input:focus {
-        border-color: rgba(101, 214, 110, 0.46);
-        box-shadow: 0 0 0 2px rgba(101, 214, 110, 0.10);
+        border-color: rgba(148, 197, 229, 0.52);
+        box-shadow: 0 0 0 2px rgba(79, 178, 229, 0.10);
       }
 
       .layer-list {
@@ -490,7 +502,7 @@ type BasemapOption = {
         align-items: center;
         padding: 9px 10px;
         border-radius: 10px;
-        border: 1px solid rgba(101, 214, 110, 0.16);
+        border: 1px solid rgba(148, 197, 229, 0.18);
         background: rgba(14, 24, 36, 0.92);
         color: rgba(232, 241, 255, 0.72);
         text-align: left;
@@ -498,9 +510,9 @@ type BasemapOption = {
       }
 
       .layer-toggle.active {
-        border-color: rgba(101, 214, 110, 0.48);
+        border-color: rgba(148, 197, 229, 0.50);
         background: linear-gradient(135deg, rgba(18, 39, 58, 0.98), rgba(12, 23, 36, 0.94));
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 18px rgba(101, 214, 110, 0.10);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 18px rgba(79, 178, 229, 0.10);
       }
 
       .layer-toggle:not(.active) {
@@ -606,7 +618,7 @@ type BasemapOption = {
         align-items: center;
         gap: 12px;
         padding: 8px 11px;
-        border: 1px solid rgba(101, 214, 110, 0.13);
+        border: 1px solid rgba(148, 197, 229, 0.16);
         border-radius: 999px;
         background: rgba(2, 6, 10, 0.94);
         backdrop-filter: blur(8px);
@@ -620,7 +632,7 @@ type BasemapOption = {
         transform: translateX(-50%);
         min-height: 28px;
         padding: 7px 11px;
-        border: 1px solid rgba(101, 214, 110, 0.13);
+        border: 1px solid rgba(148, 197, 229, 0.18);
         border-radius: 999px;
         background: rgba(2, 6, 10, 0.88);
         color: rgba(148, 197, 229, 0.86);
@@ -634,7 +646,7 @@ type BasemapOption = {
 
       .map-legend-toggle.active,
       .map-legend-toggle:hover {
-        border-color: rgba(101, 214, 110, 0.34);
+        border-color: rgba(148, 197, 229, 0.34);
         color: rgba(245, 251, 255, 0.92);
       }
 
@@ -673,6 +685,67 @@ type BasemapOption = {
       .map-legend .monitoring { background: #8fd2ff; }
       .map-legend .elevated { background: #f1ce71; }
       .map-legend .critical { background: #f27f8b; }
+
+      .map-maritime-legend {
+        position: absolute;
+        right: 18px;
+        bottom: 58px;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        max-width: calc(100% - 36px);
+        padding: 8px 11px;
+        border: 1px solid rgba(80, 184, 238, 0.20);
+        border-radius: 999px;
+        background: rgba(2, 6, 10, 0.92);
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+        backdrop-filter: blur(8px);
+        pointer-events: none;
+      }
+
+      .map-maritime-legend strong {
+        color: rgba(148, 197, 229, 0.86);
+        font: 800 9px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .map-maritime-legend span {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: rgba(213, 229, 242, 0.72);
+        font-size: 11px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .map-maritime-legend i {
+        width: 18px;
+        height: 3px;
+        display: inline-block;
+        border-radius: 999px;
+      }
+
+      .map-maritime-legend .corridor { background: #65cdf5; }
+      .map-maritime-legend .port {
+        width: 8px;
+        height: 8px;
+        background: #ffb15f;
+      }
+      .map-maritime-legend .density {
+        width: 10px;
+        height: 10px;
+        background: rgba(103, 206, 255, 0.46);
+        box-shadow: 0 0 0 5px rgba(103, 206, 255, 0.12);
+      }
+      .map-maritime-legend .alert {
+        width: 8px;
+        height: 8px;
+        background: #ff7f67;
+        box-shadow: 0 0 0 5px rgba(255, 127, 103, 0.14);
+      }
 
       .map-brief-popup {
         position: absolute;
@@ -892,7 +965,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   fallback = false;
   selectedBasemapKey = 'command';
-  controlsOpen = true;
+  controlsOpen = false;
   legendOpen = true;
   briefOpen = false;
   layerSearch = '';
@@ -934,7 +1007,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       { key: 'strategic-projects', label: 'Projets sensibles', shortLabel: 'Projets', tone: 'green', count: 3, confidence: 69, visible: true },
       { key: 'agenda-windows', label: 'Agenda / fenêtres d’action', shortLabel: 'Agenda', tone: 'amber', count: 5, confidence: 81, visible: true },
       { key: 'visual-streams', label: 'Observations visuelles', shortLabel: 'Visuel', tone: 'violet', count: 1, confidence: 62, visible: true },
-      { key: 'maritime-traffic', label: 'Maritime / douanes', shortLabel: 'Maritime', tone: 'orange', count: 5, confidence: 66, visible: false },
+      { key: 'maritime-traffic', label: 'Maritime / douanes', shortLabel: 'Maritime', tone: 'blue', count: 5, confidence: 66, visible: false },
       { key: 'preventive-actions', label: 'Actions recommandées', shortLabel: 'Actions', tone: 'red', count: 4, confidence: 74, visible: true },
     ];
   }
@@ -1130,6 +1203,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         zoom: view.zoom ?? (this.compact ? 4.9 : 5.7),
         pitch: this.compact ? 0 : (view.pitch ?? 0),
         bearing: view.bearing ?? 0,
+        maxBounds: this.mapSystem?.['renderer_config']?.regional_bounds || [[-13.8, 3.8], [1.75, 13.2]],
         interactive: !this.compact,
         attributionControl: false,
       });
@@ -1145,6 +1219,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           this.mapInstance?.resize?.();
           this.fitCountry(220);
         }, 80);
+        this.mapInstance.once?.('idle', () => {
+          this.mapInstance?.resize?.();
+          this.fitCountry(0);
+        });
       });
       this.mapInstance.on('moveend', () => this.updateDeckLayers());
       this.mapInstance.on('error', () => this.enableFallback());
@@ -1189,7 +1267,15 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.mapInstance.setStyle(style);
       this.mapInstance.once?.('styledata', () => {
         this.updateDeckLayers();
-        this.focusSelectedZone();
+        if (this.selectedZoneId) {
+          this.focusSelectedZone();
+        } else {
+          this.fitCountry(180);
+        }
+      });
+      this.mapInstance.once?.('idle', () => {
+        this.updateDeckLayers();
+        if (!this.selectedZoneId) this.fitCountry(0);
       });
     } catch {
       this.enableFallback();
@@ -1257,8 +1343,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.mapInstance.fitBounds(bounds, {
         padding: this.compact
           ? { top: 20, right: 20, bottom: 20, left: 20 }
-          : { top: 62, right: 42, bottom: 54, left: 332 },
-        maxZoom: this.compact ? 5.55 : 5.85,
+          : { top: 48, right: 48, bottom: 64, left: 48 },
+        maxZoom: this.compact ? 5.55 : 6.28,
         pitch: 0,
         bearing: 0,
         duration,
@@ -1282,6 +1368,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const contextMarkersSource = this.mapSystem?.['geojson_sources']?.context_markers;
     const contextLinesSource = this.mapSystem?.['geojson_sources']?.context_lines;
     const eventPointsSource = this.mapSystem?.['geojson_sources']?.event_points || this.mapSystem?.['event_points'];
+    const maritimeAreaSource = this.mapSystem?.['geojson_sources']?.maritime_area;
     const maritimePointsSource = this.mapSystem?.['geojson_sources']?.maritime_points;
     const maritimeRoutesSource = this.mapSystem?.['geojson_sources']?.maritime_routes;
     const maritimeDensitySource = this.mapSystem?.['geojson_sources']?.maritime_density;
@@ -1297,7 +1384,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       const zoneId = feature.properties?.zone_id;
       return zoneId === this.selectedZoneId || (!this.selectedZoneId && index === 0);
     });
-    const showCityLabels = currentZoom >= (this.compact ? 5.75 : 5.15);
+    const showCityLabels = currentZoom >= (this.compact ? 5.95 : 5.55);
     const showTerritory = this.isLayerActive('territorial-risk');
     const showPresse = this.isLayerActive('open-intelligence');
     const showRegional = this.isLayerActive('regional-context');
@@ -1311,10 +1398,23 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       .filter((feature: any) => {
         const weight = Number(feature.properties?.weight || 0);
         const regional = feature.properties?.scope === 'regional';
-        return regional ? showRegional && weight >= 70 : weight >= (this.compact ? 70 : 55);
+        return regional ? showRegional && weight >= 72 : weight >= (this.compact ? 80 : 72);
       })
-      .slice(0, this.compact ? 8 : 14);
+      .slice(0, this.compact ? 5 : 8);
+    const zoneMarkerDisplayFeatures = (showVisual || showActions)
+      ? zoneMarkerFeatures
+      : selectedOrTopZoneMarkers;
     const layers: any[] = [];
+
+    layers.push(new GeoJsonLayer({
+      id: 'sentinel-country-fill',
+      data: countryBoundarySource,
+      pickable: false,
+      filled: true,
+      stroked: false,
+      getFillColor: this.countryFillColor(),
+      parameters: { depthTest: false },
+    }));
 
     layers.push(new GeoJsonLayer({
         id: 'sentinel-country-outline',
@@ -1323,8 +1423,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         filled: false,
         stroked: true,
         getFillColor: [0, 0, 0, 0],
-        getLineColor: this.selectedBasemapKey === 'administrative' ? [15, 63, 86, 238] : [136, 215, 255, 218],
-        lineWidthMinPixels: 2.2,
+        getLineColor: this.isLightBasemap() ? [14, 54, 75, 245] : [156, 222, 255, 238],
+        lineWidthMinPixels: 2.4,
         parameters: { depthTest: false },
       }));
 
@@ -1335,12 +1435,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       filled: false,
       stroked: true,
       getFillColor: [0, 0, 0, 0],
-      getLineColor: this.selectedBasemapKey === 'administrative' ? [20, 70, 96, 182] : [178, 229, 251, 164],
-      lineWidthMinPixels: 1.15,
+      getLineColor: this.isLightBasemap() ? [26, 70, 91, 118] : [170, 224, 248, 98],
+      lineWidthMinPixels: 0.95,
       parameters: { depthTest: false },
     }));
 
-    if (currentZoom >= 6.85 && showTerritory) {
+    if (currentZoom >= 7.15 && showTerritory) {
       layers.push(new GeoJsonLayer({
         id: 'sentinel-admin-boundaries',
         data: adminBoundariesSource,
@@ -1348,7 +1448,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         filled: false,
         stroked: true,
         getFillColor: [0, 0, 0, 0],
-        getLineColor: this.selectedBasemapKey === 'administrative' ? [27, 77, 103, 82] : [185, 224, 241, 72],
+        getLineColor: this.isLightBasemap() ? [30, 76, 96, 72] : [190, 226, 241, 58],
         lineWidthMinPixels: 0.55,
         parameters: { depthTest: false },
       }));
@@ -1364,15 +1464,15 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getFillColor: (feature: any) => this.deckColor(
           feature.properties?.tone,
           feature.properties?.id === this.selectedZoneId,
-          feature.properties?.id === this.selectedZoneId ? 132 : (showTerritory ? 76 : 34),
+          feature.properties?.id === this.selectedZoneId ? 126 : (showTerritory ? 62 : 30),
         ),
         getLineColor: (feature: any) => this.deckLineColor(
           feature.properties?.tone,
           feature.properties?.id === this.selectedZoneId,
-          feature.properties?.id === this.selectedZoneId ? 242 : 196,
+          feature.properties?.id === this.selectedZoneId ? 236 : 158,
         ),
-        lineWidthMinPixels: 1.9,
-        lineWidthMaxPixels: 4.2,
+        lineWidthMinPixels: 1.25,
+        lineWidthMaxPixels: 3.4,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
       }));
@@ -1386,13 +1486,28 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         filled: false,
         stroked: true,
         getLineColor: (feature: any) => this.contextLineColor(feature.properties?.tone),
-        getLineWidth: (feature: any) => feature.properties?.tone === 'regional' ? 7800 : 5500,
-        lineWidthMinPixels: 1.6,
+        getLineWidth: (feature: any) => feature.properties?.tone === 'regional' ? 3600 : 3000,
+        lineWidthMinPixels: 0.85,
+        lineWidthMaxPixels: 2.2,
         parameters: { depthTest: false },
       }));
     }
 
     if (showMaritime) {
+      if (maritimeAreaSource?.features?.length) {
+        layers.push(new GeoJsonLayer({
+          id: 'sentinel-maritime-operating-area',
+          data: maritimeAreaSource,
+          pickable: false,
+          filled: true,
+          stroked: true,
+          getFillColor: this.maritimeAreaFillColor(),
+          getLineColor: this.maritimeAreaLineColor(),
+          lineWidthMinPixels: 0.75,
+          lineWidthMaxPixels: 1.6,
+          parameters: { depthTest: false },
+        }));
+      }
       const densityFeatures = maritimeDensitySource?.features || [];
       if (densityFeatures.length) {
         layers.push(new ScatterplotLayer({
@@ -1403,8 +1518,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           filled: true,
           getPosition: (feature: any) => feature.geometry.coordinates,
           radiusUnits: 'meters',
-          getRadius: (feature: any) => Math.max(18000, Math.min(42000, (feature.properties?.score || 52) * 520)),
-          getFillColor: [255, 140, 42, 42],
+          getRadius: (feature: any) => Math.max(9000, Math.min(28000, (feature.properties?.score || 52) * 330)),
+          getFillColor: (feature: any) => this.maritimeDensityColor(feature),
           parameters: { depthTest: false },
         }));
       }
@@ -1414,9 +1529,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: false,
         filled: false,
         stroked: true,
-        getLineColor: [255, 155, 74, 178],
-        getLineWidth: 7200,
-        lineWidthMinPixels: 1.8,
+        getLineColor: (feature: any) => this.maritimeRouteColor(feature),
+        getLineWidth: (feature: any) => feature.properties?.visual_role === 'port_approach' ? 2800 : 2200,
+        lineWidthMinPixels: 0.95,
+        lineWidthMaxPixels: 2.35,
         parameters: { depthTest: false },
       }));
       const maritimeFeatures = maritimePointsSource?.features || [];
@@ -1428,10 +1544,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         filled: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
         radiusUnits: 'pixels',
-        getRadius: (feature: any) => Math.max(16, Math.min(32, (feature.properties?.weight || 48) / 2.8)),
-        getFillColor: [255, 155, 74, 34],
-        getLineColor: [255, 183, 94, 210],
-        lineWidthMinPixels: 1.7,
+        getRadius: (feature: any) => Math.max(10, Math.min(25, (feature.properties?.score || feature.properties?.weight || 48) / 3.4)),
+        getFillColor: (feature: any) => this.maritimePointColor(feature, 26),
+        getLineColor: (feature: any) => this.maritimePointColor(feature, 174),
+        lineWidthMinPixels: 1.25,
         parameters: { depthTest: false },
       }));
       layers.push(new ScatterplotLayer({
@@ -1440,25 +1556,26 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
         radiusUnits: 'pixels',
-        getRadius: (feature: any) => feature.properties?.kind === 'port' ? 7 : 9,
-        getFillColor: (feature: any) => feature.properties?.kind === 'port' ? [66, 217, 155, 238] : [255, 155, 74, 238],
-        getLineColor: [250, 254, 255, 238],
-        lineWidthMinPixels: 1.7,
+        getRadius: (feature: any) => feature.properties?.kind === 'port' ? 7 : 5.6,
+        getFillColor: (feature: any) => this.maritimePointColor(feature, 238),
+        getLineColor: (feature: any) => this.isLightBasemap() ? [8, 26, 38, 228] : [245, 252, 255, 230],
+        lineWidthMinPixels: 1.45,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitMaritimeEvidence(info.object),
       }));
+      const maritimeLabelFeatures = maritimeFeatures.filter((feature: any) => feature.properties?.kind === 'port').slice(0, 2);
       layers.push(new TextLayer({
         id: 'sentinel-maritime-labels',
-        data: maritimeFeatures.slice(0, 3),
+        data: maritimeLabelFeatures,
         getPosition: (feature: any) => feature.geometry.coordinates,
         getText: (feature: any) => feature.properties?.name || '',
         getSize: this.compact ? 9 : 11,
-        getColor: [255, 255, 255, 244],
+        getColor: this.isLightBasemap() ? [10, 25, 38, 242] : [240, 250, 255, 244],
         getPixelOffset: [0, -25],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'bottom',
         fontSettings: { sdf: true },
-        outlineColor: [4, 8, 13, 242],
+        outlineColor: this.isLightBasemap() ? [250, 253, 255, 235] : [4, 8, 13, 242],
         outlineWidth: 3,
         billboard: true,
         parameters: { depthTest: false },
@@ -1549,7 +1666,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (showVisual || showTerritory || showActions) {
       layers.push(new ScatterplotLayer({
         id: 'sentinel-marker-rings',
-        data: markersSource?.features || [],
+        data: zoneMarkerDisplayFeatures,
         pickable: false,
         stroked: true,
         filled: true,
@@ -1563,7 +1680,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       }));
       layers.push(new ScatterplotLayer({
         id: 'sentinel-markers',
-        data: markersSource?.features || [],
+        data: zoneMarkerDisplayFeatures,
         pickable: true,
         getPosition: (feature: any) => feature.geometry.coordinates,
         radiusUnits: 'pixels',
@@ -1583,12 +1700,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getPosition: (feature: any) => feature.geometry.coordinates,
         getText: (feature: any) => feature.properties?.name || '',
         getSize: this.compact ? 9 : 11,
-        getColor: this.selectedBasemapKey === 'dark' ? [245, 250, 255, 234] : [18, 39, 54, 232],
+        getColor: this.isLightBasemap() ? [18, 39, 54, 232] : [245, 250, 255, 234],
         getPixelOffset: [0, -12],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'bottom',
         fontSettings: { sdf: true },
-        outlineColor: this.selectedBasemapKey === 'dark' ? [3, 6, 10, 248] : [250, 254, 255, 246],
+        outlineColor: this.isLightBasemap() ? [250, 254, 255, 246] : [3, 6, 10, 248],
         outlineWidth: 3,
         billboard: true,
         parameters: { depthTest: false },
@@ -1602,11 +1719,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getPosition: (feature: any) => feature.geometry.coordinates,
         getText: (feature: any) => feature.properties?.name || '',
         getSize: this.compact ? 10 : 12,
-        getColor: this.selectedBasemapKey === 'contours' ? [8, 28, 42, 245] : [246, 251, 255, 238],
+        getColor: this.isLightBasemap() ? [8, 28, 42, 245] : [246, 251, 255, 238],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'center',
         fontSettings: { sdf: true },
-        outlineColor: this.selectedBasemapKey === 'contours' ? [255, 255, 255, 235] : [4, 8, 13, 232],
+        outlineColor: this.isLightBasemap() ? [255, 255, 255, 235] : [4, 8, 13, 232],
         outlineWidth: 3,
         billboard: true,
         parameters: { depthTest: false },
@@ -1772,10 +1889,17 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     return [104, 238, 164, alpha];
   }
 
+  private countryFillColor(): number[] {
+    if (this.selectedBasemapKey === 'command') return [2, 9, 13, 38];
+    if (this.selectedBasemapKey === 'dark') return [2, 9, 13, 92];
+    if (this.selectedBasemapKey === 'contours') return [255, 255, 255, 22];
+    return [255, 255, 255, 18];
+  }
+
   private contextLineColor(tone: string): number[] {
-    if (tone === 'regional') return [242, 140, 56, 158];
-    if (tone === 'watch') return [255, 202, 68, 148];
-    return [100, 220, 255, 132];
+    if (tone === 'regional') return [180, 190, 202, 82];
+    if (tone === 'watch') return [237, 204, 118, 88];
+    return [124, 196, 222, 80];
   }
 
   private contextMarkerFeatures(features: any[], showPresse: boolean, showRegional: boolean): any[] {
@@ -1798,8 +1922,57 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (layerKey === 'agenda-windows') return [241, 206, 113, alpha];
     if (layerKey === 'visual-streams') return [185, 165, 255, alpha];
     if (layerKey === 'preventive-actions') return [242, 127, 139, alpha];
-    if (layerKey === 'maritime-traffic') return [242, 140, 56, alpha];
+    if (layerKey === 'maritime-traffic') return [77, 189, 236, alpha];
     return [143, 210, 255, alpha];
+  }
+
+  private maritimeRouteColor(feature: any): number[] {
+    const status = String(feature?.properties?.status || '');
+    const role = String(feature?.properties?.visual_role || feature?.properties?.render_tone || '');
+    const approach = role === 'port_approach' || role === 'maritime_approach' || status === 'watch';
+    if (this.isLightBasemap()) {
+      return approach ? [0, 132, 178, 214] : [12, 103, 158, 172];
+    }
+    return approach ? [42, 219, 246, 220] : [100, 207, 255, 180];
+  }
+
+  private maritimeAreaFillColor(): number[] {
+    if (this.isLightBasemap()) return [42, 159, 211, 42];
+    return [22, 137, 198, 48];
+  }
+
+  private maritimeAreaLineColor(): number[] {
+    if (this.isLightBasemap()) return [8, 110, 165, 132];
+    return [88, 218, 255, 130];
+  }
+
+  private maritimeDensityColor(feature: any): number[] {
+    const props = feature?.properties || {};
+    const status = String(props.status || props.severity || props.tone || '');
+    const role = String(props.visual_role || props.render_tone || '');
+    const score = Number(props.score || 0);
+    const elevated = role === 'density_elevated' || status === 'elevated' || status === 'congestion' || score >= 65;
+    if (this.isLightBasemap()) {
+      return elevated ? [255, 174, 66, 56] : [31, 151, 204, 42];
+    }
+    return elevated ? [255, 184, 82, 66] : [96, 204, 255, 48];
+  }
+
+  private maritimePointColor(feature: any, alpha = 220): number[] {
+    const props = feature?.properties || {};
+    const kind = String(props.kind || '');
+    const status = String(props.status || props.severity || '');
+    if (kind === 'port') {
+      return props.id === 'port-abidjan' ? [255, 160, 67, alpha] : [92, 218, 160, alpha];
+    }
+    if (kind === 'disruption' || status === 'congestion' || status === 'critical') return [255, 127, 103, alpha];
+    if (status === 'watch' || status === 'elevated') return [255, 188, 90, Math.min(alpha, 218)];
+    if (status === 'unknown') return [176, 188, 202, Math.min(alpha, 205)];
+    return [88, 199, 245, alpha];
+  }
+
+  private isLightBasemap(): boolean {
+    return this.selectedBasemapKey === 'administrative' || this.selectedBasemapKey === 'contours';
   }
 
   private deckTooltip(info: any): any {

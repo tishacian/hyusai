@@ -183,7 +183,7 @@ DEFAULT_RENDERER_LAYERS = [
         "label": "Maritime / douanes",
         "short_label": "Maritime",
         "deck_group": "maritime",
-        "tone": "orange",
+        "tone": "blue",
         "kind": "maritime_snapshot",
         "visible": False,
         "payload": {"sources": ["port_snapshot", "rss_maritime", "ais_provider_optional"]},
@@ -567,90 +567,58 @@ def _basemap_style(source_id: str, tiles: list[str], paint: dict[str, Any], back
 
 
 def _map_basemap_options() -> list[dict[str, Any]]:
+    carto_dark = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
+    carto_voyager = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
+    carto_positron = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+    carto_dark_tiles = [
+        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+    ]
     return [
         {
             "key": "command",
             "label": "Commandement",
-            "description": "Fond executif contraste, lisible en salle, avec labels et frontieres visibles.",
+            "description": "Fond commandement sombre a contraste stable pour distinguer mer, terre, frontieres et points de situation.",
+            "provider": "carto_raster",
+            "theme": "dark_all_command",
             "style": _basemap_style(
-                "carto-command-voyager",
-                [
-                    "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-                    "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-                    "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-                ],
+                "carto-command-dark",
+                carto_dark_tiles,
                 {
-                    "raster-opacity": 1.0,
+                    "raster-opacity": 0.98,
                     "raster-brightness-min": 0.0,
-                    "raster-brightness-max": 1.0,
-                    "raster-saturation": -0.28,
-                    "raster-contrast": 0.34,
+                    "raster-brightness-max": 0.84,
+                    "raster-saturation": -0.16,
+                    "raster-contrast": 0.18,
                 },
-                background="#dbe7ec",
+                background="#0b0d0f",
             ),
         },
         {
             "key": "administrative",
             "label": "Administratif",
             "description": "Fond administratif contraste, labels et frontieres visibles pour briefing executif.",
-            "style": _basemap_style(
-                "carto-voyager-admin",
-                [
-                    "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-                    "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-                    "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-                ],
-                {
-                    "raster-opacity": 1.0,
-                    "raster-brightness-min": 0.0,
-                    "raster-brightness-max": 0.98,
-                    "raster-saturation": -0.12,
-                    "raster-contrast": 0.22,
-                },
-                background="#d9e4ea",
-            ),
+            "provider": "carto_vector",
+            "theme": "voyager",
+            "style": carto_voyager,
         },
         {
             "key": "dark",
             "label": "Sombre",
             "description": "Fond cockpit sombre avec relief visuel et labels discrets.",
-            "style": _basemap_style(
-                "carto-dark-admin",
-                [
-                    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                    "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                    "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                ],
-                {
-                    "raster-opacity": 1.0,
-                    "raster-brightness-min": 0.04,
-                    "raster-brightness-max": 0.82,
-                    "raster-saturation": -0.18,
-                    "raster-contrast": 0.26,
-                },
-                background="#0d1217",
-            ),
+            "provider": "carto_vector",
+            "theme": "dark-matter",
+            "style": carto_dark,
         },
         {
             "key": "contours",
             "label": "Contours",
             "description": "Fond clair desature pour briefing imprime, projection ou capture de sources.",
-            "style": _basemap_style(
-                "carto-contours",
-                [
-                    "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-                    "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-                    "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-                ],
-                {
-                    "raster-opacity": 1.0,
-                    "raster-brightness-min": 0.0,
-                    "raster-brightness-max": 0.96,
-                    "raster-saturation": -0.34,
-                    "raster-contrast": 0.24,
-                },
-                background="#e9eff2",
-            ),
+            "provider": "carto_vector",
+            "theme": "positron",
+            "style": carto_positron,
         },
     ]
 
@@ -980,6 +948,40 @@ def _event_points_geojson(zones: list[dict[str, Any]]) -> dict[str, Any]:
 def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
     point_features = []
     density_features = []
+    operating_area = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "id": "maritime-gulf-of-guinea-operating-area",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [-9.35, 3.95],
+                            [-1.05, 3.95],
+                            [-1.05, 4.98],
+                            [-2.95, 5.02],
+                            [-4.10, 5.03],
+                            [-6.58, 4.67],
+                            [-9.35, 4.60],
+                            [-9.35, 3.95],
+                        ]
+                    ],
+                },
+                "properties": {
+                    "name": "Zone maritime suivie · Golfe de Guinee",
+                    "layer_key": "maritime-traffic",
+                    "source_kind": "maritime_operating_area",
+                    "visual_role": "operating_area",
+                    "render_tone": "maritime_area",
+                    "status": "monitoring",
+                    "confidence": 0.66,
+                    "source": "zone maritime demo-safe",
+                },
+            }
+        ],
+    }
     for port in MARITIME_PORTS:
         point_features.append(
             {
@@ -990,6 +992,8 @@ def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
                     "kind": "port",
                     "layer_key": "maritime-traffic",
                     "source_kind": "port_snapshot",
+                    "visual_role": "port",
+                    "render_tone": "port_primary" if port["id"] == "port-abidjan" else "port_secondary",
                     **port,
                 },
             }
@@ -1003,6 +1007,8 @@ def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
                 "kind": "vessel_snapshot",
                 "layer_key": "maritime-traffic",
                 "source_kind": "maritime_snapshot",
+                "visual_role": "vessel",
+                "render_tone": "vessel_snapshot",
                 **event,
             },
         }
@@ -1019,6 +1025,8 @@ def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
                     "kind": "density_zone",
                     "layer_key": "maritime-traffic",
                     "source_kind": "maritime_snapshot",
+                    "visual_role": "density",
+                    "render_tone": "density_elevated" if zone.get("status") == "elevated" else "density_monitoring",
                     "source": "snapshot maritime demo-safe",
                 },
             }
@@ -1034,6 +1042,8 @@ def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
                     "kind": "disruption",
                     "layer_key": "maritime-traffic",
                     "source_kind": "port_customs_watch",
+                    "visual_role": "disruption",
+                    "render_tone": "customs_disruption" if disruption.get("severity") == "elevated" else "customs_watch",
                     "source": "port + douanes + veille economique",
                 },
             }
@@ -1044,11 +1054,13 @@ def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
             "id": "route-gulf-abidjan",
             "geometry": {
                 "type": "LineString",
-                "coordinates": [[-1.2, 4.95], [-2.6, 4.85], [-4.0083, 5.2512], [-6.6368, 4.7446], [-9.1, 4.65]],
+                "coordinates": [[-1.2, 4.85], [-2.7, 4.78], [-4.05, 4.92], [-6.66, 4.52], [-9.1, 4.55]],
             },
             "properties": {
                 "name": "Corridor Golfe de Guinee",
                 "layer_key": "maritime-traffic",
+                "visual_role": "corridor",
+                "render_tone": "maritime_corridor",
                 "status": "monitoring",
                 "confidence": 0.66,
                 "source": "demo-safe maritime corridor",
@@ -1056,21 +1068,41 @@ def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
         },
         {
             "type": "Feature",
-            "id": "route-port-abidjan-customs",
+            "id": "route-approche-abidjan-vridi",
             "geometry": {
                 "type": "LineString",
-                "coordinates": [[-4.0083, 5.2512], [-4.0244, 5.3453], [-5.2767, 6.8276]],
+                "coordinates": [[-4.45, 4.82], [-4.22, 4.96], [-4.08, 5.12], [-4.0083, 5.2512]],
             },
             "properties": {
-                "name": "Axe Port d'Abidjan · Cabinet",
+                "name": "Approche portuaire Abidjan / Vridi",
                 "layer_key": "maritime-traffic",
+                "visual_role": "port_approach",
+                "render_tone": "port_approach",
                 "status": "watch",
                 "confidence": 0.62,
-                "source": "port + agenda + economie",
+                "source": "port + douanes + economie",
+            },
+        },
+        {
+            "type": "Feature",
+            "id": "route-approche-san-pedro",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[-7.15, 4.56], [-6.91, 4.62], [-6.72, 4.70], [-6.6368, 4.7446]],
+            },
+            "properties": {
+                "name": "Approche portuaire San Pedro",
+                "layer_key": "maritime-traffic",
+                "visual_role": "port_approach",
+                "render_tone": "port_approach",
+                "status": "stable",
+                "confidence": 0.58,
+                "source": "port + export + economie",
             },
         },
     ]
     return {
+        "maritime_area": operating_area,
         "maritime_points": {"type": "FeatureCollection", "features": point_features},
         "maritime_routes": {"type": "FeatureCollection", "features": route_features},
         "maritime_density": {"type": "FeatureCollection", "features": density_features},
@@ -1086,6 +1118,7 @@ def _maritime_snapshot_payload() -> dict[str, Any]:
         "provider_configured": False,
         "ports": MARITIME_PORTS,
         "events": MARITIME_EVENTS,
+        "bbox": {"west": -9.35, "south": 3.95, "east": -1.05, "north": 5.25},
         "density_zones": density_zones,
         "disruptions": disruptions,
         "freshness": {

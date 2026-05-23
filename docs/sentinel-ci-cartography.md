@@ -12,16 +12,28 @@ La carte SENTINEL-CI est une surface de situation ministerielle, pas un SIG tech
 
 La carte reste une primitive Agentium : elle est servie par le workspace, controlee par IAM, pilotable par AYA et auditee via les commandes carte. Elle reprend les bons patterns Worldmonitor sans copier son produit : registre de couches, fraicheur, time range, points sourcés, tooltips, commandes et fallback propre. La V3 ajoute la boucle Mission President `Explorer -> Comprendre -> Decider` et relie la carte au graphe de preuves OSINT du workspace.
 
+## Coherence Narrative VP
+
+La carte ne porte pas un scenario autonome. Elle consomme le `vp_story` unique expose par `mission_room.py`, partage par cockpit, presse/news, briefing, timeline/agenda, carte et monitor. Les ancres narratives canoniques sont :
+
+- `Zone Nord` comme zone prioritaire ;
+- `Article L'Inter - critique personnelle sur budget defense` comme signal presse ;
+- `Ambassadeur France - dejeuner dans 1h44` comme signal agenda ;
+- `Emoi public - rumeur a contenir` comme signal rumeur ;
+- `Port d'Abidjan - douanes et flux economiques` comme signal maritime/economique.
+
+Toute evolution cartographique doit preserver cette coherence : les couches, tooltips, commandes AYA et panneaux de decision doivent raconter la meme histoire que le cockpit et la presse. Une information cartographique doit mener a comprendre, ouvrir un dossier, preparer une reponse ou arbitrer ; elle ne doit pas introduire un signal orphelin ou contradictoire.
+
 ## Fonds De Carte
 
-Quatre fonds sont exposes dans le selecteur `Fond` :
+Quatre fonds sont exposes dans le selecteur `Fond`. Le fond est un objet de premier rang : il doit rester lisible avant toute couche Agentium.
 
-- `Commandement` : fond executif contraste par defaut, volontairement plus lisible qu'un dark pur, avec labels et frontieres visibles en salle. C'est le mode recommande pour la demo VP.
-- `Administratif` : fond CARTO/OSM contraste par defaut, avec labels et frontieres visibles. C'est le mode de briefing recommande : la geographie doit rester lisible avant les overlays.
-- `Sombre` : fond cockpit type situation monitor, utile en salle basse lumiere quand les couches Agentium doivent dominer.
-- `Contours` : fond clair desature, utile pour projection ou capture d'ecran quand le contexte geographique doit rester lisible.
+- `Commandement` : CARTO `dark_all` raster controle, fond executif sombre par defaut. Il privilegie la separation mer/terre, un contour pays fort et des traces operationnelles lisibles en salle basse lumiere, avant le passage futur a PMTiles self-hosted.
+- `Administratif` : `voyager` vectoriel, fond clair/desature avec labels et frontieres visibles. C'est le mode recommande pour verifier l'ancrage geographique.
+- `Sombre` : `dark-matter` vectoriel, mode cockpit quand les couches Agentium doivent dominer.
+- `Contours` : `positron` vectoriel, mode clair minimal pour projection, capture d'ecran ou briefing confidentiel.
 
-Le bouton `Recentrer Cote d'Ivoire` utilise les bornes pays et force une vue 2D plate, sans pitch ni rotation.
+Les filtres frontend doivent rester faibles : on ne doit pas rendre une carte illisible en “corrigeant” agressivement le fond. Le bouton `Recentrer Cote d'Ivoire` utilise les bornes pays, force une vue 2D plate, sans pitch ni rotation, et applique un padding symetrique. La carte ne doit jamais compenser son cadrage par un panneau lateral ouvert.
 Les boutons `+`, `-` et `vue pays` restent disponibles pour une conduite de demo sans molette.
 
 ## Donnees Geographiques
@@ -81,6 +93,8 @@ Le contexte regional CEDEAO est disponible mais masque par defaut pour eviter un
 
 Le panneau de couches doit rester operable comme un registre Worldmonitor : recherche, etat visible/masque, groupe fonctionnel, fraicheur, compteur et confiance. Une couche desactivee retire réellement ses `GeoJsonLayer`, `ScatterplotLayer`, `PathLayer` ou `ArcLayer` du rendu deck.gl.
 
+En vue ministerielle, le panneau est replie par defaut. La carte doit d'abord se lire comme un territoire, puis comme un registre de couches quand l'operateur ouvre le panneau. Les couches actives par defaut doivent rester volontairement limitees : zones, presse, projets et visuel. Les marqueurs de zones sont limites au point selectionne ou a la zone prioritaire tant que les couches `Visuel` ou `Actions` ne sont pas activees.
+
 Les groupes V3 sont :
 
 - `Territoire` : contour pays, districts, regions, zones de vigilance.
@@ -100,26 +114,40 @@ Les groupes V3 sont :
 - Les polygones ambre indiquent une zone en vigilance elevee.
 - Les polygones rouges sont reserves aux situations critiques.
 - Les halos indiquent des points de concentration de signaux.
-- Les arcs indiquent un lien d'action ou de coordination depuis Abidjan vers une zone.
+- Les arcs indiquent un lien d'action ou de coordination depuis Abidjan vers une zone. Ils restent fins, peu opaques et moins lumineux que les signaux pour ne pas etre confondus avec les corridors maritimes.
 - Les points bleus representent des signaux presse ou rumeurs.
 - Les points verts representent des projets ou sources institutionnelles.
-- Les points orange representent ports, corridors maritimes et douanes.
+- Le registre `Maritime / douanes` est bleu, pas orange. Il utilise d'abord une zone maritime de contexte translucide pour rendre la mer lisible, puis des routes bleues/cyan qui suivent uniquement la mer ou l'approche portuaire. Les zones de densite maritime sont cyan translucide. Les ports peuvent garder un accent orange/vert selon leur statut, mais les lignes maritimes ne doivent jamais etre orange.
 - Les points violets representent observations visuelles habilitees.
 
 Le score, la couleur et les recommandations sont analytiques. La geometrie de base reste administrative et sourcee ; Agentium n'invente plus les frontieres de zones.
+
+Les objets maritimes portent un role visuel explicite dans le GeoJSON pour eviter les confusions de rendu :
+
+- `operating_area` : surface maritime suivie, cyan tres translucide ;
+- `corridor` : route maritime large, bleue, jamais orange ;
+- `port_approach` : approche portuaire, cyan plus lumineux, epaisseur limitee ;
+- `port` : point de port, accent Abidjan orange et San Pedro vert ;
+- `vessel` : observation navire demo-safe, bleu ;
+- `density` : halo de densite, cyan ou ambre si elevé ;
+- `disruption` : point alerte douanes/economie, orange-rouge seulement quand il y a un signal d'attention.
+
+Cette separation suit le principe Worldmonitor : une couleur correspond a une famille de lecture. Orange ne signifie pas "maritime" ; orange signifie "attention economique/douanes". Bleu signifie flux maritime.
 
 ## Maritime Et Douanes
 
 La couche maritime est volontairement `snapshot_demo_safe` tant qu'un provider AIS n'est pas configure. Elle contient :
 
 - deux ports : `Port d'Abidjan` et `Port de San Pedro` ;
-- un corridor Golfe de Guinee ;
+- une zone maritime suivie `Golfe de Guinee` pour rendre le domaine maritime lisible, meme sur fond sombre ;
+- un corridor Golfe de Guinee, ainsi que des approches portuaires qui restent sur mer ou en rade ;
 - des zones de densite : `Densite Abidjan / Vridi` et `Densite San Pedro` ;
 - des disruptions demo-safe : fenetre douanes Abidjan et surveillance du corridor Golfe de Guinee ;
 - des points de densite ou d'observation navires demonstratifs ;
 - des statuts simples : `en route`, `a quai`, `congestion`, `inconnu`.
 
 Elle ne promet pas un suivi live AIS et ne doit pas etre presentee comme un tracking individuel. Son objectif en demo est de montrer comment SENTINEL-CI croise economie, douanes, projets, presse et agenda dans une lecture gouvernementale.
+La couche maritime ne doit jamais contenir de ligne inland type `port -> cabinet`. Ces liens appartiennent aux couches `Agenda`, `Actions` ou `Projets`; sinon l'utilisateur confond route maritime, instruction cabinet et trace d'analyse.
 
 ## Commandes AYA
 
@@ -140,7 +168,7 @@ Chaque commande est auditee et reste advisory-only.
 
 ## Explorer, Comprendre, Decider
 
-La carte doit soutenir trois postures de demonstration :
+La carte soutient trois postures de demonstration, mais ces postures sont globales a SENTINEL-CI. Elles ne doivent pas devenir des onglets ou des niveaux meta dans le cadre cartographique lui-meme :
 
 - `Explorer` : voir la posture nationale, les couches actives, les zones et la fraicheur des sources.
 - `Comprendre` : ouvrir les sources, le graphe de preuves, la chronologie et les facteurs de risque.
@@ -165,10 +193,16 @@ La carte consomme `/api/v1/maps/{map_id}`. Ce payload expose :
 Checklist visuelle avant demo :
 
 - fond `Commandement` lisible a 1440px ;
+- en fond `Commandement`, la Cote d'Ivoire doit sortir du fond par son contour et son masque pays, tandis que la mer reste lisible sous les corridors ;
+- fond `Administratif` lisible sans voile gris ni contraste lave ;
 - aucun pitch ni bearing par defaut ;
 - pays recadre proprement ;
+- panneau de couches replie par defaut, ouvrable en un clic ;
+- au zoom pays, les labels sont limites aux villes majeures et la zone prioritaire ;
 - couche maritime desactivee par defaut mais activable en un clic ;
 - `Maritime / douanes` affiche ports, corridor et points navires ;
+- `Maritime / douanes` affiche une zone maritime translucide qui permet de voir immediatement ou se situe la mer ;
+- `Maritime / douanes` ne partage pas la meme couleur ni la meme epaisseur que les lignes d'agenda/action ;
 - la legende stable / surveillance / eleve / critique reste visible ;
 - chaque point ou zone ouvre une source, une action ou une explication.
 
