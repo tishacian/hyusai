@@ -1,6 +1,6 @@
 """Workspace macro indicators cache + meeting decisions log.
 
-Revision ID: 033_macro_indicators_meeting_decisions
+Revision ID: 033_macro_meeting
 Revises: 032_document_intelligence
 Create Date: 2026-05-23
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision = "033_macro_indicators_meeting_decisions"
+revision = "033_macro_meeting"
 down_revision = "032_document_intelligence"
 branch_labels = None
 depends_on = None
