@@ -334,15 +334,29 @@ const STEP_ICONS: Record<string, string> = {
                 Sources qualifiées · Presse, projets, agenda, carte et observations
               </div>
             </div>
-            <button
-              type="button"
-              class="vigie-trace-button"
-              (click)="traceOpen.set(!traceOpen())"
-              [title]="traceOpen() ? 'Masquer les paramètres avancés' : 'Afficher traçabilité et paramètres avancés'"
-            >
-              <app-icon name="sliders-horizontal" [size]="13" />
-              Traçabilité
-            </button>
+            <div class="vigie-context-actions">
+              <button
+                type="button"
+                class="vigie-voice-primary"
+                [class.vigie-voice-primary-active]="voiceConversationActive() && !voiceConversationPaused()"
+                [class.vigie-voice-primary-paused]="voiceConversationPaused()"
+                [disabled]="!canUseVoiceSession() || streaming() || transcribing()"
+                [title]="executiveVoiceCtaTitle()"
+                (click)="startExecutiveVoiceLoop()"
+              >
+                <app-icon [name]="voiceConversationActive() && !voiceConversationPaused() ? 'mic' : 'play'" [size]="13" />
+                {{ executiveVoiceCtaLabel() }}
+              </button>
+              <button
+                type="button"
+                class="vigie-trace-button"
+                (click)="traceOpen.set(!traceOpen())"
+                [title]="traceOpen() ? 'Masquer les paramètres avancés' : 'Afficher traçabilité et paramètres avancés'"
+              >
+                <app-icon name="sliders-horizontal" [size]="13" />
+                Traçabilité
+              </button>
+            </div>
           </div>
         </div>
       }
@@ -1205,6 +1219,56 @@ const STEP_ICONS: Record<string, string> = {
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .vigie-context-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .vigie-voice-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      padding: 8px 13px;
+      border-radius: 12px;
+      border: 1px solid rgba(101, 214, 110, 0.36);
+      background:
+        linear-gradient(135deg, rgba(32, 120, 68, 0.90), rgba(20, 70, 47, 0.86)),
+        rgba(11, 18, 28, 0.82);
+      color: #d9ffdf;
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: 0.01em;
+      box-shadow:
+        0 0 0 1px rgba(101, 214, 110, 0.10) inset,
+        0 14px 38px rgba(10, 70, 34, 0.22);
+      transition: 140ms ease;
+    }
+    .vigie-voice-primary:hover:not(:disabled) {
+      transform: translateY(-1px);
+      border-color: rgba(137, 236, 133, 0.55);
+      background:
+        linear-gradient(135deg, rgba(40, 145, 80, 0.96), rgba(25, 90, 57, 0.92)),
+        rgba(11, 18, 28, 0.82);
+      color: #f6fff3;
+    }
+    .vigie-voice-primary-active {
+      border-color: rgba(245, 168, 90, 0.50);
+      background:
+        linear-gradient(135deg, rgba(242, 140, 56, 0.88), rgba(33, 104, 60, 0.78)),
+        rgba(11, 18, 28, 0.82);
+      color: #fff6e8;
+    }
+    .vigie-voice-primary-paused {
+      border-color: rgba(245, 168, 90, 0.44);
+      color: #ffe1b8;
+    }
+    .vigie-voice-primary:disabled {
+      cursor: not-allowed;
+      opacity: 0.48;
+      box-shadow: none;
+    }
     .vigie-trace-button {
       display: inline-flex;
       align-items: center;
@@ -1221,6 +1285,16 @@ const STEP_ICONS: Record<string, string> = {
       border-color: rgba(101, 214, 110, 0.38);
       color: #f4f8ff;
       background: rgba(18, 31, 45, 0.82);
+    }
+    @media (max-width: 760px) {
+      .vigie-context-actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .vigie-voice-primary,
+      .vigie-trace-button {
+        justify-content: center;
+      }
     }
     .chat-control-bar {
       display: flex;
@@ -2221,6 +2295,30 @@ export class ChatPanelComponent {
       this.voiceAutoEndpoint.set(config.auto_endpoint);
     }
     this.cdr.markForCheck();
+  }
+
+  executiveVoiceCtaLabel(): string {
+    if (!this.canUseVoiceSession()) return 'Voix indisponible';
+    if (this.voiceConversationPaused()) return 'Reprendre AYA';
+    if (this.voiceConversationActive()) return 'AYA écoute';
+    return 'Parler à AYA';
+  }
+
+  executiveVoiceCtaTitle(): string {
+    if (!this.canUseVoiceSession()) return this.voiceSessionButtonTitle();
+    if (this.voiceConversationPaused()) return 'Relancer la boucle vocale AYA.';
+    if (this.voiceConversationActive()) return 'La session vocale AYA est active. Les commandes stop, pause et annule restent disponibles.';
+    return 'Démarrer une conversation vocale persistante avec AYA.';
+  }
+
+  startExecutiveVoiceLoop(): void {
+    if (!this.canUseVoiceSession() || this.streaming() || this.transcribing()) return;
+    if (this.voiceConversationPaused()) {
+      this.resumeConversationLoop();
+      return;
+    }
+    if (this.voiceConversationActive()) return;
+    void this.startConversationLoop();
   }
 
 	  voiceRuntimeLabel(runtime: VoiceRuntimeProviderOption): string {
