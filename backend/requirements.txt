@@ -28,6 +28,8 @@ s3fs>=2024.6.0
 
 # Document parsing
 pypdf>=4.0.0
+markdown>=3.5
+weasyprint>=62.3
 
 # Document metadata extraction (src/metadata_extraction/docmeta)
 # Keep the dep list in sync with docmeta/README.md so drop-and-ask, batch
