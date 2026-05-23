@@ -86,7 +86,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, IconComponent, TagComponent, ChatPanelComponent],
   template: `
-    <div class="t-shell" [class.t-inline]="inline()">
+    <div class="t-shell" [class.t-inline]="inline()" [class.t-executive-shell]="executiveAssistant()">
       <!-- Header — system picker + mode badge -->
       <header class="t-header">
         @if (executiveAssistant()) {
@@ -444,6 +444,16 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       font-size: 11px;
       font-weight: 600;
       white-space: nowrap;
+    }
+    .t-executive-shell .t-source-pill {
+      border-color: rgba(101, 214, 110, 0.30);
+      background:
+        linear-gradient(135deg, rgba(101, 214, 110, 0.11), rgba(242, 140, 56, 0.06)),
+        rgba(8, 17, 12, 0.86);
+      color: #d9ffdf;
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+        0 10px 28px rgba(5, 40, 18, 0.16);
     }
     .t-inline .t-source-pill {
       max-width: 280px;

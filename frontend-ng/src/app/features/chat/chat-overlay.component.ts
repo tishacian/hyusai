@@ -45,7 +45,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       [width]="panelWidth()"
     >
       @if (overlay.isOpen()) {
-        <div class="chat-overlay-frame">
+        <div class="chat-overlay-frame" [class.sentinel-chat-overlay]="sentinelShowcase()">
           <div class="chat-overlay-toolbar">
             <span class="chat-overlay-hint">
               Quick panel
@@ -54,10 +54,10 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               type="button"
               class="chat-overlay-expand"
               (click)="expandToWorkspaceChat()"
-              title="Open this chat as a direct full-page workspace view"
+              [title]="sentinelShowcase() ? 'Ouvrir AYA en plein écran' : 'Open this chat as a direct full-page workspace view'"
             >
               <app-icon name="maximize" [size]="13" />
-              Expand
+              {{ sentinelShowcase() ? 'Plein écran' : 'Expand' }}
             </button>
           </div>
           <app-chat-workspace
@@ -124,6 +124,20 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       background: rgba(34, 211, 238, 0.14);
       color: rgb(245, 248, 252);
     }
+    .sentinel-chat-overlay .chat-overlay-expand {
+      border-color: rgba(101, 214, 110, 0.28);
+      background:
+        linear-gradient(135deg, rgba(101, 214, 110, 0.10), rgba(242, 140, 56, 0.06)),
+        rgba(7, 14, 11, 0.76);
+      color: #d9ffdf;
+    }
+    .sentinel-chat-overlay .chat-overlay-expand:hover {
+      border-color: rgba(242, 140, 56, 0.38);
+      background:
+        linear-gradient(135deg, rgba(101, 214, 110, 0.14), rgba(242, 140, 56, 0.10)),
+        rgba(8, 18, 13, 0.86);
+      color: #fff6e8;
+    }
     .chat-overlay-frame app-chat-workspace {
       flex: 1 1 auto;
       min-height: 0;
@@ -162,6 +176,8 @@ export class ChatOverlayComponent {
   readonly panelWidth = computed<string>(() => {
     return isSentinelShowcaseProfile(this.activeProfile()) ? '680px' : '560px';
   });
+
+  readonly sentinelShowcase = computed<boolean>(() => isSentinelShowcaseProfile(this.activeProfile()));
 
   onOpenChange(open: boolean): void {
     if (!open) this.overlay.close();

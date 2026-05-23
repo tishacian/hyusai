@@ -1336,7 +1336,7 @@ export class MissionRailComponent {
         [activeView]="currentView()"
         [adminRoute]="adminRoute()"
         [assistantName]="assistantName()"
-        (assistantRequest)="openAssistant('AYA, prepare le cockpit 60 secondes pour le Vice-President.')"
+        (assistantRequest)="openAssistantVoice('AYA, prepare le cockpit 60 secondes pour le Vice-President.')"
       />
 
       <main class="mission-main ck-scroll">
@@ -1364,7 +1364,7 @@ export class MissionRailComponent {
                 <ck-glyph name="ledger" [size]="15" />
                 <span>Briefing</span>
               </a>
-              <button type="button" class="action-button" (click)="openAssistant()">
+              <button type="button" class="action-button" (click)="openAssistantVoice()">
                 <ck-glyph name="crosshair" [size]="15" />
                 <span>{{ assistantName() }}</span>
               </button>
@@ -1417,7 +1417,7 @@ export class MissionRailComponent {
               <ck-glyph name="bolt" [size]="14" />
               <span>Parler a {{ assistantName() }}</span>
             </button>
-            <button type="button" class="action-button compact" (click)="openAssistant('AYA, lis le briefing souverain en 60 secondes.')">
+            <button type="button" class="action-button compact" (click)="openAssistantVoice('AYA, lis le briefing souverain en 60 secondes.')">
               <ck-glyph name="pulse" [size]="14" />
               <span>Ecouter</span>
             </button>
@@ -2293,12 +2293,15 @@ export class MissionRailComponent {
             <small>{{ missionMap()?.score_summary?.critical || 0 }} critiques · {{ missionMap()?.score_summary?.watch || 0 }} en veille</small>
           </div>
           <app-workspace-map
+            class="strategy-map-canvas"
+            style="display:block;height:clamp(660px,72vh,920px)"
             [zones]="missionMap()?.zones || []"
             [map]="missionMap()?.map || null"
             [mapSystem]="missionMap()?.map_system || null"
             [mapState]="mapCommandState()"
             [selectedZoneId]="selectedZone()?.id || null"
             (zoneSelected)="selectZone($event)"
+            (evidenceAction)="handleMapEvidenceAction($event)"
           />
         </article>
         <article class="content-panel selected-detail">
@@ -2415,7 +2418,7 @@ export class MissionRailComponent {
           <span class="eyebrow">{{ assistantName() }}</span>
           <h2>Assistant transversal Chat / V2V</h2>
           <p>L'assistant combine conversation, recherche sourcee et oracle de contexte pour preparer l'action.</p>
-          <button type="button" class="action-button wide" (click)="openAssistant()">
+          <button type="button" class="action-button wide" (click)="openAssistantVoice()">
             <ck-glyph name="crosshair" [size]="15" />
             <span>Ouvrir {{ assistantName() }}</span>
           </button>
@@ -3958,7 +3961,9 @@ export class MissionRailComponent {
       .status-pill.high,
       .status-pill.critical { color: var(--mission-danger); background: var(--mission-danger-wash); }
       .status-pill.medium { color: var(--mission-warn); background: var(--mission-warn-wash); }
-      .map-layout { grid-template-columns: minmax(0, 1.55fr) minmax(340px, 0.55fr); }
+      .map-layout {
+        grid-template-columns: minmax(0, 2.15fr) minmax(340px, 0.65fr);
+      }
       .territory-map {
         width: 100%;
         min-height: 560px;
@@ -4748,6 +4753,20 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   openAssistantVoice(prompt?: string): void {
     this.openAssistant(prompt || 'AYA, quelle est la situation prioritaire maintenant ?', { voiceLoop: true });
+  }
+
+  handleMapEvidenceAction(event: { action: string; zone: any }): void {
+    const zone = event?.zone;
+    const title = zone?.popup_brief?.title || zone?.name || 'la zone sélectionnée';
+    if (event?.action === 'arbitrage') {
+      this.openAssistant(`AYA, prépare un arbitrage VP pour ${title} avec options, sources et échéance.`);
+      return;
+    }
+    if (event?.action === 'maritime') {
+      this.openAssistantVoice(`AYA, explique le risque portuaire autour de ${title} et les actions recommandées.`);
+      return;
+    }
+    this.openAssistantVoice(`AYA, donne-moi le brief opérationnel pour ${title} avec sources et action recommandée.`);
   }
 
   draftForProject(project: Project): void {

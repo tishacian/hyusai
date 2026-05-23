@@ -858,7 +858,12 @@ const STEP_ICONS: Record<string, string> = {
                   class="ml-0 inline-flex max-w-[85%] items-center gap-2 rounded-xl px-3 py-2 text-xs bg-sky-500/10 text-sky-200 ring-1 ring-sky-400/25"
                   [class.vigie-map-chip]="executiveMode()"
                 >
-                  <app-icon name="map-pin" [size]="14" class="text-sky-300" />
+                  <app-icon
+                    name="map-pin"
+                    [size]="14"
+                    [class.text-sky-300]="!executiveMode()"
+                    [class.text-amber-300]="executiveMode()"
+                  />
                   <span>
                     Carte stratégique prête · {{ mapCommandLabel(msg.mapCommand) }}
                   </span>
@@ -1156,6 +1161,7 @@ const STEP_ICONS: Record<string, string> = {
         <button
           type="button"
           class="p-2.5 rounded-xl transition ring-1 relative"
+          [class.vigie-mic-button]="executiveMode()"
           [class.bg-red-500\\/20]="recording()"
           [class.ring-red-500\\/40]="recording()"
           [class.text-red-300]="recording()"
@@ -1190,6 +1196,7 @@ const STEP_ICONS: Record<string, string> = {
           type="submit"
           [disabled]="streaming() || !userInput.trim()"
           class="px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white rounded-xl transition text-sm font-medium flex items-center gap-1.5"
+          [class.vigie-send-button]="executiveMode()"
         >
           <app-icon [name]="streaming() ? 'loader-2' : 'send'" [size]="14" [class.animate-spin]="streaming()" />
           {{ streaming() ? 'Streaming' : sendLabel() }}
@@ -1728,7 +1735,14 @@ const STEP_ICONS: Record<string, string> = {
       width: 56px !important;
       height: 56px !important;
       border: 1px solid rgba(242, 140, 56, 0.26);
+      background:
+        radial-gradient(circle at 36% 28%, rgba(242, 140, 56, 0.25), transparent 46%),
+        linear-gradient(145deg, rgba(11, 30, 18, 0.92), rgba(20, 17, 13, 0.92)) !important;
+      color: #f5a85a !important;
       box-shadow: 0 18px 55px rgba(0, 0, 0, 0.26);
+    }
+    .vigie-empty-state > div:first-child app-icon {
+      color: #f5a85a !important;
     }
     .vigie-empty-state button {
       border-radius: 14px !important;
@@ -1736,6 +1750,16 @@ const STEP_ICONS: Record<string, string> = {
       background:
         linear-gradient(135deg, rgba(101, 214, 110, 0.055), rgba(255, 255, 255, 0.018)) !important;
       padding: 14px !important;
+    }
+    .vigie-empty-state button:hover {
+      border-color: rgba(242, 140, 56, 0.26) !important;
+      background:
+        linear-gradient(135deg, rgba(101, 214, 110, 0.085), rgba(242, 140, 56, 0.050)) !important;
+    }
+    .vigie-empty-state button .bg-brand-500\\/10,
+    .vigie-empty-state button .group-hover\\:bg-brand-500\\/20 {
+      background: rgba(101, 214, 110, 0.10) !important;
+      color: #d9ffdf !important;
     }
     .vigie-user-bubble {
       max-width: 78% !important;
@@ -1747,7 +1771,7 @@ const STEP_ICONS: Record<string, string> = {
     }
     .vigie-assistant-bubble {
       max-width: 88% !important;
-      border: 1px solid rgba(148, 197, 229, 0.13) !important;
+      border: 1px solid rgba(101, 214, 110, 0.14) !important;
       background:
         linear-gradient(145deg, rgba(17, 25, 38, 0.94), rgba(10, 15, 23, 0.90)) !important;
       color: rgba(245, 248, 252, 0.94) !important;
@@ -1759,6 +1783,7 @@ const STEP_ICONS: Record<string, string> = {
       border: 1px solid rgba(101, 214, 110, 0.22) !important;
       background: rgba(21, 47, 36, 0.68) !important;
       color: #d8ffd5 !important;
+      box-shadow: inset 0 0 0 1px rgba(242, 140, 56, 0.08) !important;
     }
     .vigie-input-bar {
       padding: 14px !important;
@@ -1767,13 +1792,39 @@ const STEP_ICONS: Record<string, string> = {
     }
     .vigie-input-bar textarea {
       border-radius: 16px !important;
-      border-color: rgba(148, 197, 229, 0.18) !important;
+      border-color: rgba(101, 214, 110, 0.18) !important;
       background: rgba(255, 255, 255, 0.045) !important;
       min-height: 48px;
+    }
+    .vigie-input-bar textarea:focus {
+      border-color: rgba(242, 140, 56, 0.38) !important;
+      box-shadow: 0 0 0 2px rgba(242, 140, 56, 0.10) !important;
+    }
+    .vigie-mic-button {
+      border-color: rgba(242, 140, 56, 0.28) !important;
+      background: rgba(11, 24, 16, 0.78) !important;
+      color: #ffe1b8 !important;
+      box-shadow: inset 0 0 0 1px rgba(101, 214, 110, 0.08) !important;
+    }
+    .vigie-mic-button:hover:not(:disabled) {
+      border-color: rgba(101, 214, 110, 0.36) !important;
+      color: #d9ffdf !important;
     }
     .vigie-input-bar button[type='submit'] {
       border-radius: 16px !important;
       min-height: 48px;
+    }
+    .vigie-send-button {
+      border: 1px solid rgba(101, 214, 110, 0.32) !important;
+      background:
+        linear-gradient(135deg, rgba(32, 120, 68, 0.96), rgba(242, 140, 56, 0.72)) !important;
+      color: #fff8ec !important;
+      box-shadow: 0 18px 38px rgba(5, 45, 20, 0.20) !important;
+    }
+    .vigie-send-button:hover:not(:disabled) {
+      border-color: rgba(242, 140, 56, 0.45) !important;
+      background:
+        linear-gradient(135deg, rgba(42, 145, 78, 0.98), rgba(242, 140, 56, 0.82)) !important;
     }
   `],
 })

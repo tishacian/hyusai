@@ -74,20 +74,11 @@ type BasemapOption = {
         <div class="map-control-panel" [class.collapsed]="!controlsOpen" (click)="$event.stopPropagation()">
           <header class="map-control-heading">
             <button type="button" class="map-control-toggle" (click)="toggleControls()">
-              <strong>Lecture carte</strong>
+              <strong>Couches carte</strong>
               <small>{{ activeLayerCount }} couches</small>
             </button>
           </header>
           @if (controlsOpen) {
-            <section class="control-section">
-              <span>Mode</span>
-              <div class="read-mode-switch" role="tablist" aria-label="Mode de lecture carte">
-                <button type="button" [class.active]="readMode === 'explorer'" (click)="setReadMode('explorer')">Explorer</button>
-                <button type="button" [class.active]="readMode === 'understand'" (click)="setReadMode('understand')">Comprendre</button>
-                <button type="button" [class.active]="readMode === 'decide'" (click)="setReadMode('decide')">Décider</button>
-              </div>
-            </section>
-
             <section class="control-section">
               <span>Fond</span>
               <div class="basemap-switch">
@@ -420,14 +411,7 @@ type BasemapOption = {
         gap: 6px;
       }
 
-      .read-mode-switch {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
-      }
-
       .basemap-switch button,
-      .read-mode-switch button,
       .map-reset {
         min-height: 31px;
         padding: 7px 10px;
@@ -443,7 +427,6 @@ type BasemapOption = {
       }
 
       .basemap-switch button.active,
-      .read-mode-switch button.active,
       .map-reset:hover {
         border-color: rgba(101, 214, 110, 0.42);
         background: rgba(10, 34, 49, 0.82);
@@ -452,7 +435,6 @@ type BasemapOption = {
       }
 
       .basemap-switch button:hover,
-      .read-mode-switch button:hover,
       .layer-toggle:hover {
         border-color: rgba(101, 214, 110, 0.52);
         color: rgba(245, 251, 255, 0.95);
@@ -913,7 +895,6 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   controlsOpen = true;
   legendOpen = true;
   briefOpen = false;
-  readMode: 'explorer' | 'understand' | 'decide' = 'explorer';
   layerSearch = '';
 
   private readonly cdr = inject(ChangeDetectorRef);
@@ -1099,28 +1080,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     this.cdr.markForCheck();
   }
 
-  setReadMode(mode: 'explorer' | 'understand' | 'decide'): void {
-    this.readMode = mode;
-    if (mode === 'explorer') {
-      this.ensureLayers(['territorial-risk', 'open-intelligence', 'strategic-projects', 'visual-streams']);
-    } else if (mode === 'understand') {
-      this.ensureLayers(['territorial-risk', 'open-intelligence', 'regional-context', 'maritime-traffic']);
-    } else {
-      this.ensureLayers(['territorial-risk', 'agenda-windows', 'preventive-actions', 'strategic-projects']);
-    }
-    this.updateDeckLayers();
-    this.cdr.markForCheck();
-  }
-
   setLayerSearch(value: string): void {
     this.layerSearch = value || '';
     this.cdr.markForCheck();
-  }
-
-  private ensureLayers(keys: string[]): void {
-    for (const key of keys) {
-      if (this.layerControls.some((layer) => layer.key === key)) this.activeLayerKeys.add(key);
-    }
   }
 
   switchBasemap(key: string): void {
