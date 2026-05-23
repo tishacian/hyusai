@@ -64,6 +64,7 @@ import { type ChatStartMode } from './chat-overlay.service';
           [initialContextId]="initialContextId()"
           [assistantProfileKey]="assistantProfileKey()"
           [initialPrompt]="initialPrompt()"
+          [autoStartVoiceLoop]="autoStartVoiceLoop()"
         />
       </main>
     </div>
@@ -195,6 +196,7 @@ export class ChatFocusComponent implements OnInit {
   readonly initialContextId = signal<string | null>(null);
   readonly assistantProfileKey = signal<string | null>(null);
   readonly initialPrompt = signal<string | null>(null);
+  readonly autoStartVoiceLoop = signal(false);
 
   readonly workspaceName = computed(() => {
     const current = this.workspace.current();
@@ -232,5 +234,6 @@ export class ChatFocusComponent implements OnInit {
     this.initialContextId.set(params.get('contextId'));
     this.assistantProfileKey.set(params.get('assistantProfile'));
     this.initialPrompt.set(params.get('initialPrompt'));
+    this.autoStartVoiceLoop.set(params.get('autoStartVoiceLoop') === 'true');
   }
 }

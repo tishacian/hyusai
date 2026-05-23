@@ -67,6 +67,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [initialContextId]="overlay.preselectedContextId()"
             [assistantProfileKey]="overlay.assistantProfile()"
             [initialPrompt]="overlay.initialPrompt()"
+            [autoStartVoiceLoop]="overlay.autoStartVoiceLoop()"
           />
         </div>
       }
@@ -177,10 +178,12 @@ export class ChatOverlayComponent {
       const contextId = this.overlay.preselectedContextId();
       const assistantProfile = this.overlay.assistantProfile();
       const initialPrompt = this.overlay.initialPrompt();
+      const autoStartVoiceLoop = this.overlay.autoStartVoiceLoop();
       if (systemId) queryParams['systemId'] = systemId;
       if (contextId) queryParams['contextId'] = contextId;
       if (assistantProfile) queryParams['assistantProfile'] = assistantProfile;
       if (initialPrompt) queryParams['initialPrompt'] = initialPrompt;
+      if (autoStartVoiceLoop) queryParams['autoStartVoiceLoop'] = 'true';
       this.overlay.close();
       this.router.navigate(['/workspace', slug, 'chat'], { queryParams });
     };

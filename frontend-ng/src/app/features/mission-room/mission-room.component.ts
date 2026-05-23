@@ -1413,7 +1413,7 @@ export class MissionRailComponent {
             <p>{{ ayaRecommendation()?.prompt || 'AYA, quelle est la situation prioritaire maintenant ?' }}</p>
           </div>
           <div class="hero-actions">
-            <button type="button" class="action-button primary" (click)="openAssistant(ayaRecommendation()?.prompt)">
+            <button type="button" class="action-button primary" (click)="openAssistantVoice(ayaRecommendation()?.prompt)">
               <ck-glyph name="bolt" [size]="14" />
               <span>Parler a {{ assistantName() }}</span>
             </button>
@@ -4737,12 +4737,17 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.selectedSource.set(this.sources().get(sourceId) || null);
   }
 
-  openAssistant(prompt?: string): void {
+  openAssistant(prompt?: string, options?: { voiceLoop?: boolean }): void {
     this.chat.open({
       mode: 'quick',
       assistantProfile: 'vigie_executive',
       initialPrompt: prompt || null,
+      autoStartVoiceLoop: !!options?.voiceLoop,
     });
+  }
+
+  openAssistantVoice(prompt?: string): void {
+    this.openAssistant(prompt || 'AYA, quelle est la situation prioritaire maintenant ?', { voiceLoop: true });
   }
 
   draftForProject(project: Project): void {

@@ -5,11 +5,14 @@ from app.models.action_plan import WorkspaceActionItem
 from app.models.calendar import WorkspaceCalendarEvent
 from app.models.intelligence import FeedSource
 from app.models.rag_preset import RagPreset
+from app.models.knowledge_guide import KnowledgeGuide
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_visual import WorkspaceVisualSource
 from app.services.intelligence.batch import ensure_intelligence_defaults
+from app.services.document_intelligence import resolve_document_profile
+from app.services.knowledge_guides import effective_guides
 from app.services.mission_room import SENTINEL_WORKSPACE_SLUG, ensure_sentinel_ci_workspace, navigation_payload
 from app.services.rag_preset_service import RagPresetService
 from app.services.skills_registry import bound_slugs, seed_skills_and_capabilities
@@ -53,6 +56,11 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["calendar"]["connector_id"] == "institutional_calendar"
     assert workspace.settings["calendar"]["write_policy"] == "direct"
     assert workspace.settings["action_planner"]["write_policy"] == "direct"
+    assert workspace.settings["actions"]["enabled_packs"] == ["global_voice_v1", "sentinel_ci_aya_v1"]
+    assert workspace.settings["voice_loop"]["default_mode"] == "session_loop"
+    assert workspace.settings["voice_loop"]["commands_enabled"] is True
+    assert workspace.settings["document_intelligence"]["default_profile"] == "sentinel_ci_ministerial"
+    assert workspace.settings["document_intelligence"]["ocr"]["enabled"] is True
     assert workspace.settings["demo_time_context"]["current_date"] == "2026-04-15"
     assert workspace.settings["connectors"]["institutional_calendar"]["enabled"] is True
     assert workspace.settings["connectors"]["visual_streams"]["enabled"] is True
@@ -77,6 +85,31 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert {feed.category for feed in feeds} >= {"ci-local", "ci-agency", "ci-public", "ci-national", "cedeao", "world"}
     assert workspace.settings["mission_room"]["region_scope"] == ["Cote d'Ivoire", "West Africa", "Sahel", "Gulf of Guinea"]
     assert "trace_rumor_origin" in workspace.settings["assistant_profiles"][0]["allowed_actions"]
+    assert workspace.settings["assistant_profiles"][0]["actions"]["enabled_packs"] == ["global_voice_v1", "sentinel_ci_aya_v1"]
+    assert workspace.settings["assistant_profiles"][0]["voice_loop"]["default_mode"] == "session_loop"
+    guides = db_session.query(KnowledgeGuide).filter_by(workspace_id=workspace.id, is_current=True).all()
+    assert {guide.guide_key for guide in guides} >= {
+        "sentinel-ci-aya-mission-room-v1",
+        "sentinel-ci-open-intelligence-v1",
+        "sentinel-ci-territorial-map-v1",
+        "sentinel-ci-doc-intelligence-v1",
+    }
+    assert {guide.target_type for guide in guides} >= {"scope", "collection"}
+    effective = effective_guides(
+        db_session,
+        workspace_id=workspace.id,
+        scope_key="vigie",
+        collection_slugs=["sentinel-ci-open-intelligence", "sentinel-ci-ministerial-briefs"],
+    )
+    assert {guide.guide_key for guide in effective} >= {
+        "sentinel-ci-aya-mission-room-v1",
+        "sentinel-ci-open-intelligence-v1",
+        "sentinel-ci-doc-intelligence-v1",
+    }
+    document_profile = resolve_document_profile(workspace=workspace)
+    assert document_profile.source == "workspace_profile"
+    assert document_profile.profile["key"] == "sentinel_ci_ministerial"
+    assert document_profile.profile["synonyms"]["decision"] == ["arbitrage", "instruction", "validation", "deadline"]
     preset = db_session.query(RagPreset).filter_by(workspace_id=workspace.id, is_default=True).one()
     assert preset.scope_id == workspace.id
     assert preset.config["mode"] == "chah"

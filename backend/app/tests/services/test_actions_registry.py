@@ -7,7 +7,7 @@ from app.api.v1.endpoints import actions
 from app.core.iam.roles import WORKSPACE_OWNER
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
-from app.services.actions import effective_action_manifests, handle_transverse_chat_action, resolve_action
+from app.services.actions import effective_action_manifests, execute_action, handle_transverse_chat_action, resolve_action
 from app.services.action_plans import list_action_items
 
 
@@ -69,7 +69,7 @@ def test_resolver_matches_andritz_parameter_action():
     assert result.requires_confirmation is False
 
 
-def test_aya_legacy_action_plan_still_creates_direct_action(db_session):
+def test_aya_side_effect_action_requires_confirmation_before_legacy_execution(db_session):
     workspace = _workspace(
         "sentinel-ci",
         settings={"action_planner": {"write_policy": "direct"}},
@@ -87,8 +87,49 @@ def test_aya_legacy_action_plan_still_creates_direct_action(db_session):
     )
 
     assert result is not None
-    assert result["action"] == "action_plan_create"
+    assert result["action"] == "action_plan_proposal"
+    assert result["requires_confirmation"] is True
+    assert len(list_action_items(db_session, workspace)) == 0
+
+
+def test_aya_confirmed_legacy_action_executes(db_session):
+    workspace = _workspace(
+        "sentinel-ci",
+        settings={"action_planner": {"write_policy": "direct"}},
+    )
+    user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    result = execute_action(
+        db_session,
+        workspace,
+        user,
+        action_id="aya.action_plan_create",
+        text="Ajoute une action cabinet prioritaire pour preparer les elements de langage a 10h30",
+        surface="chat",
+        assistant_profile="vigie_executive",
+        confirm=True,
+    )
+
+    assert result["reason"] == "executed"
+    assert result["result"]["action"] == "action_plan_create"
     assert len(list_action_items(db_session, workspace)) == 1
+
+
+def test_aya_voice_side_effect_resolves_as_confirmable():
+    workspace = _workspace("sentinel-ci")
+
+    result = resolve_action(
+        workspace,
+        text="AYA crée une action pour préparer une réponse presse",
+        surface="voice",
+        assistant_profile="vigie_executive",
+    )
+
+    assert result.matched is True
+    assert result.action_id == "aya.action_plan_create"
+    assert result.requires_confirmation is True
 
 
 def test_actions_api_exposes_effective_actions(db_session):
@@ -115,3 +156,40 @@ def test_actions_api_exposes_effective_actions(db_session):
     ids = {item["action_id"] for item in response.json()["actions"]}
     assert "andritz.find_parameter_value" in ids
     assert "aya.action_plan_status" not in ids
+
+
+def test_actions_api_exposes_sentinel_voice_pack_for_vigie(db_session):
+    workspace = _workspace(
+        "sentinel-ci",
+        settings={
+            "assistant_profiles": [
+                {
+                    "key": "vigie_executive",
+                    "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]},
+                }
+            ]
+        },
+    )
+    user = User(id="user-1", username="thib", email="thib@example.test", is_active=True)
+    membership = WorkspaceMember(
+        user_id=user.id,
+        workspace_id=workspace.id,
+        role="owner",
+        role_template=WORKSPACE_OWNER,
+    )
+    db_session.add_all([workspace, user, membership])
+    db_session.commit()
+
+    app = FastAPI()
+    app.include_router(actions.router, prefix="/api/v1/actions")
+    app.dependency_overrides[actions.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[actions.get_current_user] = lambda: user
+    app.dependency_overrides[actions.get_db] = lambda: db_session
+
+    response = TestClient(app).get("/api/v1/actions/effective?surface=voice&assistant_profile=vigie_executive")
+
+    assert response.status_code == 200
+    ids = {item["action_id"] for item in response.json()["actions"]}
+    assert "voice.stop" in ids
+    assert "aya.map_focus" in ids
+    assert "aya.action_plan_create" in ids

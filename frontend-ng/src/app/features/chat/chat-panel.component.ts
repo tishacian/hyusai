@@ -1720,6 +1720,7 @@ export class ChatPanelComponent {
   readonly contextId = input<string | null>(null);
   readonly assistantProfileKey = input<string | null>(null);
   readonly initialPrompt = input<string | null>(null);
+  readonly autoStartVoiceLoop = input(false);
 
   private readonly sse = inject(SseService);
   private readonly api = inject(ApiService);
@@ -2116,6 +2117,7 @@ export class ChatPanelComponent {
   readonly ttsPaused = signal(false);
 
   private initialPromptApplied = false;
+  private autoVoiceLoopStarted = false;
 
   constructor() {
     effect(() => {
@@ -2135,6 +2137,14 @@ export class ChatPanelComponent {
       if (signature === this.appliedVoiceDefaultsSignature) return;
       this.appliedVoiceDefaultsSignature = signature;
       this.applyWorkspaceVoiceDefaults(config, selectable);
+    });
+    effect(() => {
+      if (!this.autoStartVoiceLoop() || this.autoVoiceLoopStarted) return;
+      if (!this.canUseVoiceSession()) return;
+      this.autoVoiceLoopStarted = true;
+      queueMicrotask(() => {
+        void this.startConversationLoop();
+      });
     });
     effect(() => {
       const workspaceSlug = this.workspace.current()?.slug || '';

@@ -524,6 +524,20 @@ def handle_transverse_chat_action(
             assistant_profile=assistant_profile,
             confirm=not resolution.manifest.requires_confirmation,
         )
+        if result.get("reason") == "confirmation_required":
+            proposal = result.get("proposal") or {}
+            return {
+                "action": "action_plan_proposal",
+                "applied": False,
+                "content": (
+                    f"Action proposée : {proposal.get('label') or resolution.manifest.label}. "
+                    "Validation requise avant application."
+                ),
+                "proposal": proposal,
+                "requires_confirmation": True,
+                "action_manifest_id": resolution.manifest.action_id,
+                "action_confidence": resolution.confidence,
+            }
         legacy_result = result.get("result")
         if legacy_result:
             legacy_result.setdefault("action_manifest_id", resolution.manifest.action_id)

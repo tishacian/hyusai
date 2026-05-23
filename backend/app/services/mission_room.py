@@ -17,6 +17,7 @@ from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, WORKSPACE_OWNER, legacy_ro
 from app.models.capability import Capability
 from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
 from app.models.knowledge_collection import KnowledgeCollection
+from app.models.knowledge_guide import KnowledgeGuide
 from app.models.rag_preset import RagPreset
 from app.models.run import Run
 from app.models.skill import Skill
@@ -51,6 +52,81 @@ SENTINEL_EVIDENCE_GRAPH_COLLECTION = "sentinel-ci-evidence-graph"
 SENTINEL_MARITIME_INTELLIGENCE_COLLECTION = "sentinel-ci-maritime-intelligence"
 MISSION_ROOM_ROOT = "/hypervisor/mission-room"
 MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
+
+
+SENTINEL_KNOWLEDGE_GUIDES = (
+    {
+        "guide_key": "sentinel-ci-aya-mission-room-v1",
+        "target_type": "scope",
+        "target_ref": "vigie",
+        "title": "Guide AYA - Mission Room SENTINEL-CI",
+        "markdown": """# Guide AYA - Mission Room SENTINEL-CI
+
+AYA agit comme adjoint souverain du Vice-President. Elle doit repondre en priorisant : quoi faire, quand agir, pourquoi cette action est justifiee, et quelles sources brutes ou consolidees soutiennent la recommandation.
+
+Principes d'interpretation :
+- Distinguer les trois strates : Monitoring, Information & alerting, Decision & action.
+- Ne jamais traiter un guide comme une preuve brute : citer les articles, evenements agenda, zones, observations visuelles, projets ou actions sources.
+- Les actions avec effet de bord restent advisory-only tant qu'elles ne sont pas confirmees.
+- Les rumeurs doivent etre qualifiees par origine, propagation, zone, confiance et action recommandee.
+- La cartographie sert a cadrer une zone ou un port ; elle ne remplace pas les sources textuelles ou operationnelles.
+
+Lexique :
+- "Situation Nord" : zone de vigilance prioritaire avant Conseil de 15h.
+- "Langage public" : elements de reponse prudents et sourcés, sans envoi automatique.
+- "Risque portuaire" : lecture Abidjan / San Pedro / douanes / corridor Golfe de Guinee.
+- "Attention cabinet" : sujet avec deadline, responsable, action proposee et validation humaine.
+""",
+    },
+    {
+        "guide_key": "sentinel-ci-open-intelligence-v1",
+        "target_type": "collection",
+        "target_ref": "sentinel-ci-open-intelligence",
+        "title": "Guide de lecture - Presse, rumeurs et OSINT",
+        "markdown": """# Guide de lecture - Presse, rumeurs et OSINT
+
+Cette collection regroupe articles RSS, syntheses News Lab et signaux publics demo-safe. AYA doit privilegier les signaux Cote d'Ivoire, puis CEDEAO, Afrique et Monde.
+
+Regles :
+- Identifier la source, la zone, le niveau de confiance et l'impact institutionnel.
+- Ne pas presenter un volume brut comme decision : transformer en attention requise ou en sujet gerable.
+- Les signaux sociaux prives ne sont pas connectes en v1 ; les rumeurs visibles sont publiques ou scenario de demonstration.
+- Tout projet de reponse reste un brouillon soumis a validation.
+""",
+    },
+    {
+        "guide_key": "sentinel-ci-territorial-map-v1",
+        "target_type": "collection",
+        "target_ref": "sentinel-ci-territorial-intelligence",
+        "title": "Guide territorial - Carte, zones et actions",
+        "markdown": """# Guide territorial - Carte, zones et actions
+
+La carte SENTINEL-CI sert a explorer, comprendre et decider. Les zones Nord, Ouest, Centre, Sud et Est sont des regroupements administratifs de lecture executive.
+
+Regles :
+- Associer chaque recommandation a des sources : presse, projet, agenda, visuel, maritime ou briefing.
+- Rouge uniquement pour critique ; orange pour vigilance elevee ; vert pour nominal.
+- Les commandes carte d'AYA peuvent focaliser, activer des couches et ouvrir les sources, mais ne declenchent pas une decision.
+- Toujours proposer une fenetre d'action si une urgence est liee a l'agenda.
+""",
+    },
+    {
+        "guide_key": "sentinel-ci-doc-intelligence-v1",
+        "target_type": "collection",
+        "target_ref": "sentinel-ci-ministerial-briefs",
+        "title": "Guide Document Intelligence - Briefs ministeriels",
+        "markdown": """# Guide Document Intelligence - Briefs ministeriels
+
+Les notes, briefings et fiches de preparation doivent etre citees avec fichier, section, page ou paragraphe quand disponible. Les extractions OCR ou visuelles doivent signaler leur confiance.
+
+Regles :
+- Citer la source brute avant le guide.
+- Pour une procedure ou une fiche, repondre par etapes courtes.
+- Pour un parametre ou une date, indiquer la section ou le paragraphe d'origine.
+- Si OCR est absent ou faible, le signaler clairement plutot que combler.
+""",
+    },
+)
 
 
 NAVIGATION_ITEMS = [
@@ -3343,6 +3419,58 @@ def _ensure_collection(db: DBSession, workspace: Workspace, slug: str, name: str
     )
 
 
+def _ensure_sentinel_knowledge_guides(db: DBSession, workspace: Workspace) -> int:
+    """Seed workspace-scoped Knowledge Guides without rewriting history."""
+    changed = 0
+    now = datetime.utcnow()
+    for spec in SENTINEL_KNOWLEDGE_GUIDES:
+        current = (
+            db.query(KnowledgeGuide)
+            .filter(
+                KnowledgeGuide.workspace_id == workspace.id,
+                KnowledgeGuide.guide_key == spec["guide_key"],
+                KnowledgeGuide.is_current.is_(True),
+            )
+            .first()
+        )
+        if (
+            current
+            and current.target_type == spec["target_type"]
+            and current.target_ref == spec["target_ref"]
+            and current.title == spec["title"]
+            and current.markdown == spec["markdown"]
+            and current.status == "published"
+        ):
+            continue
+        version = 1
+        supersedes_id = None
+        if current:
+            current.is_current = False
+            db.add(current)
+            version = int(current.version or 1) + 1
+            supersedes_id = current.id
+        db.add(
+            KnowledgeGuide(
+                id=str(uuid4()),
+                guide_key=spec["guide_key"],
+                workspace_id=workspace.id,
+                target_type=spec["target_type"],
+                target_ref=spec["target_ref"],
+                title=spec["title"],
+                markdown=spec["markdown"],
+                status="published",
+                version=version,
+                is_current=True,
+                supersedes_id=supersedes_id,
+                created_by_user_id=None,
+                created_at=now,
+                published_at=now,
+            )
+        )
+        changed += 1
+    return changed
+
+
 def _ensure_feed(db: DBSession, workspace: Workspace, name: str, url: str, category: str) -> None:
     existing = (
         db.query(FeedSource)
@@ -3690,6 +3818,54 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "default_owner": "Cabinet",
                 "advisory_only": True,
             },
+            "actions": {
+                "enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"],
+                "confirmation_policy": "confirm_side_effects",
+                "legacy_adapters": ["aya_action_plans"],
+            },
+            "voice_loop": {
+                "default_mode": "session_loop",
+                "enabled_default": True,
+                "auto_send_final_transcript": True,
+                "auto_endpoint": True,
+                "auto_rearm_after_tts": True,
+                "barge_in": True,
+                "commands_enabled": True,
+                "command_packs": ["global_voice_v1", "sentinel_ci_aya_v1"],
+                "trigger_word": "AYA",
+                "stop_phrases": ["stop", "pause", "on peut s'arreter la", "annule", "arrete"],
+                "silence_ms": 1050,
+                "min_speech_ms": 320,
+                "max_turn_ms": 45000,
+                "cooldown_ms": 450,
+            },
+            "document_intelligence": {
+                "enabled": True,
+                "default_profile": "sentinel_ci_ministerial",
+                "profiles": [
+                    {
+                        "key": "sentinel_ci_ministerial",
+                        "label": "SENTINEL-CI ministerial documents",
+                        "synonyms": {
+                            "briefing": ["note cabinet", "fiche", "brief", "elements de langage"],
+                            "decision": ["arbitrage", "instruction", "validation", "deadline"],
+                            "territory": ["zone", "region", "district", "frontiere", "port"],
+                        },
+                        "max_candidate_facts": 1800,
+                        "max_evidence_rows": 18,
+                    }
+                ],
+                "ocr": {
+                    "enabled": True,
+                    "provider_priority": ["tesseract_local", "ppocr_service"],
+                    "languages": ["fra", "eng"],
+                    "min_confidence": 0.45,
+                    "timeout_seconds": 20,
+                    "required": False,
+                    "openai_vision_enabled": False,
+                },
+                "citation_policy": "raw_source_first_page_section_paragraph",
+            },
             "visual_intelligence": {
                 "enabled": True,
                 "capture_cadence_minutes": 60,
@@ -3750,6 +3926,20 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                     "default_knowledge_scope": "vigie",
                     "executive_mode": True,
                     "tone": "ministerial",
+                    "actions": {
+                        "enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"],
+                        "confirmation_policy": "confirm_side_effects",
+                    },
+                    "voice_loop": {
+                        "default_mode": "session_loop",
+                        "enabled_default": True,
+                        "auto_send_final_transcript": True,
+                        "auto_endpoint": True,
+                        "auto_rearm_after_tts": True,
+                        "barge_in": True,
+                        "commands_enabled": True,
+                        "command_packs": ["global_voice_v1", "sentinel_ci_aya_v1"],
+                    },
                     "allowed_actions": [
                         "cite_sources",
                         "draft_instruction",
@@ -3875,6 +4065,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         (SENTINEL_EVIDENCE_GRAPH_COLLECTION, "SENTINEL-CI Evidence Graph", "Entities, rumors, sources, locations, projects and decisions connected for AYA."),
     ):
         _ensure_collection(db, workspace, slug, name, description)
+    knowledge_guides_changed = _ensure_sentinel_knowledge_guides(db, workspace)
 
     for name, url, category in SENTINEL_NEWS_FEEDS:
         _ensure_feed(db, workspace, name, url, category)
@@ -4084,4 +4275,5 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         "members_added": members_added,
         "systems_created": systems_created,
         "demo_artifacts_cleaned": cleaned_demo_artifacts,
+        "knowledge_guides_changed": knowledge_guides_changed,
     }
