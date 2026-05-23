@@ -13,7 +13,6 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, WORKSPACE_OWNER, legacy_role_for_template
 from app.models.capability import Capability
 from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
 from app.models.knowledge_collection import KnowledgeCollection
@@ -22,7 +21,6 @@ from app.models.rag_preset import RagPreset
 from app.models.run import Run
 from app.models.skill import Skill
 from app.models.system import System
-from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
 from app.services.workspace_calendar import (
@@ -4569,27 +4567,11 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
     )
     workspace.settings = settings
 
+    # Workspace bootstrap must never grant IAM access implicitly. SENTINEL-CI is
+    # seeded as a portable demo workspace, while memberships are managed through
+    # the normal invite/admin flow so newly-created platform users cannot leak
+    # into the workspace on a later seed run.
     members_added = 0
-    users = db.query(User).filter(User.is_active.is_(True)).all()
-    for index, user in enumerate(users):
-        existing = (
-            db.query(WorkspaceMember)
-            .filter(WorkspaceMember.workspace_id == workspace.id, WorkspaceMember.user_id == user.id)
-            .first()
-        )
-        if existing:
-            continue
-        role_template = WORKSPACE_OWNER if user.role == "admin" or index == 0 else WORKSPACE_CONTRIBUTOR
-        db.add(
-            WorkspaceMember(
-                workspace_id=workspace.id,
-                user_id=user.id,
-                role=legacy_role_for_template(role_template),
-                role_template=role_template,
-                custom_labels=["demo:true", "domain:government"],
-            )
-        )
-        members_added += 1
 
     for slug, name, description in (
         ("sentinel-ci-ministerial-briefs", "SENTINEL-CI Ministerial Briefs", "Briefings, agenda syntheses and validated talking points."),

@@ -26,7 +26,14 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
         role="admin",
         is_active=True,
     )
-    db_session.add(user)
+    outsider = User(
+        id="user-demo-outsider",
+        username="demo-outsider",
+        email="demo-outsider@example.test",
+        role="user",
+        is_active=True,
+    )
+    db_session.add_all([user, outsider])
     db_session.commit()
 
     seed_skills_and_capabilities(db_session)
@@ -36,6 +43,8 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     workspace = db_session.query(Workspace).filter(Workspace.slug == SENTINEL_WORKSPACE_SLUG).one()
     assert first["workspace_created"] == 1
     assert second["workspace_created"] == 0
+    assert first["members_added"] == 0
+    assert second["members_added"] == 0
     assert workspace.mode == "demo"
     assert workspace.settings["default_route"] == "/hypervisor/mission-room/cockpit"
     assert workspace.settings["workspace_app_shell"] == "immersive"
@@ -75,7 +84,22 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
         "sentinel-ci-maritime-intelligence",
         "sentinel-ci-evidence-graph",
     ]
-    assert db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).count() == 1
+    assert db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).count() == 0
+    db_session.add(
+        WorkspaceMember(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role="owner",
+            role_template="workspace_owner",
+            custom_labels=["explicit:test-owner"],
+        )
+    )
+    db_session.commit()
+    third = ensure_sentinel_ci_workspace(db_session)
+    members = db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).all()
+    assert third["members_added"] == 0
+    assert len(members) == 1
+    assert members[0].user_id == user.id
     assert db_session.query(System).filter_by(workspace_id=workspace.id).count() >= 15
     assert db_session.query(WorkspaceCalendarEvent).filter_by(workspace_id=workspace.id).count() >= 7
     assert db_session.query(WorkspaceActionItem).filter_by(workspace_id=workspace.id).count() >= 3
