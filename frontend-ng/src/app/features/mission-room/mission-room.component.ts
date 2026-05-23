@@ -22,6 +22,16 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { MissionControlMonitorComponent } from './mission-control-monitor.component';
 import { WorkspaceMapComponent } from './workspace-map.component';
+import { VpCockpitComponent } from './vp-cockpit.component';
+import type {
+  VpAgendaTimeline,
+  VpArbitrationCard,
+  VpDrillDown,
+  VpIntelligenceFeed,
+  VpMapPreviewContext,
+  VpOptionCompare,
+  VpPressPreviewItem,
+} from './vp-cockpit.types';
 
 type MissionView =
   | 'cockpit'
@@ -448,6 +458,7 @@ interface MissionCockpit {
     layers: { key: string; label: string; count: number; tone: string; visible: boolean }[];
     heatmap: { label: string; score: number; tone: string }[];
     source_label: string;
+    geo_preview?: VpMapPreviewContext['geoPreview'];
   };
   agenda_day?: {
     label: string;
@@ -492,6 +503,20 @@ interface MissionCockpit {
     trend?: string;
     tone?: string;
   }[];
+  arbitration_cards?: VpArbitrationCard[];
+  intelligence_feeds?: VpIntelligenceFeed[];
+  press_preview?: VpPressPreviewItem[];
+  agenda_timeline?: VpAgendaTimeline;
+  demo_narrative?: {
+    scenario_id?: string;
+    steps?: { phase?: string; focus_widget?: string; prompt?: string; anchor?: string }[];
+    economic_hook?: { title?: string; cross_sources?: string[]; cta_route?: string };
+  };
+  layout?: {
+    variant?: string;
+    demo_strata?: Record<string, number>;
+    widgets?: { id: string; stratum: string; span?: string }[];
+  };
   sources: SourceRef[];
 }
 
@@ -972,13 +997,14 @@ export class MissionSourcePillComponent {
       <button
         type="button"
         class="assistant-badge"
+        [class.listening]="ayaState === 'listening'"
         (click)="assistantRequest.emit()"
         aria-label="Ouvrir AYA"
       >
         <span class="assistant-avatar">{{ assistantName }}</span>
         <div>
           <strong>{{ assistantName }}</strong>
-          <small>Assistante vocale</small>
+          <small>{{ ayaStateLabel }}</small>
         </div>
       </button>
 
@@ -998,6 +1024,9 @@ export class MissionSourcePillComponent {
           >
             <ck-glyph [name]="item.glyph" [size]="14" />
             <span>{{ railLabel(item) }}</span>
+            @if (navBadge(item.key); as count) {
+              <em class="nav-badge">{{ count }}</em>
+            }
           </a>
         }
       </nav>
@@ -1079,13 +1108,13 @@ export class MissionSourcePillComponent {
       .assistant-badge {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
         width: 100%;
-        padding: 9px;
-        border: 1px solid rgba(242, 140, 56, 0.20);
+        padding: 12px 11px;
+        border: 1px solid rgba(242, 140, 56, 0.24);
         border-radius: var(--mission-radius, 8px);
         background:
-          linear-gradient(135deg, rgba(242, 140, 56, 0.095), rgba(101, 214, 110, 0.045)),
+          linear-gradient(135deg, rgba(242, 140, 56, 0.12), rgba(101, 214, 110, 0.06)),
           var(--mission-panel-hi, var(--ck-bg-panel-hi));
         appearance: none;
         font: inherit;
@@ -1093,25 +1122,30 @@ export class MissionSourcePillComponent {
         text-align: left;
         cursor: pointer;
       }
+      .assistant-badge.listening {
+        border-color: rgba(101, 214, 110, 0.34);
+        box-shadow: inset 3px 0 0 var(--mission-trust);
+      }
       .assistant-badge:hover {
         border-color: rgba(242, 140, 56, 0.38);
         box-shadow: inset 3px 0 0 var(--mission-orange, #f28c38);
       }
       .assistant-avatar {
-        width: 36px;
-        height: 36px;
-        border-radius: 12px;
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         color: var(--mission-orange, #f28c38);
         font-family: var(--ck-font-mono);
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 850;
         letter-spacing: 0.08em;
         background: rgba(8, 13, 17, 0.72);
         border: 1px solid rgba(242, 140, 56, 0.32);
         box-shadow: inset 0 0 18px rgba(242, 140, 56, 0.08);
+        flex-shrink: 0;
       }
       .assistant-badge strong {
         display: block;
@@ -1178,6 +1212,23 @@ export class MissionSourcePillComponent {
       .mission-nav-item.active {
         color: var(--mission-accent, var(--ck-signal-cool));
         box-shadow: inset 3px 0 0 var(--mission-accent, var(--ck-signal-cool));
+      }
+      .nav-badge {
+        margin-left: auto;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(240, 100, 118, 0.18);
+        border: 1px solid rgba(240, 100, 118, 0.34);
+        color: var(--mission-danger);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        font-style: normal;
+        font-weight: 700;
       }
       .rail-spacer { flex: 1 1 auto; min-height: 4px; }
       .rail-summary {
@@ -1252,6 +1303,9 @@ export class MissionRailComponent {
   @Input() activeView: MissionView = 'cockpit';
   @Input() adminRoute = '/workspace';
   @Input() assistantName = 'AYA';
+  @Input() ayaState: 'listening' | 'ready' = 'ready';
+  @Input() ayaStateLabel = 'Briefing pret';
+  @Input() alertBadges: Partial<Record<MissionView, number>> = {};
   @Output() assistantRequest = new EventEmitter<void>();
 
   private readonly clockTimeZone = 'Africa/Abidjan';
@@ -1312,6 +1366,11 @@ export class MissionRailComponent {
   railLabel(item: MissionNavigationItem): string {
     return this.railLabelOverrides[item.key] || item.label;
   }
+
+  navBadge(key: MissionView): number | null {
+    const count = this.alertBadges[key];
+    return count && count > 0 ? count : null;
+  }
 }
 
 @Component({
@@ -1327,6 +1386,7 @@ export class MissionRailComponent {
     MissionSourcePillComponent,
     MissionControlMonitorComponent,
     WorkspaceMapComponent,
+    VpCockpitComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -1336,6 +1396,9 @@ export class MissionRailComponent {
         [activeView]="currentView()"
         [adminRoute]="adminRoute()"
         [assistantName]="assistantName()"
+        [ayaState]="ayaRailState()"
+        [ayaStateLabel]="ayaRailStateLabel()"
+        [alertBadges]="railAlertBadges()"
         (assistantRequest)="openAssistantVoice('AYA, prepare le cockpit 60 secondes pour le Vice-President.')"
       />
 
@@ -1394,215 +1457,34 @@ export class MissionRailComponent {
     </section>
 
     <ng-template #cockpitView>
-      <section class="vp-status-bar" aria-label="Posture nationale">
-        @for (item of vpStatusBar(); track item.key) {
-          <article [class]="'vp-status-item ' + monitorTone(item.tone)">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-            <small>{{ item.detail }}</small>
-          </article>
-        }
-      </section>
-
-      <section class="vp-directive-layout" aria-label="Directive du jour">
-        <article class="content-panel vp-aya-card">
-          <span class="assistant-orb" aria-hidden="true">{{ assistantName().slice(0, 1) }}</span>
-          <div>
-            <span class="eyebrow">{{ assistantName() }} · Adjoint souverain</span>
-            <h2>{{ ayaRecommendation()?.cta_primary || 'Ecouter le briefing AYA' }}</h2>
-            <p>{{ ayaRecommendation()?.prompt || 'AYA, quelle est la situation prioritaire maintenant ?' }}</p>
-          </div>
-          <div class="hero-actions">
-            <button type="button" class="action-button primary" (click)="openAssistantVoice(ayaRecommendation()?.prompt)">
-              <ck-glyph name="bolt" [size]="14" />
-              <span>Parler a {{ assistantName() }}</span>
-            </button>
-            <button type="button" class="action-button compact" (click)="openAssistantVoice('AYA, lis le briefing souverain en 60 secondes.')">
-              <ck-glyph name="pulse" [size]="14" />
-              <span>Ecouter</span>
-            </button>
-          </div>
-        </article>
-
-        <article class="content-panel vp-sentence">
-          <span class="eyebrow">{{ directiveOfDay().label || 'Directive du jour · Synthese AYA' }}</span>
-          <h2>{{ directiveOfDay().text }}</h2>
-          <p>{{ directiveOfDay().window || directiveOfDay().deadline || 'avant Conseil 15h00' }} · {{ directiveOfDay().generated_by || assistantName() }}</p>
-          <div class="hero-actions">
-            <a routerLink="/hypervisor/mission-room/strategie" class="action-button primary">
-              <ck-glyph name="crosshair" [size]="14" />
-              <span>{{ directiveOfDay().primary_cta || 'Ouvrir le dossier Zone Nord' }}</span>
-            </a>
-            <button type="button" class="action-button compact" (click)="openAssistant('AYA, explique la directive du jour avec sources et options.')">
-              <ck-glyph name="ledger" [size]="14" />
-              <span>Comprendre</span>
-            </button>
-          </div>
-        </article>
-      </section>
-
-      <section class="vp-c2-strip" aria-label="Explorer comprendre decider">
-        <article class="content-panel vp-c2-card">
-          <span class="eyebrow">Boucle de decision</span>
-          <div class="vp-mode-row">
-            @for (mode of scenarioModes(); track mode.key) {
-              <button type="button" [class]="mode.key" (click)="openAssistant('AYA, active le mode ' + mode.label + ' pour le cockpit du Vice-President.')">
-                <strong>{{ mode.label }}</strong>
-                <small>{{ mode.goal }}</small>
-              </button>
-            }
-          </div>
-        </article>
-
-        <article class="content-panel vp-source-stack">
-          <span class="eyebrow">Fraicheur sources</span>
-          <div class="vp-source-grid">
-            @for (item of sourceFreshnessItems(); track item.key) {
-              <article>
-                <strong>{{ item.label }}</strong>
-                <span>{{ item.count || 0 }} · {{ item.freshness || item.state }}</span>
-                <i [style.width.%]="item.confidence || 50"></i>
-              </article>
-            }
-          </div>
-        </article>
-
-        <article class="content-panel vp-evidence-card">
-          <span class="eyebrow">Graphe de preuves</span>
-          <strong>{{ evidenceGraphSummary()?.node_count || 0 }} entites · {{ evidenceGraphSummary()?.edge_count || 0 }} liens</strong>
-          <p>{{ evidenceGraphSummary()?.top_relationships?.[0] || 'Sources, zones, projets et actions reliees pour AYA.' }}</p>
-        </article>
-      </section>
-
-      <section class="vp-dashboard-grid" aria-label="Cockpit VP 60 secondes">
-        <article class="content-panel vp-attention-panel">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">Attention requise</span>
-              <h2>3 sujets ce matin</h2>
-            </div>
-            <a routerLink="/hypervisor/mission-room/decisions" class="action-button compact">
-              <ck-glyph name="check" [size]="14" />
-              <span>Arbitrer</span>
-            </a>
-          </div>
-          <div class="vp-attention-list">
-            @for (item of attentionItems60(); track item.id || item.title; let idx = $index) {
-              <article class="vp-attention-card" [class.critical]="attentionTone(item) === 'critical'" [class.watch]="attentionTone(item) === 'watch'">
-                <span>{{ item.rank || idx + 1 }} · {{ item.deadline || 'ce matin' }}</span>
-                <strong>{{ item.title }}</strong>
-                <p>{{ item.sentence || item.summary }}</p>
-                <small>{{ item.next_step || attentionActionLabel(item) }}</small>
-                <div class="card-actions">
-                  <button type="button" class="inline-action" (click)="openAttentionItem(item)">Comprendre</button>
-                  <button type="button" class="inline-action" (click)="createAttentionDraft(item)">
-                    {{ item.draft_target_type === 'press_response' ? 'Preparer email' : 'Preparer action' }}
-                  </button>
-                </div>
-              </article>
-            }
-          </div>
-        </article>
-
-        <article class="content-panel vp-map-card">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">{{ fusedMapPreview().label || 'Carte fusionnee' }}</span>
-              <h2>Territoire et signaux</h2>
-            </div>
-            <a [routerLink]="fusedMapPreview().route || '/hypervisor/mission-room/strategie'" class="action-button compact">
-              <ck-glyph name="sliders" [size]="14" />
-              <span>Ouvrir carte</span>
-            </a>
-          </div>
-          <div class="vp-map-preview">
-            <div class="vp-map-zone-list">
-              @for (zone of territorialLiveStatus(); track zone.zone) {
-                <button type="button" [class]="zone.tone" (click)="focusZoneInMonitor(zone.zone)">
-                  <strong>{{ zone.zone }}</strong>
-                  <span>{{ zone.level }}</span>
-                  <small>{{ zone.summary }}</small>
-                  <i [style.--bars]="zone.bars"></i>
-                </button>
-              }
-            </div>
-            <div class="vp-map-layers">
-              @for (layer of fusedMapPreview().layers || []; track layer.key) {
-                <span [class]="layer.tone">{{ layer.label }} · {{ layer.count }}</span>
-              }
-            </div>
-          </div>
-        </article>
-
-        <article class="content-panel vp-agenda-card">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">Agenda ministériel</span>
-              <h2>Pilotage du temps</h2>
-            </div>
-            <a routerLink="/hypervisor/mission-room/agenda" class="action-button compact">Agenda</a>
-          </div>
-          @if (agendaDay().next_event; as event) {
-            <div class="vp-next-event">
-              <span>{{ event.time }}</span>
-              <strong>{{ event.title }}</strong>
-              <small>{{ event.location }}</small>
-            </div>
-          }
-          @if (agendaDay().available_window; as window) {
-            <div class="vp-window">
-              <span>{{ window.time }}</span>
-              <strong>{{ window.label }}</strong>
-              <p>{{ window.reason }}</p>
-            </div>
-          }
-        </article>
-
-        <article class="content-panel vp-indicators-card">
-          <span class="eyebrow">Indicateurs souverains</span>
-          <div class="vp-indicator-list">
-            @for (indicator of sovereignIndicators(); track indicator.label) {
-              <article [class]="monitorTone(indicator.tone)">
-                <span>{{ indicator.label }}</span>
-                <strong>{{ indicator.value }}{{ indicator.unit || '' }}</strong>
-                <small>{{ indicator.source }} · confiance {{ indicator.confidence }} · {{ indicator.trend }}</small>
-              </article>
-            }
-          </div>
-        </article>
-
-        <article class="content-panel vp-decision-card">
-          <div class="panel-heading-row">
-            <div>
-              <span class="eyebrow">Si ça ne va pas</span>
-              <h2>Options AYA</h2>
-            </div>
-            <a routerLink="/hypervisor/mission-room/briefing" class="action-button compact">Dossier</a>
-          </div>
-          @if (decisionQueue()[0]; as decision) {
-            <strong>{{ decision.title }}</strong>
-            <p>{{ decision.recommended_option }}</p>
-            <small>{{ decision.deadline }} · {{ decision.owner }} · confiance {{ confidencePct(decision.confidence) }}</small>
-            <div class="card-actions">
-              <button type="button" class="inline-action" (click)="openAssistant('AYA, explique les options de ' + decision.title)">Expliquer</button>
-              <button type="button" class="inline-action" (click)="createDraft(decision.id, decision.email_draft_ready ? 'press_response' : 'decision')">Preparer email</button>
-            </div>
-          }
-        </article>
-
-        <article class="content-panel vp-geo-card">
-          <span class="eyebrow">Renseignement par zone</span>
-          <div class="vp-tier-list">
-            @for (tier of geographicSignalTiers(); track tier.key) {
-              <button type="button" (click)="openAssistant('AYA, synthetise le niveau ' + tier.label + ' et les actions attendues.')">
-                <strong>{{ tier.label }}</strong>
-                <span>{{ tier.count }} signaux</span>
-                <small>{{ tier.top_signal || 'Aucun signal prioritaire' }}</small>
-              </button>
-            }
-          </div>
-        </article>
-      </section>
+      <app-vp-cockpit
+        [assistantName]="assistantName()"
+        [statusBar]="vpStatusBar()"
+        [mapPreview]="vpMapPreviewContext()"
+        [sovereignIndicators]="sovereignIndicators()"
+        [intelligenceFeeds]="intelligenceFeeds()"
+        [agendaTimeline]="agendaTimeline()"
+        [directive]="directiveOfDay()"
+        [ayaRecommendation]="ayaRecommendation()"
+        [arbitrationCards]="arbitrationCards()"
+        [pressPreview]="pressPreview()"
+        [pressHighlightId]="pressHighlightId()"
+        [morningHighlight]="morningHighlightMessage()"
+        [morningDismissed]="morningHighlightDismissed()"
+        [decisionTeaser]="decisionTeaser()"
+        [scenarioModes]="scenarioModes()"
+        (openMap)="openDrillDownView('strategie', vpMapPreviewContext().geoPreview.top_zone_id || undefined)"
+        (arbitrationSelected)="openDrillDown($event)"
+        (pressSelected)="openPressPreviewItem($event)"
+        (agendaEvent)="openDrillDownView('agenda', $event.id)"
+        (voiceRequest)="openAssistantVoice($event)"
+        (voiceListen)="openAssistantVoice('AYA, lis le briefing souverain en 60 secondes.')"
+        (briefingRequest)="openDrillDownView('briefing', 'package-zone-nord')"
+        (morningView)="openMorningPressHighlight()"
+        (morningLater)="dismissMorningHighlight()"
+        (morningVoice)="openAssistantVoice('AYA, un signal presse ressort de la nuit — prepare le projet de reponse.')"
+        (scenarioMode)="openAssistant('AYA, active le mode ' + $event.label + ' pour le cockpit du Vice-President.')"
+      />
     </ng-template>
 
     <ng-template #briefingView>
@@ -1620,6 +1502,42 @@ export class MissionRailComponent {
               @for (source of section.sources; track source) {
                 <app-mission-source-pill [label]="sourceLabel(source)" (click)="showSource(source)" />
               }
+            </div>
+          </article>
+        }
+        @if (zoneNorthOptionCompare(); as compare) {
+          <article class="content-panel span-2 option-compare-panel" [attr.id]="compareAnchor()">
+            <div class="panel-heading-row">
+              <div>
+                <span class="eyebrow">Zone Nord · arbitrage</span>
+                <h3>{{ compare.title }}</h3>
+                @if (compare.subtitle) {
+                  <p>{{ compare.subtitle }}</p>
+                }
+              </div>
+              <span class="status-pill elevated">Comparaison A/B</span>
+            </div>
+            <div class="option-compare-head">
+              <span>{{ compare.option_a_label }}</span>
+              <span>{{ compare.option_b_label }}</span>
+            </div>
+            @for (metric of compare.metrics; track metric.key) {
+              <div class="option-compare-row">
+                <label>{{ metric.label }}</label>
+                <div class="compare-bars">
+                  <i [style.width.%]="metric.option_a" [class.recommended]="compare.recommended === 'a'"></i>
+                  <i [style.width.%]="metric.option_b" [class.recommended]="compare.recommended === 'b'"></i>
+                </div>
+                <small>{{ metric.option_a }} / {{ metric.option_b }}</small>
+              </div>
+            }
+            <div class="card-actions">
+              <button type="button" class="inline-action" (click)="openAssistant('AYA, explique pourquoi l option B est recommandee pour la Zone Nord.')">
+                Expliquer l option recommandee
+              </button>
+              <button type="button" class="inline-action" (click)="createDraft('package-zone-nord', 'decision')">
+                Valider option B (audit)
+              </button>
             </div>
           </article>
         }
@@ -2071,7 +1989,11 @@ export class MissionRailComponent {
 
         <div class="executive-alert-grid span-2">
           @for (signal of filteredNewsAlerts(); track signal.id) {
-            <article class="content-panel executive-alert-card">
+            <article
+              class="content-panel executive-alert-card"
+              [class.highlighted]="highlightTarget() === signal.id || highlightTarget() === 'attention-inter-budget'"
+              [attr.id]="signal.id"
+            >
               <div class="panel-heading-row">
                 <span class="status-pill" [class]="signal.risk_level">{{ ministerialRisk(signal.risk_level) }}</span>
                 <small>{{ signal.viewpoint || signal.zone || signal.source }} · {{ signal.velocity || 'veille' }} · confiance {{ confidencePct(signal.confidence) }}</small>
@@ -2207,6 +2129,34 @@ export class MissionRailComponent {
 
     <ng-template #decisionsView>
       <section class="two-column">
+        <article class="content-panel span-2 arbitration-layout-panel">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Sujets a arbitrer</span>
+              <h2>3 decisions ce matin</h2>
+            </div>
+          </div>
+          <div class="decision-arbitration-grid">
+            @for (card of arbitrationCards(); track card.id) {
+              <button
+                type="button"
+                class="decision-arbitration-card"
+                [class.highlighted]="highlightTarget() === card.id"
+                [class.critical]="monitorTone(card.tone) === 'critical'"
+                [class.elevated]="monitorTone(card.tone) === 'elevated'"
+                (click)="openDrillDown(card)"
+              >
+                <span>{{ card.rank }} · {{ card.domain_label }}</span>
+                <strong>{{ card.title }}</strong>
+                <p>{{ card.summary }}</p>
+                <footer>
+                  <em>{{ card.status_label }}</em>
+                  <small>{{ card.deadline }}</small>
+                </footer>
+              </button>
+            }
+          </div>
+        </article>
         <article class="content-panel">
           <span class="eyebrow">Decisions</span>
           <h2>Validation humaine requise</h2>
@@ -3657,6 +3607,114 @@ export class MissionRailComponent {
         color: var(--mission-text-soft);
         line-height: 1.45;
       }
+      .executive-alert-card.highlighted,
+      .decision-arbitration-card.highlighted {
+        border-color: rgba(242, 140, 56, 0.55);
+        box-shadow: 0 0 0 1px rgba(242, 140, 56, 0.18), 0 0 24px rgba(242, 140, 56, 0.08);
+      }
+      .decision-arbitration-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .decision-arbitration-card {
+        min-width: 0;
+        padding: 13px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: rgba(4, 8, 13, 0.62);
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        appearance: none;
+        font: inherit;
+      }
+      .decision-arbitration-card.critical {
+        border-color: rgba(240, 100, 118, 0.34);
+        background: linear-gradient(135deg, var(--mission-danger-wash), rgba(4, 8, 13, 0.66));
+      }
+      .decision-arbitration-card span {
+        display: block;
+        color: var(--mission-orange);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .decision-arbitration-card strong {
+        display: block;
+        margin-top: 6px;
+        font-size: 15px;
+        line-height: 1.25;
+      }
+      .decision-arbitration-card p {
+        margin: 7px 0 0;
+        color: var(--mission-text-muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .decision-arbitration-card footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .decision-arbitration-card footer em {
+        font-style: normal;
+        font-family: var(--ck-font-mono);
+        font-size: 9px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--mission-warn);
+      }
+      .option-compare-panel {
+        display: grid;
+        gap: 10px;
+      }
+      .option-compare-head,
+      .option-compare-row {
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr) 72px;
+        gap: 10px;
+        align-items: center;
+      }
+      .option-compare-head span {
+        color: var(--mission-text-muted);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .option-compare-row label {
+        color: var(--mission-text-soft);
+        font-size: 12px;
+      }
+      .compare-bars {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .compare-bars i {
+        display: block;
+        height: 8px;
+        min-width: 0;
+        border-radius: 999px;
+        background: var(--mission-accent);
+      }
+      .compare-bars i + i {
+        background: rgba(125, 211, 252, 0.35);
+      }
+      .compare-bars i.recommended {
+        background: var(--mission-trust);
+        box-shadow: 0 0 0 1px rgba(101, 214, 110, 0.28);
+      }
+      .option-compare-row small {
+        color: var(--mission-text-faint);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        text-align: right;
+      }
       .action-panel {
         display: flex;
         flex-direction: column;
@@ -4071,6 +4129,19 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly mapCommandState = signal<Record<string, unknown> | null>(null);
   readonly visualCaptureImages = signal<Record<string, string>>({});
   readonly activeNewsGeoTier = signal<'ci' | 'cedeao' | 'africa' | 'world'>('ci');
+  readonly morningHighlightDismissed = signal(this.readMorningDismissed());
+  private readonly highlightQuery = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('highlight'))),
+    { initialValue: null as string | null },
+  );
+  private readonly layersQuery = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('layers'))),
+    { initialValue: null as string | null },
+  );
+  private readonly zoneQuery = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('zone'))),
+    { initialValue: null as string | null },
+  );
 
   searchQueryValue = '';
   newAgendaTitle = '';
@@ -4105,6 +4176,22 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   readonly adminRoute = computed(() => `/workspace/${this.workspace.currentSlug() || 'sentinel-ci'}`);
   readonly assistantName = computed(() => this.navigation()?.app?.assistant_label || 'AYA');
+  readonly highlightTarget = computed(() => this.highlightQuery());
+  readonly pressHighlightId = computed(() => {
+    if (this.morningHighlightDismissed()) return null;
+    return this.pressPreview()[0]?.id || 'attention-inter-budget';
+  });
+  readonly railAlertBadges = computed<Partial<Record<MissionView, number>>>(() => ({
+    presse: this.pressPreview().length || this.kpiNumber('press_alerts') || 0,
+    decisions: this.arbitrationCards().length || this.decisionQueue().length || 0,
+  }));
+  readonly ayaRailState = computed<'listening' | 'ready'>(() => (this.cockpit()?.briefing_status || '').toLowerCase().includes('ecoute') ? 'listening' : 'ready');
+  readonly ayaRailStateLabel = computed(() => {
+    const status = (this.cockpit()?.briefing_status || '').toLowerCase();
+    if (status.includes('ecoute')) return 'A l ecoute';
+    if (status.includes('pret')) return 'Briefing pret';
+    return this.cockpit()?.briefing_status || 'Briefing pret';
+  });
 
   readonly sources = computed(() => {
     const rows = [
@@ -4146,6 +4233,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     window.addEventListener('agentium:visual-intelligence-updated', this.workspaceActionUpdateListener);
     window.addEventListener('agentium:map-command', this.mapCommandListener);
     this.loadAll();
+    setTimeout(() => this.scrollToHighlight(), 120);
+    this.applyMapQueryState();
   }
 
   ngOnDestroy(): void {
@@ -4197,6 +4286,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
         const current = this.selectedZone();
         const stillVisible = current?.id ? missionMap.zones.find((item) => item.id === current.id) : null;
         this.selectedZone.set(stillVisible || missionMap.zones[0] || null);
+        this.applyMapQueryState();
       }
       if (monitor) {
         this.monitor.set(monitor);
@@ -4329,7 +4419,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     };
   }
 
-  ayaRecommendation(): MissionCockpit['aya_recommendation'] | null {
+  ayaRecommendation(): NonNullable<MissionCockpit['aya_recommendation']> {
     return this.cockpit()?.aya_recommendation || {
       assistant: this.assistantName(),
       voice_first: true,
@@ -4544,6 +4634,278 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       { key: 'africa', label: 'Afrique', count: 4, top_signal: 'Tensions regionales a surveiller', signals: [] },
       { key: 'world', label: 'Monde', count: 1, top_signal: 'Lecture diplomatique France-CI', signals: [] },
     ];
+  }
+
+  arbitrationCards(): VpArbitrationCard[] {
+    const direct = this.cockpit()?.arbitration_cards;
+    if (direct?.length) return direct.slice(0, 3);
+    return this.attentionItems60().slice(0, 3).map((item, index) => this.buildArbitrationCard(item, index + 1));
+  }
+
+  intelligenceFeeds(): VpIntelligenceFeed[] {
+    const direct = this.cockpit()?.intelligence_feeds;
+    if (direct?.length) return direct.slice(0, 8);
+    const layers = this.cockpit()?.monitoring_layers || [];
+    if (layers.length) {
+      return layers.slice(0, 8).map((layer) => ({
+        key: String(layer.key || layer.name || layer.label || 'feed'),
+        label: String(layer.label || layer.name || 'Source'),
+        subtitle: String(layer.source_kind || 'source qualifiee'),
+        metric: `${layer.count || 0} signaux`,
+        confidence: Number(layer.confidence || 50),
+        freshness_at: layer.freshness,
+        tone: layer.visible === false ? 'monitoring' : 'stable',
+      }));
+    }
+    return [
+      { key: 'satellite', label: 'Imagerie satellite', subtitle: 'Couverture Nord · indicative', metric: '2 zones', confidence: 68, tone: 'monitoring' },
+      { key: 'maritime', label: 'Trafic maritime AIS', subtitle: 'Port Abidjan · corridor actif', metric: '5 navires', confidence: 66, tone: 'elevated' },
+      { key: 'adsb', label: 'Espace aerien ADS-B', subtitle: 'Perimetre Sahel · veille', metric: 'nominal', confidence: 61, tone: 'stable' },
+      { key: 'osint', label: 'OSINT multilingue', subtitle: 'Presse africaine qualifiee', metric: `${this.kpiNumber('analyzed_articles') || 80} articles`, confidence: 72, tone: 'stable' },
+      { key: 'mobile', label: 'Signal reseau mobile', subtitle: 'Nord · faible densite', metric: '3 clusters', confidence: 58, tone: 'monitoring' },
+      { key: 'economy', label: 'Economie reelle', subtitle: 'Douanes Abidjan · retard BTP', metric: '2 signaux', confidence: 64, tone: 'elevated' },
+      { key: 'terrain', label: 'Capteurs terrain', subtitle: '16 capteurs Nord', metric: 'actif', confidence: 62, tone: 'critical' },
+      { key: 'cyber', label: 'Veille cyber', subtitle: 'Canaux habilites', metric: 'stable', confidence: 70, tone: 'stable' },
+    ];
+  }
+
+  pressPreview(): VpPressPreviewItem[] {
+    const direct = this.cockpit()?.press_preview;
+    if (direct?.length) return direct.slice(0, 3);
+    const alerts = this.newsAlerts().slice(0, 3);
+    if (alerts.length) {
+      return alerts.map((signal) => ({
+        id: signal.id,
+        title: signal.title,
+        source: signal.source_name || signal.source,
+        risk: signal.risk_level,
+        risk_label: this.ministerialRisk(signal.risk_level),
+        summary: signal.summary,
+        tone: signal.risk_level,
+        drill_down: { view: 'presse', anchor: signal.id },
+      }));
+    }
+    return this.attentionItems60()
+      .filter((item) => this.openAttentionTargetLooksPress(item))
+      .slice(0, 3)
+      .map((item) => ({
+        id: item.id || 'attention-inter-budget',
+        title: item.title,
+        source: "L'Inter",
+        risk: this.attentionTone(item),
+        risk_label: 'Reponse a valider',
+        summary: item.sentence || item.summary,
+        tone: this.attentionTone(item),
+        drill_down: { view: 'presse', anchor: item.id || 'attention-inter-budget' },
+      }));
+  }
+
+  agendaTimeline(): VpAgendaTimeline {
+    const direct = this.cockpit()?.agenda_timeline;
+    if (direct?.events?.length) return direct;
+    const day = this.agendaDay();
+    const events = (day.events || []).slice(0, 4).map((event, index) => ({
+      id: event.id,
+      time: event.time,
+      end_time: event.end_time,
+      title: event.title,
+      location: event.location,
+      tone: event.tone,
+      is_now: index === 1,
+      countdown: index === 1 ? 'dans 1h44' : undefined,
+    }));
+    return {
+      label: day.label,
+      now_marker: 'MAINTENANT',
+      events,
+      separate_from_actions: true,
+    };
+  }
+
+  vpMapPreviewContext(): VpMapPreviewContext {
+    const preview = this.fusedMapPreview();
+    const geoPreview = preview.geo_preview || this.buildGeoPreviewFallback(preview);
+    const topZone = preview.top_zone || preview.zones?.[0];
+    return {
+      route: preview.route || '/hypervisor/mission-room/strategie',
+      label: preview.label || 'Carte fusionnee',
+      zones: (preview.zones || []) as unknown as Record<string, unknown>[],
+      map: (this.missionMap()?.map as Record<string, unknown>) || null,
+      mapSystem: (this.missionMap()?.map_system as Record<string, unknown>) || null,
+      geoPreview,
+      topZoneId: geoPreview.top_zone_id || topZone?.id || null,
+    };
+  }
+
+  decisionTeaser(): { id: string; title: string; recommended_option: string; deadline?: string; confidence?: number } | null {
+    const queue = this.decisionQueue();
+    const zonePackage = queue.find((item) => `${item.id} ${item.title}`.toLowerCase().includes('nord')) || queue[0];
+    if (!zonePackage) return null;
+    return {
+      id: zonePackage.id,
+      title: zonePackage.title,
+      recommended_option: zonePackage.recommended_option,
+      deadline: zonePackage.deadline,
+      confidence: zonePackage.confidence,
+    };
+  }
+
+  morningHighlightMessage(): string | null {
+    if (this.morningHighlightDismissed()) return null;
+    const narrative = this.cockpit()?.demo_narrative?.steps?.find((step) => step.phase === 'comprendre');
+    if (narrative?.prompt) return narrative.prompt;
+    const item = this.pressPreview()[0];
+    if (!item) return null;
+    return `Un signal presse ressort de la nuit — voulez-vous voir le projet de reponse pour « ${item.title} » ?`;
+  }
+
+  zoneNorthOptionCompare(): VpOptionCompare | null {
+    const zone = (this.missionMap()?.zones || []).find((item) => `${item.id} ${item.name}`.toLowerCase().includes('nord'));
+    const options = zone?.scenario_options || [];
+    if (options.length >= 2) {
+      const optionA = options[0];
+      const optionB = options.find((item) => item.recommended) || options[1];
+      return {
+        title: `Arbitrage ${zone?.name || 'Zone Nord'}`,
+        subtitle: 'Comparaison risque, cout, deploiement, reputation et lecture CEDEAO.',
+        option_a_label: optionA.label,
+        option_b_label: optionB.label,
+        recommended: optionB.recommended ? 'b' : 'a',
+        metrics: [
+          { key: 'risk', label: 'Risque securitaire', option_a: optionA.risk_reduction ?? 42, option_b: optionB.risk_reduction ?? 68 },
+          { key: 'cost', label: 'Cout / effort', option_a: 100 - (optionA.cost_score ?? 35), option_b: 100 - (optionB.cost_score ?? 58) },
+          { key: 'deploy', label: 'Delai deploiement', option_a: optionA.time_sensitivity ?? 48, option_b: optionB.time_sensitivity ?? 72 },
+          { key: 'reputation', label: 'Reputation Etat', option_a: optionA.impact_score ?? 44, option_b: optionB.impact_score ?? 71 },
+          { key: 'cedeao', label: 'Lecture CEDEAO', option_a: 52, option_b: 74 },
+        ],
+      };
+    }
+    return {
+      title: 'Arbitrage Zone Nord',
+      subtitle: 'Coordination locale vs arbitrage cabinet avant Conseil 15h00.',
+      option_a_label: 'Option A · coordination locale',
+      option_b_label: 'Option B · arbitrage cabinet',
+      recommended: 'b',
+      metrics: [
+        { key: 'risk', label: 'Risque securitaire', option_a: 42, option_b: 68 },
+        { key: 'cost', label: 'Cout / effort', option_a: 65, option_b: 42 },
+        { key: 'deploy', label: 'Delai deploiement', option_a: 78, option_b: 55 },
+        { key: 'reputation', label: 'Reputation Etat', option_a: 48, option_b: 71 },
+        { key: 'cedeao', label: 'Lecture CEDEAO', option_a: 52, option_b: 74 },
+      ],
+    };
+  }
+
+  compareAnchor(): string {
+    return this.highlightTarget() || 'package-zone-nord';
+  }
+
+  openDrillDown(card: Pick<VpArbitrationCard, 'id' | 'drill_down'>): void {
+    const drill = card.drill_down;
+    this.openDrillDownView(drill.view, drill.anchor || card.id, drill.route);
+  }
+
+  openDrillDownView(view: VpDrillDown['view'], anchor?: string, route?: string): void {
+    const target = route || `/hypervisor/mission-room/${view}`;
+    const queryParams: Record<string, string> = {};
+    if (anchor) queryParams['highlight'] = anchor;
+    if (view === 'strategie') {
+      const layers = this.vpMapPreviewContext().geoPreview.active_layers;
+      if (layers?.length) queryParams['layers'] = layers.join(',');
+      const zone = this.vpMapPreviewContext().geoPreview.top_zone_id;
+      if (zone) queryParams['zone'] = zone;
+    }
+    this.router.navigate([target], { queryParams }).then(() => this.scrollToHighlight());
+  }
+
+  openPressPreviewItem(item: VpPressPreviewItem): void {
+    const drill = item.drill_down || { view: 'presse' as const, anchor: item.id };
+    this.openDrillDownView(drill.view, drill.anchor || item.id, drill.route);
+  }
+
+  openMorningPressHighlight(): void {
+    const item = this.pressPreview()[0];
+    if (item) this.openPressPreviewItem(item);
+  }
+
+  dismissMorningHighlight(): void {
+    this.morningHighlightDismissed.set(true);
+    sessionStorage.setItem('sentinel-ci-aya-morning-dismissed', '1');
+  }
+
+  private readMorningDismissed(): boolean {
+    try {
+      return sessionStorage.getItem('sentinel-ci-aya-morning-dismissed') === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private buildArbitrationCard(item: AttentionRequiredItem, rank: number): VpArbitrationCard {
+    const pressLike = this.openAttentionTargetLooksPress(item);
+    const nordLike = `${item.id || ''} ${item.title || ''}`.toLowerCase().includes('nord');
+    const agendaLike = `${item.id || ''} ${item.title || ''}`.toLowerCase().includes('ambassadeur')
+      || `${item.id || ''} ${item.title || ''}`.toLowerCase().includes('agenda');
+    const view: VpDrillDown['view'] = pressLike ? 'presse' : nordLike ? 'briefing' : agendaLike ? 'agenda' : 'decisions';
+    return {
+      id: item.id || `attention-${rank}`,
+      rank,
+      domain: pressLike ? 'PRESSE' : nordLike ? 'DEFENSE' : agendaLike ? 'DIPLOMATIE' : 'CABINET',
+      domain_label: pressLike ? 'Presse' : nordLike ? 'Defense' : agendaLike ? 'Diplomatie' : 'Cabinet',
+      title: item.title,
+      summary: item.sentence || item.summary || '',
+      status: item.status || 'validation_required',
+      status_label: pressLike ? 'REPONSE A VALIDER' : 'DECISION REQUISE',
+      deadline: item.deadline || 'ce matin',
+      tone: this.attentionTone(item),
+      cta_label: pressLike ? 'Preparer reponse' : 'Arbitrer',
+      drill_down: { view, anchor: item.id || `attention-${rank}` },
+      draft_ready: pressLike,
+      aya_prepared: true,
+    };
+  }
+
+  private buildGeoPreviewFallback(preview: NonNullable<MissionCockpit['fused_map_preview']>): VpMapPreviewContext['geoPreview'] {
+    const zones = preview.zones || [];
+    return {
+      active_layers: ['threat', 'press', 'maritime'],
+      zone_scores: zones.slice(0, 4).map((zone) => ({
+        name: zone.name,
+        score: zone.level,
+        trend: zone.tone === 'critical' ? '+12/24h' : zone.tone === 'watch' ? '+4/24h' : 'stable',
+        tone: zone.tone,
+      })),
+      top_zone_id: preview.top_zone?.id || zones[0]?.id || 'zone-nord',
+    };
+  }
+
+  private scrollToHighlight(): void {
+    const target = this.highlightTarget();
+    if (!target) return;
+    setTimeout(() => {
+      const element = document.getElementById(target)
+        || document.querySelector(`[id="${target}"]`)
+        || document.querySelector('.highlighted');
+      element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 180);
+  }
+
+  private applyMapQueryState(): void {
+    const layers = this.layersQuery();
+    const zone = this.zoneQuery();
+    if (!layers && !zone) return;
+    const active_layers = layers ? layers.split(',').map((item) => item.trim()).filter(Boolean) : undefined;
+    this.mapCommandState.set({
+      ...(this.mapCommandState() || {}),
+      active_layers,
+      selected_zone: zone || undefined,
+      preset: zone ? 'zone' : undefined,
+      zone,
+    });
+    if (zone) {
+      const match = (this.missionMap()?.zones || []).find((item) => item.id === zone || item.name.toLowerCase() === zone.toLowerCase());
+      if (match) this.selectedZone.set(match);
+    }
   }
 
   createAttentionDraft(item: AttentionRequiredItem): void {

@@ -42,7 +42,11 @@ from app.services.visual_intelligence import (
     dashboard_payload as visual_dashboard_payload,
     ensure_visual_intelligence_seed,
 )
-from app.services.workspace_maps import ensure_workspace_map_seed, mission_room_map_payload
+from app.services.workspace_maps import (
+    IVORY_COAST_BOUNDS,
+    ensure_workspace_map_seed,
+    mission_room_map_payload,
+)
 
 
 SENTINEL_WORKSPACE_SLUG = "sentinel-ci"
@@ -587,7 +591,7 @@ ATTENTION_REQUIRED = [
         "status": "brief_ready",
         "tone": "watch",
         "next_step": "Ouvrir la fiche et les elements de langage",
-        "action_route": f"{MISSION_ROOM_ROOT}/agenda",
+        "action_route": f"{MISSION_ROOM_ROOT}/decisions",
         "draft_target_type": "briefing_note",
         "draft_recipient": "Conseiller diplomatique",
         "source_refs": ["src-agenda-jour-015", "src-project-sante-042"],
@@ -1705,7 +1709,39 @@ def _sovereign_indicators(overview: dict[str, Any], posture: dict[str, Any]) -> 
 
 def _fused_map_preview(mapped: dict[str, Any], news: dict[str, Any], visual: dict[str, Any]) -> dict[str, Any]:
     zones = mapped.get("zones") or _clone(MAP_ZONES)
-    top_zone = max(zones, key=lambda zone: zone.get("level", 0)) if zones else {}
+    score_summary = mapped.get("score_summary") or {}
+    top_zone = score_summary.get("top_zone") or (max(zones, key=lambda zone: zone.get("level", 0)) if zones else {})
+    top_zone_id = top_zone.get("id") or "zone-nord"
+    map_system = mapped.get("map_system") or {}
+    default_state = map_system.get("default_map_state") or {}
+    camera_presets = map_system.get("camera_presets") or {}
+    renderer = map_system.get("renderer") or {}
+    camera = (
+        camera_presets.get(top_zone_id)
+        or camera_presets.get("zone-nord")
+        or default_state.get("camera")
+        or {
+            "longitude": -5.6294,
+            "latitude": 9.4580,
+            "zoom": 7.35,
+            "pitch": 0,
+            "bearing": 0,
+        }
+    )
+    bounds = renderer.get("bounds") or [
+        [IVORY_COAST_BOUNDS["west"], IVORY_COAST_BOUNDS["south"]],
+        [IVORY_COAST_BOUNDS["east"], IVORY_COAST_BOUNDS["north"]],
+    ]
+    zone_scores = [
+        {
+            "id": zone.get("id"),
+            "name": zone.get("name"),
+            "score": zone.get("level"),
+            "trend": "+12/24h" if zone.get("id") == "zone-nord" else "stable",
+            "tone": zone.get("tone"),
+        }
+        for zone in zones[:5]
+    ]
     return {
         "route": f"{MISSION_ROOM_ROOT}/strategie",
         "label": "Carte fusionnee",
@@ -1723,6 +1759,16 @@ def _fused_map_preview(mapped: dict[str, Any], news: dict[str, Any], visual: dic
             for zone in zones[:5]
         ],
         "source_label": "Carte, presse, projets, agenda et observations visuelles",
+        "geo_preview": {
+            "camera": {
+                **camera,
+                "center": [camera.get("longitude"), camera.get("latitude")],
+                "bounds": bounds,
+            },
+            "active_layers": ["threat", "press"],
+            "zone_scores": zone_scores,
+            "top_zone_id": top_zone_id,
+        },
     }
 
 
@@ -1760,6 +1806,406 @@ def _decision_queue_payload() -> list[dict[str, Any]]:
         }
         for package in EXECUTIVE_DECISION_PACKAGES
     ]
+
+
+_ARBITRATION_DOMAIN_LABELS = {
+    "PRESSE": "Presse",
+    "DEFENSE": "Defense / territoire",
+    "DIPLOMATIE": "Diplomatie",
+    "COMMUNICATION": "Communication publique",
+    "RUMEUR": "Rumeur / OSINT",
+}
+
+_ARBITRATION_STATUS_LABELS = {
+    "draft_ready": "REPONSE A VALIDER",
+    "decision_required": "DECISION REQUISE",
+    "brief_ready": "FICHE PRETE",
+}
+
+_ATTENTION_PACKAGE_LINKS = {
+    "attention-zone-nord": "package-zone-nord",
+    "attention-ambassadeur-france": "package-france-brief",
+}
+
+_ATTENTION_DOMAINS = {
+    "attention-inter-budget": "PRESSE",
+    "attention-zone-nord": "DEFENSE",
+    "attention-ambassadeur-france": "DIPLOMATIE",
+}
+
+_PACKAGE_DOMAINS = {
+    "package-zone-nord": "DEFENSE",
+    "package-rumeur-emoi": "COMMUNICATION",
+    "package-france-brief": "DIPLOMATIE",
+}
+
+_ATTENTION_DRILL_DOWN = {
+    "attention-inter-budget": {
+        "view": "presse",
+        "route": f"{MISSION_ROOM_ROOT}/presse",
+        "anchor": "attention-inter-budget",
+    },
+    "attention-zone-nord": {
+        "view": "briefing",
+        "route": f"{MISSION_ROOM_ROOT}/briefing",
+        "anchor": "package-zone-nord",
+    },
+    "attention-ambassadeur-france": {
+        "view": "decisions",
+        "route": f"{MISSION_ROOM_ROOT}/decisions",
+        "anchor": "package-france-brief",
+    },
+}
+
+_PACKAGE_DRILL_DOWN = {
+    "package-zone-nord": {
+        "view": "briefing",
+        "route": f"{MISSION_ROOM_ROOT}/briefing",
+        "anchor": "package-zone-nord",
+    },
+    "package-rumeur-emoi": {
+        "view": "presse",
+        "route": f"{MISSION_ROOM_ROOT}/presse",
+        "anchor": "package-rumeur-emoi",
+    },
+    "package-france-brief": {
+        "view": "decisions",
+        "route": f"{MISSION_ROOM_ROOT}/decisions",
+        "anchor": "package-france-brief",
+    },
+}
+
+
+def _arbitration_status_label(status: str) -> str:
+    return _ARBITRATION_STATUS_LABELS.get(status, status.replace("_", " ").upper())
+
+
+def _arbitration_card(
+    *,
+    card_id: str,
+    rank: int,
+    domain: str,
+    title: str,
+    summary: str,
+    status: str,
+    deadline: str,
+    tone: str,
+    cta_label: str,
+    cta_route: str,
+    drill_down: dict[str, Any],
+    draft_ready: bool,
+    aya_prepared: bool = True,
+    secondary_drill_down: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    card = {
+        "id": card_id,
+        "rank": rank,
+        "domain": domain,
+        "domain_label": _ARBITRATION_DOMAIN_LABELS.get(domain, domain.title()),
+        "title": title,
+        "summary": summary,
+        "status": status,
+        "status_label": _arbitration_status_label(status),
+        "deadline": deadline,
+        "tone": tone,
+        "cta_label": cta_label,
+        "cta_route": cta_route,
+        "drill_down": drill_down,
+        "draft_ready": draft_ready,
+        "aya_prepared": aya_prepared,
+    }
+    if secondary_drill_down:
+        card["secondary_drill_down"] = secondary_drill_down
+    return card
+
+
+def _arbitration_cards_payload() -> list[dict[str, Any]]:
+    packages_by_id = {package["id"]: package for package in EXECUTIVE_DECISION_PACKAGES}
+    linked_packages = set(_ATTENTION_PACKAGE_LINKS.values())
+    cards: list[dict[str, Any]] = []
+
+    for attention in ATTENTION_REQUIRED:
+        package = packages_by_id.get(_ATTENTION_PACKAGE_LINKS.get(attention["id"], ""))
+        domain = _ATTENTION_DOMAINS.get(attention["id"], "DEFENSE")
+        drill_down = _clone(_ATTENTION_DRILL_DOWN.get(attention["id"]) or {
+            "view": "decisions",
+            "route": attention.get("action_route") or f"{MISSION_ROOM_ROOT}/decisions",
+            "anchor": attention["id"],
+        })
+        secondary_drill_down = None
+        if attention["id"] == "attention-ambassadeur-france":
+            secondary_drill_down = {
+                "view": "agenda",
+                "route": f"{MISSION_ROOM_ROOT}/agenda",
+                "anchor": attention["id"],
+            }
+        summary = attention.get("sentence") or (package or {}).get("decision") or attention.get("title")
+        if package and package.get("recommended_option"):
+            summary = f"{summary} Option recommandee : {package['recommended_option']}."
+        cards.append(
+            _arbitration_card(
+                card_id=attention["id"],
+                rank=int(attention.get("rank") or len(cards) + 1),
+                domain=domain,
+                title=attention.get("title") or (package or {}).get("title") or attention["id"],
+                summary=summary,
+                status=attention.get("status") or (package or {}).get("status") or "decision_required",
+                deadline=attention.get("deadline") or (package or {}).get("deadline") or "aujourd'hui",
+                tone=attention.get("tone") or (package or {}).get("tone") or "watch",
+                cta_label=attention.get("action_label") or (package or {}).get("cta") or "Ouvrir le dossier",
+                cta_route=attention.get("action_route") or drill_down["route"],
+                drill_down=drill_down,
+                draft_ready=attention.get("status") == "draft_ready" or bool((package or {}).get("status") == "draft_ready"),
+                secondary_drill_down=secondary_drill_down,
+            )
+        )
+
+    next_rank = len(cards) + 1
+    for package in EXECUTIVE_DECISION_PACKAGES:
+        if package["id"] in linked_packages:
+            continue
+        cards.append(
+            _arbitration_card(
+                card_id=package["id"],
+                rank=next_rank,
+                domain=_PACKAGE_DOMAINS.get(package["id"], "COMMUNICATION"),
+                title=package.get("title") or package["id"],
+                summary=package.get("decision") or package.get("why_now") or package.get("title"),
+                status=package.get("status") or "decision_required",
+                deadline=package.get("deadline") or "aujourd'hui",
+                tone=package.get("tone") or "watch",
+                cta_label=package.get("cta") or "Ouvrir le dossier",
+                cta_route=_PACKAGE_DRILL_DOWN.get(package["id"], {}).get("route") or f"{MISSION_ROOM_ROOT}/decisions",
+                drill_down=_clone(_PACKAGE_DRILL_DOWN.get(package["id"]) or {
+                    "view": "decisions",
+                    "route": f"{MISSION_ROOM_ROOT}/decisions",
+                    "anchor": package["id"],
+                }),
+                draft_ready=package.get("status") == "draft_ready",
+            )
+        )
+        next_rank += 1
+
+    return sorted(cards, key=lambda card: int(card.get("rank") or 99))
+
+
+def _intelligence_feeds_payload(
+    news: dict[str, Any],
+    visual: dict[str, Any],
+    mapped: dict[str, Any],
+    source_freshness: dict[str, Any],
+) -> list[dict[str, Any]]:
+    map_system = mapped.get("map_system") or {}
+    maritime = map_system.get("maritime_snapshot") or (news.get("maritime_intelligence") or {}).get("latest_observation") or {}
+    maritime_ports = maritime.get("ports") or _clone(MARITIME_PORTS)
+    maritime_events = maritime.get("events") or _clone(MARITIME_EVENTS)
+    visual_health = visual.get("source_health") or {}
+    freshness_items = {item.get("key"): item for item in source_freshness.get("items") or []}
+    delayed_project = next((project for project in PROJECTS if int(project.get("delay_days") or 0) > 0), PROJECTS[0])
+    news_alerts = news.get("executive_alerts") or news.get("signals") or _clone(NEWS_SIGNALS)
+    maritime_signal = next((signal for signal in news_alerts if signal.get("id") == "news-maritime-001"), None)
+    return [
+        {
+            "key": "satellite",
+            "label": "Imagerie satellite",
+            "subtitle": "Couverture Nord · snapshot demo-safe",
+            "metric": "2 scenes / 24h",
+            "confidence": 68,
+            "freshness_at": "06:40",
+            "tone": "watch",
+        },
+        {
+            "key": "maritime-ais",
+            "label": "Trafic maritime AIS",
+            "subtitle": "Abidjan / San Pedro · lecture indicative",
+            "metric": f"{len(maritime_ports)} ports · {len(maritime_events)} evenements",
+            "confidence": int((freshness_items.get("maritime-traffic") or {}).get("confidence") or 66),
+            "freshness_at": (maritime.get("freshness") or {}).get("updated_at") or "snapshot recent",
+            "tone": "watch",
+        },
+        {
+            "key": "ads-b",
+            "label": "Espace aerien ADS-B",
+            "subtitle": "Corridor Abidjan · demo-safe",
+            "metric": "14 vols suivis",
+            "confidence": 61,
+            "freshness_at": "11:05",
+            "tone": "stable",
+        },
+        {
+            "key": "osint",
+            "label": "OSINT multilingue",
+            "subtitle": "Presse CI / CEDEAO / international",
+            "metric": f"{len(news_alerts)} alertes qualifiees",
+            "confidence": int((freshness_items.get("open-intelligence") or {}).get("confidence") or 72),
+            "freshness_at": (news.get("source_health") or {}).get("coverage_label") or "dernier run veille",
+            "tone": "critical" if news_alerts else "stable",
+        },
+        {
+            "key": "mobile-signal",
+            "label": "Signal reseau mobile",
+            "subtitle": "Densite macro Korhogo / Nord",
+            "metric": "Indice 0.58 · indicative",
+            "confidence": 54,
+            "freshness_at": "10:50",
+            "tone": "watch",
+        },
+        {
+            "key": "economy",
+            "label": "Economie reelle",
+            "subtitle": "Port Abidjan / retard chantier BTP",
+            "metric": (
+                f"{delayed_project.get('delay_days', 0)} j retard · "
+                f"{(maritime_signal or {}).get('title', 'flux portuaire sous veille')[:42]}"
+            ),
+            "confidence": 70,
+            "freshness_at": "11:00",
+            "tone": "watch",
+        },
+        {
+            "key": "terrain-sensors",
+            "label": "Capteurs terrain",
+            "subtitle": "Flux visuels Nord · lecture macro",
+            "metric": f"{visual_health.get('observations') or visual_health.get('active_sources') or 16} capteurs actifs",
+            "confidence": int((freshness_items.get("visual-streams") or {}).get("confidence") or 62),
+            "freshness_at": visual_health.get("freshness_status") or visual_health.get("coverage_label") or "snapshot recent",
+            "tone": "stable",
+        },
+        {
+            "key": "cyber",
+            "label": "Veille cyber",
+            "subtitle": "Signaux institutionnels · fixture stable",
+            "metric": "0 alerte critique",
+            "confidence": 88,
+            "freshness_at": "continu",
+            "tone": "stable",
+        },
+    ]
+
+
+def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates = alerts or _clone(NEWS_SIGNALS)
+    preview: list[dict[str, Any]] = []
+    for alert in candidates[:3]:
+        risk = alert.get("risk_level") or "medium"
+        preview.append(
+            {
+                "id": alert.get("id") or f"press-{len(preview) + 1}",
+                "title": alert.get("title"),
+                "source": alert.get("source") or "Veille executive",
+                "risk_level": risk,
+                "risk_label": risk.upper(),
+                "tone": "critical" if _risk_rank(risk) >= 3 else "watch",
+                "route": f"{MISSION_ROOM_ROOT}/presse?highlight={alert.get('id')}",
+                "summary": alert.get("summary") or alert.get("impact_ci") or alert.get("recommended_action"),
+            }
+        )
+    if not preview:
+        for attention in ATTENTION_REQUIRED[:2]:
+            preview.append(
+                {
+                    "id": attention["id"],
+                    "title": attention["title"],
+                    "source": "Attention cabinet",
+                    "risk_level": "high" if attention.get("tone") == "critical" else "medium",
+                    "risk_label": "HIGH" if attention.get("tone") == "critical" else "MEDIUM",
+                    "tone": attention.get("tone") or "watch",
+                    "route": f"{MISSION_ROOM_ROOT}/presse?highlight={attention['id']}",
+                    "summary": attention.get("sentence") or attention.get("title"),
+                }
+            )
+    return preview[:3]
+
+
+def _agenda_timeline_payload(
+    agenda_day: dict[str, Any],
+    calendar_summary: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    events = _clone(agenda_day.get("events") or AGENDA[:4])
+    next_event = (calendar_summary or {}).get("next_event") or agenda_day.get("next_event") or (events[2] if len(events) > 2 else None)
+    timeline: list[dict[str, Any]] = []
+    now_inserted = False
+    for event in events[:4]:
+        entry = {
+            **event,
+            "status": "past" if event.get("time") in {"08:30", "11:00"} else "upcoming",
+            "separate_from_actions": True,
+        }
+        timeline.append(entry)
+        if not now_inserted and event.get("time") == "11:00":
+            timeline.append(
+                {
+                    "kind": "now",
+                    "label": "MAINTENANT",
+                    "time": "11:16",
+                    "separate_from_actions": True,
+                }
+            )
+            now_inserted = True
+    if next_event:
+        for entry in timeline:
+            if entry.get("title") == next_event.get("title") or entry.get("time") == next_event.get("time"):
+                entry["is_next"] = True
+                entry["countdown"] = "dans 1h44"
+                break
+    elif timeline:
+        for entry in reversed(timeline):
+            if entry.get("kind") != "now":
+                entry["is_next"] = True
+                entry["countdown"] = "dans 1h44"
+                break
+    return {
+        "label": agenda_day.get("label") or "Agenda ministeriel",
+        "separate_from_actions": True,
+        "now_marker": {"label": "MAINTENANT", "time": "11:16"},
+        "events": timeline,
+        "next_event": next_event,
+    }
+
+
+def _cockpit_layout_widgets() -> list[dict[str, Any]]:
+    return [
+        {"id": "posture_bar", "stratum": "monitoring", "span": "full"},
+        {"id": "map_preview", "stratum": "monitoring", "span": "2"},
+        {"id": "sovereign_gauges", "stratum": "monitoring", "span": "1"},
+        {"id": "intelligence_grid", "stratum": "monitoring", "span": "full"},
+        {"id": "aya_banner", "stratum": "alerting", "span": "full"},
+        {"id": "arbitration_strip", "stratum": "alerting", "span": "full"},
+        {"id": "press_preview", "stratum": "alerting", "span": "full"},
+        {"id": "agenda_timeline", "stratum": "alerting", "span": "half"},
+        {"id": "decision_teaser", "stratum": "decision", "span": "full"},
+        {"id": "aya_cta", "stratum": "decision", "span": "full"},
+    ]
+
+
+def _demo_narrative_payload() -> dict[str, Any]:
+    return {
+        "scenario_id": VP_SCENARIO_ID,
+        "steps": [
+            {
+                "phase": "explorer",
+                "focus_widget": "aya_banner",
+                "prompt": "AYA oriente le VP vers la Zone Nord et les indicateurs de posture avant le Conseil.",
+            },
+            {
+                "phase": "comprendre",
+                "focus_widget": "press_preview",
+                "anchor": "attention-inter-budget",
+                "prompt": "Un signal presse ressort de la nuit — ouvrir le projet de reponse avant 14h00.",
+            },
+            {
+                "phase": "decider",
+                "focus_widget": "arbitration_strip",
+                "anchor": "package-zone-nord",
+                "prompt": "Comparer les options Zone Nord et preparer l'arbitrage avant 15h00.",
+            },
+        ],
+        "economic_hook": {
+            "title": "Port Abidjan / retard chantier",
+            "cross_sources": ["maritime", "projets"],
+            "cta_route": f"{MISSION_ROOM_ROOT}/strategie?layers=maritime,projects",
+        },
+    }
 
 
 def _geographic_signal_tiers(news: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2213,6 +2659,11 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
             overview["kpis"]["next_meeting_in"] = f"{next_event.get('time')} · {next_event.get('title')}"
     agenda_day = _agenda_day(overview, calendar_summary)
     fused_map_preview = _fused_map_preview(mapped, news, visual)
+    arbitration_cards = _arbitration_cards_payload()
+    intelligence_feeds = _intelligence_feeds_payload(news, visual, mapped, source_freshness)
+    press_preview = _press_preview_payload(news, alerts)
+    agenda_timeline = _agenda_timeline_payload(agenda_day, calendar_summary)
+    demo_narrative = _demo_narrative_payload()
     aya_recommendation = {
         "assistant": SENTINEL_ASSISTANT_NAME,
         "voice_first": True,
@@ -2231,6 +2682,11 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         "directive_of_day": vp_story["directive_of_day"],
         "fused_map_preview": fused_map_preview,
         "agenda_day": agenda_day,
+        "agenda_timeline": agenda_timeline,
+        "arbitration_cards": arbitration_cards,
+        "intelligence_feeds": intelligence_feeds,
+        "press_preview": press_preview,
+        "demo_narrative": demo_narrative,
         "aya_recommendation": aya_recommendation,
         "decision_queue": decision_queue,
         "geographic_signal_tiers": vp_story["geographic_signal_tiers"],
@@ -2254,6 +2710,7 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
                 {"label": "Decision & action", "share": "20-25%"},
             ],
             "charts": ["fused_map_preview", "threat_trend", "agenda_day", "decision_queue"],
+            "widgets": _cockpit_layout_widgets(),
         },
         "decision_focus": _clone(DECISIONS[:2]),
         "messages": _clone(MESSAGES),
@@ -2413,6 +2870,7 @@ def map_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[st
     action_rows = list_action_items(db, workspace, include_cancelled=False, target_kind="zone") if db else []
     actions_by_target = {item.target_id: serialize_action_item(item) for item in action_rows}
     for zone in zones:
+        zone["scenario_options"] = _scenario_options_for(zone["id"])
         zone["recommended_windows"] = _recommended_windows_for(zone["id"])
         if zone["id"] in actions_by_target:
             zone["active_action"] = actions_by_target[zone["id"]]

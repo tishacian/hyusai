@@ -76,32 +76,81 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
         "Arbitrages",
     ]
     assert cockpit.status_code == 200
-    assert cockpit.json()["layout"]["variant"] == "vp_decision_cockpit"
-    assert cockpit.json()["decision_sentence"]["text"].startswith("M. le Vice-Président")
-    assert cockpit.json()["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
-    assert cockpit.json()["vp_story"]["assistant"] == "AYA"
-    assert cockpit.json()["vp_story"]["anchors"]["priority_zone"] == "Zone Nord"
-    assert cockpit.json()["vp_story"]["directive_of_day"]["text"] == cockpit.json()["directive_of_day"]["text"]
-    assert cockpit.json()["vp_story"]["agenda_day"]["label"] == cockpit.json()["agenda_day"]["label"]
-    assert [item["id"] for item in cockpit.json()["vp_story"]["attention_required"]] == [
+    cockpit_body = cockpit.json()
+    assert cockpit_body["layout"]["variant"] == "vp_decision_cockpit"
+    assert len(cockpit_body["layout"]["widgets"]) >= 8
+    assert {widget["stratum"] for widget in cockpit_body["layout"]["widgets"]} == {
+        "monitoring",
+        "alerting",
+        "decision",
+    }
+    assert cockpit_body["decision_sentence"]["text"].startswith("M. le Vice-Président")
+    assert cockpit_body["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
+    assert cockpit_body["vp_story"]["assistant"] == "AYA"
+    assert cockpit_body["vp_story"]["anchors"]["priority_zone"] == "Zone Nord"
+    assert cockpit_body["vp_story"]["directive_of_day"]["text"] == cockpit_body["directive_of_day"]["text"]
+    assert cockpit_body["vp_story"]["agenda_day"]["label"] == cockpit_body["agenda_day"]["label"]
+    assert [item["id"] for item in cockpit_body["vp_story"]["attention_required"]] == [
         "attention-inter-budget",
         "attention-zone-nord",
         "attention-ambassadeur-france",
     ]
-    assert cockpit.json()["directive_of_day"]["primary_cta"] == "Ouvrir le dossier Zone Nord"
-    assert cockpit.json()["vp_status_bar"][0]["key"] == "posture"
-    assert cockpit.json()["agenda_day"]["label"] == "Agenda ministeriel"
-    assert cockpit.json()["fused_map_preview"]["route"] == "/hypervisor/mission-room/strategie"
-    assert cockpit.json()["geographic_signal_tiers"][0]["key"] == "ci"
-    assert len(cockpit.json()["attention_required"]) == 3
-    assert len(cockpit.json()["sixty_second_cockpit"]["urgences"]) == 3
-    assert cockpit.json()["strategic_posture"]["label"] in {"stable", "monitoring", "elevated", "critical"}
-    assert cockpit.json()["situation_monitor"]["route"] == "/hypervisor/mission-room/monitor"
-    assert cockpit.json()["decision_posture"]["modes"][0]["key"] == "explorer"
-    assert cockpit.json()["source_freshness"]["items"]
-    assert cockpit.json()["monitoring_layers"]
-    assert cockpit.json()["evidence_graph_summary"]["node_count"] >= 10
-    assert cockpit.json()["evidence_graph_summary"]["collection_slug"] == "sentinel-ci-evidence-graph"
+    ambassadeur = next(item for item in cockpit_body["attention_required"] if item["id"] == "attention-ambassadeur-france")
+    assert ambassadeur["action_route"] == "/hypervisor/mission-room/decisions"
+    assert len(cockpit_body["arbitration_cards"]) >= 3
+    assert [card["rank"] for card in cockpit_body["arbitration_cards"]] == sorted(
+        card["rank"] for card in cockpit_body["arbitration_cards"]
+    )
+    assert cockpit_body["arbitration_cards"][0]["id"] == "attention-inter-budget"
+    assert cockpit_body["arbitration_cards"][0]["domain"] == "PRESSE"
+    assert cockpit_body["arbitration_cards"][0]["drill_down"]["view"] == "presse"
+    diplomacy_card = next(card for card in cockpit_body["arbitration_cards"] if card["id"] == "attention-ambassadeur-france")
+    assert diplomacy_card["drill_down"]["view"] == "decisions"
+    assert diplomacy_card["secondary_drill_down"]["view"] == "agenda"
+    assert len(cockpit_body["intelligence_feeds"]) == 8
+    assert {feed["key"] for feed in cockpit_body["intelligence_feeds"]} == {
+        "satellite",
+        "maritime-ais",
+        "ads-b",
+        "osint",
+        "mobile-signal",
+        "economy",
+        "terrain-sensors",
+        "cyber",
+    }
+    geo_preview = cockpit_body["fused_map_preview"]["geo_preview"]
+    assert geo_preview["top_zone_id"] == "zone-nord"
+    assert geo_preview["active_layers"] == ["threat", "press"]
+    assert geo_preview["camera"]["center"]
+    assert geo_preview["zone_scores"]
+    assert 2 <= len(cockpit_body["press_preview"]) <= 3
+    assert cockpit_body["press_preview"][0]["route"].startswith("/hypervisor/mission-room/presse?highlight=")
+    assert cockpit_body["agenda_timeline"]["separate_from_actions"] is True
+    assert cockpit_body["agenda_timeline"]["now_marker"]["label"] == "MAINTENANT"
+    assert any(event.get("countdown") == "dans 1h44" for event in cockpit_body["agenda_timeline"]["events"])
+    assert cockpit_body["demo_narrative"]["scenario_id"] == cockpit_body["vp_story"]["scenario_id"]
+    assert [step["phase"] for step in cockpit_body["demo_narrative"]["steps"]] == [
+        "explorer",
+        "comprendre",
+        "decider",
+    ]
+    assert cockpit_body["demo_narrative"]["steps"][1]["anchor"] == "attention-inter-budget"
+    assert cockpit_body["demo_narrative"]["steps"][2]["anchor"] == "package-zone-nord"
+    assert cockpit_body["demo_narrative"]["economic_hook"]["cross_sources"] == ["maritime", "projets"]
+    assert cockpit_body["directive_of_day"]["primary_cta"] == "Ouvrir le dossier Zone Nord"
+    assert cockpit_body["vp_status_bar"][0]["key"] == "posture"
+    assert cockpit_body["agenda_day"]["label"] == "Agenda ministeriel"
+    assert cockpit_body["fused_map_preview"]["route"] == "/hypervisor/mission-room/strategie"
+    assert cockpit_body["geographic_signal_tiers"][0]["key"] == "ci"
+    assert len(cockpit_body["attention_required"]) == 3
+    assert len(cockpit_body["sixty_second_cockpit"]["urgences"]) == 3
+    assert cockpit_body["strategic_posture"]["label"] in {"stable", "monitoring", "elevated", "critical"}
+    assert cockpit_body["situation_monitor"]["route"] == "/hypervisor/mission-room/monitor"
+    assert cockpit_body["decision_posture"]["modes"][0]["key"] == "explorer"
+    assert cockpit_body["source_freshness"]["items"]
+    assert cockpit_body["monitoring_layers"]
+    assert cockpit_body["evidence_graph_summary"]["node_count"] >= 10
+    assert cockpit_body["evidence_graph_summary"]["collection_slug"] == "sentinel-ci-evidence-graph"
     assert briefing.status_code == 200
     assert any(section["id"] == "visual_cross_check" for section in briefing.json()["sections"])
     assert briefing.json()["visual_intelligence_brief"]["transcription"]["available"] is False
@@ -342,6 +391,10 @@ def test_mission_room_vp_story_is_consistent_across_core_surfaces(db_session):
     assert all(story["attention_required"][1]["deadline"] == "15:00" for story in stories.values())
     assert all(story["decision_queue"][0]["id"] == "package-zone-nord" for story in stories.values())
     assert all(story["agenda_day"]["label"] == "Agenda ministeriel" for story in stories.values())
+    cockpit = surfaces["cockpit"]
+    assert cockpit["demo_narrative"]["steps"][1]["anchor"] == cockpit["vp_story"]["attention_required"][0]["id"]
+    assert cockpit["demo_narrative"]["steps"][2]["anchor"] == cockpit["vp_story"]["decision_queue"][0]["id"]
+    assert cockpit["arbitration_cards"][0]["id"] == cockpit["vp_story"]["attention_required"][0]["id"]
     assert surfaces["cockpit"]["directive_of_day"]["text"] == directive
     assert surfaces["briefing"]["directive_of_day"]["text"] == directive
     assert surfaces["monitor"]["directive_of_day"]["text"] == directive

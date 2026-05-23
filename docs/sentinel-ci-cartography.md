@@ -33,8 +33,8 @@ Quatre fonds sont exposes dans le selecteur `Fond`. Le fond est un objet de prem
 - `Sombre` : `dark-matter` vectoriel, mode cockpit quand les couches Agentium doivent dominer.
 - `Contours` : `positron` vectoriel, mode clair minimal pour projection, capture d'ecran ou briefing confidentiel.
 
-Les filtres frontend doivent rester faibles : on ne doit pas rendre une carte illisible en “corrigeant” agressivement le fond. Le bouton `Recentrer Cote d'Ivoire` utilise les bornes pays, force une vue 2D plate, sans pitch ni rotation, et applique un padding symetrique. La carte ne doit jamais compenser son cadrage par un panneau lateral ouvert.
-Les boutons `+`, `-` et `vue pays` restent disponibles pour une conduite de demo sans molette.
+Les filtres frontend doivent rester faibles : on ne doit pas rendre une carte illisible en “corrigeant” agressivement le fond. La navigation ne doit pas etre verrouillee par des `maxBounds` regionaux : l'utilisateur doit pouvoir dezoomer jusqu'a CEDEAO, Afrique et monde pour retrouver une lecture Worldmonitor-like. Le bouton `Recentrer Cote d'Ivoire` utilise les bornes pays, force une vue 2D plate, sans pitch ni rotation, et applique un padding symetrique. La carte ne doit jamais compenser son cadrage par un panneau lateral ouvert.
+Les boutons `+`, `-` et `vue pays` restent disponibles pour une conduite de demo sans molette. Un changement de fond cartographique doit conserver la camera courante ; seul le bouton `Recentrer Cote d'Ivoire` ou une commande AYA explicite doit recadrer la carte.
 
 ## Donnees Geographiques
 
@@ -195,6 +195,8 @@ Checklist visuelle avant demo :
 - fond `Commandement` lisible a 1440px ;
 - en fond `Commandement`, la Cote d'Ivoire doit sortir du fond par son contour et son masque pays, tandis que la mer reste lisible sous les corridors ;
 - fond `Administratif` lisible sans voile gris ni contraste lave ;
+- le dezoom CEDEAO/Afrique/monde doit rester possible, sans rebond automatique vers la Cote d'Ivoire ;
+- un changement de fond doit conserver la camera courante, notamment apres un dezoom monde ;
 - aucun pitch ni bearing par defaut ;
 - pays recadre proprement ;
 - panneau de couches replie par defaut, ouvrable en un clic ;

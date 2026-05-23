@@ -60,6 +60,7 @@ type BasemapOption = {
     <div
       class="workspace-map"
       [class.compact]="compact"
+      [class.preview-mode]="previewMode"
       [class.is-fallback]="fallback"
       [class.basemap-administrative]="selectedBasemapKey === 'administrative'"
       [class.basemap-command]="selectedBasemapKey === 'command'"
@@ -267,11 +268,42 @@ type BasemapOption = {
         border-radius: 8px;
       }
 
+      .workspace-map.preview-mode {
+        min-height: 280px;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .workspace-map.preview-mode .map-control-panel,
+      .workspace-map.preview-mode .map-reset,
+      .workspace-map.preview-mode .map-legend,
+      .workspace-map.preview-mode .map-legend-toggle,
+      .workspace-map.preview-mode .map-maritime-legend,
+      .workspace-map.preview-mode .map-compass,
+      .workspace-map.preview-mode .map-zoom-controls,
+      .workspace-map.preview-mode .map-hud,
+      .workspace-map.preview-mode .map-brief {
+        display: none !important;
+      }
+
+      .workspace-map.preview-mode {
+        min-height: 280px;
+        height: 280px;
+        pointer-events: none;
+      }
+
       .workspace-map.compact .map-control-panel,
       .workspace-map.compact .map-reset,
       .workspace-map.compact .map-legend,
       .workspace-map.compact .map-maritime-legend,
-      .workspace-map.compact .map-compass {
+      .workspace-map.compact .map-compass,
+      .workspace-map.preview-mode .map-control-panel,
+      .workspace-map.preview-mode .map-reset,
+      .workspace-map.preview-mode .map-legend,
+      .workspace-map.preview-mode .map-maritime-legend,
+      .workspace-map.preview-mode .map-compass,
+      .workspace-map.preview-mode .map-zoom-controls,
+      .workspace-map.preview-mode .map-brief-popup {
         display: none;
       }
 
@@ -959,6 +991,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @Input() mapState: Record<string, any> | null = null;
   @Input() selectedZoneId: string | null = null;
   @Input() compact = false;
+  @Input() previewMode = false;
+  @Input() previewLayers: string[] | null = null;
   @Output() zoneSelected = new EventEmitter<any>();
   @Output() evidenceAction = new EventEmitter<{ action: string; zone: any }>();
   @ViewChild('mapCanvas') private readonly mapCanvas?: ElementRef<HTMLDivElement>;
@@ -1060,12 +1094,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['mapSystem']) {
+    if (changes['mapSystem'] || changes['previewMode'] || changes['previewLayers']) {
       this.layerStateInitialized = false;
       this.syncStateFromMapPayload();
       this.applyCurrentBasemap();
     }
-    if (changes['zones'] || changes['mapSystem']) {
+    if (changes['zones'] || changes['mapSystem'] || changes['previewMode'] || changes['previewLayers']) {
       if (!this.layerStateInitialized) this.syncStateFromMapPayload();
       this.updateDeckLayers();
     }
@@ -1088,6 +1122,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   selectZone(zone: MapZone): void {
+    if (this.previewMode) return;
     this.briefOpen = true;
     this.zoneSelected.emit(zone);
   }
@@ -1203,8 +1238,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         zoom: view.zoom ?? (this.compact ? 4.9 : 5.7),
         pitch: this.compact ? 0 : (view.pitch ?? 0),
         bearing: view.bearing ?? 0,
-        maxBounds: this.mapSystem?.['renderer_config']?.regional_bounds || [[-13.8, 3.8], [1.75, 13.2]],
-        interactive: !this.compact,
+        minZoom: this.compact ? 3.2 : 0.6,
+        maxZoom: 13.5,
+        interactive: !(this.compact || this.previewMode),
         attributionControl: false,
       });
       this.deckOverlay = new overlayCtor({
@@ -1240,9 +1276,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.selectedBasemapKey = basemap;
     }
     if (this.layerStateInitialized) return;
-    const activeLayers = Array.isArray(defaultState.active_layers)
-      ? defaultState.active_layers
-      : this.layerControls.filter((layer) => layer.visible).map((layer) => layer.key);
+    const previewLayers = this.resolvePreviewLayers();
+    const activeLayers = previewLayers?.length
+      ? previewLayers
+      : Array.isArray(defaultState.active_layers)
+        ? defaultState.active_layers
+        : this.layerControls.filter((layer) => layer.visible).map((layer) => layer.key);
     this.activeLayerKeys.clear();
     for (const key of activeLayers) {
       if (this.layerControls.some((layer) => layer.key === key)) {
@@ -1255,6 +1294,27 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     this.layerStateInitialized = true;
   }
 
+  private resolvePreviewLayers(): string[] | null {
+    if (!this.previewMode) return null;
+    const requested = (this.previewLayers || []).filter(Boolean);
+    if (requested.length) {
+      return requested.map((key) => this.normalizePreviewLayerKey(key)).filter(Boolean) as string[];
+    }
+    const defaults = ['territorial-risk', 'open-intelligence', 'maritime-traffic'];
+    return defaults.filter((key) => this.layerControls.some((layer) => layer.key === key));
+  }
+
+  private normalizePreviewLayerKey(key: string): string | null {
+    const aliases: Record<string, string> = {
+      threat: 'territorial-risk',
+      press: 'open-intelligence',
+      maritime: 'maritime-traffic',
+      projects: 'strategic-projects',
+    };
+    const normalized = aliases[key] || key;
+    return this.layerControls.some((layer) => layer.key === normalized) ? normalized : null;
+  }
+
   private currentBasemapStyle(): Record<string, any> | string | null {
     return this.basemapOptions.find((option) => option.key === this.selectedBasemapKey)?.style || null;
   }
@@ -1263,20 +1323,30 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (!this.mapInstance) return;
     const style = this.currentBasemapStyle();
     if (!style) return;
+    const currentCenter = this.mapInstance.getCenter?.();
+    const currentZoom = this.mapInstance.getZoom?.();
+    const currentPitch = this.mapInstance.getPitch?.() ?? 0;
+    const currentBearing = this.mapInstance.getBearing?.() ?? 0;
+    const restoreCamera = () => {
+      if (
+        currentCenter
+        && Number.isFinite(Number(currentCenter.lng))
+        && Number.isFinite(Number(currentCenter.lat))
+        && Number.isFinite(Number(currentZoom))
+      ) {
+        this.mapInstance?.jumpTo?.({
+          center: [Number(currentCenter.lng), Number(currentCenter.lat)],
+          zoom: Number(currentZoom),
+          pitch: Number(currentPitch),
+          bearing: Number(currentBearing),
+        });
+      }
+      this.updateDeckLayers();
+    };
     try {
       this.mapInstance.setStyle(style);
-      this.mapInstance.once?.('styledata', () => {
-        this.updateDeckLayers();
-        if (this.selectedZoneId) {
-          this.focusSelectedZone();
-        } else {
-          this.fitCountry(180);
-        }
-      });
-      this.mapInstance.once?.('idle', () => {
-        this.updateDeckLayers();
-        if (!this.selectedZoneId) this.fitCountry(0);
-      });
+      this.mapInstance.once?.('styledata', restoreCamera);
+      this.mapInstance.once?.('idle', restoreCamera);
     } catch {
       this.enableFallback();
     }
