@@ -156,6 +156,49 @@ def test_upstream_failure_falls_back_to_static_asset(monkeypatch, db_session):
     assert "webcam.proxy.fallback" in event_types
 
 
+def test_head_proxy_returns_headers_without_body(monkeypatch, db_session):
+    """The cockpit vignette pre-flights the snapshot URL with HEAD."""
+    workspace, user = _workspace_and_user(db_session)
+    client = _client(db_session, workspace, user)
+
+    payload = b"\xff\xd8\xff\xe0head-probe-bytes"
+
+    def _fake_fetch(spec: service.WebcamSourceSpec, *, timeout_seconds: float = 12.0):  # noqa: ARG001
+        return payload, "image/jpeg", 200
+
+    monkeypatch.setattr(service, "_fetch_upstream", _fake_fetch)
+
+    response = client.head(
+        "/api/v1/mission-room/webcams/proxy",
+        params={"source_id": "apm-apapa-gate-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/jpeg")
+    assert response.headers["x-webcam-source-id"] == "apm-apapa-gate-1"
+    assert response.headers["x-webcam-source"] == "upstream"
+    assert response.headers["content-length"] == str(len(payload))
+    assert response.content == b""
+
+    event_types = {row.event_type for row in db_session.query(AuditLog).all()}
+    assert "webcam.proxy.served" in event_types
+
+
+def test_head_proxy_blocks_unknown_source(db_session):
+    workspace, user = _workspace_and_user(db_session)
+    client = _client(db_session, workspace, user)
+
+    response = client.head(
+        "/api/v1/mission-room/webcams/proxy",
+        params={"source_id": "not-a-known-id"},
+    )
+
+    assert response.status_code == 404
+    assert response.content == b""
+    event_types = {row.event_type for row in db_session.query(AuditLog).all()}
+    assert "webcam.proxy.error" in event_types
+
+
 def test_sources_inventory_returns_whitelist(monkeypatch, db_session):
     workspace, user = _workspace_and_user(db_session)
     client = _client(db_session, workspace, user)

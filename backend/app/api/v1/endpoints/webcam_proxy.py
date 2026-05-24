@@ -69,22 +69,28 @@ def _audit(
     )
 
 
-@router.get("/proxy")
-def webcam_proxy(
-    source_id: str = Query(..., min_length=1, max_length=80, description="Whitelisted webcam id"),
-    force_refresh: bool = Query(default=False, description="Bypass the proxy cache (debug)"),
-    workspace: Workspace = Depends(get_current_workspace),
-    user: User = Depends(get_current_user),
-    db: DBSession = Depends(get_db),
-) -> Response:
-    """Return a JPG/PNG snapshot for a whitelisted port webcam source."""
+def _resolve_snapshot(
+    *,
+    source_id: str,
+    force_refresh: bool,
+    workspace: Workspace,
+    user: Optional[User],
+    db: DBSession,
+    method: str,
+) -> tuple[bytes, str, dict[str, str]]:
+    """Validate ``source_id``, audit and fetch the snapshot bytes + headers.
+
+    Shared by ``GET /proxy`` (returns the bytes) and ``HEAD /proxy``
+    (returns just the headers — used by the cockpit for vignette
+    pre-flights / link probing).
+    """
     if get_webcam_spec(source_id) is None:
         _audit(
             db=db,
             workspace=workspace,
             user=user,
             event_type="webcam.proxy.error",
-            details={"source_id": source_id, "reason": "not_whitelisted"},
+            details={"source_id": source_id, "reason": "not_whitelisted", "method": method},
         )
         raise HTTPException(status_code=404, detail="webcam_source_not_whitelisted")
 
@@ -107,6 +113,7 @@ def webcam_proxy(
             "upstream_status": result.upstream_status,
             "mime": result.mime_type,
             "bytes": len(result.content),
+            "method": method,
         },
     )
 
@@ -123,7 +130,58 @@ def webcam_proxy(
     }
     if result.upstream_status is not None:
         headers["X-Webcam-Upstream-Status"] = str(result.upstream_status)
-    return Response(content=result.content, media_type=result.mime_type, headers=headers)
+    return result.content, result.mime_type, headers
+
+
+@router.get("/proxy")
+def webcam_proxy(
+    source_id: str = Query(..., min_length=1, max_length=80, description="Whitelisted webcam id"),
+    force_refresh: bool = Query(default=False, description="Bypass the proxy cache (debug)"),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+) -> Response:
+    """Return a JPG/PNG snapshot for a whitelisted port webcam source."""
+    content, mime_type, headers = _resolve_snapshot(
+        source_id=source_id,
+        force_refresh=force_refresh,
+        workspace=workspace,
+        user=user,
+        db=db,
+        method="GET",
+    )
+    return Response(content=content, media_type=mime_type, headers=headers)
+
+
+@router.head("/proxy")
+def webcam_proxy_head(
+    source_id: str = Query(..., min_length=1, max_length=80, description="Whitelisted webcam id"),
+    force_refresh: bool = Query(default=False, description="Bypass the proxy cache (debug)"),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+) -> Response:
+    """HEAD twin of :func:`webcam_proxy` — returns headers, no body.
+
+    The cockpit map vignette pre-flights the snapshot URL with a HEAD call
+    before swapping the ``<img>`` ``src`` so that broken sources fall back
+    silently instead of triggering a layout flash. Without this handler the
+    pre-flight would return ``404`` for whitelisted sources and the
+    vignette would never render.
+    """
+    content, mime_type, headers = _resolve_snapshot(
+        source_id=source_id,
+        force_refresh=force_refresh,
+        workspace=workspace,
+        user=user,
+        db=db,
+        method="HEAD",
+    )
+    # Preserve the canonical Content-Length the client would see on GET, but
+    # ship an empty body — per RFC 9110 §9.3.2 the response to HEAD has the
+    # same metadata as GET, just without the message body.
+    headers["Content-Length"] = str(len(content))
+    return Response(content=b"", media_type=mime_type, headers=headers)
 
 
 @router.get("/sources")

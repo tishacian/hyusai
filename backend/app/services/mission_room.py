@@ -1850,6 +1850,14 @@ def _agenda_items_from_calendar(workspace: Workspace, db: Optional[DBSession]) -
     ]
 
 
+# vp_status_bar chips are consumed via ``.key`` only (see
+# ``frontend-ng/src/app/features/mission-room/vp-cockpit.component.ts``: the
+# ``orderedStatusBar()`` ``@for`` loop tracks ``item.key`` and the
+# ``statusBarDrillDown(item)`` resolver in ``mission-room.component.ts``
+# switches on ``item.key`` as well). No client surface relies on a separate
+# ``id`` field, so we keep the payload minimal and don't duplicate ``key``
+# as ``id`` — QA report ``docs/sentinel-ci-qa-prod-2026-05-24.md`` (item
+# 3.4) checked and confirmed front-end consumes ``.key`` exclusively.
 def _vp_status_bar(overview: dict[str, Any], posture: dict[str, Any]) -> list[dict[str, Any]]:
     kpis = overview.get("kpis") or {}
     return [
