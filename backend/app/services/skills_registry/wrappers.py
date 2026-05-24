@@ -616,7 +616,7 @@ async def _summarize_long_document_v1(payload: Dict[str, Any], ctx: Optional[Dic
     ]
     key_topics = [topic for topic in focus_topics if topic.lower() in report_text.lower()] or focus_topics
     summary_lines = [
-        "M. le Vice President, synthese des derniers echanges avec le Prefet de Nawa (rapport du 10 mai, ~70 pages) :",
+        "Monsieur le Vice-Président, synthese des derniers echanges avec le Prefet de Nawa (rapport du 10 mai, ~70 pages) :",
         "- Contexte : region Nawa / Soubre, filiere cacao dominante, pression sur prix FCFA et infrastructures.",
         "- Points saillants : besoin de sechoirs, routes secondaires, electrifiation et diversification cultures.",
         "- Risques : volatilite prix export, dependance monoculture, fenetre climatique.",

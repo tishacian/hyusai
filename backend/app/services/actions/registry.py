@@ -479,6 +479,32 @@ SENTINEL_AYA_ACTIONS = (
             "navires abidjan",
             "cargaison abidjan",
             "maritime abidjan",
+            # Trame S1 / VP filler — "OK, très bien, montre la situation au
+            # port" must route to the Abidjan port view (cargo + AIS +
+            # webcam) instead of falling back to the ``voice.confirm_yes``
+            # stub. The matcher strips ``ok`` / ``aya`` wake-word noise so
+            # only the substantive verb phrase needs to be listed here.
+            "montre la situation au port",
+            "montre moi la situation au port",
+            "montre-moi la situation au port",
+            "tu peux me montrer la situation au port",
+            "peux tu me montrer la situation au port",
+            "situation au port",
+            "situation port abidjan",
+            "situation du port",
+            "etat du port",
+            "etat du port abidjan",
+            "ouvre la vue port",
+            "ouvre la vue du port",
+            "ouvre la cam du port",
+            "cam port abidjan",
+            "cam du port",
+            "vue port abidjan",
+            "vue du port",
+            "show me the port",
+            "show the port situation",
+            "port situation",
+            "open the port view",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -1089,6 +1115,7 @@ def resolve_action(
     if not normalized:
         return ActionResolution(False, reason="empty_text")
 
+    token_count = len(normalized.split())
     scored: list[tuple[float, ActionManifest]] = []
     for manifest in effective_action_manifests(
         workspace,
@@ -1099,6 +1126,15 @@ def resolve_action(
         score = _score_manifest(normalized, manifest)
         if score <= 0:
             continue
+        # Guard rail — bare "ok" / "oui" / "non" / ... must NOT match
+        # ``voice.confirm_yes`` / ``voice.confirm_no`` when the rest of the
+        # utterance carries another command. Without this, a polite
+        # filler ("ok, très bien, montre-moi …") routes to the confirm
+        # action and the executor returns the stub binding message even
+        # though no proposal is awaiting.
+        if manifest.action_id in {"voice.confirm_yes", "voice.confirm_no"}:
+            if token_count > _CONFIRM_MAX_TOKENS and not _matches_confirm_phrase_exactly(normalized, manifest):
+                continue
         scored.append((score, manifest))
 
     if not scored:
@@ -1131,6 +1167,25 @@ _CUSTOMS_HINT_RE = re.compile(
     r"\b(?:pv|proces\s*verbal|dedouanement|derogation|courrier|email|mail|douanes|customs)\b"
 )
 _VESSEL_HINT_RE = re.compile(r"\b(?:cargo|cargaison|atlantic\s*trader|navire|mv)\b")
+
+# Maximum normalized-token count allowed for a query to still match
+# ``voice.confirm_yes`` / ``voice.confirm_no``. Anything longer must match
+# a confirm phrase verbatim — see ``_matches_confirm_phrase_exactly``.
+_CONFIRM_MAX_TOKENS = 4
+
+
+def _matches_confirm_phrase_exactly(normalized: str, manifest: ActionManifest) -> bool:
+    """Whether the normalized query is exactly one of the manifest phrases.
+
+    Used to keep verbatim utterances like ``"d'accord"`` matching the
+    confirm action even when the natural-token guard would otherwise
+    filter the manifest out.
+    """
+
+    for phrase in manifest.phrases:
+        if _normalize(phrase) == normalized:
+            return True
+    return False
 
 
 def _apply_tie_breakers(

@@ -277,12 +277,12 @@ async def execute_flow_action(
     elif handler == "voice_rephrase":
         content = "Je reformule ma derniere reponse de facon plus concise."
     elif handler == "acknowledge_presence":
-        content = "Je suis là, M. le Vice Président, à votre écoute."
+        content = "Je suis là, Monsieur le Vice-Président, à votre écoute."
         effects.append(_action_effect("assistant-acknowledge", {"assistant": "AYA"}))
     elif handler == "briefing_priorities_v1":
         result = await _invoke_skill("briefing_priorities_v1", {"knowledge_scope": knowledge_scope}, ctx)
         priorities = result.get("priorities") or []
-        lines = ["M. le Vice President, voici les sujets prioritaires :"]
+        lines = ["Monsieur le Vice-Président, voici les sujets prioritaires :"]
         for idx, item in enumerate(priorities[:3], start=1):
             lines.append(f"{idx}. {item.get('title')} — {item.get('summary')}")
         content = "\n".join(lines)
@@ -309,7 +309,7 @@ async def execute_flow_action(
         )
         effects.append({"chunk_type": "map_command", **command})
         content = (
-            "M. le Vice President, j'affiche la region Nord avec le Centre International "
+            "Monsieur le Vice-Président, j'affiche la region Nord avec le Centre International "
             "de Formation aux Métiers des Drones de Napié (Poro) : composants importés "
             "Aerostar Dynamics bloqués au dedouanement Abidjan, chantier en retard de l'ordre "
             "de 120 jours sur un investissement de 100 M USD."
@@ -339,7 +339,7 @@ async def execute_flow_action(
         maritime = await _invoke_skill("maritime_snapshot_read_v1", {}, ctx)
         cargo = next((e for e in (maritime.get("events") or []) if e.get("id") == "cargo-abidjan-supply-001"), None)
         cargo_line = cargo.get("summary") if cargo else "Trafic maritime Abidjan actif avec vigilance douaniere."
-        content = f"M. le Vice President, trafic maritime a destination d'Abidjan : {cargo_line}"
+        content = f"Monsieur le Vice-Président, trafic maritime a destination d'Abidjan : {cargo_line}"
         extra["maritime_snapshot"] = maritime
         awaiting_to_set = {
             "key": "customs_email",
@@ -401,7 +401,7 @@ async def execute_flow_action(
                 {"target_type": "customs_email", "target_id": "cargo-abidjan-supply-001", "draft_payload": draft},
             )
         )
-        content = f"M. le Vice President, brouillon pret : **{draft.get('subject')}**. Validation advisory requise."
+        content = f"Monsieur le Vice-Président, brouillon pret : **{draft.get('subject')}**. Validation advisory requise."
         sources = draft.get("sources") or []
         awaiting_to_clear = True
         extra["draft"] = draft
@@ -486,7 +486,7 @@ async def execute_flow_action(
             )
         )
         content = (
-            "M. le Vice President, MV Atlantic Trader (IMO 9876543) en attente de dedouanement a Vridi. "
+            "Monsieur le Vice-Président, MV Atlantic Trader (IMO 9876543) en attente de dedouanement a Vridi. "
             "Souhaitez-vous voir le PV douanes lie ?"
         )
         extra["vessel"] = {
@@ -549,7 +549,7 @@ async def execute_flow_action(
             )
         )
         content = (
-            "M. le Vice President, page 2 du PV douanes du 18 mai : la non conformite vise un autre cargo. "
+            "Monsieur le Vice-Président, page 2 du PV douanes du 18 mai : la non conformite vise un autre cargo. "
             "La cargaison Nord (MV Atlantic Trader) est bloquee par effet collateral. "
             "Souhaitez-vous que je redige une derogation pour le chef des douanes ?"
         )
@@ -603,9 +603,9 @@ async def execute_flow_action(
                 navigate_payload["highlight"] = next_surface["highlight"]
             effects.append(_action_effect("assistant-navigate", navigate_payload))
         content = (
-            f"M. le Vice President, {explanation} {narrative}"
+            f"Monsieur le Vice-Président, {explanation} {narrative}"
             if next_node
-            else "M. le Vice President, je n'ai pas de cause causale plus profonde a citer pour cette focale."
+            else "Monsieur le Vice-Président, je n'ai pas de cause causale plus profonde a citer pour cette focale."
         )
         sources = [
             {
@@ -720,7 +720,7 @@ async def execute_flow_action(
             events = list_events(db, workspace, status="scheduled")
             event = events[0] if events else None
         if event is None:
-            content = "M. le Vice President, aucun rendez-vous courant identifie pour mettre a jour l'ordre du jour."
+            content = "Monsieur le Vice-Président, aucun rendez-vous courant identifie pour mettre a jour l'ordre du jour."
         else:
             schema_items = list((manifest.input_schema or {}).get("agenda_items") or [])
             proposed_items = schema_items or [_resolve_agenda_item_from_prompt(text)]
@@ -767,7 +767,7 @@ async def execute_flow_action(
                 )
             )
             content = (
-                f"M. le Vice President, je propose d'ajouter **{agenda_label}** a l'ordre du jour de **{event.title}**. "
+                f"Monsieur le Vice-Président, je propose d'ajouter **{agenda_label}** a l'ordre du jour de **{event.title}**. "
                 "Validation advisory requise avant ecriture agenda."
             )
             sources = [serialize_event(event)]
@@ -787,7 +787,7 @@ async def execute_flow_action(
         pending = _pending_agenda_patch(workspace)
         if not pending:
             content = (
-                "M. le Vice President, aucune mise a jour d'ordre du jour en attente. "
+                "Monsieur le Vice-Président, aucune mise a jour d'ordre du jour en attente. "
                 "Faites une proposition avant validation."
             )
         else:
@@ -795,7 +795,7 @@ async def execute_flow_action(
             agenda_items = list(pending.get("agenda_items") or [])
             event = next((row for row in list_events(db, workspace) if row.id == event_id), None)
             if event is None:
-                content = "M. le Vice President, je n'ai pas retrouve le rendez-vous cible pour appliquer la mise a jour."
+                content = "Monsieur le Vice-Président, je n'ai pas retrouve le rendez-vous cible pour appliquer la mise a jour."
                 set_pending_agenda_patch(db, workspace, None)
             else:
                 try:
@@ -809,12 +809,12 @@ async def execute_flow_action(
                     db.commit()
                 except LookupError:
                     db.rollback()
-                    content = "M. le Vice President, le rendez-vous cible n'existe plus."
+                    content = "Monsieur le Vice-Président, le rendez-vous cible n'existe plus."
                     set_pending_agenda_patch(db, workspace, None)
                     updated = None
                 except Exception as exc:  # noqa: BLE001
                     db.rollback()
-                    content = f"M. le Vice President, erreur en appliquant l'ordre du jour : {exc}."
+                    content = f"Monsieur le Vice-Président, erreur en appliquant l'ordre du jour : {exc}."
                     updated = None
                 else:
                     set_pending_agenda_patch(db, workspace, None)
@@ -848,7 +848,7 @@ async def execute_flow_action(
             events = list_events(db, workspace, status="scheduled")
             event = events[0] if events else None
         if event is None:
-            content = "M. le Vice President, aucun rendez-vous courant identifie pour demarrer une reunion."
+            content = "Monsieur le Vice-Président, aucun rendez-vous courant identifie pour demarrer une reunion."
         else:
             set_current_meeting(db, workspace, event.id)
             effects.append(
@@ -861,7 +861,7 @@ async def execute_flow_action(
                 )
             )
             content = (
-                f"M. le Vice President, je demarre la reunion **{event.title}**. "
+                f"Monsieur le Vice-Président, je demarre la reunion **{event.title}**. "
                 "Mode meeting live - chaque arbitrage sera logge dans le registre des decisions."
             )
             sources = [serialize_event(event)]
@@ -871,7 +871,7 @@ async def execute_flow_action(
 
         event_id = _current_meeting(workspace)
         if not event_id:
-            content = "M. le Vice President, aucune reunion active. Demarrez d'abord la reunion."
+            content = "Monsieur le Vice-Président, aucune reunion active. Demarrez d'abord la reunion."
         else:
             input_schema = manifest.input_schema or {}
             decision_payload = {
@@ -918,10 +918,10 @@ async def execute_flow_action(
         serialized = [serialize_decision(item) for item in decisions[:5]]
         if not serialized:
             content = (
-                f"M. le Vice President, aucune decision passee enregistree sur le theme {topic} pour le moment."
+                f"Monsieur le Vice-Président, aucune decision passee enregistree sur le theme {topic} pour le moment."
             )
         else:
-            lines = [f"M. le Vice President, decisions passees liees a {topic} :"]
+            lines = [f"Monsieur le Vice-Président, decisions passees liees a {topic} :"]
             for item in serialized:
                 lines.append(
                     f"- {item.get('decided_at')[:16]} - option {item.get('chosen_option')} : {item.get('rationale')}"
@@ -943,7 +943,7 @@ async def execute_flow_action(
             )
         )
         content = (
-            f"M. le Vice President, prochain rendez-vous : **{nxt.get('title') or 'Rencontre Prefet Nawa'}** "
+            f"Monsieur le Vice-Président, prochain rendez-vous : **{nxt.get('title') or 'Rencontre Prefet Nawa'}** "
             f"a {nxt.get('time') or '11:00'} — {nxt.get('location') or 'Soubre'}."
         )
         sources = [{"title": "Agenda institutionnel", "kind": "calendar", "source_id": highlight}]
@@ -988,7 +988,7 @@ async def execute_flow_action(
             ctx,
         )
         options = recs.get("options") or []
-        lines = ["M. le Vice President, preconisations cacao (chiffrage indicatif) :"]
+        lines = ["Monsieur le Vice-Président, preconisations cacao (chiffrage indicatif) :"]
         for idx, opt in enumerate(options[:3], start=1):
             lines.append(
                 f"{idx}. {opt.get('label')} — {opt.get('summary')} "
@@ -1078,12 +1078,12 @@ async def execute_flow_action(
         )
         if report.get("download_url"):
             content = (
-                "M. le Vice President, rapport de diversification cacao genere "
+                "Monsieur le Vice-Président, rapport de diversification cacao genere "
                 f"({report.get('total_pages')} pages) — pret pour validation advisory."
             )
         else:
             content = (
-                "M. le Vice President, rapport de diversification cacao prepare. "
+                "Monsieur le Vice-Président, rapport de diversification cacao prepare. "
                 "Le PDF est temporairement indisponible — la synthese reste consultable."
             )
         sources = [
@@ -1112,7 +1112,7 @@ async def execute_flow_action(
         )
         proposed = slot.get("proposed_slot") or {}
         content = (
-            f"M. le Vice President, creneau propose avec le ministre de l'Economie : "
+            f"Monsieur le Vice-Président, creneau propose avec le ministre de l'Economie : "
             f"{proposed.get('date')} a {proposed.get('time')} — {proposed.get('location') or 'Plateau'}."
         )
         extra["schedule"] = slot
@@ -1121,6 +1121,13 @@ async def execute_flow_action(
         view = (manifest.input_schema or {}).get("default_view") or "cockpit"
         effects.append(_action_effect("assistant-navigate", {"route": f"/hypervisor/mission-room/{view}"}))
         content = f"J'ouvre la vue {view}."
+    elif handler == "voice_confirm_yes":
+        # Reached when ``voice.confirm_yes`` resolves but no awaiting
+        # proposal is pending (the resolver swap only fires when an
+        # ``awaiting`` bucket exists). Return a graceful no-op instead of
+        # the stub "execution demo en attente de binding" placeholder so
+        # the assistant stays demo-safe.
+        content = "Monsieur le Vice-Président, je n'ai aucune proposition en attente. Que souhaitez-vous valider ?"
     elif handler == "awaiting_declined":
         content = "Tres bien, je n'applique pas cette proposition pour le moment."
         awaiting_to_clear = True

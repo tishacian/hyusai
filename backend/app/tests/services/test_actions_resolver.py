@@ -111,6 +111,15 @@ def _workspace(**kwargs) -> Workspace:
         # Top 5 résolveur — tie-breaker Atlantic Trader vs douanes.
         ("le PV du 18 mai sur Atlantic Trader", "aya.show_customs_record"),
         ("rédige un courrier de dédouanement pour Atlantic Trader", "aya.draft_customs_email"),
+        # Bug demo-eve #1 — polite filler ("OK, très bien") followed by a
+        # substantive verb must NOT match ``voice.confirm_yes``; it must
+        # route to the port-situation view instead.
+        ("OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?", "aya.show_maritime_traffic"),
+        ("ok montre la situation au port", "aya.show_maritime_traffic"),
+        ("AYA, montre la situation au port", "aya.show_maritime_traffic"),
+        ("ouvre la vue du port", "aya.show_maritime_traffic"),
+        ("etat du port", "aya.show_maritime_traffic"),
+        ("show me the port situation", "aya.show_maritime_traffic"),
     ],
 )
 def test_resolver_matches_demo_scenario_phrases(phrase, expected):
@@ -118,6 +127,70 @@ def test_resolver_matches_demo_scenario_phrases(phrase, expected):
     result = resolve_action(workspace, text=phrase, surface="voice", assistant_profile="vigie_executive")
     assert result.matched is True
     assert result.action_id == expected
+
+
+def test_long_filler_does_not_match_confirm_yes():
+    """Bug demo-eve #1 — guard rail for ``voice.confirm_yes``.
+
+    Without the resolver guard, ``"ok"`` matches the confirm phrase by
+    substring with word-boundary protection and wins at ~0.875, then the
+    executor falls into the stub branch ("execution demo en attente de
+    binding complet"). The guard filters confirm actions out for
+    utterances longer than ``_CONFIRM_MAX_TOKENS`` unless the query is
+    verbatim a confirm phrase.
+    """
+
+    workspace = _workspace()
+    result = resolve_action(
+        workspace,
+        text="OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?",
+        surface="voice",
+        assistant_profile="vigie_executive",
+    )
+    assert result.matched is True
+    assert result.action_id != "voice.confirm_yes"
+    assert result.action_id != "voice.confirm_no"
+
+
+def test_bare_confirmation_still_matches_confirm_yes():
+    """Sanity — short bare confirmations still resolve to confirm_yes."""
+
+    workspace = _workspace()
+    for phrase in ("oui", "ok", "vas-y", "d'accord"):
+        result = resolve_action(workspace, text=phrase, surface="voice", assistant_profile="vigie_executive")
+        assert result.matched is True, phrase
+        assert result.action_id == "voice.confirm_yes", phrase
+
+
+def test_voice_confirm_yes_without_awaiting_returns_graceful_message(db_session):
+    """Bug demo-eve #1 — defensive guard inside the executor.
+
+    Even when the resolver would still produce ``voice.confirm_yes`` (eg.
+    bare ``"oui"``) and no awaiting bucket exists, the executor must NOT
+    emit the stub binding message. It should respond gracefully so the
+    demo voice loop stays clean.
+    """
+
+    workspace = _workspace()
+    user = User(id="u1", username="vp", email="vp@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    manifest = next(
+        m for m in effective_action_manifests(workspace, surface="voice") if m.action_id == "voice.confirm_yes"
+    )
+    result = asyncio.run(
+        execute_flow_action(
+            db_session,
+            workspace,
+            user,
+            manifest=manifest,
+            text="oui",
+            session_id="sess-no-awaiting",
+        )
+    )
+    assert "execution demo en attente de binding" not in (result.get("content") or "").lower()
+    assert "Monsieur le Vice-Président" in (result.get("content") or "")
 
 
 def test_awaiting_yes_routes_to_draft_customs_email(db_session):

@@ -157,7 +157,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
 
   decisionSentence(): any {
     return this.monitor?.decision_sentence || {
-      text: 'M. le Vice-Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
+      text: 'Monsieur le Vice-Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
       deadline: 'avant Conseil 15h00',
       generated_by: this.assistantName,
     };

@@ -66,12 +66,12 @@ SENTINEL_KNOWLEDGE_GUIDES = (
         "title": "Guide AYA - Mission Room SENTINEL-CI",
         "markdown": """# Guide AYA - Mission Room SENTINEL-CI
 
-AYA agit comme adjoint souverain du Vice-Président. Elle s'adresse a l'utilisateur par "M. le Vice Président" et repond en priorisant : quoi faire, quand agir, pourquoi cette action est justifiee, et quelles sources brutes ou consolidees soutiennent la recommandation.
+AYA agit comme adjoint souverain du Vice-Président. Elle s'adresse a l'utilisateur par "Monsieur le Vice-Président" et repond en priorisant : quoi faire, quand agir, pourquoi cette action est justifiee, et quelles sources brutes ou consolidees soutiennent la recommandation.
 
 Principes d'interpretation :
 - Distinguer les trois strates : Monitoring, Information & alerting, Decision & action.
 - Ton attendu : formel, direct, phrases courtes, style briefing gouvernemental.
-- Commencer les reponses de synthese par "M. le Vice Président," quand la formulation reste naturelle.
+- Commencer les reponses de synthese par "Monsieur le Vice-Président," quand la formulation reste naturelle.
 - Ne jamais traiter un guide comme une preuve brute : citer les articles, evenements agenda, zones, observations visuelles, projets ou actions sources.
 - Les actions avec effet de bord restent advisory-only tant qu'elles ne sont pas confirmees.
 - Les rumeurs doivent etre qualifiees par origine, propagation, zone, confiance et action recommandee.
@@ -630,7 +630,7 @@ DECISIONS = [
 
 DECISION_SENTENCE = {
     "label": "Sentence du jour",
-    "text": "M. le Vice-Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.",
+    "text": "Monsieur le Vice-Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.",
     "generated_by": SENTINEL_ASSISTANT_NAME,
     "refresh_policy": "mise a jour horaire ou nouvelle alerte critique",
     "deadline": "avant Conseil 15h00",
@@ -706,7 +706,7 @@ TERRITORIAL_LIVE_STATUS = [
 VOICE_DEMO_SCRIPT = {
     "prompt": "AYA, pourquoi la situation Nord est-elle tendue ?",
     "answer": (
-        "M. le Vice Président, la tension Nord remonte au retard du chantier "
+        "Monsieur le Vice-Président, la tension Nord remonte au retard du chantier "
         "Centre International Formation Drones — Napié (Poro) : 120 jours de "
         "décalage, composants Aerostar Dynamics bloqués au port d'Abidjan "
         "sur cargo MV Atlantic Trader (effet collatéral PV douanes 18 mai). "
@@ -1298,7 +1298,7 @@ def _maritime_intelligence_payload(feed_rows: list[dict[str, Any]], signals: lis
         "prompts": [
             "AYA, quel est le risque autour du port d'Abidjan ?",
             "AYA, relie cette actualite douanes au trafic maritime.",
-            "AYA, prepare une note pour M. le Vice Président avant le point economie.",
+            "AYA, prepare une note pour Monsieur le Vice-Président avant le point economie.",
         ],
     }
 
@@ -1750,7 +1750,7 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
 def overview_payload(workspace: Workspace) -> dict[str, Any]:
     return {
         "workspace": _workspace_meta(workspace),
-        "title": "Bonjour, M. le Vice-Président.",
+        "title": "Bonjour, Monsieur le Vice-Président.",
         "date_label": demo_time_context_defaults(workspace)["label"],
         "mode": "demo",
         "briefing_status": "ready",
@@ -5079,7 +5079,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         "interrupt_on_user_speech": True,
                     },
                     "response_style": {
-                        "address_as": "M. le Vice Président",
+                        "address_as": "Monsieur le Vice-Président",
                         "tone": "formel",
                         "format": "brief_gouvernemental_court",
                         "max_bullets": 4,

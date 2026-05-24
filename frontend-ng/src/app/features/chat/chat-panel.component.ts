@@ -3271,7 +3271,14 @@ export class ChatPanelComponent {
               window.dispatchEvent(new CustomEvent('agentium:visual-intelligence-updated', { detail: chunk }));
             }
           } else if (chunk.chunk_type === 'map_command') {
-            mapCommand = (chunk as Record<string, unknown>)['map_command'] as Record<string, unknown>;
+            // Backend builds these chunks via ``{"chunk_type": "map_command", **command}``
+            // (see executor.execute_flow_action), so the command payload — including
+            // ``map_state.camera`` used by workspace-map to flyTo Zone Nord — is
+            // spread directly onto the chunk. Strip the ``chunk_type`` sentinel
+            // before forwarding so listeners receive the raw command object with
+            // ``target``, ``map_state``, ``explanation``, ``sources``, etc.
+            const { chunk_type: _ct, ...command } = chunk as Record<string, unknown>;
+            mapCommand = command;
             window.dispatchEvent(new CustomEvent('agentium:map-command', { detail: mapCommand }));
           } else if (chunk.chunk_type === 'action_effect') {
             // ``chunk`` is the spread of an executor ``_action_effect`` dict

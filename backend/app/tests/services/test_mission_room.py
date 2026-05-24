@@ -118,7 +118,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["assistant_profiles"][0]["voice_loop"]["enabled_default"] is False
     assert workspace.settings["assistant_profiles"][0]["voice_loop"]["manual_start_required"] is True
     assert workspace.settings["assistant_profiles"][0]["voice_output"]["flush_timeout_ms"] == 450
-    assert workspace.settings["assistant_profiles"][0]["response_style"]["address_as"] == "M. le Vice Président"
+    assert workspace.settings["assistant_profiles"][0]["response_style"]["address_as"] == "Monsieur le Vice-Président"
     guides = db_session.query(KnowledgeGuide).filter_by(workspace_id=workspace.id, is_current=True).all()
     assert {guide.guide_key for guide in guides} >= {
         "sentinel-ci-aya-mission-room-v1",

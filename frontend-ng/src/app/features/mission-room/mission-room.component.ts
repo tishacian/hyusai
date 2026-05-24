@@ -1457,7 +1457,7 @@ export class MissionRailComponent {
                   <span class="eyebrow">Mission Room · Vice-Presidence</span>
                   <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
                 </div>
-                <h1>{{ cockpit()?.title || 'Bonjour, M. le Vice-Président.' }}</h1>
+                <h1>{{ cockpit()?.title || 'Bonjour, Monsieur le Vice-Président.' }}</h1>
                 <p>
                   <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
                   <span class="hero-dot"></span>
@@ -4516,7 +4516,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   decisionSentence60(): NonNullable<MissionCockpit['decision_sentence']> {
     return this.cockpit()?.decision_sentence || {
       label: 'Sentence du jour',
-      text: 'M. le Vice Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
+      text: 'Monsieur le Vice-Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
       deadline: 'avant Conseil 15h00',
       generated_by: this.assistantName(),
     };

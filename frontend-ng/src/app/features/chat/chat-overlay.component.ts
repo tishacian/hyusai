@@ -228,9 +228,13 @@ export class ChatOverlayComponent {
       if (this.overlay.isOpen()) {
         this.overlay.close();
       } else {
+        // Match TitleBar.openChat — open immediately, refresh in the
+        // background so ⌘J never feels gated on the workspace HTTP
+        // round-trip.
+        this.overlay.open({ mode: 'quick' });
         this.workspace.refreshCurrentWorkspace().subscribe({
-          next: () => this.overlay.open({ mode: 'quick' }),
-          error: () => this.overlay.open({ mode: 'quick' }),
+          next: () => undefined,
+          error: () => undefined,
         });
       }
     }

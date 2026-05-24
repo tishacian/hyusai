@@ -412,9 +412,15 @@ export class TitleBarComponent {
       this.chatOverlay.close();
       return;
     }
+    // Open the overlay immediately so the panel snaps into view and the
+    // chat workspace can render its skeleton; refresh the workspace
+    // payload in the background. The previous implementation awaited the
+    // workspace HTTP round-trip before flipping ``isOpen``, which added a
+    // perceived 300-800ms delay on every AYA panel toggle (bug demo-eve).
+    this.chatOverlay.open({ mode: 'quick' });
     this.workspaceService.refreshCurrentWorkspace().subscribe({
-      next: () => this.chatOverlay.open({ mode: 'quick' }),
-      error: () => this.chatOverlay.open({ mode: 'quick' }),
+      next: () => undefined,
+      error: () => undefined,
     });
   }
 
