@@ -2,7 +2,7 @@
   "country_code": "CIV",
   "country_label": "Cote d'Ivoire",
   "source": "World Bank Open Data (baseline cache)",
-  "fetched_at": "2026-05-23",
+  "fetched_at": "2026-05-25",
   "indicators": [
     {
       "key": "unemployment",

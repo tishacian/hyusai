@@ -74,7 +74,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["voice_output"]["flush_timeout_ms"] == 450
     assert workspace.settings["document_intelligence"]["default_profile"] == "sentinel_ci_ministerial"
     assert workspace.settings["document_intelligence"]["ocr"]["enabled"] is True
-    assert workspace.settings["demo_time_context"]["current_date"] == "2026-05-23"
+    assert workspace.settings["demo_time_context"]["current_date"] == "2026-05-25"
     assert workspace.settings["connectors"]["institutional_calendar"]["enabled"] is True
     assert workspace.settings["connectors"]["visual_streams"]["enabled"] is True
     assert workspace.settings["visual_intelligence"]["enabled"] is True

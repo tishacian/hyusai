@@ -65,6 +65,28 @@ def set_current_meeting(db: DBSession, workspace: Workspace, event_id: Optional[
     db.flush()
 
 
+def _pending_agenda_patch(workspace: Workspace) -> Optional[dict[str, Any]]:
+    settings = workspace.settings or {}
+    actions = settings.get("actions") or {}
+    pending = actions.get("pending_agenda_patch")
+    return dict(pending) if isinstance(pending, dict) else None
+
+
+def set_pending_agenda_patch(
+    db: DBSession, workspace: Workspace, payload: Optional[dict[str, Any]]
+) -> None:
+    settings = dict(workspace.settings or {})
+    actions = dict(settings.get("actions") or {})
+    if payload:
+        actions["pending_agenda_patch"] = dict(payload)
+    else:
+        actions.pop("pending_agenda_patch", None)
+    settings["actions"] = actions
+    workspace.settings = settings
+    db.add(workspace)
+    db.flush()
+
+
 async def _invoke_skill(slug: str, payload: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     return await skill_wrappers.resolve(slug)(payload, ctx)
 
@@ -441,7 +463,22 @@ async def execute_flow_action(
     elif handler == "explain_why":
         from app.services.mission_room import evidence_graph_trace
 
-        last_focus = _last_focus(workspace) or "zone-nord"
+        # Lightweight text-based focus reset: if the operator references a
+        # high-level entity (zone, projet, cargaison, port, etc.) we restart
+        # the causal drill from that node rather than continuing from a
+        # leaf left over from a previous run. This keeps the demo robust
+        # against repeated runs and polluted ``last_focus`` state.
+        text_lower = (text or "").lower()
+        text_focus: Optional[str] = None
+        if any(token in text_lower for token in ("nord", "zone nord", "tendu")):
+            text_focus = "zone-nord"
+        elif any(token in text_lower for token in ("projet", "napie", "napié", "centre drone", "centre drones", "retard")):
+            text_focus = "proj-drone-centre-napie"
+        elif any(token in text_lower for token in ("cargo", "cargaison", "cargaisons", "navire", "bateau", "atlantic trader", "bloquee", "bloquée")):
+            text_focus = "cargo-abidjan-supply-001"
+        elif any(token in text_lower for token in ("douanes", "pv douanes", "non conformite", "non conformité")):
+            text_focus = "customs-record-non-conformite-2026-05"
+        last_focus = text_focus or _last_focus(workspace) or "zone-nord"
         trace = evidence_graph_trace(workspace, from_node=last_focus, relation="caused_by", depth=2, db=db)
         path = trace.get("path") or []
         first_step = path[0] if path else None
@@ -516,19 +553,23 @@ async def execute_flow_action(
     elif handler == "update_meeting_agenda":
         from app.services.workspace_calendar import list_events, serialize_event
 
-        event_id = _current_meeting(workspace)
+        # Prefer to target the Prefet Nawa meeting when available so that the
+        # S2 trame stays coherent even when ``current_meeting`` points at a
+        # different event (eg. Conseil Defense restreint). Fall back to the
+        # explicit ``current_meeting`` then to the first scheduled event.
         event = None
-        if event_id:
-            event = next((row for row in list_events(db, workspace) if row.id == event_id), None)
+        for row in list_events(db, workspace, status="scheduled"):
+            meta = row.meta_data or {}
+            if meta.get("seed_id") == "evt-prefet-nawa" or meta.get("context_ref") == "report-prefet-nawa-2026-05-10":
+                event = row
+                break
         if event is None:
-            for row in list_events(db, workspace, status="scheduled"):
-                meta = row.meta_data or {}
-                if meta.get("seed_id") == "evt-prefet-nawa" or meta.get("context_ref") == "report-prefet-nawa-2026-05-10":
-                    event = row
-                    break
-            if event is None:
-                events = list_events(db, workspace, status="scheduled")
-                event = events[0] if events else None
+            event_id = _current_meeting(workspace)
+            if event_id:
+                event = next((row for row in list_events(db, workspace) if row.id == event_id), None)
+        if event is None:
+            events = list_events(db, workspace, status="scheduled")
+            event = events[0] if events else None
         if event is None:
             content = "M. le Vice President, aucun rendez-vous courant identifie pour mettre a jour l'ordre du jour."
         else:
@@ -544,6 +585,17 @@ async def execute_flow_action(
                 }
             ]
             set_current_meeting(db, workspace, event.id)
+            # Stage the patch so a follow-up "oui" triggers
+            # ``aya.confirm_agenda_patch`` which applies the calendar PATCH.
+            set_pending_agenda_patch(
+                db,
+                workspace,
+                {
+                    "event_id": event.id,
+                    "agenda_items": proposed_items,
+                    "proposed_at": datetime.utcnow().isoformat(),
+                },
+            )
             effects.append(
                 _action_effect(
                     "assistant-draft-open",
@@ -556,7 +608,20 @@ async def execute_flow_action(
                             "metadata": {"agenda_items": proposed_items},
                             "requires_validation": True,
                             "audit_event": "calendar.event.agenda_items.proposed",
+                            "confirm_action": "aya.confirm_agenda_patch",
+                            "decline_action": "voice.confirm_no",
                         },
+                    },
+                )
+            )
+            effects.append(
+                _action_effect(
+                    "assistant-propose",
+                    {
+                        "proposal_id": "propose-calendar-agenda-patch",
+                        "label": "Valider la mise a jour de l'ordre du jour ?",
+                        "confirm_action": "aya.confirm_agenda_patch",
+                        "decline_action": "voice.confirm_no",
                     },
                 )
             )
@@ -567,6 +632,68 @@ async def execute_flow_action(
             sources = [serialize_event(event)]
             extra["event_id"] = event.id
             extra["proposed_agenda_items"] = proposed_items
+            awaiting_to_set = {
+                "key": "calendar_agenda_patch",
+                "action_on_yes": "aya.confirm_agenda_patch",
+                "action_on_no": "voice.confirm_no",
+                "expires_at": (datetime.utcnow() + timedelta(minutes=20)).isoformat(),
+                "proposal_id": "propose-calendar-agenda-patch",
+                "event_id": event.id,
+            }
+    elif handler == "confirm_agenda_patch":
+        from app.services.workspace_calendar import list_events, serialize_event, update_event
+
+        pending = _pending_agenda_patch(workspace)
+        if not pending:
+            content = (
+                "M. le Vice President, aucune mise a jour d'ordre du jour en attente. "
+                "Faites une proposition avant validation."
+            )
+        else:
+            event_id = str(pending.get("event_id") or "")
+            agenda_items = list(pending.get("agenda_items") or [])
+            event = next((row for row in list_events(db, workspace) if row.id == event_id), None)
+            if event is None:
+                content = "M. le Vice President, je n'ai pas retrouve le rendez-vous cible pour appliquer la mise a jour."
+                set_pending_agenda_patch(db, workspace, None)
+            else:
+                try:
+                    updated = update_event(
+                        db,
+                        workspace,
+                        user,
+                        event.id,
+                        updates={"metadata": {"agenda_items": agenda_items}},
+                    )
+                    db.commit()
+                except LookupError:
+                    db.rollback()
+                    content = "M. le Vice President, le rendez-vous cible n'existe plus."
+                    set_pending_agenda_patch(db, workspace, None)
+                    updated = None
+                except Exception as exc:  # noqa: BLE001
+                    db.rollback()
+                    content = f"M. le Vice President, erreur en appliquant l'ordre du jour : {exc}."
+                    updated = None
+                else:
+                    set_pending_agenda_patch(db, workspace, None)
+                    effects.append(
+                        _action_effect(
+                            "assistant-navigate",
+                            {
+                                "route": f"/hypervisor/mission-room/agenda",
+                                "queryParams": {"highlight": updated.id},
+                            },
+                        )
+                    )
+                    content = (
+                        f"Ordre du jour mis a jour pour **{updated.title}** : "
+                        f"{len(agenda_items)} point(s) ajoute(s) avec tracabilite advisory."
+                    )
+                    sources = [serialize_event(updated)]
+                    extra["event_id"] = updated.id
+                    extra["applied_agenda_items"] = agenda_items
+                awaiting_to_clear = True
     elif handler == "start_meeting":
         from app.services.workspace_calendar import list_events, serialize_event
 
@@ -743,26 +870,88 @@ async def execute_flow_action(
             "proposal_id": "propose-strategic-report",
         }
     elif handler == "draft_strategic_report":
-        draft = await _invoke_skill(
-            "draft_email_v1",
-            {
-                "template_kind": "strategic_report_long",
-                "target_id": "package-cacao-diversification",
-                "context_refs": ["report-prefet-nawa-2026-05-10", "proj-cacao-transformation-nawa"],
-                "length": "long",
-            },
-            ctx,
+        from app.services.sentinel_ci_reports import generate_strategic_report
+
+        input_schema = manifest.input_schema or {}
+        topic = str(input_schema.get("topic") or "cacao_diversification")
+        context_refs = list(
+            input_schema.get("context_refs")
+            or ["report-prefet-nawa-2026-05-10", "proj-cacao-transformation-nawa"]
         )
+        target_id = str(input_schema.get("target_id") or "package-cacao-diversification")
+
+        # Generate the real PDF via the same path as POST /reports/generate so
+        # the drawer receives an ``object_key`` + ``download_url`` that resolves
+        # to the freshly-written PDF in the workspace object store.
+        try:
+            report = generate_strategic_report(
+                db,
+                workspace,
+                user,
+                topic=topic,
+                context_refs=context_refs,
+                target_id=target_id,
+                length="long",
+            )
+            db.commit()
+        except Exception as exc:  # noqa: BLE001 - degrade gracefully for demo
+            report = {
+                "report_id": None,
+                "topic": topic,
+                "object_key": None,
+                "download_url": None,
+                "total_pages": None,
+                "title": f"Rapport strategique - {topic}",
+                "context_refs": context_refs,
+                "advisory_only": True,
+                "requires_validation": True,
+                "error": str(exc),
+            }
+
+        # Best-effort headline used by the drawer in ``document_preview`` mode.
+        draft_payload = {
+            "kind": "document_preview",
+            "title": report.get("title") or f"Rapport strategique - {topic}",
+            "topic": topic,
+            "report_id": report.get("report_id"),
+            "object_key": report.get("object_key"),
+            "download_url": report.get("download_url"),
+            "signed_url": report.get("download_url"),
+            "total_pages": report.get("total_pages"),
+            "context_refs": report.get("context_refs") or context_refs,
+            "advisory_only": True,
+            "requires_validation": True,
+            "audit_event": "report.strategic.generated",
+            "citation": "Synthèse des préconisations cacao – diversification anacarde, base rapport Préfet Nawa.",
+            "page": 1,
+        }
         effects.append(
             _action_effect(
                 "assistant-draft-open",
-                {"target_type": "strategic_report", "target_id": "package-cacao-diversification", "draft_payload": draft},
+                {
+                    "target_type": "strategic_report",
+                    "target_id": report.get("report_id") or target_id,
+                    "draft_payload": draft_payload,
+                },
             )
         )
-        content = "M. le Vice President, rapport de diversification cacao pret pour validation advisory."
-        sources = draft.get("sources") or []
+        if report.get("download_url"):
+            content = (
+                "M. le Vice President, rapport de diversification cacao genere "
+                f"({report.get('total_pages')} pages) — pret pour validation advisory."
+            )
+        else:
+            content = (
+                "M. le Vice President, rapport de diversification cacao prepare. "
+                "Le PDF est temporairement indisponible — la synthese reste consultable."
+            )
+        sources = [
+            {"title": "Rapport Prefet Nawa - 10 mai 2026", "kind": "ministerial_brief", "source_id": "report-prefet-nawa-2026-05-10"},
+            {"title": "Guide Anacarde - diversification cacao", "kind": "knowledge_guide", "source_id": "sentinel-ci-anacarde-diversification-v1"},
+        ]
         awaiting_to_clear = True
-        extra["draft"] = draft
+        extra["report"] = report
+        extra["draft"] = draft_payload
     elif handler == "schedule_meeting":
         slot = await _invoke_skill(
             "schedule_meeting_v1",

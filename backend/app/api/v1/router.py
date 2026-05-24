@@ -45,6 +45,8 @@ from app.api.v1.endpoints import (
     visual_intelligence,
     meetings,
     reports,
+    admin,
+    maritime,
 )
 
 api_router = APIRouter()
@@ -96,3 +98,5 @@ api_router.include_router(maps.router, prefix="/maps", tags=["maps"])
 api_router.include_router(visual_intelligence.router, prefix="/visual-intelligence", tags=["visual-intelligence"])
 api_router.include_router(meetings.router, prefix="/meetings", tags=["meetings"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
+api_router.include_router(maritime.router, prefix="/mission-room/maritime", tags=["mission-room", "maritime"])

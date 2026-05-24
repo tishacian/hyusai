@@ -361,7 +361,11 @@ def report_pdf(
         raise HTTPException(status_code=403, detail="workspace_mismatch")
     if "/" in report_id or "\\" in report_id or ".." in report_id:
         raise HTTPException(status_code=400, detail="invalid_report_id")
-    object_key = f"{STRATEGIC_REPORTS_PREFIX}/{workspace.id}/{report_id}"
+    # The FastAPI path template captures ``{report_id}`` without the trailing
+    # ``.pdf``, but reports are persisted to the object store with the
+    # ``.pdf`` suffix (see ``generate_strategic_report`` /
+    # ``ensure_prefet_report_in_object_store``). Re-append it before lookup.
+    object_key = f"{STRATEGIC_REPORTS_PREFIX}/{workspace.id}/{report_id}.pdf"
     store = get_object_store()
     if not store.exists(object_key):
         raise HTTPException(status_code=404, detail="report_not_found")
@@ -376,7 +380,7 @@ def report_pdf(
     return Response(
         content=body,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{report_id}"'},
+        headers={"Content-Disposition": f'inline; filename="{report_id}.pdf"'},
     )
 
 

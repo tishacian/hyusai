@@ -14,7 +14,7 @@
 > Note d'usage. Ce document reprend l'article public Abidjan.net du 16
 > juillet 2025 pour indexation dans la collection
 > `sentinel-ci-projects`. Il est complété d'une **note de suivi
-> demo-safe** marquée explicitement, qui projette la situation au 23 mai
+> demo-safe** marquée explicitement, qui projette la situation au 25 mai
 > 2026 pour les besoins du scenario Mission Room AYA.
 
 ---
@@ -115,14 +115,14 @@ alliant transfert de compétences et création d'emplois.
 
 ---
 
-## Note de suivi (demo-safe — Mission Room AYA, 23 mai 2026)
+## Note de suivi (demo-safe — Mission Room AYA, 25 mai 2026)
 
 > **AVERTISSEMENT.** La section qui suit est une **projection
 > fictionnelle demo-safe** destinée au scenario Mission Room SENTINEL-CI
 > et n'engage **aucune information opérationnelle réelle** au-delà des
 > faits publics de l'article ci-dessus.
 
-À la date du **23 mai 2026** (cadre de simulation), le chantier du
+À la date du **25 mai 2026** (cadre de simulation), le chantier du
 Centre International de Formation aux Métiers des Drones de Napié est
 **en retard de plusieurs mois** par rapport à la séquence initiale
 annoncée en juillet 2025 (ouverture cible : fin 2025 / début 2026 ;

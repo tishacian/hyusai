@@ -7,6 +7,35 @@ enrichissements `demo_aya_enrichments_s1_s2_85eea55f` (phases A–I).
 > la démonstration. Toutes les actions AYA passent par une validation Cabinet
 > avant exposition publique.
 
+## 0. Pre-flight prod (T-5 min, depuis n'importe quel poste)
+
+```bash
+./scripts/predemo_reset.sh
+```
+
+Le script :
+
+1. Récupère un JWT (Keycloak realm `papai-org`, client `core-service`).
+2. `PATCH /api/v1/auth/workspaces/sentinel-ci` → bump `settings.demo_time_context`
+   sur **2026-05-25 / 10:30 Africa/Abidjan** + reset `settings.actions.last_focus`,
+   `awaiting`, `current_meeting`, `pending_agenda_patch`.
+3. **Reseed du calendrier** : cancel des events existants + POST des **6 events
+   du 25/05 + 2 events du 26/05** avec `metadata.seed_id` métier (notamment
+   `evt-prefet-nawa` à 11:00 avec `context_ref=report-prefet-nawa-2026-05-10`).
+4. `POST /api/v1/reports/generate` (warm-up du PDF cacao stratégique dans
+   l'object store).
+5. Si l'admin router est déployé : `POST /api/v1/admin/calendar/reseed?confirm=true`
+   et `POST /api/v1/admin/reports/rebuild` (régénère le PDF Préfet Nawa 70p).
+6. Vérifie cockpit, calendar, vp_status_bar (chip **Zone Nord · Tendue**),
+   et la présence de `evt-prefet-nawa` dans le calendrier.
+
+Variables d'env optionnelles : `AGENTIUM_HOST`, `WORKSPACE_SLUG`,
+`AGENTIUM_EMAIL`, `AGENTIUM_PASSWORD`, `DEMO_DATE`, `DEMO_TIME`, `DEMO_LABEL`,
+`DEMO_TZ`.
+
+Si l'on déploie une nouvelle version du backend juste avant la démo, relancer
+ce script après le déploiement pour purger un éventuel état persistent.
+
 ## 1. Préparation (pré-flight)
 
 ### 1.1 Build des PDF démo (~70 pages)
@@ -122,6 +151,7 @@ psql sentinel-ci-demo -c "select event_type, count(*) from audit_logs where even
 
 ## 6. Annexes
 
+- Trame storytelling (intro, transition agenda, conclusion) : `docs/demo-aya-storytelling-trame.md`
 - Plan source : `.cursor/plans/demo_aya_enrichments_s1_s2_85eea55f.plan.md`
 - Mémo transverse : `docs/sentinel-ci-agentium-transverse-handoff-2026-05-23.md`
 - Guide expert cacao : `backend/app/resources/sentinel_ci_guides/sentinel-ci-anacarde-diversification-v1.md`

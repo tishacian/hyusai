@@ -1716,7 +1716,7 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
     return {
         "workspace": _workspace_meta(workspace),
         "title": "Bonjour, M. le Vice-Président.",
-        "date_label": demo_time_context_defaults()["label"],
+        "date_label": demo_time_context_defaults(workspace)["label"],
         "mode": "demo",
         "briefing_status": "ready",
         "decision_sentence": _clone(DECISION_SENTENCE),
@@ -1806,6 +1806,15 @@ def _agenda_items_from_calendar(workspace: Workspace, db: Optional[DBSession]) -
 def _vp_status_bar(overview: dict[str, Any], posture: dict[str, Any]) -> list[dict[str, Any]]:
     kpis = overview.get("kpis") or {}
     return [
+        {
+            "key": "zone-nord-tension",
+            "label": "Zone Nord",
+            "value": "Tendue",
+            "detail": "Centre Drones Napie en retard - cargo Aerostar bloque",
+            "tone": "critical",
+            "pulse": True,
+            "tooltip": "Tension territoriale Nord — Centre Drones Napie en retard, cargo Aerostar Dynamics bloque (advisory)",
+        },
         {
             "key": "posture",
             "label": "Posture nationale",
@@ -2241,7 +2250,27 @@ def _intelligence_feeds_payload(
 
 
 def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    candidates = alerts or _clone(NEWS_SIGNALS)
+    candidates = list(alerts or _clone(NEWS_SIGNALS))
+
+    def _ci_priority(alert: dict[str, Any]) -> int:
+        """Rank Cote d'Ivoire / CEDEAO signals first so the hero stays local."""
+        geo = str(alert.get("geography_tier") or alert.get("geography") or "").lower()
+        tags = " ".join(str(item) for item in (alert.get("tags") or [])).lower()
+        source = str(alert.get("source") or "").lower()
+        title = str(alert.get("title") or "").lower()
+        haystack = f"{geo} {tags} {source} {title}"
+        if any(token in haystack for token in (
+            "abidjan", "côte d'ivoire", "cote d'ivoire", "ivorian", "ivoirien", "ivoirienne",
+            "nawa", "soubré", "soubre", "napie", "napié", "ci-local", "geography_tier=ci",
+        )):
+            return 0
+        if "ci" == geo or geo.startswith("ci-"):
+            return 0
+        if any(token in haystack for token in ("cedeao", "ecowas", "afrique de l'ouest", "afrique de louest", "ouest-africain")):
+            return 1
+        return 2
+
+    candidates.sort(key=_ci_priority)
     preview: list[dict[str, Any]] = []
     for alert in candidates[:3]:
         risk = alert.get("risk_level") or "medium"
@@ -2277,44 +2306,100 @@ def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -
 def _agenda_timeline_payload(
     agenda_day: dict[str, Any],
     calendar_summary: Optional[dict[str, Any]],
+    *,
+    now_time_str: Optional[str] = None,
 ) -> dict[str, Any]:
     events = _clone(agenda_day.get("events") or AGENDA[:4])
     next_event = (calendar_summary or {}).get("next_event") or agenda_day.get("next_event") or (events[2] if len(events) > 2 else None)
+    now_label = (now_time_str or "11:16")[:5]
+    now_hh, _, now_mm = now_label.partition(":")
+    try:
+        now_minutes_total = int(now_hh) * 60 + int(now_mm or 0)
+    except ValueError:
+        now_minutes_total = 11 * 60 + 16
+
+    def _event_minutes(value: str | None) -> int:
+        if not value or ":" not in value:
+            return 0
+        try:
+            hh, mm = value.split(":", 1)
+            return int(hh) * 60 + int(mm or 0)
+        except ValueError:
+            return 0
+
     timeline: list[dict[str, Any]] = []
     now_inserted = False
     for event in events[:4]:
         entry = {
             **event,
-            "status": "past" if event.get("time") in {"08:30", "11:00"} else "upcoming",
+            "status": "past" if _event_minutes(event.get("time")) <= now_minutes_total else "upcoming",
             "separate_from_actions": True,
         }
         timeline.append(entry)
-        if not now_inserted and event.get("time") == "11:00":
-            timeline.append(
+        # Insert the "MAINTENANT" marker right after the latest past event.
+        if not now_inserted and _event_minutes(event.get("time")) <= now_minutes_total:
+            # Defer insertion until we know there's a later event, or simply
+            # always insert and let UI place it last; here we insert if the
+            # next event in the iteration is in the future.
+            pass
+    # Second pass: insert marker between past and upcoming events.
+    rebuilt: list[dict[str, Any]] = []
+    for idx, entry in enumerate(timeline):
+        rebuilt.append(entry)
+        next_entry = timeline[idx + 1] if idx + 1 < len(timeline) else None
+        if (
+            not now_inserted
+            and entry.get("status") == "past"
+            and (next_entry is None or next_entry.get("status") == "upcoming")
+        ):
+            rebuilt.append(
                 {
                     "kind": "now",
                     "label": "MAINTENANT",
-                    "time": "11:16",
+                    "time": now_label,
                     "separate_from_actions": True,
                 }
             )
             now_inserted = True
+    timeline = rebuilt
+    if not now_inserted and timeline:
+        timeline.insert(
+            0,
+            {
+                "kind": "now",
+                "label": "MAINTENANT",
+                "time": now_label,
+                "separate_from_actions": True,
+            },
+        )
+
+    def _countdown_for(target_time: str | None) -> str:
+        delta = _event_minutes(target_time) - now_minutes_total
+        if delta <= 0:
+            return "imminent"
+        hours, minutes = divmod(delta, 60)
+        if hours and minutes:
+            return f"dans {hours}h{minutes:02d}"
+        if hours:
+            return f"dans {hours}h"
+        return f"dans {minutes} min"
+
     if next_event:
         for entry in timeline:
             if entry.get("title") == next_event.get("title") or entry.get("time") == next_event.get("time"):
                 entry["is_next"] = True
-                entry["countdown"] = "dans 1h44"
+                entry["countdown"] = _countdown_for(entry.get("time") or next_event.get("time"))
                 break
     elif timeline:
         for entry in reversed(timeline):
             if entry.get("kind") != "now":
                 entry["is_next"] = True
-                entry["countdown"] = "dans 1h44"
+                entry["countdown"] = _countdown_for(entry.get("time"))
                 break
     return {
         "label": agenda_day.get("label") or "Agenda ministeriel",
         "separate_from_actions": True,
-        "now_marker": {"label": "MAINTENANT", "time": "11:16"},
+        "now_marker": {"label": "MAINTENANT", "time": now_label},
         "events": timeline,
         "next_event": next_event,
     }
@@ -2977,7 +3062,13 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     arbitration_cards = _arbitration_cards_payload()
     intelligence_feeds = _intelligence_feeds_payload(news, visual, mapped, source_freshness)
     press_preview = _press_preview_payload(news, alerts)
-    agenda_timeline = _agenda_timeline_payload(agenda_day, calendar_summary)
+    try:
+        from app.services.demo_time_context import resolve_demo_time
+
+        now_time_str = resolve_demo_time(workspace).strftime("%H:%M")
+    except Exception:  # noqa: BLE001
+        now_time_str = None
+    agenda_timeline = _agenda_timeline_payload(agenda_day, calendar_summary, now_time_str=now_time_str)
     demo_narrative = _demo_narrative_payload()
     aya_recommendation = {
         "assistant": SENTINEL_ASSISTANT_NAME,

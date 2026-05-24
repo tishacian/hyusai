@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from app.models.workspace import Workspace
 
-DEFAULT_DEMO_DATE = "2026-05-23"
+DEFAULT_DEMO_DATE = "2026-05-25"
 DEFAULT_DEMO_TIME = "10:30:00"
 DEFAULT_TIMEZONE = "Africa/Abidjan"
 

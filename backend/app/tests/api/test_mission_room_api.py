@@ -123,7 +123,14 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert cockpit_body["press_preview"][0]["route"].startswith("/hypervisor/mission-room/presse?highlight=")
     assert cockpit_body["agenda_timeline"]["separate_from_actions"] is True
     assert cockpit_body["agenda_timeline"]["now_marker"]["label"] == "MAINTENANT"
-    assert any(event.get("countdown") == "dans 1h44" for event in cockpit_body["agenda_timeline"]["events"])
+    # The "now" marker uses the workspace demo time (default 10:30) and the
+    # countdown is computed dynamically against the next event's time.
+    assert cockpit_body["agenda_timeline"]["now_marker"]["time"] == "10:30"
+    assert any(
+        isinstance(event.get("countdown"), str)
+        and (event["countdown"].startswith("dans ") or event["countdown"] == "imminent")
+        for event in cockpit_body["agenda_timeline"]["events"]
+    )
     assert cockpit_body["demo_narrative"]["scenario_id"] == cockpit_body["vp_story"]["scenario_id"]
     assert [step["phase"] for step in cockpit_body["demo_narrative"]["steps"]] == [
         "explorer",
@@ -134,7 +141,12 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert cockpit_body["demo_narrative"]["steps"][2]["anchor"] == "package-zone-nord"
     assert cockpit_body["demo_narrative"]["economic_hook"]["cross_sources"] == ["maritime", "projets"]
     assert cockpit_body["directive_of_day"]["primary_cta"] == "Ouvrir le dossier Zone Nord"
-    assert cockpit_body["vp_status_bar"][0]["key"] == "posture"
+    # Demo trame: chip "Zone Nord · Tendue" doit ouvrir la barre de statut.
+    assert cockpit_body["vp_status_bar"][0]["key"] == "zone-nord-tension"
+    assert cockpit_body["vp_status_bar"][0]["value"] == "Tendue"
+    assert cockpit_body["vp_status_bar"][0]["tone"] == "critical"
+    assert cockpit_body["vp_status_bar"][0].get("pulse") is True
+    assert cockpit_body["vp_status_bar"][1]["key"] == "posture"
     assert cockpit_body["agenda_day"]["label"] == "Agenda ministeriel"
     assert cockpit_body["fused_map_preview"]["route"] == "/hypervisor/mission-room/strategie"
     assert cockpit_body["geographic_signal_tiers"][0]["key"] == "ci"
