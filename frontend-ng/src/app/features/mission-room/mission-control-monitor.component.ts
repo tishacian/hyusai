@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+import { ApiService } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { WorkspaceMapComponent } from './workspace-map.component';
 
@@ -35,6 +36,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   readonly selectedVisualSourceId = signal<string | null>(null);
   readonly expandedVisualSourceId = signal<string | null>(null);
   readonly activePortWebcam = signal<any | null>(null);
+  readonly activePortWebcamImageUrl = signal<string | null>(null);
   readonly mapVisualFocus = signal<Record<string, unknown> | null>(null);
   readonly activeEvidenceOverride = signal<any | null>(null);
   readonly visualPreviewFailures = signal<Record<string, true>>({});
@@ -42,7 +44,9 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   readonly decisionBannerOpen = signal(false);
 
   private readonly trustedVisualEmbeds = new Map<string, SafeResourceUrl>();
+  private readonly api = inject(ApiService);
   private clockTimer: ReturnType<typeof setInterval> | null = null;
+  private activePortWebcamObjectUrl: string | null = null;
   private readonly showWebcamListener = (event: Event) => {
     this.handleShowWebcamEvent(event as CustomEvent<Record<string, unknown>>);
   };
@@ -66,6 +70,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   ngOnDestroy(): void {
     if (this.clockTimer) clearInterval(this.clockTimer);
     window.removeEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
+    if (this.activePortWebcamObjectUrl) URL.revokeObjectURL(this.activePortWebcamObjectUrl);
   }
 
   scenario(): any {
@@ -352,6 +357,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     this.selectedVisualSourceId.set(sourceId);
     this.selectedTerrainMode.set('maritime');
     this.activeEvidenceOverride.set(this.maritimeEvidence());
+    this.loadPortWebcamPreview(proxyUrl);
   }
 
   closeExpandedVisualSource(): void {
@@ -437,6 +443,8 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
 
   portWebcamPreviewUrl(source: any | null): string | null {
     if (!source) return null;
+    const objectUrl = this.activePortWebcamImageUrl();
+    if (objectUrl) return objectUrl;
     const direct = typeof source.proxy_url === 'string' ? source.proxy_url : '';
     if (direct) return this.withRelativeSnapshotCacheBust(direct);
     return this.webcamPreviewUrl(source);
@@ -640,6 +648,22 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     }
     const separator = rawUrl.includes('?') ? '&' : '?';
     return `${rawUrl}${separator}_mc=${Math.floor(this.visualSnapshotTick() / 60_000)}`;
+  }
+
+  private loadPortWebcamPreview(rawUrl: string): void {
+    const path = rawUrl.startsWith('/api/v1') ? rawUrl.slice('/api/v1'.length) : rawUrl;
+    if (!path.startsWith('/mission-room/webcams/proxy')) {
+      this.activePortWebcamImageUrl.set(this.withRelativeSnapshotCacheBust(rawUrl));
+      return;
+    }
+    this.api.getBlob(path).subscribe({
+      next: (blob) => {
+        if (this.activePortWebcamObjectUrl) URL.revokeObjectURL(this.activePortWebcamObjectUrl);
+        this.activePortWebcamObjectUrl = URL.createObjectURL(blob);
+        this.activePortWebcamImageUrl.set(this.activePortWebcamObjectUrl);
+      },
+      error: () => this.activePortWebcamImageUrl.set(this.withRelativeSnapshotCacheBust(rawUrl)),
+    });
   }
 
   private visualPriority(source: any): number {
