@@ -306,12 +306,12 @@ def test_press_preview_falls_back_when_global_feed_is_not_ci():
         [
             {
                 "id": "press-rfi-kidal",
-                "title": "Kidal « toujours en guerre » : le signal securitaire reste eleve",
+                "title": "Kidal « toujours en guerre » : dans le nord du Mali",
                 "source": "RFI Afrique",
                 "risk_level": "critical",
                 "summary": "Signal regional sahelien hors perimetre local.",
                 "geography_tier": "africa",
-                "tags": ["mali", "sahel"],
+                "tags": ["port", "douanes", "securite maritime", "flux logistiques"],
             }
         ],
     )

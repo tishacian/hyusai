@@ -2303,7 +2303,11 @@ def _intelligence_feeds_payload(
 
 _PRESS_CI_TAG_TOKENS = frozenset(
     {
-        "nord",
+        "zone nord",
+        "nord ivoirien",
+        "nord ci",
+        "nord-côte d'ivoire",
+        "nord-cote d'ivoire",
         "napie",
         "napié",
         "aerostar",
