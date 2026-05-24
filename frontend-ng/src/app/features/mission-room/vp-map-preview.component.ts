@@ -94,11 +94,14 @@ interface MaritimeVesselsResponse {
 
 interface VesselMarker {
   vessel: VesselPosition;
-  cx: number;
-  cy: number;
+  /** Horizontal position as percentage (0..100) of the overlay layer. */
+  xPct: number;
+  /** Vertical position as percentage (0..100), 0 = north edge, 100 = south edge. */
+  yPct: number;
   fill: string;
   rotation: number;
   isHighlighted: boolean;
+  outOfFrame: boolean;
 }
 
 const VESSEL_TYPE_COLORS: Record<string, string> = {
@@ -114,6 +117,30 @@ const VESSEL_TYPE_COLORS: Record<string, string> = {
 
 const HIGHLIGHT_VIOLET = '#B488FF';
 const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
+
+type VesselZoomMode = 'country' | 'abidjan';
+
+/**
+ * Country bbox used to project vessels onto the cockpit map preview when
+ * the map shows the full Côte d'Ivoire. Matches `renderer_config.bounds`
+ * in `workspace-map.component.ts` (`[[-8.65, 4.2], [-2.45, 10.75]]`).
+ */
+const COUNTRY_BBOX = { west: -8.65, east: -2.45, south: 4.2, north: 10.75 } as const;
+/** Tight Abidjan / Vridi bbox used in the "Zoom Abidjan" mode. */
+const ABIDJAN_BBOX = { west: -4.25, east: -3.75, south: 5.05, north: 5.4 } as const;
+
+const COUNTRY_CAMERA = {
+  longitude: -5.45,
+  latitude: 7.52,
+  zoom: 5.55,
+  duration_ms: 420,
+} as const;
+const ABIDJAN_CAMERA = {
+  longitude: -4.0,
+  latitude: 5.25,
+  zoom: 10.4,
+  duration_ms: 460,
+} as const;
 
 @Component({
   selector: 'app-vp-map-preview',
@@ -138,22 +165,81 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
         </a>
       </div>
       <div class="map-layout">
-        <button
-          type="button"
-          class="map-canvas-wrap"
-          aria-label="Ouvrir la carte fusionnée"
-          (click)="openMap.emit()"
-        >
-          <app-workspace-map
-            [compact]="true"
-            [previewMode]="true"
-            [previewLayers]="context.geoPreview.active_layers || null"
-            [zones]="$any(context.zones)"
-            [map]="context.map"
-            [mapSystem]="context.mapSystem"
-            [selectedZoneId]="context.topZoneId"
-          />
-        </button>
+        <div class="map-canvas-host">
+          <button
+            type="button"
+            class="map-canvas-wrap"
+            aria-label="Ouvrir la carte fusionnée"
+            (click)="openMap.emit()"
+          >
+            <app-workspace-map
+              [compact]="true"
+              [previewMode]="true"
+              [previewLayers]="context.geoPreview.active_layers || null"
+              [zones]="$any(context.zones)"
+              [map]="context.map"
+              [mapSystem]="context.mapSystem"
+              [mapState]="previewMapState"
+              [selectedZoneId]="context.topZoneId"
+            />
+          </button>
+
+          @if (vesselsEnabled && vesselMarkers.length) {
+            <div
+              class="vessels-overlay-layer"
+              [class.zoom-abidjan]="vesselZoomMode === 'abidjan'"
+              role="img"
+              [attr.aria-label]="vesselOverlayAriaLabel()"
+            >
+              @for (marker of vesselMarkers; track marker.vessel.mmsi) {
+                <button
+                  type="button"
+                  class="vessel-pin"
+                  [class.highlighted]="marker.isHighlighted"
+                  [class.out-of-frame]="marker.outOfFrame"
+                  [style.left.%]="marker.xPct"
+                  [style.top.%]="marker.yPct"
+                  [attr.title]="vesselPinTitle(marker.vessel)"
+                  [attr.aria-label]="vesselPinTitle(marker.vessel)"
+                  (click)="onVesselPinClick(marker.vessel, $event)"
+                >
+                  <span class="vessel-glyph-wrap" [style.transform]="'rotate(' + marker.rotation + 'deg)'">
+                    <svg viewBox="-2 -2 4 4" class="vessel-glyph" aria-hidden="true">
+                      <polygon
+                        points="0,-1.6 1.1,1.2 -1.1,1.2"
+                        [attr.fill]="marker.fill"
+                        stroke="rgba(0,0,0,0.62)"
+                        stroke-width="0.32"
+                      />
+                    </svg>
+                  </span>
+                  @if (marker.isHighlighted) {
+                    <span class="vessel-pin-halo" aria-hidden="true"></span>
+                  }
+                </button>
+              }
+            </div>
+
+            <div class="vessels-overlay-controls" aria-label="Contrôles couche maritime">
+              <span class="vessel-count-chip" aria-live="polite">
+                <span class="vessel-count-dot" aria-hidden="true"></span>
+                {{ vesselMarkers.length }} navires AIS · Abidjan / Vridi
+              </span>
+              <button
+                type="button"
+                class="vessel-zoom-toggle"
+                [attr.aria-pressed]="vesselZoomMode === 'abidjan'"
+                (click)="toggleVesselZoom($event)"
+              >
+                @if (vesselZoomMode === 'country') {
+                  Zoom Abidjan
+                } @else {
+                  Vue pays
+                }
+              </button>
+            </div>
+          }
+        </div>
         <aside class="zone-scores" aria-label="Scores par zone">
           @if (!context.geoPreview.zone_scores.length) {
             <div class="zone-empty" role="status">
@@ -223,12 +309,12 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
       }
 
       @if (vesselsEnabled) {
-        <section
-          class="vessels-overlay"
+        <aside
+          class="vessels-info-strip"
           [class.has-error]="vesselError && !vesselMarkers.length"
-          aria-label="Couche maritime - navires AIS"
+          aria-label="Détail couche maritime AIS"
         >
-          <header class="vessels-head">
+          <header class="vessels-info-head">
             <div>
               <span class="eyebrow">Couche maritime · {{ vesselProviderLabel }}</span>
               <h3>Navires (AIS) · Abidjan / Vridi</h3>
@@ -239,27 +325,6 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
           </header>
 
           @if (vesselMarkers.length) {
-            <div class="vessels-canvas">
-              <svg viewBox="0 0 100 60" preserveAspectRatio="none" role="img" aria-label="Vue schématique navires">
-                <rect x="0" y="0" width="100" height="60" rx="2" fill="rgba(10,18,28,0.65)" stroke="rgba(255,255,255,0.06)" />
-                @for (marker of vesselMarkers; track marker.vessel.mmsi) {
-                  <g
-                    [attr.transform]="'translate(' + marker.cx + ' ' + marker.cy + ') rotate(' + marker.rotation + ')'"
-                    class="vessel-marker"
-                    [class.highlighted]="marker.isHighlighted"
-                    (click)="selectVessel(marker.vessel)"
-                  >
-                    <polygon
-                      points="0,-1.6 1.1,1.2 -1.1,1.2"
-                      [attr.fill]="marker.fill"
-                      stroke="rgba(0,0,0,0.55)"
-                      stroke-width="0.18"
-                    />
-                  </g>
-                }
-              </svg>
-            </div>
-
             <ul class="vessel-legend" aria-label="Légende navires">
               <li><span class="dot" [style.background]="vesselColor('cargo')"></span>Cargo</li>
               <li><span class="dot" [style.background]="vesselColor('tanker')"></span>Tanker</li>
@@ -340,7 +405,7 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
               <small>{{ vesselErrorMessage }}</small>
             </div>
           }
-        </section>
+        </aside>
       }
     </article>
   `,
@@ -382,14 +447,14 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
         color: var(--mission-text-primary);
       }
       .map-layout {
-        min-height: 0;
+        min-height: clamp(500px, 48vh, 640px);
         display: grid;
         grid-template-columns: minmax(0, 1fr) 144px;
         gap: var(--mission-space-3);
         align-items: stretch;
       }
       .map-canvas-wrap {
-        min-height: 280px;
+        min-height: 0;
         height: 100%;
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius-md);
@@ -418,10 +483,160 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
         display: block;
         height: 100%;
       }
+      .map-canvas-host {
+        position: relative;
+        min-width: 0;
+        height: 100%;
+        display: grid;
+        grid-template-rows: 1fr;
+      }
+      .map-canvas-host > .map-canvas-wrap {
+        grid-row: 1 / 2;
+        grid-column: 1 / 2;
+      }
+      /*
+       * Vessel overlay positioned on top of the workspace map.
+       * Insets approximate the MapLibre fitBounds() padding used in compact
+       * preview mode (20px in workspace-map.component.ts). The pins use a
+       * linear equirectangular projection of the country bbox onto the
+       * overlay rectangle — at Côte d'Ivoire latitudes the Mercator
+       * distortion is < 0.5% so a linear mapping is visually faithful.
+       */
+      .vessels-overlay-layer {
+        position: absolute;
+        inset: 20px;
+        z-index: 4;
+        pointer-events: none;
+      }
+      .vessels-overlay-layer.zoom-abidjan {
+        inset: 24px;
+      }
+      .vessel-pin {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        transform: translate(-50%, -50%);
+        pointer-events: auto;
+        cursor: pointer;
+        appearance: none;
+        display: grid;
+        place-items: center;
+        line-height: 0;
+      }
+      .vessels-overlay-layer.zoom-abidjan .vessel-pin {
+        width: 22px;
+        height: 22px;
+      }
+      .vessel-pin:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 3px;
+        border-radius: 999px;
+      }
+      .vessel-glyph-wrap {
+        display: block;
+        width: 100%;
+        height: 100%;
+        transform-origin: center;
+      }
+      .vessel-glyph {
+        display: block;
+        width: 100%;
+        height: 100%;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.65));
+      }
+      .vessel-pin.highlighted .vessel-glyph {
+        filter:
+          drop-shadow(0 0 4px rgba(180, 136, 255, 0.85))
+          drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+      }
+      .vessel-pin-halo {
+        position: absolute;
+        inset: -5px;
+        border-radius: 999px;
+        border: 1px dashed rgba(180, 136, 255, 0.78);
+        pointer-events: none;
+        animation: vesselPinPulse 2.2s ease-in-out infinite;
+      }
+      .vessel-pin.out-of-frame .vessel-glyph {
+        opacity: 0.55;
+      }
+      @keyframes vesselPinPulse {
+        0%, 100% { opacity: 0.35; transform: scale(1); }
+        50% { opacity: 0.85; transform: scale(1.18); }
+      }
+      .vessel-pin:hover .vessel-glyph,
+      .vessel-pin:focus-visible .vessel-glyph {
+        filter:
+          drop-shadow(0 0 6px rgba(255, 255, 255, 0.45))
+          drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+      }
+      .vessels-overlay-controls {
+        position: absolute;
+        left: 12px;
+        top: 12px;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        pointer-events: auto;
+      }
+      .vessel-count-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 9px;
+        border-radius: 999px;
+        border: 1px solid rgba(180, 136, 255, 0.45);
+        background: rgba(4, 8, 13, 0.82);
+        color: #d2c3ff;
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .vessel-count-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: #B488FF;
+        box-shadow: 0 0 4px rgba(180, 136, 255, 0.85);
+      }
+      .vessel-zoom-toggle {
+        appearance: none;
+        padding: 4px 9px;
+        border-radius: 999px;
+        border: 1px solid var(--mission-border);
+        background: rgba(4, 8, 13, 0.82);
+        color: var(--mission-text-secondary);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition:
+          border-color var(--mission-dur-fast) var(--mission-ease-out),
+          color var(--mission-dur-fast) var(--mission-ease-out);
+      }
+      .vessel-zoom-toggle:hover,
+      .vessel-zoom-toggle[aria-pressed='true'] {
+        border-color: rgba(180, 136, 255, 0.55);
+        color: #d2c3ff;
+      }
+      .vessel-zoom-toggle:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
+      }
       .zone-scores {
+        height: 100%;
         display: grid;
         gap: var(--mission-space-2);
-        align-content: start;
+        grid-auto-rows: minmax(0, 1fr);
+        align-content: stretch;
       }
       .zone-empty {
         padding: var(--mission-space-3);
@@ -432,6 +647,9 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
         text-align: center;
       }
       .zone-score {
+        min-height: 0;
+        display: grid;
+        align-content: center;
         padding: var(--mission-space-3);
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius-sm);
@@ -532,7 +750,7 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
       }
       .legend-item.elevated .legend-dot { background: var(--mission-warning); }
       .legend-item.critical .legend-dot { background: var(--mission-critical); }
-      .vessels-overlay {
+      .vessels-info-strip {
         display: grid;
         gap: var(--mission-space-2);
         padding: var(--mission-space-3);
@@ -540,14 +758,14 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
         border-radius: var(--mission-radius-md);
         background: linear-gradient(180deg, rgba(8, 14, 20, 0.55), rgba(4, 8, 13, 0.32));
       }
-      .vessels-overlay.has-error { border-style: dashed; }
-      .vessels-head {
+      .vessels-info-strip.has-error { border-style: dashed; }
+      .vessels-info-head {
         display: flex;
         align-items: flex-end;
         justify-content: space-between;
         gap: var(--mission-space-2);
       }
-      .vessels-head h3 {
+      .vessels-info-head h3 {
         margin: var(--mission-space-1) 0 0;
         font-size: var(--mission-text-sm);
         font-weight: 600;
@@ -558,21 +776,6 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
         font-family: var(--mission-font-mono);
         font-size: 10px;
         color: var(--mission-text-tertiary);
-      }
-      .vessels-canvas {
-        position: relative;
-        width: 100%;
-        aspect-ratio: 100 / 60;
-        border-radius: var(--mission-radius-sm);
-        overflow: hidden;
-      }
-      .vessels-canvas svg { width: 100%; height: 100%; display: block; }
-      .vessel-marker { cursor: pointer; transition: filter 120ms ease; }
-      .vessel-marker:hover polygon { filter: brightness(1.4); }
-      .vessel-marker.highlighted polygon {
-        stroke: rgba(255, 255, 255, 0.85);
-        stroke-width: 0.32;
-        filter: drop-shadow(0 0 1.4px rgba(180, 136, 255, 0.9));
       }
       .vessel-legend {
         list-style: none;
@@ -788,8 +991,18 @@ const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
         color: var(--mission-text-tertiary);
       }
       @media (max-width: 900px) {
-        .map-layout { grid-template-columns: 1fr; }
-        .zone-scores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .map-layout {
+          min-height: auto;
+          grid-template-columns: 1fr;
+        }
+        .map-canvas-host {
+          min-height: 360px;
+        }
+        .zone-scores {
+          height: auto;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-auto-rows: auto;
+        }
       }
     `,
   ],
@@ -822,6 +1035,8 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   activeWebcam: ActiveWebcam | null = null;
   webcamDrawerOpen = false;
   webcamReloadKey = Date.now();
+  vesselZoomMode: VesselZoomMode = 'country';
+  previewMapState: Record<string, any> | null = null;
   readonly HIGHLIGHT_VIOLET = HIGHLIGHT_VIOLET;
 
   private readonly api = inject(ApiService);
@@ -860,6 +1075,44 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
 
   vesselColor(kind?: string): string {
     return VESSEL_TYPE_COLORS[(kind || 'other').toLowerCase()] || VESSEL_TYPE_COLORS['other'];
+  }
+
+  onVesselPinClick(vessel: VesselPosition, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.selectVessel(vessel);
+  }
+
+  toggleVesselZoom(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.vesselZoomMode = this.vesselZoomMode === 'country' ? 'abidjan' : 'country';
+    this.applyVesselZoomMode();
+  }
+
+  vesselPinTitle(vessel: VesselPosition): string {
+    const parts: string[] = [vessel.name];
+    if (vessel.mmsi) parts.push(`MMSI ${vessel.mmsi}`);
+    if (vessel.vessel_type) parts.push(vessel.vessel_type);
+    if (vessel.destination) parts.push(`→ ${vessel.destination}`);
+    return parts.filter(Boolean).join(' · ');
+  }
+
+  vesselOverlayAriaLabel(): string {
+    const count = this.vesselMarkers.length;
+    if (this.vesselZoomMode === 'abidjan') {
+      return `Couche maritime AIS - ${count} navires - zoom Abidjan / Vridi`;
+    }
+    return `Couche maritime AIS - ${count} navires positionnés sur la côte sud (Abidjan / Vridi)`;
+  }
+
+  private applyVesselZoomMode(): void {
+    const camera = this.vesselZoomMode === 'abidjan' ? ABIDJAN_CAMERA : COUNTRY_CAMERA;
+    this.previewMapState = { camera: { ...camera } };
+    if (this.vesselsResponse) {
+      this.vesselMarkers = this.buildMarkers(this.vesselsResponse);
+    }
+    this.cdr.markForCheck();
   }
 
   selectVessel(vessel: VesselPosition): void {
@@ -1047,22 +1300,21 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   private buildMarkers(response: MaritimeVesselsResponse): VesselMarker[] {
     const vessels = response.vessels || [];
     if (!vessels.length) return [];
-    const lats = vessels.map((v) => v.lat);
-    const lons = vessels.map((v) => v.lon);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
-    const dLat = Math.max(0.01, maxLat - minLat);
-    const dLon = Math.max(0.01, maxLon - minLon);
+    const bbox = this.vesselZoomMode === 'abidjan' ? ABIDJAN_BBOX : COUNTRY_BBOX;
+    const dLon = bbox.east - bbox.west;
+    const dLat = bbox.north - bbox.south;
+    if (dLon <= 0 || dLat <= 0) return [];
     return vessels.map((vessel) => {
-      const x = ((vessel.lon - minLon) / dLon) * 96 + 2;
-      const y = 58 - ((vessel.lat - minLat) / dLat) * 56;
+      const rawX = ((vessel.lon - bbox.west) / dLon) * 100;
+      const rawY = ((bbox.north - vessel.lat) / dLat) * 100;
+      const outOfFrame = rawX < 0 || rawX > 100 || rawY < 0 || rawY > 100;
+      const xPct = Math.max(0, Math.min(100, rawX));
+      const yPct = Math.max(0, Math.min(100, rawY));
       const isHighlighted = Boolean(vessel.linked_cargo_id || vessel.highlight);
       return {
         vessel,
-        cx: x,
-        cy: y,
+        xPct,
+        yPct,
         fill: isHighlighted ? HIGHLIGHT_VIOLET : this.vesselColor(vessel.vessel_type),
         rotation: Number.isFinite(vessel.heading as number)
           ? (vessel.heading as number)
@@ -1070,6 +1322,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
             ? (vessel.cog as number)
             : 0,
         isHighlighted,
+        outOfFrame,
       };
     });
   }

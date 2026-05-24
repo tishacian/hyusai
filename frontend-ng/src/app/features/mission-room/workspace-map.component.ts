@@ -269,7 +269,7 @@ type BasemapOption = {
       }
 
       .workspace-map.preview-mode {
-        min-height: 280px;
+        min-height: 100%;
         height: 100%;
         pointer-events: none;
       }
@@ -287,8 +287,8 @@ type BasemapOption = {
       }
 
       .workspace-map.preview-mode {
-        min-height: 280px;
-        height: 280px;
+        min-height: 100%;
+        height: 100%;
         pointer-events: none;
       }
 
