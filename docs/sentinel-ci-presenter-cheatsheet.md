@@ -1,95 +1,74 @@
 % SENTINEL-CI — Cheat-sheet présentateur AYA
-% Démo Vice-Président
-% Lundi 25 mai 2026
+% Démo Vice-Président — Lundi 25 mai 2026, 09h00
+% Source de vérité : pack résolveur `sentinel_ci_aya_v1` à HEAD `6335d460`
 
-## Cadre
+## En-tête
 
-- **Objectif** : rester en permanence dans le pack résolveur déterministe `sentinel_ci_aya_v1` afin que chaque prompt déclenche l'action attendue plutôt que de retomber en RAG générique, et préserver la cohérence narrative Napié (Centre Drones, cargo MV Atlantic Trader, PV douanes du 18 mai, Préfet Nawa, cacao).
-- **URL** : `https://agentium.papai.ai/hypervisor/mission-room/cockpit`
-- **Workspace** : `sentinel-ci` (header `X-Workspace-Slug: sentinel-ci`).
-- **Profil assistant** : `vigie_executive`.
-- **Seuil résolveur** : `min_confidence = 0.78` (cf. `resolve_action` dans `backend/app/services/actions/registry.py`).
-- **Règles d'or** : (1) toujours préfixer la phrase par « AYA, … » (ou la finir par « , AYA ») pour activer le wake-word ; (2) préférer la forme officielle ci-dessous ; (3) si la première tentative tombe en RAG, reformuler avec un des mots-clés sentinelles indiqués dans la colonne « Mot pivot ».
+- **Objectif** : rester dans le pack déterministe pour neutraliser l'hallucination — chaque prompt ci-dessous est garanti copy-paste (vérifié contre le code à HEAD `6335d460` et les QA post-deploy S1/S2 du 24 mai).
+- **URL** : `https://agentium.papai.ai/hypervisor/mission-room/cockpit` — **workspace** `sentinel-ci` — **profil** `vigie_executive` — **compte** `thibaud.ishacian@datategy.net`.
+- **Tip prod requis** : `6335d460` (durcissement confirm + `aya.show_maritime_traffic`). À déployer **avant 09h00**. Sans ce tip, S1.5 plante et tout filler poli matche le yes-stub.
+- **Règles d'or** :
+  1. Démarrer chaque demande par un **verbe d'action** (« pourquoi », « montre », « rédige », « démarre », « décide », « résume ») ou par « **AYA, …** ».
+  2. **Ne jamais** ouvrir une phrase nouvelle par un filler poli isolé (« OK… », « OK très bien… », « D'accord… ») — risque de matcher `voice.confirm_yes`. Si filler, **enchaîner immédiatement** sur le verbe (« OK, montre la situation au port » — la longueur > 4 tokens désactive le guard confirm).
+  3. Si AYA répond hors-sujet ou en RAG long : recommencer avec la **forme canonique** du tableau (colonne « Prompt principal »).
 
 ## Wake-word
 
-- « **AYA** » seul → réponse `aya.acknowledge_presence` : « Je suis là, M. le Vice Président, à votre écoute. » Utile pour ouvrir la séquence sans poser de question.
-- « **AYA, …** » en tête, ou « …, AYA » en fin de phrase → le mot `aya` est retiré (`_strip_wake_word`) avant scoring : la query est traitée comme la phrase sans wake-word.
-- Variantes acceptées par le pack acknowledge : `aya tu m'entends`, `aya tu es là`, `aya présente`, `aya écoute`, `ok aya`, `hey aya`.
+| Code | Prompt | Effet |
+|---|---|---|
+| W.1 | `AYA` | `aya.acknowledge_presence` — « Je suis là, Monsieur le Vice-Président, à votre écoute. » |
+| W.2 | `AYA, <suite>` | wake-word retiré avant scoring ; la suite est routée normalement. |
 
-## Séquence 1 — drill causal Nord (5 min)
+## Tableau S1 — Drill causal Nord
 
-| Étape | Prompt recommandé (à dire littéralement) | Action ciblée | Variantes acceptables | À éviter |
-|---|---|---|---|---|
-| Ouverture drill | « AYA, pourquoi la situation Nord est-elle tendue ? » | `aya.explain_why` | « pourquoi le Nord est tendu », « quelle est la situation au Nord », « pourquoi Nord tendu » (ultra-court) | « c'est quoi qui cloche dans le Nord » sans mot pivot (oral familier non couvert sans `nord`) ; « why is the north tense » côté EN (couvert mais peut être lu en anglais) |
-| Drill projet | « Et pourquoi ce projet est-il en retard ? » | `aya.explain_why` (suite chaîne causale) | « pourquoi ce projet est en retard », « pourquoi le projet Centre Drones » | « il bloque pourquoi » (sans verbe « pourquoi » + sujet) |
-| Drill cargaison | « Pourquoi cette cargaison est-elle bloquée ? » | `aya.explain_why` → `next_focus = customs-record` | « pourquoi cette cargaison est bloquée », « pourquoi MV Atlantic Trader bloqué », « **explique le cargo Atlantic Trader** » (`aya.show_vessel_evidence`) | « ça coince où » (RAG fallback) |
-| Voir PV douanes | « AYA, ouvre le PV douanes. » | `aya.show_customs_record` | « montre le PV douanes », « voir le PV des douanes », « le PV du 18 mai sur Atlantic Trader » (tie-breaker actif) | « voir PV » seul si le contexte chat est vide (l'ultra-court est couvert mais préférer la forme verbale) ; « show me the customs report » côté EN (couvert mais préfère le FR pour la suite des citations) |
-| Préparer dérogation | « Oui, prépare la dérogation. » (réponse à la proposition) puis si nécessaire « AYA, rédige le courrier de dédouanement pour Atlantic Trader. » | `aya.draft_customs_email` (le « oui » applique la proposition `aya.propose_customs_email`) | « rédige le mail dédouanement », « email dérogation », « courrier dédouanement Atlantic Trader » | « on prépare un email » sans `douanes` (couvert via `propose_customs_email` uniquement, pas `draft_*`) |
-
-**Plan B vocal si fallback RAG sur le drill Nord** : reformuler avec « AYA, **pourquoi le Nord est-il tendu** ? » (forme la plus courte qui matche). Si la cargaison ne déclenche pas, repasser par « pourquoi cette cargaison est bloquée » (avec « est bloquée » en clair).
-
-## Transition agenda
-
-| Prompt recommandé | Action ciblée | Variantes acceptables | À éviter |
+| Étape | Prompt principal | Variante OK | Effet attendu |
 |---|---|---|---|
-| « AYA, quel est mon prochain rendez-vous ? » | `aya.open_next_meeting` | « prochain rdv », « c'est quoi mon prochain rendez-vous », « mon prochain RDV avec le Préfet Nawa », « next meeting » | « quoi maintenant » seul (couvert mais ambigu en démo) ; « what's my next meeting » côté EN (couvert, mais préférer le FR pour rester sur le narratif Nawa) |
+| S1.1 | `AYA, pourquoi la situation Nord est-elle tendue ?` | `pourquoi le Nord est-il tendu` / `pourquoi nord tendu` | `aya.explain_why` — narrative Napié / Aerostar / Vridi / 120 j. |
+| S1.2 | `AYA, ouvre le PV douanes.` | `montre le PV douanes` / `voir le PV des douanes` / `pv douanes` | `aya.show_customs_record` — drawer document_preview, PV 18 mai, page 2. |
+| S1.3 | `AYA, focus sur la zone Nord et le projet Napié.` | `zoom sur la région Nord` / `projet sensible Nord` | `aya.focus_zone_with_project` — carte recadrée sur Korhogo/Poro + highlight projet drones. |
+| S1.4 | `AYA, montre le cargo Atlantic Trader.` | `montre le navire MV Atlantic Trader` / `explique le cargo Atlantic Trader` / `voir flux entrée port` | `aya.show_vessel_evidence` — panel maritime, AIS pin, webcam APM Apapa, propose PV. |
+| S1.5 | `AYA, montre la situation au port.` (NOUVEAU `6335d460`) | `situation au port` / `ouvre la vue port` / `état du port Abidjan` | `aya.show_maritime_traffic` — vue port Abidjan (map + panel maritime + cargo). |
+| S1.6 | `AYA, rédige le courrier de dédouanement pour Atlantic Trader.` | `rédige le mail dédouanement` / `email dérogation Atlantic Trader` | `aya.draft_customs_email` — drawer email pré-rédigé, recipient DGD Abidjan. |
 
-> Note : il n'existe pas d'action dédiée `aya.open_calendar` dans le pack v1 ; la vue agenda complète s'ouvre via la nav (item « Agenda »). Voir backlog post-démo 4.x pour l'ajout éventuel d'une intent `aya.open_calendar`.
+## Tableau Transition
 
-## Séquence 2 — Préfet Nawa (7 min)
-
-| Étape | Prompt recommandé | Action ciblée | Confirmation | Variantes acceptables | À éviter |
-|---|---|---|---|---|---|
-| Résumer rapport préfet | « AYA, donne-moi le résumé du rapport préfet. » | `aya.summarize_last_exchanges` | non (`direct_safe`) | « résume-moi le rapport du préfet », « rapport préfet Nawa », « résume Préfet Nawa », « résume Nawa » | « résume Préfet » trop court reste tangent ; « summarize the prefect's report » couvert mais bascule en EN |
-| Préconisations cacao | « AYA, donne-moi des préconisations sur le cacao. » | `aya.recommend_cacao` | non (`direct_safe`) | « recommandations cacao », « options de diversification cacao », « préco cacao » | « t'as des idées pour diversifier le cacao » (forme orale, couvert via alias mais préférer la forme verbale) ; « cacao » seul (trop ambigu) |
-| Générer rapport complet | « AYA, génère le rapport complet. » | `aya.draft_strategic_report` | non | « le rapport complet », « prépare le rapport complet », « génère le rapport stratégique » | « rapport » seul (RAG fallback) |
-| Patch agenda Conseil | « AYA, ajoute le point cacao à l'ordre du jour. » | `aya.update_meeting_agenda` | **OUI** (`confirm`) | « ajoute à l'ordre du jour », « mets à jour l'ordre du jour », « **mets à jour l'ODJ :** *sujet libre* » (ex. « dérogation douanes »), « propose cet arbitrage au Préfet » | omettre « ordre du jour » → tombe en RAG |
-| Confirmation patch | « Oui, valide. » | `aya.confirm_agenda_patch` (`direct_safe`) | n/a (résolveur applique) | « valide la mise à jour de l'ordre du jour », « applique l'ordre du jour », « patch agenda » | un simple « ok » sans contexte de proposition (le système ne consomme la confirmation que si une proposition est en attente) |
-| Démarrer la réunion | « AYA, démarre la réunion. » | `aya.start_meeting` | non | « démarre la réunion », « lance la réunion », « ouvre le meeting », « lance la réunion avec le Préfet » | « on commence » seul si aucun meeting en contexte ; « start meeting » côté EN (couvert) |
-| Arbitrer décision | « AYA, décide option B. » | `aya.log_decision` | **OUI** (`confirm`) | « valide l'option B », « choisis l'option B », « j'arbitre option B », « décide option B » | « option B » seul (RAG fallback) |
-| Recall décisions passées | « AYA, qu'avons-nous décidé la dernière fois ? » | `aya.recall_past_decisions` | non | « rappelle-moi nos décisions », « décisions passées », « qu'avons-nous décidé » | « on a décidé quoi » (forme orale non couverte) |
-
-**Plan B vocal si fallback RAG sur S2** :
-
-- Pour le résumé du rapport : reformuler avec **« résume-moi le rapport du préfet »** (forme verbale complète).
-- Pour préconisations cacao : insister sur le mot **« diversification cacao »** ou **« recommandations cacao »**.
-- Pour `update_meeting_agenda` : toujours inclure le segment **« à l'ordre du jour »**.
-- Pour `log_decision` : préfixer par **« décide »** ou **« valide l'option »** explicitement (un nom d'option seul, comme « B », ne déclenche pas l'action).
-
-## Tableau de bord récap (à garder sous les yeux)
-
-| Étape démo | Action manifest | Prompt à dire | Confirmation oui/non |
+| Étape | Prompt principal | Variante OK | Effet attendu |
 |---|---|---|---|
-| Wake-word | `aya.acknowledge_presence` | « AYA » | non |
-| Briefing prio (option ouverture) | `aya.priority_summary` | « AYA, donne-moi le cockpit 60 secondes. » | non |
-| Drill Nord | `aya.explain_why` | « AYA, pourquoi la situation Nord est-elle tendue ? » | non |
-| Voir PV | `aya.show_customs_record` | « AYA, ouvre le PV douanes. » | non |
-| Proposer dérogation | `aya.propose_customs_email` | « AYA, propose un mail dédouanement. » | non |
-| Rédiger courrier | `aya.draft_customs_email` | « AYA, rédige le courrier de dédouanement pour Atlantic Trader. » | non |
-| Prochain RDV | `aya.open_next_meeting` | « AYA, quel est mon prochain rendez-vous ? » | non |
-| Résumé Nawa | `aya.summarize_last_exchanges` | « AYA, donne-moi le résumé du rapport préfet. » | non |
-| Préco cacao | `aya.recommend_cacao` | « AYA, donne-moi des préconisations sur le cacao. » | non |
-| Rapport complet | `aya.draft_strategic_report` | « AYA, génère le rapport complet. » | non |
-| Patch agenda | `aya.update_meeting_agenda` | « AYA, ajoute le point cacao à l'ordre du jour. » | **OUI** |
-| Confirmation patch | `aya.confirm_agenda_patch` | « Oui, valide. » | n/a |
-| Démarrer réunion | `aya.start_meeting` | « AYA, démarre la réunion. » | non |
-| Arbitrer décision | `aya.log_decision` | « AYA, décide option B. » | **OUI** |
-| Recall décisions | `aya.recall_past_decisions` | « AYA, qu'avons-nous décidé la dernière fois ? » | non |
+| T.1 | `AYA, quel est mon prochain rendez-vous ?` | `prochain rdv` / `prochaine réunion` / `next meeting` | `aya.open_next_meeting` — navigate agenda, highlight `evt-prefet-nawa` (11h00, Soubre). |
 
-## À éviter en démo (formes encore fragiles)
+## Tableau S2 — Préfet Nawa (cacao)
 
-D'après le rapport de robustesse résolveur du 24 mai 2026 (`docs/sentinel-ci-aya-resolver-robustness-2026-05-24.md`), les formes suivantes restent risquées même après le durcissement Vague 3 :
+| Étape | Prompt principal | Variante OK | Effet attendu |
+|---|---|---|---|
+| S2.1 | `AYA, donne-moi le résumé du rapport préfet.` | `résume-moi le rapport du préfet` / `derniers échanges` | `aya.summarize_last_exchanges` — synthèse Nawa/Soubre + propose préconisations cacao. |
+| S2.2 | `AYA, résume le rapport Préfet Nawa.` | `résume Préfet Nawa` / `résume Nawa` | `aya.summarize_last_exchanges` — même handler, déclenche skill `summarize_long_document_v1` (long doc). |
+| S2.3 | `AYA, donne-moi des préconisations sur le cacao.` | `recommandations cacao` / `diversification cacao` | `aya.recommend_cacao` — 3 leviers chiffrés (transformation 4,2 Mds FCFA, coop, PPP). |
+| S2.4 | `AYA, génère le rapport complet.` | `prépare le rapport complet` / `génère le rapport stratégique` | `aya.draft_strategic_report` — drawer PDF (12 p.), audit `report.strategic.generated`. |
+| S2.5 | `AYA, ajoute le point cacao à l'ordre du jour.` | `mets à jour l'ordre du jour` / `patch l'agenda` | `aya.update_meeting_agenda` — **dire « cacao »** (sujet hardcodé en prod ; commit `e40432b2` paramétrable pas encore déployé). Stage `pending_agenda_patch`, attend confirmation. |
+| S2.6 | `Oui, valide.` | `valide la mise à jour de l'ordre du jour` / `applique l'ordre du jour` | `voice.confirm_yes` → résout `aya.confirm_agenda_patch` via awaiting bucket. ODJ patché. |
+| S2.7 | `AYA, démarre la réunion.` | `commence la réunion` / `lance la réunion` / `on y va` | `aya.start_meeting` — navigate `/agenda/meeting/{id}`, set `current_meeting`. |
+| S2.8 | `AYA, décide option B.` | `valide l'option B` / `choisis l'option B` / `j'arbitre option B` | `aya.log_decision` — décision option B persistée (diversification anacarde). |
+| S2.9 | `AYA, qu'avons-nous décidé la dernière fois ?` | `rappelle-moi nos décisions` / `décisions passées` | `aya.recall_past_decisions` — top-5 décisions, nouvelle en tête. |
 
-- **Anglicismes sans alias FR** : « give me my morning briefing » est couvert, mais d'autres anglicismes spontanés (« show me the cargo », « what's happening up north ») ne le sont pas. En cas d'anglicisme, viser un anglicisme déjà inscrit au pack (`morning briefing`, `next meeting`, `start meeting`, `customs report`, `draft a customs email`, `why is the north tense`, `cacao diversification recommendations`).
-- **Ultra-courts ≤ 3 mots qui sortent du pack** : « voir cargo », « préco », « rapport », « décision » → fallback RAG. Préférer les formes verbales recommandées ci-dessus.
-- **Formes orales familières non listées** : « on se la fait », « vas-y », « bon, allez ». Le pack couvre « on y va », « on commence », « c'est parti » seulement pour `aya.start_meeting`.
-- **Nom propre seul** : « Préfet », « Napié » seul ne déclenche pas le drill. Toujours coller un verbe (« résume Préfet », « pourquoi Napié »).
-- **MV Atlantic Trader sans verbe douanes** : « montre Atlantic Trader » → bascule sur `aya.show_vessel_evidence` (intentionnel). Pour rester sur le PV, dire explicitement « PV Atlantic Trader » ou « courrier dédouanement Atlantic Trader » (le tie-breaker FR vessel↔douanes route vers `show_customs_record` / `draft_customs_email`).
+## À ne PAS dire (bloc rouge)
 
-## Plan B vocal général (résolveur tombe en RAG)
+- `OK` seul / `très bien` seul / `D'accord` seul → matche `voice.confirm_yes` (le guard `6335d460` désamorce les fillers > 4 tokens, mais un filler isolé reste piégeux). **Toujours enchaîner sur un verbe.**
+- Ultra-courts ambigus (`le rapport`, `la décision`, `option B` seul, `cacao` à sec hors S2.3, `Préfet` seul, `Napié` seul) → `no_match` puis fallback RAG long.
+- Anglicismes hors pack (`forecast cocoa`, `show port view`, `show me the cargo`, `what's happening up north`) → `no_match`. Anglicismes **couverts** : `morning briefing`, `next meeting`, `start meeting`, `customs report`, `draft a customs email`, `why is the north tense`, `cacao diversification recommendations`, `show the port situation`.
+- `M. le Vice Président` / `M. le Vice-Président` → désormais **toujours** dire et écrire **« Monsieur le Vice-Président »** (TTS sinon prononce « M » comme la lettre).
+- `AYA, explique le cargo Atlantic Trader` → couvert par `6335d460` (`explique le cargo atlantic trader`), mais en cas de doute préférer la forme canonique S1.4 (`montre le cargo Atlantic Trader`).
 
-1. Reformule en utilisant **le mot pivot** du tableau ci-dessus (par ex. : « ordre du jour », « PV douanes », « rapport préfet », « diversification cacao », « décide option »).
-2. Si toujours en RAG : reprends la **forme officielle** (colonne « Prompt à dire »).
-3. En dernier recours : actionne le bouton équivalent dans le cockpit (chip status bar, drawer ouvert) — toutes les actions du tableau récap sont aussi exposées en `ui` surface.
+## Plan B vocal
 
+- **Réponse longue/hésitante sans `action_effect` UI** (drawer ou map ne bouge pas) : fallback RAG silencieux. Recommencer avec la phrase canonique du tableau, en insistant sur le **mot pivot** (`pourquoi nord`, `PV douanes`, `ordre du jour`, `diversification cacao`, `décide option`, `situation au port`).
+- **AYA prononce mal un nom** (Napié, Nawa, Aerostar, Atlantic Trader) : continuer naturellement, **ne pas relancer** — pas d'impact sur la suite des matches.
+- **Confirm `Oui, valide` ne déclenche rien** : vérifier qu'une proposition est bien staged (drawer `assistant-propose` visible). Sinon, redire la commande qui propose (S2.5).
+- **Filler poli involontaire au début** (`OK…`) : ajouter immédiatement un verbe — le guard > 4 tokens désactive le match confirm.
+
+## Annexe
+
+- **Pack résolveur** : `sentinel_ci_aya_v1` dans `backend/app/services/actions/registry.py` (lignes 274-1041).
+- **Tip prod requis** : `6335d460` — *Fix demo-eve bugs: confirm-stub guard, zone-nord focus, panel snap-open, "Monsieur" TTS*.
+- **Baselines de confiance** : `docs/sentinel-ci-qa-postdeploy-s1-2026-05-24.md` (6 PASS / 1 WARN), `docs/sentinel-ci-qa-postdeploy-s2-2026-05-24.md` (9 PASS / 1 WARN).
+- **Seuil résolveur** : `min_confidence = 0.78` ; guard confirm : `_CONFIRM_MAX_TOKENS = 4`.
+- **Dernier audit cheat-sheet** : 25 mai 2026, 00h20 (réécriture concise pré-démo, alignée HEAD `6335d460`).
