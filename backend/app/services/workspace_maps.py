@@ -16,6 +16,11 @@ from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
 from app.models.workspace_map import WorkspaceMap, WorkspaceMapLayer, WorkspaceMapScore, WorkspaceMapSignal, WorkspaceMapZone
 from app.services.audit_logger import emit_audit_event
+from app.services.maritime_tracking import (
+    fetch_snapshot as fetch_maritime_snapshot,
+    fetch_vessels_in_bbox,
+    serialize_vessel,
+)
 from app.services.scenario_engine import generate_scenarios
 from app.services.workspace_jobs import transition_job
 
@@ -801,6 +806,10 @@ def _layer_source_kind(key: str) -> str:
 
 
 def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
+    try:
+        vessel_count = len(fetch_vessels_in_bbox(limit=500))
+    except Exception:  # noqa: BLE001
+        vessel_count = 0
     return {
         "territorial-risk": len(zones),
         "open-intelligence": sum(len(zone.get("drivers") or zone.get("signals") or []) for zone in zones),
@@ -808,7 +817,7 @@ def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
         "strategic-projects": sum(1 for zone in zones if zone.get("scenario_options")),
         "agenda-windows": sum(len(zone.get("recommended_windows") or []) for zone in zones),
         "visual-streams": 1,
-        "maritime-traffic": len(MARITIME_PORTS) + len(MARITIME_EVENTS),
+        "maritime-traffic": len(MARITIME_PORTS) + len(MARITIME_EVENTS) + vessel_count,
         "preventive-actions": sum(len(zone.get("recommendations") or []) for zone in zones),
     }
 
@@ -1138,37 +1147,85 @@ def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
             },
         },
     ]
+    vessel_features = _maritime_vessel_features()
     return {
         "maritime_area": operating_area,
         "maritime_points": {"type": "FeatureCollection", "features": point_features},
         "maritime_routes": {"type": "FeatureCollection", "features": route_features},
         "maritime_density": {"type": "FeatureCollection", "features": density_features},
+        "maritime_vessels": {"type": "FeatureCollection", "features": vessel_features},
     }
+
+
+def _maritime_vessel_features() -> list[dict[str, Any]]:
+    """Return AIS-like vessel positions as GeoJSON Point features.
+
+    Linked to the same MMSI/IMO as ``MARITIME_EVENTS['cargo-abidjan-supply-001']``
+    so the cargo card and the vessel marker reference the same physical ship.
+    """
+    snapshot = fetch_maritime_snapshot()
+    features: list[dict[str, Any]] = []
+    for vessel in snapshot.vessels:
+        properties = serialize_vessel(vessel)
+        properties.update(
+            {
+                "kind": "vessel_position",
+                "layer_key": "maritime-traffic",
+                "source_kind": "maritime_vessels",
+                "visual_role": "vessel_live",
+                "render_tone": "vessel_highlight" if vessel.highlight else "vessel_position",
+                "tooltip_title": vessel.name,
+                "tooltip_subtitle": (
+                    f"{(vessel.vessel_type or 'navire').upper()} · "
+                    f"MMSI {vessel.mmsi}"
+                    + (f" · IMO {vessel.imo}" if vessel.imo else "")
+                ),
+            }
+        )
+        features.append(
+            {
+                "type": "Feature",
+                "id": f"vessel-{vessel.mmsi}",
+                "geometry": {"type": "Point", "coordinates": [vessel.lon, vessel.lat]},
+                "properties": properties,
+            }
+        )
+    return features
 
 
 def _maritime_snapshot_payload() -> dict[str, Any]:
     density_zones = _maritime_density_zones()
     disruptions = _maritime_disruptions()
+    vessel_snapshot = fetch_maritime_snapshot()
+    vessels = fetch_vessels_in_bbox(limit=50)
+    limitations = [
+        "Pas de promesse de live AIS sans provider active.",
+        "Les points navires sont un snapshot demonstratif et non un suivi individuel.",
+    ]
+    limitations.extend(vessel_snapshot.limitations or [])
     return {
         "mode": "snapshot_demo_safe",
-        "provider": "demo-safe / AIS optional",
-        "provider_configured": False,
+        "provider": f"demo-safe / AIS={vessel_snapshot.provider}",
+        "provider_configured": vessel_snapshot.source != "baseline",
         "ports": MARITIME_PORTS,
         "events": MARITIME_EVENTS,
+        "vessels": [serialize_vessel(vessel) for vessel in vessels],
+        "vessels_provider": vessel_snapshot.provider,
+        "vessels_source": vessel_snapshot.source,
+        "vessels_embed_url": vessel_snapshot.embed_url,
+        "vessels_attribution": vessel_snapshot.attribution,
+        "vessels_fetched_at": vessel_snapshot.fetched_at,
         "bbox": {"west": -9.35, "south": 3.95, "east": -1.05, "north": 5.25},
         "density_zones": density_zones,
         "disruptions": disruptions,
         "freshness": {
             "status": "ready",
             "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-            "ttl_seconds": 300,
+            "ttl_seconds": min(300, vessel_snapshot.ttl_seconds or 300),
             "cache_policy": "bbox_quantized_snapshot",
         },
         "summary": "Lecture portuaire demo-safe : Abidjan et San Pedro, corridors Golfe de Guinee, densite indicative et liens douanes/projets.",
-        "limitations": [
-            "Pas de promesse de live AIS sans provider active.",
-            "Les points navires sont un snapshot demonstratif et non un suivi individuel.",
-        ],
+        "limitations": list(dict.fromkeys(limitations)),
     }
 
 

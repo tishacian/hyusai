@@ -126,22 +126,374 @@ ABIDJAN_NET_VISUAL_SOURCES: tuple[dict[str, Any], ...] = (
         "default_vigilance_score": 34,
     },
     {
-        # Phase C - webcam APM Apapa (Lagos) utilisee comme reference visuelle
-        # demo pour le port d'Abidjan. Demo disclaimer affiche cote UI.
-        "name": "APM Terminals - Apapa (demo Abidjan)",
-        "description": "Flux live public APM Terminals Apapa (Lagos) utilise comme reference visuelle port.",
-        "source_url": "https://www.apmterminals.com/en/apapa/about/our-terminal",
-        "source_page": "https://www.apmterminals.com/en/apapa",
-        "embed_url": "https://www.apmterminals.com/en/apapa/about/our-terminal",
+        # APM Terminals Apapa gate-cameras (Lagos) — utilisée comme reference
+        # visuelle demo pour le port d'Abidjan (page corporate publique de gate
+        # cameras). La page principale https://www.apmterminals.com/en/apapa/
+        # practical-information/gate-cameras impose ``frame-ancestors 'self'``
+        # via CSP : impossible de l'iframer directement. En revanche les deux
+        # snapshots JPG sont publics (TTL 5 min cote CDN) — on les sert via le
+        # endpoint proxy `/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-1`.
+        "name": "APM Terminals · Apapa Gate Camera 1 (demo Abidjan)",
+        "description": (
+            "Snapshot CCTV public APM Terminals Apapa (Lagos), gate-camera #1, "
+            "utilise comme reference visuelle demo pour le port d'Abidjan. "
+            "Page CSP-bloquee en iframe ; le snapshot JPG est servi via le "
+            "proxy SENTINEL-CI (cache 30 s, fallback statique embarque)."
+        ),
+        "source_url": "/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-1",
+        "source_page": "https://www.apmterminals.com/en/apapa/practical-information/gate-cameras",
+        "embed_url": "/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-1",
         "region": "Demo : Apapa (Lagos)",
-        "map_location": {"label": "Port d'Abidjan - Vridi (vue demo Apapa)", "longitude": -4.018, "latitude": 5.244, "zone_id": "zone-sud", "zoom": 12.0},
+        "map_location": {"label": "Port d'Abidjan - Vridi (vue demo Apapa gate #1)", "longitude": -4.018, "latitude": 5.244, "zone_id": "zone-sud", "zoom": 12.0},
         "priority": 9,
         "default_vigilance_score": 41,
-        "label_disclaimer": "Demo : Apapa (Lagos)",
-        "stream_kind": "stream_embed",
+        "label_disclaimer": "Reference visuelle - demo Abidjan (source : APM Terminals Apapa, Lagos)",
+        "stream_kind": "port_webcam_proxy",
         "best_use": "port_traffic_observation",
         "evidence_grade": "demo_reference",
-        "attribution": "APM Terminals",
+        "attribution": "APM Terminals (Apapa) - snapshot public",
+        "adapter": "http_image",
+        "metadata_overrides": {
+            "provider": "apm_terminals_apapa",
+            "video_provider": "apm_terminals_cctv_api",
+            "preferred_render": "snapshot",
+            "embed_status": "csp_blocked_use_proxy",
+            "fallback_reason": "page_cps_frame_ancestors_self",
+            "layer_kind": "port_webcam",
+            "stream_kind": "port_webcam_proxy",
+            "refresh_seconds": 30,
+            "resolution_tier": "public_cctv_jpg",
+            "resolution_label": "Snapshot CCTV public 800x600",
+            "evidence_grade": "demo_reference",
+            "best_use": "Vignette port pour drill cargo (MV Atlantic Trader / Vridi).",
+            "analysis_mode": "snapshot_to_vlm_ready",
+            "attribution": "APM Terminals Apapa CCTV - reference visuelle demo Abidjan",
+            "timelapse_policy": "no_recording_30s_cache",
+            "kind": "port_webcam",
+            "proxy_source_id": "apm-apapa-gate-1",
+            "auto_select_for_mmsis": ["627012345"],
+            "auto_select_for_cargo_ids": ["cargo-abidjan-supply-001"],
+        },
+    },
+    {
+        # APM Terminals Apapa gate-cameras (Lagos) — deuxième angle gate
+        # camera. Source HD 800x450 publique, servie via le meme proxy.
+        "name": "APM Terminals · Apapa Gate Camera 2 (demo Abidjan)",
+        "description": (
+            "Snapshot CCTV public APM Terminals Apapa (Lagos), gate-camera #2, "
+            "vue complementaire de la gate #1. Servi via le proxy SENTINEL-CI "
+            "(cache 30 s, fallback statique embarque)."
+        ),
+        "source_url": "/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-2",
+        "source_page": "https://www.apmterminals.com/en/apapa/practical-information/gate-cameras",
+        "embed_url": "/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-2",
+        "region": "Demo : Apapa (Lagos) · gate cam #2",
+        "map_location": {"label": "Port d'Abidjan - Vridi (vue demo Apapa gate #2)", "longitude": -4.020, "latitude": 5.245, "zone_id": "zone-sud", "zoom": 12.0},
+        "priority": 13,
+        "default_vigilance_score": 39,
+        "label_disclaimer": "Reference visuelle - demo Abidjan (source : APM Terminals Apapa, Lagos)",
+        "stream_kind": "port_webcam_proxy",
+        "best_use": "port_traffic_observation",
+        "evidence_grade": "demo_reference",
+        "attribution": "APM Terminals (Apapa) - snapshot public",
+        "adapter": "http_image",
+        "metadata_overrides": {
+            "provider": "apm_terminals_apapa",
+            "video_provider": "apm_terminals_cctv_api",
+            "preferred_render": "snapshot",
+            "embed_status": "csp_blocked_use_proxy",
+            "fallback_reason": "page_cps_frame_ancestors_self",
+            "layer_kind": "port_webcam",
+            "stream_kind": "port_webcam_proxy",
+            "refresh_seconds": 30,
+            "resolution_tier": "public_cctv_jpg",
+            "resolution_label": "Snapshot CCTV public 800x450",
+            "evidence_grade": "demo_reference",
+            "best_use": "Angle complementaire pour la vignette port (drill cargo).",
+            "analysis_mode": "snapshot_to_vlm_ready",
+            "attribution": "APM Terminals Apapa CCTV - reference visuelle demo Abidjan",
+            "timelapse_policy": "no_recording_30s_cache",
+            "kind": "port_webcam",
+            "proxy_source_id": "apm-apapa-gate-2",
+        },
+    },
+    {
+        # Port Autonome d'Abidjan (PAA) — phototheque officielle. Aucune
+        # webcam live publique trouvee sur portabidjan.ci, mais 3 photos
+        # haute resolution sont seedees comme reference visuelle stable.
+        "name": "PAA · Vue aerienne port d'Abidjan (galerie officielle)",
+        "description": (
+            "Vue aerienne du port autonome d'Abidjan publiee par le PAA. "
+            "Reference visuelle stable pour le drill cargo / Vridi en l'absence "
+            "de webcam live publique cote PAA. Servie via proxy SENTINEL-CI "
+            "(cache 5 min, fallback embarque)."
+        ),
+        "source_url": "/api/v1/mission-room/webcams/proxy?source_id=paa-aerial-vue",
+        "source_page": "https://portabidjan.ci/fr/visite-virtuelle/phototheque",
+        "embed_url": "/api/v1/mission-room/webcams/proxy?source_id=paa-aerial-vue",
+        "region": "Abidjan / Vridi - vue aerienne PAA",
+        "map_location": {"label": "Port d'Abidjan - vue aerienne (PAA)", "longitude": -4.010, "latitude": 5.246, "zone_id": "zone-sud", "zoom": 11.5},
+        "priority": 14,
+        "default_vigilance_score": 33,
+        "label_disclaimer": "Phototheque officielle PAA - reference visuelle (pas de live)",
+        "stream_kind": "port_reference_photo",
+        "best_use": "port_overview",
+        "evidence_grade": "context_reference",
+        "attribution": "Port Autonome d'Abidjan (PAA) - phototheque officielle",
+        "adapter": "http_image",
+        "metadata_overrides": {
+            "provider": "port_autonome_abidjan",
+            "video_provider": "paa_static_gallery",
+            "preferred_render": "snapshot",
+            "embed_status": "stable_static",
+            "fallback_reason": None,
+            "layer_kind": "port_webcam",
+            "stream_kind": "port_reference_photo",
+            "refresh_seconds": 300,
+            "resolution_tier": "public_hd_static",
+            "resolution_label": "Photo HD officielle 924x457",
+            "evidence_grade": "context_reference",
+            "best_use": "Anchor visuel d'ouverture du drill port d'Abidjan.",
+            "analysis_mode": "static_reference",
+            "attribution": "Port Autonome d'Abidjan - phototheque",
+            "timelapse_policy": "no_live_static_reference",
+            "kind": "port_webcam",
+            "proxy_source_id": "paa-aerial-vue",
+        },
+    },
+    {
+        # PAA - Terminal petrolier
+        "name": "PAA · Terminal petrolier (galerie officielle)",
+        "description": (
+            "Photo officielle du terminal petrolier du port d'Abidjan, "
+            "phototheque PAA. Reference visuelle complementaire au snapshot "
+            "principal pour le drill maritime."
+        ),
+        "source_url": "/api/v1/mission-room/webcams/proxy?source_id=paa-terminal-petrolier",
+        "source_page": "https://portabidjan.ci/fr/visite-virtuelle/phototheque",
+        "embed_url": "/api/v1/mission-room/webcams/proxy?source_id=paa-terminal-petrolier",
+        "region": "Abidjan / Vridi - terminal petrolier",
+        "map_location": {"label": "Terminal petrolier - Port d'Abidjan", "longitude": -4.022, "latitude": 5.241, "zone_id": "zone-sud", "zoom": 13.0},
+        "priority": 15,
+        "default_vigilance_score": 31,
+        "label_disclaimer": "Phototheque officielle PAA - reference visuelle (pas de live)",
+        "stream_kind": "port_reference_photo",
+        "best_use": "port_terminal_reference",
+        "evidence_grade": "context_reference",
+        "attribution": "Port Autonome d'Abidjan (PAA) - phototheque officielle",
+        "adapter": "http_image",
+        "metadata_overrides": {
+            "provider": "port_autonome_abidjan",
+            "video_provider": "paa_static_gallery",
+            "preferred_render": "snapshot",
+            "embed_status": "stable_static",
+            "fallback_reason": None,
+            "layer_kind": "port_webcam",
+            "stream_kind": "port_reference_photo",
+            "refresh_seconds": 300,
+            "resolution_tier": "public_hd_static",
+            "resolution_label": "Photo HD officielle 924x457",
+            "evidence_grade": "context_reference",
+            "best_use": "Reference terminal petrolier (cargaisons sensibles).",
+            "analysis_mode": "static_reference",
+            "attribution": "Port Autonome d'Abidjan - phototheque",
+            "timelapse_policy": "no_live_static_reference",
+            "kind": "port_webcam",
+            "proxy_source_id": "paa-terminal-petrolier",
+        },
+    },
+    {
+        # VesselFinder iframe — embed public sans clé, page /aismap ne pose
+        # pas de X-Frame-Options. Centre sur Abidjan / Vridi.
+        "name": "VesselFinder · Port d'Abidjan (overlay AIS embed)",
+        "description": (
+            "Iframe public VesselFinder centre sur Abidjan / Vridi. La page "
+            "/aismap accepte l'embed (pas de X-Frame-Options), attribution dans "
+            "le widget. Complement de l'overlay AIS MarineTraffic existant."
+        ),
+        "source_url": "https://www.vesselfinder.com/aismap?zoom=11&lat=5.25&lon=-3.99&names=true&track=true",
+        "source_page": "https://www.vesselfinder.com/?bbox=-4.10,5.20,-3.90,5.30",
+        "embed_url": "https://www.vesselfinder.com/aismap?zoom=11&lat=5.25&lon=-3.99&names=true&track=true",
+        "region": "Abidjan / Vridi · overlay AIS VesselFinder",
+        "map_location": {"label": "Port d'Abidjan - overlay VesselFinder", "longitude": -3.99, "latitude": 5.25, "zone_id": "zone-sud", "zoom": 11.0},
+        "priority": 16,
+        "default_vigilance_score": 36,
+        "label_disclaimer": "Source publique VesselFinder - attribution dans l'iframe",
+        "stream_kind": "ais_iframe_embed",
+        "best_use": "port_ais_overlay",
+        "evidence_grade": "context_only",
+        "attribution": "VesselFinder.com - embed public",
+        "metadata_overrides": {
+            "provider": "vesselfinder",
+            "video_provider": "vesselfinder_public_iframe",
+            "preferred_render": "iframe",
+            "embed_status": "stable",
+            "fallback_reason": None,
+            "layer_kind": "port_webcam",
+            "stream_kind": "ais_iframe_embed",
+            "refresh_seconds": 30,
+            "resolution_tier": "public_widget",
+            "resolution_label": "Widget AIS public",
+            "evidence_grade": "context_only",
+            "analysis_constraints": [
+                "iframe AIS, pas une preuve documentaire",
+                "ne pas redistribuer les snapshots",
+                "respecter les ToS VesselFinder",
+            ],
+            "best_use": "Overlay AIS Abidjan / Vridi, complementaire de MarineTraffic.",
+            "analysis_mode": "iframe_only",
+            "attribution": "VesselFinder.com - embed public",
+            "timelapse_policy": "iframe_live_only",
+            "demo_fallback": True,
+            "kind": "port_webcam",
+        },
+    },
+    {
+        # MarineTraffic public iframe widget — gratuit, sans cle, attribution
+        # affichee dans l'iframe. Sert d'overlay AIS visuel sur le port d'Abidjan.
+        "name": "MarineTraffic - Port d'Abidjan (overlay AIS)",
+        "description": "Iframe public MarineTraffic centre sur Abidjan / Vridi pour visualiser les navires AIS en temps reel.",
+        "source_url": (
+            "https://www.marinetraffic.com/en/ais/embed/"
+            "zoom:11/centery:5.247/centerx:-3.998/maptype:0/shownames:false/"
+            "mmsi:0/shipid:0/fleet:/fleet_id:/vtypes:/showmenu:/remember:false"
+        ),
+        "source_page": "https://www.marinetraffic.com/en/ais/home/centerx:-3.998/centery:5.247/zoom:11",
+        "embed_url": (
+            "https://www.marinetraffic.com/en/ais/embed/"
+            "zoom:11/centery:5.247/centerx:-3.998/maptype:0/shownames:false/"
+            "mmsi:0/shipid:0/fleet:/fleet_id:/vtypes:/showmenu:/remember:false"
+        ),
+        "region": "Abidjan / Vridi · couche AIS MarineTraffic",
+        "map_location": {
+            "label": "Port d'Abidjan - couche MarineTraffic",
+            "longitude": -3.998,
+            "latitude": 5.247,
+            "zone_id": "zone-sud",
+            "zoom": 11.0,
+        },
+        "priority": 10,
+        "default_vigilance_score": 42,
+        "label_disclaimer": "Source publique MarineTraffic - attribution dans l'iframe",
+        "stream_kind": "ais_iframe_embed",
+        "best_use": "port_ais_overlay",
+        "evidence_grade": "context_only",
+        "attribution": "MarineTraffic",
+        "metadata_overrides": {
+            "provider": "marinetraffic",
+            "video_provider": "marinetraffic_public_iframe",
+            "preferred_render": "iframe",
+            "embed_status": "stable",
+            "fallback_reason": None,
+            "layer_kind": "port_webcam",
+            "stream_kind": "ais_iframe_embed",
+            "refresh_seconds": 30,
+            "resolution_tier": "public_widget",
+            "resolution_label": "Widget AIS public",
+            "evidence_grade": "context_only",
+            "analysis_constraints": [
+                "iframe AIS, pas une preuve documentaire",
+                "ne pas redistribuer les snapshots",
+                "respecter les ToS MarineTraffic",
+            ],
+            "best_use": "Overlay AIS Abidjan / Vridi sur la carte demo, support visuel pour la chaine causale S1.",
+            "analysis_mode": "iframe_only",
+            "attribution": "MarineTraffic.com - public embed",
+            "timelapse_policy": "iframe_live_only",
+            "demo_fallback": True,
+            "kind": "port_webcam",
+        },
+    },
+    {
+        # Windy snapshot — caméra méteo / cotière sur la côte ivoirienne.
+        # Pattern repris de osiris (`src/app/api/cctv/turkey.ts` helper windy()).
+        "name": "Windy - Cote d'Ivoire (meteo / cotier)",
+        "description": "Iframe public Windy pour ancrer la lecture meteo / mer cotiere autour d'Abidjan.",
+        "source_url": "https://www.windy.com/-Webcams/webcams/1701788000?5.247,-3.998,7",
+        "source_page": "https://www.windy.com/-Webcams/webcams?5.247,-3.998,7",
+        "embed_url": "https://embed.windy.com/embed2.html?lat=5.247&lon=-3.998&detailLat=5.247&detailLon=-3.998&width=640&height=360&zoom=7&level=surface&overlay=wind&product=ecmwf&menu=&message=true&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1",
+        "region": "Cote d'Ivoire / cotier",
+        "map_location": {
+            "label": "Cote d'Ivoire - veille meteo cotiere",
+            "longitude": -3.998,
+            "latitude": 5.247,
+            "zone_id": "zone-sud",
+            "zoom": 9.0,
+        },
+        "priority": 11,
+        "default_vigilance_score": 30,
+        "label_disclaimer": "Source publique Windy.com",
+        "stream_kind": "weather_iframe_embed",
+        "best_use": "weather_overlay",
+        "evidence_grade": "context_only",
+        "attribution": "Windy.com",
+        "metadata_overrides": {
+            "provider": "windy",
+            "video_provider": "windy_public_iframe",
+            "preferred_render": "iframe",
+            "embed_status": "stable",
+            "fallback_reason": None,
+            "layer_kind": "weather_webcam",
+            "stream_kind": "weather_iframe_embed",
+            "refresh_seconds": 600,
+            "resolution_tier": "public_widget",
+            "resolution_label": "Widget meteo public",
+            "evidence_grade": "context_only",
+            "analysis_constraints": [
+                "iframe meteo, pas de capture image officielle",
+                "respecter les ToS Windy.com",
+            ],
+            "best_use": "Lecture meteo cotiere Golfe de Guinee.",
+            "analysis_mode": "iframe_only",
+            "attribution": "Windy.com - public embed",
+            "timelapse_policy": "iframe_live_only",
+            "demo_fallback": True,
+            "kind": "weather_webcam",
+        },
+    },
+    {
+        # Aeroport Felix Houphouet-Boigny / Port Bouet — caméra trafic indicative
+        # (snapshot statique demo-safe fourni par le moteur, pas de live).
+        "name": "Aeroport FHB - veille acces (demo-safe)",
+        "description": "Vue indicative de l'acces Aeroport Felix Houphouet-Boigny / Port Bouet pour relier mobilite et logistique.",
+        "source_url": "demo://aeroport-fhb-portbouet",
+        "source_page": "https://www.aeria.ci/",
+        "embed_url": "demo://aeroport-fhb-portbouet",
+        "region": "Abidjan / Port Bouet",
+        "map_location": {
+            "label": "Aeroport FHB - Port Bouet",
+            "longitude": -3.926,
+            "latitude": 5.262,
+            "zone_id": "zone-sud",
+            "zoom": 12.0,
+        },
+        "priority": 12,
+        "default_vigilance_score": 35,
+        "label_disclaimer": "Snapshot demo-safe",
+        "stream_kind": "demo_snapshot",
+        "best_use": "mobility_overlay",
+        "evidence_grade": "demo_reference",
+        "attribution": "AERIA (operateur aeroportuaire) - reference contextuelle",
+        "adapter": "demo_static",
+        "metadata_overrides": {
+            "provider": "sentinel_ci_demo",
+            "video_provider": "sentinel_ci_demo",
+            "preferred_render": "snapshot",
+            "embed_status": "stable",
+            "fallback_reason": None,
+            "layer_kind": "traffic_webcam",
+            "stream_kind": "demo_snapshot",
+            "refresh_seconds": 900,
+            "resolution_tier": "demo_static",
+            "resolution_label": "Snapshot demo",
+            "evidence_grade": "demo_reference",
+            "best_use": "Anchor visuel pour le trafic Aeroport FHB / Port Bouet.",
+            "analysis_mode": "demo_only",
+            "attribution": "Snapshot demo SENTINEL-CI",
+            "timelapse_policy": "no_recording",
+            "demo_fallback": True,
+            "kind": "traffic_webcam",
+        },
     },
 )
 DEFAULT_SOURCE_NAME = ABIDJAN_NET_VISUAL_SOURCES[0]["name"]
@@ -185,11 +537,11 @@ def ensure_visual_intelligence_seed(
                 description=spec["description"],
                 source_url=spec["source_url"],
                 source_type="stream_embed",
-                adapter="http_image",
+                adapter=spec.get("adapter", "http_image"),
                 region=spec["region"],
                 status="active",
                 enabled=True,
-                capture_cadence_minutes=60,
+                capture_cadence_minutes=spec.get("capture_cadence_minutes", 60),
                 policy=default_policy,
                 meta_data=_webcam_metadata(spec),
             )
@@ -268,7 +620,7 @@ def _apply_seed_source(
     source.description = spec["description"]
     source.source_url = spec["source_url"]
     source.source_type = "stream_embed"
-    source.adapter = "http_image"
+    source.adapter = spec.get("adapter", source.adapter or "http_image")
     source.region = spec["region"]
     source.enabled = True
     if source.status not in {"active", "paused"}:
@@ -856,7 +1208,7 @@ def _default_webcam_metadata() -> dict[str, Any]:
 
 
 def _webcam_metadata(spec: dict[str, Any]) -> dict[str, Any]:
-    return {
+    base = {
         "demo_fallback": True,
         "provider_neutral": True,
         "provider": "abidjan.net",
@@ -895,7 +1247,12 @@ def _webcam_metadata(spec: dict[str, Any]) -> dict[str, Any]:
         "priority": spec["priority"],
         "nest_public_token": spec.get("nest_token"),
         "label_disclaimer": spec.get("label_disclaimer"),
+        "kind": "traffic_webcam",
     }
+    overrides = spec.get("metadata_overrides") or {}
+    if overrides:
+        base.update({key: value for key, value in overrides.items() if value is not None})
+    return base
 
 
 def _capture_bytes(source: WorkspaceVisualSource) -> tuple[bytes, str, dict[str, Any]]:

@@ -3274,8 +3274,13 @@ export class ChatPanelComponent {
             mapCommand = (chunk as Record<string, unknown>)['map_command'] as Record<string, unknown>;
             window.dispatchEvent(new CustomEvent('agentium:map-command', { detail: mapCommand }));
           } else if (chunk.chunk_type === 'action_effect') {
-            const effect = ((chunk as Record<string, unknown>)['effect'] || chunk) as Record<string, unknown>;
-            this.assistantEffects.handleActionEffect(effect);
+            // ``chunk`` is the spread of an executor ``_action_effect`` dict
+            // and carries ``effect: "<kind>"`` plus the payload. The previous
+            // implementation peeled the ``effect`` string off and forwarded
+            // it as the payload, which broke ``handleActionEffect``'s
+            // kind detection. Forward the whole chunk so the kind string is
+            // visible to ``handleActionEffect``.
+            this.assistantEffects.handleActionEffect(chunk as Record<string, unknown>);
           } else if (chunk.chunk_type === 'map_state_updated') {
             window.dispatchEvent(new CustomEvent('agentium:map-state-updated', { detail: chunk }));
           } else if (chunk.chunk_type === 'eval_pending' && chunk.run_id) {

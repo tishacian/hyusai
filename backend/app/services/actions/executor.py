@@ -337,6 +337,11 @@ async def execute_flow_action(
         extra["draft"] = draft
     elif handler == "show_vessel_evidence":
         from app.services.workspace_maps import build_map_command, ensure_workspace_map_seed
+        from app.services.webcam_proxy import (
+            get_spec as _get_webcam_spec,
+            recommended_webcam_for_vessel,
+            webcam_cycle_for_vessel,
+        )
 
         ensure_workspace_map_seed(db, workspace)
         command = build_map_command(
@@ -359,6 +364,37 @@ async def execute_flow_action(
             )
         )
         effects.append({"chunk_type": "map_command", **command})
+        # Auto-select port webcam vignette next to the AIS marker.
+        webcam_source_id = recommended_webcam_for_vessel(
+            mmsi="627012345",
+            cargo_id="cargo-abidjan-supply-001",
+        )
+        if webcam_source_id:
+            spec_for_webcam = _get_webcam_spec(webcam_source_id)
+            cycle_ids = webcam_cycle_for_vessel(
+                mmsi="627012345",
+                cargo_id="cargo-abidjan-supply-001",
+            )
+            webcam_payload = {
+                "source_id": webcam_source_id,
+                "vessel_mmsi": "627012345",
+                "vessel_name": "MV Atlantic Trader",
+                "cargo_id": "cargo-abidjan-supply-001",
+                "label": spec_for_webcam.label if spec_for_webcam else None,
+                "attribution": spec_for_webcam.attribution if spec_for_webcam else None,
+                "label_disclaimer": spec_for_webcam.label_disclaimer if spec_for_webcam else None,
+                "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={webcam_source_id}",
+                "cycle": [
+                    {
+                        "source_id": candidate,
+                        "label": (_get_webcam_spec(candidate).label if _get_webcam_spec(candidate) else candidate),
+                        "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={candidate}",
+                    }
+                    for candidate in cycle_ids
+                ],
+            }
+            effects.append(_action_effect("assistant-show-webcam", webcam_payload))
+            extra["webcam"] = webcam_payload
         set_last_focus(db, workspace, "cargo-abidjan-supply-001")
         awaiting_to_set = {
             "key": "customs_pdf_show",
@@ -513,6 +549,49 @@ async def execute_flow_action(
         extra["causal_trace"] = trace
         extra["last_focus"] = next_focus
         if next_focus == "cargo-abidjan-supply-001":
+            # Cargo drill: emit the port-webcam vignette auto-select effect
+            # so the UI surfaces the live snapshot next to the AIS marker
+            # without waiting for an explicit ``show_vessel_evidence`` call.
+            from app.services.webcam_proxy import (
+                get_spec as _get_webcam_spec,
+                recommended_webcam_for_vessel,
+                webcam_cycle_for_vessel,
+            )
+
+            webcam_source_id = recommended_webcam_for_vessel(
+                mmsi="627012345",
+                cargo_id="cargo-abidjan-supply-001",
+            )
+            if webcam_source_id:
+                spec_for_webcam = _get_webcam_spec(webcam_source_id)
+                cycle_ids = webcam_cycle_for_vessel(
+                    mmsi="627012345",
+                    cargo_id="cargo-abidjan-supply-001",
+                )
+                webcam_payload = {
+                    "source_id": webcam_source_id,
+                    "vessel_mmsi": "627012345",
+                    "vessel_name": "MV Atlantic Trader",
+                    "cargo_id": "cargo-abidjan-supply-001",
+                    "label": spec_for_webcam.label if spec_for_webcam else None,
+                    "attribution": spec_for_webcam.attribution if spec_for_webcam else None,
+                    "label_disclaimer": spec_for_webcam.label_disclaimer if spec_for_webcam else None,
+                    "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={webcam_source_id}",
+                    "cycle": [
+                        {
+                            "source_id": candidate,
+                            "label": (
+                                _get_webcam_spec(candidate).label
+                                if _get_webcam_spec(candidate)
+                                else candidate
+                            ),
+                            "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={candidate}",
+                        }
+                        for candidate in cycle_ids
+                    ],
+                }
+                effects.append(_action_effect("assistant-show-webcam", webcam_payload))
+                extra["webcam"] = webcam_payload
             awaiting_to_set = {
                 "key": "customs_pdf_show",
                 "action_on_yes": "aya.show_customs_record",

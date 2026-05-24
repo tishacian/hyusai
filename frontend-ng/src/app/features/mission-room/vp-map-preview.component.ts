@@ -1,9 +1,119 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  EventEmitter,
+  Input,
+  OnDestroy,
+  OnInit,
+  Output,
+  inject,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { GlyphComponent } from '@app/shared/cockpit';
+import { ApiService } from '@app/core/api.service';
 import { WorkspaceMapComponent } from './workspace-map.component';
 import type { VpMapPreviewContext, VpZoneScore } from './vp-cockpit.types';
+
+interface VesselPosition {
+  mmsi: string;
+  imo?: string;
+  name: string;
+  lat: number;
+  lon: number;
+  sog?: number;
+  cog?: number;
+  heading?: number;
+  vessel_type?: string;
+  nav_status?: string;
+  destination?: string;
+  eta?: string;
+  last_seen?: string;
+  source?: string;
+  linked_cargo_id?: string;
+  linked_project_ref?: string;
+  highlight?: string;
+  demo_role?: string;
+  recommended_webcam_source_id?: string;
+}
+
+interface WebcamCycleEntry {
+  source_id: string;
+  label?: string | null;
+  proxy_url: string;
+}
+
+interface ActiveWebcam {
+  source_id: string;
+  proxy_url: string;
+  label?: string | null;
+  attribution?: string | null;
+  label_disclaimer?: string | null;
+  vessel_mmsi?: string | null;
+  vessel_name?: string | null;
+  cargo_id?: string | null;
+  cycle: WebcamCycleEntry[];
+  origin: 'manual' | 'auto_select';
+}
+
+const DEFAULT_WEBCAM_CYCLE: WebcamCycleEntry[] = [
+  {
+    source_id: 'apm-apapa-gate-1',
+    label: 'APM Apapa Gate Cam #1 (demo Abidjan)',
+    proxy_url: '/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-1',
+  },
+  {
+    source_id: 'apm-apapa-gate-2',
+    label: 'APM Apapa Gate Cam #2 (demo Abidjan)',
+    proxy_url: '/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-2',
+  },
+  {
+    source_id: 'paa-aerial-vue',
+    label: 'PAA - vue aerienne (galerie officielle)',
+    proxy_url: '/api/v1/mission-room/webcams/proxy?source_id=paa-aerial-vue',
+  },
+  {
+    source_id: 'paa-terminal-petrolier',
+    label: 'PAA - terminal petrolier',
+    proxy_url: '/api/v1/mission-room/webcams/proxy?source_id=paa-terminal-petrolier',
+  },
+];
+
+interface MaritimeVesselsResponse {
+  vessels: VesselPosition[];
+  bbox?: { west: number; south: number; east: number; north: number } | null;
+  source?: string;
+  provider?: string;
+  fetched_at?: string;
+  embed_url?: string | null;
+  attribution?: string | null;
+  count?: number;
+}
+
+interface VesselMarker {
+  vessel: VesselPosition;
+  cx: number;
+  cy: number;
+  fill: string;
+  rotation: number;
+  isHighlighted: boolean;
+}
+
+const VESSEL_TYPE_COLORS: Record<string, string> = {
+  cargo: '#3FB68A',
+  container: '#3FB68A',
+  tanker: '#F2B43D',
+  roro: '#71B5F2',
+  passenger: '#9D7CF0',
+  fishing: '#94A4B6',
+  tug: '#94A4B6',
+  other: '#94A4B6',
+};
+
+const HIGHLIGHT_VIOLET = '#B488FF';
+const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
 
 @Component({
   selector: 'app-vp-map-preview',
@@ -71,6 +181,167 @@ import type { VpMapPreviewContext, VpZoneScore } from './vp-cockpit.types';
         <span class="legend-item elevated"><span class="legend-dot"></span>Surveillance</span>
         <span class="legend-item stable"><span class="legend-dot"></span>Stable</span>
       </footer>
+
+      @if (webcamDrawerOpen && activeWebcam) {
+        <div class="webcam-drawer" role="dialog" aria-modal="true" aria-label="Webcam port plein écran">
+          <button
+            type="button"
+            class="webcam-drawer-backdrop"
+            aria-label="Fermer la vue webcam"
+            (click)="closeWebcamDrawer()"
+          ></button>
+          <div class="webcam-drawer-card">
+            <header class="webcam-drawer-head">
+              <div>
+                <span class="eyebrow">Vignette port plein écran</span>
+                <h3>{{ activeWebcam.label || activeWebcam.source_id }}</h3>
+              </div>
+              <button
+                type="button"
+                class="webcam-drawer-close"
+                aria-label="Fermer la webcam"
+                (click)="closeWebcamDrawer()"
+              >
+                ×
+              </button>
+            </header>
+            <img
+              [src]="activeWebcam.proxy_url + '&t=' + webcamReloadKey"
+              [attr.alt]="activeWebcam.label || 'Snapshot webcam port'"
+              class="webcam-drawer-image"
+              referrerpolicy="no-referrer"
+            />
+            <footer class="webcam-drawer-foot">
+              <small *ngIf="activeWebcam.label_disclaimer">{{ activeWebcam.label_disclaimer }}</small>
+              <small *ngIf="activeWebcam.attribution">Attribution : {{ activeWebcam.attribution }}</small>
+              <small *ngIf="activeWebcam.vessel_name">
+                Référence vessel : {{ activeWebcam.vessel_name }}<ng-container *ngIf="activeWebcam.vessel_mmsi"> · MMSI {{ activeWebcam.vessel_mmsi }}</ng-container>
+              </small>
+            </footer>
+          </div>
+        </div>
+      }
+
+      @if (vesselsEnabled) {
+        <section
+          class="vessels-overlay"
+          [class.has-error]="vesselError && !vesselMarkers.length"
+          aria-label="Couche maritime - navires AIS"
+        >
+          <header class="vessels-head">
+            <div>
+              <span class="eyebrow">Couche maritime · {{ vesselProviderLabel }}</span>
+              <h3>Navires (AIS) · Abidjan / Vridi</h3>
+            </div>
+            <span class="vessels-meta" *ngIf="vesselsResponse">
+              {{ vesselMarkers.length }}/{{ vesselsResponse.vessels?.length || 0 }} navires
+            </span>
+          </header>
+
+          @if (vesselMarkers.length) {
+            <div class="vessels-canvas">
+              <svg viewBox="0 0 100 60" preserveAspectRatio="none" role="img" aria-label="Vue schématique navires">
+                <rect x="0" y="0" width="100" height="60" rx="2" fill="rgba(10,18,28,0.65)" stroke="rgba(255,255,255,0.06)" />
+                @for (marker of vesselMarkers; track marker.vessel.mmsi) {
+                  <g
+                    [attr.transform]="'translate(' + marker.cx + ' ' + marker.cy + ') rotate(' + marker.rotation + ')'"
+                    class="vessel-marker"
+                    [class.highlighted]="marker.isHighlighted"
+                    (click)="selectVessel(marker.vessel)"
+                  >
+                    <polygon
+                      points="0,-1.6 1.1,1.2 -1.1,1.2"
+                      [attr.fill]="marker.fill"
+                      stroke="rgba(0,0,0,0.55)"
+                      stroke-width="0.18"
+                    />
+                  </g>
+                }
+              </svg>
+            </div>
+
+            <ul class="vessel-legend" aria-label="Légende navires">
+              <li><span class="dot" [style.background]="vesselColor('cargo')"></span>Cargo</li>
+              <li><span class="dot" [style.background]="vesselColor('tanker')"></span>Tanker</li>
+              <li><span class="dot" [style.background]="vesselColor('roro')"></span>Ro-Ro</li>
+              <li><span class="dot" [style.background]="vesselColor('passenger')"></span>Passager</li>
+              <li><span class="dot" [style.background]="vesselColor('fishing')"></span>Pêche</li>
+              <li><span class="dot" [style.background]="vesselColor('other')"></span>Autre</li>
+              <li class="highlighted"><span class="dot" [style.background]="HIGHLIGHT_VIOLET"></span>Cargo lié projet</li>
+            </ul>
+
+            @if (selectedVessel; as vessel) {
+              <div class="vessel-tooltip" role="status">
+                <strong>{{ vessel.name }}</strong>
+                <span class="vessel-meta">MMSI {{ vessel.mmsi }}<ng-container *ngIf="vessel.imo"> · IMO {{ vessel.imo }}</ng-container></span>
+                <span class="vessel-meta" *ngIf="vessel.destination">→ {{ vessel.destination }}<ng-container *ngIf="vessel.eta"> · ETA {{ vessel.eta }}</ng-container></span>
+                <span class="vessel-meta tiny">{{ vesselProviderLabel }} · {{ vessel.vessel_type || 'navire' }}</span>
+                @if (vessel.linked_cargo_id) {
+                  <span class="aya-badge">Cargo lié au projet Centre Drones Napié</span>
+                }
+              </div>
+            }
+
+            @if (activeWebcam; as webcam) {
+              <aside class="vessel-webcam" aria-label="Vignette webcam port">
+                <header class="vessel-webcam-head">
+                  <span class="eyebrow">
+                    @if (webcam.origin === 'auto_select') {
+                      Auto-sélection AYA · vignette port
+                    } @else {
+                      Vignette port (clic marker)
+                    }
+                  </span>
+                  <button
+                    type="button"
+                    class="webcam-close"
+                    aria-label="Fermer la vignette webcam"
+                    (click)="closeWebcamVignette()"
+                  >
+                    ×
+                  </button>
+                </header>
+                <button
+                  type="button"
+                  class="webcam-thumb-button"
+                  aria-label="Ouvrir la webcam port en grand"
+                  (click)="openWebcamDrawer()"
+                >
+                  <img
+                    [src]="webcam.proxy_url"
+                    [attr.alt]="webcam.label || 'Snapshot webcam port'"
+                    class="webcam-thumb"
+                    loading="lazy"
+                    decoding="async"
+                    referrerpolicy="no-referrer"
+                  />
+                  <span class="webcam-label">{{ webcam.label || 'Webcam port' }}</span>
+                </button>
+                <p class="webcam-disclaimer" *ngIf="webcam.label_disclaimer || webcam.attribution">
+                  <ng-container *ngIf="webcam.label_disclaimer">{{ webcam.label_disclaimer }}</ng-container>
+                  <ng-container *ngIf="webcam.attribution"> · {{ webcam.attribution }}</ng-container>
+                </p>
+                <div class="webcam-cycle" *ngIf="webcam.cycle.length > 1">
+                  @for (entry of webcam.cycle; track entry.source_id) {
+                    <button
+                      type="button"
+                      class="webcam-cycle-pill"
+                      [class.active]="entry.source_id === webcam.source_id"
+                      (click)="selectWebcamSource(entry)"
+                    >
+                      {{ entry.label || entry.source_id }}
+                    </button>
+                  }
+                </div>
+              </aside>
+            }
+          } @else {
+            <div class="vessels-empty" role="status">
+              <small>{{ vesselErrorMessage }}</small>
+            </div>
+          }
+        </section>
+      }
     </article>
   `,
   styles: [
@@ -261,6 +532,261 @@ import type { VpMapPreviewContext, VpZoneScore } from './vp-cockpit.types';
       }
       .legend-item.elevated .legend-dot { background: var(--mission-warning); }
       .legend-item.critical .legend-dot { background: var(--mission-critical); }
+      .vessels-overlay {
+        display: grid;
+        gap: var(--mission-space-2);
+        padding: var(--mission-space-3);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: linear-gradient(180deg, rgba(8, 14, 20, 0.55), rgba(4, 8, 13, 0.32));
+      }
+      .vessels-overlay.has-error { border-style: dashed; }
+      .vessels-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: var(--mission-space-2);
+      }
+      .vessels-head h3 {
+        margin: var(--mission-space-1) 0 0;
+        font-size: var(--mission-text-sm);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        color: var(--mission-text-primary);
+      }
+      .vessels-meta {
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        color: var(--mission-text-tertiary);
+      }
+      .vessels-canvas {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 100 / 60;
+        border-radius: var(--mission-radius-sm);
+        overflow: hidden;
+      }
+      .vessels-canvas svg { width: 100%; height: 100%; display: block; }
+      .vessel-marker { cursor: pointer; transition: filter 120ms ease; }
+      .vessel-marker:hover polygon { filter: brightness(1.4); }
+      .vessel-marker.highlighted polygon {
+        stroke: rgba(255, 255, 255, 0.85);
+        stroke-width: 0.32;
+        filter: drop-shadow(0 0 1.4px rgba(180, 136, 255, 0.9));
+      }
+      .vessel-legend {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--mission-space-2) var(--mission-space-3);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        color: var(--mission-text-tertiary);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .vessel-legend li {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .vessel-legend .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .vessel-legend .highlighted .dot {
+        box-shadow: 0 0 0 1px rgba(180, 136, 255, 0.55);
+      }
+      .vessel-tooltip {
+        display: grid;
+        gap: 2px;
+        padding: var(--mission-space-2) var(--mission-space-3);
+        border-radius: var(--mission-radius-sm);
+        background: rgba(4, 8, 13, 0.78);
+        border: 1px solid var(--mission-border);
+        color: var(--mission-text-primary);
+        font-size: var(--mission-text-xs);
+      }
+      .vessel-tooltip strong { font-size: var(--mission-text-sm); }
+      .vessel-meta {
+        font-family: var(--mission-font-mono);
+        color: var(--mission-text-tertiary);
+      }
+      .vessel-meta.tiny { font-size: 10px; opacity: 0.78; }
+      .aya-badge {
+        margin-top: 4px;
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(180, 136, 255, 0.18);
+        color: #d2c3ff;
+        border: 1px solid rgba(180, 136, 255, 0.48);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        width: max-content;
+      }
+      .vessels-empty {
+        padding: var(--mission-space-3);
+        border-radius: var(--mission-radius-sm);
+        border: 1px dashed var(--mission-border);
+        text-align: center;
+        color: var(--mission-text-tertiary);
+      }
+      .vessel-webcam {
+        display: grid;
+        gap: 6px;
+        padding: var(--mission-space-2);
+        border-radius: var(--mission-radius-sm);
+        background: rgba(8, 14, 20, 0.78);
+        border: 1px solid rgba(180, 136, 255, 0.45);
+        box-shadow: 0 6px 18px rgba(8, 12, 18, 0.55);
+      }
+      .vessel-webcam-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 6px;
+      }
+      .vessel-webcam-head .eyebrow {
+        color: #d2c3ff;
+      }
+      .webcam-close,
+      .webcam-drawer-close {
+        appearance: none;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        width: 22px;
+        height: 22px;
+        color: var(--mission-text-tertiary);
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .webcam-close:hover,
+      .webcam-drawer-close:hover {
+        border-color: var(--sentinel-accent-muted);
+        color: var(--mission-text-primary);
+      }
+      .webcam-thumb-button {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: transparent;
+        padding: 0;
+        cursor: pointer;
+        display: grid;
+        gap: 4px;
+        border-radius: var(--mission-radius-sm);
+        overflow: hidden;
+      }
+      .webcam-thumb-button:hover {
+        border-color: rgba(180, 136, 255, 0.55);
+      }
+      .webcam-thumb {
+        width: 240px;
+        height: 135px;
+        object-fit: cover;
+        display: block;
+        background: rgba(4, 8, 13, 0.7);
+      }
+      .webcam-label {
+        display: block;
+        padding: 4px 6px;
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        text-align: left;
+        color: var(--mission-text-secondary);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .webcam-disclaimer {
+        margin: 0;
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+      }
+      .webcam-cycle {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .webcam-cycle-pill {
+        appearance: none;
+        background: rgba(4, 8, 13, 0.62);
+        color: var(--mission-text-tertiary);
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        cursor: pointer;
+      }
+      .webcam-cycle-pill.active {
+        color: #d2c3ff;
+        background: rgba(180, 136, 255, 0.18);
+        border-color: rgba(180, 136, 255, 0.55);
+      }
+      .webcam-cycle-pill:hover {
+        border-color: rgba(180, 136, 255, 0.55);
+      }
+      .webcam-drawer {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: var(--mission-space-4);
+        z-index: 30;
+      }
+      .webcam-drawer-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(4, 8, 13, 0.78);
+        border: 0;
+        cursor: pointer;
+      }
+      .webcam-drawer-card {
+        position: relative;
+        max-width: 920px;
+        width: 100%;
+        background: var(--mission-inset);
+        border: 1px solid rgba(180, 136, 255, 0.55);
+        border-radius: var(--mission-radius-md);
+        box-shadow: var(--mission-shadow-soft);
+        display: grid;
+        gap: var(--mission-space-2);
+        padding: var(--mission-space-3);
+      }
+      .webcam-drawer-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--mission-space-2);
+      }
+      .webcam-drawer-head h3 {
+        margin: 4px 0 0;
+        font-size: var(--mission-text-md);
+        color: var(--mission-text-primary);
+      }
+      .webcam-drawer-image {
+        width: 100%;
+        max-height: 70vh;
+        object-fit: contain;
+        border-radius: var(--mission-radius-sm);
+        background: rgba(4, 8, 13, 0.7);
+      }
+      .webcam-drawer-foot {
+        display: grid;
+        gap: 2px;
+        font-family: var(--mission-font-mono);
+        font-size: 11px;
+        color: var(--mission-text-tertiary);
+      }
       @media (max-width: 900px) {
         .map-layout { grid-template-columns: 1fr; }
         .zone-scores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -268,7 +794,7 @@ import type { VpMapPreviewContext, VpZoneScore } from './vp-cockpit.types';
     `,
   ],
 })
-export class VpMapPreviewComponent {
+export class VpMapPreviewComponent implements OnInit, OnDestroy {
   @Input() context: VpMapPreviewContext = {
     route: '/hypervisor/mission-room/strategie',
     label: 'Carte fusionnee',
@@ -278,8 +804,44 @@ export class VpMapPreviewComponent {
     geoPreview: { zone_scores: [] },
     topZoneId: null,
   };
+  /**
+   * Optional bbox `west,south,east,north`. Defaults to the Abidjan/Vridi
+   * baseline window so the demo always renders something.
+   */
+  @Input() vesselsBbox: string = DEFAULT_BBOX;
+  @Input() vesselsEnabled: boolean = true;
   @Output() openMap = new EventEmitter<void>();
   @Output() zoneSelected = new EventEmitter<VpZoneScore>();
+  @Output() vesselSelected = new EventEmitter<VesselPosition>();
+
+  vesselsResponse: MaritimeVesselsResponse | null = null;
+  vesselMarkers: VesselMarker[] = [];
+  vesselError = false;
+  vesselErrorMessage = 'AIS indisponible — mode baseline démo';
+  selectedVessel: VesselPosition | null = null;
+  activeWebcam: ActiveWebcam | null = null;
+  webcamDrawerOpen = false;
+  webcamReloadKey = Date.now();
+  readonly HIGHLIGHT_VIOLET = HIGHLIGHT_VIOLET;
+
+  private readonly api = inject(ApiService);
+  private readonly cdr = inject(ChangeDetectorRef);
+  private vesselsSub: Subscription | null = null;
+  private readonly showWebcamListener = (event: Event) => {
+    this.handleShowWebcamEvent(event as CustomEvent);
+  };
+
+  ngOnInit(): void {
+    if (this.vesselsEnabled) {
+      this.loadVessels();
+    }
+    window.addEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
+  }
+
+  ngOnDestroy(): void {
+    this.vesselsSub?.unsubscribe();
+    window.removeEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
+  }
 
   toneClass(tone?: string): string {
     const normalized = (tone || '').toLowerCase();
@@ -294,5 +856,221 @@ export class VpMapPreviewComponent {
     if (layers.length) params['layers'] = layers.join(',');
     if (this.context.geoPreview.top_zone_id) params['zone'] = this.context.geoPreview.top_zone_id;
     return params;
+  }
+
+  vesselColor(kind?: string): string {
+    return VESSEL_TYPE_COLORS[(kind || 'other').toLowerCase()] || VESSEL_TYPE_COLORS['other'];
+  }
+
+  selectVessel(vessel: VesselPosition): void {
+    this.selectedVessel = vessel;
+    this.vesselSelected.emit(vessel);
+    const sourceId =
+      vessel.recommended_webcam_source_id ||
+      (vessel.linked_cargo_id === 'cargo-abidjan-supply-001' || vessel.mmsi === '627012345'
+        ? 'apm-apapa-gate-1'
+        : undefined);
+    if (sourceId) {
+      const cycle = this.buildDefaultCycle(sourceId);
+      const primary =
+        cycle.find((entry) => entry.source_id === sourceId) || cycle[0];
+      if (primary) {
+        this.activeWebcam = {
+          source_id: primary.source_id,
+          proxy_url: primary.proxy_url,
+          label: primary.label,
+          attribution: this.attributionFor(primary.source_id),
+          label_disclaimer: this.disclaimerFor(primary.source_id),
+          vessel_mmsi: vessel.mmsi,
+          vessel_name: vessel.name,
+          cargo_id: vessel.linked_cargo_id || null,
+          cycle,
+          origin: 'manual',
+        };
+        this.webcamReloadKey = Date.now();
+        this.cdr.markForCheck();
+      }
+    }
+  }
+
+  selectWebcamSource(entry: WebcamCycleEntry): void {
+    if (!this.activeWebcam) return;
+    this.activeWebcam = {
+      ...this.activeWebcam,
+      source_id: entry.source_id,
+      proxy_url: entry.proxy_url,
+      label: entry.label || entry.source_id,
+      attribution: this.attributionFor(entry.source_id) || this.activeWebcam.attribution,
+      label_disclaimer:
+        this.disclaimerFor(entry.source_id) || this.activeWebcam.label_disclaimer,
+    };
+    this.webcamReloadKey = Date.now();
+    this.cdr.markForCheck();
+  }
+
+  openWebcamDrawer(): void {
+    if (!this.activeWebcam) return;
+    this.webcamDrawerOpen = true;
+    this.webcamReloadKey = Date.now();
+    this.cdr.markForCheck();
+  }
+
+  closeWebcamDrawer(): void {
+    this.webcamDrawerOpen = false;
+    this.cdr.markForCheck();
+  }
+
+  closeWebcamVignette(): void {
+    this.activeWebcam = null;
+    this.webcamDrawerOpen = false;
+    this.cdr.markForCheck();
+  }
+
+  private handleShowWebcamEvent(event: CustomEvent): void {
+    const detail = (event && event.detail) as
+      | {
+          source_id?: string;
+          proxy_url?: string;
+          label?: string | null;
+          attribution?: string | null;
+          label_disclaimer?: string | null;
+          vessel_mmsi?: string | null;
+          vessel_name?: string | null;
+          cargo_id?: string | null;
+          cycle?: WebcamCycleEntry[];
+        }
+      | undefined;
+    if (!detail || !detail.source_id) return;
+    const fallbackCycle = this.buildDefaultCycle(detail.source_id);
+    const incomingCycle = (detail.cycle || []).filter(
+      (entry) => entry && entry.source_id && entry.proxy_url,
+    );
+    const cycle = incomingCycle.length ? incomingCycle : fallbackCycle;
+    const proxy_url =
+      detail.proxy_url ||
+      cycle.find((entry) => entry.source_id === detail.source_id)?.proxy_url ||
+      `/api/v1/mission-room/webcams/proxy?source_id=${detail.source_id}`;
+    this.activeWebcam = {
+      source_id: detail.source_id,
+      proxy_url,
+      label: detail.label || cycle.find((entry) => entry.source_id === detail.source_id)?.label || null,
+      attribution: detail.attribution || this.attributionFor(detail.source_id),
+      label_disclaimer:
+        detail.label_disclaimer || this.disclaimerFor(detail.source_id),
+      vessel_mmsi: detail.vessel_mmsi || null,
+      vessel_name: detail.vessel_name || null,
+      cargo_id: detail.cargo_id || null,
+      cycle,
+      origin: 'auto_select',
+    };
+    this.webcamReloadKey = Date.now();
+    this.cdr.markForCheck();
+  }
+
+  private buildDefaultCycle(primarySourceId: string): WebcamCycleEntry[] {
+    const seen = new Set<string>();
+    const ordered: WebcamCycleEntry[] = [];
+    const primary = DEFAULT_WEBCAM_CYCLE.find((entry) => entry.source_id === primarySourceId);
+    if (primary) {
+      ordered.push(primary);
+      seen.add(primary.source_id);
+    } else if (primarySourceId) {
+      ordered.push({
+        source_id: primarySourceId,
+        label: primarySourceId,
+        proxy_url: `/api/v1/mission-room/webcams/proxy?source_id=${primarySourceId}`,
+      });
+      seen.add(primarySourceId);
+    }
+    for (const entry of DEFAULT_WEBCAM_CYCLE) {
+      if (!seen.has(entry.source_id)) {
+        ordered.push(entry);
+        seen.add(entry.source_id);
+      }
+    }
+    return ordered;
+  }
+
+  private attributionFor(sourceId: string): string {
+    if (sourceId.startsWith('apm-apapa')) return 'APM Terminals (Apapa) - snapshot public';
+    if (sourceId.startsWith('paa-')) return 'Port Autonome d\u0027Abidjan (PAA) - phototheque officielle';
+    return '';
+  }
+
+  private disclaimerFor(sourceId: string): string {
+    if (sourceId.startsWith('apm-apapa')) {
+      return 'Référence visuelle — démo Abidjan (source : APM Terminals Apapa, Lagos)';
+    }
+    if (sourceId.startsWith('paa-')) {
+      return 'Phototheque officielle PAA - reference visuelle (pas de live)';
+    }
+    return '';
+  }
+
+  get vesselProviderLabel(): string {
+    if (!this.vesselsResponse) return 'AIS · baseline';
+    const provider = this.vesselsResponse.provider || 'baseline';
+    const source = this.vesselsResponse.source || 'baseline';
+    if (source === 'baseline' && provider !== 'baseline') {
+      return `AIS · ${provider} (fallback baseline)`;
+    }
+    return `AIS · ${provider}`;
+  }
+
+  private loadVessels(): void {
+    this.vesselsSub?.unsubscribe();
+    this.vesselsSub = this.api
+      .get<MaritimeVesselsResponse>('/mission-room/maritime/vessels', {
+        bbox: this.vesselsBbox || DEFAULT_BBOX,
+        limit: '50',
+      })
+      .subscribe({
+        next: (response) => {
+          this.vesselsResponse = response;
+          this.vesselError = false;
+          this.vesselMarkers = this.buildMarkers(response);
+          if (!this.vesselMarkers.length) {
+            this.vesselErrorMessage = 'AIS indisponible — mode baseline démo';
+          }
+          this.cdr.markForCheck();
+        },
+        error: () => {
+          this.vesselError = true;
+          this.vesselsResponse = null;
+          this.vesselMarkers = [];
+          this.vesselErrorMessage = 'AIS indisponible — mode baseline démo';
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  private buildMarkers(response: MaritimeVesselsResponse): VesselMarker[] {
+    const vessels = response.vessels || [];
+    if (!vessels.length) return [];
+    const lats = vessels.map((v) => v.lat);
+    const lons = vessels.map((v) => v.lon);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLon = Math.min(...lons);
+    const maxLon = Math.max(...lons);
+    const dLat = Math.max(0.01, maxLat - minLat);
+    const dLon = Math.max(0.01, maxLon - minLon);
+    return vessels.map((vessel) => {
+      const x = ((vessel.lon - minLon) / dLon) * 96 + 2;
+      const y = 58 - ((vessel.lat - minLat) / dLat) * 56;
+      const isHighlighted = Boolean(vessel.linked_cargo_id || vessel.highlight);
+      return {
+        vessel,
+        cx: x,
+        cy: y,
+        fill: isHighlighted ? HIGHLIGHT_VIOLET : this.vesselColor(vessel.vessel_type),
+        rotation: Number.isFinite(vessel.heading as number)
+          ? (vessel.heading as number)
+          : Number.isFinite(vessel.cog as number)
+            ? (vessel.cog as number)
+            : 0,
+        isHighlighted,
+      };
+    });
   }
 }

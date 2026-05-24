@@ -47,6 +47,7 @@ from app.api.v1.endpoints import (
     reports,
     admin,
     maritime,
+    webcam_proxy,
 )
 
 api_router = APIRouter()
@@ -100,3 +101,4 @@ api_router.include_router(meetings.router, prefix="/meetings", tags=["meetings"]
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(maritime.router, prefix="/mission-room/maritime", tags=["mission-room", "maritime"])
+api_router.include_router(webcam_proxy.router, prefix="/mission-room/webcams", tags=["mission-room", "webcam-proxy"])

@@ -61,6 +61,18 @@ class Settings(BaseSettings):
     visual_capture_http_timeout_seconds: float = 15.0
     visual_capture_browser_enabled: bool = False
     visual_capture_windy_api_key: Optional[str] = None
+
+    # ─── Maritime / AIS provider (advisory-only, demo-safe) ───
+    # ``baseline`` reads ``backend/app/resources/maritime/abidjan-vessels-baseline.json``
+    # (always works, ~15 vessels around Abidjan/Vridi).  ``aisstream`` and
+    # ``aishub`` are optional live providers that require an API key/username
+    # and degrade gracefully back to the baseline if the credential is missing
+    # or the upstream call fails.  ``marinetraffic_embed`` keeps the baseline
+    # JSON and exposes the public MarineTraffic iframe URL for the UI overlay.
+    sentinel_ais_provider: str = "baseline"
+    sentinel_aisstream_api_key: Optional[str] = None
+    sentinel_aishub_username: Optional[str] = None
+    sentinel_marinetraffic_embed_default_zoom: int = 11
     visual_analysis_enabled: bool = False
     visual_analysis_provider: str = "openai"
     visual_analysis_model: str = "gpt-4o-mini"
