@@ -320,6 +320,27 @@ def test_press_preview_falls_back_when_global_feed_is_not_ci():
     assert preview[0]["geography_tier"] == "ci"
 
 
+def test_press_preview_does_not_trust_weak_ci_classifier_without_ci_markers():
+    preview = mission_room_service._press_preview_payload(
+        {},
+        [
+            {
+                "id": "press-ebola-rdc",
+                "title": "Est de la RDC : 13 malades d'Ebola en fuite",
+                "source": "Afrique elargie",
+                "risk_level": "high",
+                "summary": "Signal sanitaire regional hors perimetre local.",
+                "geography_tier": "ci",
+                "geo_tier": "ci",
+                "tags": [],
+            }
+        ],
+    )
+
+    assert preview[0]["id"] == "press-fallback-abidjan-net-drone-napie"
+    assert "Napié" in preview[0]["title"]
+
+
 def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_session):
     workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)

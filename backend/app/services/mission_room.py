@@ -2434,6 +2434,19 @@ def _press_preview_fallback_hero() -> dict[str, Any]:
     }
 
 
+def _press_preview_is_concrete_ci(item: dict[str, Any]) -> bool:
+    haystack = " ".join(
+        str(item.get(key) or "")
+        for key in ("title", "source", "summary", "country", "publisher", "region_iso", "geo_iso")
+    ).lower()
+    tags = [str(tag).lower() for tag in (item.get("tags") or [])]
+    if str(item.get("region_iso") or item.get("geo_iso") or "").upper() == "CI":
+        return True
+    return any(token in haystack for token in _PRESS_CI_COUNTRY_TOKENS) or any(
+        token in haystack for token in _PRESS_CI_TAG_TOKENS
+    ) or any(token in _PRESS_CI_TAG_TOKENS for token in tags)
+
+
 def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     candidates = list(alerts or _clone(NEWS_SIGNALS))
 
@@ -2465,7 +2478,7 @@ def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -
     # If the top of the list still doesn't carry a CI signal (eg. RSS dry,
     # demo offline) we inject the Abidjan.net Centre Drones Napié hero so
     # the cockpit press card never opens on Mali / Iran / Ebola.
-    if not preview or _press_ci_boost(preview[0]) == 0:
+    if not preview or _press_ci_boost(preview[0]) == 0 or not _press_preview_is_concrete_ci(preview[0]):
         hero = _press_preview_fallback_hero()
         preview = [hero, *preview][:3]
     if not preview:
