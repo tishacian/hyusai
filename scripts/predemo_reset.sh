@@ -12,6 +12,9 @@
 #      a. Bump settings.demo_time_context to 2026-05-25 / 10:30 (Africa/Abidjan).
 #      b. Reset settings.actions.last_focus / awaiting / current_meeting /
 #         pending_agenda_patch so the explain_why drill restarts at zone-nord.
+#   2b. Purge debug / legacy calendar events via admin DELETE
+#      (title/desc matching "agenda QA wiring" / "debug", or start_at < DEMO_DATE).
+#      Never touches events from DEMO_DATE onward.
 #   3. Reseed the SENTINEL-CI calendar:
 #      a. Cancel every existing event (workspace-scoped).
 #      b. POST 6 events on 2026-05-25 and 2 events on 2026-05-26 with the
@@ -95,6 +98,74 @@ HTTP_CODE=$(curl -s -o /tmp/agentium_workspace_resp.json -w "%{http_code}" -X PA
   -H "Content-Type: application/json" \
   --data-binary @/tmp/agentium_workspace_patch.json)
 [ "${HTTP_CODE}" = "200" ] && ok "workspace PATCH 200" || { err "PATCH HTTP ${HTTP_CODE}"; cat /tmp/agentium_workspace_resp.json; exit 1; }
+
+# ─── 2b. purge debug / legacy calendar events (admin DELETE) ────────────────
+# Hard-delete any QA pollution rows (titles/desc matching "agenda QA wiring",
+# "QA wiring VIGIE", "debug") and any legacy event dated strictly before the
+# demo date (DEMO_DATE). Lundi/mardi seed events are never touched here.
+# Requires the admin router to be deployed; warns gracefully if 404.
+say "Purge debug / legacy calendar events (admin DELETE) — preserves DEMO_DATE+"
+DEMO_DATE_CUTOFF="${DEMO_DATE}" python3 <<'PYEOF'
+import json, os, urllib.request, urllib.error
+base = os.environ["AGENTIUM_HOST"]
+slug = os.environ["WORKSPACE_SLUG"]
+jwt = os.environ["JWT"]
+cutoff = os.environ["DEMO_DATE_CUTOFF"]  # YYYY-MM-DD
+HDRS = {"Authorization": f"Bearer {jwt}", "X-Workspace-Slug": slug, "Content-Type": "application/json"}
+
+def http(method, path, body=None):
+    req = urllib.request.Request(f"{base}/api/v1{path}", method=method, headers=HDRS)
+    if body is not None:
+        req.data = json.dumps(body).encode("utf-8")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8")
+
+DEBUG_NEEDLES = ("agenda qa wiring", "qa wiring vigie", "qa wiring", "debug")
+
+code, body = http("GET", "/calendar/events")
+if code != 200:
+    print(f"  ! GET /calendar/events HTTP {code} — skipping purge")
+    raise SystemExit(0)
+events = json.loads(body).get("events") or []
+
+debug_hits, legacy_hits = [], []
+for e in events:
+    title = (e.get("title") or "").lower()
+    desc = (e.get("description") or "").lower()
+    start = (e.get("start_at") or "")[:10]
+    is_debug = any(n in title or n in desc for n in DEBUG_NEEDLES)
+    is_legacy = bool(start) and start < cutoff
+    if is_debug:
+        debug_hits.append(e)
+    elif is_legacy:
+        legacy_hits.append(e)
+
+if not debug_hits and not legacy_hits:
+    print(f"  no debug / pre-{cutoff} events to purge (scanned {len(events)} event(s))")
+    raise SystemExit(0)
+
+print(f"  candidates: {len(debug_hits)} debug + {len(legacy_hits)} legacy (pre-{cutoff})")
+deleted, admin_blocked = 0, False
+for e in debug_hits + legacy_hits:
+    eid = e["id"]
+    code, body = http("DELETE", f"/admin/calendar/events/{eid}")
+    if code == 200:
+        deleted += 1
+        print(f"  ✓ deleted {eid[:8]} start={(e.get('start_at') or '')[:16]} title={(e.get('title') or '')[:60]!r}")
+    elif code in (403, 404):
+        admin_blocked = True
+        print(f"  ! admin DELETE {eid[:8]} HTTP {code} — admin router likely not deployed yet")
+        break
+    else:
+        print(f"  ✗ admin DELETE {eid[:8]} HTTP {code} body={body[:200]}")
+
+if admin_blocked:
+    print("  ⚠ admin DELETE blocked — falling back on admin reseed (step 5) which wipes via DB reseed")
+print(f"  purged {deleted}/{len(debug_hits) + len(legacy_hits)} matching events")
+PYEOF
 
 # ─── 3. reseed calendar ──────────────────────────────────────────────────────
 say "Reseed calendar (cancel all, then POST 8 events)"
