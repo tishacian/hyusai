@@ -1850,18 +1850,14 @@ def _agenda_items_from_calendar(workspace: Workspace, db: Optional[DBSession]) -
     ]
 
 
-# vp_status_bar chips are consumed via ``.key`` only (see
-# ``frontend-ng/src/app/features/mission-room/vp-cockpit.component.ts``: the
-# ``orderedStatusBar()`` ``@for`` loop tracks ``item.key`` and the
-# ``statusBarDrillDown(item)`` resolver in ``mission-room.component.ts``
-# switches on ``item.key`` as well). No client surface relies on a separate
-# ``id`` field, so we keep the payload minimal and don't duplicate ``key``
-# as ``id`` — QA report ``docs/sentinel-ci-qa-prod-2026-05-24.md`` (item
-# 3.4) checked and confirmed front-end consumes ``.key`` exclusively.
+# ``key`` remains the canonical frontend identifier. ``id`` mirrors it so
+# smoke probes, analytics, and older consumers can address the same chips
+# without branching on payload version.
 def _vp_status_bar(overview: dict[str, Any], posture: dict[str, Any]) -> list[dict[str, Any]]:
     kpis = overview.get("kpis") or {}
     return [
         {
+            "id": "zone-nord-tension",
             "key": "zone-nord-tension",
             "label": "Zone Nord",
             "value": "Tendue",
@@ -1871,17 +1867,18 @@ def _vp_status_bar(overview: dict[str, Any], posture: dict[str, Any]) -> list[di
             "tooltip": "Tension territoriale Nord — Centre Drones Napie en retard, cargo Aerostar Dynamics bloque (advisory)",
         },
         {
+            "id": "posture",
             "key": "posture",
             "label": "Posture nationale",
             "value": str(posture.get("label") or "vigilance").upper(),
             "detail": f"{posture.get('score', 72)}/100",
             "tone": posture.get("label") or "elevated",
         },
-        {"key": "deadline", "label": "Decision avant", "value": "15h00", "detail": "Conseil des ministres", "tone": "critical"},
-        {"key": "arbitrages", "label": "Arbitrages ouverts", "value": "3", "detail": "validation humaine", "tone": "watch"},
-        {"key": "presse", "label": "Alertes presse", "value": str(kpis.get("press_alerts", 16)), "detail": "qualifiees par AYA", "tone": "critical"},
-        {"key": "agenda", "label": "Rendez-vous", "value": str(kpis.get("meetings", 4)), "detail": "aujourd'hui", "tone": "stable"},
-        {"key": "flux", "label": "Flux temps reel", "value": "8", "detail": "presse · carte · agenda · visuel", "tone": "stable"},
+        {"id": "deadline", "key": "deadline", "label": "Decision avant", "value": "15h00", "detail": "Conseil des ministres", "tone": "critical"},
+        {"id": "arbitrages", "key": "arbitrages", "label": "Arbitrages ouverts", "value": "3", "detail": "validation humaine", "tone": "watch"},
+        {"id": "presse", "key": "presse", "label": "Alertes presse", "value": str(kpis.get("press_alerts", 16)), "detail": "qualifiees par AYA", "tone": "critical"},
+        {"id": "agenda", "key": "agenda", "label": "Rendez-vous", "value": str(kpis.get("meetings", 4)), "detail": "aujourd'hui", "tone": "stable"},
+        {"id": "flux", "key": "flux", "label": "Flux temps reel", "value": "8", "detail": "presse · carte · agenda · visuel", "tone": "stable"},
     ]
 
 
@@ -2334,9 +2331,7 @@ _PRESS_CI_PUBLISHER_TOKENS = (
     "fraternite matin",
     "fraternité matin",
     "fratmat",
-    "rfi afrique",
     "rfi afrique ci",
-    "jeune afrique",
     "jeune afrique ci",
     "rti info",
     "aip",
@@ -2455,6 +2450,12 @@ def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -
                 "tone": "critical" if _risk_rank(risk) >= 3 else "watch",
                 "route": f"{MISSION_ROOM_ROOT}/presse?highlight={alert.get('id')}",
                 "summary": alert.get("summary") or alert.get("impact_ci") or alert.get("recommended_action"),
+                "geography_tier": alert.get("geography_tier") or alert.get("geo_tier"),
+                "geo_tier": alert.get("geo_tier") or alert.get("geography_tier"),
+                "region_iso": alert.get("region_iso"),
+                "country": alert.get("country") or alert.get("zone"),
+                "publisher": alert.get("publisher") or alert.get("source"),
+                "tags": alert.get("tags") or [],
             }
         )
     # If the top of the list still doesn't carry a CI signal (eg. RSS dry,

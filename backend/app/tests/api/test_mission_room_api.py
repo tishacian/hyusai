@@ -11,6 +11,7 @@ from app.models.intelligence import FeedArticle, FeedSource
 from app.models.run import Run
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services import mission_room as mission_room_service
 from app.services.action_plans import ensure_action_plan_seed
 from app.services.workspace_calendar import ensure_calendar_seed
 
@@ -143,6 +144,7 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert cockpit_body["directive_of_day"]["primary_cta"] == "Ouvrir le dossier Zone Nord"
     # Demo trame: chip "Zone Nord · Tendue" doit ouvrir la barre de statut.
     assert cockpit_body["vp_status_bar"][0]["key"] == "zone-nord-tension"
+    assert cockpit_body["vp_status_bar"][0]["id"] == "zone-nord-tension"
     assert cockpit_body["vp_status_bar"][0]["value"] == "Tendue"
     assert cockpit_body["vp_status_bar"][0]["tone"] == "critical"
     assert cockpit_body["vp_status_bar"][0].get("pulse") is True
@@ -261,6 +263,9 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     assert len(cockpit_body["sixty_second_cockpit"]["urgences"]) == 3
     assert cockpit_body["executive_decision_packages"][0]["deadline"] == "15:00"
     assert cockpit_body["rumor_trace"]["origin"].startswith("WhatsApp")
+    press_hero = cockpit_body["press_preview"][0]
+    assert press_hero["geography_tier"] == "ci"
+    assert "Cote d'Ivoire" in press_hero["title"]
 
     audit = db_session.query(AuditLog).filter_by(event_type="mission_room.news.synthesized").one()
     assert audit.details["last_run_id"] == run.id
@@ -293,6 +298,26 @@ def test_mission_room_cockpit_agenda_uses_demo_date_window(db_session):
         start_at = event.get("start_at") or ""
         # Each surfaced event must belong to the demo-day window (25 or 26 May 2026).
         assert start_at.startswith("2026-05-25") or start_at.startswith("2026-05-26"), start_at
+
+
+def test_press_preview_falls_back_when_global_feed_is_not_ci():
+    preview = mission_room_service._press_preview_payload(
+        {},
+        [
+            {
+                "id": "press-rfi-kidal",
+                "title": "Kidal « toujours en guerre » : le signal securitaire reste eleve",
+                "source": "RFI Afrique",
+                "risk_level": "critical",
+                "summary": "Signal regional sahelien hors perimetre local.",
+                "geography_tier": "africa",
+                "tags": ["mali", "sahel"],
+            }
+        ],
+    )
+
+    assert preview[0]["id"] == "press-fallback-abidjan-net-drone-napie"
+    assert preview[0]["geography_tier"] == "ci"
 
 
 def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_session):
