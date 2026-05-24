@@ -109,7 +109,7 @@ export class AssistantEffectsService {
     );
     const rawCycle = Array.isArray(payload['cycle']) ? (payload['cycle'] as unknown[]) : [];
     const cycle: AssistantWebcamCycleEntry[] = rawCycle
-      .map((entry) => {
+      .map((entry): AssistantWebcamCycleEntry | null => {
         if (!entry || typeof entry !== 'object') return null;
         const record = entry as Record<string, unknown>;
         const id = String(record['source_id'] || '').trim();
