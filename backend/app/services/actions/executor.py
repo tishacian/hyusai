@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import uuid4
@@ -173,6 +174,72 @@ def resolve_action_with_awaiting(
 
 def _action_effect(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"chunk_type": "action_effect", "effect": kind, **payload}
+
+
+_DEFAULT_CACAO_AGENDA_ITEM: dict[str, Any] = {
+    "id": "agenda-cacao-diversification",
+    "title": "Point cacao - diversification anacarde (proposition AYA)",
+    "order": 99,
+    "priority": "high",
+    "owner_proposer": "AYA",
+    "decision_required": True,
+    "source_refs": ["report-prefet-nawa-2026-05-10", "sentinel-ci-anacarde-diversification-v1"],
+}
+
+_DEROGATION_AGENDA_ITEM: dict[str, Any] = {
+    "id": "agenda-derogation-douanes",
+    "title": "Derogation douanes — cargo MV Atlantic Trader / Centre Napie",
+    "order": 99,
+    "priority": "high",
+    "owner_proposer": "AYA",
+    "decision_required": True,
+    "source_refs": ["proces-verbal-douanes-non-conformite-2026-05-18", "cargo-abidjan-supply-001"],
+}
+
+_AGENDA_SUBJECT_RE = re.compile(
+    r"(?:"
+    r"mets?\s+a\s+jour\s+l\s*'?odj\s*:?\s*"
+    r"|mets?\s+a\s+jour\s+l\s*'?ordre\s+du\s+jour\s*:?\s*"
+    r"|ajoute\s+le\s+point\s+"
+    r"|ajoute\s+a\s+l\s*'?ordre\s+du\s+jour\s*:?\s*"
+    r"|patch\s+l\s*'?agenda\s*:?\s*"
+    r")(.+)$",
+    re.IGNORECASE,
+)
+
+
+def _resolve_agenda_item_from_prompt(text: str) -> dict[str, Any]:
+    """Extract a demo-safe agenda item from a free-form update_meeting_agenda prompt."""
+
+    from app.services.actions.registry import _normalize, _strip_wake_word
+
+    normalized = _strip_wake_word(_normalize(text))
+    subject = ""
+    match = _AGENDA_SUBJECT_RE.search(normalized)
+    if match:
+        subject = match.group(1).strip(" .,:;!?")
+        subject = re.sub(r"\s+au\s+meeting$", "", subject).strip()
+
+    if not subject or subject in {"l ordre du jour", "ordre du jour", "l odj", "odj"}:
+        return dict(_DEFAULT_CACAO_AGENDA_ITEM)
+
+    if re.search(r"\bderogation\b", subject):
+        return dict(_DEROGATION_AGENDA_ITEM)
+
+    if re.search(r"\bcacao\b", subject):
+        return dict(_DEFAULT_CACAO_AGENDA_ITEM)
+
+    slug = re.sub(r"[^a-z0-9]+", "-", subject).strip("-")[:40] or "custom"
+    display = subject[:1].upper() + subject[1:] if subject else subject
+    return {
+        "id": f"agenda-{slug}",
+        "title": f"Point {display} (proposition AYA)",
+        "order": 99,
+        "priority": "high",
+        "owner_proposer": "AYA",
+        "decision_required": True,
+        "source_refs": [],
+    }
 
 
 def _manifest_by_id(workspace: Workspace, action_id: str, *, surface: str, assistant_profile: Optional[str]) -> Optional[ActionManifest]:
@@ -655,17 +722,9 @@ async def execute_flow_action(
         if event is None:
             content = "M. le Vice President, aucun rendez-vous courant identifie pour mettre a jour l'ordre du jour."
         else:
-            proposed_items = list((manifest.input_schema or {}).get("agenda_items") or []) or [
-                {
-                    "id": "agenda-cacao-diversification",
-                    "title": "Point cacao - diversification anacarde (proposition AYA)",
-                    "order": 99,
-                    "priority": "high",
-                    "owner_proposer": "AYA",
-                    "decision_required": True,
-                    "source_refs": ["report-prefet-nawa-2026-05-10", "sentinel-ci-anacarde-diversification-v1"],
-                }
-            ]
+            schema_items = list((manifest.input_schema or {}).get("agenda_items") or [])
+            proposed_items = schema_items or [_resolve_agenda_item_from_prompt(text)]
+            agenda_label = str(proposed_items[0].get("title") or "point agenda")
             set_current_meeting(db, workspace, event.id)
             # Stage the patch so a follow-up "oui" triggers
             # ``aya.confirm_agenda_patch`` which applies the calendar PATCH.
@@ -708,7 +767,7 @@ async def execute_flow_action(
                 )
             )
             content = (
-                f"M. le Vice President, je propose d'ajouter le point cacao a l'ordre du jour de **{event.title}**. "
+                f"M. le Vice President, je propose d'ajouter **{agenda_label}** a l'ordre du jour de **{event.title}**. "
                 "Validation advisory requise avant ecriture agenda."
             )
             sources = [serialize_event(event)]

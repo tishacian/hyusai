@@ -508,6 +508,13 @@ SENTINEL_AYA_ACTIONS = (
             # still cover the AIS pin path.
             "ouvre le cargo mv",
             "trafic mv atlantic trader",
+            # Trame S1.4 — formes « explique … » sans basculer en RAG.
+            "explique le cargo atlantic trader",
+            "explique la cargaison atlantic trader",
+            "explique le cargo bloque",
+            "details cargo atlantic trader",
+            "explique cette cargaison",
+            "pourquoi le cargo est bloque",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -646,6 +653,10 @@ SENTINEL_AYA_ACTIONS = (
             "mets à jour le rdv",
             "mets a jour l'ordre du jour",
             "mets à jour l'ordre du jour",
+            "mets a jour l odj",
+            "mets à jour l odj",
+            "patch l agenda",
+            "patch l'agenda",
             "propose cet arbitrage au prefet",
             "propose cet arbitrage au préfet",
         ),
@@ -1119,6 +1130,7 @@ def resolve_action(
 _CUSTOMS_HINT_RE = re.compile(
     r"\b(?:pv|proces\s*verbal|dedouanement|derogation|courrier|email|mail|douanes|customs)\b"
 )
+_VESSEL_HINT_RE = re.compile(r"\b(?:cargo|cargaison|atlantic\s*trader|navire|mv)\b")
 
 
 def _apply_tie_breakers(
@@ -1133,19 +1145,29 @@ def _apply_tie_breakers(
     email, mail, douanes, customs) and a customs action also matched
     above the same threshold, prefer the customs action so the demo
     stays on the douanes narrative.
+
+    Rule 2 — ``explique`` + maritime hints: when ``aya.explain_why`` wins
+    but the query uses ``explique`` with cargo / cargaison / navire cues,
+    prefer ``aya.show_vessel_evidence`` so S1.4 trame phrases stay on the
+    maritime drawer without stealing ``pourquoi cette cargaison …`` drills.
     """
 
     if not scored:
         raise ValueError("scored must contain at least one element")
     top_score, top_manifest = scored[0]
-    if top_manifest.action_id != "aya.show_vessel_evidence":
-        return top_score, top_manifest
-    if not _CUSTOMS_HINT_RE.search(normalized):
-        return top_score, top_manifest
-    customs_action_ids = {"aya.show_customs_record", "aya.draft_customs_email", "aya.propose_customs_email"}
-    for score, manifest in scored:
-        if manifest.action_id in customs_action_ids:
-            return score, manifest
+    if top_manifest.action_id == "aya.show_vessel_evidence" and _CUSTOMS_HINT_RE.search(normalized):
+        customs_action_ids = {"aya.show_customs_record", "aya.draft_customs_email", "aya.propose_customs_email"}
+        for score, manifest in scored:
+            if manifest.action_id in customs_action_ids:
+                return score, manifest
+    if (
+        top_manifest.action_id == "aya.explain_why"
+        and re.search(r"\bexplique\b", normalized)
+        and _VESSEL_HINT_RE.search(normalized)
+    ):
+        for score, manifest in scored:
+            if manifest.action_id == "aya.show_vessel_evidence":
+                return score, manifest
     return top_score, top_manifest
 
 

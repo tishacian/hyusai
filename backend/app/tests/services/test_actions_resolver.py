@@ -48,6 +48,8 @@ def _workspace(**kwargs) -> Workspace:
         # Phase C — vessel evidence.
         ("Montre le navire MV Atlantic Trader", "aya.show_vessel_evidence"),
         ("Voir flux entree port", "aya.show_vessel_evidence"),
+        ("explique le cargo Atlantic Trader", "aya.show_vessel_evidence"),
+        ("AYA, explique le cargo Atlantic Trader", "aya.show_vessel_evidence"),
         # Phase D — customs record PV.
         ("Montre le PV douanes", "aya.show_customs_record"),
         ("Ouvre le proces verbal douanes", "aya.show_customs_record"),
