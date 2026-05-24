@@ -224,7 +224,12 @@ def test_chat_stream_vigie_signals_uses_fast_mission_room_reply(db_session, monk
     assert run.output_ref["knowledge_scope"] == "vigie"
 
 
-def test_chat_stream_vigie_cockpit_60s_uses_deterministic_reply(db_session, monkeypatch):
+def test_chat_stream_vigie_cockpit_60s_routes_to_priority_summary(db_session, monkeypatch):
+    """``Donne-moi le cockpit 60 secondes`` must reach the registry resolver
+    (``aya.priority_summary`` → ``briefing_priorities_v1``), not a hardcoded
+    cockpit shortcut. The narrative comes from ``ATTENTION_REQUIRED`` so the
+    Napié cause-racine wording propagates automatically.
+    """
     workspace = Workspace(id="ws-sentinel-cockpit", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
     db_session.add(workspace)
     db_session.commit()
@@ -239,18 +244,23 @@ def test_chat_stream_vigie_cockpit_60s_uses_deterministic_reply(db_session, monk
     )
 
     assert response.status_code == 200
-    assert "lecture 60 secondes" in response.text.lower()
-    assert "Zone Nord" in response.text
-    assert "L'Inter" in response.text
-    assert "data: [DONE]" in response.text
+    assert "prioritaires" in response.text.lower()
+    assert '"chunk_type": "action_result"' in response.text
+    assert '"aya.priority_summary"' in response.text
     assert '"chunk_type": "retrieval"' not in response.text
+    assert "data: [DONE]" in response.text
+    assert "Konate" not in response.text
+    assert "Burkina" not in response.text
 
     run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
-    assert run.trigger == "vigie_quick_brief"
-    assert run.output_ref["vigie_quick_reply"]["handler"] == "cockpit_60s"
+    assert run.trigger == "action_registry"
 
 
-def test_chat_stream_vigie_north_situation_does_not_emit_map_command(db_session, monkeypatch):
+def test_chat_stream_vigie_north_situation_drills_to_napie(db_session, monkeypatch):
+    """``Quelle est la situation au nord ?`` must drill the causal chain via
+    ``aya.explain_why`` and surface the Centre Drones Napié narrative — the
+    old hardcoded Konaté/Burkina/CEDEAO Mission Room reply is gone.
+    """
     workspace = Workspace(id="ws-sentinel-north", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
     db_session.add(workspace)
     db_session.commit()
@@ -267,15 +277,21 @@ def test_chat_stream_vigie_north_situation_does_not_emit_map_command(db_session,
     )
 
     assert response.status_code == 200
-    assert "Zone Nord" in response.text
-    assert "15h00" in response.text
+    assert '"chunk_type": "action_result"' in response.text
+    assert '"aya.explain_why"' in response.text
+    assert ("Napi" in response.text) or ("proj-drone-centre-napie" in response.text)
     assert '"chunk_type": "map_command"' not in response.text
     assert '"chunk_type": "retrieval"' not in response.text
     assert "data: [DONE]" in response.text
+    assert "Konate" not in response.text
+    assert "Burkina" not in response.text
 
 
-def test_chat_stream_vigie_abidjan_port_has_text_reply_without_map_command(db_session, monkeypatch):
-    workspace = Workspace(id="ws-sentinel-port", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+def test_chat_stream_vigie_brief_operationnel_projet_nord_focuses_napie(db_session, monkeypatch):
+    """``Brief opérationnel · Projet sensible · Nord`` card prompt must focus
+    the map on the Napié project via ``aya.focus_zone_with_project`` — no
+    Konaté/Burkina fallback narrative."""
+    workspace = Workspace(id="ws-sentinel-brief", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
     db_session.add(workspace)
     db_session.commit()
     ensure_workspace_map_seed(db_session, workspace)
@@ -284,17 +300,20 @@ def test_chat_stream_vigie_abidjan_port_has_text_reply_without_map_command(db_se
     response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
         "/chat/stream",
         json={
-            "query": "Quel est le risque portuaire autour d'Abidjan ?",
+            "query": "AYA, donne-moi le brief opérationnel pour Projet sensible · Nord avec sources et action recommandée.",
             "assistant_profile": "vigie_executive",
             "knowledge_scope": "vigie",
         },
     )
 
     assert response.status_code == 200
-    assert "Port d'Abidjan" in response.text
-    assert '"chunk_type": "map_command"' not in response.text
-    assert '"chunk_type": "retrieval"' not in response.text
+    assert '"aya.focus_zone_with_project"' in response.text
+    assert "Napi" in response.text
+    assert "Aerostar" in response.text
+    assert '"chunk_type": "map_command"' in response.text
     assert "data: [DONE]" in response.text
+    assert "Konate" not in response.text
+    assert "Burkina" not in response.text
 
 
 def test_chat_stream_registry_priority_summary(db_session, monkeypatch):

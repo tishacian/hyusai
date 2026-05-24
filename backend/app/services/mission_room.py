@@ -316,7 +316,10 @@ PRIORITIES = [
         "id": "prio-security-north",
         "kind": "urgent",
         "title": "Situation securitaire nord",
-        "summary": "Rumeurs recurrentes + projet social en retard : renforcement de coordination recommande.",
+        "summary": (
+            "Cause racine : retard Centre Drones Napie (120 jours) + cargo MV Atlantic Trader "
+            "bloque a Vridi. Signal frontalier secondaire (Gen. Konate) a tenir distinct."
+        ),
         "deadline": "avant conseil restreint",
         "sources": ["src-cabinet-brief-001", "src-press-rfi-017"],
         "tone": "critical",
@@ -324,8 +327,11 @@ PRIORITIES = [
     {
         "id": "prio-mail-konaté",
         "kind": "mail",
-        "title": "Email prioritaire - Gen. Konate",
-        "summary": "Demande d'arbitrage sur reception de materiels et communication preventive.",
+        "title": "Email prioritaire - Gen. Konate (signal frontalier secondaire)",
+        "summary": (
+            "Demande d'arbitrage sur reception de materiels et communication preventive. "
+            "Signal regional independant de la cause racine economique (chantier Napie)."
+        ),
         "deadline": "09:15",
         "sources": ["src-cabinet-brief-001"],
         "tone": "watch",
@@ -560,10 +566,13 @@ MESSAGES = [
     {
         "id": "msg-konate-001",
         "from": "Gen. Konate",
-        "subject": "Situation securitaire nord",
+        "subject": "Situation securitaire nord (signal frontalier secondaire)",
         "time": "09:15",
         "priority": "urgent",
-        "summary": "Demande d'arbitrage sur reception de materiels et communication preventive.",
+        "summary": (
+            "Demande d'arbitrage sur reception de materiels et communication preventive. "
+            "Signal frontalier independant de la cause racine economique (retard chantier Napie + cargo MV Atlantic Trader)."
+        ),
         "sources": ["src-cabinet-brief-001"],
     },
     {
@@ -647,8 +656,13 @@ ATTENTION_REQUIRED = [
     {
         "id": "attention-zone-nord",
         "rank": 2,
-        "title": "Zone Nord - tension frontiere Burkina Faso",
-        "sentence": "Renforcement preventif ou coordination CEDEAO a arbitrer avant Conseil 15h00.",
+        "title": "Zone Nord - retard chantier Napie + cargo bloque (cause racine)",
+        "sentence": (
+            "Tension territoriale Nord — cause racine : retard du Centre Drones Napie "
+            "(120 jours) et cargo MV Atlantic Trader bloque a Vridi. Options secondaires : "
+            "renforcement preventif ou coordination CEDEAO sur effets regionaux. "
+            "A arbitrer avant Conseil 15h00."
+        ),
         "action_label": "Arbitrer les options",
         "deadline": "15:00",
         "status": "decision_required",
@@ -657,7 +671,12 @@ ATTENTION_REQUIRED = [
         "action_route": f"{MISSION_ROOM_ROOT}/strategie",
         "draft_target_type": "zone",
         "draft_recipient": "Directeur de cabinet",
-        "source_refs": ["src-cabinet-brief-001", "src-press-cedeao-001"],
+        "source_refs": [
+            "src-cabinet-brief-001",
+            "src-press-cedeao-001",
+            "src-abidjan-net-drone-napie-2025-07-16",
+            "src-maritime-paa-001",
+        ],
     },
     {
         "id": "attention-ambassadeur-france",
@@ -685,12 +704,13 @@ TERRITORIAL_LIVE_STATUS = [
 ]
 
 VOICE_DEMO_SCRIPT = {
-    "prompt": "AYA, quelle est la situation au nord en ce moment ?",
+    "prompt": "AYA, pourquoi la situation Nord est-elle tendue ?",
     "answer": (
-        "M. le Vice Président, Zone Nord : niveau critique depuis 06h14. "
-        "Le Général Konaté signale des mouvements à 40 kilomètres de la frontière Burkina. "
-        "Deux options : renforcement préventif ou coordination CEDEAO. "
-        "AYA recommande la coordination CEDEAO, avec arbitrage avant 15 heures."
+        "M. le Vice Président, la tension Nord remonte au retard du chantier "
+        "Centre International Formation Drones — Napié (Poro) : 120 jours de "
+        "décalage, composants Aerostar Dynamics bloqués au port d'Abidjan "
+        "sur cargo MV Atlantic Trader (effet collatéral PV douanes 18 mai). "
+        "Recommandation : dérogation Chef Douanes — brouillon prêt."
     ),
     "target_latency_s": 6,
 }
@@ -700,15 +720,30 @@ EXECUTIVE_DECISION_PACKAGES = [
         "id": "package-zone-nord",
         "label": "Dossier de decision",
         "title": "Zone Nord - arbitrage avant Conseil",
-        "decision": "Choisir renforcement preventif ou coordination CEDEAO avant 15h00.",
-        "recommended_option": "Coordination CEDEAO + presence institutionnelle sobre",
+        "decision": (
+            "Cause racine identifiee : retard Centre Drones Napie + cargo MV Atlantic Trader "
+            "bloque (effet collateral PV douanes 18 mai). Arbitrer la priorisation "
+            "dedouanement (cause racine) et la coordination CEDEAO (signal frontalier "
+            "secondaire) avant 15h00."
+        ),
+        "recommended_option": (
+            "Priorisation dedouanement cargo Napie + coordination CEDEAO en appui sur le "
+            "contexte regional secondaire."
+        ),
         "why_now": "La sequence presse de 14h00 peut amplifier la tension si aucune posture n'est annoncee.",
         "deadline": "15:00",
         "owner": "Directeur de cabinet",
         "confidence": 0.78,
         "status": "decision_required",
         "tone": "critical",
-        "sources": ["Carte Nord", "Presse CI", "Agenda Conseil", "Flux visuels Abidjan"],
+        "sources": [
+            "Carte Nord",
+            "Presse CI",
+            "Agenda Conseil",
+            "Flux visuels Abidjan",
+            "PV douanes 18 mai",
+            "Abidjan.net Centre Drones Napie",
+        ],
         "cta": "Faire lire par AYA",
     },
     {

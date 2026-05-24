@@ -329,7 +329,10 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert body["attention_required"][0]["deadline"] == "14:00"
     assert body["voice_demo_script"]["target_latency_s"] == 6
     assert len(body["executive_decision_packages"]) == 4
-    assert body["executive_decision_packages"][0]["recommended_option"].startswith("Coordination CEDEAO")
+    # The root cause (chantier Napié + cargo bloqué) must lead the recommended option,
+    # with CEDEAO/regional coordination repositioned as a secondary signal in support.
+    assert body["executive_decision_packages"][0]["recommended_option"].startswith("Priorisation dedouanement cargo Napie")
+    assert "CEDEAO" in body["executive_decision_packages"][0]["recommended_option"]
     assert body["rumor_trace"]["recommended_action"].startswith("Verifier source primaire")
     assert body["demo_value_metrics"][0]["value"] == "80 -> 3"
     assert len(body["presentation_beats"]) == 4

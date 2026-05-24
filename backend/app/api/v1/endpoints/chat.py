@@ -331,53 +331,29 @@ def _vigie_executive_quick_reply(
     *,
     assistant_profile: Optional[str],
 ) -> Optional[Dict[str, Any]]:
-    """Return a bounded executive reply for mission-room prompts.
+    """Return a generic data-driven fallback reply for vigie_executive prompts.
 
-    The general RAG/LLM path remains available, but the ministerial cockpit
-    must never feel frozen for common briefing questions. This handler uses
-    already-consolidated Mission Room payloads and produces a source-backed
-    answer in one SSE turn.
+    This is intentionally a **safety net only**. Business-specific narratives
+    (zone Nord, port, presse, agenda…) MUST be expressed as Action Manifest
+    phrases in ``app.services.actions.registry`` (pack ``sentinel_ci_aya_v1``)
+    and routed through ``handle_registry_chat_action`` so the executor stays
+    the single source of dynamic narrative. When the resolver finds no match
+    and the query is clearly a generic briefing-style ask, we return a
+    consolidated 3-signal summary built from ``news_payload``/``cockpit_payload``
+    (no hardcoded narrative).
     """
     if assistant_profile != "vigie_executive":
         return None
     normalized = query.lower()
     trigger_terms = (
-        "60",
-        "soixante",
-        "cockpit",
-        "que dois-je faire",
-        "quoi faire",
-        "priorit",
         "signal",
         "signaux",
         "attention cabinet",
         "alerte",
         "alertes",
-        "brief",
-        "briefing",
-        "presse",
-        "veille",
         "synthese",
         "synthèse",
-        "nord",
-        "l'inter",
-        "inter",
-        "budget defense",
-        "budget défense",
-        "réponse",
-        "reponse",
-        "langage",
-        "email",
-        "agenda",
-        "ambassadeur",
-        "dejeuner",
-        "déjeuner",
-        "conseil",
-        "port",
-        "abidjan",
-        "maritime",
-        "douane",
-        "douanes",
+        "veille",
     )
     if not any(term in normalized for term in trigger_terms):
         return None
@@ -385,119 +361,11 @@ def _vigie_executive_quick_reply(
     news = news_payload(workspace, db)
     cockpit = cockpit_payload(workspace, db)
     briefing = briefing_payload(workspace)
-    attention = cockpit.get("attention_required") or []
     alerts = (news.get("executive_alerts") or news.get("signals") or cockpit.get("latest_alerts") or [])[:3]
     note = news.get("briefing_note") or {}
     source_health = news.get("source_health") or {}
-    maritime = news.get("maritime_intelligence") or briefing.get("maritime_intelligence") or {}
-    latest_maritime = maritime.get("latest_observation") or {}
     sources_catalog = news.get("sources") or cockpit.get("sources") or source_index()
     source_lookup = {str(item.get("id")): item for item in sources_catalog if item.get("id")}
-
-    def _sources_for(refs: list[str]) -> list[dict[str, Any]]:
-        sources = []
-        for source_id in refs[:6]:
-            source = source_lookup.get(str(source_id)) or {"id": source_id, "label": source_id}
-            sources.append(
-                {
-                    "title": source.get("label") or source_id,
-                    "source_label": source.get("label") or source_id,
-                    "kind": source.get("kind") or "mission_room",
-                    "confidence": source.get("confidence"),
-                }
-            )
-        return sources or [{"title": "Mission Room SENTINEL-CI", "source_label": "Briefing souverain", "kind": "mission_room"}]
-
-    def _attention_by_id(item_id: str) -> dict[str, Any]:
-        return next((item for item in attention if item.get("id") == item_id), {})
-
-    is_cockpit = any(term in normalized for term in ("60", "soixante", "cockpit", "que dois-je faire", "quoi faire", "priorit"))
-    is_north = "nord" in normalized and not any(term in normalized for term in ("carte", "montre", "affiche", "zoom"))
-    is_press_response = any(term in normalized for term in ("l'inter", "inter", "budget defense", "budget défense", "réponse", "reponse", "langage", "email"))
-    is_agenda = any(term in normalized for term in ("agenda", "ambassadeur", "dejeuner", "déjeuner", "conseil", "rendez-vous", "rdv"))
-    is_port = any(term in normalized for term in ("port", "abidjan", "maritime", "douane", "douanes")) and not any(
-        term in normalized for term in ("carte", "montre", "affiche", "zoom", "visualise")
-    )
-
-    if is_cockpit:
-        refs = []
-        for item in attention[:3]:
-            refs.extend(item.get("source_refs") or item.get("sources") or [])
-        lines = [
-            "M. le Vice Président, lecture 60 secondes :",
-            "1. Zone Nord : arbitrage avant le Conseil de 15h00. C'est la priorité du matin.",
-            "2. Article L'Inter : réponse presse recommandée avant 14h00, brouillon prêt pour validation.",
-            "3. Déjeuner Ambassadeur de France : fiche de préparation prête avant 13h00.",
-            "Action immédiate : ouvrir le dossier Zone Nord. Puis valider la réponse communication si le cabinet confirme la ligne.",
-        ]
-        return {
-            "content": "\n".join(lines),
-            "sources": _sources_for(list(dict.fromkeys(refs)) or ["src-cabinet-brief-001", "src-press-ci-local-001", "src-agenda-jour-015"]),
-            "details": {"handler": "cockpit_60s", "scenario": "vp_decision_cockpit"},
-        }
-
-    if is_north:
-        north = _attention_by_id("attention-zone-nord")
-        lines = [
-            "M. le Vice Président, Zone Nord : niveau critique depuis 06h14.",
-            "Le Général Konaté signale des mouvements à 40 kilomètres de la frontière Burkina. Deux options sont ouvertes : renforcement préventif ou coordination CEDEAO.",
-            "AYA recommande une coordination CEDEAO avec présence institutionnelle sobre, avec arbitrage avant 15h00.",
-        ]
-        return {
-            "content": "\n".join(lines),
-            "sources": _sources_for((north.get("source_refs") or []) + ["src-cabinet-brief-001", "src-press-cedeao-001"]),
-            "details": {"handler": "north_situation", "deadline": "15:00", "advisory_only": True},
-        }
-
-    if is_press_response:
-        press = _attention_by_id("attention-inter-budget")
-        lines = [
-            "M. le Vice Président, réponse presse recommandée avant 14h00.",
-            "Objet : clarification sur le budget défense et la continuité des priorités nationales.",
-            "Projet : rappeler la maîtrise budgétaire, la transparence des arbitrages et l'absence de rupture dans les engagements de sécurité et de service public.",
-            "Statut : brouillon uniquement, validation humaine requise avant tout envoi.",
-        ]
-        return {
-            "content": "\n".join(lines),
-            "sources": _sources_for(press.get("source_refs") or ["src-press-ci-local-001"]),
-            "details": {"handler": "press_response", "deadline": "14:00", "draft_only": True},
-        }
-
-    if is_agenda:
-        agenda_day = cockpit.get("agenda_day") or {}
-        items = agenda_day.get("items") or cockpit.get("agenda") or []
-        agenda_lines = []
-        for item in items[:4]:
-            time_value = item.get("time") or item.get("start_time") or item.get("starts_at") or "horaire à confirmer"
-            title = item.get("title") or item.get("summary") or "Événement"
-            location = item.get("location") or item.get("place") or ""
-            agenda_lines.append(f"- {time_value} · {title}" + (f" · {location}" if location else ""))
-        lines = [
-            "M. le Vice Président, agenda du jour :",
-            *(agenda_lines or ["- 08:30 · Conseil Défense restreint", "- 11:00 · Point presse hebdomadaire", "- 13:00 · Déjeuner Ambassadeur de France"]),
-            "Fenêtre utile : 10:00-10:45 pour cadrer la réponse presse et préparer l'arbitrage Zone Nord.",
-        ]
-        return {
-            "content": "\n".join(lines),
-            "sources": _sources_for(["src-agenda-jour-015", "src-cabinet-brief-001"]),
-            "details": {"handler": "agenda_summary", "calendar_used": bool(items)},
-        }
-
-    if is_port:
-        summary = latest_maritime.get("summary") or "Le port d'Abidjan reste sous vigilance contextualisée : flux portuaires, douanes et presse économique doivent être recoupés avant communication."
-        action = latest_maritime.get("recommended_action") or "Demander confirmation Port + Douanes avant prise de parole économique."
-        deadline = latest_maritime.get("decision_deadline") or "12:00"
-        lines = [
-            "M. le Vice Président, Port d'Abidjan : vigilance maritime et douanière.",
-            summary,
-            f"Action recommandée : {action}",
-            f"Échéance de qualification : {deadline}.",
-        ]
-        return {
-            "content": "\n".join(lines),
-            "sources": _sources_for(["src-maritime-paa-001", "src-maritime-marinelink-001", "src-marinetraffic-context-001"]),
-            "details": {"handler": "abidjan_port", "deadline": deadline, "advisory_only": True},
-        }
 
     lines = ["M. le Vice Président, trois signaux méritent une attention cabinet aujourd'hui :"]
     if alerts:

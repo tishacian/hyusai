@@ -369,6 +369,19 @@ SENTINEL_AYA_ACTIONS = (
             "priorites du jour",
             "priorités du jour",
             "briefing priorites",
+            # Cockpit 60-secondes voice/chat openers (previously hardcoded
+            # under ``is_cockpit`` in chat.py — moved here so the resolver
+            # owns the route into the briefing skill).
+            "cockpit 60 secondes",
+            "lecture 60 secondes",
+            "lecture en 60 secondes",
+            "donne moi le cockpit",
+            "donne-moi le cockpit",
+            "donne moi le cockpit 60 secondes",
+            "donne-moi le cockpit 60 secondes",
+            "que dois je faire",
+            "que dois-je faire",
+            "quoi faire ce matin",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -392,6 +405,21 @@ SENTINEL_AYA_ACTIONS = (
             "composants importés",
             "focus zone nord projet",
             "pointe un projet public en retard",
+            # "Brief opérationnel · Projet sensible Nord" card prompts —
+            # route to the project-focused map drill so the cockpit shows
+            # Centre Drones Napié + cargo Aerostar + 120 j de retard.
+            "brief operationnel projet",
+            "brief opérationnel projet",
+            "brief operationnel projet nord",
+            "brief opérationnel projet nord",
+            "brief operationnel pour projet nord",
+            "brief opérationnel pour projet nord",
+            "brief operationnel projet sensible",
+            "brief opérationnel projet sensible",
+            "brief operationnel projet sensible nord",
+            "brief opérationnel projet sensible nord",
+            "projet sensible nord",
+            "projet sensible · nord",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -481,6 +509,8 @@ SENTINEL_AYA_ACTIONS = (
             "pourquoi cette tension",
             "pourquoi la situation est tendue",
             "pourquoi la situation est-elle tendue",
+            "pourquoi la situation nord est tendue",
+            "pourquoi la situation nord est-elle tendue",
             "pourquoi ce projet est en retard",
             "pourquoi ce projet est-il en retard",
             "pourquoi cette cargaison est bloquee",
@@ -489,6 +519,18 @@ SENTINEL_AYA_ACTIONS = (
             "pourquoi cette cargaison est-elle bloquée",
             "pourquoi le nord",
             "pourquoi le nord est tendu",
+            # Non-"pourquoi" Nord situational queries — drill into the
+            # causal chain (zone-nord → Napié → cargo → PV douanes) so AYA
+            # stays on the Napié narrative instead of falling back to a
+            # generic 3-signals reply.
+            "quelle est la situation au nord",
+            "quelle est la situation au nord en ce moment",
+            "situation au nord",
+            "situation au nord en ce moment",
+            "que se passe t il au nord",
+            "que se passe-t-il au nord",
+            "etat de la zone nord",
+            "état de la zone nord",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
