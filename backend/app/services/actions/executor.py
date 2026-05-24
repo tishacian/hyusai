@@ -176,6 +176,44 @@ def _action_effect(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"chunk_type": "action_effect", "effect": kind, **payload}
 
 
+def _atlantic_trader_webcam_payload() -> Optional[dict[str, Any]]:
+    from app.services.webcam_proxy import (
+        get_spec as _get_webcam_spec,
+        recommended_webcam_for_vessel,
+        webcam_cycle_for_vessel,
+    )
+
+    webcam_source_id = recommended_webcam_for_vessel(
+        mmsi="627012345",
+        cargo_id="cargo-abidjan-supply-001",
+    )
+    if not webcam_source_id:
+        return None
+    spec_for_webcam = _get_webcam_spec(webcam_source_id)
+    cycle_ids = webcam_cycle_for_vessel(
+        mmsi="627012345",
+        cargo_id="cargo-abidjan-supply-001",
+    )
+    return {
+        "source_id": webcam_source_id,
+        "vessel_mmsi": "627012345",
+        "vessel_name": "MV Atlantic Trader",
+        "cargo_id": "cargo-abidjan-supply-001",
+        "label": spec_for_webcam.label if spec_for_webcam else None,
+        "attribution": spec_for_webcam.attribution if spec_for_webcam else None,
+        "label_disclaimer": spec_for_webcam.label_disclaimer if spec_for_webcam else None,
+        "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={webcam_source_id}",
+        "cycle": [
+            {
+                "source_id": candidate,
+                "label": (_get_webcam_spec(candidate).label if _get_webcam_spec(candidate) else candidate),
+                "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={candidate}",
+            }
+            for candidate in cycle_ids
+        ],
+    }
+
+
 _DEFAULT_CACAO_AGENDA_ITEM: dict[str, Any] = {
     "id": "agenda-cacao-diversification",
     "title": "Point cacao - diversification anacarde (proposition AYA)",
@@ -332,10 +370,18 @@ async def execute_flow_action(
         effects.append(
             _action_effect(
                 "assistant-navigate",
-                {"route": "/hypervisor/mission-room/strategie", "queryParams": {"mode": "live", "layers": "maritime"}},
+                {
+                    "route": "/hypervisor/mission-room/strategie",
+                    "queryParams": {"mode": "live", "panel": "maritime", "vessel": "mv-atlantic-trader"},
+                    "highlight": "cargo-abidjan-supply-001",
+                },
             )
         )
         effects.append({"chunk_type": "map_command", **command})
+        webcam_payload = _atlantic_trader_webcam_payload()
+        if webcam_payload:
+            effects.append(_action_effect("assistant-show-webcam", webcam_payload))
+            extra["webcam"] = webcam_payload
         maritime = await _invoke_skill("maritime_snapshot_read_v1", {}, ctx)
         cargo = next((e for e in (maritime.get("events") or []) if e.get("id") == "cargo-abidjan-supply-001"), None)
         cargo_line = cargo.get("summary") if cargo else "Trafic maritime Abidjan actif avec vigilance douaniere."
@@ -407,11 +453,6 @@ async def execute_flow_action(
         extra["draft"] = draft
     elif handler == "show_vessel_evidence":
         from app.services.workspace_maps import build_map_command, ensure_workspace_map_seed
-        from app.services.webcam_proxy import (
-            get_spec as _get_webcam_spec,
-            recommended_webcam_for_vessel,
-            webcam_cycle_for_vessel,
-        )
 
         ensure_workspace_map_seed(db, workspace)
         command = build_map_command(
@@ -435,34 +476,8 @@ async def execute_flow_action(
         )
         effects.append({"chunk_type": "map_command", **command})
         # Auto-select port webcam vignette next to the AIS marker.
-        webcam_source_id = recommended_webcam_for_vessel(
-            mmsi="627012345",
-            cargo_id="cargo-abidjan-supply-001",
-        )
-        if webcam_source_id:
-            spec_for_webcam = _get_webcam_spec(webcam_source_id)
-            cycle_ids = webcam_cycle_for_vessel(
-                mmsi="627012345",
-                cargo_id="cargo-abidjan-supply-001",
-            )
-            webcam_payload = {
-                "source_id": webcam_source_id,
-                "vessel_mmsi": "627012345",
-                "vessel_name": "MV Atlantic Trader",
-                "cargo_id": "cargo-abidjan-supply-001",
-                "label": spec_for_webcam.label if spec_for_webcam else None,
-                "attribution": spec_for_webcam.attribution if spec_for_webcam else None,
-                "label_disclaimer": spec_for_webcam.label_disclaimer if spec_for_webcam else None,
-                "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={webcam_source_id}",
-                "cycle": [
-                    {
-                        "source_id": candidate,
-                        "label": (_get_webcam_spec(candidate).label if _get_webcam_spec(candidate) else candidate),
-                        "proxy_url": f"/api/v1/mission-room/webcams/proxy?source_id={candidate}",
-                    }
-                    for candidate in cycle_ids
-                ],
-            }
+        webcam_payload = _atlantic_trader_webcam_payload()
+        if webcam_payload:
             effects.append(_action_effect("assistant-show-webcam", webcam_payload))
             extra["webcam"] = webcam_payload
         set_last_focus(db, workspace, "cargo-abidjan-supply-001")

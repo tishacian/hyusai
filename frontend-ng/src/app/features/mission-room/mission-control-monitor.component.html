@@ -204,6 +204,24 @@
               </a>
             }
           </div>
+          @if (activePortWebcam(); as webcam) {
+            <figure class="maritime-webcam-card" aria-label="Webcam APM Apapa">
+              @if (portWebcamPreviewUrl(webcam); as previewUrl) {
+                <img
+                  [src]="previewUrl"
+                  [alt]="'Image webcam publique - ' + (webcam.name || webcam.id)"
+                  (error)="markVisualPreviewFailed(webcam.id || webcam.source_id)"
+                />
+              } @else {
+                <div class="camera-empty"><ck-glyph name="focus" [size]="18" /><span>Flux en attente</span></div>
+              }
+              <figcaption>
+                <span>Webcam port</span>
+                <strong>{{ webcam.name || webcam.id }}</strong>
+                <small>{{ webcam.label_disclaimer || webcam.attribution || 'APM Apapa' }}</small>
+              </figcaption>
+            </figure>
+          }
         </div>
       } @else {
         <div class="webcam-grid">

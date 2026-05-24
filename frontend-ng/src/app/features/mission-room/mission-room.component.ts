@@ -2172,6 +2172,7 @@ export class MissionRailComponent {
             [missionMap]="missionMap()"
             [selectedZone]="selectedZone()"
             [mapCommandState]="mapCommandState()"
+            [portWebcam]="activePortWebcam()"
             [assistantName]="assistantName()"
             [captureImages]="visualCaptureImages()"
             (zoneSelected)="selectZone($event)"
@@ -4170,6 +4171,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly draft = signal<DraftInstruction | null>(null);
   readonly meetingDecisionsLog = signal<MeetingDecisionLogEntry[]>([]);
   readonly mapCommandState = signal<Record<string, unknown> | null>(null);
+  readonly activePortWebcam = signal<Record<string, unknown> | null>(null);
   readonly visualCaptureImages = signal<Record<string, string>>({});
   readonly activeNewsGeoTier = signal<'ci' | 'cedeao' | 'africa' | 'world'>('ci');
   readonly morningHighlightDismissed = signal(this.readMorningDismissed());
@@ -4203,11 +4205,25 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly workspaceActionUpdateListener = () => this.loadAll(false);
   private readonly mapCommandListener = (event: Event) => {
     const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
-    const target = String(detail['target'] || (detail['map_state'] as any)?.selected_zone || '');
+    const mapState = (detail['map_state'] as Record<string, unknown>) || null;
+    const target = String(detail['target'] || mapState?.['selected_zone'] || '');
+    const selectedPort = String(mapState?.['selected_port'] || '');
+    const intent = String(detail['intent'] || '');
     const zone = [...(this.missionMap()?.zones || []), ...(this.monitor()?.zones || [])].find((item) => item.id === target);
     if (zone) this.selectedZone.set(zone);
-    this.mapCommandState.set((detail['map_state'] as Record<string, unknown>) || null);
-    if (target || detail['map_state']) this.router.navigate(['/hypervisor/mission-room/strategie'], { queryParams: { mode: 'territory', zone: target || undefined } });
+    this.mapCommandState.set(mapState);
+    if (target || mapState) {
+      const liveMaritime = !!selectedPort || intent === 'show_vessel_snapshot' || intent === 'focus_port';
+      const queryParams: Record<string, string | undefined> = liveMaritime
+        ? {
+          mode: 'live',
+          panel: 'maritime',
+          port: selectedPort || target || undefined,
+          vessel: intent === 'show_vessel_snapshot' ? 'mv-atlantic-trader' : undefined,
+        }
+        : { mode: 'territory', zone: target || undefined };
+      this.router.navigate(['/hypervisor/mission-room/strategie'], { queryParams });
+    }
   };
   private readonly assistantNavigateListener = (event: Event) => {
     const detail = (event as CustomEvent<AssistantNavigateEffect>).detail;
@@ -4219,6 +4235,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const detail = (event as CustomEvent<AssistantProposeEffect>).detail;
     if (!detail?.prompt) return;
     this.openAssistant(detail.prompt);
+  };
+  private readonly assistantShowWebcamListener = (event: Event) => {
+    const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
+    if (detail['source_id']) this.activePortWebcam.set(detail);
   };
 
   readonly fallbackNav: MissionNavigationItem[] = [
@@ -4314,6 +4334,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     window.addEventListener('agentium:map-command', this.mapCommandListener);
     window.addEventListener('agentium:assistant-navigate', this.assistantNavigateListener);
     window.addEventListener('agentium:assistant-propose', this.assistantProposeListener);
+    window.addEventListener('agentium:assistant-show-webcam', this.assistantShowWebcamListener);
     this.loadAll();
     setTimeout(() => this.scrollToHighlight(), 120);
     this.applyMapQueryState();
@@ -4326,6 +4347,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     window.removeEventListener('agentium:map-command', this.mapCommandListener);
     window.removeEventListener('agentium:assistant-navigate', this.assistantNavigateListener);
     window.removeEventListener('agentium:assistant-propose', this.assistantProposeListener);
+    window.removeEventListener('agentium:assistant-show-webcam', this.assistantShowWebcamListener);
     this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     this.visualObjectUrls.length = 0;
   }

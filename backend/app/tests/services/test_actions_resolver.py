@@ -242,6 +242,12 @@ def test_execute_maritime_sets_awaiting_and_propose_effect(db_session):
     assert result["action"] == "aya.show_maritime_traffic"
     effects = result.get("action_effects") or []
     assert any(item.get("effect") == "assistant-propose" for item in effects)
+    navigate = next(item for item in effects if item.get("effect") == "assistant-navigate")
+    assert navigate["queryParams"]["mode"] == "live"
+    assert navigate["queryParams"]["panel"] == "maritime"
+    webcam = next(item for item in effects if item.get("effect") == "assistant-show-webcam")
+    assert webcam["source_id"] == "apm-apapa-gate-1"
+    assert webcam["cargo_id"] == "cargo-abidjan-supply-001"
     awaiting = get_awaiting_state(db_session, workspace, session_id="sess-maritime")
     assert awaiting is not None
     assert awaiting["action_on_yes"] == "aya.draft_customs_email"

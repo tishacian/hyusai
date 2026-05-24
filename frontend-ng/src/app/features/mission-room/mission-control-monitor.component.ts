@@ -21,6 +21,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   @Input() missionMap: any | null = null;
   @Input() selectedZone: any | null = null;
   @Input() mapCommandState: Record<string, unknown> | null = null;
+  @Input() portWebcam: Record<string, unknown> | null = null;
   @Input() assistantName = 'AYA';
   @Input() captureImages: Record<string, string> = {};
 
@@ -33,6 +34,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   readonly visualSnapshotTick = signal(Date.now());
   readonly selectedVisualSourceId = signal<string | null>(null);
   readonly expandedVisualSourceId = signal<string | null>(null);
+  readonly activePortWebcam = signal<any | null>(null);
   readonly mapVisualFocus = signal<Record<string, unknown> | null>(null);
   readonly activeEvidenceOverride = signal<any | null>(null);
   readonly visualPreviewFailures = signal<Record<string, true>>({});
@@ -41,10 +43,14 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
 
   private readonly trustedVisualEmbeds = new Map<string, SafeResourceUrl>();
   private clockTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly showWebcamListener = (event: Event) => {
+    this.handleShowWebcamEvent(event as CustomEvent<Record<string, unknown>>);
+  };
 
   ngOnInit(): void {
     this.refreshClock();
     this.clockTimer = setInterval(() => this.refreshClock(), 15_000);
+    window.addEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -52,10 +58,14 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
       this.selectedTerrainMode.set('maritime');
       this.activeEvidenceOverride.set(this.maritimeEvidence());
     }
+    if (changes['portWebcam'] && this.portWebcam) {
+      this.applyPortWebcamDetail(this.portWebcam);
+    }
   }
 
   ngOnDestroy(): void {
     if (this.clockTimer) clearInterval(this.clockTimer);
+    window.removeEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
   }
 
   scenario(): any {
@@ -309,6 +319,41 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     this.expandedVisualSourceId.set(source.id);
   }
 
+  private handleShowWebcamEvent(event: CustomEvent<Record<string, unknown>>): void {
+    this.applyPortWebcamDetail(event?.detail || {});
+  }
+
+  private applyPortWebcamDetail(detail: Record<string, unknown>): void {
+    const sourceId = String(detail['source_id'] || '').trim();
+    if (!sourceId) return;
+    const known = this.visualSources().find((source) => source.id === sourceId);
+    const proxyUrl = String(
+      detail['proxy_url']
+        || (known?.metadata || {}).preview_url
+        || known?.source_url
+        || `/api/v1/mission-room/webcams/proxy?source_id=${sourceId}`,
+    );
+    const name = String(detail['label'] || known?.name || sourceId);
+    this.activePortWebcam.set({
+      ...(known || {}),
+      id: sourceId,
+      name,
+      proxy_url: proxyUrl,
+      adapter: known?.adapter || 'http_image',
+      source_url: known?.source_url || proxyUrl,
+      attribution: detail['attribution'] || known?.attribution,
+      label_disclaimer: detail['label_disclaimer'] || known?.label_disclaimer,
+      metadata: {
+        ...(known?.metadata || {}),
+        preview_url: proxyUrl,
+        preferred_render: 'snapshot',
+      },
+    });
+    this.selectedVisualSourceId.set(sourceId);
+    this.selectedTerrainMode.set('maritime');
+    this.activeEvidenceOverride.set(this.maritimeEvidence());
+  }
+
   closeExpandedVisualSource(): void {
     this.expandedVisualSourceId.set(null);
   }
@@ -388,6 +433,13 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
         : '';
     if (url) return this.withSnapshotCacheBust(url);
     return null;
+  }
+
+  portWebcamPreviewUrl(source: any | null): string | null {
+    if (!source) return null;
+    const direct = typeof source.proxy_url === 'string' ? source.proxy_url : '';
+    if (direct) return this.withRelativeSnapshotCacheBust(direct);
+    return this.webcamPreviewUrl(source);
   }
 
   visualSourcePageUrl(source: any | null): string | null {
@@ -579,6 +631,15 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     } catch {
       return rawUrl;
     }
+  }
+
+  private withRelativeSnapshotCacheBust(rawUrl: string): string {
+    if (!rawUrl) return '';
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      return this.withSnapshotCacheBust(rawUrl);
+    }
+    const separator = rawUrl.includes('?') ? '&' : '?';
+    return `${rawUrl}${separator}_mc=${Math.floor(this.visualSnapshotTick() / 60_000)}`;
   }
 
   private visualPriority(source: any): number {
