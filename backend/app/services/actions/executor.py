@@ -209,6 +209,9 @@ async def execute_flow_action(
         content = "Je repete ma derniere reponse."
     elif handler == "voice_rephrase":
         content = "Je reformule ma derniere reponse de facon plus concise."
+    elif handler == "acknowledge_presence":
+        content = "Je suis là, M. le Vice Président, à votre écoute."
+        effects.append(_action_effect("assistant-acknowledge", {"assistant": "AYA"}))
     elif handler == "briefing_priorities_v1":
         result = await _invoke_skill("briefing_priorities_v1", {"knowledge_scope": knowledge_scope}, ctx)
         priorities = result.get("priorities") or []

@@ -273,6 +273,29 @@ ANDRITZ_ACTIONS = (
 
 SENTINEL_AYA_ACTIONS = (
     ActionManifest(
+        action_id="aya.acknowledge_presence",
+        label="Acknowledge presence",
+        description="Reply to a bare AYA wake word with a short presence acknowledgement.",
+        surfaces=("chat", "voice", "ui", "flow"),
+        phrases=(
+            "aya",
+            "aya tu m entends",
+            "aya tu es la",
+            "aya presente",
+            "aya ecoute",
+            "aya tu es presente",
+            "ok aya",
+            "hey aya",
+        ),
+        required_permission="action.execute",
+        confirmation_policy="direct_safe",
+        handler=ActionHandler("flow_node", "acknowledge_presence"),
+        audit_event="action.aya.acknowledge_presence",
+        pack="sentinel_ci_aya_v1",
+        capability_template="aya_voice_command",
+        direct_safe=True,
+    ),
+    ActionManifest(
         action_id="aya.action_plan_status",
         label="Action plan status",
         description="List active cabinet action items for AYA.",
@@ -382,6 +405,20 @@ SENTINEL_AYA_ACTIONS = (
             "que dois je faire",
             "que dois-je faire",
             "quoi faire ce matin",
+            # Briefing matin / nom-propre Napié — sans avaler les briefs
+            # opérationnels qui ciblent un projet (focus_zone_with_project).
+            "brief matinal",
+            "point matinal",
+            "point matinal napie",
+            "point matinal napié",
+            "qu est ce qui touche napie",
+            "qu'est-ce qui touche napié",
+            # Anglicisme layer (briefing executive bilingue).
+            "morning briefing",
+            "daily briefing",
+            "give me the briefing",
+            "give me my morning briefing",
+            "give me the cockpit",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -461,9 +498,16 @@ SENTINEL_AYA_ACTIONS = (
             "montre le cargo",
             "voir flux entree port",
             "ouvre la webcam port",
-            "mv atlantic trader",
-            "atlantic trader",
             "voir le navire mv",
+            "voir le navire mv atlantic trader",
+            "montre le navire mv atlantic trader",
+            # NB: bare "atlantic trader" is intentionally absent so the
+            # tie-breaker in ``resolve_action`` can route customs queries
+            # mentioning the vessel name to ``aya.show_customs_record`` /
+            # ``aya.draft_customs_email``. The verb+vessel forms below
+            # still cover the AIS pin path.
+            "ouvre le cargo mv",
+            "trafic mv atlantic trader",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -486,6 +530,32 @@ SENTINEL_AYA_ACTIONS = (
             "document douanes",
             "proces verbal douanes",
             "pv 18 mai",
+            "c est quoi le pv des douanes",
+            "qu est ce que dit le pv douanes",
+            # Ultra-courts (≤ 4 mots).
+            "voir pv",
+            "voir le pv",
+            "pv douanes",
+            "pv",
+            "le pv",
+            # Anglicismes critiques.
+            "show me the customs report",
+            "show the customs pv",
+            "customs report",
+            "show customs record",
+            # Tie-breaker — quand la requête mentionne explicitement le
+            # navire MV Atlantic Trader avec un verbe douanes, on garde
+            # ``aya.show_customs_record`` plutôt que de router vers
+            # ``aya.show_vessel_evidence``.
+            "atlantic trader pv",
+            "pv atlantic trader",
+            "pv mv atlantic trader",
+            "pv du 18 mai sur atlantic trader",
+            "le pv du 18 mai sur atlantic trader",
+            "pv atlantic trader 18 mai",
+            "atlantic trader proces verbal",
+            "atlantic trader procès verbal",
+            "proces verbal atlantic trader",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -531,6 +601,28 @@ SENTINEL_AYA_ACTIONS = (
             "que se passe-t-il au nord",
             "etat de la zone nord",
             "état de la zone nord",
+            # Ultra-courts ≤ 4 mots et formes orales familières.
+            "pourquoi nord",
+            "pourquoi situation nord",
+            "pourquoi le nord tendu",
+            "pourquoi nord tendu",
+            "c est quoi qui cloche au nord",
+            "c'est quoi qui cloche au nord",
+            "qu est ce qui cloche au nord",
+            "qu'est-ce qui cloche au nord",
+            "qu est ce qui ne va pas dans le nord",
+            "qu'est-ce qui ne va pas dans le nord",
+            "c est quoi le souci au nord",
+            "c'est quoi le souci au nord",
+            # Anglicisme layer.
+            "why north",
+            "why is the north tense",
+            "why is the north situation tense",
+            "why is the situation tense",
+            "why is the north",
+            "what is happening in the north",
+            "what s wrong in the north",
+            "what's wrong in the north",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -598,6 +690,21 @@ SENTINEL_AYA_ACTIONS = (
             "ouvre le meeting",
             "lance la reunion",
             "lance la réunion",
+            # Ultra-courts ≤ 4 mots + formes orales familières.
+            "on commence",
+            "on commence le meeting",
+            "on commence la reunion",
+            "on commence la réunion",
+            "on y va",
+            "c est parti",
+            "c'est parti",
+            "go meeting",
+            # Anglicisme layer.
+            "start meeting",
+            "start the meeting",
+            "kick off the meeting",
+            "kickoff the meeting",
+            "let s start the meeting",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -660,7 +767,19 @@ SENTINEL_AYA_ACTIONS = (
         label="Propose customs email",
         description="Propose drafting a customs prioritization email.",
         surfaces=("chat", "voice", "ui", "flow"),
-        phrases=("propose un mail dedouanement", "proposer courrier dedouanement", "mail douanes"),
+        phrases=(
+            "propose un mail dedouanement",
+            "proposer courrier dedouanement",
+            "mail douanes",
+            # Forme orale familière.
+            "on prepare un email aux douanes",
+            "on prépare un email aux douanes",
+            "on prepare un mail douanes",
+            "on prépare un mail douanes",
+            "il faut un courrier douanes",
+            "prepare un courrier douanes",
+            "prépare un courrier douanes",
+        ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
         handler=ActionHandler("flow_node", "propose_customs_email"),
@@ -674,7 +793,38 @@ SENTINEL_AYA_ACTIONS = (
         label="Draft customs email",
         description="Draft the customs prioritization email for Nord cargo.",
         surfaces=("chat", "voice", "ui", "flow"),
-        phrases=("redige le mail dedouanement", "rédige le mail dédouanement", "brouillon douanes"),
+        phrases=(
+            "redige le mail dedouanement",
+            "rédige le mail dédouanement",
+            "brouillon douanes",
+            # Ultra-courts ≤ 4 mots.
+            "email derogation",
+            "email dérogation",
+            "mail derogation",
+            "mail dérogation",
+            "courrier derogation",
+            "courrier dérogation",
+            "redige courrier dedouanement",
+            "rédige courrier dédouanement",
+            "redige un courrier dedouanement",
+            "rédige un courrier de dédouanement",
+            # Anglicisme layer.
+            "draft a customs email",
+            "draft a customs clearance email",
+            "customs clearance email",
+            "draft customs email",
+            # Tie-breaker explicite — quand la requête mentionne le navire.
+            "atlantic trader email",
+            "atlantic trader derogation",
+            "atlantic trader dérogation",
+            "courrier dedouanement atlantic trader",
+            "courrier de dedouanement pour atlantic trader",
+            "courrier de dédouanement pour atlantic trader",
+            "redige un courrier de dedouanement pour atlantic trader",
+            "rédige un courrier de dédouanement pour atlantic trader",
+            "email derogation atlantic trader",
+            "email dérogation atlantic trader",
+        ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
         handler=ActionHandler("flow_node", "draft_customs_email"),
@@ -696,6 +846,22 @@ SENTINEL_AYA_ACTIONS = (
             "prochaine reunion",
             "prochaine réunion",
             "ok aya quel est mon prochain rdv",
+            "c est quoi mon prochain rendez vous",
+            "c'est quoi mon prochain rendez-vous",
+            # Ultra-courts ≤ 4 mots.
+            "rdv",
+            "quoi maintenant",
+            "et apres",
+            "et après",
+            "what s next",
+            "what's next",
+            # Anglicisme layer.
+            "next meeting",
+            "what s my next meeting",
+            "what's my next meeting",
+            "what is my next meeting",
+            "whats my next meeting",
+            "my next meeting",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -718,6 +884,28 @@ SENTINEL_AYA_ACTIONS = (
             "resume du rapport prefet",
             "résumé du rapport préfet",
             "rapport prefet nawa",
+            "résume-moi le rapport du préfet",
+            "resume moi le rapport du prefet",
+            # Ultra-courts ≤ 4 mots.
+            "resume prefet",
+            "résume préfet",
+            "resume nawa",
+            "résume nawa",
+            "resume prefet nawa",
+            "résume préfet nawa",
+            "resume le prefet",
+            "résume le préfet",
+            "resume du prefet",
+            "résume du préfet",
+            "resume rapport",
+            "résume rapport",
+            "résumé prefet nawa",
+            "résumé nawa",
+            # Anglicisme layer.
+            "summarize the prefect s report",
+            "summarize the prefect report",
+            "summarize the prefet report",
+            "summarize prefect nawa",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -739,6 +927,19 @@ SENTINEL_AYA_ACTIONS = (
             "donne moi des preconisations sur le cacao",
             "donne-moi des préconisations sur le cacao",
             "diversification cacao",
+            "options de diversification cacao",
+            # Ultra-courts ≤ 4 mots et formes orales familières.
+            "preco cacao",
+            "préco cacao",
+            "cacao",
+            "diversifier cacao",
+            "diversifier le cacao",
+            "t as des idees pour diversifier le cacao",
+            "t'as des idées pour diversifier le cacao",
+            # Anglicisme layer.
+            "cacao diversification recommendations",
+            "cocoa diversification recommendations",
+            "cocoa recommendations",
         ),
         required_permission="action.execute",
         confirmation_policy="direct_safe",
@@ -868,8 +1069,16 @@ def resolve_action(
     normalized = _normalize(text)
     if not normalized:
         return ActionResolution(False, reason="empty_text")
+    # Strip the AYA wake-word at the start or end so phrases like
+    # "AYA, donne-moi le brief" match exactly the same actions as the
+    # raw "donne-moi le brief". The bare wake-word ("aya", "aya ?",
+    # "aya tu m'entends") still resolves through the dedicated
+    # ``aya.acknowledge_presence`` phrase set.
+    normalized = _strip_wake_word(normalized)
+    if not normalized:
+        return ActionResolution(False, reason="empty_text")
 
-    best: tuple[float, ActionManifest] | None = None
+    scored: list[tuple[float, ActionManifest]] = []
     for manifest in effective_action_manifests(
         workspace,
         surface=surface,
@@ -879,13 +1088,17 @@ def resolve_action(
         score = _score_manifest(normalized, manifest)
         if score <= 0:
             continue
-        if best is None or score > best[0]:
-            best = (score, manifest)
+        scored.append((score, manifest))
 
-    if not best or best[0] < min_confidence:
-        return ActionResolution(False, confidence=best[0] if best else 0.0, reason="no_match")
+    if not scored:
+        return ActionResolution(False, confidence=0.0, reason="no_match")
 
-    score, manifest = best
+    scored.sort(key=lambda item: item[0], reverse=True)
+    score, manifest = _apply_tie_breakers(normalized, scored)
+
+    if score < min_confidence:
+        return ActionResolution(False, confidence=score, reason="no_match")
+
     return ActionResolution(
         True,
         action_id=manifest.action_id,
@@ -901,6 +1114,39 @@ def resolve_action(
         reason="matched",
         manifest=manifest,
     )
+
+
+_CUSTOMS_HINT_RE = re.compile(
+    r"\b(?:pv|proces\s*verbal|dedouanement|derogation|courrier|email|mail|douanes|customs)\b"
+)
+
+
+def _apply_tie_breakers(
+    normalized: str,
+    scored: list[tuple[float, ActionManifest]],
+) -> tuple[float, ActionManifest]:
+    """Apply small priority rules on top of the raw score ranking.
+
+    Rule 1 — vessel vs customs disambiguation: if the top-scoring action
+    is ``aya.show_vessel_evidence`` but the query contains an explicit
+    customs verb (PV, procès-verbal, dédouanement, dérogation, courrier,
+    email, mail, douanes, customs) and a customs action also matched
+    above the same threshold, prefer the customs action so the demo
+    stays on the douanes narrative.
+    """
+
+    if not scored:
+        raise ValueError("scored must contain at least one element")
+    top_score, top_manifest = scored[0]
+    if top_manifest.action_id != "aya.show_vessel_evidence":
+        return top_score, top_manifest
+    if not _CUSTOMS_HINT_RE.search(normalized):
+        return top_score, top_manifest
+    customs_action_ids = {"aya.show_customs_record", "aya.draft_customs_email", "aya.propose_customs_email"}
+    for score, manifest in scored:
+        if manifest.action_id in customs_action_ids:
+            return score, manifest
+    return top_score, top_manifest
 
 
 def execute_action(
@@ -1129,6 +1375,43 @@ def _normalize(value: str) -> str:
     value = re.sub(r"[^a-z0-9\s'-]+", " ", value)
     value = value.replace("'", " ").replace("-", " ")
     return re.sub(r"\s+", " ", value).strip()
+
+
+_WAKE_WORD_ACK_PHRASES = frozenset(
+    {
+        "aya",
+        "aya tu m entends",
+        "aya tu es la",
+        "aya presente",
+        "aya ecoute",
+        "aya tu es presente",
+        "ok aya",
+        "hey aya",
+    }
+)
+
+
+def _strip_wake_word(text: str) -> str:
+    """Strip the AYA wake word anywhere in the normalized query.
+
+    The bare acknowledgements ("aya", "aya tu m entends", ...) are kept
+    intact so the dedicated ``aya.acknowledge_presence`` manifest still
+    matches them. Otherwise every standalone "aya" token (and the
+    optional "ok"/"hey" leading particles) is dropped so phrases like
+    ``aya donne moi le brief``, ``donne moi le brief aya`` and
+    ``pourquoi aya situation nord`` score like the raw query without
+    polluting the matching pipeline.
+    """
+
+    if not text:
+        return text
+    if text in _WAKE_WORD_ACK_PHRASES:
+        return text
+    stripped = re.sub(r"\b(?:ok|hey)\s+aya\b", " ", text)
+    stripped = re.sub(r"\baya\b", " ", stripped)
+    stripped = re.sub(r"\s+", " ", stripped).strip(" ,.:!?-")
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+    return stripped or text
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

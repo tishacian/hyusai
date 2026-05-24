@@ -7,7 +7,7 @@ this module provides a portable demo seed and deterministic advisory payloads.
 from __future__ import annotations
 
 import copy
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from typing import Any, Dict, Iterable, Optional
 from uuid import uuid4
 
@@ -1826,7 +1826,19 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
 def _agenda_items_from_calendar(workspace: Workspace, db: Optional[DBSession]) -> list[dict[str, Any]]:
     if not db:
         return _clone(AGENDA)
-    events = list_calendar_events(db, workspace)
+    # Filter the calendar window on the workspace demo date so the cockpit
+    # surfaces today + tomorrow (J / J+1) and not stale events from past
+    # demos. Without this filter, ``events[:8]`` keeps the oldest events
+    # in chronological order — for SENTINEL-CI, that means the 15-16
+    # April events instead of the 25-26 May 2026 fixtures.
+    today = resolve_demo_date(workspace)
+    start = datetime.combine(today, time.min)
+    end = datetime.combine(today + timedelta(days=1), time.max)
+    events = list_calendar_events(db, workspace, start=start, end=end)
+    if not events:
+        # Fall back to the full window if nothing matches the demo day
+        # (eg. the workspace was seeded against another fixture set).
+        events = list_calendar_events(db, workspace)
     if not events:
         return _clone(AGENDA)
     return [
@@ -2284,28 +2296,144 @@ def _intelligence_feeds_payload(
     ]
 
 
+_PRESS_CI_TAG_TOKENS = frozenset(
+    {
+        "nord",
+        "napie",
+        "napié",
+        "aerostar",
+        "abidjan",
+        "cacao",
+        "prefet-nawa",
+        "préfet-nawa",
+        "prefet nawa",
+        "préfet nawa",
+        "vridi",
+        "douanes-ci",
+        "douanes ci",
+        "ci-local",
+        "ci-national",
+        "sentinel-ci",
+        "ivoirien",
+        "ivoirienne",
+        "ivoirians",
+        "ivorian",
+    }
+)
+_PRESS_CI_PUBLISHER_TOKENS = (
+    "abidjan.net",
+    "abidjan net",
+    "fraternite matin",
+    "fraternité matin",
+    "fratmat",
+    "rfi afrique",
+    "rfi afrique ci",
+    "jeune afrique",
+    "jeune afrique ci",
+    "rti info",
+    "aip",
+    "agence ivoirienne de presse",
+    "7info",
+    "connection ivoirienne",
+    "ci-local",
+    "ci-national",
+    "ci-public",
+    "ci-agency",
+    "ci-maritime",
+    "port autonome d'abidjan",
+    "marinetraffic",
+)
+_PRESS_CI_COUNTRY_TOKENS = (
+    "côte d'ivoire",
+    "cote d'ivoire",
+    "ivory coast",
+    "ivoire",
+)
+
+
+def _press_ci_boost(alert: dict[str, Any]) -> int:
+    """Compute a CI-first boost so the press hero stays local.
+
+    +10 — geography_tier == "ci" or country/region matches Côte d'Ivoire.
+    +5  — tags or haystack mention a SENTINEL-CI keyword (nord, napié,
+          aerostar, abidjan, cacao, vridi, douanes-ci, prefet-nawa).
+    +3  — publisher / source identified as a CI outlet.
+    """
+
+    boost = 0
+    geo = str(
+        alert.get("geography_tier")
+        or alert.get("geo_tier")
+        or alert.get("geography")
+        or alert.get("region_iso")
+        or ""
+    ).lower()
+    country = str(alert.get("country") or alert.get("zone") or "").lower()
+    tags = [str(item).lower() for item in (alert.get("tags") or [])]
+    source = str(alert.get("source") or alert.get("publisher") or "").lower()
+    title = str(alert.get("title") or "").lower()
+    summary = str(alert.get("summary") or alert.get("impact_ci") or "").lower()
+    haystack = f"{title} {summary} {' '.join(tags)} {country} {geo} {source}"
+    if geo == "ci" or geo.startswith("ci-") or geo == "ci-local":
+        boost += 10
+    elif any(token in country for token in _PRESS_CI_COUNTRY_TOKENS) or any(
+        token in haystack for token in _PRESS_CI_COUNTRY_TOKENS
+    ):
+        boost += 10
+    if any(token in _PRESS_CI_TAG_TOKENS for token in tags) or any(
+        token in haystack for token in _PRESS_CI_TAG_TOKENS
+    ):
+        boost += 5
+    if any(token in source for token in _PRESS_CI_PUBLISHER_TOKENS):
+        boost += 3
+    return boost
+
+
+def _press_base_score(alert: dict[str, Any]) -> int:
+    """Tie-breaker score used after the CI boost (risk + freshness)."""
+
+    risk = str(alert.get("risk_level") or "medium").lower()
+    base = {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(risk, 2)
+    if alert.get("velocity") in {"rapide", "elevee"}:
+        base += 1
+    return base
+
+
+def _press_preview_fallback_hero() -> dict[str, Any]:
+    """Return the seeded Abidjan.net Centre Drones Napié article.
+
+    Used as the press hero whenever the live RSS feeds are dry or every
+    article comes from outside Côte d'Ivoire so the demo never opens with
+    Mali / Iran / Ebola in the press_preview top-3.
+    """
+
+    return {
+        "id": "press-fallback-abidjan-net-drone-napie",
+        "title": "Côte d'Ivoire — Lancement du Centre International de Formation aux Métiers des Drones de Napié",
+        "source": "Abidjan.net",
+        "risk_level": "high",
+        "risk_label": "HIGH",
+        "tone": "critical",
+        "route": (
+            f"{MISSION_ROOM_ROOT}/presse?highlight=press-fallback-abidjan-net-drone-napie"
+        ),
+        "summary": (
+            "Hero CI · Centre International de Formation aux Métiers des Drones de Napié "
+            "(Poro) — chantier en retard de 120 jours, composants Aerostar Dynamics bloqués "
+            "à Vridi sur le cargo MV Atlantic Trader."
+        ),
+        "geography_tier": "ci",
+        "publisher": "Abidjan.net",
+    }
+
+
 def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     candidates = list(alerts or _clone(NEWS_SIGNALS))
 
-    def _ci_priority(alert: dict[str, Any]) -> int:
-        """Rank Cote d'Ivoire / CEDEAO signals first so the hero stays local."""
-        geo = str(alert.get("geography_tier") or alert.get("geography") or "").lower()
-        tags = " ".join(str(item) for item in (alert.get("tags") or [])).lower()
-        source = str(alert.get("source") or "").lower()
-        title = str(alert.get("title") or "").lower()
-        haystack = f"{geo} {tags} {source} {title}"
-        if any(token in haystack for token in (
-            "abidjan", "côte d'ivoire", "cote d'ivoire", "ivorian", "ivoirien", "ivoirienne",
-            "nawa", "soubré", "soubre", "napie", "napié", "ci-local", "geography_tier=ci",
-        )):
-            return 0
-        if "ci" == geo or geo.startswith("ci-"):
-            return 0
-        if any(token in haystack for token in ("cedeao", "ecowas", "afrique de l'ouest", "afrique de louest", "ouest-africain")):
-            return 1
-        return 2
+    def _rank_key(alert: dict[str, Any]) -> tuple[int, int]:
+        return (-_press_ci_boost(alert), -_press_base_score(alert))
 
-    candidates.sort(key=_ci_priority)
+    candidates.sort(key=_rank_key)
     preview: list[dict[str, Any]] = []
     for alert in candidates[:3]:
         risk = alert.get("risk_level") or "medium"
@@ -2321,6 +2449,12 @@ def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -
                 "summary": alert.get("summary") or alert.get("impact_ci") or alert.get("recommended_action"),
             }
         )
+    # If the top of the list still doesn't carry a CI signal (eg. RSS dry,
+    # demo offline) we inject the Abidjan.net Centre Drones Napié hero so
+    # the cockpit press card never opens on Mali / Iran / Ebola.
+    if not preview or _press_ci_boost(preview[0]) == 0:
+        hero = _press_preview_fallback_hero()
+        preview = [hero, *preview][:3]
     if not preview:
         for attention in ATTENTION_REQUIRED[:2]:
             preview.append(

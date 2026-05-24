@@ -184,7 +184,7 @@ const ABIDJAN_CAMERA = {
             />
           </button>
 
-          @if (vesselsEnabled && vesselMarkers.length) {
+          @if (vesselsEnabled && maritimeLayerVisible && vesselMarkers.length) {
             <div
               class="vessels-overlay-layer"
               [class.zoom-abidjan]="vesselZoomMode === 'abidjan'"
@@ -219,7 +219,9 @@ const ABIDJAN_CAMERA = {
                 </button>
               }
             </div>
+          }
 
+          @if (vesselsEnabled && vesselMarkers.length) {
             <div class="vessels-overlay-controls" aria-label="Contrôles couche maritime">
               <span class="vessel-count-chip" aria-live="polite">
                 <span class="vessel-count-dot" aria-hidden="true"></span>
@@ -229,6 +231,7 @@ const ABIDJAN_CAMERA = {
                 type="button"
                 class="vessel-zoom-toggle"
                 [attr.aria-pressed]="vesselZoomMode === 'abidjan'"
+                [disabled]="!maritimeLayerVisible"
                 (click)="toggleVesselZoom($event)"
               >
                 @if (vesselZoomMode === 'country') {
@@ -266,6 +269,20 @@ const ABIDJAN_CAMERA = {
         <span class="legend-item critical"><span class="legend-dot"></span>Tendu</span>
         <span class="legend-item elevated"><span class="legend-dot"></span>Surveillance</span>
         <span class="legend-item stable"><span class="legend-dot"></span>Stable</span>
+        @if (vesselsEnabled) {
+          <button
+            type="button"
+            class="legend-item legend-toggle maritime"
+            role="switch"
+            [attr.aria-checked]="maritimeLayerVisible"
+            [attr.aria-pressed]="maritimeLayerVisible"
+            [class.is-on]="maritimeLayerVisible"
+            (click)="toggleMaritimeLayer($event)"
+          >
+            <span class="legend-dot maritime-dot" aria-hidden="true"></span>
+            Maritime · AIS · {{ vesselMarkers.length }} navires
+          </button>
+        }
       </footer>
 
       @if (webcamDrawerOpen && activeWebcam) {
@@ -750,6 +767,41 @@ const ABIDJAN_CAMERA = {
       }
       .legend-item.elevated .legend-dot { background: var(--mission-warning); }
       .legend-item.critical .legend-dot { background: var(--mission-critical); }
+      .legend-toggle {
+        appearance: none;
+        margin: 0;
+        padding: 4px 9px;
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        background: rgba(4, 8, 13, 0.62);
+        color: var(--mission-text-tertiary);
+        font: inherit;
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition:
+          border-color var(--mission-dur-fast) var(--mission-ease-out),
+          color var(--mission-dur-fast) var(--mission-ease-out),
+          background var(--mission-dur-fast) var(--mission-ease-out);
+      }
+      .legend-toggle .maritime-dot { background: #B488FF; }
+      .legend-toggle.maritime.is-on {
+        border-color: rgba(180, 136, 255, 0.55);
+        color: #d2c3ff;
+        background: rgba(180, 136, 255, 0.14);
+      }
+      .legend-toggle:hover {
+        border-color: rgba(180, 136, 255, 0.55);
+      }
+      .legend-toggle:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
+      }
+      .legend-toggle:not(.is-on) .maritime-dot {
+        opacity: 0.4;
+      }
       .vessels-info-strip {
         display: grid;
         gap: var(--mission-space-2);
@@ -1037,6 +1089,13 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   webcamReloadKey = Date.now();
   vesselZoomMode: VesselZoomMode = 'country';
   previewMapState: Record<string, any> | null = null;
+  /**
+   * Local visibility flag for the maritime AIS overlay layer. Defaults
+   * to ``true`` so the SENTINEL-CI demo opens with the 16 vessels
+   * visible. The VP can toggle the layer off via the legend chip
+   * "Maritime · AIS · n navires" without affecting the map zoom.
+   */
+  maritimeLayerVisible = true;
   readonly HIGHLIGHT_VIOLET = HIGHLIGHT_VIOLET;
 
   private readonly api = inject(ApiService);
@@ -1088,6 +1147,13 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
     event?.preventDefault();
     this.vesselZoomMode = this.vesselZoomMode === 'country' ? 'abidjan' : 'country';
     this.applyVesselZoomMode();
+  }
+
+  toggleMaritimeLayer(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.maritimeLayerVisible = !this.maritimeLayerVisible;
+    this.cdr.markForCheck();
   }
 
   vesselPinTitle(vessel: VesselPosition): string {

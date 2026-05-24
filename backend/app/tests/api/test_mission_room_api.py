@@ -267,6 +267,34 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
     assert audit.details["live_news_used"] is True
 
 
+def test_mission_room_cockpit_agenda_uses_demo_date_window(db_session):
+    """Cockpit must surface the J / J+1 events from the workspace demo date.
+
+    Regression for SENTINEL-CI demo (lundi 25 mai 2026) where the seeded
+    events of 25/26 mai were not surfaced because
+    ``_agenda_items_from_calendar`` ignored the demo-day window.
+    """
+
+    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    ensure_calendar_seed(db_session, workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).get("/api/v1/mission-room/cockpit")
+    assert response.status_code == 200
+    body = response.json()
+    agenda_events = body["agenda_day"]["events"]
+    assert agenda_events, "agenda_day.events should not be empty when calendar is seeded"
+    timeline_events = [e for e in body["agenda_timeline"]["events"] if e.get("kind") != "now"]
+    assert timeline_events, "agenda_timeline must surface the demo-day events"
+    for event in timeline_events:
+        start_at = event.get("start_at") or ""
+        # Each surfaced event must belong to the demo-day window (25 or 26 May 2026).
+        assert start_at.startswith("2026-05-25") or start_at.startswith("2026-05-26"), start_at
+
+
 def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_session):
     workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
