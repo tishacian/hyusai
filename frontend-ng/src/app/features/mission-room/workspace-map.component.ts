@@ -1140,6 +1140,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       || changes['highlightedVesselMmsi']
     ) {
       if (!this.layerStateInitialized) this.syncStateFromMapPayload();
+      this.maybeAutoEnableMaritime();
       this.updateDeckLayers();
     }
     if (changes['mapState'] && this.mapState) {
@@ -1223,6 +1224,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     } else {
       this.activeLayerKeys.add(key);
     }
+    if (key === 'maritime-traffic') this.userToggledMaritime = true;
     this.updateDeckLayers();
     this.cdr.markForCheck();
   }
@@ -1330,15 +1332,21 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (!this.activeLayerKeys.size) {
       for (const layer of this.layerControls.filter((item) => item.visible)) this.activeLayerKeys.add(layer.key);
     }
-    // SENTINEL-CI demo: when a vessel snapshot is supplied via the
-    // `vessels` Input, auto-enable the maritime layer so the navires AIS
-    // appear without a manual toggle. The VP can still toggle it off via
-    // the layer panel — `layerStateInitialized` flips below, so we only
-    // auto-enable on first sync, not after every change.
-    if ((this.vessels?.length || 0) > 0 && this.layerControls.some((layer) => layer.key === 'maritime-traffic')) {
-      this.activeLayerKeys.add('maritime-traffic');
-    }
     this.layerStateInitialized = true;
+  }
+
+  /**
+   * Ensures `maritime-traffic` is active whenever an AIS vessel snapshot
+   * is supplied via the `vessels` Input, so the navires render without
+   * requiring a manual toggle (SENTINEL-CI demo flow). Skipped once the
+   * user has explicitly clicked the maritime toggle.
+   */
+  private maybeAutoEnableMaritime(): void {
+    if (this.userToggledMaritime) return;
+    if (!(this.vessels?.length || 0)) return;
+    if (this.activeLayerKeys.has('maritime-traffic')) return;
+    if (!this.layerControls.some((layer) => layer.key === 'maritime-traffic')) return;
+    this.activeLayerKeys.add('maritime-traffic');
   }
 
   private resolvePreviewLayers(): string[] | null {
