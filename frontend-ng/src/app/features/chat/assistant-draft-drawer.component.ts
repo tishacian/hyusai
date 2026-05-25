@@ -31,6 +31,12 @@ interface DraftPayload {
   title?: string;
   body_markdown?: string;
   body?: string;
+  page?: number;
+  highlight?: string;
+  citation?: string;
+  download_url?: string;
+  signed_url?: string;
+  preview_url?: string;
   sources?: Array<string | { label?: string; title?: string; id?: string }>;
   metadata?: Record<string, unknown> & {
     document_url?: string;
@@ -39,6 +45,7 @@ interface DraftPayload {
     preview_url?: string;
     page?: number;
     total_pages?: number;
+    citation?: string;
     cited_passages?: CitedPassage[];
     filename?: string;
   };
@@ -84,7 +91,9 @@ interface DraftValidationResponse {
 
         @if (isDocumentPreview()) {
           <section class="doc-preview ck-scroll" aria-label="Aperçu document">
-            @if (documentUrl(); as url) {
+            @if (previewLoading()) {
+              <p class="doc-fallback">Chargement de l'aperçu PDF…</p>
+            } @else if (documentUrl(); as url) {
               <iframe
                 class="doc-frame"
                 [src]="url"
@@ -93,7 +102,7 @@ interface DraftValidationResponse {
               ></iframe>
             } @else {
               <p class="doc-fallback">
-                Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document.
+                {{ previewError() || "Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document." }}
               </p>
             }
             @if (citedPassages().length) {
@@ -420,6 +429,9 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
 
   readonly open = signal(false);
   readonly submitting = signal(false);
+  readonly previewLoading = signal(false);
+  readonly previewError = signal<string | null>(null);
+  private readonly previewBlobUrl = signal<string | null>(null);
   private readonly payload = signal<DraftPayload | null>(null);
 
   readonly isDocumentPreview = computed(() => {
@@ -429,12 +441,13 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   });
 
   readonly documentUrl = computed<SafeResourceUrl | null>(() => {
-    const href = this.rawDocumentUrl();
+    const blobUrl = this.previewBlobUrl();
+    const href = blobUrl || this.rawDocumentHref();
     if (!href) return null;
     return this.sanitizer.bypassSecurityTrustResourceUrl(href);
   });
 
-  readonly downloadHref = computed<string | null>(() => this.rawDocumentUrl());
+  readonly downloadHref = computed<string | null>(() => this.previewBlobUrl() || this.rawDocumentHref());
 
   readonly downloadFilename = computed<string | null>(() => {
     const meta = this.payload()?.metadata || {};
@@ -442,9 +455,23 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   });
 
   readonly citedPassages = computed<CitedPassage[]>(() => {
-    const meta = this.payload()?.metadata || {};
+    const payload = this.payload();
+    if (!payload) return [];
+    const meta = payload.metadata || {};
     const passages = (meta.cited_passages || []) as CitedPassage[];
-    return Array.isArray(passages) ? passages : [];
+    if (Array.isArray(passages) && passages.length) return passages;
+    const page =
+      typeof meta.page === 'number'
+        ? meta.page
+        : typeof payload.page === 'number'
+          ? payload.page
+          : undefined;
+    const citation =
+      (meta.citation as string | undefined)
+      || payload.citation
+      || payload.highlight;
+    if (!page && !citation) return [];
+    return [{ page, text: citation, label: payload.highlight }];
   });
 
   private readonly openListener = (event: Event) => {
@@ -457,21 +484,86 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
       target_id: draftPayload.target_id || detail.target_id,
     });
     this.open.set(true);
+    this.loadDocumentPreview();
   };
 
-  private rawDocumentUrl(): string | null {
+  private rawDocumentHref(): string | null {
     const payload = this.payload();
     if (!payload) return null;
     const meta = payload.metadata || {};
     const base =
-      (meta.preview_url as string | undefined)
+      payload.preview_url
+      || payload.download_url
+      || payload.signed_url
+      || (meta.preview_url as string | undefined)
       || (meta.document_url as string | undefined)
       || (meta.pdf_url as string | undefined)
       || (meta.download_url as string | undefined);
     if (!base) return null;
-    const page = typeof meta.page === 'number' ? meta.page : undefined;
+    const page =
+      typeof meta.page === 'number'
+        ? meta.page
+        : typeof payload.page === 'number'
+          ? payload.page
+          : undefined;
     if (page && !/[#?]/.test(base)) return `${base}#page=${page}`;
     return base;
+  }
+
+  private loadDocumentPreview(): void {
+    this.revokePreviewBlobUrl();
+    this.previewError.set(null);
+    if (!this.isDocumentPreview()) {
+      this.previewLoading.set(false);
+      return;
+    }
+    const href = this.rawDocumentHref();
+    if (!href) {
+      this.previewLoading.set(false);
+      return;
+    }
+    const { path, fragment } = this.splitDocumentHref(href);
+    this.previewLoading.set(true);
+    this.api.getBlob(path).subscribe({
+      next: (blob) => {
+        this.revokePreviewBlobUrl();
+        const objectUrl = `${URL.createObjectURL(blob)}${fragment}`;
+        this.previewBlobUrl.set(objectUrl);
+        this.previewLoading.set(false);
+      },
+      error: () => {
+        this.previewLoading.set(false);
+        this.previewError.set(
+          'Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document.',
+        );
+      },
+    });
+  }
+
+  private splitDocumentHref(href: string): { path: string; fragment: string } {
+    const hashIdx = href.indexOf('#');
+    const fragment = hashIdx >= 0 ? href.slice(hashIdx) : '';
+    const withoutFragment = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
+    if (withoutFragment.startsWith('/api/v1')) {
+      return { path: withoutFragment.slice('/api/v1'.length), fragment };
+    }
+    try {
+      const parsed = new URL(withoutFragment, window.location.origin);
+      if (parsed.pathname.startsWith('/api/v1')) {
+        return { path: `${parsed.pathname.slice('/api/v1'.length)}${parsed.search}`, fragment };
+      }
+    } catch {
+      // fall through
+    }
+    return { path: withoutFragment, fragment };
+  }
+
+  private revokePreviewBlobUrl(): void {
+    const current = this.previewBlobUrl();
+    if (current) {
+      URL.revokeObjectURL(current.split('#')[0] ?? current);
+    }
+    this.previewBlobUrl.set(null);
   }
 
   ngOnInit(): void {
@@ -556,6 +648,9 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   }
 
   cancel(): void {
+    this.revokePreviewBlobUrl();
+    this.previewLoading.set(false);
+    this.previewError.set(null);
     this.open.set(false);
     this.payload.set(null);
     this.submitting.set(false);
