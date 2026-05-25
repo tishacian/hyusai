@@ -18,6 +18,7 @@ import {
   type MaritimeVesselsSnapshot,
   type VesselPosition,
 } from '@app/core/maritime-tracking.service';
+import { ApiService } from '@app/core/api.service';
 import { WorkspaceMapComponent } from './workspace-map.component';
 import type { VpMapPreviewContext, VpZoneScore } from './vp-cockpit.types';
 
@@ -231,7 +232,7 @@ const ABIDJAN_CAMERA = {
               </button>
             </header>
             <img
-              [src]="activeWebcam.proxy_url + '&t=' + webcamReloadKey"
+              [src]="webcamDisplayUrl(activeWebcam)"
               [attr.alt]="activeWebcam.label || 'Snapshot webcam port'"
               class="webcam-drawer-image"
               referrerpolicy="no-referrer"
@@ -312,7 +313,7 @@ const ABIDJAN_CAMERA = {
                   (click)="openWebcamDrawer()"
                 >
                   <img
-                    [src]="webcam.proxy_url"
+                    [src]="webcamDisplayUrl(webcam)"
                     [attr.alt]="webcam.label || 'Snapshot webcam port'"
                     class="webcam-thumb"
                     loading="lazy"
@@ -938,6 +939,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   vesselErrorMessage = 'AIS indisponible — mode baseline démo';
   selectedVessel: VesselPosition | null = null;
   activeWebcam: ActiveWebcam | null = null;
+  activeWebcamImageUrl: string | null = null;
   webcamDrawerOpen = false;
   webcamReloadKey = Date.now();
   vesselZoomMode: VesselZoomMode = 'country';
@@ -952,8 +954,10 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   readonly HIGHLIGHT_VIOLET = HIGHLIGHT_VIOLET;
 
   private readonly maritimeTracking = inject(MaritimeTrackingService);
+  private readonly api = inject(ApiService);
   private readonly cdr = inject(ChangeDetectorRef);
   private vesselsSub: Subscription | null = null;
+  private activeWebcamObjectUrl: string | null = null;
   private readonly showWebcamListener = (event: Event) => {
     this.handleShowWebcamEvent(event as CustomEvent);
   };
@@ -967,6 +971,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.vesselsSub?.unsubscribe();
+    this.revokeActiveWebcamObjectUrl();
     window.removeEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
   }
 
@@ -1071,6 +1076,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
           origin: 'manual',
         };
         this.webcamReloadKey = Date.now();
+        this.loadWebcamPreview(primary.proxy_url);
         this.cdr.markForCheck();
       }
     }
@@ -1088,6 +1094,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
         this.disclaimerFor(entry.source_id) || this.activeWebcam.label_disclaimer,
     };
     this.webcamReloadKey = Date.now();
+    this.loadWebcamPreview(entry.proxy_url);
     this.cdr.markForCheck();
   }
 
@@ -1105,6 +1112,8 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
 
   closeWebcamVignette(): void {
     this.activeWebcam = null;
+    this.activeWebcamImageUrl = null;
+    this.revokeActiveWebcamObjectUrl();
     this.webcamDrawerOpen = false;
     this.cdr.markForCheck();
   }
@@ -1147,7 +1156,56 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
       origin: 'auto_select',
     };
     this.webcamReloadKey = Date.now();
+    this.loadWebcamPreview(proxy_url);
     this.cdr.markForCheck();
+  }
+
+  webcamDisplayUrl(webcam: ActiveWebcam): string {
+    return this.activeWebcamImageUrl || this.withRelativeSnapshotCacheBust(webcam.proxy_url);
+  }
+
+  private loadWebcamPreview(rawUrl: string): void {
+    const path = rawUrl.startsWith('/api/v1') ? rawUrl.slice('/api/v1'.length) : rawUrl;
+    if (!path.startsWith('/mission-room/webcams/proxy')) {
+      this.revokeActiveWebcamObjectUrl();
+      this.activeWebcamImageUrl = this.withRelativeSnapshotCacheBust(rawUrl);
+      this.cdr.markForCheck();
+      return;
+    }
+    this.api.getBlob(path).subscribe({
+      next: (blob) => {
+        this.revokeActiveWebcamObjectUrl();
+        this.activeWebcamObjectUrl = URL.createObjectURL(blob);
+        this.activeWebcamImageUrl = this.activeWebcamObjectUrl;
+        this.cdr.markForCheck();
+      },
+      error: () => {
+        this.revokeActiveWebcamObjectUrl();
+        this.activeWebcamImageUrl = this.withRelativeSnapshotCacheBust(rawUrl);
+        this.cdr.markForCheck();
+      },
+    });
+  }
+
+  private withRelativeSnapshotCacheBust(rawUrl: string): string {
+    if (!rawUrl) return '';
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      try {
+        const url = new URL(rawUrl);
+        url.searchParams.set('_mc', String(Math.floor(this.webcamReloadKey / 60_000)));
+        return url.toString();
+      } catch {
+        return rawUrl;
+      }
+    }
+    const separator = rawUrl.includes('?') ? '&' : '?';
+    return `${rawUrl}${separator}_mc=${Math.floor(this.webcamReloadKey / 60_000)}`;
+  }
+
+  private revokeActiveWebcamObjectUrl(): void {
+    if (!this.activeWebcamObjectUrl) return;
+    URL.revokeObjectURL(this.activeWebcamObjectUrl);
+    this.activeWebcamObjectUrl = null;
   }
 
   private buildDefaultCycle(primarySourceId: string): WebcamCycleEntry[] {
