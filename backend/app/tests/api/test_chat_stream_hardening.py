@@ -139,6 +139,114 @@ def test_chat_stream_uses_selected_context_collection(db_session, monkeypatch):
     assert run.output_ref["context_id"] == "ctx-context-chat"
 
 
+def test_chat_stream_vigie_defaults_to_balanced_grounding(db_session, monkeypatch):
+    workspace = Workspace(id="ws-vigie-grounding", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    db_session.add(workspace)
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+
+    response = _client(db_session, workspace, orchestrator, monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Explique la méthode pour structurer un brief cabinet.",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "data: [DONE]" in response.text
+    assert orchestrator.last_request["grounding_mode"] == "balanced"
+    assert orchestrator.last_request["grounding_policy"]["mode"] == "balanced"
+    assert orchestrator.last_request["grounding_policy"]["allow_foundational_fallback"] is True
+
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.output_ref["grounding_mode"] == "balanced"
+    assert run.output_ref["grounding_policy"]["reason"] == "vigie_chat_first"
+
+
+def test_chat_stream_vigie_balanced_request_stays_strict_for_workspace_facts(db_session, monkeypatch):
+    workspace = Workspace(id="ws-vigie-grounding-strict", name="SENTINEL-CI", slug="sentinel-ci", mode="demo")
+    db_session.add(workspace)
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+
+    response = _client(db_session, workspace, orchestrator, monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Combien de documents sécurité SENTINEL-CI sont indexés aujourd'hui ?",
+            "assistant_profile": "vigie_executive",
+            "knowledge_scope": "vigie",
+            "grounding_mode": "balanced",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "data: [DONE]" in response.text
+    assert orchestrator.last_request["grounding_mode"] == "strict"
+    assert orchestrator.last_request["grounding_policy"]["requested_mode"] == "balanced"
+    assert orchestrator.last_request["grounding_policy"]["reason"] == "workspace_fact_or_sensitive_state"
+    assert orchestrator.last_request["grounding_policy"]["allow_foundational_fallback"] is False
+
+
+def test_chat_stream_generic_profile_can_inherit_balanced_grounding(db_session, monkeypatch):
+    workspace = Workspace(
+        id="ws-generic-grounding",
+        name="Generic Grounding",
+        slug="generic-grounding",
+        settings={
+            "assistant_profiles": [
+                {
+                    "key": "cabinet_advisor",
+                    "grounding": {
+                        "default_mode": "balanced",
+                        "allowed_modes": ["strict", "balanced"],
+                    },
+                }
+            ]
+        },
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+
+    response = _client(db_session, workspace, orchestrator, monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Explique comment préparer une note cabinet courte.",
+            "assistant_profile": "cabinet_advisor",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "data: [DONE]" in response.text
+    assert orchestrator.last_request["grounding_mode"] == "balanced"
+    assert orchestrator.last_request["grounding_policy"]["inherited_from"] == "assistant_profile"
+    assert orchestrator.last_request["grounding_policy"]["reason"] == "profile_default"
+
+
+def test_chat_stream_unconfigured_profile_remains_strict_when_balanced_requested(db_session, monkeypatch):
+    workspace = Workspace(id="ws-plain-grounding", name="Plain Grounding", slug="plain-grounding")
+    db_session.add(workspace)
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+
+    response = _client(db_session, workspace, orchestrator, monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Explique comment préparer une note cabinet courte.",
+            "assistant_profile": "plain_advisor",
+            "grounding_mode": "balanced",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "data: [DONE]" in response.text
+    assert orchestrator.last_request["grounding_mode"] == "strict"
+    assert orchestrator.last_request["grounding_policy"]["requested_mode"] == "balanced"
+    assert orchestrator.last_request["grounding_policy"]["reason"] == "requested_mode_not_allowed"
+
+
 def test_chat_stream_unknown_context_returns_controlled_error(db_session, monkeypatch):
     workspace = Workspace(id="ws-missing-context", name="Missing Context", slug="missing-context")
     db_session.add(workspace)

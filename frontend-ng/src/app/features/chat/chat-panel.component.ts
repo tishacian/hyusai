@@ -114,6 +114,7 @@ interface AssistantProfile {
   showcase_mode?: string;
   design_mode?: string;
   tone?: string;
+  grounding?: GroundingConfig;
   prompt_pack?: SuggestionCard[];
   hidden_controls?: string[];
   chat?: WorkspaceChatConfig;
@@ -131,6 +132,14 @@ interface KnowledgeScopeOption {
 
 type SourceSelection = 'auto' | 'workspace_default' | string;
 type SessionDocsMode = 'replace' | 'combine';
+type GroundingMode = 'strict' | 'balanced';
+
+interface GroundingConfig {
+  default_mode?: GroundingMode;
+  allowed_modes?: GroundingMode[];
+  fallback_disclaimer?: string;
+  strict_guard?: string;
+}
 
 interface WorkspaceChatConfig {
   title?: string;
@@ -140,6 +149,7 @@ interface WorkspaceChatConfig {
   prompt_pack_by_scope?: Record<string, SuggestionCard[]>;
   session_doc_prompt_pack?: SuggestionCard[];
   use_assistant_profile_prompt_pack?: boolean;
+  grounding?: GroundingConfig;
 }
 
 type VoiceLoopDefaultMode = 'batch' | 'session_loop' | 'realtime';
@@ -1969,6 +1979,15 @@ export class ChatPanelComponent {
 
   readonly executiveMode = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
   readonly assistantLabel = computed(() => this.activeAssistantProfile()?.label || 'Agentium');
+  readonly groundingMode = computed<GroundingMode | null>(() => {
+    const settings = this.workspace.current()?.settings;
+    const workspaceChat = this.isRecord(settings?.['chat']) ? settings?.['chat'] : null;
+    const workspaceGrounding = this.groundingDefaultMode(
+      this.isRecord(workspaceChat) ? workspaceChat['grounding'] : null,
+    );
+    const profileGrounding = this.groundingDefaultMode(this.activeAssistantProfile()?.grounding);
+    return profileGrounding ?? workspaceGrounding ?? (this.executiveMode() ? 'balanced' : null);
+  });
   readonly workspaceChatConfig = computed<WorkspaceChatConfig>(() => {
     const settings = this.workspace.current()?.settings;
     const workspaceConfig = settings?.['chat'];
@@ -3132,6 +3151,12 @@ export class ChatPanelComponent {
     return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
+  private groundingDefaultMode(value: unknown): GroundingMode | null {
+    if (!this.isRecord(value)) return null;
+    const mode = value['default_mode'];
+    return mode === 'strict' || mode === 'balanced' ? mode : null;
+  }
+
   scopeLabel(scopeKey: string | null | undefined): string {
     if (!scopeKey) return 'workspace';
     const scope = this.knowledgeScopeOptions().find((item) => item.key === scopeKey);
@@ -3233,6 +3258,7 @@ export class ChatPanelComponent {
         prompt_type: promptTypeSel !== 'auto' ? promptTypeSel : null,
         knowledge_scope: this.activeKnowledgeScope(),
         assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
+        grounding_mode: this.groundingMode(),
         system_prompt: (s['systemPrompt'] as string | undefined) ?? null,
         agent_preferences: {
           model_preferences: {
@@ -3373,6 +3399,7 @@ export class ChatPanelComponent {
       context_id: this.contextId(),
       context_mode: this.contextId() ? this.sessionDocsMode() : null,
       assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
+      grounding_mode: this.groundingMode(),
       knowledge_scope: this.activeKnowledgeScope(),
       source_selection: this.selectedSource(),
       created_from: 'chat_panel',

@@ -21,6 +21,78 @@ If no relevant context is available, say so clearly rather than guessing.
 
 Be professional, precise, and helpful."""
 
+BALANCED_GROUNDING_APPENDIX = """Grounding policy for this turn:
+- Use retrieved workspace context first whenever it exists.
+- If no relevant workspace context is available and the user asks for advice, explanation, drafting, planning, or general reasoning, answer from general knowledge.
+- For unsourced general answers, briefly mark the status in French: "Je n'ai pas de source workspace sur ce point ; analyse generale a valider :".
+- Do not cite sources unless they are present in the provided context.
+- For workspace-specific facts, documents, live/current state, numbers, actions, agenda, security/OSINT, or operational claims, do not invent. Say that the workspace source is missing and offer a safe next step or a draft framework.
+- Keep a concise advisory tone."""
+
+
+def _grounding_policy_from_request(request: dict[str, Any]) -> dict[str, Any]:
+    policy = request.get("grounding_policy")
+    if isinstance(policy, dict):
+        mode = str(policy.get("mode") or "strict").lower()
+        return {
+            **policy,
+            "mode": "balanced" if mode == "balanced" else "strict",
+            "allow_foundational_fallback": bool(policy.get("allow_foundational_fallback") and mode == "balanced"),
+        }
+    return {
+        "requested_mode": "strict" if str(request.get("grounding_mode") or "").lower() == "strict" else None,
+        "mode": "strict",
+        "allow_foundational_fallback": False,
+        "source_requirement": "workspace_required",
+        "reason": "agent_default_strict",
+        "fallback_disclaimer": "",
+    }
+
+
+def _system_prompt_with_grounding(base_prompt: str, grounding_policy: dict[str, Any]) -> str:
+    if grounding_policy.get("mode") != "balanced":
+        return base_prompt
+    return f"{base_prompt}\n\n{BALANCED_GROUNDING_APPENDIX}"
+
+
+def _build_rag_user_prompt(
+    *,
+    query: str,
+    context_text: str,
+    keyword_hint: str,
+    grounding_policy: dict[str, Any],
+    has_retrieved_context: bool,
+) -> str:
+    if grounding_policy.get("mode") == "balanced" and not has_retrieved_context:
+        fallback_disclaimer = (
+            grounding_policy.get("fallback_disclaimer")
+            or "Je n'ai pas de source workspace sur ce point ; analyse generale a valider :"
+        )
+        grounding_instructions = f"""
+Grounding instructions:
+No SENTINEL-CI workspace source was retrieved for this turn.
+If the request is advisory, explanatory, drafting, planning, or general reasoning, answer from general knowledge and start with: "{fallback_disclaimer}"
+If the request asks for workspace facts, documents, live/current state, numbers, security/OSINT, agenda, actions, or operational claims, do not invent; say the workspace source is missing and propose a safe next step.
+Do not include citation markers like [1] because no source was retrieved."""
+    elif grounding_policy.get("mode") == "balanced":
+        grounding_instructions = """
+Grounding instructions:
+Use the workspace context as the source of factual claims and cite retrieved sources by [number] when relevant.
+You may add general advisory framing only when it is clearly separated from sourced facts.
+Do not invent citations."""
+    else:
+        grounding_instructions = """
+Grounding instructions:
+Answer using the context above. Cite sources by their [number] when relevant.
+If the context is not relevant or missing, say so clearly rather than guessing."""
+
+    return f"""User message:
+{query}
+
+Knowledge base context:
+{context_text}{keyword_hint}
+{grounding_instructions}"""
+
 
 class OmniRAGAgent(BaseAgent):
     def __init__(self):
@@ -109,7 +181,8 @@ class OmniRAGAgent(BaseAgent):
         model_name = prefs.get("model", settings.default_model)
         temperature = request.get("temperature", 0.3)
         custom_system_prompt = request.get("system_prompt")
-        system_prompt = custom_system_prompt or SYSTEM_PROMPT
+        grounding_policy = _grounding_policy_from_request(request)
+        system_prompt = _system_prompt_with_grounding(custom_system_prompt or SYSTEM_PROMPT, grounding_policy)
         pipeline_start = time.time()
 
         uid = id(query)
@@ -267,6 +340,8 @@ class OmniRAGAgent(BaseAgent):
             "top_k": profile["top_k"],
             "pipeline": mode_label,
             "task_id": None,
+            "grounding_mode": grounding_policy.get("mode"),
+            "grounding_policy": grounding_policy,
         }
         yield self._step(
             sid,
@@ -355,7 +430,11 @@ class OmniRAGAgent(BaseAgent):
         done_detail = (
             f"Top score: {top_score} · {done_method}"
             if n_chunks
-            else "No documents in knowledge base — using built-in rules"
+            else (
+                "No workspace context found — balanced general fallback allowed"
+                if grounding_policy.get("allow_foundational_fallback")
+                else "No documents in knowledge base — using built-in rules"
+            )
         )
         if n_chunks and retrieval_context.get("detail"):
             done_detail = f"{done_detail}\n{retrieval_context['detail']}"
@@ -379,6 +458,8 @@ class OmniRAGAgent(BaseAgent):
                 "task_id": retrieval_task_id,
                 "chunks_retrieved": n_chunks,
                 "pipeline": retrieval_context.get("pipeline"),
+                "grounding_mode": grounding_policy.get("mode"),
+                "grounding_policy": grounding_policy,
             },
             message=f"Retrieved {n_chunks} chunks" if n_chunks else "No retrieval context found",
             rag_context=retrieval_context,
@@ -495,7 +576,11 @@ class OmniRAGAgent(BaseAgent):
                 context_blocks.append(f"{header}\n{chunk}")
             context_text = "\n\n".join(context_blocks)
         else:
-            context_text = "No documents found in the knowledge base."
+            context_text = (
+                "No SENTINEL-CI workspace source was retrieved for this turn."
+                if grounding_policy.get("allow_foundational_fallback")
+                else "No documents found in the knowledge base."
+            )
 
         # Aggregate docmeta TF-IDF keywords across the top chunks so the LLM
         # can anchor on document topics even when the user's query is fuzzy
@@ -525,14 +610,13 @@ class OmniRAGAgent(BaseAgent):
             else ""
         )
 
-        user_prompt = f"""User message:
-{query}
-
-Knowledge base context:
-{context_text}{keyword_hint}
-
-Answer the user's question using the context above. Cite sources by their
-[number] when relevant. If the context is not relevant, say so clearly."""
+        user_prompt = _build_rag_user_prompt(
+            query=query,
+            context_text=context_text,
+            keyword_hint=keyword_hint,
+            grounding_policy=grounding_policy,
+            has_retrieved_context=bool(filtered_chunks),
+        )
 
         await asyncio.sleep(0.03)
         yield self._step(

@@ -11,7 +11,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -37,6 +37,7 @@ from app.services.evaluation.canonical_answer_service import (
 )
 from app.services.action_plans import action_context_for_chat
 from app.services.actions import handle_registry_chat_action, handle_transverse_chat_action
+from app.services.chat_grounding import resolve_grounding_policy
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
@@ -89,6 +90,10 @@ class ChatRequest(BaseModel):
     # Product-facing assistant profile. It does not bypass backend policy; it
     # carries UI/prompt intent into the Run ledger for audit and replay.
     assistant_profile: Optional[str] = None
+    # Answer grounding policy requested by chat-first surfaces. ``balanced`` is
+    # intentionally scoped by backend policy and may be downgraded to ``strict``
+    # for workspace facts, documents, actions, or sensitive/current claims.
+    grounding_mode: Optional[Literal["strict", "balanced"]] = None
 
 
 def _resolve_system_id(
@@ -775,6 +780,15 @@ async def chat_completion(
             request_dict.setdefault("context", {})["workspace_calendar"] = calendar_context_for_chat(db, workspace)
             request_dict.setdefault("context", {})["workspace_actions"] = action_context_for_chat(db, workspace)
             request_dict.setdefault("context", {})["workspace_visual_observations"] = visual_context_for_chat(db, workspace)
+        grounding_policy = resolve_grounding_policy(
+            query=validated_query,
+            workspace=workspace,
+            assistant_profile=request.assistant_profile,
+            requested_mode=request.grounding_mode,
+            context_id=request.context_id,
+        )
+        request_dict["grounding_policy"] = grounding_policy
+        request_dict["grounding_mode"] = grounding_policy["mode"]
 
         # If the cockpit sent a per-query override, promote it onto the
         # legacy pipeline-mode key so downstream code picks it up without
@@ -812,6 +826,7 @@ async def chat_completion(
             "retrieval_fallback": None,
             "knowledge_scope": None,
             "collections_touched": None,
+            "grounding_policy": grounding_policy,
         }
         full_content: list[str] = []
         run_started_at = datetime.utcnow()
@@ -866,6 +881,8 @@ async def chat_completion(
                 "context_id": request.context_id,
                 "context_mode": request.context_mode,
                 "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
+                "grounding_mode": grounding_policy["mode"],
+                "grounding_policy": grounding_policy,
             }
             
             # Add decision steps if any were collected
@@ -910,6 +927,8 @@ async def chat_completion(
                 "context_mode": request.context_mode,
                 "assistant_profile": request.assistant_profile,
                 "collections_touched": chunk_state.get("collections_touched"),
+                "grounding_mode": grounding_policy["mode"],
+                "grounding_policy": grounding_policy,
             },
         )
 
@@ -1520,6 +1539,16 @@ async def chat_stream(
                 yield _sse_done()
                 return
             
+            grounding_policy = resolve_grounding_policy(
+                query=validated_query,
+                workspace=workspace,
+                assistant_profile=request.assistant_profile,
+                requested_mode=request.grounding_mode,
+                context_id=request.context_id,
+            )
+            request_dict["grounding_policy"] = grounding_policy
+            request_dict["grounding_mode"] = grounding_policy["mode"]
+
             # Apply settings defaults if not provided
             if not request_dict.get("agent_preferences"):
                 request_dict["agent_preferences"] = {}
@@ -1545,6 +1574,7 @@ async def chat_stream(
                 "retrieval_fallback": None,
                 "knowledge_scope": None,
                 "collections_touched": None,
+                "grounding_policy": grounding_policy,
             }
             import time as _time
             run_started_at = datetime.utcnow()
@@ -1656,6 +1686,8 @@ async def chat_stream(
                     "context_id": request.context_id,
                     "context_mode": request.context_mode,
                     "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
+                    "grounding_mode": grounding_policy["mode"],
+                    "grounding_policy": grounding_policy,
                 }
                 
                 # Add decision steps if any were collected
@@ -1709,6 +1741,8 @@ async def chat_stream(
                         "context_mode": request.context_mode,
                         "assistant_profile": request.assistant_profile,
                         "collections_touched": chunk_state.get("collections_touched"),
+                        "grounding_mode": grounding_policy["mode"],
+                        "grounding_policy": grounding_policy,
                     },
                 )
             if run_id:

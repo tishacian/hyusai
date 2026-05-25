@@ -6174,6 +6174,12 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                     "default_knowledge_scope": "vigie",
                     "executive_mode": True,
                     "tone": "ministerial",
+                    "grounding": {
+                        "default_mode": "balanced",
+                        "allowed_modes": ["strict", "balanced"],
+                        "fallback_disclaimer": "Je n'ai pas de source workspace sur ce point ; analyse générale à valider :",
+                        "strict_guard": "default",
+                    },
                     "actions": {
                         "enabled_packs": [
                             "global_voice_v1",

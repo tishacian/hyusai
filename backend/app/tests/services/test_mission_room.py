@@ -62,6 +62,7 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     ]
     assert workspace.settings["assistant_profile_default"] == "vigie_executive"
     assert workspace.settings["assistant_profiles"][0]["default_knowledge_scope"] == "vigie"
+    assert workspace.settings["assistant_profiles"][0]["grounding"]["default_mode"] == "balanced"
     assert workspace.settings["calendar"]["connector_id"] == "institutional_calendar"
     assert workspace.settings["calendar"]["write_policy"] == "direct"
     assert workspace.settings["action_planner"]["write_policy"] == "direct"
