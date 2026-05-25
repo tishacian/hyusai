@@ -246,8 +246,8 @@ async function main() {
 
   try {
     await login(page);
-    await installProbes(page);
     await goto(page, '/hypervisor/mission-room/cockpit?workspace=sentinel-ci');
+    await installProbes(page);
 
     // ── S3.1 — Posture sécuritaire ─────────────────────────────────────────
     const opened = await openAyaPanel(page);

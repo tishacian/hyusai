@@ -1550,6 +1550,16 @@ async def execute_flow_action(
             )
         except Exception:  # noqa: BLE001 - degrade gracefully for demo
             draft = None
+        if isinstance(draft, dict):
+            draft_text = " ".join(
+                str(draft.get(key) or "")
+                for key in ("template_kind", "kind", "subject", "body_markdown", "body")
+            ).lower()
+            if not (
+                ("security" in draft_text or "securite" in draft_text)
+                and ("communique" in draft_text or "rumeur" in draft_text or "frontiere" in draft_text)
+            ):
+                draft = None
         if not draft or not isinstance(draft, dict):
             draft = {
                 "subject": "Communique souverain — frontiere Nord, démenti officiel",
