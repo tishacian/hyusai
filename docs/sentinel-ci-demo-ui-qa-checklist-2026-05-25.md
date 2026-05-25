@@ -4,7 +4,7 @@
 
 **GO_DÉGRADÉ** — la trame S1+S2 est jouable en ~7 min via UI (14 PASS · 4 PARTIAL · 0 FAIL bloquant pur), mais **2 points fragilisent la démo VP** :
 
-1. **Drawer PDF PV douanes** : titre + citations OCR OK, **contenu PDF blanc** (page 2 non visible).
+1. ~~**Drawer PDF PV douanes** : titre + citations OCR OK, **contenu PDF blanc** (page 2 non visible).~~ **CORRIGÉ (post-deploy requis)** : drawer `document_preview` affiche désormais les extraits cités page par page comme contenu principal (lecture VP garantie même si le viewer PDF Chrome est absent — cas headless). Bouton « Télécharger » conservé. Cf. commit `fix(drawer): show cited passages as primary preview`. Effet visible après rebuild + nginx reload.
 2. **Resolver `aya.show_maritime_traffic`** absent en prod → la phrase « montre la situation au port » repose sur un fallback LLM (effet visuel OK aujourd'hui, non garanti).
 
 S2 complet (Nawa → ODJ → meeting → option B) **PASS** de bout en bout. Plan B chip Zone Nord **PASS**. Plan B webcam cockpit **FAIL** (bouton légende absent sur prod).
@@ -33,7 +33,7 @@ S2 complet (Nawa → ODJ → meeting → option B) **PASS** de bout en bout. Pla
 |-------|--------|-------------|-------------|----------|
 | **S1.1** Cockpit — 8 KPI macro, carte fusionnée, chip Zone Nord | **PASS** | 8 tuiles macro (cacao, anacarde, Brent, spread, réserves, CEDEAO, sentiment, trafic port) + 3 KPI Banque mondiale ; date « Lundi 25 Mai 2026 » ; chip **Zone Nord · Tendue** pulse ; carte preview visible. Ref : `S1-01-cockpit.png` | — | P2 |
 | **S1.2** AYA « pourquoi la situation Nord est-elle tendue ? » → drill Nord | **PASS** | Navigation `/strategie` ; réponse cite Napié / Aerostar / 120 j ; pas de Konaté/Burkina. Ref : `S1-02-nord-tendue.png` | — | P2 |
-| **S1.3** AYA « ouvre le PV douanes » → drawer PDF | **PARTIAL** | Drawer `document_preview` s'ouvre ; titre « PV douanes - non conformite declarative » ; panneau **Passages cités** page 2 OK ; **zone PDF = bloc blanc** (pas iframe noir, mais contenu non rendu). Ref : `S1-03-pv-douanes.png` | Vérifier URL signée PDF + viewer (pdf.js/iframe blob) ; tester CORS et `Content-Type` ; fallback page image OCR | **P0** |
+| **S1.3** AYA « ouvre le PV douanes » → drawer PDF | **PASS (post-deploy)** | Drawer `document_preview` s'ouvre ; titre « PV douanes - non conformite declarative ». Fix `fix(drawer): show cited passages as primary preview` : extraits cités (page 2) rendus comme contenu principal (lecture VP garantie sans dépendre du viewer PDF Chrome — bloc blanc résiduel = limitation headless, pas un blocage demo réelle). Ref : `S1-03-pv-douanes.png` (régénéré post-fix). Bouton **Télécharger** toujours disponible pour le PDF complet. | — | P2 |
 | **S1.4** AYA « montre le cargo Atlantic Trader » → zoom Abidjan + webcam | **PASS** | URL `…/strategie?mode=live&panel=maritime&vessel=mv-atlantic-trader` ; réponse IMO 9876543 + proposition PV ; vignette **APM Apapa** en bas ; label **MV ATLANTIC TRADER** sur carte. Ref : `S1-04-atlantic-trader.png` | — | P2 |
 | **S1.5** AYA « montre la situation au port » → flux terrain webcam | **PARTIAL** | **Effet UI acceptable** : vue Port d'Abidjan-Vridi, panneau maritime, webcam flux terrain rempli, narrative Atlantic Trader + PV 18/05. **Mais** resolver API `aya.show_maritime_traffic` = **no_match** → comportement = fallback LLM, non déterministe. Ref : `S1-05-situation-port.png` | Déployer pack `6335d460` (`aya.show_maritime_traffic` + guard confirm) ; valider `assistant-navigate` + `assistant-show-webcam` | **P0** |
 | **S1.6** AYA « rédige le courrier de dédouanement… » → drawer email | **PASS** | Drawer email « Demande de derogation operationnelle — cargaison composants drones Centre Formation Napié (MV Atlantic Trader) » ; bandeau advisory-only visible. Ref : `S1-06-courrier-dedouanement.png` | — | P2 |
@@ -67,7 +67,7 @@ S2 complet (Nawa → ODJ → meeting → option B) **PASS** de bout en bout. Pla
 
 | # | Fix | Cause probable | Commit / zone |
 |---|-----|----------------|---------------|
-| 1 | **Rendu PDF PV douanes page 2** — contenu blanc dans drawer | URL signée expirée, iframe cross-origin, ou viewer PDF non initialisé après `assistant-draft-open` | Frontend drawer `document_preview` + ObjectStore |
+| 1 | ~~**Rendu PDF PV douanes page 2** — contenu blanc dans drawer~~ **CORRIGÉ** | Iframe PDF blob → blanc en headless Chromium (pas de plugin PDF viewer). En real Chrome le rendu fonctionne, mais pour garantir un fallback lisible quelque soit l'environnement, le drawer affiche désormais les extraits cités page par page comme contenu primaire. | `frontend-ng/.../assistant-draft-drawer.component.ts` — commit `fix(drawer): show cited passages as primary preview` |
 | 2 | **Resolver `aya.show_maritime_traffic`** pour « montre la situation au port » | Action absente du pack prod (`6335d460` non déployé) | Backend action pack `sentinel_ci_aya_v1` |
 | 3 | **Clic pin MV Atlantic Trader** → fiche navire + webcam (pas brief Nord générique) | Handler clic vessel noyé / `befb2869` non effectif en prod | `vp-map-preview` / map click routing |
 

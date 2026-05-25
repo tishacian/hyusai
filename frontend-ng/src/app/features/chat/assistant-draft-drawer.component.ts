@@ -91,11 +91,9 @@ interface DraftValidationResponse {
 
         @if (isDocumentPreview()) {
           <section class="doc-preview ck-scroll" aria-label="Aperçu document">
-            @if (previewLoading()) {
-              <p class="doc-fallback doc-loading">Chargement de l'aperçu PDF…</p>
-            } @else if (useCitationPreview() && citedPassages().length) {
-              <section class="doc-citation-preview ck-scroll" aria-label="Extrait OCR document">
-                <span class="eyebrow">Aperçu document · extrait OCR</span>
+            @if (citedPassages().length) {
+              <section class="doc-citation-preview ck-scroll" aria-label="Extraits cités par AYA">
+                <span class="eyebrow">Aperçu document · extraits cités par AYA</span>
                 @for (passage of citedPassages(); track $index) {
                   <article class="citation-page">
                     @if (passage.page) {
@@ -109,7 +107,14 @@ interface DraftValidationResponse {
                     }
                   </article>
                 }
+                @if (downloadHref()) {
+                  <p class="doc-citation-hint">
+                    PDF complet disponible via « Télécharger ».
+                  </p>
+                }
               </section>
+            } @else if (previewLoading()) {
+              <p class="doc-fallback doc-loading">Chargement de l'aperçu PDF…</p>
             } @else if (documentUrl(); as url) {
               <iframe
                 class="doc-frame"
@@ -121,26 +126,6 @@ interface DraftValidationResponse {
               <p class="doc-fallback">
                 {{ previewError() || "Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document." }}
               </p>
-            }
-            @if (citedPassages().length) {
-              <aside class="cited-passages" aria-label="Passages cités">
-                <span class="eyebrow">Passages cités par AYA</span>
-                <ul>
-                  @for (passage of citedPassages(); track $index) {
-                    <li>
-                      @if (passage.page) {
-                        <strong>Page {{ passage.page }}</strong>
-                      }
-                      @if (passage.label) {
-                        <em>{{ passage.label }}</em>
-                      }
-                      @if (passage.text) {
-                        <p>« {{ passage.text }} »</p>
-                      }
-                    </li>
-                  }
-                </ul>
-              </aside>
             }
           </section>
         } @else {
@@ -245,14 +230,14 @@ interface DraftValidationResponse {
       .doc-preview {
         position: relative;
         min-height: 0;
-        display: grid;
-        grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.9fr);
+        display: flex;
+        flex-direction: column;
         gap: var(--mission-space-3);
         overflow: hidden;
       }
       .doc-frame {
         width: 100%;
-        height: 100%;
+        flex: 1 1 auto;
         min-height: 360px;
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius-md);
@@ -273,18 +258,22 @@ interface DraftValidationResponse {
         min-height: 360px;
       }
       .doc-citation-preview {
+        flex: 1 1 auto;
         min-height: 360px;
         padding: var(--mission-space-4);
-        border: 1px solid var(--mission-border);
+        border: 1px solid rgba(241, 180, 90, 0.28);
         border-radius: var(--mission-radius-md);
-        background: var(--mission-surface-1);
+        background: var(--mission-warning-soft);
         overflow: auto;
+      }
+      .doc-citation-preview > .eyebrow {
+        color: var(--mission-warning);
       }
       .citation-page {
         margin-top: var(--mission-space-3);
         padding: var(--mission-space-3);
-        border-left: 3px solid var(--sentinel-accent-muted);
-        background: var(--mission-inset);
+        border-left: 3px solid rgba(241, 180, 90, 0.55);
+        background: rgba(241, 180, 90, 0.06);
         border-radius: var(--mission-radius-sm);
       }
       .citation-page strong {
@@ -292,7 +281,7 @@ interface DraftValidationResponse {
         margin-bottom: var(--mission-space-1);
         font-family: var(--mission-font-mono);
         font-size: 11px;
-        color: var(--sentinel-accent);
+        color: var(--mission-warning);
       }
       .citation-page em {
         display: block;
@@ -307,43 +296,11 @@ interface DraftValidationResponse {
         line-height: var(--mission-lh-body);
         color: var(--mission-text-primary);
       }
-      .cited-passages {
-        padding: var(--mission-space-3);
-        border: 1px solid rgba(241, 180, 90, 0.28);
-        border-radius: var(--mission-radius-md);
-        background: var(--mission-warning-soft);
-        overflow: auto;
-      }
-      .cited-passages ul {
-        margin: var(--mission-space-2) 0 0;
-        padding: 0;
-        list-style: none;
-        display: grid;
-        gap: var(--mission-space-2);
-      }
-      .cited-passages li {
-        padding: var(--mission-space-2) var(--mission-space-3);
-        border-left: 2px solid rgba(241, 180, 90, 0.55);
-        background: rgba(241, 180, 90, 0.04);
+      .doc-citation-hint {
+        margin: var(--mission-space-3) 0 0;
         font-size: var(--mission-text-xs);
-        line-height: var(--mission-lh-body);
-        border-radius: var(--mission-radius-sm);
-      }
-      .cited-passages li strong {
-        margin-right: 6px;
-        font-family: var(--mission-font-mono);
-        font-size: 11px;
-        color: var(--mission-warning);
-      }
-      .cited-passages li em {
-        margin-right: 4px;
-        font-style: normal;
-        color: var(--mission-text-secondary);
-        font-size: 11px;
-      }
-      .cited-passages li p {
-        margin: 4px 0 0;
-        color: var(--mission-text-primary);
+        color: var(--mission-text-tertiary);
+        font-style: italic;
       }
       header, footer {
         display: flex;
@@ -470,8 +427,7 @@ interface DraftValidationResponse {
       .action-button.ghost { background: transparent; }
       .action-button:disabled { opacity: 0.55; cursor: not-allowed; }
       @media (max-width: 760px) {
-        .doc-preview { grid-template-columns: 1fr; }
-        .cited-passages { max-height: 220px; }
+        .doc-citation-preview { max-height: 60vh; }
       }
       @media (prefers-reduced-motion: reduce) {
         .draft-drawer,
@@ -489,7 +445,6 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   readonly submitting = signal(false);
   readonly previewLoading = signal(false);
   readonly previewError = signal<string | null>(null);
-  readonly useCitationPreview = signal(false);
   private readonly previewBlobUrl = signal<string | null>(null);
 
   /** PDF stubs below this size are treated as degraded placeholders. */
@@ -575,16 +530,13 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   private loadDocumentPreview(): void {
     this.revokePreviewBlobUrl();
     this.previewError.set(null);
-    this.useCitationPreview.set(false);
     if (!this.isDocumentPreview()) {
       this.previewLoading.set(false);
       return;
     }
     const href = this.rawDocumentHref();
     if (!href) {
-      if (this.citedPassages().length) {
-        this.useCitationPreview.set(true);
-      } else {
+      if (!this.citedPassages().length) {
         this.previewError.set(
           'Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document.',
         );
@@ -592,20 +544,20 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
       this.previewLoading.set(false);
       return;
     }
+    // Always fetch the blob: it powers the authenticated "Télécharger" button
+    // and, when citations are absent, the inline PDF iframe.
     const { path } = this.splitDocumentHref(href);
-    this.previewLoading.set(true);
+    const hasCitations = this.citedPassages().length > 0;
+    this.previewLoading.set(!hasCitations);
     this.api.getBlob(path).subscribe({
       next: (blob) => {
         this.revokePreviewBlobUrl();
         if (this.shouldUseCitationPreview(blob)) {
-          if (this.citedPassages().length) {
-            this.useCitationPreview.set(true);
-            this.previewLoading.set(false);
-            return;
+          if (!hasCitations) {
+            this.previewError.set(
+              'Document PDF indisponible — utilisez le bouton « Télécharger » ou consultez les passages cités.',
+            );
           }
-          this.previewError.set(
-            'Document PDF indisponible — utilisez le bouton « Télécharger » ou consultez les passages cités.',
-          );
           this.previewLoading.set(false);
           return;
         }
@@ -616,13 +568,11 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.previewLoading.set(false);
-        if (this.citedPassages().length) {
-          this.useCitationPreview.set(true);
-          return;
+        if (!hasCitations) {
+          this.previewError.set(
+            'Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document.',
+          );
         }
-        this.previewError.set(
-          'Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document.',
-        );
       },
     });
   }
@@ -745,7 +695,6 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
     this.revokePreviewBlobUrl();
     this.previewLoading.set(false);
     this.previewError.set(null);
-    this.useCitationPreview.set(false);
     this.open.set(false);
     this.payload.set(null);
     this.submitting.set(false);
