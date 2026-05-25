@@ -71,7 +71,7 @@ interface BucketDescriptor {
         <aside [class]="embedded ? 'social-embedded-panel' : 'social-drawer-panel'">
           <header class="social-drawer-head">
             <div class="social-drawer-head-copy">
-              <span class="risk-pill stable">demo-safe</span>
+              <span class="mission-status-badge is-advisory">Démo-safe</span>
               <small class="publisher-badge">Pulsation sociale · {{ cityFocus() }}</small>
               <h2>{{ headerTitle() }}</h2>
               <p class="social-drawer-summary">{{ summarySentence() }}</p>
@@ -90,22 +90,22 @@ interface BucketDescriptor {
 
           <div class="social-drawer-body">
             <section class="social-stats" aria-label="Indicateurs snapshot">
-              <article class="stat-card">
+              <article class="stat-card mission-metric-tile">
                 <span class="stat-label">tweets</span>
                 <strong>{{ totals().tweets ?? tweets().length }}</strong>
                 <small>séquence jour</small>
               </article>
-              <article class="stat-card">
+              <article class="stat-card mission-metric-tile">
                 <span class="stat-label">vérifiés</span>
                 <strong>{{ totals().officiel ?? bucketCount('officiel') }}</strong>
                 <small>institutionnel + presse</small>
               </article>
-              <article class="stat-card">
+              <article class="stat-card mission-metric-tile">
                 <span class="stat-label">citoyens</span>
                 <strong>{{ totals().citoyen ?? bucketCount('citoyen') }}</strong>
                 <small>pseudonymisés</small>
               </article>
-              <article class="stat-card warn">
+              <article class="stat-card mission-metric-tile is-watch warn">
                 <span class="stat-label">rumeur</span>
                 <strong>{{ totals().rumeur ?? bucketCount('rumeur') }}</strong>
                 <small>frontière Nord</small>
@@ -203,7 +203,7 @@ interface BucketDescriptor {
             }
           </div>
 
-          <footer class="social-drawer-foot">
+          <footer class="social-drawer-foot mission-action-footer">
             <button type="button" class="action-link primary" (click)="askAya.emit()">
               Envoyer à AYA
             </button>

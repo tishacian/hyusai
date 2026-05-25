@@ -79,7 +79,7 @@ export interface TroopsSahelSnapshot {
         <aside [class]="embedded ? 'troops-embedded-panel' : 'troops-drawer-panel'">
           <header class="troops-drawer-head">
             <div class="troops-drawer-head-copy">
-              <span class="risk-pill warn">advisory only</span>
+              <span class="mission-status-badge is-advisory">advisory only</span>
               <small class="publisher-badge">ADS-B advisory</small>
               @if (snapshot.source_badge) {
                 <small class="publisher-badge" [class.live]="snapshot.live" [class.baseline]="!snapshot.live">
@@ -103,22 +103,22 @@ export interface TroopsSahelSnapshot {
 
           <div class="troops-drawer-body">
             <section class="troops-stats" aria-label="Indicateurs théâtre">
-              <article class="stat-card">
+              <article class="stat-card mission-metric-tile">
                 <span class="stat-label">traces actives</span>
                 <strong>{{ tracks().length }}</strong>
                 <small>snapshot {{ capturedAtLabel() }}</small>
               </article>
-              <article class="stat-card warn">
+              <article class="stat-card mission-metric-tile is-watch warn">
                 <span class="stat-label">zones surveillance</span>
                 <strong>{{ watchZones().length }}</strong>
                 <small>OSINT public</small>
               </article>
-              <article class="stat-card">
+              <article class="stat-card mission-metric-tile">
                 <span class="stat-label">bases CEDEAO</span>
                 <strong>{{ cedeaoBases().length }}</strong>
                 <small>alerte standard</small>
               </article>
-              <article class="stat-card">
+              <article class="stat-card mission-metric-tile">
                 <span class="stat-label">altitude moy.</span>
                 <strong>{{ averageAltitude() }}</strong>
                 <small>ft (advisory)</small>
@@ -214,7 +214,7 @@ export interface TroopsSahelSnapshot {
             }
           </div>
 
-          <footer class="troops-drawer-foot">
+          <footer class="troops-drawer-foot mission-action-footer">
             <span class="foot-disclaimer">
               ADS-B public, advisory only · sources publiques et baseline démo
             </span>

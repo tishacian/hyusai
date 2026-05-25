@@ -149,10 +149,10 @@ const ATLANTIC_TRADER_MMSI = '627012345';
           <button type="button" aria-label="Zoom arrière" (click)="zoomOut()">−</button>
           <button type="button" aria-label="Vue pays" (click)="resetCountry()">⌂</button>
         </div>
-        @if (!legendOpen && !isLayerActive('maritime-traffic')) {
+        @if (!legendOpen && !isLayerActive('maritime-traffic') && !hasS3Legend()) {
           <button type="button" class="map-legend-toggle" (click)="toggleLegend(); $event.stopPropagation()">Niveaux</button>
         }
-        @if (legendOpen || isLayerActive('maritime-traffic')) {
+        @if (legendOpen || isLayerActive('maritime-traffic') || hasS3Legend()) {
           <div class="map-legend-bar">
             @if (legendOpen) {
               <div class="legend-section niveaux">
@@ -170,6 +170,14 @@ const ATLANTIC_TRADER_MMSI = '627012345';
                 <span><i class="port"></i>ports</span>
                 <span><i class="vessel-cargo"></i>cargo</span>
                 <span><i class="vessel-tanker"></i>tanker</span>
+              </div>
+            }
+            @if (hasS3Legend()) {
+              <div class="legend-section security">
+                <strong>Sécurité</strong>
+                <span><i class="s3-air"></i>ADS-B</span>
+                <span><i class="s3-social"></i>social</span>
+                <span><i class="s3-border"></i>frontière</span>
               </div>
             }
           </div>
@@ -758,6 +766,29 @@ const ATLANTIC_TRADER_MMSI = '627012345';
         border-bottom-color: #f97316;
       }
 
+      .legend-section.security .s3-air {
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-bottom: 10px solid var(--mission-warning);
+        background: transparent;
+      }
+      .legend-section.security .s3-social {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--mission-info);
+        box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.18);
+      }
+      .legend-section.security .s3-border {
+        width: 18px;
+        height: 8px;
+        border: 1px solid rgba(241, 180, 90, 0.78);
+        border-radius: 3px;
+        background: rgba(241, 180, 90, 0.18);
+      }
+
       .map-maritime-caption {
         position: absolute;
         left: 50%;
@@ -1240,6 +1271,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   isLayerActive(key: string): boolean {
     return this.activeLayerKeys.has(key);
+  }
+
+  hasS3Legend(): boolean {
+    return this.isLayerActive('military-air')
+      || this.isLayerActive('social-geo')
+      || this.isLayerActive('border-tension');
   }
 
   toggleControls(): void {
@@ -1872,11 +1909,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         filled: true,
         stroked: true,
         getFillColor: (feature: any) =>
-          feature.properties?.tone === 'watch' ? [241, 180, 90, 56] : [180, 195, 215, 46],
+          feature.properties?.tone === 'watch' ? [241, 180, 90, 46] : [180, 195, 215, 36],
         getLineColor: (feature: any) =>
-          feature.properties?.tone === 'watch' ? [241, 180, 90, 200] : [180, 195, 215, 180],
-        lineWidthMinPixels: 1.0,
-        lineWidthMaxPixels: 1.6,
+          feature.properties?.tone === 'watch' ? [241, 180, 90, 218] : [180, 195, 215, 170],
+        lineWidthMinPixels: 1.15,
+        lineWidthMaxPixels: 1.9,
         parameters: { depthTest: false },
       }));
     }
@@ -1891,7 +1928,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         radiusUnits: 'pixels',
         getRadius: (feature: any) => {
           const engagement = Number(feature.properties?.engagement || 0);
-          return Math.max(5, Math.min(18, Math.sqrt(engagement) / 4));
+          return Math.max(6, Math.min(20, Math.sqrt(engagement) / 3.6));
         },
         getFillColor: (feature: any) => {
           const sentiment = feature.properties?.sentiment;
@@ -1901,11 +1938,27 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         },
         getLineColor: (feature: any) =>
           feature.properties?.kind === 'officiel' ? [255, 255, 255, 240] : [10, 25, 38, 180],
-        lineWidthMinPixels: (feature: any) => (feature.properties?.kind === 'officiel' ? 1.6 : 0.8),
+        lineWidthMinPixels: (feature: any) => (feature.properties?.kind === 'officiel' ? 1.9 : 0.9),
         parameters: { depthTest: false },
       }));
     }
     if (showMilitaryAir && militaryAirSource?.features?.length) {
+      layers.push(new ScatterplotLayer({
+        id: 'sentinel-military-air-halo',
+        data: militaryAirSource.features,
+        pickable: false,
+        stroked: true,
+        filled: true,
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => feature.properties?.tone === 'watch' ? 19 : 15,
+        getFillColor: (feature: any) =>
+          feature.properties?.tone === 'watch' ? [241, 180, 90, 42] : [125, 211, 252, 30],
+        getLineColor: (feature: any) =>
+          feature.properties?.tone === 'watch' ? [241, 180, 90, 96] : [125, 211, 252, 72],
+        lineWidthMinPixels: 1,
+        parameters: { depthTest: false },
+      }));
       layers.push(new IconLayer({
         id: 'sentinel-military-air',
         data: militaryAirSource.features,
@@ -1915,10 +1968,28 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getIcon: () => 'triangle',
         getPosition: (feature: any) => feature.geometry.coordinates,
         getAngle: (feature: any) => Number(feature.properties?.heading || 0),
-        getSize: this.compact ? 12 : 14,
+        getSize: (feature: any) => feature.properties?.tone === 'watch'
+          ? (this.compact ? 14 : 17)
+          : (this.compact ? 12 : 15),
         getColor: (feature: any) =>
-          feature.properties?.tone === 'watch' ? [241, 180, 90, 240] : [156, 196, 230, 230],
+          feature.properties?.tone === 'watch' ? [241, 180, 90, 252] : [156, 196, 230, 236],
         sizeUnits: 'pixels',
+        billboard: true,
+        parameters: { depthTest: false },
+      }));
+      layers.push(new TextLayer({
+        id: 'sentinel-military-air-labels',
+        data: militaryAirSource.features.slice(0, this.compact ? 3 : 5),
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        getText: (feature: any) => String(feature.properties?.callsign || feature.properties?.id || ''),
+        getSize: this.compact ? 8 : 9,
+        getColor: this.isLightBasemap() ? [10, 25, 38, 230] : [240, 250, 255, 232],
+        getPixelOffset: [0, -17],
+        getTextAnchor: 'middle',
+        getAlignmentBaseline: 'bottom',
+        fontSettings: { sdf: true, fontWeight: 700 },
+        outlineColor: this.isLightBasemap() ? [255, 255, 255, 232] : [4, 8, 13, 232],
+        outlineWidth: 3,
         billboard: true,
         parameters: { depthTest: false },
       }));

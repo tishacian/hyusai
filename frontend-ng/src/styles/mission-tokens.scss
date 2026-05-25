@@ -182,6 +182,158 @@
   outline-offset: 2px;
 }
 
+.mission-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mission-space-3);
+  min-width: 0;
+}
+.mission-panel-head-copy {
+  display: grid;
+  gap: var(--mission-space-1);
+  min-width: 0;
+}
+.mission-panel-kicker {
+  color: var(--mission-text-tertiary);
+  font-family: var(--mission-font-mono);
+  font-size: 10px;
+  letter-spacing: var(--mission-tracking-micro);
+  text-transform: uppercase;
+}
+.mission-panel-title {
+  margin: 0;
+  color: var(--mission-text-primary);
+  font-size: var(--mission-text-md);
+  font-weight: 650;
+  letter-spacing: var(--mission-tracking-tight);
+  line-height: var(--mission-lh-tight);
+}
+.mission-panel-subtitle {
+  margin: 0;
+  color: var(--mission-text-secondary);
+  font-size: var(--mission-text-sm);
+  line-height: var(--mission-lh-body);
+}
+
+.mission-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 22px;
+  padding: 3px 9px;
+  border: 1px solid var(--mission-border);
+  border-radius: 999px;
+  background: rgba(4, 8, 13, 0.48);
+  color: var(--mission-text-secondary);
+  font-family: var(--mission-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mission-status-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.86;
+}
+.mission-status-badge.is-live {
+  border-color: rgba(63, 209, 141, 0.45);
+  background: var(--mission-success-soft);
+  color: var(--mission-success);
+}
+.mission-status-badge.is-baseline {
+  border-color: rgba(241, 180, 90, 0.38);
+  background: var(--mission-warning-soft);
+  color: var(--mission-warning);
+}
+.mission-status-badge.is-advisory {
+  border-color: rgba(125, 211, 252, 0.34);
+  background: var(--mission-info-soft);
+  color: var(--mission-info);
+}
+.mission-status-badge.is-watch {
+  border-color: rgba(242, 140, 56, 0.42);
+  background: var(--mission-orange-soft);
+  color: var(--mission-orange);
+}
+.mission-status-badge.is-denied {
+  border-color: rgba(63, 209, 141, 0.45);
+  background: var(--mission-success-soft);
+  color: var(--mission-success);
+}
+
+.mission-metric-tile {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--mission-space-3);
+  border: 1px solid var(--mission-border);
+  border-radius: var(--mission-radius-md);
+  background: rgba(4, 8, 13, 0.56);
+}
+.mission-metric-tile > span,
+.mission-metric-label {
+  color: var(--mission-text-tertiary);
+  font-family: var(--mission-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.mission-metric-tile > strong,
+.mission-metric-value {
+  color: var(--mission-text-primary);
+  font-family: var(--mission-font-mono);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.mission-metric-tile > small,
+.mission-metric-help {
+  color: var(--mission-text-tertiary);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.mission-metric-tile.is-watch { border-color: rgba(241, 180, 90, 0.32); }
+.mission-metric-tile.is-critical { border-color: rgba(240, 100, 118, 0.34); }
+.mission-metric-tile.is-stable { border-color: rgba(63, 209, 141, 0.30); }
+
+.mission-action-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mission-space-2);
+  padding: var(--mission-space-4) var(--mission-space-5);
+  border-top: 1px solid var(--mission-border);
+  background: rgba(4, 8, 13, 0.62);
+}
+
+.mission-row-highlight {
+  border-left: 3px solid var(--mission-warning);
+  background: rgba(241, 180, 90, 0.06);
+}
+
+@keyframes mission-focus-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(101, 214, 110, 0.44), var(--mission-shadow-soft);
+    border-color: rgba(101, 214, 110, 0.54);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(101, 214, 110, 0), var(--mission-shadow-soft);
+  }
+  100% {
+    box-shadow: var(--mission-shadow-soft);
+  }
+}
+.mission-focus-pulse {
+  animation: mission-focus-pulse 1.9s var(--mission-ease-out) 1;
+}
+
 /* Skeleton loader (deferred animation respects prefers-reduced-motion). */
 .mission-skeleton {
   background: linear-gradient(
@@ -228,7 +380,8 @@
    vestibular preferences aren't distracted by the live chrome. */
 @media (prefers-reduced-motion: reduce) {
   .mission-skeleton,
-  .mission-pulse-critical {
+  .mission-pulse-critical,
+  .mission-focus-pulse {
     animation: none !important;
   }
 }

@@ -53,7 +53,11 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         <aside [class]="embedded ? 'rumor-embedded-panel' : 'rumor-drawer-panel'">
           <header class="rumor-drawer-head">
             <div class="rumor-drawer-head-copy">
-              <span class="risk-pill" [class.success]="hasOfficialDenial()" [class.warn]="!hasOfficialDenial()">
+              <span
+                class="mission-status-badge"
+                [class.is-denied]="hasOfficialDenial()"
+                [class.is-watch]="!hasOfficialDenial()"
+              >
                 {{ hasOfficialDenial() ? 'démenti officiel' : 'vérification' }}
               </span>
               <small class="publisher-badge">Chronologie OSINT</small>
@@ -74,7 +78,7 @@ type Phase = 'emergence' | 'amplification' | 'demente';
 
           <div class="rumor-drawer-body">
             @if (hasOfficialDenial()) {
-              <section class="verdict-bar verdict-denied" aria-live="polite">
+              <section class="verdict-bar verdict-denied mission-row-highlight" aria-live="polite">
                 <span class="verdict-icon" aria-hidden="true">✓</span>
                 <div class="verdict-copy">
                   <strong>{{ trace.verdict_label || 'DÉMENTI OFFICIEL FANCI' }}</strong>
@@ -82,7 +86,7 @@ type Phase = 'emergence' | 'amplification' | 'demente';
                 </div>
               </section>
             } @else {
-              <section class="verdict-bar verdict-pending" aria-live="polite">
+              <section class="verdict-bar verdict-pending mission-row-highlight" aria-live="polite">
                 <span class="verdict-icon" aria-hidden="true">!</span>
                 <div class="verdict-copy">
                   <strong>RUMEUR EN COURS DE VÉRIFICATION</strong>
@@ -154,7 +158,7 @@ type Phase = 'emergence' | 'amplification' | 'demente';
             }
           </div>
 
-          <footer class="rumor-drawer-foot">
+          <footer class="rumor-drawer-foot mission-action-footer">
             <button type="button" class="action-link primary" (click)="draftCommunique.emit()">
               Préparer un communiqué
             </button>

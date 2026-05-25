@@ -31,21 +31,42 @@ import type {
   template: `
     @if (securityOnly) {
       @if (securityPosture; as posture) {
-        <section class="vp-block vp-block-security" aria-label="Posture securitaire dual-axis">
+        <section
+          id="s3-security-posture"
+          class="vp-block vp-block-security"
+          [class.mission-focus-pulse]="focusTarget === 'security_posture'"
+          aria-label="Posture sécuritaire dual-axis"
+        >
           <header class="vp-block-head">
-            <span class="vp-block-eyebrow">Posture securitaire</span>
-            <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis interieur · exterieur' }}</h2>
-            @if (postureNextCouncil(posture); as council) {
-              <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
+            <div class="vp-block-head-main">
+              <span class="vp-block-eyebrow">Posture sécuritaire</span>
+              <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis intérieur · extérieur' }}</h2>
+              @if (postureNextCouncil(posture); as council) {
+                <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
+              }
+            </div>
+            @if (securityOsintBadges(posture).length) {
+              <div class="vp-osint-badges" aria-label="Sources OSINT sécurité">
+                @for (badge of securityOsintBadges(posture); track badge.key) {
+                  <span
+                    class="mission-status-badge"
+                    [class.is-live]="badge.live"
+                    [class.is-baseline]="!badge.live"
+                  >
+                    {{ badge.label }} · {{ badge.source_badge }}
+                  </span>
+                }
+              </div>
             }
           </header>
           <div class="vp-security-grid">
             @for (axis of postureAxes(posture); track axis.key) {
-              <article class="vp-security-card" [class]="'tone-' + (axis.tone || 'monitoring')">
+              <article class="vp-security-card" [class]="'axis-' + axis.key + ' tone-' + (axis.tone || 'monitoring')">
                 <header class="vp-security-card-head">
-                  <span class="vp-security-card-axis">{{ axis.label }}</span>
+                  <span class="vp-security-card-axis">{{ axis.key === 'interior' ? 'Axe intérieur' : 'Axe extérieur' }}</span>
                   <strong class="vp-security-card-level" [attr.data-tone]="axis.tone">{{ axis.level | uppercase }}</strong>
                 </header>
+                <strong class="vp-security-axis-label">{{ axis.label }}</strong>
                 @if (axis.headline) {
                   <p class="vp-security-card-headline">{{ axis.headline }}</p>
                 }
@@ -64,9 +85,9 @@ import type {
               </article>
             }
           </div>
-          <div class="vp-security-actions">
+          <div class="vp-security-actions mission-action-footer">
             <button type="button" class="vp-security-cta vp-security-cta-primary" (click)="securityPostureRequested.emit()">
-              Posture securitaire complete
+              Posture sécuritaire complète
             </button>
             <button type="button" class="vp-security-cta" (click)="securityCommuniqueRequested.emit()">
               Préparer le communiqué Nord
@@ -130,11 +151,16 @@ import type {
       </section>
 
       @if (securityPosture; as posture) {
-        <section class="vp-block vp-block-security" aria-label="Posture securitaire dual-axis">
+        <section
+          id="s3-security-posture"
+          class="vp-block vp-block-security"
+          [class.mission-focus-pulse]="focusTarget === 'security_posture'"
+          aria-label="Posture sécuritaire dual-axis"
+        >
           <header class="vp-block-head">
             <div class="vp-block-head-main">
-              <span class="vp-block-eyebrow">Posture securitaire</span>
-              <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis interieur · exterieur' }}</h2>
+              <span class="vp-block-eyebrow">Posture sécuritaire</span>
+              <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis intérieur · extérieur' }}</h2>
               @if (postureNextCouncil(posture); as council) {
                 <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
               }
@@ -142,7 +168,11 @@ import type {
             @if (securityOsintBadges(posture).length) {
               <div class="vp-osint-badges" aria-label="Sources OSINT sécurité">
                 @for (badge of securityOsintBadges(posture); track badge.key) {
-                  <span class="vp-osint-badge" [class.live]="badge.live" [class.baseline]="!badge.live">
+                  <span
+                    class="mission-status-badge"
+                    [class.is-live]="badge.live"
+                    [class.is-baseline]="!badge.live"
+                  >
                     {{ badge.label }} · {{ badge.source_badge }}
                   </span>
                 }
@@ -151,11 +181,12 @@ import type {
           </header>
           <div class="vp-security-grid">
             @for (axis of postureAxes(posture); track axis.key) {
-              <article class="vp-security-card" [class]="'tone-' + (axis.tone || 'monitoring')">
+              <article class="vp-security-card" [class]="'axis-' + axis.key + ' tone-' + (axis.tone || 'monitoring')">
                 <header class="vp-security-card-head">
-                  <span class="vp-security-card-axis">{{ axis.label }}</span>
+                  <span class="vp-security-card-axis">{{ axis.key === 'interior' ? 'Axe intérieur' : 'Axe extérieur' }}</span>
                   <strong class="vp-security-card-level" [attr.data-tone]="axis.tone">{{ axis.level | uppercase }}</strong>
                 </header>
+                <strong class="vp-security-axis-label">{{ axis.label }}</strong>
                 @if (axis.headline) {
                   <p class="vp-security-card-headline">{{ axis.headline }}</p>
                 }
@@ -174,9 +205,9 @@ import type {
               </article>
             }
           </div>
-          <div class="vp-security-actions">
+          <div class="vp-security-actions mission-action-footer">
             <button type="button" class="vp-security-cta vp-security-cta-primary" (click)="securityPostureRequested.emit()">
-              Posture securitaire complete
+              Posture sécuritaire complète
             </button>
             <button type="button" class="vp-security-cta" (click)="securityCommuniqueRequested.emit()">
               Préparer le communiqué Nord
@@ -340,6 +371,8 @@ import type {
       .vp-block-security {
         display: grid;
         gap: var(--mission-space-4);
+        position: relative;
+        overflow: hidden;
       }
       .vp-block-head-main {
         display: grid;
@@ -352,34 +385,15 @@ import type {
         gap: var(--mission-space-2);
         justify-content: flex-end;
       }
-      .vp-osint-badge {
-        padding: var(--mission-space-1) var(--mission-space-3);
-        border-radius: 999px;
-        border: 1px solid var(--mission-border);
-        font-family: var(--mission-font-mono);
-        font-size: 10px;
-        letter-spacing: var(--mission-tracking-micro);
-        text-transform: uppercase;
-        color: var(--mission-text-tertiary);
-        white-space: nowrap;
-      }
-      .vp-osint-badge.live {
-        border-color: rgba(63, 209, 141, 0.45);
-        color: var(--mission-success, #63d18d);
-        background: rgba(63, 209, 141, 0.08);
-      }
-      .vp-osint-badge.baseline {
-        border-color: rgba(241, 180, 90, 0.32);
-        color: var(--mission-text-secondary);
-        background: rgba(241, 180, 90, 0.06);
-      }
       .vp-security-council {
-        margin-left: auto;
+        display: inline-flex;
+        width: fit-content;
+        margin-top: var(--mission-space-1);
         padding: var(--mission-space-1) var(--mission-space-3);
         border-radius: 999px;
-        background: rgba(241, 180, 90, 0.12);
-        border: 1px solid rgba(241, 180, 90, 0.32);
-        color: var(--mission-text-secondary);
+        background: rgba(240, 100, 118, 0.12);
+        border: 1px solid rgba(240, 100, 118, 0.38);
+        color: #fda4af;
         font-family: var(--mission-font-mono);
         font-size: 10px;
         letter-spacing: var(--mission-tracking-micro);
@@ -391,18 +405,33 @@ import type {
         gap: var(--mission-space-4);
       }
       .vp-security-card {
+        position: relative;
         padding: var(--mission-space-4);
         border: 1px solid var(--mission-border);
+        border-top: 3px solid var(--mission-border);
         border-radius: var(--mission-radius-md);
-        background: rgba(4, 8, 13, 0.62);
+        background:
+          linear-gradient(180deg, rgba(18, 31, 28, 0.84), rgba(4, 8, 13, 0.64));
         display: flex;
         flex-direction: column;
         gap: var(--mission-space-3);
         min-width: 0;
       }
-      .vp-security-card.tone-watch { border-color: rgba(241, 180, 90, 0.42); }
-      .vp-security-card.tone-elevated { border-color: rgba(241, 180, 90, 0.42); }
-      .vp-security-card.tone-stable { border-color: rgba(63, 209, 141, 0.32); }
+      .vp-security-card.axis-interior { box-shadow: inset 0 1px 0 rgba(101, 214, 110, 0.12); }
+      .vp-security-card.axis-exterior { box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.10); }
+      .vp-security-card.tone-watch,
+      .vp-security-card.tone-elevated {
+        border-color: rgba(241, 180, 90, 0.42);
+        border-top-color: var(--mission-warning);
+      }
+      .vp-security-card.tone-stable {
+        border-color: rgba(63, 209, 141, 0.32);
+        border-top-color: var(--mission-success);
+      }
+      .vp-security-card.tone-critical {
+        border-color: rgba(240, 100, 118, 0.42);
+        border-top-color: var(--mission-critical);
+      }
       .vp-security-card-head {
         display: flex;
         align-items: baseline;
@@ -415,6 +444,12 @@ import type {
         letter-spacing: var(--mission-tracking-micro);
         text-transform: uppercase;
         color: var(--mission-text-tertiary);
+      }
+      .vp-security-axis-label {
+        display: block;
+        color: var(--mission-text-primary);
+        font-size: var(--mission-text-md);
+        line-height: var(--mission-lh-tight);
       }
       .vp-security-card-level {
         font-size: var(--mission-text-md);
@@ -465,6 +500,7 @@ import type {
         display: flex;
         gap: var(--mission-space-3);
         flex-wrap: wrap;
+        margin: 0 calc(var(--mission-space-5) * -1) calc(var(--mission-space-5) * -1);
       }
       .vp-security-cta {
         appearance: none;
@@ -515,6 +551,7 @@ export class VpCockpitComponent {
   @Input() pressHighlightId: string | null = null;
   @Input() securityPosture: Record<string, any> | null = null;
   @Input() securityOnly = false;
+  @Input() focusTarget: string | null = null;
 
   @Output() openMap = new EventEmitter<void>();
   @Output() mapZoneSelected = new EventEmitter<VpZoneScore>();
@@ -590,7 +627,7 @@ export class VpCockpitComponent {
       badges.push({
         key: 'rss',
         label: 'RSS sécurité',
-        source_badge: String(rss.source_badge),
+        source_badge: this.sourceBadgeLabel(rss.source_badge),
         live: Boolean(rss.live),
       });
     }
@@ -599,11 +636,20 @@ export class VpCockpitComponent {
       badges.push({
         key: 'cedeao',
         label: 'Indice CEDEAO',
-        source_badge: String(cedeao.source_badge),
+        source_badge: this.sourceBadgeLabel(cedeao.source_badge),
         live: Boolean(cedeao.live),
       });
     }
     return badges;
+  }
+
+  sourceBadgeLabel(value: unknown): string {
+    const raw = String(value || '').trim();
+    const normalized = raw.toLowerCase();
+    if (!raw) return 'Source démo';
+    if (normalized.includes('cache') || normalized.includes('baseline')) return 'Baseline démo';
+    if (normalized.includes('live')) return 'Live';
+    return raw;
   }
 
   orderedStatusBar(): VpStatusBarItem[] {

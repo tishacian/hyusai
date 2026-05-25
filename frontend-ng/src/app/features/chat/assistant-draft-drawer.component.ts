@@ -135,8 +135,9 @@ interface DraftValidationResponse {
         role="dialog"
         aria-label="Brouillon advisory"
       >
-        <header>
+        <header class="mission-panel-head">
           <div>
+            <span class="mission-status-badge is-advisory">Brouillon advisory</span>
             <span class="eyebrow">{{ draftKind() }}</span>
             <h2>{{ draftTitle() }}</h2>
             @if (recipient()) {
@@ -211,7 +212,7 @@ interface DraftValidationResponse {
           }
         }
 
-        <footer>
+        <footer class="mission-action-footer">
           @if (isDocumentPreview()) {
             @if (downloadHref()) {
               <a

@@ -1564,6 +1564,7 @@ export class MissionRailComponent {
         [pressPreview]="pressPreview()"
         [pressHighlightId]="pressHighlightId()"
         [securityPosture]="securityPosture()"
+        [focusTarget]="s3FocusTarget()"
         (openMap)="openDrillDownView('strategie', vpMapPreviewContext().geoPreview.top_zone_id || undefined)"
         (mapZoneSelected)="openMapZoneDrillDown($event)"
         (mapVesselSelected)="openCockpitVesselDrillDown($event)"
@@ -2119,6 +2120,7 @@ export class MissionRailComponent {
             [arbitrationCards]="[]"
             [pressPreview]="[]"
             [securityPosture]="securityPosture()"
+            [focusTarget]="s3FocusTarget()"
             (securityPostureRequested)="openAssistant('AYA, montre-moi la posture sécuritaire du jour.')"
             (securityCommuniqueRequested)="openAssistant('AYA, prépare un communiqué de sécurité sur la rumeur Nord.')"
           />
@@ -4106,8 +4108,8 @@ export class MissionRailComponent {
       .securite-shell { display: grid; gap: var(--mission-space-4); }
       .securite-council-bar {
         position: sticky;
-        top: 0;
-        z-index: 5;
+        top: var(--mission-space-3);
+        z-index: 8;
         display: flex;
         align-items: center;
         gap: 16px;
@@ -4115,7 +4117,9 @@ export class MissionRailComponent {
         padding: 12px 16px;
         border: 1px solid rgba(240, 100, 118, 0.35);
         border-radius: var(--mission-radius-lg);
-        background: rgba(240, 100, 118, 0.08);
+        background: linear-gradient(135deg, rgba(240, 100, 118, 0.14), rgba(8, 14, 20, 0.92));
+        box-shadow: var(--mission-shadow-soft);
+        backdrop-filter: blur(12px);
       }
       .securite-council-bar strong { color: #fda4af; }
       .securite-tabs { display: flex; gap: 8px; }
@@ -4132,7 +4136,12 @@ export class MissionRailComponent {
         color: var(--mission-text-primary);
         border-color: rgba(15, 111, 63, 0.45);
       }
-      .securite-stack { display: grid; gap: var(--mission-space-4); }
+      .securite-stack {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--mission-space-4);
+        align-items: start;
+      }
       .securite-doc-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4153,6 +4162,7 @@ export class MissionRailComponent {
         .reputation-drill-grid {
           grid-template-columns: 1fr;
         }
+        .securite-stack,
         .securite-doc-grid { grid-template-columns: 1fr; }
       }
       .option-compare-head,
@@ -4779,6 +4789,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly pressArticleListOpen = signal(false);
   readonly pressArticleListRiskSort = signal(false);
   readonly morningHighlightDismissed = signal(this.readMorningDismissed());
+  readonly s3FocusTarget = signal<string | null>(null);
   private readonly highlightQuery = toSignal(
     this.route.queryParamMap.pipe(map((params) => params.get('highlight'))),
     { initialValue: null as string | null },
@@ -4807,6 +4818,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly visualObjectUrls: string[] = [];
   private readonly calendarUpdateListener = () => this.loadAll(false);
   private readonly workspaceActionUpdateListener = () => this.loadAll(false);
+  private focusQuerySub: Subscription | null = null;
+  private s3FocusTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly mapCommandListener = (event: Event) => {
     const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
     const mapState = (detail['map_state'] as Record<string, unknown>) || null;
@@ -4951,6 +4964,9 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     window.addEventListener('agentium:assistant-navigate', this.assistantNavigateListener);
     window.addEventListener('agentium:assistant-propose', this.assistantProposeListener);
     window.addEventListener('agentium:assistant-show-webcam', this.assistantShowWebcamListener);
+    this.focusQuerySub = this.route.queryParamMap.subscribe((params) => {
+      this.armS3Focus(params.get('focus') || params.get('panel') || params.get('drill'));
+    });
     this.loadAll();
     this.subscribeMaritimeTracking();
     setTimeout(() => this.scrollToHighlight(), 120);
@@ -4965,10 +4981,40 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     window.removeEventListener('agentium:assistant-navigate', this.assistantNavigateListener);
     window.removeEventListener('agentium:assistant-propose', this.assistantProposeListener);
     window.removeEventListener('agentium:assistant-show-webcam', this.assistantShowWebcamListener);
+    this.focusQuerySub?.unsubscribe();
+    this.focusQuerySub = null;
+    if (this.s3FocusTimer) clearTimeout(this.s3FocusTimer);
+    this.s3FocusTimer = null;
     this.maritimeVesselsSub?.unsubscribe();
     this.maritimeVesselsSub = null;
     this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     this.visualObjectUrls.length = 0;
+  }
+
+  private armS3Focus(rawFocus: string | null): void {
+    const normalized = (rawFocus || '').toLowerCase().replace(/[\s-]+/g, '_');
+    const securityPosture =
+      normalized === 'security'
+      || normalized === 'security_posture'
+      || normalized === 'posture_securitaire'
+      || normalized === 'posture_sécuritaire'
+      || normalized === 's3_1'
+      || (normalized.includes('security') && normalized.includes('posture'));
+    if (!securityPosture) return;
+    if (this.s3FocusTimer) clearTimeout(this.s3FocusTimer);
+    this.s3FocusTarget.set(null);
+    setTimeout(() => {
+      this.s3FocusTarget.set('security_posture');
+      const target = document.getElementById('s3-security-posture');
+      if (target) {
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+      }
+    }, 0);
+    this.s3FocusTimer = setTimeout(() => {
+      this.s3FocusTarget.set(null);
+      this.s3FocusTimer = null;
+    }, 2200);
   }
 
   private subscribeMaritimeTracking(): void {
