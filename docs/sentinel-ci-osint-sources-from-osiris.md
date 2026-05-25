@@ -309,3 +309,44 @@
 - **Banque mondiale** : CC-BY-4.0, attribution déjà gérée dans le code existant.
 - **MarineTraffic/AIS** : tout flux non-public est **interdit en redistribution** sans licence — exclure du quick-win.
 - **Recommandation transverse** : ajouter un bandeau « Sources » sous chaque prisme dans le cockpit, comme déjà fait pour Banque mondiale dans `_serialize()` de `macro_indicators.py:265-280`.
+
+---
+
+## Sécurité (Vague 2.2 — OSINT live post-démo)
+
+> Implémenté mai 2026. Runbook opérationnel : [`sentinel-ci-osint-security-runbook.md`](sentinel-ci-osint-security-runbook.md).
+
+### Pipelines livrés
+
+| Composant | Fichier | Source osiris / alternative | Statut |
+|-----------|---------|------------------------------|--------|
+| RSS sécurité FR | `backend/app/services/intelligence/rss_security.py` | Port scoring `news/route.ts:58-65` | Live (flag) + baseline |
+| ADS-B Sahel | `backend/app/services/intelligence/adsb_sahel.py` | Port `api/flights/route.ts` → adsb.lol | Live (flag) + `adsb-sahel-baseline.json` |
+| Indice CEDEAO | `backend/app/services/intelligence/cedeao_index.py` | Gabarit `country-risk/route.ts` allégé | Composite RSS + baseline |
+| Cache | `backend/app/services/intelligence/cache.py` | — | Redis + mémoire process |
+| Scheduler | `backend/app/services/intelligence/scheduler.py` | — | RSS 15 min · ADS-B 5 min · indice 30 min |
+
+### Endpoints
+
+- `GET /api/v1/mission-room/cedeao-index` — indice composite seul
+- Cockpit (`/cockpit`) — posture + troupes avec badges `LIVE` / `CACHE BASELINE`
+
+### Guard rails
+
+- Whitelist feeds : `backend/app/resources/security/security-feeds.json` (RFI, Jeune Afrique, Abidjan.net, Fraternité Matin — **pas de Telegram live**)
+- Feature flag : `workspace.settings.feature_flag.security_live_osint` (off par défaut demo)
+- Mode demo VP : force baseline pour reproductibilité trame S3
+
+### Mapping osiris → Vague 2.2
+
+| osiris | Vague 2.2 |
+|--------|-----------|
+| `news/route.ts` RSS regex + `scoreRisk()` | `rss_security.py` — scoring FR/EN sécurité |
+| `flights/route.ts` ADS-B + military heuristics | `adsb_sahel.py` — hubs Sahel + classification |
+| `country-risk/route.ts` composite CII | `cedeao_index.py` — 4 composantes UCSI allégé |
+
+### Exclus (inchangé)
+
+- Twitter API v2 live (reste snapshot S3)
+- Telegram live (reste snapshot S3)
+- ACLED/GDELT live composite complet (baseline + RSS seulement en v2.2)
