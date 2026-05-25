@@ -157,3 +157,86 @@ pytest app/tests/services/test_intelligence_rss_security.py \
 - `backend/app/services/mission_room.py` (`_resolve_security_posture`, `_resolve_troops_sahel`)
 - `backend/app/resources/security/security-feeds.json`
 - `backend/app/resources/security/adsb-sahel-baseline.json`
+
+## Probe ops (post-deploy)
+
+Script Python autonome `scripts/probe_cedeao_index.py` (read-only, mirroring `test_s3_resolver.py`) :
+
+```bash
+AGENTIUM_HOST=https://agentium.papai.ai \
+AGENTIUM_EMAIL=thibaud.ishacian@datategy.net \
+AGENTIUM_PASSWORD='ponfib-jaNca5-sisfoc' \
+WORKSPACE_SLUG=sentinel-ci \
+python3 scripts/probe_cedeao_index.py
+```
+
+Sortie attendue :
+
+```
+[OK] /cedeao-index workspace=sentinel-ci badge=CACHE BASELINE live=False score=72 delta_7d=0.5
+[OK] wrote docs/status-screenshots/cedeao-index-probe.json
+```
+
+Le probe valide le shape du payload (score 0-100, 4 composantes, badge `LIVE`/`CACHE BASELINE`, `policy=advisory_only`) et dump la réponse JSON pour traçabilité.
+
+## Risques résiduels et conformité
+
+### Rate limits / fiabilité externes
+
+| Source | Quota effectif | Stratégie | Mitigation |
+|--------|----------------|-----------|------------|
+| RFI / Jeune Afrique / Abidjan.net / Fraternité Matin (RSS) | non documenté (publicly syndicated) | 1 fetch / feed / 15 min depuis 1 IP | Cache 15 min + baseline si HTTP non-200, User-Agent identifié `Agentium-SENTINEL-CI/1.0` |
+| `api.adsb.lol` (ADS-B) | ~1 req/s par IP officiel, soft-throttled | 4 hubs × 1 fetch / 60 s = 4 req/min | Cache 60 s + fallback baseline JSON ; switch vers `api.airplanes.live` si rate-limit |
+| Composite CEDEAO (interne) | dépend RSS | recalcul toutes les 30 min | Cache 30 min + baseline série `sovereign-indicators-baseline.json` |
+
+### Conditions d'utilisation (ToS)
+
+| Source | Licence / ToS | Obligation | Restriction |
+|--------|---------------|------------|-------------|
+| RFI Afrique | RSS public Radio France | Lien source + titre conservés | Pas de reproduction du corps d'article |
+| Jeune Afrique | RSS commercial | Lien source obligatoire | Diffusion gratuite uniquement (pas de revente) |
+| Abidjan.net | RSS public | Citation source | Pas de scraping massif des pages |
+| Fraternité Matin | RSS public CI | Citation source | Pas de redistribution intégrale |
+| adsb.lol | Open data ADS-B amateur | Attribution recommandée | **Disclaimer advisory-only obligatoire** — données non militaires officielles |
+| ACLED-like baseline | Fixture interne | — | Pas de redistribution comme "données ACLED" sans clé officielle |
+
+### Risques de fiabilité
+
+1. **Feed RSS down** → cache 15 min absorbe ; au-delà, payload `live=false` avec source RSS marquée baseline.
+2. **adsb.lol coupé** → fallback `adsb-sahel-baseline.json` (10 traces fixtures) ; UI affiche `CACHE BASELINE`.
+3. **Redis indisponible** → mémoire process (`intelligence/cache.py:_MEMORY`) prend le relais ; perte du partage entre workers Uvicorn mais demo-safe.
+4. **Scheduler thread crash** → loggué `Scheduled OSINT job failed` ; thread daemon, peut être relancé via redémarrage API.
+5. **Faux positifs scoring sécurité** → seuil `>=30` filtre les articles non pertinents ; ajustable via `score_security_text` (FR/EN).
+
+### Risques juridiques / éthiques
+
+- **Aucune redistribution** du corps d'article RSS — seul le titre + URL est conservé en signal `sources`.
+- **ADS-B advisory-only** : le disclaimer `aucune donnee operationnelle classifiee` est inscrit dans le payload `troops_sahel.disclaimer` et le widget UI.
+- **Feeds Telegram non intégrés** en v2.2 (volonté explicite — risque de désinformation non maitrisée). Reste snapshot S3.
+- **Pas de profilage** ni d'enrichissement nominatif (RGPD / CDP-CI) — seules les zones géographiques et titres sont conservés.
+
+## Coordonnées (v2.1)
+
+Les surfaces frontend (onglet Sécurité, Security Monitor plein écran, page Veille sociale, Réputation rail) sont livrées par la Vague 2.1 et consomment les badges OSINT exposés ici via :
+
+- `cockpit.security_osint_badges` (clés `rss_security` / `adsb_sahel` / `cedeao_index`)
+- `cockpit.security_posture.osint_sources` (badges in-card)
+- `cockpit.troops_sahel.source_badge` (`LIVE` | `CACHE BASELINE`)
+- `cockpit.cedeao_index` (composite + composantes pour le widget dédié)
+
+## Tests v2.2 (verdict)
+
+| Suite | Nombre | Statut |
+|-------|--------|--------|
+| `test_intelligence_rss_security.py` | 8 | PASS |
+| `test_intelligence_adsb_sahel.py` | 8 | PASS |
+| `test_intelligence_cedeao_index.py` | 9 | PASS |
+| `test_intelligence_scheduler_osint.py` | 7 | PASS |
+| `test_cedeao_index_api.py` | 3 | PASS |
+| **Total v2.2** | **35** | **PASS** |
+
+Pré-existants hors v2.2 (issus de la Vague 2.1 territoire) :
+
+- `test_mission_room.test_sentinel_ci_seed_is_idempotent_and_demo_scoped` — assertion NAV_ITEMS à mettre à jour par v2.1.
+- `test_mission_room_api.test_mission_room_navigation_cockpit_and_search_are_audited` — idem.
+- `test_mission_room_knowledge_sync.test_mission_room_fixture_sync_indexes_all_vigie_scope_collections` — collection `sentinel-ci-security-briefs` à intégrer dans la liste attendue par v2.1.
